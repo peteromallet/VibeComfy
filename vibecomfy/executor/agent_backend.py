@@ -642,7 +642,7 @@ def run_execute_turn(
                 messages,
                 route=getattr(spec, "agent", None),
                 model=getattr(spec, "model", None),
-                effort=getattr(spec, "effort", None),
+                effort=message_budget.effort,
                 response_contract="json",
                 remaining_output_cap=session_budget.remaining_output_tokens(),
             )

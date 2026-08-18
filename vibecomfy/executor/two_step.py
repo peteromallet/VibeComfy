@@ -157,10 +157,19 @@ class TwoStepRoutePolicy:
     allows_python_edits: bool = False
     max_apply_batches: int = 0
     max_replacements: int = 0
+    # Route-level effort hint (B03): clarify/respond/inspect are low,
+    # research/revise/requires_custom_nodes/reorganise are medium, adapt is
+    # high.  This is the authoritative two-step effort — never the profile
+    # spec's effort (which resolves to "low" for shipped TOMLs).
+    effort: str = "low"
 
     def __post_init__(self) -> None:
         if not self.route:
             raise ValueError("TwoStepRoutePolicy requires a non-empty route name.")
+        if self.effort not in ("low", "medium", "high"):
+            raise ValueError(
+                f"Route {self.route!r}: effort must be one of low/medium/high."
+            )
         if self.max_output_tokens <= 0:
             raise ValueError(f"Route {self.route!r}: max_output_tokens must be positive.")
         if self.max_tool_calls < 0:
@@ -191,6 +200,7 @@ def _policy(
     allows_python_edits: bool = False,
     max_apply_batches: int = 0,
     max_replacements: int = 0,
+    effort: str = "low",
 ) -> TwoStepRoutePolicy:
     return TwoStepRoutePolicy(
         route=route,
@@ -201,6 +211,7 @@ def _policy(
         allows_python_edits=allows_python_edits,
         max_apply_batches=max_apply_batches,
         max_replacements=max_replacements,
+        effort=effort,
     )
 
 
@@ -217,6 +228,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             max_output_tokens=2_000,
             max_tool_calls=0,
             max_wall_clock_seconds=30.0,
+            effort="low",
         ),
         "respond": _policy(
             route="respond",
@@ -224,6 +236,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             max_output_tokens=2_000,
             max_tool_calls=0,
             max_wall_clock_seconds=30.0,
+            effort="low",
         ),
         "inspect": _policy(
             route="inspect",
@@ -231,6 +244,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             max_output_tokens=4_000,
             max_tool_calls=2,
             max_wall_clock_seconds=60.0,
+            effort="low",
         ),
         "research": _policy(
             route="research",
@@ -248,6 +262,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             max_output_tokens=8_000,
             max_tool_calls=8,
             max_wall_clock_seconds=180.0,
+            effort="medium",
         ),
         "requires_custom_nodes": _policy(
             route="requires_custom_nodes",
@@ -255,6 +270,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             max_output_tokens=4_000,
             max_tool_calls=3,
             max_wall_clock_seconds=90.0,
+            effort="medium",
         ),
         "revise": _policy(
             route="revise",
@@ -274,6 +290,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             allows_python_edits=True,
             max_apply_batches=1,
             max_replacements=1,
+            effort="medium",
         ),
         "adapt": _policy(
             route="adapt",
@@ -297,6 +314,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             allows_python_edits=True,
             max_apply_batches=1,
             max_replacements=1,
+            effort="high",
         ),
         "reorganise": _policy(
             route="reorganise",
@@ -307,6 +325,7 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             allows_python_edits=True,
             max_apply_batches=1,
             max_replacements=1,
+            effort="medium",
         ),
     }
 )
@@ -408,6 +427,10 @@ class MessageBudget:
     per_tool_caps: Mapping[str, int]
     max_apply_batches: int = 0
     max_replacements: int = 0
+    # Route effort (B03): the authoritative per-route effort hint carried by
+    # the route policy — consumed by ``run_execute_turn`` instead of the
+    # profile spec's effort.
+    effort: str = "low"
 
     @classmethod
     def for_route(cls, route: str) -> "MessageBudget":
@@ -424,6 +447,7 @@ class MessageBudget:
             per_tool_caps=PER_TOOL_CALL_CAPS,
             max_apply_batches=policy.max_apply_batches,
             max_replacements=policy.max_replacements,
+            effort=policy.effort,
         )
 
 
@@ -988,6 +1012,8 @@ def _two_step_outcome(
         normalize_session_id,
     )
 
+    route = plan.effective_route or _fallback_route(plan)
+
     if not request.session_id:
         exc = TwoStepSessionError(
             "invalid_request",
@@ -997,10 +1023,17 @@ def _two_step_outcome(
             kind=exc.kind,
             stage="request",
             message=str(exc),
-            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+            report=Report(
+                plan=plan,
+                pipeline_mode=pipeline_mode,
+                execute=ExecuteReport(
+                    session_id=request.session_id,
+                    route=route,
+                    claim_validation={"status": "failed", "failure_kind": exc.kind},
+                ),
+            ),
         )
 
-    route = plan.effective_route or _fallback_route(plan)
     store = TwoStepSessionStore()
     session_id = normalize_session_id(request.session_id)
 
@@ -1048,7 +1081,16 @@ def _two_step_outcome(
             kind=kind,
             stage="execute",
             message=str(failure),
-            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+            report=Report(
+                plan=plan,
+                pipeline_mode=pipeline_mode,
+                execute=ExecuteReport(
+                    session_id=request.session_id,
+                    route=route,
+                    budget_usage=_execute_budget_usage(outcome.get("budget")),
+                    claim_validation={"status": "failed", "failure_kind": kind},
+                ),
+            ),
         )
     # B04: map accepted work into the existing ImplementationResult + durable
     # candidate + ExecutorResult envelope.  Delta IDs are metadata pointing at

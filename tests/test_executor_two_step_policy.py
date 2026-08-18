@@ -76,6 +76,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
+        "effort": "low",
     },
     "respond": {
         "allowed_tools": frozenset(),
@@ -85,6 +86,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
+        "effort": "low",
     },
     "inspect": {
         "allowed_tools": frozenset({"node_schema"}),
@@ -94,6 +96,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
+        "effort": "low",
     },
     "research": {
         "allowed_tools": frozenset(
@@ -113,6 +116,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
+        "effort": "medium",
     },
     "requires_custom_nodes": {
         "allowed_tools": frozenset({"registry_lookup", "node_schema"}),
@@ -122,6 +126,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
+        "effort": "medium",
     },
     "revise": {
         "allowed_tools": frozenset(
@@ -140,6 +145,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": True,
         "max_apply_batches": 1,
         "max_replacements": 1,
+        "effort": "medium",
     },
     "adapt": {
         "allowed_tools": ALL_TEN_TOOLS,
@@ -149,6 +155,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": True,
         "max_apply_batches": 1,
         "max_replacements": 1,
+        "effort": "high",
     },
     "reorganise": {
         "allowed_tools": frozenset({"layout_hints"}),
@@ -158,6 +165,7 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
         "allows_python_edits": True,
         "max_apply_batches": 1,
         "max_replacements": 1,
+        "effort": "medium",
     },
 }
 
@@ -509,6 +517,19 @@ class TestMessageBudgetFactory:
             assert budget.per_tool_caps is ts.PER_TOOL_CALL_CAPS
             assert budget.max_apply_batches == expected["max_apply_batches"]
             assert budget.max_replacements == expected["max_replacements"]
+            assert budget.effort == expected["effort"]
+
+    def test_route_effort_matches_design_table(self) -> None:
+        """B03: each route carries its design-table effort hint — never the
+        profile spec's effort."""
+        assert MessageBudget.for_route("clarify").effort == "low"
+        assert MessageBudget.for_route("respond").effort == "low"
+        assert MessageBudget.for_route("inspect").effort == "low"
+        assert MessageBudget.for_route("research").effort == "medium"
+        assert MessageBudget.for_route("revise").effort == "medium"
+        assert MessageBudget.for_route("requires_custom_nodes").effort == "medium"
+        assert MessageBudget.for_route("reorganise").effort == "medium"
+        assert MessageBudget.for_route("adapt").effort == "high"
 
     def test_unknown_route_is_typed_value_error(self) -> None:
         with pytest.raises(ValueError, match="Unknown two-step route"):

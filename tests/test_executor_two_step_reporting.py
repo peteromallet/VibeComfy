@@ -319,3 +319,91 @@ def test_span_update_folds_execute_counters_into_span(
     assert captured["output_tokens"] == 77
     assert captured["execute_route"] == "adapt"
     assert captured["execute_session_id"] == "sess-1"
+
+
+# ── execute-stage failure envelopes preserve execute telemetry (B04) ──────────
+
+
+def _run_two_step_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: dict[str, Any],
+    *,
+    route: str,
+    session_id: str,
+) -> ExecutorResult:
+    monkeypatch.setattr(
+        "vibecomfy.executor.core._run_classify",
+        lambda *args, **kwargs: _decision(route),
+    )
+    monkeypatch.setattr(
+        "vibecomfy.executor.agent_backend.run_execute_turn",
+        lambda *args, **kwargs: outcome,
+    )
+    return run_executor(
+        ExecutorRequest(query="edit", session_id=session_id, pipeline_mode="two_step")
+    )
+
+
+def test_forged_delta_failure_preserves_execute_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A forged-delta (missing_delta_reference) failure still serializes the
+    execute section: route, session id, budget usage, and a failed
+    claim-validation status — never a bare ``Report(plan, pipeline_mode)``."""
+    from vibecomfy.executor.two_step import SessionBudget
+    from vibecomfy.executor.two_step_session import TwoStepSessionError
+
+    result = _run_two_step_failure(
+        monkeypatch,
+        {
+            "ok": False,
+            "route": "revise",
+            "failure": TwoStepSessionError("missing_delta_reference", "forged delta"),
+            "budget": SessionBudget().record_output_tokens(42),
+        },
+        route="revise",
+        session_id="sess-forged",
+    )
+    assert result.ok is False
+    assert result.failure_kind == "missing_delta_reference"
+    execute = result.report.execute
+    assert execute is not None
+    assert execute.route == "revise"
+    assert execute.session_id == "sess-forged"
+    assert execute.budget_usage["output_tokens"] == 42
+    assert execute.claim_validation["status"] == "failed"
+    assert execute.claim_validation["failure_kind"] == "missing_delta_reference"
+
+
+def test_budget_exhaustion_failure_preserves_execute_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A budget-exhaustion failure still carries the execute section with the
+    route and the canonical seven budget counters (the real loop returns no
+    ``budget`` on exhaustion, so the counters are all zero — but present)."""
+    from vibecomfy.executor.two_step import BUDGET_FAMILY_OUTPUT_TOKENS, BudgetExceeded
+
+    result = _run_two_step_failure(
+        monkeypatch,
+        {
+            "ok": False,
+            "route": "adapt",
+            "failure": BudgetExceeded(
+                family=BUDGET_FAMILY_OUTPUT_TOKENS,
+                limit=12_000,
+                used=12_001,
+                route="adapt",
+            ),
+        },
+        route="adapt",
+        session_id="sess-budget",
+    )
+    assert result.ok is False
+    assert result.failure_kind == BUDGET_FAMILY_OUTPUT_TOKENS
+    execute = result.report.execute
+    assert execute is not None
+    assert execute.route == "adapt"
+    assert execute.session_id == "sess-budget"
+    assert set(execute.budget_usage) == _EXECUTE_BUDGET_KEYS
+    assert all(v == 0 for v in execute.budget_usage.values())
+    assert execute.claim_validation["status"] == "failed"

@@ -10,6 +10,7 @@ derivation.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -683,3 +684,104 @@ def test_loop_budgets_accumulate_while_messages_get_only_their_route_slice(tmp_p
     ]
     assert t1["budget"].output_tokens == 300
     assert t2["budget"].output_tokens == 500
+
+
+# ── B06 (Pro): real-loop apply→submit with a REAL EditSession ─────────────────
+#
+# The loop-through proof: a scripted model emits ``apply`` (real
+# ``EditSession.apply_batch`` → ``TwoStepEditStateMachine``) then ``submit``
+# citing the landed Δ.  The real ``_two_step_tool_executor`` is wired in so the
+# route-gated dispatcher is exercised; accepted Δ ids, post-edit lens facts,
+# the durable candidate graph, and claim-ref validation all flow through the
+# real bounded loop — never a hand-written ``delta_accepted`` event.
+
+
+class _CLIPTextEncodeProvider:
+    """Offline schema for CLIPTextEncode only (the flat.json fixture edits)."""
+
+    def get_schema(self, class_type: str) -> Any:
+        if class_type != "CLIPTextEncode":
+            return None
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        return NodeSchema(
+            "CLIPTextEncode",
+            "core",
+            {"text": InputSpec("STRING"), "clip": InputSpec("CLIP")},
+            [OutputSpec("CONDITIONING", "CONDITIONING")],
+        )
+
+
+def _flat_ui() -> dict[str, Any]:
+    return json.loads(
+        (Path("tests/fixtures/agent_edit/flat.json")).read_text(encoding="utf-8")
+    )
+
+
+def test_run_execute_turn_real_edit_session_apply_then_submit(tmp_path) -> None:
+    """A scripted ``apply`` → ``submit`` runs through the REAL EditSession and
+    tool dispatcher: the accepted Δ, post-edit lens facts, durable candidate
+    graph, and claim_refs are all produced by the bounded loop."""
+    from vibecomfy.executor.two_step import _two_step_tool_executor
+    from vibecomfy.porting.edit.session import EditSession
+
+    graph = _flat_ui()
+    edit_session = EditSession(dict(graph), schema_provider=_CLIPTextEncodeProvider())
+    tool_executor = _two_step_tool_executor(route="revise", edit_session=edit_session)
+
+    actions: list[dict[str, Any]] = [
+        {"action": "apply", "python": 'cliptextencode.text = "a faithful edited prompt"'},
+        {"action": "submit", "reply": "edited", "claim_refs": {"delta_ids": ["d1"]}},
+    ]
+
+    def model_turn_fn(task, messages, **kwargs):
+        action = actions.pop(0)
+        return {
+            "content": json.dumps(action),
+            "model_attempts": [{"token_usage": {"completion_tokens": 100}}],
+        }
+
+    request = SimpleNamespace(
+        query="edit the prompt",
+        graph=dict(graph),
+        session_id="win-real",
+        idempotency_key=None,
+        expected_baseline_graph_hash=None,
+    )
+    store = _store(tmp_path)
+    outcome = run_execute_turn(
+        request,
+        plan=_plan_for("revise"),
+        route="revise",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-real",
+        model_turn_fn=model_turn_fn,
+        tool_executor=tool_executor,
+        edit_session=edit_session,
+    )
+
+    # The apply was accepted through the real state machine.
+    assert outcome["ok"] is True
+    assert outcome["accepted_delta_ids"] == ["d1"]
+    assert outcome["claim_validation"] == {"status": "ok", "violations": []}
+
+    # Post-edit lens facts landed (the current fact pack references the edited
+    # candidate graph).
+    assert outcome["lens_fact_ids"], "post-edit lens facts must be recorded"
+
+    # The durable candidate graph reflects the landed edit.
+    assert outcome["graph"] is not None
+    edited = [
+        n
+        for n in outcome["graph"].get("nodes", [])
+        if n.get("type") == "CLIPTextEncode"
+    ]
+    assert any(
+        "a faithful edited prompt" in (n.get("widgets_values") or ()) for n in edited
+    )
+
+    # The accepted Δ is durable session state a follow-up message may cite.
+    state = store.load("win-real")
+    assert state is not None
+    assert state.accepted_delta_ids() == ("d1",)

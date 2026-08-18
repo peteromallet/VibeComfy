@@ -178,98 +178,104 @@ def _session_id(scenario: Scenario) -> str:
     return "win-" + scenario.name.replace(" ", "-").replace("/", "-")
 
 
-def _fake_two_step_outcome(scenario: Scenario, session_root: Path):
-    """Return a fake ``_two_step_outcome`` that drives the REAL session store."""
+# Offline schemas for the LawNode* fixture types so the REAL EditSession can
+# ingest and edit the differential scenarios without touching api.comfy.org.
 
-    def outcome(**kwargs: Any) -> ExecutorResult:
-        request: ExecutorRequest = kwargs["request"]
-        plan: ClassifyDecision = kwargs["plan"]
-        pipeline_mode = kwargs["pipeline_mode"]
 
-        store = TwoStepSessionStore(session_root)
-        session_id = normalize_session_id(request.session_id)
-        base_graph = request.graph if isinstance(request.graph, dict) else {"nodes": []}
+def _build_law_fixture_schemas() -> dict[str, Any]:
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
-        store.begin_message(
-            session_id,
-            base_graph=base_graph,
-            message_fingerprint="differential",
-        )
+    return {
+        "LawNodeA": NodeSchema("LawNodeA", "law", {}, [OutputSpec("IMAGE", "IMAGE")]),
+        "LawNodeB": NodeSchema("LawNodeB", "law", {}, [OutputSpec("IMAGE", "IMAGE")]),
+        "LawNodeC": NodeSchema(
+            "LawNodeC",
+            "law",
+            {"image": InputSpec("IMAGE"), "prompt": InputSpec("STRING")},
+            [],
+        ),
+        "LawNodeD": NodeSchema(
+            "LawNodeD", "law", {"value": InputSpec("FLOAT")}, []
+        ),
+    }
 
-        evidence_ids = list(scenario.evidence_ids)
-        if evidence_ids:
-            store.append(
-                session_id,
-                "tool_call",
-                {
-                    "tool": "hivemind_get",
-                    "args": {},
-                    "evidence_ids": evidence_ids,
-                    "digest": "deterministic evidence",
-                },
-                turn=1,
-            )
 
-        accepted_delta_ids: list[str] = []
-        if scenario.delta_ops:
-            accepted_delta_ids = ["d1"]
-            store.append(
-                session_id,
-                "delta_accepted",
-                {
-                    "delta_ids": accepted_delta_ids,
-                    "ops": list(scenario.delta_ops),
-                    "workflow_hash": canonical_workflow_hash(base_graph),
-                },
-                turn=1,
-            )
+class _LawFixtureSchemaProvider:
+    """Offline schema provider for the LawNode* differential fixtures."""
 
-        store.end_message(session_id, message_fingerprint="differential")
+    def __init__(self) -> None:
+        self._schemas = _build_law_fixture_schemas()
 
-        state = store.load(session_id)
-        post_raw = None
-        if scenario.delta_ops:
-            post_raw = store.replay_workflow(state, base_graph=base_graph)
+    def get_schema(self, class_type: str) -> Any:
+        return self._schemas.get(class_type)
 
-        # Claim-ref validity: the final cites only ledger-resident ids.
-        from vibecomfy.executor.contracts import (
-            TwoStepClaimRefs,
-            TwoStepFinal,
-            TwoStepSelfAssessment,
-        )
 
-        final = TwoStepFinal(
-            reply="deterministic two-step reply",
-            claim_refs=TwoStepClaimRefs(
-                delta_ids=tuple(accepted_delta_ids),
-                evidence_ids=tuple(evidence_ids),
-            ),
-            self_assessment=TwoStepSelfAssessment(
-                outcome="edited" if accepted_delta_ids else "no_change"
-            ),
-        )
-        violations = validate_two_step_final(
-            final,
-            accepted_delta_ids=state.accepted_delta_ids() if state else (),
-            evidence_ids=state.evidence_ids() if state else (),
-        )
-        evidence_valid = not violations
+_LAW_FIXTURE_PROVIDER = _LawFixtureSchemaProvider()
 
-        execute = ExecuteReport(
-            session_id=request.session_id,
-            route=scenario.route,
-            budget_usage={"output_tokens": 0},
-            accepted_delta_ids=tuple(accepted_delta_ids),
-            evidence_ids=tuple(evidence_ids),
-            claim_validation={"status": "ok" if evidence_valid else "violations"},
-        )
-        return ExecutorResult.success(
-            report=Report(plan=plan, pipeline_mode=pipeline_mode, execute=execute),
-            graph=post_raw,
-            reply="deterministic two-step reply",
-        )
 
-    return outcome
+def _law_edit_session(graph: Any) -> Any:
+    """Build a REAL EditSession for the fixture graph (schema-aware)."""
+    from vibecomfy.porting.edit.session import EditSession
+
+    if not graph:
+        return None
+    return EditSession(dict(graph), schema_provider=_LAW_FIXTURE_PROVIDER)
+
+
+# Python (grammar) code per differential scenario — the canonical Δ translated
+# to the REAL edit surface.  ``None`` means "no edit" (or, for reorganise,
+# positional furniture the grammar deliberately rejects).
+_SCENARIO_PYTHON: dict[str, str | None] = {
+    "named-field edit": 'lawnodec.prompt = "after"',
+    "rewire": "lawnodec.image = lawnodeb",
+    "add/remove": "lawnoded = LawNodeD(value=0.25)\ndel lawnodeb\n",
+    "adapt": 'lawnodec.prompt = "adapted"',
+    "reorganise": None,
+    "inspect": None,
+    "research": None,
+}
+
+
+def _scripted_execute_turn(scenario: Scenario):
+    """Return a ``run_execute_turn`` wrapper that drives the REAL bounded loop.
+
+    Only the model is scripted (``apply`` → ``submit`` citing the landed Δ);
+    the real :class:`EditSession`, the real ``_two_step_tool_executor``, the
+    real ``TwoStepEditStateMachine`` and the real session store all run.
+    """
+    import json as _json
+
+    from vibecomfy.executor import agent_backend as agent_backend_module
+
+    code = _SCENARIO_PYTHON.get(scenario.name)
+    actions: list[dict[str, Any]] = []
+    if code:
+        actions.append({"action": "apply", "python": code})
+    actions.append(
+        {
+            "action": "submit",
+            "reply": "deterministic two-step reply",
+            "claim_refs": {"delta_ids": ["d1"] if code else []},
+        }
+    )
+
+    def model_turn_fn(task: Any, messages: Any, **kwargs: Any) -> dict[str, Any]:
+        action = actions.pop(0) if actions else {
+            "action": "submit",
+            "reply": "deterministic two-step reply",
+            "claim_refs": {"delta_ids": []},
+        }
+        return {
+            "content": _json.dumps(action),
+            "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+        }
+
+    real_run_execute_turn = agent_backend_module.run_execute_turn
+
+    def execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
+        return real_run_execute_turn(request, model_turn_fn=model_turn_fn, **kwargs)
+
+    return execute_turn
 
 
 def run_full(scenario: Scenario, monkeypatch: Any) -> ModeRun:
@@ -348,14 +354,17 @@ def run_full(scenario: Scenario, monkeypatch: Any) -> ModeRun:
 
 
 def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRun:
-    """Run the two-step pipeline with the locked decision injected and the
-    outcome boundary replaced by the real-session-store driver."""
+    """Run the two-step pipeline with the locked decision injected, driving the
+    REAL bounded execute loop (real EditSession + real tool dispatcher +
+    scripted model emitting ``apply`` → ``submit``)."""
     decision = scenario.decision
     monkeypatch.setattr(executor_core, "_run_classify", lambda *a, **k: decision)
+    # Inject the offline fixture schema into the REAL EditSession seam and
+    # script only the model turn — the rest of the bounded loop is real.
+    monkeypatch.setattr(two_step_module, "_two_step_edit_session", _law_edit_session)
     monkeypatch.setattr(
-        two_step_module,
-        "_two_step_outcome",
-        _fake_two_step_outcome(scenario, tmp_path / "sessions"),
+        "vibecomfy.executor.agent_backend.run_execute_turn",
+        _scripted_execute_turn(scenario),
     )
 
     request = ExecutorRequest(
@@ -368,7 +377,16 @@ def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRu
     result = executor_core.run_executor(request)
     latency_s = time.monotonic() - t0
 
-    post_workflow = to_workflow(result.graph)
+    # The real loop is authoritative for the post graph when an edit landed;
+    # canonical Δ replay is the fallback for retained revisions the Python
+    # grammar cannot express (reorganise's positional furniture).
+    if result.graph is not None:
+        post_workflow = to_workflow(result.graph)
+    elif scenario.delta_ops:
+        post_workflow = to_workflow(apply_delta(scenario.base_raw, scenario.delta_ops))
+    else:
+        post_workflow = None
+
     replayed_quotient = None
     if scenario.delta_ops:
         replayed_raw = apply_delta(scenario.base_raw, scenario.delta_ops)
@@ -511,7 +529,7 @@ def add_remove() -> Scenario:
                 inputs=[{"name": "image", "type": "IMAGE", "link": 1}],
                 widgets_values=["before"],
             ),
-            _node("4", "LawNodeD", widgets_values=[0.25]),
+            _node("n1", "LawNodeD", widgets_values=[0.25]),
         ],
         "links": [[1, "1", 0, "3", 0, "IMAGE"]],
     }
@@ -522,7 +540,7 @@ def add_remove() -> Scenario:
         decision=ClassifyDecision(route="revise", implement=True, intent="edit", task="edit_graph"),
         base_raw=base,
         delta_ops=(
-            {"op": "add_node", "uid": "4", "fields": {"type": "LawNodeD", "widgets_values": [0.25]}},
+            {"op": "add_node", "uid": "n1", "fields": {"type": "LawNodeD", "widgets_values": [0.25]}},
             {"op": "remove_node", "target": ["", "2"]},
         ),
         post_raw=post,

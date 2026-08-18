@@ -2027,27 +2027,55 @@ class _ModeExecutorAdapter:
                 profile="default",
             )
         else:
-            from vibecomfy.executor.two_step import SessionBudget
+            import json as _json
 
-            def _fake_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
-                return {
-                    "ok": True,
+            from vibecomfy.executor import agent_backend as agent_backend_module
+            from vibecomfy.executor import two_step as two_step_module
+            from vibecomfy.porting.edit.session import EditSession
+
+            class _LawNodeProvider:
+                def get_schema(self, class_type: Any) -> Any:
+                    if class_type != "LawNode":
+                        return None
+                    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+                    return NodeSchema(
+                        "LawNode",
+                        "law",
+                        {"image": InputSpec("IMAGE"), "value": InputSpec("STRING")},
+                        [OutputSpec("IMAGE", "IMAGE")],
+                    )
+
+            def _law_edit_session(graph: Any) -> Any:
+                return EditSession(dict(graph), schema_provider=_LawNodeProvider())
+
+            _law_actions = [
+                {"action": "apply", "python": 'lawnode.value = "edited"'},
+                {
+                    "action": "submit",
                     "reply": "law edit applied",
-                    "route": "revise",
-                    "accepted_delta_ids": ["d1"],
-                    "budget": SessionBudget().record_output_tokens(42),
-                    "graph": copy.deepcopy(final_graph),
-                    "durable_response": durable,
-                    "evidence_ids": [],
-                    "tool_call_ids": [],
-                    "lens_fact_ids": [],
-                    "claim_validation": {"status": "not_run"},
-                    "self_assessment": None,
-                }
+                    "claim_refs": {"delta_ids": ["d1"]},
+                },
+            ]
+
+            def _scripted_model(task: Any, messages: Any, **kwargs: Any) -> dict[str, Any]:
+                return {"content": _json.dumps(_law_actions.pop(0))}
+
+            # Capture the REAL loop before scripting the model turn: the real
+            # EditSession + tool dispatcher + state machine all run.
+            real_run_execute_turn = agent_backend_module.run_execute_turn
+
+            def _scripted_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
+                return real_run_execute_turn(
+                    request, model_turn_fn=_scripted_model, **kwargs
+                )
 
             self._monkeypatch.setattr(
+                two_step_module, "_two_step_edit_session", _law_edit_session
+            )
+            self._monkeypatch.setattr(
                 "vibecomfy.executor.agent_backend.run_execute_turn",
-                _fake_execute_turn,
+                _scripted_execute_turn,
             )
             request = ExecutorRequest(
                 query="edit the law graph",
