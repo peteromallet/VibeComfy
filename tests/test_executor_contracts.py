@@ -1149,6 +1149,17 @@ class TestBuildClassifyMessages:
         assert "Refuse only architectural invention" in system
         assert "Never use positional widget indices" in system
 
+    def test_implement_prompt_requires_anchor_for_add_node_relation(self) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
+
+        messages = build_batch_messages(task="add an image loader", python_source="save = SaveImage()")
+        system = messages[0]["content"]
+        assert (
+            "Every add-node statement that uses `relation=` MUST also include "
+            "`near=...` or `group=...`"
+        ) in system
+        assert "`relation=` alone is rejected" in system
+
     def test_session_context_renders_text_messages_options_and_census_reference_map(self) -> None:
         msgs = build_classify_messages(
             "option 2",
@@ -2022,4 +2033,3 @@ class TestClassifyRoundtrip:
         # effective properties still work
         assert parsed.effective_route == "revise"
         assert parsed.effective_task == "edit_graph"
-
