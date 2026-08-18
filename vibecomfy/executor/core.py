@@ -1809,6 +1809,47 @@ def run_executor(
         end_model_attempt_capture(attempt_token)
         return result
 
+    # ── Two-step one-step mode (B01): no classify call ────────────────────
+    # One-step mode collapses classify + execute into a single bounded execute
+    # phase: the agent determines its own task/route from the query (the adapt
+    # catalog exposes all ten tools), and the execute session's final message
+    # is the reply.  No classifier model call ever happens in this mode.
+    if pipeline_mode == "two_step":
+        if classify_only:
+            # Dry-run seam: no classify and no execute — only the execute
+            # phase is skipped (one-step mode has no research/implement/reply
+            # phase events to skip).
+            _emit_executor_phase_event(
+                request,
+                executor_id=executor_id,
+                phase="execute",
+                status="skipped",
+                client_id=client_id,
+            )
+            profiler_log(
+                LOGGER,
+                "executor.result",
+                **request_fields,
+                has_execute=False,
+                result_has_graph=False,
+                reply_preview="",
+                reason="classify_only",
+            )
+            report = _build_report()
+            return _finish(ExecutorResult.success(
+                report=report,
+                graph=None,
+                reply="[dry-run] one-step mode: execute skipped (no classify call)",
+            ))
+        return _finish(_run_two_step(
+            request,
+            plan=None,
+            pipeline_mode=pipeline_mode,
+            client_id=client_id,
+            executor_id=executor_id,
+            additive=additive,
+        ))
+
     # ── Resolve profile specs ────────────────────────────────────────────
     try:
         classify_spec = _resolve_spec(request.profile, "classify")
@@ -1968,22 +2009,6 @@ def run_executor(
             plan.effective_task,
             plan.implement,
         )
-
-    # ── Two-step mode dispatch (B01) ─────────────────────────────────────
-    # The only orchestration branch: two_step replaces the research →
-    # implement → reply phases with a single bounded execute phase.  It sits
-    # after the answer_only rewrite so edit-forbidding semantics hold in
-    # both modes, and after the classify_only exit so dry runs never reach
-    # the execute phase.
-    if pipeline_mode == "two_step":
-        return _finish(_run_two_step(
-            request,
-            plan=plan,
-            pipeline_mode=pipeline_mode,
-            client_id=client_id,
-            executor_id=executor_id,
-            additive=additive,
-        ))
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
     if _canonical_route_for_plan(plan) in {"research", "adapt"}:

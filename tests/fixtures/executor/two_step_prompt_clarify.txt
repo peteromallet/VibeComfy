@@ -92,12 +92,11 @@ Return exactly one of:
   - Final:         the SUBMIT contract above.
 
 ===== USER =====
-ROUTE / PLAN / QUERY
---------------------
+ROUTE / QUERY (one-step: no classifier plan)
+--------------------------------------------
 Active route: clarify
-Task: (none)
-Plan: (none)
 User request: make the image brighter
+No task or plan has been pre-decided.  Determine the task from the request yourself: research, edit the graph, or answer directly as the request requires.  Every tool shown for this route is available to you.
 
 CURRENT WORKFLOW (render lenses)
 --------------------------------

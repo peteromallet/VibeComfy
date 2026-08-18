@@ -195,10 +195,10 @@ def test_classify_only_two_step_never_invokes_execute(
     """classify_only returns before the two-step branch: execute never runs."""
     from vibecomfy.executor import two_step as two_step_module
 
-    decision = ClassifyDecision.edit(route="adapt", plan_summary="summary")
+    # One-step mode never classifies — the seam must not even be reachable.
     monkeypatch.setattr(
         "vibecomfy.executor.core._run_classify",
-        lambda *args, **kwargs: decision,
+        lambda *args, **kwargs: pytest.fail("classify must not run in one-step mode"),
     )
     monkeypatch.setattr(
         two_step_module,
@@ -212,27 +212,24 @@ def test_classify_only_two_step_never_invokes_execute(
     )
 
     assert result.ok is True
-    assert result.report.plan.effective_route == "adapt"
+    # No classifier ran, so the dry-run report carries no plan.
+    assert result.report.plan is None
     assert result.graph is None
 
 
 def test_classify_only_two_step_does_not_resolve_post_classify_specs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The optional execute profile is never resolved before the classify_only return."""
+    """One-step classify_only resolves no profile spec (not even classify)."""
     from types import SimpleNamespace
 
-    decision = ClassifyDecision.edit(route="adapt", plan_summary="summary")
-
     def _resolve_spec(_profile: str | None, stage: str) -> object:
-        if stage != "classify":
-            raise AssertionError(f"unexpected {stage} spec resolution")
-        return SimpleNamespace(agent="test", model="test-model", effort="high")
+        raise AssertionError(f"unexpected {stage} spec resolution in one-step dry-run")
 
     monkeypatch.setattr("vibecomfy.executor.core._resolve_spec", _resolve_spec)
     monkeypatch.setattr(
         "vibecomfy.executor.core._run_classify",
-        lambda *args, **kwargs: decision,
+        lambda *args, **kwargs: pytest.fail("classify must not run in one-step mode"),
     )
 
     result = run_executor(
@@ -241,26 +238,78 @@ def test_classify_only_two_step_does_not_resolve_post_classify_specs(
     )
 
     assert result.ok is True
-    assert result.report.plan.effective_route == "adapt"
+    assert result.report.plan is None
 
 
-def test_answer_only_rewrite_runs_before_two_step_dispatch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """answer_only forbids edits before the two-step branch sees the plan."""
+def test_answer_only_one_step_derives_non_edit_route() -> None:
+    """answer_only derives a non-edit route without any classify decision."""
     from vibecomfy.executor import two_step as two_step_module
 
-    decision = ClassifyDecision.edit(route="adapt", plan_summary="edit me")
-    monkeypatch.setattr(
-        "vibecomfy.executor.core._run_classify",
-        lambda *args, **kwargs: decision,
+    # One-step default: adapt (all ten tools).
+    assert two_step_module._resolve_two_step_route(None, None) == "adapt"
+    # answer_only forbids edits → the non-edit research route.
+    assert two_step_module._resolve_two_step_route(None, "answer_only") == "research"
+    # A plan (classify already ran) still uses the classified route / fallback.
+    assert (
+        two_step_module._resolve_two_step_route(
+            ClassifyDecision.edit(route="adapt", plan_summary="edit me"), None
+        )
+        == "adapt"
     )
-    received: dict[str, Any] = {}
-    canned_result = SimpleNamespace(ok=True, reply="two-step outcome")
+    assert (
+        two_step_module._resolve_two_step_route(
+            ClassifyDecision.respond_only(route="respond"), "answer_only"
+        )
+        == "respond"
+    )
 
-    def fake_outcome(**kwargs: Any) -> Any:
-        received.update(kwargs)
-        return canned_result
+
+def test_answer_only_one_step_execute_never_submits_edits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """answer_only one-step execute: the execute session must not submit edits."""
+    import json
+
+    from vibecomfy.executor import two_step as two_step_module
+    from vibecomfy.executor.agent_backend import run_execute_turn
+    from vibecomfy.executor.two_step_session import TwoStepSessionStore
+
+    # Route derivation under answer_only is "research" (non-edit); a classify
+    # decision is never involved.  Capture the route the outcome boundary
+    # resolves and hand it to the real execute turn with an edit attempt that
+    # must be denied.
+    captured_route: dict[str, str] = {}
+
+    def fake_outcome(*, request, plan, pipeline_mode, client_id, executor_id, additive, session_root=None):
+        route = two_step_module._resolve_two_step_route(plan, request.interaction_mode)
+        captured_route["route"] = route
+        store = TwoStepSessionStore(tmp_path / "sessions")
+        # Model attempts an edit then a submit — the edit must be denied for
+        # a non-edit route, so the submit contract cites no accepted Δ.
+        actions = iter([
+            {"action": "apply", "python": "graph.set_node(1, brightness=2.0)"},
+            {"action": "submit", "reply": "final message", "delta_ids": []},
+        ])
+
+        def model_turn_fn(task, messages, **kwargs):
+            return {"content": json.dumps(next(actions))}
+
+        outcome = run_execute_turn(
+            request,
+            plan=plan,
+            route=route,
+            spec=SimpleNamespace(agent="hermes", model="m", effort=None),
+            session_store=store,
+            session_id=request.session_id or "win-a",
+            model_turn_fn=model_turn_fn,
+        )
+        from vibecomfy.executor.contracts import ExecutorResult
+
+        return ExecutorResult.success(
+            report=None,
+            graph=outcome.get("graph"),
+            reply=outcome.get("reply"),
+        )
 
     monkeypatch.setattr(two_step_module, "_two_step_outcome", fake_outcome)
 
@@ -269,11 +318,10 @@ def test_answer_only_rewrite_runs_before_two_step_dispatch(
             query="explain the graph",
             interaction_mode="answer_only",
             pipeline_mode="two_step",
+            session_id="win-a",
         )
     )
 
-    assert result is canned_result
-    plan = received["plan"]
-    assert plan.implement is False
-    assert plan.effective_route == "research"
-    assert plan.effective_task == "research_nodes"
+    assert result.ok is True
+    assert captured_route["route"] == "research"
+    assert result.graph is None

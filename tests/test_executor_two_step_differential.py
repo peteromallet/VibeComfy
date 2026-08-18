@@ -23,7 +23,7 @@ import pytest
 
 from vibecomfy.executor import core as executor_core
 from vibecomfy.executor import two_step as two_step_module
-from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest, ExecutorResult
 from vibecomfy.intent._ledger import (
     LEDGER_ID_COUNT,
     assert_ledger_integrity,
@@ -132,11 +132,12 @@ def test_non_edit_routes_produce_no_graph_in_either_mode(
 # ── failure family is consistent across modes ────────────────────────────────
 
 
-def test_shared_classify_failure_surfaces_identical_failure_family(
+def test_classify_failure_surfaces_only_in_full_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the SHARED classify phase fails, both modes report the same
-    failure kind + stage (the failure family is mode-independent)."""
+    """One-step two-step mode has no classify phase: a classify failure is
+    unreachable there.  It surfaces (identically typed) in full mode only,
+    while two-step dispatches straight to execute and never invokes classify."""
 
     def failing_classify(request: ExecutorRequest, spec: object, **kwargs: object) -> object:
         del request, spec, kwargs
@@ -147,24 +148,28 @@ def test_shared_classify_failure_surfaces_identical_failure_family(
         )
 
     monkeypatch.setattr(executor_core, "_run_classify", failing_classify)
-    # Classify fails before any mode dispatch; both modes must fail identically.
-    results = {
-        mode: executor_core.run_executor(
-            ExecutorRequest(
-                query="q",
-                graph={"nodes": []},
-                pipeline_mode=mode,
-                session_id="win-x" if mode == "two_step" else None,
-            )
+    monkeypatch.setattr(
+        two_step_module,
+        "_two_step_outcome",
+        lambda **kwargs: ExecutorResult.success(reply="one-step execute"),
+    )
+    full = executor_core.run_executor(
+        ExecutorRequest(query="q", graph={"nodes": []}, pipeline_mode="full")
+    )
+    two = executor_core.run_executor(
+        ExecutorRequest(
+            query="q",
+            graph={"nodes": []},
+            pipeline_mode="two_step",
+            session_id="win-x",
         )
-        for mode in ("full", "two_step")
-    }
-    kinds = {r.failure_kind for r in results.values()}
-    stages = {r.failure_stage for r in results.values()}
-    assert results["full"].ok is False
-    assert results["two_step"].ok is False
-    assert kinds == {"ValidationError"}
-    assert stages == {"classify"}
+    )
+    assert full.ok is False
+    assert full.failure_kind == "ValidationError"
+    assert full.failure_stage == "classify"
+    # One-step two-step never classifies → the shared classify failure is not
+    # reachable there; the execute boundary runs instead.
+    assert two.ok is True
 
 
 # ── 57-id ledger resolution + inventory ──────────────────────────────────────

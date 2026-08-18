@@ -173,10 +173,10 @@ class TestRunExecutorDispatch:
     def test_two_step_request_field_dispatches_to_two_step(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        decision = ClassifyDecision.edit(route="adapt", plan_summary="summary")
+        # One-step mode: no classify model call ever runs.
         monkeypatch.setattr(
             "vibecomfy.executor.core._run_classify",
-            lambda *args, **kwargs: decision,
+            lambda *args, **kwargs: pytest.fail("classify must not run in two-step one-step mode"),
         )
         canned = ExecutorResult.success(reply="injected two-step outcome")
 
@@ -207,8 +207,32 @@ class TestRunExecutorDispatch:
 
         assert result is canned
         assert captured["pipeline_mode"] == "two_step"
-        assert captured["plan"] is decision
+        # One-step mode dispatches with plan=None (no classifier decision).
+        assert captured["plan"] is None
         assert captured["request"].pipeline_mode == "two_step"
+
+    def test_two_step_mode_never_invokes_classify_model_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one-step path drops the classify call entirely."""
+        calls: list[tuple[object, ...]] = []
+        monkeypatch.setattr(
+            "vibecomfy.executor.core._run_classify",
+            lambda *args, **kwargs: calls.append(args) or ClassifyDecision.edit(route="adapt"),
+        )
+        monkeypatch.setattr(
+            two_step_module,
+            "_two_step_outcome",
+            lambda **kwargs: ExecutorResult.success(reply="one-step"),
+        )
+
+        result = run_executor(
+            ExecutorRequest(query="adapt the graph", pipeline_mode="two_step")
+        )
+
+        assert result.ok is True
+        assert calls == []
+
 
     def test_two_step_environment_dispatches_to_two_step(
         self, monkeypatch: pytest.MonkeyPatch

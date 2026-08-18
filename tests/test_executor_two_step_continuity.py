@@ -164,7 +164,6 @@ def test_run_execute_turn_flattens_transcript_into_user_payload(tmp_path) -> Non
         model_turn_fn=fake_model_turn,
     )
     assert outcome["ok"] is True
-    assert outcome["reply"] == "done"
     assert outcome["research_attempt"] == "never"
 
     msgs = captured["messages"]
@@ -172,6 +171,40 @@ def test_run_execute_turn_flattens_transcript_into_user_payload(tmp_path) -> Non
     assert msgs[1]["role"] == "user"
     # The compact transcript is FLATTENED into the final user payload.
     assert "PRIOR TURNS (this window)" in msgs[1]["content"]
+
+
+def test_reply_is_the_models_final_message_text(tmp_path) -> None:
+    """One-step: the reply is the model's FINAL MESSAGE text, not the submit
+    contract's ``reply`` field."""
+    store = _store(tmp_path)
+    # The final message carries prose plus the structured submit contract; the
+    # reply must equal the WHOLE final message text (prose), not the JSON field.
+    final_message = (
+        "I added a brightness node and bumped the exposure.\n"
+        + json.dumps({"action": "submit", "reply": "IGNORED JSON FIELD", "delta_ids": []})
+    )
+
+    def fake_model_turn(task, messages, **kwargs):
+        return {"content": final_message}
+
+    request = SimpleNamespace(
+        query="add a brightness node",
+        graph={"nodes": []},
+        session_id="win-a",
+        idempotency_key=None,
+        expected_baseline_graph_hash=None,
+    )
+    outcome = run_execute_turn(
+        request,
+        plan=None,
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=fake_model_turn,
+    )
+    assert outcome["ok"] is True
+    assert outcome["reply"] == final_message
 
 
 def test_run_execute_turn_rejects_forged_delta(tmp_path) -> None:

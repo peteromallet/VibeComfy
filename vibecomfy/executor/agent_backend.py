@@ -524,7 +524,7 @@ def _no_edit_session_outcome(code: str) -> ApplyBatchOutcome:
 def run_execute_turn(
     request: Any,
     *,
-    plan: ClassifyDecision,
+    plan: ClassifyDecision | None = None,
     route: str,
     spec: Any,
     session_store: TwoStepSessionStore | None = None,
@@ -784,7 +784,11 @@ def run_execute_turn(
                         session_id=session_id,
                     )
                     return {"ok": False, "reply": None, "route": route, "failure": exc}
-                reply_text = final.reply
+                # One-step: the model's FINAL MESSAGE text (the last assistant
+                # turn's prose) IS the reply — not the structured submit
+                # contract's ``reply`` field.  Fall back to that field only
+                # when the final message is empty/missing.
+                reply_text = (raw or "").strip() or final.reply
                 session_store.append(
                     session_id,
                     "reply",

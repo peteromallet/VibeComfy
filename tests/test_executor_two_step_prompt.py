@@ -136,7 +136,9 @@ class TestContinuityAndDenial:
         for route in ROUTES:
             user = _build(route)[1]["content"]
             for section in (
-                "ROUTE / PLAN / QUERY",
+                # ``_build`` uses plan=None (one-step), so the ROUTE/INPUT
+                # section is the query-only variant.
+                "ROUTE / QUERY (one-step: no classifier plan)",
                 "CURRENT WORKFLOW (render lenses)",
                 "RESEARCH",
                 "PRECEDENT TRANSLATION",

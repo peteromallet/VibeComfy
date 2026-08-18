@@ -893,16 +893,31 @@ def build_two_step_execute_messages(
     )
     parts: list[str] = []
 
-    task = plan.effective_task if plan is not None else ""
-    plan_summary = plan.plan_summary if plan is not None else ""
-    parts.append(
-        "ROUTE / PLAN / QUERY\n"
-        "--------------------\n"
-        f"Active route: {route}\n"
-        f"Task: {task or '(none)'}\n"
-        f"Plan: {plan_summary or '(none)'}\n"
-        f"User request: {query}"
-    )
+    if plan is not None:
+        task = plan.effective_task
+        plan_summary = plan.plan_summary
+        parts.append(
+            "ROUTE / PLAN / QUERY\n"
+            "--------------------\n"
+            f"Active route: {route}\n"
+            f"Task: {task or '(none)'}\n"
+            f"Plan: {plan_summary or '(none)'}\n"
+            f"User request: {query}"
+        )
+    else:
+        # One-step mode: no classifier plan exists.  Present the raw query and
+        # let the agent decide its own task — research, edit, or answer as the
+        # request requires (the route catalog advertises every available tool).
+        parts.append(
+            "ROUTE / QUERY (one-step: no classifier plan)\n"
+            "--------------------------------------------\n"
+            f"Active route: {route}\n"
+            f"User request: {query}\n"
+            "No task or plan has been pre-decided.  Determine the task from the "
+            "request yourself: research, edit the graph, or answer directly as "
+            "the request requires.  Every tool shown for this route is "
+            "available to you."
+        )
 
     parts.append(
         "\nCURRENT WORKFLOW (render lenses)\n"

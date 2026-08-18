@@ -361,14 +361,14 @@ def test_forged_delta_failure_preserves_execute_telemetry(
             "failure": TwoStepSessionError("missing_delta_reference", "forged delta"),
             "budget": SessionBudget().record_output_tokens(42),
         },
-        route="revise",
+        route="adapt",
         session_id="sess-forged",
     )
     assert result.ok is False
     assert result.failure_kind == "missing_delta_reference"
     execute = result.report.execute
     assert execute is not None
-    assert execute.route == "revise"
+    assert execute.route == "adapt"
     assert execute.session_id == "sess-forged"
     assert execute.budget_usage["output_tokens"] == 42
     assert execute.claim_validation["status"] == "failed"
@@ -504,7 +504,7 @@ def test_real_loop_budget_exhaustion_preserves_execute_telemetry(
     assert final.failure_kind == BUDGET_FAMILY_SESSION_APPLY_BATCHES
     execute = final.report.execute
     assert execute is not None
-    assert execute.route == "revise"
+    assert execute.route == "adapt"
     assert execute.session_id == "exhaust-session"
     assert set(execute.budget_usage) == _EXECUTE_BUDGET_KEYS
     assert execute.claim_validation["status"] == "failed"
@@ -518,7 +518,7 @@ def test_raised_execute_exception_preserves_execute_telemetry(
     still produces a report with execute telemetry — Blocker 2 part 2."""
     monkeypatch.setattr(
         "vibecomfy.executor.core._run_classify",
-        lambda *args, **kwargs: _decision("revise"),
+        lambda *args, **kwargs: _decision("adapt"),
     )
 
     def _raise(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -532,7 +532,7 @@ def test_raised_execute_exception_preserves_execute_telemetry(
     assert result.failure_kind == "ExecuteError"
     execute = result.report.execute
     assert execute is not None
-    assert execute.route == "revise"
+    assert execute.route == "adapt"
     assert execute.session_id == "sess-raise"
     assert set(execute.budget_usage) == _EXECUTE_BUDGET_KEYS
     assert execute.claim_validation["status"] == "failed"

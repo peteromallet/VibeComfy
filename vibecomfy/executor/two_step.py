@@ -817,7 +817,7 @@ _EXECUTE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 def _run_two_step(
     request: ExecutorRequest,
     *,
-    plan: ClassifyDecision,
+    plan: ClassifyDecision | None = None,
     pipeline_mode: PipelineMode,
     client_id: str | None = None,
     executor_id: str,
@@ -825,12 +825,13 @@ def _run_two_step(
 ) -> ExecutorResult:
     """Two-step execute entrypoint (B01 seam; B05 wiring; execution in B03–B04).
 
-    The request has already been classified by
-    :func:`vibecomfy.executor.core.run_executor`; for ``answer_only``
-    interactions the plan has additionally been rewritten to forbid edits
-    before this seam is reached.  The pipeline mode is resolved ONCE in
-    ``run_executor`` and passed in here — this entrypoint never re-resolves
-    it.  It delegates to the injectable outcome boundary.
+    In one-step mode the caller dispatches here directly with ``plan=None``
+    (no classify model call): the agent determines its own task/route from
+    the query.  When a plan IS present (full-mode classify already ran, e.g.
+    test seams), ``answer_only`` interactions have additionally been rewritten
+    to forbid edits before this seam is reached.  The pipeline mode is
+    resolved ONCE in ``run_executor`` and passed in here — this entrypoint
+    never re-resolves it.  It delegates to the injectable outcome boundary.
 
     B05: the explicit two-step ``execute`` profile stage is resolved here —
     NEVER a fallback to ``implement``; a missing stage is a typed
@@ -991,7 +992,7 @@ def _span_update_from_execute_result(span: ProfilerSpan, result: ExecutorResult)
 def _two_step_outcome(
     *,
     request: ExecutorRequest,
-    plan: ClassifyDecision,
+    plan: ClassifyDecision | None = None,
     pipeline_mode: PipelineMode,
     client_id: str | None,
     executor_id: str,
@@ -1005,6 +1006,12 @@ def _two_step_outcome(
     loop.  Session failures map to typed failure results; a missing session id
     and a closed session are validated here (``begin_message`` enforces
     expiry/staleness/concurrency before any model work).
+
+    One-step mode (``plan=None``): the route is derived WITHOUT a classify
+    decision — ``"adapt"`` (all ten tools) by default so the agent determines
+    its own task/route from the query, or ``"research"`` (non-edit) for
+    ``interaction_mode="answer_only"``.  With a plan present, the classified
+    route (or :func:`_fallback_route`) still applies.
     """
     del client_id, executor_id, additive
     from vibecomfy.executor.two_step_session import (  # noqa: PLC0415
@@ -1014,7 +1021,7 @@ def _two_step_outcome(
         normalize_session_id,
     )
 
-    route = plan.effective_route or _fallback_route(plan)
+    route = _resolve_two_step_route(plan, request.interaction_mode)
 
     if not request.session_id:
         exc = TwoStepSessionError(
@@ -1210,6 +1217,30 @@ def _fallback_route(plan: ClassifyDecision) -> str:
     if plan.research:
         return "research"
     return "respond"
+
+
+def _resolve_two_step_route(
+    plan: ClassifyDecision | None,
+    interaction_mode: str | None,
+) -> str:
+    """Resolve the execute route for one two-step message.
+
+    With a classify decision the classified route (or :func:`_fallback_route`)
+    still applies — that path is unchanged.  In one-step mode (``plan=None``)
+    there is no classifier decision, so the route is derived from the request
+    contract alone:
+
+    * ``"adapt"`` by default — the route with ALL ten tools; the agent
+      determines its own task/route from the query.
+    * ``"research"`` when ``interaction_mode="answer_only"`` — the non-edit
+      route so the execute session may research and answer but never submit an
+      edit (mirrors :func:`vibecomfy.executor.core._answer_only_plan`).
+    """
+    if plan is not None:
+        return plan.effective_route or _fallback_route(plan)
+    if interaction_mode == "answer_only":
+        return "research"
+    return "adapt"
 
 
 class _TwoStepToolSession:
