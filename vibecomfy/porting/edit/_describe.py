@@ -11,6 +11,7 @@ from vibecomfy.porting.edit._session_types import (
     OutputSlotInfo,
 )
 from vibecomfy.porting.edit._ir_utils import (
+    _is_primitive_widget_alias_class,
     _normalize_ir_type,
     _output_specs,
 )
@@ -730,6 +731,12 @@ class _DescribeMixin:
             return widgets[field]
         if field in inputs:
             return inputs[field]
+        if _is_primitive_widget_alias_class(str(getattr(node, "class_type", ""))):
+            alias = "widget_0" if field == "value" else "value" if field == "widget_0" else None
+            if alias in widgets:
+                return widgets[alias]
+            if alias in inputs:
+                return inputs[alias]
         return _UNRESOLVED_OLD_VALUE
 
     def _node_field_value(

@@ -49,6 +49,15 @@ def _apply_primitive_widget_alias_write(
     if not _is_primitive_widget_alias_class(str(node.class_type)):
         return False
     index = widget_index_for_field(node, field, schema_provider=schema_provider)
+    if index is None and field == "value":
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        has_widget_zero = (
+            "widget_0" in node.inputs
+            or "widget_0" in node.widgets
+            or (isinstance(raw_values, list) and bool(raw_values))
+        )
+        if has_widget_zero:
+            index = 0
     if index is None:
         return False
     resolution = compact_widget_names_for_node(
@@ -56,24 +65,32 @@ def _apply_primitive_widget_alias_write(
         schema_provider=schema_provider,
     )
     named_field = resolution.names[index] if index < len(resolution.names) else None
-    if not isinstance(named_field, str) or named_field.startswith("widget_"):
-        return False
+    widget_field = f"widget_{index}"
+    carrier_names = {widget_field, "value"}
+    if isinstance(named_field, str) and not named_field.startswith("widget_"):
+        carrier_names.add(named_field)
 
-    node.inputs[named_field] = value
-    node.widgets[f"widget_{index}"] = value
-    if named_field in node.widgets:
-        node.widgets[named_field] = value
+    wrote_carrier = False
+    for carrier_name in carrier_names:
+        if carrier_name in node.inputs:
+            node.inputs[carrier_name] = value
+            wrote_carrier = True
+        if carrier_name in node.widgets:
+            node.widgets[carrier_name] = value
+            wrote_carrier = True
 
     raw_widgets = getattr(node, "raw_widgets", None)
     raw_values = getattr(raw_widgets, "values", None)
     if isinstance(raw_values, list) and 0 <= index < len(raw_values):
         raw_values[index] = value
+        wrote_carrier = True
     metadata = getattr(node, "metadata", None)
     raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
     ui_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
     if isinstance(ui_values, list) and 0 <= index < len(ui_values):
         ui_values[index] = value
-    return True
+        wrote_carrier = True
+    return wrote_carrier
 
 
 def _resolve_class_type_from_alias(

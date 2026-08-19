@@ -542,7 +542,7 @@ class _DiffMixin:
         field = op.target.field_path
         old_value = self._original_node_field_value(op.target.scope_path, op.target.uid, field)
         new_value = op.value
-        if old_value is not None:
+        if old_value is not None and old_value is not _UNRESOLVED_OLD_VALUE:
             return f"Changed {name}.{field} from {old_value!r} to {new_value!r}."
         return f"Set {name}.{field} = {new_value!r}."
 
