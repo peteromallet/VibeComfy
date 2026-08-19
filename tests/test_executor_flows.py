@@ -519,13 +519,14 @@ def _fake_reply_reject_adaptation_plan(
     research_summary: str | None = None,
     implementation_message: str | None = None,
     graph_summary: str | None = None,
+    graph_inspection: str | None = None,
     **kwargs: Any,
 ) -> str:
     """Simulate an older reply wrapper that rejects adaptation_plan only."""
     if "adaptation_plan" in kwargs:
         raise TypeError("run_reply_turn() got an unexpected keyword argument 'adaptation_plan'")
-    if not graph_summary:
-        raise AssertionError("graph_summary should survive adaptation_plan fallback")
+    if not (graph_summary or graph_inspection):
+        raise AssertionError("graph context should survive adaptation_plan fallback")
     return "This workflow loads a checkpoint and runs sampling."
 
 
@@ -3700,7 +3701,7 @@ class TestInspectOnlyFlow:
         assert mock_reply.call_count == 1
         reply_kwargs = mock_reply.call_args.kwargs
         assert "adaptation_plan" not in reply_kwargs
-        assert "CheckpointLoaderSimple" in str(reply_kwargs.get("graph_summary"))
+        assert "CheckpointLoaderSimple" in str(reply_kwargs.get("graph_inspection"))
         mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
@@ -3720,6 +3721,7 @@ class TestInspectOnlyFlow:
             "nodes": [
                 {"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"},
                 {"id": 2, "type": "KSampler", "class_type": "KSampler"},
+                {"id": 3, "type": "UnknownSwitchNode", "widgets_values": ["auto"]},
             ],
             "links": [
                 [1, 1, 0, 2, 0, "MODEL"],
@@ -3734,12 +3736,17 @@ class TestInspectOnlyFlow:
 
         assert result.ok is True
         assert result.reply is not None
-        # graph_inspection should be passed to _run_reply
+        # The inspect-only named/unlabeled lens reaches the reply backend.
         reply_kwargs = mock_reply.call_args.kwargs
-        graph_summary = reply_kwargs.get("graph_summary")
-        assert graph_summary is not None
-        assert "CheckpointLoaderSimple" in graph_summary
-        assert "KSampler" in graph_summary
+        graph_inspection = reply_kwargs.get("graph_inspection")
+        assert graph_inspection is not None
+        assert "## Key Nodes" in graph_inspection
+        assert "CheckpointLoaderSimple" in graph_inspection
+        assert "KSampler" in graph_inspection
+        assert "unlabeled_count=1" in graph_inspection
+        assert "widget_0" not in graph_inspection
+        assert "unlabeled[0]" not in graph_inspection
+        assert reply_kwargs.get("graph_summary") is None
         # Implementation must never be called
         mock_edit.assert_not_called()
         # Research must NOT be called (inspect answers from graph inspection only)

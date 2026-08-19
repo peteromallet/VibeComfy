@@ -965,7 +965,8 @@ class TestRenderInspectMarkdown:
         md = render_inspect_markdown(evidence)
         assert "Widgets:" in md
         assert "seed=42" in md
-        assert "unlabeled[1]=7.5" in md
+        assert "unlabeled_count=1" in md
+        assert "unlabeled[1]" not in md
         assert "steps=euler" in md
 
     def test_key_nodes_widget_values_from_flat_fixture(
@@ -992,7 +993,9 @@ class TestRenderInspectMarkdown:
         md = render_inspect_markdown(evidence)
 
         assert evidence.nodes[0].widgets[0].name is None
-        assert "unlabeled[0]=auto" in md
+        assert "unlabeled_count=1" in md
+        assert "unlabeled[0]" not in md
+        assert "auto" not in md
         assert "widget_0" not in md
 
     def test_identity_prints_distinct_class_type_type_and_display_title(self) -> None:

@@ -63,6 +63,7 @@ from .agent_research_stage import (
     run_agent_research_stage,
 )
 from .evidence_pack import EvidenceLedger, EvidenceLedgerEntry, EvidencePack
+from .graph_inspection import inspect_graph, render_inspect_markdown
 from .stage_contracts import StageDiagnostic, StagePackage
 from .tool_contracts import ToolStatus
 from .prompts import build_classify_messages
@@ -1899,21 +1900,17 @@ def _run_reply(
     implementation_message: str | None = (
         implementation_result.message if implementation_result else None
     )
-    # Batch 12 (Law 4): the reply's graph window is the renderer's
-    # surface + diff(Δ) + topology — the complete Python view, what changed
-    # (the accepted batch), and the full computed topology with link ids.
-    # The compact summary / truncated inspection views are retired.
-    delta_ops = _accepted_delta_ops(implementation_result)
-    graph_summary = _render_graph_text(effective_graph, delta=delta_ops)
-
-    # For inspect-only, the reply receives the same renderer output (with an
-    # empty Δ — nothing changed) so the model can describe the workflow
-    # step-by-step without suggesting edits.
-    effective_graph_context: str | None = graph_summary
-    if graph_inspection:
-        effective_graph_context = graph_inspection
-
     route_behavior = _route_behavior(plan)
+    # Edit/research replies use the authoring surface + diff + topology.
+    # Inspect-only replies use the separate named/unlabeled evidence lens so
+    # positional widget_N authoring aliases cannot become semantic claims.
+    delta_ops = _accepted_delta_ops(implementation_result)
+    graph_summary = (
+        None
+        if route_behavior.reply_uses_graph_inspection
+        else _render_graph_text(effective_graph, delta=delta_ops)
+    )
+
     effective_route = _canonical_route_for_plan(plan)
     effective_task = plan.effective_task
     candidate_present = (
@@ -1951,7 +1948,8 @@ def _run_reply(
             "research_ledger": research_ledger,
             "research_attempt": research_attempt,
             "implementation_message": implementation_message,
-            "graph_summary": effective_graph_context,
+            "graph_summary": graph_summary,
+            "graph_inspection": graph_inspection,
             "effective_route": effective_route,
             "effective_task": effective_task,
             "candidate_present": candidate_present,
@@ -1962,7 +1960,7 @@ def _run_reply(
         # Gracefully degrade if the configured reply provider does not accept
         # newer keyword arguments.
         optional_reply_kwargs = (
-            "graph_summary", "research_memo", "research_ledger",
+            "graph_summary", "graph_inspection", "research_memo", "research_ledger",
             "effective_route", "effective_task",
             "candidate_present", "interaction_mode", "research_attempt",
             "landed_edit", "real_node_ids",
@@ -2634,7 +2632,7 @@ def run_executor(
                 effective_graph=effective_graph,
                 research_result=research_result,
                 implementation_result=implementation_result,
-                graph_inspection=_render_graph_text(effective_graph)
+                graph_inspection=render_inspect_markdown(inspect_graph(effective_graph))
                 if route_behavior.reply_uses_graph_inspection
                 else None,
             )

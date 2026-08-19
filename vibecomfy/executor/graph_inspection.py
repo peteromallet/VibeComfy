@@ -843,12 +843,14 @@ def _render_key_nodes_section(
         # Widget values
         if node.widgets:
             widget_strs: list[str] = []
+            unlabeled_count = 0
             for w in node.widgets:
-                val_repr = _format_widget_value(w.value)
                 if w.name:
-                    widget_strs.append(f"{w.name}={val_repr}")
+                    widget_strs.append(f"{w.name}={_format_widget_value(w.value)}")
                 else:
-                    widget_strs.append(f"unlabeled[{w.index}]={val_repr}")
+                    unlabeled_count += 1
+            if unlabeled_count:
+                widget_strs.append(f"unlabeled_count={unlabeled_count}")
             sections.append(f"  - Widgets: {', '.join(widget_strs)}\n")
         else:
             sections.append("  - Widgets: none\n")
