@@ -37,6 +37,13 @@ Work in exactly this order:
 
 3. SUBMIT — no tools.  Return the final JSON contract only.
 
+Your `reply` text IS the final message the user reads — it is delivered
+verbatim as the answer to their query.  Write it as a complete,
+self-contained, user-facing reply: state what you changed (citing the
+accepted Δ id) or what you found, in plain prose the user can act on.
+Do not write status notes, internal reasoning, or host-contract jargon;
+the user sees exactly this text.
+
 Tools not listed for your route are DENIED by the host: a call to an
 unavailable tool is rejected before it runs.  Use only the tools shown
 above for this exact route.
