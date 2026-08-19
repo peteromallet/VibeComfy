@@ -555,15 +555,41 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
 
 
 def _clarification_has_question_and_options(message: Any) -> bool:
-    """Recognise an actual question with at least two explicit choices."""
-    if not isinstance(message, str) or "?" not in message:
+    """Recognise marked or prose alternatives in a clarification."""
+    if not isinstance(message, str):
         return False
     option_markers = re.findall(
         r"(?:\([a-z]\)|(?:^|[\s;])\d+[.)](?=\s))",
         message,
         flags=re.IGNORECASE | re.MULTILINE,
     )
-    return len(option_markers) >= 2
+    if len(option_markers) >= 2:
+        return True
+    compact = " ".join(message.split())
+    return bool(
+        re.search(r"\beither\b.+?\bor\b.+", compact, re.IGNORECASE)
+        or re.search(
+            r"\bkeep\b.+?\bor\s+(?:name|choose|select|specify)\b.+",
+            compact,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _persisted_delta_empty_for_named_schema_absence(state: AgentEditState) -> bool:
+    """Return whether the apparent batch candidate failed to persist."""
+    from vibecomfy.comfy_nodes.agent.edit import _net_field_changes
+
+    if _net_field_changes(tuple(state.batch_field_changes or ())):
+        return False
+    report = state.report if isinstance(state.report, Mapping) else {}
+    if report.get("graph_unchanged") is True or report.get("no_candidate_reason") == "no_changes":
+        return True
+    return any(
+        isinstance(turn, Mapping)
+        and isinstance(turn.get("done_validation_repair"), Mapping)
+        for turn in (state.batch_turns or ())
+    )
 
 
 def _record_named_schema_absence_blocker(
@@ -1159,9 +1185,14 @@ def _build_batch_repl_response(
     )
     if has_candidate and not delta_evidence_valid:
         has_candidate = False
-    named_schema_absence_terminal = bool(
-        _record_named_schema_absence_blocker(state, has_candidate=has_candidate)
+    blocker_has_candidate = has_candidate and not _persisted_delta_empty_for_named_schema_absence(
+        state
     )
+    named_schema_absence_terminal = bool(
+        _record_named_schema_absence_blocker(state, has_candidate=blocker_has_candidate)
+    )
+    if named_schema_absence_terminal:
+        has_candidate = False
     response_apply_eligibility = derive_apply_eligibility(
         context,
         has_candidate=has_candidate,

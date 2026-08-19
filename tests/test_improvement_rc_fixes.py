@@ -765,8 +765,8 @@ def test_rc5_c80bbf_named_absence_enters_grounded_refusal(
                     "kind": "clarify",
                     "missing_classes": ["AudioLDM2"],
                     "question": (
-                        "AudioLDM2 is absent. Choose (a) current audio, "
-                        "(b) another installed class, or (c) tune LTX audio?"
+                        "AudioLDM2 is absent. Either keep the native joint AV path "
+                        "or name another installed audio class."
                     ),
                 },
                 "message": "AudioLDM2 is absent from the local schema.",
