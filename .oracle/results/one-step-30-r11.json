@@ -1,0 +1,35 @@
+{
+  "run": "one-step-30-r11",
+  "model": "deepseek/deepseek-v4-flash-0731",
+  "score": "13/30",
+  "prior": {
+    "r9": "6/30",
+    "r8": "4/30",
+    "r7": "6/30"
+  },
+  "flipped": 10,
+  "regressed": 3,
+  "passed_kept": 3,
+  "flipped_names": [
+    "3d-converts-image-to-3d-model",
+    "3d-generates-a-3d-mesh-from",
+    "audio-acestep-detail-daemon",
+    "audio-indextts-2",
+    "image-animatediff-vae",
+    "image-qwen-image-editing",
+    "image-ip-adapter",
+    "multi-3d-preview",
+    "multi-image-to-video",
+    "multi-image-to-video-with-llm"
+  ],
+  "regressed_names": [
+    "image-dual-checkpoint-xl",
+    "multi-animatediff-controlnet",
+    "multi-svd-animation-builder"
+  ],
+  "rcs": [
+    "RC-P6 landed-count + checkpoint",
+    "RC-P7 resolver + schema + act-guidance"
+  ],
+  "prompt": "one-step reply is user-facing final message (committed; applies next rerun)"
+}
