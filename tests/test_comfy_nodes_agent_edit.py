@@ -319,8 +319,8 @@ def test_schema_less_widget_shape_edit_still_blocks_queueing() -> None:
     }
 
 
-def test_schema_less_unchanged_shape_uses_touched_status_before_warning() -> None:
-    """The same recovery entry blocks when edited and warns when preserved."""
+def test_schema_less_queue_safe_warns_even_when_edited() -> None:
+    """A computed safe result remains a warning when the node was edited."""
     from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
 
     recovery = [
@@ -344,9 +344,7 @@ def test_schema_less_unchanged_shape_uses_touched_status_before_warning() -> Non
         change_report={"content_edits": {"edited": [], "preserved": ["11"]}},
     )
 
-    assert {issue["code"] for issue in edited.issues} == {
-        "schema_less_queue_blocker"
-    }
+    assert {issue["code"] for issue in edited.issues} == {"schema_less_queue_warning"}
     assert {issue["code"] for issue in preserved.issues} == {
         "schema_less_queue_warning"
     }
@@ -3039,18 +3037,34 @@ def test_rc5_named_schema_absence_with_real_options_promotes_typed_refusal() -> 
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
     question = (
-        "AudioLDM2 is not available in the local schema. Would you like to "
-        "(a) keep the current synchronized audio, (b) name another installed "
-        "audio class, or (c) adjust the current audio parameters?"
+        "AudioLDM2 is absent from the local authoring schema. To proceed "
+        "authorably, either keep the native joint AV path or name an available "
+        "audio class from the index."
     )
     state = _make_state(
         task="Replace the existing sampler with AudioLDM2",
         request_payload={"query": "Replace the sampler with AudioLDM2"},
         route="adapt",
         user_message=question,
+        graph={"nodes": [{"id": 1, "type": "MelBandRoFormerSampler"}], "links": []},
         ui_payload={"nodes": [], "links": []},
         batch_exit_mode="edit_clarify",
         batch_turns=[
+            {
+                "done_validation_repair": {
+                    "attempt": 1,
+                    "diagnostics": [{"code": "full_ui_counter_changed_unattributed"}],
+                },
+                "statements": [
+                    {
+                        "ok": True,
+                        "landed": True,
+                        "op": {"op": "remove_node", "target": ["", "1"]},
+                        "touched_uids": ["1"],
+                    },
+                ],
+                "field_changes": [],
+            },
             {
                 "statements": [
                     {
@@ -3083,7 +3097,10 @@ def test_rc5_named_schema_miss_does_not_override_representable_candidate() -> No
     state = _make_state(
         task="Replace FaceDetector with MTCNN",
         request_payload={"query": "Replace FaceDetector with MTCNN"},
-        user_message="MTCNN is absent. Choose (a) current detector or (b) another detector?",
+        user_message="MTCNN is absent; either keep the current detector or choose another detector.",
+        batch_field_changes=(
+            FieldChange(uid="1", field_path="provider", old="bbox", new="segm"),
+        ),
         batch_turns=[{"statements": [{"detail": {"missing_classes": ["MTCNN"]}}]}],
         report={},
     )

@@ -296,16 +296,32 @@ def _recovery_report_from_ui_payload(
             ),
         )
 
-    def _node_input_shape_signature(node: Mapping[str, Any]) -> tuple[Any, ...]:
-        inputs = node.get("inputs")
-        if not isinstance(inputs, list):
-            return ()
-        signature: list[tuple[Any, ...]] = []
-        for item in inputs:
-            if not isinstance(item, Mapping):
+    def _linked_input_signature(
+        node: Mapping[str, Any],
+        *,
+        links_by_id: Mapping[Any, Any],
+        nodes_by_id: Mapping[str, Mapping[str, Any]],
+    ) -> tuple[tuple[Any, str], ...]:
+        """Return linked input names and their stable destination node uids."""
+
+        linked: list[tuple[Any, str]] = []
+        for item in node.get("inputs") if isinstance(node.get("inputs"), list) else []:
+            if not isinstance(item, Mapping) or item.get("link") is None:
                 continue
-            signature.append((item.get("name"), item.get("type")))
-        return tuple(signature)
+            link = links_by_id.get(item.get("link"))
+            destination_id: Any = None
+            if isinstance(link, list) and len(link) >= 3:
+                destination_id = link[3] if len(link) >= 5 else node.get("id")
+            elif isinstance(link, Mapping):
+                destination_id = link.get("target_id", link.get("to_node", node.get("id")))
+            destination_node = nodes_by_id.get(str(destination_id))
+            destination_uid = (
+                _stable_node_uid(destination_node)
+                if destination_node is not None
+                else str(destination_id)
+            )
+            linked.append((item.get("name"), destination_uid))
+        return tuple(sorted(linked, key=lambda value: (str(value[0]), value[1])))
 
     def _node_widget_signature(node: Mapping[str, Any]) -> Any:
         def _stable(value: Any) -> str:
@@ -351,60 +367,6 @@ def _recovery_report_from_ui_payload(
         if uid is not None and str(uid):
             return str(uid)
         return str(node.get("id", ""))
-
-    def _semantic_connection_signature(
-        node: Mapping[str, Any],
-        *,
-        links_by_id: Mapping[Any, Any],
-        nodes_by_id: Mapping[str, Mapping[str, Any]],
-    ) -> tuple[Any, ...]:
-        """Connection shape with endpoint uids instead of remintable ids."""
-
-        def _endpoint_uid(node_id: Any) -> str:
-            endpoint = nodes_by_id.get(str(node_id))
-            return _stable_node_uid(endpoint) if endpoint is not None else str(node_id)
-
-        inputs: list[tuple[Any, ...]] = []
-        for item in node.get("inputs") if isinstance(node.get("inputs"), list) else []:
-            if not isinstance(item, Mapping):
-                continue
-            link = links_by_id.get(item.get("link"))
-            source: tuple[Any, ...] | None = None
-            if isinstance(link, list) and len(link) >= 3:
-                source = (_endpoint_uid(link[1]), link[2])
-            elif isinstance(link, Mapping):
-                source_id = link.get("origin_id", link.get("from_node"))
-                source_slot = link.get("origin_slot", link.get("from_slot"))
-                if source_id is not None:
-                    source = (_endpoint_uid(source_id), source_slot)
-            inputs.append((item.get("name"), item.get("type"), source))
-
-        outputs: list[tuple[Any, ...]] = []
-        for index, item in enumerate(
-            node.get("outputs") if isinstance(node.get("outputs"), list) else []
-        ):
-            if not isinstance(item, Mapping):
-                continue
-            destinations: list[tuple[Any, ...]] = []
-            link_ids = door_get_links(item)
-            for link_id in link_ids if isinstance(link_ids, list) else []:
-                link = links_by_id.get(link_id)
-                if isinstance(link, list) and len(link) >= 5:
-                    destinations.append((_endpoint_uid(link[3]), link[4]))
-                elif isinstance(link, Mapping):
-                    target_id = link.get("target_id", link.get("to_node"))
-                    target_slot = link.get("target_slot", link.get("to_slot"))
-                    if target_id is not None:
-                        destinations.append((_endpoint_uid(target_id), target_slot))
-            outputs.append(
-                (
-                    item.get("name"),
-                    item.get("type"),
-                    item.get("slot_index", index),
-                    tuple(sorted(destinations, key=str)),
-                )
-            )
-        return (tuple(inputs), tuple(outputs))
 
     def _node_output_slots(node: Mapping[str, Any]) -> dict[tuple[Any, Any, Any], set[Any]]:
         outputs = node.get("outputs")
@@ -507,10 +469,10 @@ def _recovery_report_from_ui_payload(
         candidate_node: Mapping[str, Any],
         original_links_by_id: Mapping[Any, Any],
         candidate_links_by_id: Mapping[Any, Any],
+        original_nodes_by_id: Mapping[str, Mapping[str, Any]],
         candidate_node_ids: set[str],
         candidate_nodes_by_id: Mapping[str, Mapping[str, Any]],
         schema_less_transitive_intermediates: set[str],
-        semantic_connection_shape_unchanged: bool,
     ) -> tuple[bool, str]:
         if original_node is None:
             candidate_node_id = str(candidate_node.get("id", ""))
@@ -523,7 +485,16 @@ def _recovery_report_from_ui_payload(
             candidate_node
         ):
             return (False, "schema_less_widget_shape_changed")
-        if _node_input_shape_signature(original_node) != _node_input_shape_signature(candidate_node):
+        linked_inputs_unchanged = _linked_input_signature(
+            original_node,
+            links_by_id=original_links_by_id,
+            nodes_by_id=original_nodes_by_id,
+        ) == _linked_input_signature(
+            candidate_node,
+            links_by_id=candidate_links_by_id,
+            nodes_by_id=candidate_nodes_by_id,
+        )
+        if not linked_inputs_unchanged:
             return (False, "schema_less_inputs_changed")
         original_slots = _node_output_slots(original_node)
         candidate_slots = _node_output_slots(candidate_node)
@@ -534,15 +505,10 @@ def _recovery_report_from_ui_payload(
         widgets_changed = _node_widget_signature(original_node) != _node_widget_signature(
             candidate_node
         )
-        if widgets_changed:
-            if semantic_connection_shape_unchanged:
-                # A canonical batch edit can intentionally change an existing
-                # opaque widget value even when no runtime schema is installed.
-                # The unchanged class, widget shape, slots, and topology bound
-                # that uncertainty to the preexisting value surface.
-                return (True, "preexisting_schema_less_widget_values_changed")
-            return (False, "schema_less_widgets_and_connections_changed")
-        if _connection_signature(original_node) == _connection_signature(candidate_node):
+        if (
+            not widgets_changed
+            and _connection_signature(original_node) == _connection_signature(candidate_node)
+        ):
             return (True, "connection_shape_unchanged")
         def _links_for_slot_name(
             slots: Mapping[tuple[Any, Any, Any], set[Any]],
@@ -576,6 +542,12 @@ def _recovery_report_from_ui_payload(
                     if path_nodes is not None:
                         continue
                     return (False, "schema_less_existing_output_links_removed")
+        if widgets_changed:
+            # Schema-less emit may reorder linked inputs, remint their types to
+            # UNKNOWN, and omit unlinked optionals. Stable linked input names,
+            # destination uids, and output destinations prove that this remains a
+            # bounded value-only edit rather than a topology change.
+            return (True, "preexisting_schema_less_widget_values_changed")
         for key, original_links in original_slots.items():
             candidate_links = candidate_slots.get(key, set())
             original_destinations = _output_destinations(
@@ -704,19 +676,6 @@ def _recovery_report_from_ui_payload(
             preexisting_ui_node
             and original_node_connections.get(stable_uid) == _connection_signature(node)
         )
-        semantic_connection_shape_unchanged = (
-            preexisting_ui_node
-            and _semantic_connection_signature(
-                original_nodes_by_uid[stable_uid],
-                links_by_id=original_links_by_id,
-                nodes_by_id=original_nodes_by_id,
-            )
-            == _semantic_connection_signature(
-                node,
-                links_by_id=candidate_links_by_id,
-                nodes_by_id=candidate_nodes_by_id,
-            )
-        )
         schema = get_schema(class_type)
         if schema is None:
             local_schema_evidence = _local_node_schema_evidence(class_type)
@@ -741,10 +700,10 @@ def _recovery_report_from_ui_payload(
                 candidate_node=node,
                 original_links_by_id=original_links_by_id,
                 candidate_links_by_id=candidate_links_by_id,
+                original_nodes_by_id=original_nodes_by_id,
                 candidate_node_ids=candidate_node_ids,
                 candidate_nodes_by_id=candidate_nodes_by_id,
                 schema_less_transitive_intermediates=schema_less_transitive_intermediates,
-                semantic_connection_shape_unchanged=semantic_connection_shape_unchanged,
             )
             recovery.append(
                 {

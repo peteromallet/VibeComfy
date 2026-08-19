@@ -340,14 +340,17 @@ def queue_stage_diagnostics(
             continue
         if entry.get("schema_less") is True:
             safety = entry.get("schema_less_safety")
-            if safety == "preexisting_schema_less_widget_values_changed":
+            if (
+                entry.get("schema_less_queue_safe") is True
+                or safety == "preexisting_schema_less_widget_values_changed"
+            ):
                 issues.append(
                     _queue_issue(
                         code="schema_less_queue_warning",
                         message=(
                             f"Node {node_id} ({class_type}) is preexisting schema-less; "
-                            "an existing widget value changed without changing its shape "
-                            "or topology, so queue validation continues with a warning."
+                            "its bounded preexisting surface remains queue-safe, so "
+                            "queue validation continues with a warning."
                         ),
                         detail={
                             "node_id": node_id,
@@ -421,8 +424,6 @@ def queue_stage_diagnostics(
                         severity="warning",
                     )
                 )
-                continue
-            if entry.get("schema_less_queue_safe") is True:
                 continue
             # RC12a: untouched preexisting schema-less (destination / link-id
             # churn only) is a warning. New schema-less nodes and nodes whose
