@@ -1,0 +1,23 @@
+{
+  "round": 2,
+  "r6_score": "5/30",
+  "r7_score": "6/30",
+  "flipped": [
+    "audio-acestep-audio-generation-with-detail-daemon-f0859f",
+    "image-dual-checkpoint-xl-image-generation-with-refin-c9df19"
+  ],
+  "regressed": [
+    "image-qwen-image-inpainting-with-controlnet-09fc64"
+  ],
+  "still_fail_count": 23,
+  "passed_kept": 4,
+  "rcs": [
+    "RC-P2 accepted-delta terminal projection",
+    "RC-P3 per-purpose continuation partitioning"
+  ],
+  "progression": [
+    "r5: 3/30",
+    "r6: 5/30",
+    "r7: 6/30"
+  ]
+}
