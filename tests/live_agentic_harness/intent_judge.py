@@ -686,69 +686,54 @@ def _verify_delta_replay(
 ) -> dict[str, Any]:
     """Verify the canonical Δ replayable-constructs post from pre (Law 3).
 
-    The judge grades the accepted Δ directly: ``interpret(pre, Δ)`` must
-    apply cleanly and reproduce post (``diff(interpret(pre, Δ), post) == ()``),
-    and the Δ must equal the canonical diff of the IR pair — i.e. the Δ is
-    what actually changed.  When the IR pair cannot be lifted to a
-    VibeWorkflow, ``verified`` is None and the LLM judges (with the
+    The judge grades the accepted Δ directly against the ONE replay authority
+    (the emit-door replay: ``_apply_delta_ops``).  ``replay(pre, Δ)`` must
+    reconstruct post over the editable quotient (uid → class/fields/mode plus
+    the uid-addressed edge set); the Δ is what actually changed.  When the IR
+    pair cannot be lifted, ``verified`` is None and the LLM judges (with the
     EditableSurface-resolved field values as context).  Returns
     ``{"verified": bool | None, "checked": int, "mismatches": [...]}``.
     """
     if not isinstance(delta_ops, (list, tuple)) or not delta_ops:
         return {"verified": None, "checked": 0, "mismatches": []}
-    from vibecomfy.porting.edit._diff import diff
-    from vibecomfy.porting.edit._interpret import interpret
-    from vibecomfy.porting.edit.ops import parse_edit_delta
+    from vibecomfy.executor.two_step_session import _apply_delta_ops
+    from vibecomfy.porting.edit.apply_gate import editable_signature
 
+    mismatches: list[str] = []
     try:
-        pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
-        post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
-        ops = parse_edit_delta(list(delta_ops))
+        replayed = _apply_delta_ops(
+            dict(pre_ir), list(delta_ops), schema_provider=schema_provider
+        )
     except Exception as exc:
         return {
             "verified": None,
-            "checked": 0,
-            "mismatches": [],
-            "error": f"could not lift IR for replay: {exc}",
+            "checked": len(delta_ops),
+            "mismatches": [f"replay(pre, Δ) raised: {exc}"],
         }
-    if not ops:
-        return {"verified": None, "checked": 0, "mismatches": []}
-    mismatches: list[str] = []
+    if replayed is None:
+        return {
+            "verified": None,
+            "checked": len(delta_ops),
+            "mismatches": ["replay(pre, Δ) produced no graph"],
+        }
     try:
-        result = interpret(pre_wf, ops, schema_provider=schema_provider)
+        replayed_wf = _to_workflow_ir(replayed, schema_provider=schema_provider)
+        post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
     except Exception as exc:
         return {
-            "verified": False,
-            "checked": len(ops),
-            "mismatches": [f"interpret(pre, Δ) raised: {exc}"],
+            "verified": None,
+            "checked": len(delta_ops),
+            "mismatches": [f"could not lift replayed output for quotient compare: {exc}"],
         }
-    if not result.ok:
-        codes = [diag.code for diag in result.diagnostics]
+    if editable_signature(replayed_wf) != editable_signature(post_wf):
         mismatches.append(
-            "interpret(pre, Δ) failed to apply: " + ", ".join(codes[:4] or ["apply_failed"])
+            "replay(pre, Δ) does not reconstruct post over the editable quotient"
         )
-    else:
-        leftover = diff(result.workflow, post_wf)
-        if leftover:
-            mismatches.append(
-                f"interpret(pre, Δ) does not reconstruct post: "
-                f"{len(leftover)} leftover op(s) in diff(interpret(pre, Δ), post)"
-            )
-    try:
-        expected = diff(pre_wf, post_wf)
-        _actual = {_op_fingerprint(op) for op in expected}
-        _claimed = {_op_fingerprint(op) for op in ops}
-        if _claimed - _actual:
-            mismatches.append(
-                "Δ claims changes that are not what actually changed between pre_ir and post_ir"
-            )
-    except Exception:
-        pass
     if not mismatches:
-        return {"verified": True, "checked": len(ops), "mismatches": []}
+        return {"verified": True, "checked": len(delta_ops), "mismatches": []}
     return {
         "verified": False,
-        "checked": len(ops),
+        "checked": len(delta_ops),
         "mismatches": mismatches[:8],
     }
 
@@ -892,8 +877,15 @@ def judge_edit_intent(
     accepted_batch, delta_envelope = _load_accepted_batch(response)
     delta_ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
     from vibecomfy.schema import get_schema_provider  # late import: judge stays light
+    from vibecomfy.executor.two_step import _two_step_schema_provider
 
-    schema_provider = get_schema_provider("auto")
+    # The session replays through the composite (runtime + authoring) provider;
+    # the judge must replay through the SAME authority so custom-node widget
+    # names resolve identically (RC-P5 replay fidelity).
+    try:
+        schema_provider = _two_step_schema_provider()
+    except Exception:  # noqa: BLE001 - fall back to the light provider
+        schema_provider = get_schema_provider("auto")
     try:
         pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
         post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
