@@ -1,0 +1,27 @@
+{
+  "round": 3,
+  "final": true,
+  "r7_score": "6/30",
+  "r8_score": "4/30",
+  "flipped": [],
+  "regressed": [
+    "audio-acestep-audio-generation-with-detail-daemon-f0859f",
+    "multi-animatediff-video-generation-with-controlnet-*",
+    "multi-svd-image-to-video-with-animation-builder-*"
+  ],
+  "progression": {
+    "r5": "3/30",
+    "r6": "5/30",
+    "r7": "6/30",
+    "r8": "4/30"
+  },
+  "rcs": [
+    "RC-P0 ingest authority",
+    "RC-P1 schema+slots",
+    "RC-P2 terminal projection",
+    "RC-P3 continuation partitioning",
+    "RC-P4 scored terminal product"
+  ],
+  "r8_dominant_failure": "delta replay mismatch \u2014 interpret(pre, \u0394) does not reconstruct post; the projected accepted batch exposes a replay-fidelity gap the prior artifact capture masked",
+  "loop_conclusion": "3-round cap reached; net +1 (3->4). RC-P4 exposed the next layer (accepted-\u0394 ops do not reconstruct the emitted graph) \u2014 the honest next target for any future round."
+}
