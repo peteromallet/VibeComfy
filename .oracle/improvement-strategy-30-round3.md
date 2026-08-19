@@ -1,4 +1,4 @@
-I'll read the pipeline-improvement skill and every listed input so the strategy is grounded in the three-round evidence, not a recycled RC list.Next I’ll pull the round strategies, full findings, and run ledgers so the ranked moves sit on measured flips, not narrative.Round-3 batches and the three run reports are next — those pin residual classes to concrete scenarios and expected flips.I still need the round-2 batches, the earlier run reports, and the live inspect/judge code so the ranked moves cite mechanisms, not just residual labels.I have the residual map. Next I’ll pin the inspect reply, assessor, and refusal-judge paths so each move names a real mechanism.The diagnosis is clear: edit-side mechanical RCs are mostly spent; inspect-answer variance is the remaining ceiling. Writing the strategy doc from that, not another incremental RC list.# Maximal improvement from here
+# Maximal improvement from here
 
 **Role:** strategy / philosophy audit after 3 rounds of the fixed-30 loop.
 **Measured state:** R1 13/30 (`a779d762`) → R2 15/30 (`1328df11`) → R3 13/30 (`8d897528`). 13 RCs shipped. 7 durable flips. **13/30 rows wobble.**
