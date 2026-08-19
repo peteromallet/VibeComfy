@@ -1434,14 +1434,18 @@ def _two_step_schema_provider() -> Any:
 
     Named-field edits on real graphs need the schema to resolve widget/input
     names to positional ``widget_N`` slots (RC-P1).  The provider must reach
-    the session even when the live ComfyUI runtime is absent, so we compose:
+    the session even when the live ComfyUI runtime is absent, so we compose
+    (P3 — ONE authority: render AND edit see this same composite):
 
-    1. ``get_schema_provider("auto")`` — the runtime provider when a ComfyUI
-       runtime is reachable (serves every installed custom node), else the
-       local ``node_index.json`` provider (possibly empty).
-    2. ``get_authoring_schema_provider()`` — the offline authoring provider
-       (committed ``object_info`` cache + source scan + on-demand), which
-       still resolves core + cached custom nodes with no runtime.
+    1. ``RuntimeSchemaProvider`` — installed runtime ``object_info`` when a
+       ComfyUI runtime is reachable.  It is FIRST so every installed custom
+       node (e.g. ``Apply Whisper``'s named model field) is authoritative
+       even when a local ``node_index.json`` exists (``get_schema_provider(
+       \"auto\")`` would otherwise pick the local index and hide the runtime).
+    2. ``get_schema_provider(\"auto\")`` — the runtime provider when a ComfyUI
+       runtime is reachable, else the local ``node_index.json`` provider.
+    3. ``get_authoring_schema_provider()`` — the offline authoring provider
+       (committed ``object_info`` cache + source scan + on-demand).
 
     ``CompositeSchemaProvider`` is first-match-wins, so a reachable runtime
     wins for every class it knows; the authoring cache fills the rest.
@@ -1450,21 +1454,35 @@ def _two_step_schema_provider() -> Any:
         get_authoring_schema_provider,
         get_schema_provider,
     )
-    from vibecomfy.schema.provider import CompositeSchemaProvider  # noqa: PLC0415
+    from vibecomfy.schema.provider import (  # noqa: PLC0415
+        CompositeSchemaProvider,
+        RuntimeSchemaProvider,
+        has_comfyui_runtime,
+    )
 
+    providers: list[Any] = []
+    try:
+        if has_comfyui_runtime():
+            providers.append(RuntimeSchemaProvider())
+    except Exception:  # noqa: BLE001 - any provider failure must not block ingest
+        pass
     try:
         auto = get_schema_provider("auto")
     except Exception:  # noqa: BLE001 - any provider failure must not block ingest
         auto = None
+    if auto is not None:
+        providers.append(auto)
     try:
         authoring = get_authoring_schema_provider()
     except Exception:  # noqa: BLE001 - best-effort offline fallback
         authoring = None
-    if auto is None:
-        return authoring
-    if authoring is None:
-        return auto
-    return CompositeSchemaProvider(auto, authoring)
+    if authoring is not None:
+        providers.append(authoring)
+    if not providers:
+        return None
+    if len(providers) == 1:
+        return providers[0]
+    return CompositeSchemaProvider(*providers)
 
 
 def _two_step_fact_pack(graph: Any) -> tuple[str, ...]:

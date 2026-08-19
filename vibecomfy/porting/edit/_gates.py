@@ -309,7 +309,46 @@ class _GatesMixin:
             use_comfy_converter=False,
         )
         _assert_nonempty_ingest_preserved(ui_json, workflow)
+        self._assert_resolver_map_integrity(workflow)
         return workflow
+
+    def _assert_resolver_map_integrity(self, workflow: VibeWorkflow) -> None:
+        """ONE resolver authority: fail closed on ambiguous uid/binding maps.
+
+        The render and the edit tools share this IR.  Two nodes sharing a uid
+        (or one binding resolving to two uids) would make the render-visible
+        vocabulary ambiguous and every ``resolve_target`` first-match — a
+        silent parity break.  This is a hydration-door invariant, not a new
+        authority: it only rejects IRs whose resolver map cannot be one-to-one.
+        """
+        from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
+
+        uid_to_node: dict[str, str] = {}
+        for nid, node in (workflow.nodes or {}).items():
+            uid = str(getattr(node, "uid", "") or "")
+            if uid:
+                prior = uid_to_node.setdefault(uid, str(nid))
+                if prior != str(nid):
+                    raise WorkflowIngestError(
+                        "ambiguous resolver map: nodes "
+                        f"{prior!r} and {str(nid)!r} share uid {uid!r}."
+                    )
+        try:
+            names = _compute_variable_names(workflow.nodes, list(workflow.edges))
+        except Exception:  # noqa: BLE001 - binding derivation is best-effort
+            return
+        binding_to_uid: dict[str, str] = {}
+        for nid, name in names.items():
+            node = workflow.nodes.get(nid)
+            uid = str(getattr(node, "uid", "") or "")
+            if not uid:
+                continue
+            prior = binding_to_uid.setdefault(name, uid)
+            if prior != uid:
+                raise WorkflowIngestError(
+                    f"ambiguous resolver map: binding {name!r} resolves to "
+                    f"both uid {prior!r} and uid {uid!r}."
+                )
 
     def _done_gate_b_workflows(
         self,

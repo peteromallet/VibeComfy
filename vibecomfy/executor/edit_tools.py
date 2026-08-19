@@ -61,6 +61,11 @@ _VERIFICATION_FAILED = "verification_failed"
 
 _RETRYABLE_ERRORS = frozenset({_INVALID_ARGUMENTS, _UNKNOWN_TARGET, _UNKNOWN_FIELD, _UNKNOWN_PORT})
 
+# Typed hydration failure: the render-visible {binding, uid, node_id} surface
+# disagrees with the retained IR's resolver map.  Never consumes the model's
+# replacement permit (the model was handed a broken vocabulary).
+_HYDRATION_FAILURE = "hydration_failure"
+
 
 class EditToolError(ValueError):
     """A typed edit-tool rejection (argument/allowlist/target/CAS failure)."""
@@ -256,6 +261,78 @@ def _reject_positional(value: str, *, path: str) -> None:
         )
 
 
+def render_resolver_parity_issues(edit_session: Any) -> tuple[str, ...]:
+    """Render-visible {binding, uid, node_id} vs the retained-IR resolver map.
+
+    The render (``surface``/``topology`` lenses) is the ONLY vocabulary the
+    model sees; the resolver map (``uid_by_name`` + IR nodes) is the ONLY
+    vocabulary the edit tools accept.  When the two disagree the session is
+    mis-hydrated: every render-visible ref would be rejected and the model's
+    single replacement permit would be burned for no reason.  Both sides are
+    derived through the SAME named ingest door (``_named_import``) — the
+    render side exactly as the message render does (``use_comfy_converter=False``,
+    no schema provider), the resolver side from the retained IR — so a
+    non-empty return is a typed hydration failure, never a vocabulary guess.
+    """
+    if edit_session is None:
+        return ()
+    workflow = getattr(edit_session, "workflow", None)
+    if workflow is None or not getattr(workflow, "nodes", None):
+        return ()
+    raw_ui = getattr(edit_session, "original_ui", None)
+    if not isinstance(raw_ui, Mapping) or not raw_ui:
+        return ()
+    from vibecomfy.ingest.normalize import (  # noqa: PLC0415
+        _assert_nonempty_ingest_preserved,
+        _named_import,
+    )
+    from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names  # noqa: PLC0415
+
+    try:
+        rendered = _named_import(dict(raw_ui), use_comfy_converter=False)
+        _assert_nonempty_ingest_preserved(raw_ui, rendered)
+    except Exception:  # noqa: BLE001 - cannot prove a mismatch; render is best-effort
+        return ()
+
+    uid_by_name = getattr(edit_session, "uid_by_name", None) or {}
+    ir_nodes = getattr(workflow, "nodes", None) or {}
+    uid_to_node_id: dict[str, str] = {}
+    for nid, node in ir_nodes.items():
+        uid = str(getattr(node, "uid", "") or "")
+        if uid:
+            uid_to_node_id.setdefault(uid, str(nid))
+    try:
+        render_bindings = _compute_variable_names(rendered.nodes, list(rendered.edges))
+    except Exception:  # noqa: BLE001 - binding derivation is best-effort
+        render_bindings = {}
+
+    issues: list[str] = []
+    for nid, node in (rendered.nodes or {}).items():
+        uid = str(getattr(node, "uid", "") or "")
+        binding = render_bindings.get(str(nid), "")
+        if uid:
+            resolved_uid = uid_by_name.get(binding)
+            if resolved_uid != uid:
+                issues.append(
+                    f"render shows binding {binding!r} for uid {uid!r} but the "
+                    f"retained IR's resolver map binds it to {resolved_uid!r}"
+                )
+            if uid not in uid_to_node_id:
+                issues.append(
+                    f"render shows uid {uid!r} which the retained IR does not contain"
+                )
+            elif uid_to_node_id[uid] != str(nid):
+                issues.append(
+                    f"render shows node_id {nid!r} for uid {uid!r} but the retained "
+                    f"IR maps that uid to node_id {uid_to_node_id[uid]!r}"
+                )
+        elif str(nid) not in ir_nodes:
+            issues.append(
+                f"render shows node_id {nid!r} which the retained IR does not contain"
+            )
+    return tuple(issues)
+
+
 # ── name/uid resolution (names over indices) ─────────────────────────────────
 
 
@@ -439,6 +516,13 @@ class _SequentialBuildSession:
             )
 
             self.workflow = _cow_workflow_copy(base_workflow)
+        # Transient local-alias index (P2): an ``add_node``'s ``name`` arg is
+        # the model's LOCAL alias for the minted uid.  It is registered ONLY
+        # here — never persisted into the retained IR, the emit snapshot, or
+        # the resolver map of any later message — so later sub-ops in the SAME
+        # batch can resolve the new node by the alias they just chose.  This is
+        # not a second authority: it never overrides a class-derived binding.
+        self._local_aliases: dict[str, str] = {}
 
     @property
     def uid_by_name(self) -> dict[str, str]:
@@ -458,6 +542,10 @@ class _SequentialBuildSession:
             uid = str(getattr(node, "uid", "") or "")
             if uid:
                 name_to_uid.setdefault(name, uid)
+        # Class-derived bindings win; local aliases only fill gaps (so an alias
+        # can never hijack another node's render-visible name).
+        for alias, uid in self._local_aliases.items():
+            name_to_uid.setdefault(alias, uid)
         return name_to_uid
 
     def apply(self, op: Any) -> None:
@@ -471,7 +559,13 @@ class _SequentialBuildSession:
                 self.workflow, op, schema_provider=self.schema_provider
             )
         except Exception:  # noqa: BLE001 - an invalid sub-op is rejected atomically later
-            pass
+            return
+        # P2: register the add_node's local alias → the uid THIS batch minted.
+        # The alias never leaves this facade (see ``uid_by_name``).
+        if getattr(op, "op", "") == "add_node" and getattr(op, "uid", ""):
+            title = str(getattr(op, "title", "") or "").strip()
+            if title:
+                self._local_aliases.setdefault(title, str(op.uid))
 
 
 # ── catalog docs (prompt CHANGE stage) ───────────────────────────────────────
@@ -528,6 +622,11 @@ class EditToolRuntime:
         self._accepted_delta_ids: tuple[str, ...] = ()
         self._last_graph: Any = None
         self._last_bindings: tuple[str, ...] = ()
+        # P2: at MESSAGE START assert parity between the render-visible
+        # {binding, uid, node_id} surface and the retained IR's resolver map.
+        # A mismatch is a typed hydration failure: every dispatch returns
+        # ``hydration_failure`` WITHOUT consuming the replacement permit.
+        self._hydration_issues = render_resolver_parity_issues(edit_session)
 
     # -- queries -------------------------------------------------------------
 
@@ -550,6 +649,11 @@ class EditToolRuntime:
     @property
     def bindings(self) -> tuple[str, ...]:
         return self._last_bindings
+
+    @property
+    def hydration_failed(self) -> bool:
+        """True when the message-start render/resolver parity assertion failed."""
+        return bool(self._hydration_issues)
 
     def workflow(self) -> Any:
         return getattr(self.edit_session, "workflow", None) if self.edit_session else None
@@ -576,6 +680,22 @@ class EditToolRuntime:
           replacement permit is NOT consumed);
         * one semantic rejection permits exactly one replacement.
         """
+        if self._hydration_issues:
+            # Typed hydration failure (P2): the render-visible vocabulary the
+            # model was handed does not match the retained IR's resolver map.
+            # This is a HOST defect, not an edit attempt: it never consumes
+            # the replacement permit and never advances the rejection counter.
+            detail = (
+                "render/resolver parity mismatch (typed hydration failure): "
+                + "; ".join(self._hydration_issues[:3])
+            )
+            return EditToolOutcome(
+                ok=False,
+                reason=_HYDRATION_FAILURE,
+                diagnostics=(detail,),
+                retryable=True,
+                error={"code": _HYDRATION_FAILURE, "message": detail, "retryable": True},
+            )
         if self._accepted:
             return EditToolOutcome(ok=False, reason="edit_already_accepted", retryable=False)
         if self._rejections >= 2:
