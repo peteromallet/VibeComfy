@@ -337,12 +337,30 @@ class ArtifactConsistencyError(RuntimeError):
 
 
 def _accepted_delta_ids(response: Mapping[str, Any]) -> tuple[str, ...]:
-    """Normalized accepted-delta id tuple from the response envelope."""
-    ids = response.get("accepted_delta_ids")
-    if isinstance(ids, (list, tuple)):
-        return tuple(str(item) for item in ids if str(item))
-    if isinstance(ids, str) and ids:
-        return (ids,)
+    """Normalized accepted-delta id tuple from the response envelope.
+
+    The two-step executor nests the canonical ids under
+    ``report.executor.execute.accepted_delta_ids``; the top-level
+    ``accepted_delta_ids`` field is a compatibility projection of that same
+    object.  Read BOTH (and ``report.execute`` for legacy shapes) so the
+    consistency guard is never blind to a landed Δ.
+    """
+    candidates: list[Any] = [response.get("accepted_delta_ids")]
+    report = response.get("report")
+    if isinstance(report, Mapping):
+        executor = report.get("executor")
+        if isinstance(executor, Mapping):
+            execute = executor.get("execute")
+            if isinstance(execute, Mapping):
+                candidates.append(execute.get("accepted_delta_ids"))
+        candidates.append(report.get("accepted_delta_ids"))
+    for raw in candidates:
+        if isinstance(raw, (list, tuple)):
+            ids = tuple(str(item) for item in raw if str(item))
+            if ids:
+                return ids
+        if isinstance(raw, str) and raw:
+            return (raw,)
     return ()
 
 

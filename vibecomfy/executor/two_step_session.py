@@ -1332,6 +1332,19 @@ class TwoStepSessionStore:
                     },
                 ),
             )
+        elif kind == "apply_soft_stop":
+            # A second apply/replacement attempt after the one accepted apply:
+            # the first Δ stands; the extra attempt is recorded (unapplied) so
+            # the transcript is honest about the model's over-attempt.
+            family = str(event.get("family") or "apply_batches")
+            text = (
+                f"edit not applied: {family} cap reached — the already-accepted "
+                "Δ is kept; no further edits this message."
+            )
+            state = replace(
+                state,
+                messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
+            )
         elif kind == "budget":
             state = replace(state, budget=SessionBudget.from_dict(event.get("budget") or {}))
         elif kind == "closed":
@@ -1342,6 +1355,156 @@ class TwoStepSessionStore:
         for event in events:
             state = self._fold_event(state, event)
         return state
+
+
+# ── Accepted-Δ terminal projection (RC-P2 P0) ────────────────────────────────
+#
+# ONE projector is the sole authority for every terminal path (normal submit,
+# budget stop, parse failure, grounding failure, and outer response
+# construction).  accepted ids + ops are derived by transcript replay — never
+# copied from model prose — and the graph is the canonical replayed retained
+# revision (replay(base_graph, accepted_ops)).  No separate success-only
+# extractor may remain; the projector is the single state reader.
+
+
+@dataclass(frozen=True)
+class TerminalProduct:
+    """The one projected terminal outcome for a two-step execute message.
+
+    ``accepted_delta_ids`` and ``accepted_ops`` come from the durable
+    transcript (``accepted_delta_refs``); ``graph`` is the replayed retained
+    revision whose hash equals ``replay(base_graph, accepted_ops)`` by
+    construction.  ``failure`` carries the optional terminal diagnostic (never
+    erasing accepted work); ``soft_stop`` records an unapplied second apply.
+    """
+
+    ok: bool
+    route: str
+    reply: str | None
+    accepted_delta_ids: tuple[str, ...] = ()
+    accepted_ops: tuple[dict[str, Any], ...] = ()
+    graph: dict[str, Any] | None = None
+    graph_hash: str | None = None
+    evidence_ids: tuple[str, ...] = ()
+    tool_call_ids: tuple[str, ...] = ()
+    lens_fact_ids: tuple[str, ...] = ()
+    budget: SessionBudget = field(default_factory=SessionBudget)
+    claim_validation: dict[str, Any] = field(default_factory=dict)
+    replacement_used: bool = False
+    self_assessment: Any = None
+    durable_response: dict[str, Any] | None = None
+    research_attempt: str = ""
+    failure: BaseException | None = None
+    soft_stop: dict[str, Any] | None = None
+
+    def to_outcome_dict(self) -> dict[str, Any]:
+        """Plain-dict form consumed by :func:`run_execute_turn`'s caller."""
+        payload: dict[str, Any] = {
+            "ok": self.ok,
+            "route": self.route,
+            "reply": self.reply,
+            "research_attempt": self.research_attempt,
+            "accepted_delta_ids": list(self.accepted_delta_ids),
+            "evidence_ids": list(self.evidence_ids),
+            "tool_call_ids": list(self.tool_call_ids),
+            "lens_fact_ids": list(self.lens_fact_ids),
+            "budget": self.budget,
+            "graph": self.graph,
+            "claim_validation": self.claim_validation,
+            "self_assessment": self.self_assessment,
+            "replacement_used": self.replacement_used,
+            "durable_response": self.durable_response,
+            "terminal_product": self,
+        }
+        if self.failure is not None:
+            payload["failure"] = self.failure
+        if self.soft_stop is not None:
+            payload["soft_stop"] = self.soft_stop
+        return payload
+
+
+def _accepted_ops_from_refs(refs: Any) -> tuple[dict[str, Any], ...]:
+    """Flatten the transcript's ``accepted_delta_refs[*].ops`` in order."""
+    ops: list[dict[str, Any]] = []
+    for ref in refs or ():
+        if not isinstance(ref, Mapping):
+            continue
+        for op in (ref.get("ops") or ()):
+            if isinstance(op, Mapping):
+                ops.append(dict(op))
+    return tuple(ops)
+
+
+def project_terminal_product(
+    *,
+    session_store: TwoStepSessionStore,
+    session_id: str,
+    edit_runtime: Any,
+    route: str,
+    reply: str | None,
+    failure: BaseException | None = None,
+    claim_validation: dict[str, Any] | None = None,
+    ok: bool | None = None,
+    self_assessment: Any = None,
+    durable_response: dict[str, Any] | None = None,
+    soft_stop: dict[str, Any] | None = None,
+) -> TerminalProduct:
+    """Project the ONE terminal outcome from the durable session transcript.
+
+    Invariants enforced here (and relied on downstream):
+
+    * accepted ids + ops are derived by transcript replay, never from prose;
+    * ``graph`` is the replayed retained revision, so
+      ``graph_hash == hash(replay(base_graph, accepted_ops))`` by construction;
+    * non-empty accepted ids always surface (the caller then guarantees
+      ``graph_unchanged=false`` and a graph-bearing product);
+    * zero accepted ids ⇒ no edit claim.
+
+    The projector never raises for a replay that fails to reconstruct a change
+    (replay is forgiving and returns the base): the fail-closed check for
+    ``accepted != ()`` with ``final == original`` lives at the artifact
+    boundary (:mod:`vibecomfy.agent.artifacts`), which receives the projected
+    ids + graph.
+    """
+    state = session_store.load(session_id)
+    if state is None:
+        state = fresh_state(session_id)
+
+    accepted_ids = tuple(state.accepted_delta_ids())
+    accepted_ops = _accepted_ops_from_refs(state.accepted_delta_refs)
+    replayed = session_store.replay_workflow(state)
+    graph_hash = canonical_workflow_hash(replayed)
+
+    evidence_ids = tuple(state.evidence_ids())
+    tool_call_ids = tuple(state.evidence_ids())
+    lens_fact_ids = tuple(state.lens_fact_ids())
+
+    if ok is None:
+        ok = failure is None
+
+    if claim_validation is None:
+        claim_validation = {"status": "ok", "violations": []} if ok else {}
+
+    return TerminalProduct(
+        ok=ok,
+        route=route,
+        reply=reply,
+        accepted_delta_ids=accepted_ids,
+        accepted_ops=accepted_ops,
+        graph=replayed,
+        graph_hash=graph_hash,
+        evidence_ids=evidence_ids,
+        tool_call_ids=tool_call_ids,
+        lens_fact_ids=lens_fact_ids,
+        budget=state.budget,
+        claim_validation=dict(claim_validation),
+        replacement_used=bool(getattr(edit_runtime, "replacement_used", False)) if edit_runtime is not None else False,
+        self_assessment=self_assessment,
+        durable_response=dict(durable_response) if durable_response is not None else None,
+        research_attempt=state.research_attempt(),
+        failure=failure,
+        soft_stop=dict(soft_stop) if soft_stop is not None else None,
+    )
 
 
 __all__ = [
@@ -1356,6 +1519,7 @@ __all__ = [
     "ERROR_UNGROUNDED_ANSWER",
     "EditSessionCache",
     "SessionBudget",
+    "TerminalProduct",
     "TwoStepSessionError",
     "TwoStepSessionState",
     "TwoStepSessionStore",
@@ -1364,5 +1528,6 @@ __all__ = [
     "fresh_state",
     "mint_lease_token",
     "normalize_session_id",
+    "project_terminal_product",
     "serialize_delta_ops",
 ]

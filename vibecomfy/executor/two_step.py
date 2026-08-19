@@ -1164,21 +1164,48 @@ def _two_step_outcome(
             or getattr(failure, "family", None)
             or "ExecuteError"
         )
-        return ExecutorResult.failure(
-            kind=kind,
-            stage="execute",
-            message=str(failure),
-            reply=outcome.get("reply"),
+        # RC-P2 P0: the projected terminal product is the ONE authority for
+        # BOTH paths.  A failure after an accepted apply must still carry the
+        # accepted Δ + replayed graph (graph-bearing edited product), never a
+        # bare ``ExecutorResult.failure`` that discards committed work.
+        product = outcome.get("terminal_product")
+        graph = outcome.get("graph")
+        accepted_delta_ids = tuple(str(i) for i in (outcome.get("accepted_delta_ids") or ()))
+        evidence_ids = tuple(str(i) for i in (outcome.get("evidence_ids") or ()))
+        tool_call_ids = tuple(str(i) for i in (outcome.get("tool_call_ids") or ()))
+        lens_fact_ids = tuple(str(i) for i in (outcome.get("lens_fact_ids") or ()))
+        implementation: "ImplementationResult | None" = None
+        if graph is not None:
+            from vibecomfy.executor.contracts import ImplementationResult  # noqa: PLC0415
+
+            durable_response = outcome.get("durable_response")
+            implementation = ImplementationResult(
+                graph=graph,
+                message=str(outcome.get("reply") or ""),
+                durable_response=durable_response if isinstance(durable_response, Mapping) else None,
+            )
+        return ExecutorResult(
+            ok=False,
             report=Report(
                 plan=plan,
                 pipeline_mode=pipeline_mode,
+                implementation=implementation,
                 execute=ExecuteReport(
                     session_id=request.session_id,
                     route=route,
                     budget_usage=_execute_budget_usage(outcome.get("budget")),
+                    tool_call_ids=tool_call_ids,
+                    evidence_ids=evidence_ids,
+                    accepted_delta_ids=accepted_delta_ids,
                     claim_validation={"status": "failed", "failure_kind": kind},
+                    replacement_used=bool(outcome.get("replacement_used")),
                 ),
             ),
+            graph=graph,
+            reply=outcome.get("reply"),
+            failure_kind=kind,
+            failure_stage="execute",
+            failure_message=str(failure),
         )
     # B04: map accepted work into the existing ImplementationResult + durable
     # candidate + ExecutorResult envelope.  Delta IDs are metadata pointing at

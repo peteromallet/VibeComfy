@@ -360,6 +360,8 @@ def run_reply_turn(
 # used: continuity is host-owned via the durable session transcript.
 
 from vibecomfy.executor.two_step import (  # noqa: E402
+    BUDGET_FAMILY_APPLY_BATCHES,
+    BUDGET_FAMILY_REPLACEMENT_ATTEMPTS,
     BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
     BudgetExceeded,
     BudgetUsage,
@@ -388,6 +390,7 @@ from vibecomfy.executor.two_step_session import (  # noqa: E402
     canonical_workflow_hash,
     derive_research_attempt,
     mint_lease_token,
+    project_terminal_product,
 )
 
 _HOST_ACTIONS = frozenset({"tool_call", "submit"})
@@ -655,6 +658,37 @@ def run_execute_turn(
             id_factory=(lambda seq, base=delta_base: f"d{base + seq}"),
         )
 
+        def _terminal(
+            failure: BaseException | None = None,
+            *,
+            reply: str | None = None,
+            ok: bool | None = None,
+            claim_validation: dict[str, Any] | None = None,
+            self_assessment: Any = None,
+            durable_response: dict[str, Any] | None = None,
+            soft_stop: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            """Project the ONE terminal outcome for every terminal path.
+
+            Budget stop, parse failure, grounding failure, second-apply soft
+            stop, and normal submit ALL route through this single projector so
+            an accepted Δ and its replayed graph can never be dropped at a
+            terminal boundary (RC-P2 P0).  No separate success-only extractor.
+            """
+            return project_terminal_product(
+                session_store=session_store,
+                session_id=session_id,
+                edit_runtime=edit_runtime,
+                route=route,
+                reply=reply,
+                failure=failure,
+                claim_validation=claim_validation,
+                ok=ok,
+                self_assessment=self_assessment,
+                durable_response=durable_response,
+                soft_stop=soft_stop,
+            ).to_outcome_dict()
+
         def _failure_outcome(failure: BaseException) -> dict[str, Any]:
             """Wrap a loop failure with a graceful reply for budget hits (RC2).
 
@@ -662,7 +696,8 @@ def run_execute_turn(
             must never leak the diagnostic string as the user-facing reply:
             attach a concrete partial-product reply and let the caller surface
             it.  Genuine fail-closed errors (parse / submit validation) keep
-            ``reply=None`` and are reported as typed failures.
+            ``reply=None`` and are reported as typed failures.  The projected
+            outcome still carries any accepted Δ + replayed graph.
             """
             graceful = isinstance(failure, BudgetExceeded) or (
                 isinstance(failure, TwoStepSessionError)
@@ -673,7 +708,7 @@ def run_execute_turn(
                 if graceful
                 else None
             )
-            return {"ok": False, "reply": reply, "route": route, "failure": failure}
+            return _terminal(failure, reply=reply, ok=False)
 
         continuation = 0
         grounding_retry_used = False
@@ -785,6 +820,31 @@ def run_execute_turn(
                         else:
                             check_apply_batch(message_budget, budget_usage)
                     except BudgetExceeded as exc:
+                        if (
+                            exc.family
+                            in {BUDGET_FAMILY_APPLY_BATCHES, BUDGET_FAMILY_REPLACEMENT_ATTEMPTS}
+                            and state.accepted_delta_ids()
+                        ):
+                            # Soft commit stop (RC-P2 P0): the first accepted Δ
+                            # stands; the second edit/apply attempt is recorded
+                            # as unapplied — NOT a destructive terminal error.
+                            session_store.append(
+                                session_id,
+                                "apply_soft_stop",
+                                {
+                                    "family": exc.family,
+                                    "tool": tool,
+                                    "route": route,
+                                },
+                                turn=turn,
+                            )
+                            state = session_store.load(session_id)
+                            return _terminal(
+                                ok=True,
+                                reply=_graceful_degradation_reply(state, edit_runtime, route),
+                                claim_validation={"status": "ok", "violations": []},
+                                soft_stop={"family": exc.family, "tool": tool},
+                            )
                         return _failure_outcome(exc)
                     outcome = edit_runtime.dispatch(tool, raw_args)
                     call_id = f"call:{session_id}:{turn}:{tool}:{len(state.evidence_ledger) + 1}"
@@ -921,7 +981,7 @@ def run_execute_turn(
                         "; ".join(grounding),
                         session_id=session_id,
                     )
-                    return {"ok": False, "reply": None, "route": route, "failure": exc}
+                    return _terminal(exc, ok=False)
                 violations = validate_two_step_final(
                     final,
                     accepted_delta_ids=state.accepted_delta_ids(),
@@ -935,7 +995,7 @@ def run_execute_turn(
                         "; ".join(violations),
                         session_id=session_id,
                     )
-                    return {"ok": False, "reply": None, "route": route, "failure": exc}
+                    return _terminal(exc, ok=False)
                 # One-step: the model's FINAL MESSAGE text (the last assistant
                 # turn's prose) IS the reply — not the structured submit
                 # contract's ``reply`` field.  Fall back to that field only
@@ -948,30 +1008,21 @@ def run_execute_turn(
                     turn=turn,
                 )
                 state = session_store.load(session_id)
-                return {
-                    "ok": True,
-                    "reply": reply_text,
-                    "route": route,
-                    "research_attempt": state.research_attempt(),
-                    "accepted_delta_ids": list(state.accepted_delta_ids()),
-                    "evidence_ids": list(state.evidence_ids()),
-                    "tool_call_ids": list(state.evidence_ids()),
-                    "lens_fact_ids": list(state.lens_fact_ids()),
-                    "budget": state.budget,
-                    "graph": edit_runtime.graph,
-                    "claim_validation": {"status": "ok", "violations": []},
-                    "self_assessment": (
+                return _terminal(
+                    ok=True,
+                    reply=reply_text,
+                    claim_validation={"status": "ok", "violations": []},
+                    self_assessment=(
                         final.self_assessment.to_dict()
                         if final.self_assessment is not None
                         else None
                     ),
-                    "replacement_used": edit_runtime.replacement_used,
-                    "durable_response": {
+                    durable_response={
                         "reply": reply_text,
                         "session_id": session_id,
                         "route": route,
                     },
-                }
+                )
             continuation += 1
 
     try:
@@ -984,7 +1035,18 @@ def run_execute_turn(
         )
         lease_acquired = True
     except TwoStepSessionError as exc:
-        return {"ok": False, "reply": None, "route": route, "failure": exc}
+        # Even a begin-message identity failure (stale/expired/concurrent)
+        # projects the retained product: prior accepted Δ + replayed graph must
+        # survive this terminal boundary too (RC-P2 P0).
+        return project_terminal_product(
+            session_store=session_store,
+            session_id=session_id,
+            edit_runtime=None,
+            route=route,
+            reply=None,
+            failure=exc,
+            ok=False,
+        ).to_outcome_dict()
 
     outcome: dict[str, Any]
     try:

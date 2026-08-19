@@ -2591,6 +2591,15 @@ class ExecutorResult:
                 if value is not None:
                     payload[key] = _thaw_jsonish(value)
         payload.update(self.turn.to_dict())
+        # RC-P2 P0: top-level compatibility projection of the ONE accepted-Δ
+        # authority.  Derived from ``report.execute.accepted_delta_ids`` (never
+        # maintained independently), so consumers — including the artifact
+        # consistency guard — can see a landed edit regardless of the envelope.
+        execute_report = self.report.execute
+        if execute_report is not None and execute_report.accepted_delta_ids:
+            payload["accepted_delta_ids"] = [
+                str(item) for item in execute_report.accepted_delta_ids if str(item)
+            ]
         if self.graph is not None:
             payload["graph"] = self.graph
         if self.failure_kind is not None:
