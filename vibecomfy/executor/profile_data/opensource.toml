@@ -4,7 +4,7 @@
 # Classify uses DeepSeek V4 Flash; research / implement use Kimi K2.7 Code;
 # reply uses DeepSeek V4 Pro.
 [profiles.opensource]
-classify   = "hermes:openrouter:deepseek/deepseek-v4-flash"
-research   = "hermes:openrouter:moonshotai/kimi-k2.7-code"
-implement  = "hermes:openrouter:moonshotai/kimi-k2.7-code"
-reply      = "hermes:openrouter:deepseek/deepseek-v4-pro"
+classify   = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
+research   = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
+implement  = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
+reply      = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
