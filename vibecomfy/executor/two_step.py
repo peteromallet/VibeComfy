@@ -75,6 +75,12 @@ BUDGET_FAMILY_SESSION_WALL_CLOCK = "session_wall_clock"
 BUDGET_FAMILY_SESSION_APPLY_BATCHES = "session_apply_batches"
 BUDGET_FAMILY_SESSION_REPLACEMENT_ATTEMPTS = "session_replacement_attempts"
 BUDGET_FAMILY_SESSION_USER_MESSAGES = "session_user_messages"
+# RC-P3: per-purpose continuation partitions (admission by PURPOSE, not tool
+# count).  Research/discovery may NOT borrow the edit/recovery or final
+# synthesis/reply reserve.
+BUDGET_FAMILY_RESEARCH_CONTINUATIONS = "research_continuations"
+BUDGET_FAMILY_EDIT_CONTINUATIONS = "edit_continuations"
+BUDGET_FAMILY_REPLY_CONTINUATIONS = "reply_continuations"
 
 
 class BudgetExceeded(Exception):
@@ -695,6 +701,21 @@ SESSION_BUDGET_CEILINGS: Mapping[str, int | float] = MappingProxyType(
         "max_user_messages": 32,
     }
 )
+
+# ── B02/P1: per-purpose continuation partitions (RC-P3) ─────────────────────
+# The single undifferentiated ``max_model_continuations=64`` pool let research
+# consume the ability to edit or answer.  Admission is now partitioned by
+# PURPOSE, not by tool count: research/discovery 40, edit/recovery 16, and
+# final synthesis/reply 8.  These sum to the total 64 ceiling (which is
+# unchanged); a purpose may NOT borrow another's reserve.
+CONTINUATION_PARTITION_RESEARCH = 40
+CONTINUATION_PARTITION_EDIT = 16
+CONTINUATION_PARTITION_REPLY = 8
+
+# Consecutive empty/no-result research tool calls that close research for the
+# message (transition to graph-local action or a grounded reply) instead of
+# restarting the same search indefinitely.
+MAX_EMPTY_RESEARCH_STREAK = 3
 
 
 @dataclass(frozen=True)

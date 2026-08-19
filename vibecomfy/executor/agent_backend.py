@@ -361,10 +361,17 @@ def run_reply_turn(
 
 from vibecomfy.executor.two_step import (  # noqa: E402
     BUDGET_FAMILY_APPLY_BATCHES,
+    BUDGET_FAMILY_EDIT_CONTINUATIONS,
     BUDGET_FAMILY_REPLACEMENT_ATTEMPTS,
+    BUDGET_FAMILY_REPLY_CONTINUATIONS,
+    BUDGET_FAMILY_RESEARCH_CONTINUATIONS,
     BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
     BudgetExceeded,
     BudgetUsage,
+    CONTINUATION_PARTITION_EDIT,
+    CONTINUATION_PARTITION_REPLY,
+    CONTINUATION_PARTITION_RESEARCH,
+    MAX_EMPTY_RESEARCH_STREAK,
     MessageBudget,
     check_apply_batch,
     check_before_model_call,
@@ -589,6 +596,8 @@ def run_execute_turn(
     fact_pack: Any = None,
     max_continuations: int | None = None,
     web_search_enabled: bool = False,
+    fresh_budget_epoch: bool = False,
+    budget_epoch: str | None = None,
 ) -> dict[str, Any]:
     """Run ONE bounded two-step execute turn for *request*.
 
@@ -712,6 +721,16 @@ def run_execute_turn(
 
         continuation = 0
         grounding_retry_used = False
+        # RC-P3: per-purpose continuation partitioning.  Each model turn is
+        # admitted against ONE purpose's reserve (research/discovery 40,
+        # edit/recovery 16, final synthesis/reply 8); research may not borrow
+        # the edit/reply reserve.  ``research_closed_reason`` latches
+        # reply-only mode after a successful apply or repeated no-result
+        # research, so the agent transitions to a grounded reply instead of
+        # restarting the same search.
+        purpose_used = {"research": 0, "edit": 0, "reply": 0}
+        research_closed_reason: str | None = None
+        empty_research_streak = 0
         while True:
             session_budget = state.budget
             try:
@@ -809,6 +828,21 @@ def run_execute_turn(
                     # rejection (transcript FIRST, then the sidecar cache), and
                     # record the STRUCTURED result (never only a prose digest)
                     # so the next continuation can cite the Δ id.
+                    if purpose_used["edit"] >= CONTINUATION_PARTITION_EDIT:
+                        session_store.append(
+                            session_id,
+                            "purpose_denied",
+                            {
+                                "purpose": "edit",
+                                "detail": "edit/recovery continuation partition exhausted",
+                                "route": route,
+                            },
+                            turn=turn,
+                        )
+                        state = session_store.load(session_id)
+                        continuation += 1
+                        continue
+                    purpose_used["edit"] += 1
                     try:
                         check_edit_tool_allowed(route, tool)
                     except BudgetExceeded as exc:
@@ -869,6 +903,10 @@ def run_execute_turn(
                         except BudgetExceeded as exc:
                             return _failure_outcome(exc)
                     if outcome.ok:
+                        # RC-P3: a successful apply closes research for this
+                        # message — the agent enters reply-only mode (further
+                        # research tool calls are denied).
+                        research_closed_reason = "successful apply (reply-only mode)"
                         budget_usage = consume_apply_batch(message_budget, budget_usage)
                         try:
                             session_budget = session_budget.record_apply_batch()
@@ -930,6 +968,25 @@ def run_execute_turn(
                     )
                     state = session_store.load(session_id)
                 else:
+                    if (
+                        research_closed_reason is not None
+                        or purpose_used["research"] >= CONTINUATION_PARTITION_RESEARCH
+                    ):
+                        detail = (
+                            f"research closed: {research_closed_reason}"
+                            if research_closed_reason is not None
+                            else "research/discovery continuation partition exhausted"
+                        )
+                        session_store.append(
+                            session_id,
+                            "purpose_denied",
+                            {"purpose": "research", "detail": detail, "route": route},
+                            turn=turn,
+                        )
+                        state = session_store.load(session_id)
+                        continuation += 1
+                        continue
+                    purpose_used["research"] += 1
                     args = raw_args if isinstance(raw_args, dict) else {}
                     try:
                         budget_usage, _digest, _eids = _run_tool_call(
@@ -949,11 +1006,28 @@ def run_execute_turn(
                         # Route-allowlist denial or call-cap breach: a typed budget
                         # failure carrying the canonical B02 ``family``.
                         return _failure_outcome(exc)
+                    if _eids:
+                        empty_research_streak = 0
+                    else:
+                        empty_research_streak += 1
+                        if empty_research_streak >= MAX_EMPTY_RESEARCH_STREAK:
+                            research_closed_reason = "repeated no-result research"
                     state = session_store.append(
                         session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
                     )
                     state = session_store.load(session_id)
             elif kind == "submit":
+                if purpose_used["reply"] >= CONTINUATION_PARTITION_REPLY:
+                    return _failure_outcome(
+                        BudgetExceeded(
+                            family=BUDGET_FAMILY_REPLY_CONTINUATIONS,
+                            limit=CONTINUATION_PARTITION_REPLY,
+                            used=purpose_used["reply"],
+                            route=route,
+                            detail="final synthesis/reply continuation partition exhausted",
+                        )
+                    )
+                purpose_used["reply"] += 1
                 state = session_store.load(session_id)
                 final = parse_two_step_submit(action)
                 grounding = grounding_violations(
@@ -1032,6 +1106,8 @@ def run_execute_turn(
             expected_baseline_hash=getattr(request, "expected_baseline_graph_hash", None),
             message_fingerprint=fingerprint,
             lease_token=lease_token,
+            fresh_budget_epoch=fresh_budget_epoch,
+            budget_epoch=budget_epoch,
         )
         lease_acquired = True
     except TwoStepSessionError as exc:

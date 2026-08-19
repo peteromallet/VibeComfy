@@ -133,19 +133,21 @@ def _load_workflow(path: str | None) -> dict[str, Any] | None:
     return data
 
 
-def _two_step_session_id(scenario_id: str) -> str:
-    """Deterministic, stable per-window session id for a two-step scenario.
+def _two_step_session_id(scenario_id: str, *, tag: str = "") -> str:
+    """Deterministic, per-window session id for a two-step scenario.
 
     The two-step execute phase requires a ``session_id`` (the server never
     mints ids), and one window's classify → execute chain must reuse a SINGLE
     session id so the session can continue across the window's model calls.
-    Deriving the id from the scenario id alone makes it stable across runner
-    attempts (infra retries reuse the same session) and across separate runs
-    of the same scenario, while the ``two-step-`` prefix keeps it disjoint
-    from caller-supplied session ids.  The output is a single safe path
-    component (``[a-z0-9-]`` only).
+    Deriving the id from the scenario id (plus an optional *tag*) keeps it
+    stable within one run while the ``two-step-`` prefix keeps it disjoint
+    from caller-supplied session ids.  When *tag* is supplied (the harness
+    attempt tag), each attempt gets a FRESH session id — and therefore a
+    fresh budget epoch — so an exhausted r5/r6 test budget never starves an
+    r7 measurement on the same scenario (RC-P3).  The output is a single safe
+    path component (``[a-z0-9-]`` only).
     """
-    digest = hashlib.sha256(f"two-step:{scenario_id}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"two-step:{tag}:{scenario_id}".encode("utf-8")).hexdigest()
     return f"two-step-{digest[:24]}"
 
 
@@ -237,7 +239,9 @@ def run_headless_scenario(
     mode = _resolve_pipeline_mode(pipeline_mode, scenario)
     session_id = scenario.get("session_id")
     if mode == "two_step" and not session_id:
-        session_id = _two_step_session_id(scenario_id)
+        # RC-P3: tag the session id with the attempt tag so each harness
+        # attempt starts with a fresh session (and a fresh budget epoch).
+        session_id = _two_step_session_id(scenario_id, tag=tag)
 
     request = HeadlessAgentRequest(
         query=query,

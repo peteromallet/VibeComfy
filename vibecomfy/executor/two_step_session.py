@@ -208,6 +208,7 @@ class TwoStepSessionState:
     evidence_ledger: tuple[dict[str, Any], ...] = ()
     replies: tuple[dict[str, Any], ...] = ()
     budget: SessionBudget = field(default_factory=SessionBudget)
+    budget_epoch: str = ""
     messages: tuple[dict[str, Any], ...] = ()
     last_workflow_hash: str | None = None
     closed: bool = False
@@ -280,6 +281,7 @@ class TwoStepSessionState:
             "evidence_ledger": list(self.evidence_ledger),
             "replies": list(self.replies),
             "budget": self.budget.to_dict(),
+            "budget_epoch": self.budget_epoch,
             "messages": list(self.messages),
             "last_workflow_hash": self.last_workflow_hash,
             "closed": self.closed,
@@ -307,6 +309,7 @@ class TwoStepSessionState:
                 d for d in (data.get("replies") or ()) if isinstance(d, Mapping)
             ),
             budget=SessionBudget.from_dict(data.get("budget") or {}),
+            budget_epoch=str(data.get("budget_epoch") or ""),
             messages=tuple(
                 d for d in (data.get("messages") or ()) if isinstance(d, Mapping)
             ),
@@ -1031,6 +1034,8 @@ class TwoStepSessionStore:
         expected_baseline_hash: str | None = None,
         message_fingerprint: str | None = None,
         lease_token: str | None = None,
+        budget_epoch: str | None = None,
+        fresh_budget_epoch: bool = False,
     ) -> TwoStepSessionState:
         """Validate identity + staleness/concurrency BEFORE any model work.
 
@@ -1085,7 +1090,16 @@ class TwoStepSessionStore:
                 )
             self._acquire_in_flight(safe_id, lease_key)
             state = self.open_session(safe_id, base_graph=base_graph)
-            return state
+        # RC-P3: a fresh budget epoch scopes the cumulative session budget to
+        # this attempt — prior budget events (from an earlier exhausted attempt
+        # on the same scenario) are folded out, so they cannot starve this
+        # measurement.  Production multi-message conversations keep the default
+        # (no epoch), so their history stays durable.
+        if fresh_budget_epoch and budget_epoch is None:
+            budget_epoch = f"epoch-{uuid.uuid4().hex[:16]}"
+        if budget_epoch is not None:
+            state = self.append_events(safe_id, [{"kind": "epoch", "epoch": budget_epoch}])
+        return state
 
     def end_message(
         self,
@@ -1347,6 +1361,27 @@ class TwoStepSessionStore:
             )
         elif kind == "budget":
             state = replace(state, budget=SessionBudget.from_dict(event.get("budget") or {}))
+        elif kind == "epoch":
+            # RC-P3: a fresh budget epoch scopes the cumulative budget to the
+            # current attempt — prior-epoch budget events are already folded and
+            # are now discarded, so an exhausted earlier attempt never starves
+            # the next measurement on the same scenario/session.
+            state = replace(
+                state,
+                budget=SessionBudget(),
+                budget_epoch=str(event.get("epoch") or ""),
+            )
+        elif kind == "purpose_denied":
+            purpose = str(event.get("purpose") or "")
+            detail = str(event.get("detail") or "")
+            text = (
+                f"action denied: {purpose} — {detail}. "
+                "Do not retry the same tool; act on the graph directly or submit your final answer."
+            )
+            state = replace(
+                state,
+                messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
+            )
         elif kind == "closed":
             state = replace(state, closed=True)
         return state

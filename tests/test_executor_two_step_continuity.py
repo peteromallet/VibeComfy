@@ -1068,3 +1068,294 @@ def test_two_step_edit_session_typed_runtime_accepts_edit_for_envelope_and_api()
     assert set(api_session.workflow.nodes.keys()) == api_nodes
     assert api_session.workflow.nodes["2"].inputs.get("text") == "a dog"
 
+
+# ── RC-P3: per-purpose continuation partitioning ─────────────────────────────
+#
+# One undifferentiated continuation pool (max_model_continuations=64) let
+# research consume the ability to edit or answer.  Admission is now partitioned
+# by purpose: research/discovery 40, edit/recovery 16, final synthesis/reply 8
+# (summing to the unchanged 64 ceiling).  Research may not borrow the edit/
+# reply reserve; a successful apply closes research for the message; a fresh
+# budget epoch scopes an exhausted prior attempt out of the next measurement.
+
+
+def _fake_tool_executor_evidence(tool: str, args: dict):
+    """Tool stub returning non-empty evidence so no-result detection stays quiet."""
+    return ({"e1": {"tool": tool}}, {}, f"{tool}-digest")
+
+
+def _partition_request(session_id: str, graph=None):
+    return SimpleNamespace(
+        query="partition scenario",
+        graph=graph,
+        session_id=session_id,
+        idempotency_key=None,
+        expected_baseline_graph_hash=None,
+    )
+
+
+def test_research_partition_exhaustion_stops_research_and_enters_reply(tmp_path) -> None:
+    """A research-heavy message exceeding 40 research continuations stops
+    researching and still enters reply with budget for the answer."""
+    store = _store(tmp_path)
+    research_calls = {"n": 0}
+    submit_calls = {"n": 0}
+
+    def model_turn_fn(task, messages, **kwargs):
+        if research_calls["n"] < 41:
+            research_calls["n"] += 1
+            return {
+                "content": json.dumps(
+                    {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "x"}}
+                ),
+                "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+            }
+        submit_calls["n"] += 1
+        return {
+            "content": json.dumps({"action": "submit", "reply": "the answer", "delta_ids": []}),
+            "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+        }
+
+    outcome = run_execute_turn(
+        _partition_request("win-a"),
+        plan=_plan_for("adapt", research=True),
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+        tool_executor=_fake_tool_executor_evidence,
+    )
+    assert outcome["ok"] is True
+    assert research_calls["n"] == 41  # 40 admitted + 1 denied, then submit
+    assert submit_calls["n"] == 1
+
+    state = store.load("win-a")
+    research_ledger = [e for e in state.evidence_ledger if e.get("tool") == "hivemind_search"]
+    assert len(research_ledger) == 40  # the 41st research call was denied
+    assert any(
+        m.get("role") == "assistant_feedback" and "research" in m.get("content", "")
+        for m in state.messages
+    )
+
+
+def test_edit_partition_does_not_starve_reply(tmp_path) -> None:
+    """An edit-heavy message consumes its 16-edit reserve without starving the
+    8-strong reply reserve."""
+    store = _store(tmp_path)
+    edit_calls = {"n": 0}
+    submit_calls = {"n": 0}
+
+    def model_turn_fn(task, messages, **kwargs):
+        if edit_calls["n"] < 17:
+            edit_calls["n"] += 1
+            return {
+                "content": json.dumps({"action": "tool_call", "tool": "edit_node", "args": {}}),
+                "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+            }
+        submit_calls["n"] += 1
+        return {
+            "content": json.dumps({"action": "submit", "reply": "edited", "delta_ids": []}),
+            "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+        }
+
+    outcome = run_execute_turn(
+        _partition_request("win-a"),
+        plan=_plan_for("adapt"),
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+    )
+    assert outcome["ok"] is True
+    assert edit_calls["n"] == 17  # 16 admitted + 1 denied, then submit
+    assert submit_calls["n"] == 1
+
+    state = store.load("win-a")
+    edit_ledger = [e for e in state.evidence_ledger if e.get("tool") == "edit_node"]
+    assert len(edit_ledger) == 16  # the 17th edit call was denied by the edit partition
+    assert any(
+        m.get("role") == "assistant_feedback" and "edit" in m.get("content", "")
+        for m in state.messages
+    )
+
+
+def test_research_cannot_borrow_edit_reserve(tmp_path) -> None:
+    """A message that exhausts research can still perform the edit from the
+    separate edit reserve (research never borrows edit/reply)."""
+    store = _store(tmp_path)
+    stage = {"n": 0}
+
+    def model_turn_fn(task, messages, **kwargs):
+        n = stage["n"]
+        stage["n"] += 1
+        if n < 41:
+            return {
+                "content": json.dumps(
+                    {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "x"}}
+                ),
+                "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+            }
+        if n == 41:
+            return {
+                "content": json.dumps({"action": "tool_call", "tool": "edit_node", "args": {}}),
+                "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+            }
+        return {
+            "content": json.dumps({"action": "submit", "reply": "edited", "delta_ids": []}),
+            "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+        }
+
+    outcome = run_execute_turn(
+        _partition_request("win-a"),
+        plan=_plan_for("adapt", research=True),
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+        tool_executor=_fake_tool_executor_evidence,
+    )
+    assert outcome["ok"] is True
+    state = store.load("win-a")
+    research_n = len([e for e in state.evidence_ledger if e.get("tool") == "hivemind_search"])
+    edit_n = len([e for e in state.evidence_ledger if e.get("tool") == "edit_node"])
+    assert research_n == 40
+    assert edit_n == 1  # the edit came from the separate edit reserve
+
+
+def test_successful_apply_closes_research_reply_only(tmp_path) -> None:
+    """After a successful apply, further research tool calls are denied
+    (reply-only mode)."""
+    from vibecomfy.executor.two_step import _two_step_tool_executor  # noqa: PLC0415
+    from vibecomfy.porting.edit.session import EditSession  # noqa: PLC0415
+
+    store = _store(tmp_path)
+    graph = _flat_ui()
+    edit_session = EditSession(dict(graph), schema_provider=_CLIPTextEncodeProvider())
+    tool_executor = _two_step_tool_executor(route="adapt", edit_session=edit_session)
+
+    actions = [
+        {
+            "action": "tool_call",
+            "tool": "edit_node",
+            "args": {"target": "cliptextencode", "field": "text", "value": "a faithful edited prompt"},
+        },
+        {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "post-apply research"}},
+        {"action": "submit", "reply": "edited", "claim_refs": {"delta_ids": ["d1"]}},
+    ]
+
+    def model_turn_fn(task, messages, **kwargs):
+        action = actions.pop(0)
+        return {
+            "content": json.dumps(action),
+            "model_attempts": [{"token_usage": {"completion_tokens": 100}}],
+        }
+
+    outcome = run_execute_turn(
+        _partition_request("win-a", graph=dict(graph)),
+        plan=_plan_for("adapt", research=True),
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+        tool_executor=tool_executor,
+        edit_session=edit_session,
+    )
+    assert outcome["ok"] is True
+    assert outcome["accepted_delta_ids"] == ["d1"]
+    state = store.load("win-a")
+    # The post-apply research call was denied, never dispatched.
+    assert not any(e.get("tool") == "hivemind_search" for e in state.evidence_ledger)
+    assert any(
+        m.get("role") == "assistant_feedback" and "research closed" in m.get("content", "")
+        for m in state.messages
+    )
+
+
+def test_fresh_budget_epoch_scopes_out_exhausted_prior_attempt(tmp_path) -> None:
+    """An exhausted prior attempt does not starve the next attempt on the same
+    scenario: a fresh budget epoch folds the prior-epoch budget out."""
+    store = _store(tmp_path)
+    # Prior attempt exhausts the cumulative model-continuation budget.
+    store.begin_message("win-a", message_fingerprint="f1", base_graph={"nodes": []})
+    budget = store.load("win-a").budget
+    for _ in range(64):
+        budget = budget.record_model_continuation()
+    store.append("win-a", "budget", {"budget": budget.to_dict()}, turn=1)
+    store.end_message("win-a", message_fingerprint="f1")
+    assert store.load("win-a").budget.model_continuations == 64
+
+    # Same scenario, fresh epoch: the exhausted prior budget is folded out.
+    state = store.begin_message(
+        "win-a", message_fingerprint="f2", fresh_budget_epoch=True
+    )
+    assert state.budget.model_continuations == 0
+    assert state.budget_epoch
+    store.end_message("win-a", message_fingerprint="f2")
+
+
+def test_fresh_budget_epoch_turn_not_starved_by_prior_attempt(tmp_path) -> None:
+    """A real execute turn with ``fresh_budget_epoch`` is not starved by an
+    exhausted prior attempt on the same session id."""
+    store = _store(tmp_path)
+    store.begin_message("win-a", message_fingerprint="f1", base_graph={"nodes": []})
+    budget = store.load("win-a").budget
+    for _ in range(64):
+        budget = budget.record_model_continuation()
+    store.append("win-a", "budget", {"budget": budget.to_dict()}, turn=1)
+    store.end_message("win-a", message_fingerprint="f1")
+
+    outcome = run_execute_turn(
+        _partition_request("win-a"),
+        plan=_plan_for("revise"),
+        route="revise",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=_scripted_model({"action": "submit", "reply": "ok", "delta_ids": []}),
+        fresh_budget_epoch=True,
+    )
+    assert outcome["ok"] is True
+    assert outcome["reply"] is not None
+
+
+def test_repeated_no_result_research_closes_research(tmp_path) -> None:
+    """Repeated no-result research transitions to a grounded reply instead of
+    restarting the same search forever."""
+    store = _store(tmp_path)
+    calls = {"n": 0}
+
+    def model_turn_fn(task, messages, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= 4:
+            return {
+                "content": json.dumps(
+                    {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "x"}}
+                ),
+                "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+            }
+        return {
+            "content": json.dumps(
+                {"action": "submit", "reply": "no results; here is the grounded answer", "delta_ids": []}
+            ),
+            "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+        }
+
+    outcome = run_execute_turn(
+        _partition_request("win-a"),
+        plan=_plan_for("adapt", research=True),
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+        tool_executor=_fake_tool_executor,  # returns None → empty evidence
+    )
+    assert outcome["ok"] is True
+    state = store.load("win-a")
+    research_n = len([e for e in state.evidence_ledger if e.get("tool") == "hivemind_search"])
+    assert research_n == 3  # only 3 no-result searches admitted; the 4th denied
+
