@@ -917,6 +917,46 @@ class TwoStepSessionStore:
         state = replace(state, updated_at=str(events[-1].get("ts") or "") if events else "")
         return state
 
+    def load_through(
+        self, session_id: str, checkpoint_seq: int | None
+    ) -> TwoStepSessionState | None:
+        """Rehydrate the state folded ONLY through ``checkpoint_seq`` (inclusive).
+
+        This is the RC-P6 P1 closed-message authority: the scored terminal
+        product for one message must fold the durable ledger only up to that
+        message's checkpoint, so a later message's accepted Δ / submit can never
+        leak backward into an earlier message's product.  Returns ``None`` when
+        no transcript exists (mirrors :meth:`ingest_transcript`).
+        """
+        safe_id = normalize_session_id(session_id)
+        path = self.transcript_path(safe_id)
+        if not path.is_file():
+            return None
+        state = fresh_state(safe_id, now_iso="")
+        events: list[dict[str, Any]] = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    LOGGER.warning("two-step transcript: skipping corrupt line in %s", path)
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                seq = event.get("seq")
+                if checkpoint_seq is not None and isinstance(seq, int) and seq > checkpoint_seq:
+                    continue
+                events.append(event)
+        state = self._fold_events(state, events)
+        if not state.created_at and events:
+            first = events[0]
+            state = replace(state, created_at=str(first.get("ts") or ""))
+        state = replace(state, updated_at=str(events[-1].get("ts") or "") if events else "")
+        return state
+
     def replay_workflow(
         self, state: TwoStepSessionState, *, base_graph: Mapping[str, Any] | None = None, schema_provider: Any = None
     ) -> dict[str, Any] | None:
@@ -1344,6 +1384,16 @@ class TwoStepSessionStore:
                 state,
                 messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
             )
+        elif kind == "parse_retry":
+            detail = str(event.get("error") or "malformed host action")
+            text = (
+                "the last model action could not be parsed as a tool_call or "
+                f"submit ({detail}) — respond with a valid JSON host action."
+            )
+            state = replace(
+                state,
+                messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
+            )
         elif kind == "model_truncated":
             # A provider ``finish_reason=length`` cut the model off mid-action.
             # The partial output is retained so the next continuation sees what
@@ -1417,6 +1467,25 @@ class TwoStepSessionStore:
 # extractor may remain; the projector is the single state reader.
 
 
+def terminal_durable_response(product: "TerminalProduct") -> dict[str, Any]:
+    """Project the canonical durable-response envelope for a terminal product.
+
+    The executor's raw ``durable_response`` is a thin compatibility dict that
+    never derives ``change_details.landed_operation_count``.  This projection is
+    the ONE place that field is produced: it is derived from the SOLE durable Δ
+    (``accepted_batch``) every time, never copied from prose or a caller
+    argument.  Any caller-supplied count is overwritten — it is derived
+    metadata, never an independent claim — and an empty batch emits ``0`` (so a
+    stale positive count can never back a false ``graph_unchanged=false``).
+    Other legitimate ``change_details`` keys are preserved.
+    """
+    response = dict(product.durable_response or {})
+    details = dict(response.get("change_details") or {})
+    details["landed_operation_count"] = len(product.accepted_batch)
+    response["change_details"] = details
+    return response
+
+
 @dataclass(frozen=True)
 class TerminalProduct:
     """The one projected terminal outcome for a two-step execute message.
@@ -1484,7 +1553,7 @@ class TerminalProduct:
             "claim_validation": self.claim_validation,
             "self_assessment": self.self_assessment,
             "replacement_used": self.replacement_used,
-            "durable_response": self.durable_response,
+            "durable_response": terminal_durable_response(self),
             "terminal_product": self,
         }
         if self.failure is not None:
@@ -1730,8 +1799,25 @@ def finalize_scored_terminal_product(
     if terminal_seq is None:
         terminal_seq = state.last_seq
 
+    # RC-P6 P1: fold the durable ledger ONLY through the closed message
+    # checkpoint.  A later message's accepted Δ / submit must never leak into
+    # this message's scored product, and the reply below is the LAST terminal
+    # submit visible up to that checkpoint.
+    checkpointed = session_store.load_through(session_id, terminal_seq)
+    if checkpointed is not None:
+        state = checkpointed
+
     accepted_batch = _accepted_batch_from_refs(state.accepted_delta_refs)
     accepted_delta_ids = _accepted_delta_ids_from_batch(accepted_batch)
+
+    # Choose the LAST terminal submit up to the checkpoint as the scored reply;
+    # the caller-supplied ``reply`` is only a fallback when the message produced
+    # no submit (e.g. a budget stop before any submit).  This preserves the
+    # accepted batch's accompanying answer across later diagnostics.
+    if state.replies:
+        last_reply = str(state.replies[-1].get("reply") or "")
+        if last_reply:
+            reply = last_reply
 
     base_graph = session_store._read_base_graph(session_id)
     base_hash = canonical_workflow_hash(base_graph)

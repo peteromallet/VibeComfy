@@ -721,6 +721,14 @@ def run_execute_turn(
 
         continuation = 0
         grounding_retry_used = False
+        # RC-P6 P1: a malformed host action (model output without a parseable
+        # ``tool_call``/``submit`` action) gets ONE bounded corrective retry —
+        # but only while no terminal submit has closed this scored message.  A
+        # single malformed turn must not hard-fail the message and erase an
+        # already-accepted Δ; after a valid submit the loop has already
+        # returned, so no later model output becomes part of the scored
+        # message.
+        parse_retry_used = False
         # RC-P3: per-purpose continuation partitioning.  Each model turn is
         # admitted against ONE purpose's reserve (research/discovery 40,
         # edit/recovery 16, final synthesis/reply 8); research may not borrow
@@ -815,7 +823,22 @@ def run_execute_turn(
             try:
                 action = _parse_host_action(raw)
             except Exception as exc:
-                return _failure_outcome(exc)
+                if parse_retry_used:
+                    return _failure_outcome(exc)
+                # One corrective continuation for a malformed host action: feed
+                # the parse diagnostic back so the model can re-emit a valid
+                # tool_call/submit.  The retry is bounded (single shot) and only
+                # ever runs before a terminal submit exists in this message.
+                parse_retry_used = True
+                session_store.append(
+                    session_id,
+                    "parse_retry",
+                    {"error": str(exc), "route": route},
+                    turn=turn,
+                )
+                state = session_store.load(session_id)
+                continuation += 1
+                continue
 
             kind = action.get("action")
             if kind == "tool_call":
