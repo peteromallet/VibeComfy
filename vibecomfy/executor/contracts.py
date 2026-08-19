@@ -1954,6 +1954,10 @@ class ExecuteReport:
     tool_call_ids: tuple[str, ...] = ()
     evidence_ids: tuple[str, ...] = ()
     accepted_delta_ids: tuple[str, ...] = ()
+    # RC-P4: the sole durable Δ (each item carries its landed typed ``op``).
+    # ``accepted_delta_ids`` is derived from it downstream, never maintained
+    # beside it.
+    accepted_batch: tuple[dict[str, Any], ...] = ()
     claim_validation: Mapping[str, Any] = field(default_factory=dict)
     replacement_used: bool = False
     self_assessment: Any = None
@@ -1981,6 +1985,15 @@ class ExecuteReport:
             )
         object.__setattr__(
             self,
+            "accepted_batch",
+            tuple(
+                dict(item)
+                for item in (self.accepted_batch or ())
+                if isinstance(item, Mapping)
+            ),
+        )
+        object.__setattr__(
+            self,
             "claim_validation",
             MappingProxyType({
                 str(key): _freeze_jsonish(value)
@@ -1997,6 +2010,7 @@ class ExecuteReport:
             "tool_call_ids": list(self.tool_call_ids),
             "evidence_ids": list(self.evidence_ids),
             "accepted_delta_ids": list(self.accepted_delta_ids),
+            "accepted_batch": [dict(item) for item in self.accepted_batch],
             "claim_validation": _thaw_jsonish(self.claim_validation),
             "replacement_used": self.replacement_used,
         }
@@ -2599,6 +2613,13 @@ class ExecutorResult:
         if execute_report is not None and execute_report.accepted_delta_ids:
             payload["accepted_delta_ids"] = [
                 str(item) for item in execute_report.accepted_delta_ids if str(item)
+            ]
+        # RC-P4: project the sole durable Δ (``accepted_batch``) top-level too,
+        # from the SAME execute report.  This is the body the judge's canonical
+        # ingest reads; ``accepted_delta_ids`` above is derived metadata only.
+        if execute_report is not None and execute_report.accepted_batch:
+            payload["accepted_batch"] = [
+                dict(item) for item in execute_report.accepted_batch
             ]
         if self.graph is not None:
             payload["graph"] = self.graph

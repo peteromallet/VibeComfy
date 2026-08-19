@@ -364,6 +364,30 @@ def _accepted_delta_ids(response: Mapping[str, Any]) -> tuple[str, ...]:
     return ()
 
 
+def _accepted_batch(response: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Normalized accepted-batch (the sole durable Δ) from the response envelope.
+
+    Reads the top-level ``accepted_batch`` first, then the nested
+    ``report.executor.execute.accepted_batch``, so the consistency guard is
+    never blind to a landed edit regardless of which projection carried it.
+    """
+    candidates: list[Any] = [response.get("accepted_batch")]
+    report = response.get("report")
+    if isinstance(report, Mapping):
+        executor = report.get("executor")
+        if isinstance(executor, Mapping):
+            execute = executor.get("execute")
+            if isinstance(execute, Mapping):
+                candidates.append(execute.get("accepted_batch"))
+        candidates.append(report.get("accepted_batch"))
+    for raw in candidates:
+        if isinstance(raw, (list, tuple)):
+            batch = tuple(dict(item) for item in raw if isinstance(item, Mapping))
+            if batch:
+                return batch
+    return ()
+
+
 def _load_ui_mapping(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
@@ -374,6 +398,30 @@ def _load_ui_mapping(path: Path) -> dict[str, Any] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
+def _graph_has_nodes(graph: Mapping[str, Any]) -> bool:
+    """True when *graph* declares a positive node count in any known shape."""
+    from vibecomfy.ingest.normalize import door_get_nodes  # noqa: PLC0415
+
+    nodes = door_get_nodes(graph)
+    if isinstance(nodes, (list, tuple)):
+        return len(nodes) > 0
+    if isinstance(nodes, dict):
+        return len(nodes) > 0
+    # Raw node-keyed / API form: top-level keys that carry ``class_type``.
+    return any(
+        isinstance(node, Mapping) and "class_type" in node
+        for node in graph.values()
+    )
+
+
+def _graph_has_zero_nodes(graph: Mapping[str, Any]) -> bool:
+    """True when *graph* is a LiteGraph shape with an explicitly empty node list."""
+    from vibecomfy.ingest.normalize import door_get_nodes  # noqa: PLC0415
+
+    nodes = door_get_nodes(graph)
+    return isinstance(nodes, (list, tuple)) and len(nodes) == 0
+
+
 def _route_projects_final_from_original(response: Mapping[str, Any]) -> bool:
     """Unchanged / refused / clarify / inspect / research routes project final=original.
 
@@ -381,7 +429,7 @@ def _route_projects_final_from_original(response: Mapping[str, Any]) -> bool:
     means an edit batch was accepted, so ``graph_unchanged=true`` (or an
     unchanged route label) can never be authoritative for the final artifact.
     """
-    if _accepted_delta_ids(response):
+    if _accepted_delta_ids(response) or _accepted_batch(response):
         return False
     route = response.get("route")
     if isinstance(route, str) and route in _UNCHANGED_UI_ROUTES:
@@ -445,16 +493,27 @@ def persist_universal_ui_evidence(
             final = original
 
     # Accepted-delta consistency guard: a non-empty accepted batch can never be
-    # projected as ``final == original``.  If no candidate/retained graph was
-    # loaded (or the loaded projection equals the original), fail closed with a
-    # typed error instead of fabricating unchanged evidence.
-    if _accepted_delta_ids(response) and final == original:
-        raise ArtifactConsistencyError(
-            "accepted_delta_ids is non-empty but the final artifact projection "
-            "equals the original graph; the accepted batch was hidden by the "
-            "response projection (candidate/retained graph missing or replay "
-            "did not produce a change). Refusing to write final == original."
-        )
+    # projected as ``final == original``, and a non-empty source can never
+    # collapse to a zero-node final (raw-format/envelope graphs must survive
+    # the named ingest door).  Fail closed with a typed error instead of
+    # fabricating unchanged or zero-node evidence.
+    accepted_batch = _accepted_batch(response)
+    accepted_ids = _accepted_delta_ids(response)
+    if accepted_batch or accepted_ids:
+        if final == original:
+            raise ArtifactConsistencyError(
+                "accepted delta is non-empty but the final artifact projection "
+                "equals the original graph; the accepted batch was hidden by the "
+                "response projection (candidate/retained graph missing or replay "
+                "did not produce a change). Refusing to write final == original."
+            )
+        if _graph_has_zero_nodes(final) and _graph_has_nodes(original):
+            raise ArtifactConsistencyError(
+                "accepted delta is non-empty but the final artifact projection "
+                "collapsed to a zero-node graph from a non-empty source; the "
+                "retained IR was not ingested through the named door. Refusing "
+                "to write a zero-node final."
+            )
 
     _safe_write(original_path, _redact(original))
     _append_manifest(manifest, "original.ui.json")

@@ -154,6 +154,7 @@ def test_execute_report_to_dict_full_shape() -> None:
         "tool_call_ids": ["tool-1", "tool-2"],
         "evidence_ids": ["ev-1"],
         "accepted_delta_ids": ["delta-1"],
+        "accepted_batch": [],
         "claim_validation": {"status": "ok", "violations": []},
         "replacement_used": True,
         "self_assessment": {"confidence": "high", "note": "done"},

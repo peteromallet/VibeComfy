@@ -657,16 +657,24 @@ def _apply_parameter_identity_pregrade(
 
 
 def _to_workflow_ir(ir: Mapping[str, Any], *, schema_provider: Any = None) -> Any:
-    """Convert a durable graph view (UI or rich envelope) to a VibeWorkflow IR."""
-    from vibecomfy.ingest.normalize import from_envelope, from_ui
+    """Convert a durable graph view (UI or rich envelope) to a VibeWorkflow IR.
 
-    if isinstance(ir.get("nodes"), dict) or "vibecomfy_format_version" in ir:
-        return from_envelope(dict(ir))
-    return from_ui(
-        dict(ir),
+    RC-P4: single named ingest authority.  The previous manual dispatcher fell
+    back to ``from_ui`` for raw node-keyed / API-shaped graphs, which decoded
+    them to zero nodes and fabricated "0 nodes/edges" narratives.  The shared
+    named door routes by shape and the non-empty assertion fails closed on a
+    non-empty source that decodes to zero IR nodes.
+    """
+    from vibecomfy.ingest.normalize import _assert_nonempty_ingest_preserved, _named_import
+
+    raw = dict(ir)
+    workflow = _named_import(
+        raw,
         schema_provider=schema_provider,
         use_comfy_converter=False,
     )
+    _assert_nonempty_ingest_preserved(raw, workflow)
+    return workflow
 
 
 def _verify_delta_replay(

@@ -1192,6 +1192,9 @@ def _two_step_outcome(
         product = outcome.get("terminal_product")
         graph = outcome.get("graph")
         accepted_delta_ids = tuple(str(i) for i in (outcome.get("accepted_delta_ids") or ()))
+        accepted_batch = tuple(
+            dict(i) for i in (outcome.get("accepted_batch") or ()) if isinstance(i, Mapping)
+        )
         evidence_ids = tuple(str(i) for i in (outcome.get("evidence_ids") or ()))
         tool_call_ids = tuple(str(i) for i in (outcome.get("tool_call_ids") or ()))
         lens_fact_ids = tuple(str(i) for i in (outcome.get("lens_fact_ids") or ()))
@@ -1218,6 +1221,7 @@ def _two_step_outcome(
                     tool_call_ids=tool_call_ids,
                     evidence_ids=evidence_ids,
                     accepted_delta_ids=accepted_delta_ids,
+                    accepted_batch=accepted_batch,
                     claim_validation={"status": "failed", "failure_kind": kind},
                     replacement_used=bool(outcome.get("replacement_used")),
                 ),
@@ -1239,6 +1243,9 @@ def _two_step_outcome(
     budget_usage = _execute_budget_usage(budget)
     graph = outcome.get("graph")
     accepted_delta_ids = tuple(str(i) for i in (outcome.get("accepted_delta_ids") or ()))
+    accepted_batch = tuple(
+        dict(i) for i in (outcome.get("accepted_batch") or ()) if isinstance(i, Mapping)
+    )
     evidence_ids = tuple(str(i) for i in (outcome.get("evidence_ids") or ()))
     tool_call_ids = tuple(str(i) for i in (outcome.get("tool_call_ids") or ()))
     lens_fact_ids = tuple(str(i) for i in (outcome.get("lens_fact_ids") or ()))
@@ -1266,6 +1273,7 @@ def _two_step_outcome(
                 tool_call_ids=tool_call_ids,
                 evidence_ids=evidence_ids,
                 accepted_delta_ids=accepted_delta_ids,
+                accepted_batch=accepted_batch,
                 claim_validation=claim_validation,
                 replacement_used=bool(outcome.get("replacement_used")),
                 self_assessment=self_assessment,

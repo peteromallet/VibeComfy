@@ -44,7 +44,12 @@ def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]
     # Presentation aliases only — outcome and authority fields are never synthesized.
     if candidate_graph is not None:
         compatibility["candidate_graph"] = candidate_graph
-    compatibility["graph_unchanged"] = candidate_graph is None
+    # RC-P4 invariant: a non-empty accepted Δ (batch or ids) means the graph
+    # changed, so ``graph_unchanged`` can never be true for a landed edit.
+    has_accepted_delta = bool(
+        payload.get("accepted_batch") or payload.get("accepted_delta_ids")
+    )
+    compatibility["graph_unchanged"] = (candidate_graph is None) and not has_accepted_delta
 
     if route == "clarify":
         compatibility["clarification_required"] = True

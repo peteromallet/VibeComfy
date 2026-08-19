@@ -212,6 +212,10 @@ class TwoStepSessionState:
     messages: tuple[dict[str, Any], ...] = ()
     last_workflow_hash: str | None = None
     closed: bool = False
+    # Terminal transcript sequence number: the highest ``seq`` folded so far.
+    # This is the checkpoint the closed-session finalizer uses to prove the
+    # response, retained IR, and final UI all describe the SAME terminal state.
+    last_seq: int | None = None
     created_at: str = ""
     updated_at: str = ""
 
@@ -285,6 +289,7 @@ class TwoStepSessionState:
             "messages": list(self.messages),
             "last_workflow_hash": self.last_workflow_hash,
             "closed": self.closed,
+            "last_seq": self.last_seq,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -317,6 +322,9 @@ class TwoStepSessionState:
                 str(data["last_workflow_hash"]) if data.get("last_workflow_hash") else None
             ),
             closed=bool(data.get("closed")),
+            last_seq=(
+                int(data["last_seq"]) if isinstance(data.get("last_seq"), int) else None
+            ),
             created_at=str(data.get("created_at") or ""),
             updated_at=str(data.get("updated_at") or ""),
         )
@@ -723,20 +731,24 @@ def _apply_delta_ops(
     if not ops:
         return json.loads(json.dumps(dict(base_graph)))
 
-    from vibecomfy.ingest.normalize import from_ui  # noqa: PLC0415
+    from vibecomfy.ingest.normalize import _assert_nonempty_ingest_preserved, _named_import  # noqa: PLC0415
     from vibecomfy.porting.edit._ir_utils import apply_edit_cow  # noqa: PLC0415
     from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui  # noqa: PLC0415
 
     raw = dict(base_graph)
     try:
-        workflow = from_ui(
+        workflow = _named_import(
             raw,
-            use_comfy_converter=False,
             schema_provider=schema_provider,
+            use_comfy_converter=False,
         )
+        # RC-P4: a non-empty source that decodes to zero IR nodes (envelope /
+        # raw node-keyed / API shapes collapsing through a UI-only door) is an
+        # ingest failure, never a silent zero-node replay.
+        _assert_nonempty_ingest_preserved(raw, workflow)
     except Exception:  # noqa: BLE001 - a base the ingest door rejects cannot be replayed
         LOGGER.warning(
-            "two-step replay: ingest door rejected the base graph; returning it unchanged"
+            "two-step replay: named ingest door rejected the base graph; returning it unchanged"
         )
         return json.loads(json.dumps(raw))
 
@@ -1245,6 +1257,7 @@ class TwoStepSessionStore:
         kind = event.get("kind")
         turn = int(event.get("turn") or 0)
         route = event.get("route")
+        seq = event.get("seq")
 
         if kind == "route":
             state = replace(
@@ -1384,6 +1397,8 @@ class TwoStepSessionStore:
             )
         elif kind == "closed":
             state = replace(state, closed=True)
+        if isinstance(seq, int):
+            state = replace(state, last_seq=seq)
         return state
 
     def _fold_events(self, state: TwoStepSessionState, events: list[dict[str, Any]]) -> TwoStepSessionState:
@@ -1406,20 +1421,34 @@ class TwoStepSessionStore:
 class TerminalProduct:
     """The one projected terminal outcome for a two-step execute message.
 
-    ``accepted_delta_ids`` and ``accepted_ops`` come from the durable
+    ``accepted_delta_ids`` and ``accepted_batch`` come from the durable
     transcript (``accepted_delta_refs``); ``graph`` is the replayed retained
-    revision whose hash equals ``replay(base_graph, accepted_ops)`` by
-    construction.  ``failure`` carries the optional terminal diagnostic (never
-    erasing accepted work); ``soft_stop`` records an unapplied second apply.
+    revision whose hash equals ``replay(base_graph, accepted_batch)`` by
+    construction.  ``accepted_batch`` is the SOLE durable Δ body (each item
+    carries its landed typed ``op``); ``accepted_delta_ids`` is derived from it,
+    never maintained beside it.  ``final_ui`` is the emitted final UI (the
+    replay already routes through the emit door); ``base_hash`` /
+    ``retained_ir_hash`` / ``final_ui_hash`` and ``terminal_seq`` let the
+    artifact boundary and assessor prove response, retained IR, and final UI
+    all cite the SAME terminal state.  ``failure`` carries the optional
+    terminal diagnostic (never erasing accepted work); ``diagnostic`` records
+    any fail-closed artifact-consistency finding (also never erasing Δ).
     """
 
     ok: bool
     route: str
     reply: str | None
     accepted_delta_ids: tuple[str, ...] = ()
+    accepted_batch: tuple[dict[str, Any], ...] = ()
     accepted_ops: tuple[dict[str, Any], ...] = ()
     graph: dict[str, Any] | None = None
     graph_hash: str | None = None
+    final_ui: dict[str, Any] | None = None
+    base_hash: str | None = None
+    retained_ir_hash: str | None = None
+    final_ui_hash: str | None = None
+    terminal_seq: int | None = None
+    diagnostic: dict[str, Any] = field(default_factory=dict)
     evidence_ids: tuple[str, ...] = ()
     tool_call_ids: tuple[str, ...] = ()
     lens_fact_ids: tuple[str, ...] = ()
@@ -1440,11 +1469,18 @@ class TerminalProduct:
             "reply": self.reply,
             "research_attempt": self.research_attempt,
             "accepted_delta_ids": list(self.accepted_delta_ids),
+            "accepted_batch": [dict(item) for item in self.accepted_batch],
             "evidence_ids": list(self.evidence_ids),
             "tool_call_ids": list(self.tool_call_ids),
             "lens_fact_ids": list(self.lens_fact_ids),
             "budget": self.budget,
             "graph": self.graph,
+            "final_ui": self.final_ui,
+            "base_hash": self.base_hash,
+            "retained_ir_hash": self.retained_ir_hash,
+            "final_ui_hash": self.final_ui_hash,
+            "terminal_seq": self.terminal_seq,
+            "diagnostic": dict(self.diagnostic),
             "claim_validation": self.claim_validation,
             "self_assessment": self.self_assessment,
             "replacement_used": self.replacement_used,
@@ -1470,6 +1506,268 @@ def _accepted_ops_from_refs(refs: Any) -> tuple[dict[str, Any], ...]:
     return tuple(ops)
 
 
+def _accepted_batch_from_refs(refs: Any) -> tuple[dict[str, Any], ...]:
+    """Build the SOLE durable Δ (``accepted_batch``) from the transcript.
+
+    Each accepted-delta ref contributes one batch item per landed typed op,
+    carrying the ref's first ``delta_id`` and ``turn``.  ``accepted_batch`` is
+    the only durable Δ body — ``accepted_delta_ids`` and any flattened-op view
+    are DERIVED from it, never persisted beside it.
+    """
+    batch: list[dict[str, Any]] = []
+    for ref in refs or ():
+        if not isinstance(ref, Mapping):
+            continue
+        delta_ids = [str(d) for d in (ref.get("delta_ids") or ()) if d]
+        delta_id = delta_ids[0] if delta_ids else None
+        turn = ref.get("turn")
+        ops = [op for op in (ref.get("ops") or ()) if isinstance(op, Mapping)]
+        if not ops:
+            # A ref with a delta id but no recorded ops (e.g. the B04-style
+            # acceptance append path) must still surface its id: the id is the
+            # durable claim, ops may be absent.  Without this, a later turn
+            # would lose the accepted delta entirely.
+            if delta_id:
+                batch.append(
+                    {
+                        "op": {},
+                        "delta_id": delta_id,
+                        "turn": int(turn) if isinstance(turn, int) else turn,
+                    }
+                )
+            continue
+        for op in ops:
+            batch.append(
+                {
+                    "op": dict(op),
+                    "delta_id": delta_id,
+                    "turn": int(turn) if isinstance(turn, int) else turn,
+                }
+            )
+    return tuple(batch)
+
+
+def _accepted_delta_ids_from_batch(batch: Any) -> tuple[str, ...]:
+    """Derive ``accepted_delta_ids`` from ``accepted_batch`` (first-id wins)."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for item in batch or ():
+        if not isinstance(item, Mapping):
+            continue
+        delta_id = item.get("delta_id")
+        if delta_id and str(delta_id) not in seen:
+            seen.add(str(delta_id))
+            ids.append(str(delta_id))
+    return tuple(ids)
+
+
+@dataclass(frozen=True)
+class ScoredTerminalProduct:
+    """The closed-session scored terminal product (strategy §3 contract).
+
+    ``accepted_batch`` is the sole durable Δ; every other Δ view (ids, ops,
+    hashes) is derived from it.  Both success and failure paths return this
+    object; artifact synthesis and the judge consume only its projections.
+    ``diagnostic`` may report a failure or an artifact-consistency finding but
+    never erases the Δ.
+    """
+
+    terminal_seq: int | None
+    reply: str | None
+    accepted_batch: tuple[dict[str, Any], ...]
+    accepted_delta_ids: tuple[str, ...]
+    base_hash: str | None
+    retained_ir_hash: str | None
+    final_ui_hash: str | None
+    retained_ir: dict[str, Any] | None
+    final_ui: dict[str, Any] | None
+    diagnostic: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "terminal_seq": self.terminal_seq,
+            "reply": self.reply,
+            "accepted_batch": [dict(item) for item in self.accepted_batch],
+            "accepted_delta_ids": list(self.accepted_delta_ids),
+            "base_hash": self.base_hash,
+            "retained_ir_hash": self.retained_ir_hash,
+            "final_ui_hash": self.final_ui_hash,
+            "retained_ir": self.retained_ir,
+            "final_ui": self.final_ui,
+            "diagnostic": dict(self.diagnostic),
+        }
+
+
+def _graph_node_edge_count(
+    graph: Any, *, schema_provider: Any = None
+) -> tuple[int, int] | None:
+    """Canonical ``(node_count, edge_count)`` via the shared named ingest door.
+
+    Returns ``None`` when *graph* is absent or cannot be ingested (an unknown
+    shape fails closed here, never as a silent zero-node narrative).
+    """
+    if not isinstance(graph, Mapping):
+        return None
+    from vibecomfy.ingest.normalize import _assert_nonempty_ingest_preserved, _named_import  # noqa: PLC0415
+
+    try:
+        wf = _named_import(dict(graph), schema_provider=schema_provider, use_comfy_converter=False)
+        _assert_nonempty_ingest_preserved(dict(graph), wf)
+    except Exception:  # noqa: BLE001 - unknown/un-ingestable shapes are flagged by the caller
+        return None
+    return len(getattr(wf, "nodes", None) or {}), len(getattr(wf, "edges", None) or [])
+
+
+def _removed_node_uids(batch: Any) -> set[str]:
+    """Node uids the accepted batch explicitly removed (``remove_node``)."""
+    removed: set[str] = set()
+    for item in batch or ():
+        if not isinstance(item, Mapping):
+            continue
+        op = item.get("op")
+        if not isinstance(op, Mapping):
+            continue
+        if op.get("op") != "remove_node":
+            continue
+        target = op.get("target")
+        if isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None:
+            removed.add(str(target[1]))
+    return removed
+
+
+def _assess_scored_consistency(
+    *,
+    accepted_batch: tuple[dict[str, Any], ...],
+    base_graph: Mapping[str, Any] | None,
+    retained_ir: dict[str, Any] | None,
+    final_ui: dict[str, Any] | None,
+    schema_provider: Any,
+) -> dict[str, Any]:
+    """Fail-closed consistency assessment (strategy §3 invariants 4/5).
+
+    Records ``artifact_consistency`` (never erasing the Δ) when:
+    * a non-empty accepted batch replays to ``final == base`` (no change); or
+    * a non-empty source collapses to a zero-node final UI; or
+    * the final UI cannot be canonically ingested; or
+    * untouched topology was lost (final node count below base minus removals).
+    """
+    diagnostic: dict[str, Any] = {
+        "status": "ok",
+        "artifact_consistency": False,
+        "notes": [],
+    }
+    base_count = _graph_node_edge_count(base_graph, schema_provider=schema_provider)
+    final_count = _graph_node_edge_count(final_ui, schema_provider=schema_provider)
+    diagnostic["base_node_edge"] = base_count
+    diagnostic["final_node_edge"] = final_count
+
+    if not accepted_batch:
+        return diagnostic
+
+    notes: list[str] = []
+    inconsistent = False
+
+    if retained_ir is not None and base_graph is not None:
+        if canonical_workflow_hash(base_graph) == canonical_workflow_hash(retained_ir):
+            inconsistent = True
+            notes.append(
+                "accepted batch is non-empty but replay produced no graph change (final == base)"
+            )
+
+    if final_count is None:
+        inconsistent = True
+        notes.append("accepted batch is present but the final UI cannot be canonically ingested")
+    elif base_count is not None:
+        bnodes, _bedges = base_count
+        fnodes, _fedges = final_count
+        if bnodes > 0 and fnodes == 0:
+            inconsistent = True
+            notes.append("non-empty source graph collapsed to a zero-node final UI")
+        removed = _removed_node_uids(accepted_batch)
+        if fnodes < bnodes - len(removed):
+            inconsistent = True
+            notes.append(
+                f"final UI lost untouched topology: base {bnodes} nodes, "
+                f"batch removed {len(removed)}, final {fnodes} nodes"
+            )
+
+    if inconsistent:
+        diagnostic["status"] = "artifact_consistency"
+        diagnostic["artifact_consistency"] = True
+    diagnostic["notes"] = notes
+    return diagnostic
+
+
+def finalize_scored_terminal_product(
+    session_id: str,
+    message_checkpoint: int | None,
+    *,
+    session_store: TwoStepSessionStore,
+    schema_provider: Any = None,
+    reply: str | None = None,
+    failure: BaseException | None = None,
+    ok: bool | None = None,
+) -> ScoredTerminalProduct:
+    """Close a scored message into ONE :class:`ScoredTerminalProduct`.
+
+    This is the closed-session wrapper (strategy §3): it loads the durable
+    transcript once, derives the sole durable Δ (``accepted_batch``) in
+    acceptance order, replays it over the recorded base through the shared
+    named ingest/emit doors, and records base/retained/final hashes plus the
+    terminal sequence so every consumer cites the SAME state.
+
+    A later accepted Δ / final submit in the scored message OUTRANKS an
+    earlier failed submit because the accepted batch is derived from the FULL
+    terminal transcript, never from a single submit's prose or a frozen
+    early-response envelope.  The diagnostic may report a failure or an
+    artifact-consistency finding but NEVER erases the Δ.
+    """
+    state = session_store.load(session_id)
+    if state is None:
+        state = fresh_state(session_id)
+
+    terminal_seq = message_checkpoint
+    if terminal_seq is None:
+        terminal_seq = state.last_seq
+
+    accepted_batch = _accepted_batch_from_refs(state.accepted_delta_refs)
+    accepted_delta_ids = _accepted_delta_ids_from_batch(accepted_batch)
+
+    base_graph = session_store._read_base_graph(session_id)
+    base_hash = canonical_workflow_hash(base_graph)
+
+    retained_ir = session_store.replay_workflow(state, schema_provider=schema_provider)
+    retained_ir_hash = canonical_workflow_hash(retained_ir)
+    # Replay already routes through the emit door, so the retained revision IS
+    # the emitted final UI; both hashes are recorded for provenance parity.
+    final_ui = retained_ir
+    final_ui_hash = retained_ir_hash
+
+    diagnostic = _assess_scored_consistency(
+        accepted_batch=accepted_batch,
+        base_graph=base_graph,
+        retained_ir=retained_ir,
+        final_ui=final_ui,
+        schema_provider=schema_provider,
+    )
+    diagnostic["ok"] = (failure is None) if ok is None else bool(ok)
+    if failure is not None:
+        diagnostic["failure"] = _jsonish(failure)
+
+    return ScoredTerminalProduct(
+        terminal_seq=terminal_seq,
+        reply=reply,
+        accepted_batch=accepted_batch,
+        accepted_delta_ids=accepted_delta_ids,
+        base_hash=base_hash,
+        retained_ir_hash=retained_ir_hash,
+        final_ui_hash=final_ui_hash,
+        retained_ir=retained_ir,
+        final_ui=final_ui,
+        diagnostic=diagnostic,
+    )
+
+
 def project_terminal_product(
     *,
     session_store: TwoStepSessionStore,
@@ -1488,27 +1786,38 @@ def project_terminal_product(
 
     Invariants enforced here (and relied on downstream):
 
-    * accepted ids + ops are derived by transcript replay, never from prose;
+    * accepted ids + ops + ``accepted_batch`` are derived by transcript replay,
+      never from prose; ``accepted_batch`` is the sole durable Δ and
+      ``accepted_delta_ids`` is derived from it;
     * ``graph`` is the replayed retained revision, so
-      ``graph_hash == hash(replay(base_graph, accepted_ops))`` by construction;
+      ``graph_hash == hash(replay(base_graph, accepted_batch))`` by construction;
     * non-empty accepted ids always surface (the caller then guarantees
       ``graph_unchanged=false`` and a graph-bearing product);
     * zero accepted ids ⇒ no edit claim.
 
-    The projector never raises for a replay that fails to reconstruct a change
-    (replay is forgiving and returns the base): the fail-closed check for
-    ``accepted != ()`` with ``final == original`` lives at the artifact
-    boundary (:mod:`vibecomfy.agent.artifacts`), which receives the projected
-    ids + graph.
+    The projector never raises for a replay that fails to reconstruct a change:
+    the fail-closed check lives in ``diagnostic`` (artifact_consistency) and at
+    the artifact boundary (:mod:`vibecomfy.agent.artifacts`), which receives the
+    projected ids + batch + graph.
     """
     state = session_store.load(session_id)
     if state is None:
         state = fresh_state(session_id)
 
-    accepted_ids = tuple(state.accepted_delta_ids())
-    accepted_ops = _accepted_ops_from_refs(state.accepted_delta_refs)
-    replayed = session_store.replay_workflow(state)
-    graph_hash = canonical_workflow_hash(replayed)
+    schema_provider = None
+    if edit_runtime is not None:
+        edit_session = getattr(edit_runtime, "edit_session", None)
+        schema_provider = getattr(edit_session, "schema_provider", None)
+
+    scored = finalize_scored_terminal_product(
+        session_id,
+        state.last_seq,
+        session_store=session_store,
+        schema_provider=schema_provider,
+        reply=reply,
+        failure=failure,
+        ok=ok,
+    )
 
     evidence_ids = tuple(state.evidence_ids())
     tool_call_ids = tuple(state.evidence_ids())
@@ -1524,10 +1833,17 @@ def project_terminal_product(
         ok=ok,
         route=route,
         reply=reply,
-        accepted_delta_ids=accepted_ids,
-        accepted_ops=accepted_ops,
-        graph=replayed,
-        graph_hash=graph_hash,
+        accepted_delta_ids=scored.accepted_delta_ids,
+        accepted_batch=scored.accepted_batch,
+        accepted_ops=tuple(item["op"] for item in scored.accepted_batch),
+        graph=scored.retained_ir,
+        graph_hash=scored.retained_ir_hash,
+        final_ui=scored.final_ui,
+        base_hash=scored.base_hash,
+        retained_ir_hash=scored.retained_ir_hash,
+        final_ui_hash=scored.final_ui_hash,
+        terminal_seq=scored.terminal_seq,
+        diagnostic=scored.diagnostic,
         evidence_ids=evidence_ids,
         tool_call_ids=tool_call_ids,
         lens_fact_ids=lens_fact_ids,
@@ -1553,6 +1869,7 @@ __all__ = [
     "ERROR_STALE_MESSAGE",
     "ERROR_UNGROUNDED_ANSWER",
     "EditSessionCache",
+    "ScoredTerminalProduct",
     "SessionBudget",
     "TerminalProduct",
     "TwoStepSessionError",
@@ -1560,6 +1877,7 @@ __all__ = [
     "TwoStepSessionStore",
     "canonical_workflow_hash",
     "derive_research_attempt",
+    "finalize_scored_terminal_product",
     "fresh_state",
     "mint_lease_token",
     "normalize_session_id",
