@@ -42,6 +42,14 @@ semantically consistent with what the intent requires. If the parameter or node
 cannot produce the described effect at the specified value, this criterion
 fails.
 
+An explicit terminal numeric target tied to the targeted field is authoritative.
+If the request says `to N`, `= N`, or `set <field> ... N`, and the accepted
+landed value for that field is exactly `N`, C3 is true even when an accompanying
+direction word such as "increase" or "decrease" conflicts with the pre-image
+direction. This precedence applies only to an explicit target for that field;
+unrelated numbers and descriptive schedule language such as a handoff point do
+not qualify.
+
 **C4 — no_orphaned_wiring**: The edit leaves the graph structurally connected.
 No previously-consumed output is left dangling; no newly-added node is inserted
 without wiring its required inputs.

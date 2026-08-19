@@ -850,6 +850,81 @@ def test_intent_judge_grades_delta_with_replay_evidence(
     assert "Accepted Δ" in seen["messages"][0]["content"]
 
 
+def test_intent_judge_prompt_prioritizes_explicit_terminal_numeric_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    original = tmp_path / "original.ui.json"
+    candidate = tmp_path / "candidate.ui.json"
+    original.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": "sampler",
+                        "type": "KSampler",
+                        "properties": {"vibecomfy_uid": "sampler"},
+                        "widgets_values": [42, "fixed", 40, 7, "euler", "normal", 1],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    candidate.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": "sampler",
+                        "type": "KSampler",
+                        "properties": {"vibecomfy_uid": "sampler"},
+                        "widgets_values": [42, "fixed", 16, 7, "euler", "normal", 1],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            _judge_delta_response_json(
+                original,
+                candidate,
+                ops=[
+                    {
+                        "op": "set_node_field",
+                        "target": ["", "sampler", "steps"],
+                        "value": 16,
+                    }
+                ],
+            )
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
+        seen["system"] = messages[0]["content"]
+        return {"content": json.dumps(_edit_verdict_content())}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+
+    verdict = judge_edit_intent(
+        tmp_path,
+        {"query": "increase the sampler steps to 16"},
+    )
+
+    assert verdict["pass_"] is True
+    system = str(seen["system"])
+    assert "explicit terminal numeric target" in system
+    assert "direction word" in system
+    assert "handoff point" in system
+
+
 def test_intent_judge_fails_closed_on_delta_replay_mismatch(
     tmp_path: Path,
     monkeypatch,
