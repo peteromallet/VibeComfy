@@ -570,10 +570,13 @@ def _thread_load_unlocked(session_dir: Path, session_id: str) -> dict[str, Any] 
 
 
 def _thread_load(session_root: Path | str, session_id: str) -> dict[str, Any] | None:
+    """Load one durable transcript while excluding concurrent event appends."""
     if not isinstance(session_id, str) or not session_id.strip():
         raise _ThreadSessionError("invalid_request", "threaded session_id is required")
     safe_id = normalize_session_id(session_id)
-    return _thread_load_unlocked(_thread_session_dir(session_root, safe_id), safe_id)
+    session_dir = _thread_session_dir(session_root, safe_id)
+    with SessionStateLock(session_dir):
+        return _thread_load_unlocked(session_dir, safe_id)
 
 
 def _thread_append_unlocked(
