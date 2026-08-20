@@ -138,6 +138,7 @@ def run_headless_scenario(
     output_base: Path | str | None = None,
     tag: str = "agentic-run",
     transport: str | None = None,
+    pipeline_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run a single agentic scenario through the headless service.
 
@@ -155,6 +156,9 @@ def run_headless_scenario(
         Explicit transport selector: ``"openrouter"`` or ``"native"``.
         ``None`` resolves to the deterministic harness default and never to an
         ambient credential.
+    pipeline_mode:
+        Explicit canonical executor mode: ``"staged"`` or ``"threaded"``.
+        ``None`` preserves the normal staged default for legacy callers.
 
     Returns
     -------
@@ -209,6 +213,7 @@ def run_headless_scenario(
         interaction_mode=scenario.get("interaction_mode"),
         expect_graph_changed=expect_graph_changed,
         max_batches=scenario.get("max_batches"),
+        pipeline_mode=pipeline_mode,
     )
 
     result = run_headless(request, entrypoint="live_agentic_harness")
@@ -223,6 +228,9 @@ def run_headless_scenario(
         "deepseek_est_cost_usd": result.response.get("deepseek_est_cost_usd"),
         "deepseek_cost_basis": result.response.get("deepseek_cost_basis"),
         "model_attempts": result.response.get("model_attempts", []),
+        # The comparison lane requires an explicit attestation even though
+        # staged remains byte-compatible when its mode is omitted internally.
+        "pipeline_mode": pipeline_mode,
     }
     # Persist the typed parse reason from the executor's model_response artifact
     # so the runner's infra reclassification is evidence-based (parse_reason ==

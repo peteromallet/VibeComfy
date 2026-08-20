@@ -51,6 +51,11 @@ def test_validate_only_locks_compact_lane_without_model_calls(monkeypatch: pytes
         raise AssertionError("validate-only must not invoke the live adapter")
 
     monkeypatch.setattr(adapter, "run_headless_scenario", forbidden)
+    monkeypatch.setattr(
+        comparator,
+        "_adapter_wiring",
+        lambda: {"status": "ready", "runnable": True, "selector": "pipeline_mode"},
+    )
     result = comparator.validate_only()
 
     assert result["ok"] is True
@@ -59,7 +64,11 @@ def test_validate_only_locks_compact_lane_without_model_calls(monkeypatch: pytes
     assert result["modes"] == ["staged", "threaded"]
     assert len({item["id"] for item in result["locked_inputs"]}) == 6
     assert result["ir_projection"] == "tests.test_ir_laws.pi_edit"
-    assert result["threaded_wiring"]["runnable"] is False
+    assert result["threaded_wiring"] == {
+        "status": "ready",
+        "runnable": True,
+        "selector": "pipeline_mode",
+    }
 
 
 def test_validate_only_rejects_locked_input_drift(tmp_path: Path) -> None:
@@ -70,6 +79,43 @@ def test_validate_only_rejects_locked_input_drift(tmp_path: Path) -> None:
 
     with pytest.raises(comparator.ComparisonManifestError, match="locked input drift"):
         comparator.validate_only(path)
+
+
+def test_adapter_forwards_explicit_mode_without_model_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tests.live_agentic_harness import adapter
+
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    from vibecomfy.agent import service
+
+    seen: list[Any] = []
+
+    class FakeResult:
+        status = "success"
+        ok = True
+        response = {
+            "deepseek_usage": {},
+            "deepseek_est_cost_usd": 0.0,
+            "model_attempts": [],
+        }
+        readiness: dict[str, Any] = {}
+        error = None
+
+    def fake_run(request: Any, *, entrypoint: str) -> FakeResult:
+        seen.append(request)
+        return FakeResult()
+
+    monkeypatch.setattr(service, "run_headless", fake_run)
+    result = adapter.run_headless_scenario(
+        {"id": "scenario", "query": "inspect the graph"},
+        output_base=tmp_path,
+        pipeline_mode="threaded",
+    )
+
+    assert seen[0].pipeline_mode == "threaded"
+    assert result["pipeline_mode"] == "threaded"
 
 
 def test_canonical_delta_compares_typed_operations_not_reply_prose(tmp_path: Path) -> None:
@@ -182,16 +228,38 @@ def test_comparison_reports_all_required_differential_signals(monkeypatch: pytes
     assert result["delta"]["cost_usd"]["threaded_minus_staged"] == -0.01
 
 
-def test_live_run_fails_before_model_calls_while_threaded_wiring_is_pending(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        comparator,
-        "_adapter_wiring",
-        lambda: {"status": "pending_threaded_adapter", "runnable": False},
+def test_latency_and_cost_are_read_from_typed_metrics_artifacts(tmp_path: Path) -> None:
+    lock = "d" * 64
+    staged_dir = tmp_path / "staged"
+    threaded_dir = tmp_path / "threaded"
+    for directory, elapsed, cost in (
+        (staged_dir, 2.0, 0.03),
+        (threaded_dir, 1.25, 0.02),
+    ):
+        _write_response(directory, {})
+        (directory / "comparison_metrics.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "pipeline_mode": directory.name,
+                    "locked_input_sha256": lock,
+                    "elapsed_s": elapsed,
+                    "deepseek_usage": {"total_tokens": 10},
+                    "deepseek_est_cost_usd": cost,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    result = comparator.compare_pair(
+        "scenario",
+        locked_input_sha256=lock,
+        staged=_summary("staged", lock, elapsed_s=99.0, cost=9.0, output_dir=staged_dir),
+        threaded=_summary("threaded", lock, elapsed_s=99.0, cost=9.0, output_dir=threaded_dir),
     )
-    with pytest.raises(comparator.ThreadedWiringPending, match="pipeline_mode"):
-        comparator.run_comparison()
+
+    assert result["delta"]["latency_s"]["threaded_minus_staged"] == -0.75
+    assert result["delta"]["cost_usd"]["threaded_minus_staged"] == -0.01
 
 
 def test_live_run_passes_identical_copies_to_explicit_mode_wiring(
