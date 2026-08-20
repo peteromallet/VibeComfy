@@ -14,6 +14,7 @@ from vibecomfy.porting.edit.ops import (
     UpsertLinkOp,
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
+from vibecomfy.ingest.normalize import door_get_widgets_values
 from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
     compact_widget_names_for_node,
@@ -86,7 +87,7 @@ def _apply_primitive_widget_alias_write(
         wrote_carrier = True
     metadata = getattr(node, "metadata", None)
     raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
-    ui_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
+    ui_values = door_get_widgets_values(raw_ui) if isinstance(raw_ui, Mapping) else None
     if isinstance(ui_values, list) and 0 <= index < len(ui_values):
         ui_values[index] = value
         wrote_carrier = True

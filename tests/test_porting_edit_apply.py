@@ -177,6 +177,60 @@ def test_interpret_adds_node_and_emit_is_usable() -> None:
     )
 
 
+def test_apply_gate_replays_python_source_for_unknown_schema_add_node() -> None:
+    """Python add-node source preserves the IR channel for unknown schemas."""
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    original = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SourceOne",
+                "mode": 0,
+                "pos": [0, 0],
+                "size": [210, 58],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+                "properties": {"vibecomfy_uid": "src"},
+            }
+        ],
+        "links": [],
+    }
+
+    class _UnknownProvider:
+        def get_schema(self, class_type: str):
+            if class_type == "UnknownSampler":
+                return NodeSchema(
+                    "UnknownSampler",
+                    None,
+                    {
+                        "seed": InputSpec(type="INT"),
+                        "options": InputSpec(type="*"),
+                    },
+                    [OutputSpec(type="LATENT", name="LATENT")],
+                )
+            return None
+
+    provider = _UnknownProvider()
+    session = EditSession(original, schema_provider=provider)
+    source = 'sampler = UnknownSampler(seed=40 + 2, options={"scale": 2 * 4})\n'
+    pre = session.workflow.copy()
+    interpreted = interpret(pre, source, schema_provider=provider)
+    assert interpreted.ok is True
+    gate = verify_apply(
+        pre,
+        interpreted.workflow,
+        delta=source,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is True
+    assert gate.apply_eligible is True
+
+
 def test_interpret_remove_node_drops_ir_node() -> None:
     original = _fixture()
     delta = parse_edit_delta([{"op": "remove_node", "target": ["", "7"]}])
