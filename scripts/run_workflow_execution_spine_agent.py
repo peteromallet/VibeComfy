@@ -276,18 +276,30 @@ def _path_state(path: Path) -> tuple[str, int, str] | None:
     return "other", mode, ""
 
 
-def _repo_snapshot(project_dir: Path, evidence_dir: Path) -> dict[str, tuple[str, int, str]]:
-    names = _git_paths(project_dir, ["ls-files", "-z", "--cached"])
-    names.update(_git_paths(project_dir, ["ls-files", "-z", "--others", "--exclude-standard"]))
+def _repo_snapshot(
+    project_dir: Path,
+    evidence_dir: Path,
+    known_names: Iterable[str] = (),
+) -> dict[str, tuple[str, int, str]]:
+    # Keep launch-time paths in the post-launch candidate set. This prevents a
+    # child change to ignore rules from making an untouched pre-existing
+    # untracked path look deleted.
+    names = set(known_names)
+    names.update(_git_paths(project_dir, ["ls-files", "-z", "--cached", "--full-name"]))
+    names.update(_git_paths(
+        project_dir,
+        ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"],
+    ))
     snapshot: dict[str, tuple[str, int, str]] = {}
     for name in sorted(names):
         if name == ".git" or name.startswith(".git/"):
             continue
-        if _snapshot_path_is_evidence(project_dir, evidence_dir, name):
+        normalized = Path(name).as_posix()
+        if _snapshot_path_is_evidence(project_dir, evidence_dir, normalized):
             continue
-        state = _path_state(project_dir / name)
+        state = _path_state(project_dir / normalized)
         if state is not None:
-            snapshot[Path(name).as_posix()] = state
+            snapshot[normalized] = state
     return snapshot
 
 
@@ -407,7 +419,10 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.flush()
         end_ts = utc_now()
         result_text = stdout_bytes.decode("utf-8", errors="replace")
-        changed = _changed_files(before_snapshot, _repo_snapshot(project_dir, evidence_dir))
+        changed = _changed_files(
+            before_snapshot,
+            _repo_snapshot(project_dir, evidence_dir, before_snapshot),
+        )
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
         receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
         resolved_match = re.search(r"(?:^|\s)resolved=([^\s]+)", stderr_bytes.decode("utf-8", errors="replace"), re.MULTILINE)
