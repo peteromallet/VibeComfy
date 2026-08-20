@@ -245,6 +245,12 @@ def port_convert_workflow(
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
 ) -> PortConvertResult:
+    # Conversion resolves helpers and annotates metadata in place. Work on a
+    # private snapshot so callers can safely reuse the ingested IR (and raw UI
+    # evidence) after conversion, including when conversion raises midway.
+    workflow = workflow.copy()
+    raw_workflow = copy.deepcopy(raw_workflow)
+
     emission_diagnostics: list[EmissionDiagnostic] = []
 
     # ── Resolve helper nodes before emission ────────────────────────────

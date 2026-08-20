@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from vibecomfy.patches.gguf_unet import GGUF_MODEL, patch as gguf_unet
 from vibecomfy.patches.registry import find_applicable, register, registered_patches
 from vibecomfy.patches.ltx_lowvram import COMFY_CONFIGURATION, FP8_CHECKPOINT, SOURCE_CHECKPOINT, patch as ltx_lowvram
 from vibecomfy.patches.requirements import ensure_custom_nodes
@@ -135,6 +136,38 @@ def test_seed_patch_records_value_change_without_topology_change() -> None:
     ]
 
 
+def test_repeated_value_patch_upserts_telemetry_without_losing_first_change() -> None:
+    workflow = VibeWorkflow("seed-repeat", WorkflowSource("seed-repeat"))
+    workflow.nodes["sampler"] = VibeNode("sampler", "KSampler", inputs={"seed": 1})
+    patched = seed(99)
+
+    patched.apply(workflow)
+    first_metadata = [dict(item) for item in workflow.metadata["patch_applications"]]
+    patched.apply(workflow)
+
+    assert workflow.metadata["patch_applications"] == first_metadata
+    assert workflow.metadata["patch_applications"][0]["value_changed"] is True
+
+
+def test_gguf_builtin_is_idempotent_in_graph_requirements_and_metadata() -> None:
+    workflow = VibeWorkflow("gguf-repeat", WorkflowSource("gguf-repeat"))
+    workflow.nodes["unet"] = VibeNode(
+        "unet",
+        "UNETLoader",
+        inputs={"unet_name": "flux-2-klein-9b.safetensors"},
+    )
+
+    gguf_unet.apply(workflow)
+    first_api = workflow.compile("api")
+    first_metadata = [dict(item) for item in workflow.metadata["patch_applications"]]
+    gguf_unet.apply(workflow)
+
+    assert workflow.compile("api") == first_api
+    assert workflow.nodes["unet"].inputs["unet_name"] == GGUF_MODEL
+    assert workflow.requirements.custom_nodes.count("ComfyUI-GGUF") == 1
+    assert workflow.metadata["patch_applications"] == first_metadata
+
+
 def test_ensure_custom_nodes_appends_without_duplicates() -> None:
     workflow = VibeWorkflow("requirements-test", WorkflowSource("requirements-test"))
     workflow.requirements.custom_nodes.append("Existing")
@@ -171,6 +204,7 @@ def test_ltx_lowvram_accepts_already_applied_supported_graph_idempotently() -> N
     workflow = _supported_ltx_workflow()
     ltx_lowvram.apply(workflow)
     first_api = workflow.compile("api")
+    first_metadata = [dict(item) for item in workflow.metadata["patch_applications"]]
 
     assert not ltx_lowvram.applies_to(workflow)
 
@@ -179,6 +213,7 @@ def test_ltx_lowvram_accepts_already_applied_supported_graph_idempotently() -> N
     assert workflow.compile("api") == first_api
     assert workflow.requirements.custom_nodes.count("ComfyUI-LTXVideo") == 1
     assert workflow.requirements.custom_nodes.count("ComfyUI-KJNodes") == 1
+    assert workflow.metadata["patch_applications"] == first_metadata
 
 
 def test_ltx_lowvram_rejects_non_ltx_and_unsupported_ltx_like_graphs() -> None:
