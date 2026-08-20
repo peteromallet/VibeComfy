@@ -38,6 +38,7 @@ from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
 
 PHASE_RESEARCH = "research"
 PHASE_IMPLEMENT = "implement"
+PHASE_THREADED = "threaded"
 
 _PHASES = frozenset({PHASE_RESEARCH, PHASE_IMPLEMENT})
 
@@ -832,6 +833,10 @@ RESEARCH_PHASE_TOOLS: frozenset[str] = frozenset(
 IMPLEMENT_PHASE_TOOLS: frozenset[str] = frozenset(
     spec.name for spec in TOOL_SPECS if spec.phase == PHASE_IMPLEMENT
 )
+# Threaded mode deliberately composes the two existing partitions. Tool
+# identity, validation, handlers, budgets, and evidence projectors remain the
+# same registry entries; this is an orchestration allowlist, not a third copy.
+THREADED_PHASE_TOOLS: frozenset[str] = AGENT_TOOL_CALL_NAMES
 
 # The two phase sets must be a clean partition of every registered tool: a
 # tool is research or implement, never both, never neither.
@@ -857,6 +862,8 @@ def phase_allows(phase: str | None, name: str) -> bool:
     """
     if phase is None:
         return name in TOOL_SPEC_BY_NAME
+    if phase == PHASE_THREADED:
+        return name in THREADED_PHASE_TOOLS
     return phase_for_tool(name) == phase
 
 
@@ -867,7 +874,11 @@ def tool_catalog_docs(phase: str | None = None, *, allowed_names: frozenset[str]
     actually admits — e.g. the research stage passes its effective allowlist
     so a disabled-by-default tool (``web_search``) is never advertised.
     """
-    specs = TOOL_SPECS if phase is None else tuple(spec for spec in TOOL_SPECS if spec.phase == phase)
+    specs = (
+        TOOL_SPECS
+        if phase is None or phase == PHASE_THREADED
+        else tuple(spec for spec in TOOL_SPECS if spec.phase == phase)
+    )
     if allowed_names is not None:
         specs = tuple(spec for spec in specs if spec.name in allowed_names)
     return "\n".join(spec.catalog_line() for spec in specs)
@@ -930,9 +941,11 @@ __all__ = [
     "IMPLEMENT_PHASE_TOOLS",
     "PHASE_IMPLEMENT",
     "PHASE_RESEARCH",
+    "PHASE_THREADED",
     "RESEARCH_PHASE_TOOLS",
     "TOOL_SPECS",
     "TOOL_SPEC_BY_NAME",
+    "THREADED_PHASE_TOOLS",
     "ToolSpec",
     "invoke_tool",
     "phase_allows",

@@ -401,4 +401,38 @@ def run_reply_turn(
         return reply
 
 
-__all__ = ["run_classify_turn", "run_reply_turn"]
+def run_threaded_turn(
+    query: str,
+    messages: list[dict[str, str]],
+    *,
+    route: str,
+    model: str,
+    effort: str | None = None,
+    remaining_output_cap: int | None = None,
+) -> str:
+    """Run one continuation of the classifier-free threaded conversation."""
+    from vibecomfy.comfy_nodes.agent.provider import run_model_turn
+
+    result = run_model_turn(
+        query,
+        messages,
+        route=route,
+        model=model,
+        effort=effort,
+        response_contract="json",
+        remaining_output_cap=remaining_output_cap,
+        profiling_context={"backend_phase": "execute"},
+    )
+    raw: str | None = None
+    try:
+        raw = _extract_content(result)
+    except Exception as exc:
+        _attach_model_turn_evidence(
+            exc, result, model=model, phase="execute", raw=raw
+        )
+        raise
+    _record_result_attempts(result)
+    return raw
+
+
+__all__ = ["run_classify_turn", "run_reply_turn", "run_threaded_turn"]
