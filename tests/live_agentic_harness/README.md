@@ -64,10 +64,9 @@ those locks and the IR comparison seam without provider or model calls:
 python -m tests.live_agentic_harness.compare_pipeline_modes --validate-only
 ```
 
-The command succeeds while threaded production wiring is still pending and
-reports that wiring as non-runnable. Once
-`adapter.run_headless_scenario(..., pipeline_mode=...)` is integrated, run the
-paired lane with `--run`; the adapter result must echo the selected mode so a
-silent staged-versus-staged run fails closed. Results compare IR projection,
+The command validates the landed adapter selector without provider or model
+calls. Run the paired lane with `--run` only when provider access is intended;
+the adapter result must echo the selected mode so a silent staged-versus-staged
+run fails closed. Results compare IR projection,
 canonical accepted delta, typed outcome, evidence integrity, failure family,
 latency, and cost; assistant prose is never an equality signal.

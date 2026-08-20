@@ -3,7 +3,7 @@
 The comparator locks the semantic executor input once, runs both modes from
 independent copies of that input, and compares typed artifacts.  It never
 compares assistant prose.  ``--validate-only`` performs no model calls and is
-expected to pass before the threaded adapter wiring lands.
+expected to pass once the canonical mode selector is exposed by the adapter.
 """
 
 from __future__ import annotations
@@ -47,10 +47,6 @@ _LOCKED_SCENARIO_FIELDS = (
 
 class ComparisonManifestError(ValueError):
     """The comparison lane or its locked inputs are invalid."""
-
-
-class ThreadedWiringPending(RuntimeError):
-    """The live adapter does not expose threaded-mode selection yet."""
 
 
 class _ProjectionSchemaProvider:
@@ -147,7 +143,7 @@ def _adapter_wiring() -> dict[str, Any]:
         return {"status": "unavailable", "runnable": False, "detail": str(exc)}
     runnable = "pipeline_mode" in parameters
     return {
-        "status": "ready" if runnable else "pending_threaded_adapter",
+        "status": "ready" if runnable else "unavailable",
         "runnable": runnable,
         "selector": "pipeline_mode" if runnable else None,
     }
@@ -169,6 +165,11 @@ def validate_only(manifest_path: Path | None = None) -> dict[str, Any]:
     if not isinstance(entries, list) or not entries:
         raise ComparisonManifestError("comparison manifest entries must be non-empty")
 
+    wiring = _adapter_wiring()
+    if not wiring["runnable"]:
+        raise ComparisonManifestError(
+            "live comparison adapter must expose explicit pipeline_mode selection"
+        )
     canonical = _authoritative_entries()
     seen: set[str] = set()
     validated: list[dict[str, Any]] = []
@@ -217,7 +218,7 @@ def validate_only(manifest_path: Path | None = None) -> dict[str, Any]:
         "modes": list(PIPELINE_MODES),
         "locked_inputs": validated,
         "ir_projection": "tests.test_ir_laws.pi_edit",
-        "threaded_wiring": _adapter_wiring(),
+        "threaded_wiring": wiring,
     }
 
 
@@ -371,6 +372,34 @@ def _typed_failure_family(summary: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _typed_artifact_failure_family(
+    response: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> str | None:
+    """Classify failures from structured response/metadata evidence only."""
+    if metadata.get("status") == "blocked_prerequisite":
+        return "infra_prerequisite"
+    attempts = response.get("model_attempts")
+    if isinstance(attempts, (list, tuple)):
+        for attempt in reversed(attempts):
+            if not isinstance(attempt, Mapping) or attempt.get("outcome") != "failure":
+                continue
+            failure_type = attempt.get("failure_type")
+            usage = attempt.get("token_usage")
+            completion_tokens = usage.get("completion_tokens") if isinstance(usage, Mapping) else None
+            if failure_type == "empty_response" and completion_tokens == 0:
+                return "infra"
+            if failure_type == "timeout":
+                return "infra"
+            if failure_type == "provider_failure":
+                return "infra"
+            break
+    failure_kind = response.get("failure_kind")
+    if isinstance(failure_kind, str) and failure_kind:
+        return failure_kind
+    return None
+
+
 def is_infra_blocked(summary: Mapping[str, Any]) -> bool:
     """Use typed failure evidence only; error prose is deliberately ignored."""
     return _typed_failure_family(summary) == "infra"
@@ -384,8 +413,10 @@ def _leg_outcome(summary: Mapping[str, Any]) -> str:
 
 
 def pair_outcome(staged: Mapping[str, Any], threaded: Mapping[str, Any]) -> str:
-    staged_outcome = _leg_outcome(staged)
-    threaded_outcome = _leg_outcome(threaded)
+    return _pair_outcome_values(_leg_outcome(staged), _leg_outcome(threaded))
+
+
+def _pair_outcome_values(staged_outcome: str, threaded_outcome: str) -> str:
     if "blocked" in (staged_outcome, threaded_outcome):
         return "blocked"
     if staged_outcome == threaded_outcome == "pass":
@@ -397,15 +428,33 @@ def pair_outcome(staged: Mapping[str, Any], threaded: Mapping[str, Any]) -> str:
     return "both_fail"
 
 
-def _usage(summary: Mapping[str, Any]) -> dict[str, Any]:
-    raw = summary.get("deepseek_usage")
-    usage = raw if isinstance(raw, Mapping) else {}
-    return {
-        "prompt_tokens": usage.get("prompt_tokens"),
-        "completion_tokens": usage.get("completion_tokens"),
-        "total_tokens": usage.get("total_tokens"),
-        "cost_usd": summary.get("deepseek_est_cost_usd"),
+def _write_typed_metrics_artifact(
+    output_dir: Path | None,
+    *,
+    mode: str,
+    locked_input_sha256: str,
+    elapsed_s: float,
+    response: Mapping[str, Any],
+) -> None:
+    """Persist comparison-only timing/usage evidence as a typed artifact."""
+    if output_dir is None:
+        return
+    payload = {
+        "schema_version": 1,
+        "pipeline_mode": mode,
+        "locked_input_sha256": locked_input_sha256,
+        "elapsed_s": round(elapsed_s, 6),
+        "deepseek_usage": response.get("deepseek_usage", {}),
+        "deepseek_est_cost_usd": response.get("deepseek_est_cost_usd"),
+        "failure_kind": response.get("failure_kind"),
+        "failure_stage": response.get("failure_stage"),
+        "model_attempts": response.get("model_attempts", []),
     }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "comparison_metrics.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _leg_metrics(summary: Mapping[str, Any]) -> dict[str, Any]:
@@ -416,17 +465,54 @@ def _leg_metrics(summary: Mapping[str, Any]) -> dict[str, Any]:
     if final is None and output is not None:
         final = _load_json(output / "candidate.ui.json")
     response = response or {}
+    metadata = _load_json(output / "flow_metadata.json") if output else None
+    metadata = metadata or {}
+    typed_metrics = _load_json(output / "comparison_metrics.json") if output else None
+    typed_metrics = typed_metrics or {}
+    typed_response = response if isinstance(response, Mapping) else {}
+    typed_failure = _typed_artifact_failure_family(typed_response, metadata)
+    failure_family = typed_failure or _typed_failure_family(summary)
+    usage_source = (
+        typed_metrics
+        if isinstance(typed_metrics.get("deepseek_usage"), Mapping)
+        else typed_response
+        if isinstance(typed_response.get("deepseek_usage"), Mapping)
+        else summary
+    )
+    cost_source = typed_metrics if "deepseek_est_cost_usd" in typed_metrics else (
+        typed_response if "deepseek_est_cost_usd" in typed_response else summary
+    )
+    latency_value = typed_metrics.get("elapsed_s")
+    latency = (
+        latency_value
+        if isinstance(latency_value, (int, float)) and not isinstance(latency_value, bool)
+        else summary.get("elapsed_s")
+    )
+    cost_value = cost_source.get("deepseek_est_cost_usd")
+    if not isinstance(cost_value, (int, float)) or isinstance(cost_value, bool):
+        cost_value = None
+    locked_input = typed_metrics.get("locked_input_sha256")
+    if not isinstance(locked_input, str) or not locked_input:
+        locked_input = summary.get("locked_input_sha256")
     return {
         "status": summary.get("status"),
-        "outcome": _leg_outcome(summary),
-        "failure_family": _typed_failure_family(summary),
+        "outcome": (
+            "blocked" if failure_family == "infra" or str(failure_family).startswith("infra_")
+            else _leg_outcome(summary)
+        ),
+        "failure_family": failure_family,
         "ir_projection_sha256": _ir_projection_digest(final),
         "canonical_delta_sha256": _canonical_delta_digest(response),
         "evidence_integrity": _evidence_integrity(response),
-        "latency_s": summary.get("elapsed_s"),
-        "usage": _usage(summary),
+        "latency_s": latency,
+        "usage": {
+            "prompt_tokens": usage_source.get("prompt_tokens"),
+            "completion_tokens": usage_source.get("completion_tokens"),
+            "total_tokens": usage_source.get("total_tokens"),
+            "cost_usd": cost_value,
+        },
         "output_dir": output_dir,
-        "locked_input_sha256": summary.get("locked_input_sha256"),
+        "locked_input_sha256": locked_input,
     }
 
 
@@ -450,7 +536,9 @@ def compare_pair(
     return {
         "scenario_id": scenario_id,
         "locked_input_sha256": locked_input_sha256,
-        "outcome": pair_outcome(staged, threaded),
+        "outcome": _pair_outcome_values(
+            staged_metrics["outcome"], threaded_metrics["outcome"]
+        ),
         "staged": staged_metrics,
         "threaded": threaded_metrics,
         "delta": {
@@ -534,6 +622,15 @@ def _run_mode(
             "failure_class": "runner_error",
         }
         summary.setdefault("error", str(exc))
+    output = Path(str(summary.get("output_dir"))) if summary.get("output_dir") else None
+    response = _load_json(output / "response.json") if output else None
+    _write_typed_metrics_artifact(
+        output,
+        mode=mode,
+        locked_input_sha256=locked_input_sha256,
+        elapsed_s=float(summary["elapsed_s"]),
+        response=response or {},
+    )
     return summary
 
 
@@ -585,10 +682,6 @@ def run_comparison(
 ) -> dict[str, Any]:
     """Run the locked comparison lane once threaded adapter wiring is ready."""
     validation = validate_only(manifest_path)
-    if not validation["threaded_wiring"]["runnable"]:
-        raise ThreadedWiringPending(
-            "live comparison awaits adapter.run_headless_scenario(..., pipeline_mode=...)"
-        )
     path = manifest_path or DEFAULT_COMPARISON_MANIFEST
     manifest = _load_json(path) or {}
     canonical = _authoritative_entries()
@@ -680,7 +773,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("choose --validate-only or --run")
             return 2
-    except (ComparisonManifestError, ScenarioManifestError, ThreadedWiringPending) as exc:
+    except (ComparisonManifestError, ScenarioManifestError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
         return 1
     print(json.dumps(payload, indent=2, default=str))
