@@ -1,0 +1,11 @@
+{
+  "id": "hotshot-16-frames-agent-edit",
+  "query": "Switch to generating 16 frames with Hotshot",
+  "workflow_path": "tests/fixtures/agent_edit/hotshot_base_unsaved_workflow_4.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  }
+}

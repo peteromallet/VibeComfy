@@ -1,0 +1,44 @@
+{
+  "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
+  "query": "Replace the MelBand RoFormer audio sampler with AudioLDM2 for audio generation, integrating it with the LTX video generation pipeline and LoRA, so that audio and video remain synchronized.",
+  "workflow_path": "external_workflows/corpus/c80bbf22890fc8df.json",
+  "network": true,
+  "timeout": 380,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true,
+    "allow_safe_refusal_outcome_kinds": [
+      "clarify",
+      "requires_custom_nodes"
+    ]
+  },
+  "desired": {
+    "outcome": "The audio generation component uses AudioLDM2 instead of MelBand RoFormer, and it is fed appropriate conditioning from the video or separate audio conditioning, producing synchronized audio latents that are decoded to MP3 alongside the video output.",
+    "quality": "The new AudioLDM2 stage is fully wired into the pipeline, receives the correct inputs (e.g., text conditioning or latent inputs), the video generation path is unchanged, and the workflow runs without errors."
+  },
+  "_tags": {
+    "modality": "audio",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "image_to_video",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "ltx",
+      "video-generation",
+      "audio-generation",
+      "lora",
+      "melband-roformer",
+      "latent-audio",
+      "vae",
+      "sampling",
+      "conditioning"
+    ],
+    "source_workflow_id": "c80bbf22890fc8df",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This candidate directly targets the workflow's unique audio component and forces a non-trivial structural redesign, testing the agent's ability to replace a specialized audio model while preserving synchronization with video."
+  }
+}

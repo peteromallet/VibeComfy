@@ -1466,7 +1466,10 @@ def test_agent_edit_aliases_check_ui_before_cached_schema_names(
     with pytest.warns(UserWarning, match="AgentAliasNode"):
         text = emit_agent_edit_python(wf)
 
-    assert "slots first_value='FIRST VALUE', second_value='SECOND VALUE'" in text
+    # Batch 4 (Law 5): the slots comment carries named typed ports derived
+    # from the UI output names (never the stale cached schema names), each
+    # with its schema status.
+    assert "slots FIRST_VALUE_0='FIRST VALUE' unknown, SECOND_VALUE_1='SECOND VALUE' unknown" in text
     assert "stale_extra" not in text
 
 
@@ -1484,7 +1487,9 @@ def test_agent_edit_aliases_warn_when_cache_has_too_few_outputs(
     with pytest.warns(UserWarning, match="AgentAliasNode"):
         text = emit_agent_edit_python(wf)
 
-    assert "slots first_value='FIRST VALUE', second_value='SECOND VALUE'" in text
+    # Both UI-named slots survive even though the cache declared too few
+    # outputs; they emit as named typed ports (Law 5).
+    assert "slots FIRST_VALUE_0='FIRST VALUE' unknown, SECOND_VALUE_1='SECOND VALUE' unknown" in text
 
 
 def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
@@ -1603,7 +1608,11 @@ def test_ready_template_unpacked_output_names_use_collision_suffix() -> None:
         template_id="video/test",
     )
 
-    assert "positive = CLIPTextEncode(text='prompt')" in text
+    # Batch 4 (Law 5): bindings are a pure function of class_type + uid order —
+    # CLIPTextEncode emits its deterministic class-derived name (no
+    # connection-role override), and the WanImageToVideo unpacked outputs
+    # keep their collision-suffixed/underscore-dead names.
+    assert "cliptextencode = CLIPTextEncode(text='prompt')" in text
     assert "_, negative, latent = WanImageToVideo()" in text
     assert "negative=negative" in text
     assert "latent_image=latent" in text

@@ -6,7 +6,7 @@ deterministic canonical-uid and LiteGraph-id lookups with no side effects.
 
 Design
 ------
-- ``LintIndex`` is built from ``original_ui`` via ``EditLedger.ingest()``.
+- ``LintIndex`` is built from ``original_ui`` via ``UiGraphIndex.ingest()``.
 - Canonical uids (stamped by the ledger) and raw LiteGraph integer ids are
   indexed separately so later lint rules can resolve either reference form.
 - Node metadata (class_type, input/output names, slot indices) is extracted
@@ -34,8 +34,6 @@ Rules enforced:
   current value are dropped as ``dropped_noop``.
 - *mode no-op* – ``set_mode`` ops that set the mode the node already has
   are dropped as ``dropped_noop``.
-- *title no-op* – ``set_title`` ops that set the title the node already has
-  are dropped as ``dropped_noop``; an empty/non-string title is rejected.
 - *add_node* – validates that ``class_type`` is non-empty and (when a
   ``schema_provider`` is supplied) that the class is known and all
   ``inputs`` keys name valid inputs on that class.
@@ -45,18 +43,16 @@ Rules enforced:
 - *remove_link* – validates link-id or target-based references and
   detects no-ops when no matching link is found.  Does not dereference
   link ids across scopes (link-id searches are root-scope only).
-- *reorder* – validates axis and that the target node exists; ``order``
-  content is not validated against current widget/slot names.
 """
 
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_widgets_values
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 import re
 from typing import Any, Mapping, Sequence
 
-from .ledger import EditLedger
 from .ops import (
     AddNodeOp,
     EditOp,
@@ -66,10 +62,8 @@ from .ops import (
     NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
-    ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.resolution import (
@@ -167,11 +161,11 @@ class LintResult:
 # ── LintIndex ───────────────────────────────────────────────────────────────
 
 def _build_node_meta(
-    ledger: EditLedger,
+    node_index: Mapping[tuple[str, str], Mapping[str, Any]],
 ) -> dict[tuple[str, str], _NodeMeta]:
-    """Extract node metadata from every scoped node in *ledger*."""
+    """Extract node metadata from every scoped node."""
     meta: dict[tuple[str, str], _NodeMeta] = {}
-    for (scope_path, uid), node in ledger.node_index.items():
+    for (scope_path, uid), node in node_index.items():
         lg_id: int | None = node.get("id")
         if not isinstance(lg_id, int):
             # defensive: every LiteGraph node MUST have an integer id
@@ -213,7 +207,7 @@ def _build_node_meta(
 
 
 def _build_link_sets(
-    ledger: EditLedger,
+    link_index: Mapping[tuple[str, int], Any],
 ) -> tuple[
     dict[str, frozenset[int]],
     dict[tuple[str, int], Any],
@@ -221,7 +215,7 @@ def _build_link_sets(
     """Collect existing link ids per scope and a link-by-id lookup."""
     link_ids: dict[str, set[int]] = {}
     link_by_id: dict[tuple[str, int], Any] = {}
-    for (scope_path, link_id), link in ledger.link_index.items():
+    for (scope_path, link_id), link in link_index.items():
         link_ids.setdefault(scope_path, set()).add(link_id)
         link_by_id[(scope_path, link_id)] = link
     frozen: dict[str, frozenset[int]] = {
@@ -234,7 +228,7 @@ def _build_link_sets(
 class LintIndex:
     """Read-only index over an ``original_ui`` LiteGraph dict.
 
-    Built deterministically from ``original_ui`` via ``EditLedger.ingest()``.
+    Built deterministically from ``original_ui`` via ``UiGraphIndex.ingest()``.
     Exposes canonical-uid and LiteGraph-id lookups, node metadata, and
     existing link indexing for downstream lint rules.
 
@@ -257,7 +251,9 @@ class LintIndex:
         meta.output_names
     """
 
-    ledger: EditLedger = field(repr=False)
+    graph: Mapping[str, Any] = field(repr=False)
+    _scopes: dict[str, Mapping[str, Any]] = field(repr=False)
+    _node_index: dict[tuple[str, str], Mapping[str, Any]] = field(repr=False)
     # LiteGraph integer id → canonical uid (per scope)
     _lg_id_to_uid: dict[tuple[str, int], str] = field(repr=False)
     # canonical uid → LiteGraph integer id (per scope)
@@ -276,12 +272,19 @@ class LintIndex:
         *original_ui* is a LiteGraph serialisation dict (nodes, links,
         definitions, etc.) as stored in the workflow JSON.
         """
-        ledger = EditLedger.ingest(original_ui)
-        lg_id_to_uid, uid_to_lg_id = build_lg_id_maps(ledger.node_index)
-        node_meta = _build_node_meta(ledger)
-        link_ids, link_by_id = _build_link_sets(ledger)
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
+        indexed = UiGraphIndex.ingest(original_ui)
+        scopes = {path: scope.graph for path, scope in indexed.scopes.items()}
+        node_index = indexed.node_index
+        link_index = indexed.link_index
+        lg_id_to_uid, uid_to_lg_id = build_lg_id_maps(node_index)
+        node_meta = _build_node_meta(node_index)
+        link_ids, link_by_id = _build_link_sets(link_index)
         return cls(
-            ledger=ledger,
+            graph=dict(original_ui),
+            _scopes=scopes,
+            _node_index=node_index,
             _lg_id_to_uid=lg_id_to_uid,
             _uid_to_lg_id=uid_to_lg_id,
             _node_meta=node_meta,
@@ -294,10 +297,10 @@ class LintIndex:
     @property
     def scope_paths(self) -> tuple[str, ...]:
         """All scope paths in insertion order (root ``""`` first)."""
-        return tuple(self.ledger.scopes.keys())
+        return tuple(self._scopes.keys())
 
     def has_scope(self, scope_path: str) -> bool:
-        return scope_path in self.ledger.scopes
+        return scope_path in self._scopes
 
     # -- node resolution ------------------------------------------------------
 
@@ -305,7 +308,8 @@ class LintIndex:
         self, scope_path: str, uid: str
     ) -> dict[str, Any] | None:
         """Return the LiteGraph node dict for *uid* in *scope_path*."""
-        return self.ledger.resolve_node(scope_path, uid)
+        node = self._node_index.get((scope_path, uid))
+        return dict(node) if isinstance(node, Mapping) else None
 
     def node_by_lg_id(
         self, scope_path: str, lg_id: int
@@ -314,7 +318,7 @@ class LintIndex:
         uid = self._lg_id_to_uid.get((scope_path, lg_id))
         if uid is None:
             return None
-        return self.ledger.resolve_node(scope_path, uid)
+        return self.node_by_uid(scope_path, uid)
 
     # -- uid ↔ lg_id translation ----------------------------------------------
 
@@ -677,7 +681,12 @@ def _find_matching_link(
 
 
 def _node_field_value(
-    index: LintIndex, scope_path: str, uid: str, field_path: str
+    index: LintIndex,
+    scope_path: str,
+    uid: str,
+    field_path: str,
+    *,
+    schema_provider: Any = None,
 ) -> Any:
     """Read the current value of *field_path* from the live node dict.
 
@@ -709,10 +718,24 @@ def _node_field_value(
             )
         except (ValueError, IndexError):
             return _MISSING
-        widgets = node.get("widgets_values")
+        widgets = door_get_widgets_values(node)
         if isinstance(widgets, list) and 0 <= idx < len(widgets):
             return widgets[idx]
         return _MISSING
+    # Named widget via the same compact resolver apply uses (RC12c).
+    try:
+        from vibecomfy.porting.widgets.compact_resolver import (
+            missing_widget_value_sentinel,
+            widget_value_for_field,
+        )
+
+        resolved = widget_value_for_field(
+            node, field_path, schema_provider=schema_provider
+        )
+        if resolved is not missing_widget_value_sentinel():
+            return resolved
+    except Exception:
+        pass
     # Top-level node property
     if field_path in node:
         return node[field_path]
@@ -740,7 +763,11 @@ _MISSING = _MissingSentinel()
 # ── per-op linters ──────────────────────────────────────────────────────────
 
 def _lint_set_node_field(
-    op: SetNodeFieldOp, op_index: int, index: LintIndex
+    op: SetNodeFieldOp,
+    op_index: int,
+    index: LintIndex,
+    *,
+    schema_provider: Any = None,
 ) -> tuple[EditOp | None, LintIssue | None, str]:
     """Lint a ``set_node_field`` op.
 
@@ -753,7 +780,13 @@ def _lint_set_node_field(
         return None, issue, "rejected"
 
     # Check that the field exists on the node
-    current = _node_field_value(index, target.scope_path, target.uid, target.field_path)
+    current = _node_field_value(
+        index,
+        target.scope_path,
+        target.uid,
+        target.field_path,
+        schema_provider=schema_provider,
+    )
     if current is _MISSING:
         # When a node carries widget values the field path may name a widget
         # whose index we cannot resolve without schema assistance.  Rather
@@ -762,7 +795,7 @@ def _lint_set_node_field(
         # final decision.  Nodes with no widget surface at all still
         # hard-reject genuinely unknown fields.
         node = index.node_by_uid(target.scope_path, target.uid)
-        widgets_values = node.get("widgets_values") if isinstance(node, dict) else None
+        widgets_values = door_get_widgets_values(node) if isinstance(node, dict) else None
         has_widget_surface = (
             isinstance(widgets_values, (list, dict))
             and len(widgets_values) > 0
@@ -893,6 +926,7 @@ def _lint_add_node(
                     anchor=op.anchor,
                     uid=op.uid,
                     node_id=op.node_id,
+                    widget_field_names=op.widget_field_names,
                 )
 
         if op.inputs:
@@ -1110,39 +1144,6 @@ def _lint_remove_link(
     ), "rejected"
 
 
-def _lint_reorder(
-    op: ReorderOp, op_index: int, index: LintIndex
-) -> tuple[EditOp | None, LintIssue | None, str]:
-    """Lint a ``reorder`` op.
-
-    Validates axis and target node existence.  The order list content is not
-    validated against current widget/slot names (that's an apply concern).
-    """
-    target, issue = _resolve_node_target(
-        index, op.target, op_index=op_index, op_kind="reorder",
-    )
-    if target is None:
-        return None, issue, "rejected"
-
-    # Validate axis (should always be valid since parse_edit_op enforces it)
-    if op.axis not in ("widgets", "slots"):
-        return None, _make_issue(
-            "invalid_axis",
-            f"Reorder axis must be 'widgets' or 'slots', got '{op.axis}'.",
-            op_index=op_index,
-            op_kind="reorder",
-            scope_path=target.scope_path,
-            uid=target.uid,
-            detail={"axis": op.axis},
-        ), "rejected"
-
-    if target is op.target:
-        return op, None, "passed"
-    return ReorderOp(
-        op="reorder", target=target, axis=op.axis, order=op.order,
-    ), None, "passed"
-
-
 def _lint_set_mode(
     op: SetModeOp, op_index: int, index: LintIndex
 ) -> tuple[EditOp | None, LintIssue | None, str]:
@@ -1176,51 +1177,6 @@ def _lint_set_mode(
     if target is op.target:
         return op, None, "passed"
     return SetModeOp(op="set_mode", target=target, mode=op.mode), None, "passed"
-
-
-def _lint_set_title(
-    op: SetTitleOp, op_index: int, index: LintIndex
-) -> tuple[EditOp | None, LintIssue | None, str]:
-    """Lint a ``set_title`` op.
-
-    Validates the target node and the non-empty title, and detects title
-    no-ops (renaming a node to the title it already has).
-    """
-    if not isinstance(op.title, str) or not op.title.strip():
-        return None, _make_issue(
-            "empty_title",
-            "set_title requires a non-empty title string.",
-            severity="error",
-            op_index=op_index,
-            op_kind="set_title",
-            detail={"title": op.title},
-        ), "rejected"
-
-    target, issue = _resolve_node_target(
-        index, op.target, op_index=op_index, op_kind="set_title",
-    )
-    if target is None:
-        return None, issue, "rejected"
-
-    node = index.node_by_uid(target.scope_path, target.uid)
-    current_title = node.get("title") if node is not None else None
-
-    if current_title == op.title:
-        return None, _make_issue(
-            "noop_title",
-            f"{_node_label(index, target.scope_path, target.uid)} is "
-            f"already titled {op.title!r}.",
-            severity="info",
-            op_index=op_index,
-            op_kind="set_title",
-            scope_path=target.scope_path,
-            uid=target.uid,
-            detail={"current_title": current_title, "requested_title": op.title},
-        ), "dropped_noop"
-
-    if target is op.target:
-        return op, None, "passed"
-    return SetTitleOp(op="set_title", target=target, title=op.title), None, "passed"
 
 
 # ── main entry point ────────────────────────────────────────────────────────
@@ -1262,12 +1218,10 @@ def lint_delta(
         "remove_node": _lint_remove_node,
         "upsert_link": _lint_upsert_link,
         "remove_link": _lint_remove_link,
-        "reorder": _lint_reorder,
         "set_mode": _lint_set_mode,
-        "set_title": _lint_set_title,
     }
 
-    _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link"})
+    _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link", "set_node_field"})
 
     # Link/field ops may legitimately depend on nodes added earlier in the
     # same ordered delta.  LintIndex is intentionally immutable and normally
@@ -1293,15 +1247,23 @@ def lint_delta(
         # apply engine.  Failure to materialise the virtual graph is left for
         # the ordinary per-op checks/apply gate to report; it must never make
         # lint more permissive than the authoritative apply path.
-        from .apply_core import apply_delta
+        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
-        virtual = apply_delta(
-            index.ledger.graph,
-            tuple(passed_adds),
-            schema_provider=schema_provider,
-        )
-        if virtual.ok and virtual.candidate is not None:
-            dependency_index = LintIndex.build(virtual.candidate)
+        try:
+            pre = from_ui(dict(index.graph), schema_provider=schema_provider)
+            interpreted = interpret(pre, tuple(passed_adds), schema_provider=schema_provider)
+            if interpreted.ok:
+                candidate = emit_ui_json(
+                    interpreted.workflow,
+                    schema_provider=schema_provider,
+                    include_virtual_wires=True,
+                    prior_ui_payload=index.graph,
+                )
+                dependency_index = LintIndex.build(candidate)
+        except Exception:
+            dependency_index = index
 
     for i, op in enumerate(delta):
         linter = _LINTERS.get(op.op)  # type: ignore[union-attr]

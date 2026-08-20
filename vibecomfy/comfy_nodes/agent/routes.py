@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+from vibecomfy.ingest.normalize import door_get_nodes
 _LOGGER = logging.getLogger(__name__)
 
 from vibecomfy.security.gate import CapabilityFenceError
@@ -205,7 +206,7 @@ def _load_demo_json_file(run_dir: Path, filename: str | None) -> Any:
 
 
 def _is_litegraph_ui_graph(graph: Any) -> bool:
-    return isinstance(graph, dict) and isinstance(graph.get("nodes"), list)
+    return isinstance(graph, dict) and isinstance(door_get_nodes(graph), list)
 
 
 def _is_comfy_api_graph(graph: Any) -> bool:
@@ -315,13 +316,13 @@ def _inherit_demo_layout(
         return candidate_graph
     original_nodes = {
         node.get("id"): node
-        for node in original_graph.get("nodes", [])
+        for node in door_get_nodes(original_graph, [])
         if isinstance(node, Mapping) and node.get("id") is not None
     }
     if not original_nodes:
         return candidate_graph
     out = copy.deepcopy(candidate_graph)
-    for node in out.get("nodes", []):
+    for node in door_get_nodes(out, []):
         if not isinstance(node, dict):
             continue
         original = original_nodes.get(node.get("id"))
@@ -1800,6 +1801,7 @@ def register_agent_edit_routes(app) -> None:
         finalize_turn_transaction as _session_finalize_turn_transaction,
         normalize_session_id as _safe_session_id,
         prepare_turn_transaction as _session_prepare_turn_transaction,
+        _recover_session_for_workflow,
         rebaseline_session,
         reconcile_turn_transactions as _session_reconcile_turn_transactions,
         rollback_turn_transaction as _session_rollback_turn_transaction,
@@ -2137,6 +2139,28 @@ def register_agent_edit_routes(app) -> None:
                 status=500,
             )
         return _web.json_response(_to_serializable(public_chat_rehydrate_payload(result)))
+
+    @app.routes.get("/vibecomfy/agent-edit/recover")
+    async def _agent_edit_recover_route(request):  # type: ignore[no-untyped-def]
+        workflow_id = request.query.get("workflow_id")
+        if not isinstance(workflow_id, str) or not workflow_id.strip():
+            return _json_error(
+                "Missing required query parameter `workflow_id`.",
+                stage="recover",
+            )
+        try:
+            result = await asyncio.to_thread(
+                _recover_session_for_workflow,
+                _SESSION_ROOT,
+                workflow_id.strip(),
+            )
+        except Exception as exc:
+            failure = _classify_failure("recover", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="recover"),
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result))
 
     @app.routes.get("/vibecomfy/agent-edit/session-bundle")
     async def _agent_edit_session_bundle_route(request):  # type: ignore[no-untyped-def]

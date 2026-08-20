@@ -73,6 +73,59 @@ def test_apply_adds_controlnet_custom_node_pack() -> None:
     assert workflow.requirements.custom_nodes.count("ComfyUI-ControlNet") == 1
 
 
+def test_apply_is_structurally_idempotent() -> None:
+    workflow = _minimal_t2i_with_negative_workflow()
+
+    apply(workflow)
+    first_api = workflow.compile("api")
+    first_nodes = list(workflow.nodes)
+    first_edges = list(workflow.edges)
+
+    assert applies_to(workflow) is False
+    apply(workflow)
+
+    assert workflow.compile("api") == first_api
+    assert list(workflow.nodes) == first_nodes
+    assert workflow.edges == first_edges
+    assert workflow.requirements.custom_nodes.count("ComfyUI-ControlNet") == 1
+
+
+def test_apply_recognizes_pre_marker_controlnet_structure() -> None:
+    workflow = _minimal_t2i_with_negative_workflow()
+    apply(workflow)
+    for node in workflow.nodes.values():
+        node.metadata.pop("vibecomfy_patch", None)
+    first_api = workflow.compile("api")
+    first_shape = (len(workflow.nodes), len(workflow.edges))
+
+    apply(workflow)
+
+    assert workflow.compile("api") == first_api
+    assert (len(workflow.nodes), len(workflow.edges)) == first_shape
+
+
+def test_configured_apply_upserts_values_and_image_edges_without_duplication() -> None:
+    workflow = _minimal_t2i_with_negative_workflow()
+    workflow.nodes["image"] = VibeNode("image", "LoadImage")
+    configured = controlnet_patch(
+        control_net_name="canny.safetensors",
+        image_node_id="image",
+        strength=0.5,
+    )
+
+    configured.apply(workflow)
+    first_api = workflow.compile("api")
+    first_edges = list(workflow.edges)
+    configured.apply(workflow)
+
+    assert workflow.compile("api") == first_api
+    assert workflow.edges == first_edges
+    assert len(workflow.metadata["patch_applications"]) == 1
+    image_edges = [edge for edge in workflow.edges if edge.to_input == "image"]
+    assert len(image_edges) == 2
+    assert {edge.from_node for edge in image_edges} == {"image"}
+
+
 def test_registered_controlnet_patch_uses_standard_apply_contract() -> None:
     assert list(signature(apply).parameters) == ["workflow"]
     assert list(signature(patch.apply).parameters) == ["workflow"]
@@ -113,6 +166,19 @@ def test_registered_controlnet_patch_records_deterministic_topology_telemetry() 
         item["previous_from_node"] in {"text_pos", "text_neg"} and item["new_from_node"].isdigit()
         for item in telemetry[0]["rewritten_edges"]
     )
+
+
+def test_registered_controlnet_patch_upserts_telemetry_idempotently() -> None:
+    workflow = _minimal_t2i_with_negative_workflow()
+
+    patch.apply(workflow)
+    first_api = workflow.compile("api")
+    first_telemetry = [dict(item) for item in workflow.metadata["patch_applications"]]
+    patch.apply(workflow)
+
+    assert workflow.compile("api") == first_api
+    assert workflow.metadata["patch_applications"] == first_telemetry
+    assert len(workflow.metadata["patch_applications"]) == 1
 
 
 def test_registered_controlnet_patch_records_noop_telemetry_without_positive_chain() -> None:

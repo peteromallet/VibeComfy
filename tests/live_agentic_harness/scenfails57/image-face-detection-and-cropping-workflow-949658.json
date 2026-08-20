@@ -1,0 +1,41 @@
+{
+  "id": "image-face-detection-and-cropping-workflow-949658",
+  "query": "Replace the YOLOv8 face detection with a different face detection model like MTCNN or RetinaFace, and update the cropping logic accordingly.",
+  "workflow_path": "external_workflows/corpus/949658825bc5999a.json",
+  "network": true,
+  "timeout": 260,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true,
+    "allow_safe_refusal_outcome_kinds": [
+      "clarify",
+      "requires_custom_nodes"
+    ]
+  },
+  "desired": {
+    "outcome": "The workflow now uses a different face detection model (e.g., MTCNN or RetinaFace) with appropriately adjusted cropping parameters to maintain correct region detection.",
+    "quality": "All original functionality (image loading, face detection, cropping, uncropping, preview) is preserved; the new model integrates seamlessly without dangling nodes or broken connections.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "image_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "face-detection",
+      "image-cropping",
+      "yolo",
+      "image-processing",
+      "preview"
+    ],
+    "source_workflow_id": "949658825bc5999a",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This candidate requires restructuring the detection stage and adapting the cropping logic, a genuine structural change that tests deep understanding of the workflow's architecture."
+  }
+}

@@ -75,9 +75,9 @@ def maybe_write_executor_only_durable_turn(
         # best-effort handler — a raw graph is never allocated or persisted.
         request_graph = getattr(request, "graph", None)
         if isinstance(request_graph, dict):
-            from .graph_normalization import normalize_agent_edit_graph
+            from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 
-            request_graph = normalize_agent_edit_graph(
+            _workflow, request_graph = ingest_workflow_and_ui(
                 request_graph, schema_provider=None
             )
         request_artifact_payload: dict[str, Any] = {
@@ -85,6 +85,9 @@ def maybe_write_executor_only_durable_turn(
             "task": query_text,
             "session_id": session_id,
         }
+        pipeline_mode = getattr(request, "pipeline_mode", None)
+        if pipeline_mode is not None:
+            request_artifact_payload["pipeline_mode"] = pipeline_mode
         if request_graph is not None:
             request_artifact_payload["graph"] = (
                 dict(request_graph) if isinstance(request_graph, dict) else request_graph

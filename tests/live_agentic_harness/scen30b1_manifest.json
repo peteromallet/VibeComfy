@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scenario_root": "tests/live_agentic_harness/scen30b1",
+  "scenario_count": 5,
+  "entries": [
+    {
+      "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
+      "path": "tests/live_agentic_harness/scen30b1/3d-3d-model-generation-and-preview-workflow-cc0df7.json",
+      "descriptor_sha256": "cace0fcd18209e4aa4197e4f4571bb4de4d15bc8f1b9148edf5b63e2906cbb43",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "cc0df70583f28c98",
+        "path": "external_workflows/corpus/cc0df70583f28c98.json",
+        "sha256": "f59807058734a50e245e4d97446e42d378a6589457f9359a05f9b5da09400583"
+      }
+    },
+    {
+      "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
+      "path": "tests/live_agentic_harness/scen30b1/3d-3d-model-generation-and-retargeting-workflow-f65774.json",
+      "descriptor_sha256": "56ec24c8f324bb7d0f94befd5e3392d6f90d850e3556a25e970f54754adff64d",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "f657743bc2a3db17",
+        "path": "external_workflows/corpus/f657743bc2a3db17.json",
+        "sha256": "4874162874ab6ddce8b7a248382e5ee20a392158f423c14f8ce1fffd4f21833e"
+      }
+    },
+    {
+      "id": "3d-converts-image-to-3d-model",
+      "path": "tests/live_agentic_harness/scen30b1/3d-converts-image-to-3d-model.json",
+      "descriptor_sha256": "5f131e3f6743491dc8ce59b63d5e52d50091d8f4bf7c199f76b130ada6f2214c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "b3530ba884ac4625",
+        "path": "tests/fixtures/live_agentic_corpus/b3530ba884ac4625.json",
+        "sha256": "d587fb6ac78718887c0a77b00a778ba43e662ccf69d024e54dcb1b12ca4c0aa0"
+      }
+    },
+    {
+      "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
+      "path": "tests/live_agentic_harness/scen30b1/audio-audio-processing-with-chatterbox-tts-and-vc-b55994.json",
+      "descriptor_sha256": "aa3859ee4661d125044bdb9d1ba907ed3944c1e28010cacbd0826ed0baea1de4",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "b55994d9cb6aea42",
+        "path": "external_workflows/corpus/b55994d9cb6aea42.json",
+        "sha256": "cf18d35e10586b45a798da007c09965f0abd89a5339a1d15507605c651fcdc22"
+      }
+    },
+    {
+      "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
+      "path": "tests/live_agentic_harness/scen30b1/audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf.json",
+      "descriptor_sha256": "c10b4644cd9431a288e5d3726eecc1032a25da914c1c7b640cf4ee4a39d82a45",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "c80bbf22890fc8df",
+        "path": "external_workflows/corpus/c80bbf22890fc8df.json",
+        "sha256": "50d0bae8056606a96cef8612a070d362eefefaf4863c1650a7ba073ae8cc3726"
+      }
+    }
+  ]
+}

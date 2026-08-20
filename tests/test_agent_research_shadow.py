@@ -128,17 +128,48 @@ def _fake_search(query: str, limit: int = 5, **kwargs: Any) -> ToolResult:
 
 
 def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
-    """Deterministic Hivemind get returning the full record for a hit id."""
+    """Deterministic Hivemind get returning the full record for a hit id.
+
+    The workflow record carries a real workflow JSON (UI shape) in
+    ``payload.workflow_json`` so the stage serves its IR surface lens (batch
+    13) — the raw ``body`` below stays in the evidence artifact only.
+    """
     row_id = evidence_id.rsplit(":", 1)[-1]
-    # Deliberately longer than the digest's record-preview limit so tests can
-    # prove the digest carries a BOUNDED preview of the fetched body (head
-    # present, tail absent) — never the full raw body.
+    # The served surface lens is deliberately longer than the digest's
+    # record-preview limit (the long widget value below) so tests can prove
+    # the digest carries a BOUNDED preview of the served lens (head present,
+    # marker absent) — never the full lens and never the raw source body.
+    lens_tail = "END-OF-SURFACE-LENS"
     body = (
         "expanded record body with wiring detail — the exact socket/terminal "
         "pattern and preserved settings for the audio-conditioned Wan chain. "
         + ("x" * 400)
         + " END-OF-EXPANDED-RECORD"
     )
+    workflow_json = {
+        "last_node_id": 2,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadAudio",
+                "pos": [0, 0],
+                "size": [300, 100],
+                "widgets_values": [("a" * 400) + lens_tail],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "links": [2]}],
+            },
+            {
+                "id": 2,
+                "type": "ConditioningCombine",
+                "pos": [400, 0],
+                "size": [300, 100],
+                "widgets_values": [],
+                "inputs": [{"name": "conditioning_1", "type": "CONDITIONING", "link": 2}],
+                "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": None}],
+            },
+        ],
+        "links": [[2, 1, 0, 2, 0, "AUDIO"]],
+        "groups": [],
+    }
     return ToolResult(
         tool_name="hivemind_get",
         status=ToolStatus.OK,
@@ -151,6 +182,7 @@ def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
                 "title": f"full record {row_id}",
                 "body": body,
                 "kind": "workflow",
+                "payload": {"workflow_json": workflow_json},
             },
         },
         evidence_ids=(evidence_id,),
@@ -261,14 +293,20 @@ class TestTraceRecordsQuestionAndJudgment:
         # Tool results were captured as evidence artifacts.
         assert "hivemind:workflows:111" in pack.artifacts
         assert "hivemind_get:workflows:111" in pack.artifacts
-        # P1-b: the fetch digest previews the FETCHED ROW body (bounded) so
-        # the agent synthesizes from content, not a title — while the full
-        # raw body never enters the digest (head present, tail truncated).
+        assert trace.executed_tool_calls == 2
+        assert trace.evidence_artifact_count == 3
+        assert trace.to_dict()["executed_tool_calls"] == 2
+        # Batch 13: the fetch digest serves the IR surface lens of the
+        # workflow record (the Python view), with the expanded bounded preview
+        # retaining useful tail details, while the raw source body stays in
+        # the evidence artifact only and never enters the digest.
         get_digest = judge_log[-1]["digest"]
-        assert "expanded record body" in get_digest
+        assert "loadaudio = LoadAudio(" in get_digest
+        assert "END-OF-SURFACE-LENS" in get_digest
+        assert "expanded record body" not in get_digest
         assert "END-OF-EXPANDED-RECORD" not in get_digest
 
-    def test_budget_exhaustion_terminates_with_refine_verdict(
+    def test_test_turn_clamp_exhausts_without_budget_refusals(
         self, profile_dir: Path
     ) -> None:
         """An agent that never finishes still terminates (bounded), leaving a
@@ -289,14 +327,14 @@ class TestTraceRecordsQuestionAndJudgment:
             search_fn=_fake_search,
             get_fn=_fake_get,
             judge_fn=always_search,
+            max_turns=5,
         )
         # P1-a: a loop that stops without an agent finish (max-turns here) is
         # "exhausted", never "ok" — the executor fails closed on it.
         assert trace.status == "exhausted"
         assert trace.final_verdict == "refine"
-        # Exactly the search budget was consumed by successful agent-chosen
-        # calls; every later call was a typed refusal (visible to the agent)
-        # and the loop still terminated bounded at max_turns.
+        # The test-only turn clamp stops the loop; production has no arbitrary
+        # search quota and therefore records no budget refusals.
         ok_searches = [
             it
             for it in trace.iterations
@@ -308,10 +346,10 @@ class TestTraceRecordsQuestionAndJudgment:
             for it in trace.iterations
             if it.tool_calls and it.tool_calls[0]["status"] == "refused"
         ]
-        assert len(ok_searches) == stage.TOOL_SEARCH_BUDGET
-        assert refused, "exhausted search calls must be recorded as typed refusals"
-        assert len(trace.iterations) == stage._MAX_TURNS
-        assert "search budget exhausted" in " ".join(trace.warnings)
+        assert len(ok_searches) == 5
+        assert not refused
+        assert len(trace.iterations) == 5
+        assert "budget exhausted" not in " ".join(trace.warnings)
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
     def test_deadline_exhaustion_is_exhausted_not_ok(self, profile_dir: Path) -> None:
@@ -841,6 +879,311 @@ class TestFinishPrematureGuard:
         ]
         assert synth == []
         assert trace.citations == ()
+
+    def test_adapt_zero_tool_loop_remains_truthfully_never(self, profile_dir: Path) -> None:
+        """Python never invents a fallback search the agent did not choose."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        searches: list[str] = []
+
+        def always_finish(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            del digest, messages
+            return {
+                "action": "finish",
+                "conclusion": "no tool calls",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        def search_fn(query: str, **kwargs: Any) -> Any:
+            searches.append(str(query))
+            return _fake_search(query, **kwargs)
+
+        trace, pack = stage.run_agent_research_stage(
+            route="adapt",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=search_fn,
+            get_fn=_fake_get,
+            judge_fn=always_finish,
+            max_turns=2,
+        )
+        assert searches == []
+        assert not any(
+            entry.decision == stage.DECISION_SEARCH for entry in pack.ledger.entries
+        )
+        assert trace.attempt == stage.RESEARCH_ATTEMPT_NEVER
+        assert trace.executed_tool_calls == 0
+        assert trace.evidence_artifact_count == 0
+
+
+class TestResearchReliabilityPort:
+    def test_decided_call_executes_after_provider_overruns_deadline(
+        self, profile_dir: Path
+    ) -> None:
+        clock = {"now": 0.0}
+
+        def judge(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            clock["now"] = 2.0
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": _EXPLICIT_QUESTION},
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=judge,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            now_fn=lambda: clock["now"],
+            deadline_seconds=1.0,
+        )
+        assert trace.status == "exhausted"
+        assert trace.executed_tool_calls == 1
+        assert trace.attempt == stage.RESEARCH_ATTEMPT_THIN
+        assert "hivemind:workflows:111" in pack.artifacts
+        assert "call's evidence is preserved" in " ".join(trace.warnings)
+
+    def test_malformed_decision_retries_with_corrective_preview(
+        self, profile_dir: Path
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        calls: list[list[dict[str, Any]]] = []
+
+        def judge(
+            question: str,
+            digest: str,
+            messages: list[dict[str, Any]] | None = None,
+        ) -> dict[str, Any]:
+            calls.append(list(messages or []))
+            if len(calls) == 1:
+                raise MalformedModelJSON(
+                    "malformed research decision",
+                    raw_response="I will search in prose",
+                    parse_reason="non_json_content",
+                )
+            if "hivemind_search →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "A matching lead was found.",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "record not fetched",
+            }
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=judge,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+        )
+        assert trace.status == "ok"
+        assert len(calls) == 3
+        retry = calls[1][-1]
+        assert retry["role"] == "system"
+        assert "Previous response preview" in retry["content"]
+        assert "search in prose" in retry["content"]
+        assert any("corrective retry" in warning for warning in trace.warnings)
+
+    def test_malformed_retry_never_starts_after_deadline(
+        self, profile_dir: Path
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        clock = {"now": 0.0}
+        calls = 0
+
+        def judge(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            nonlocal calls
+            calls += 1
+            clock["now"] = 2.0
+            raise MalformedModelJSON(
+                "malformed research decision",
+                raw_response="still prose",
+                parse_reason="non_json_content",
+            )
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=judge,
+            now_fn=lambda: clock["now"],
+            deadline_seconds=1.0,
+        )
+        assert calls == 1
+        assert trace.status == "failed"
+        assert trace.error and "raw response preview" in trace.error
+        assert "still prose" in trace.error
+
+    def test_projection_failure_keeps_prior_truth_and_later_evidence(
+        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_project = stage.project_tool_evidence
+
+        def flaky_project(spec: Any, args: Any, result: Any, session: Any) -> Any:
+            if spec.name == "hivemind_search":
+                raise ValueError("bad compact corpus row")
+            return real_project(spec, args, result, session)
+
+        monkeypatch.setattr(stage, "project_tool_evidence", flaky_project)
+
+        def judge(
+            _question: str,
+            digest: str,
+            _messages: list[dict[str, Any]] | None = None,
+        ) -> dict[str, Any]:
+            if "hivemind_search →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": "wan audio"},
+                }
+            if "hivemind_get →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Fetched precedent retained.",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=judge,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+        )
+        assert trace.status == "ok"
+        assert trace.executed_tool_calls == 2
+        assert trace.evidence_artifact_count == 1
+        assert trace.attempt == stage.RESEARCH_ATTEMPT_GROUNDED
+        assert "hivemind_get:workflows:111" in pack.artifacts
+        assert any("projection failed" in warning for warning in trace.warnings)
+
+    def test_fetched_lead_aliases_and_uncited_fetch_is_rejected(
+        self, profile_dir: Path
+    ) -> None:
+        calls = 0
+
+        def judge(
+            _question: str,
+            digest: str,
+            _messages: list[dict[str, Any]] | None = None,
+        ) -> dict[str, Any]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            if "finish_premature" not in digest:
+                return {
+                    "action": "finish",
+                    "conclusion": "Ignored the fetched record.",
+                    "evidence_ids": [],
+                    "uncertainty": "",
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Used the fetched record.",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=judge,
+            get_fn=_fake_get,
+        )
+        assert trace.status == "ok"
+        assert trace.citations == ("hivemind_get:workflows:111",)
+        assert any(
+            entry.decision == stage.DECISION_FINISH_PREMATURE
+            for entry in pack.ledger.entries
+        )
+
+    def test_duplicate_successful_fetch_is_cached_and_not_a_new_attempt(
+        self, profile_dir: Path
+    ) -> None:
+        judge_calls = 0
+        network_fetches = 0
+
+        def get(evidence_id: str, **kwargs: Any) -> ToolResult:
+            nonlocal network_fetches
+            network_fetches += 1
+            return _fake_get(evidence_id, **kwargs)
+
+        def judge(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            nonlocal judge_calls
+            judge_calls += 1
+            if judge_calls <= 2:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Used the cached record.",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "",
+            }
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=judge,
+            get_fn=get,
+        )
+        assert trace.status == "ok"
+        assert network_fetches == 1
+        assert trace.executed_tool_calls == 1
+        assert trace.evidence_artifact_count == 1
+
+    def test_empty_search_titles_keep_ledger_conclusion_compact(self) -> None:
+        from vibecomfy.executor.tool_specs import TOOL_SPEC_BY_NAME, project_tool_evidence
+
+        hits = [
+            {"evidence_id": "hivemind:message_feed:1", "title": "", "body": ""},
+            {"evidence_id": "hivemind:message_feed:2", "title": "Real title"},
+            {"evidence_id": "hivemind:message_feed:3", "title": "", "body": ""},
+        ]
+        result = ToolResult(
+            tool_name="hivemind_search",
+            status=ToolStatus.OK,
+            result={"hits": hits},
+            evidence_ids=tuple(hit["evidence_id"] for hit in hits),
+        )
+        _artifacts, entry, _digest = project_tool_evidence(
+            TOOL_SPEC_BY_NAME["hivemind_search"], {"query": "q"}, result, None
+        )
+        assert entry["conclusion"] == "3 hit(s): Real title"
+
+    def test_balanced_json_extraction_ignores_trailing_braced_prose(self) -> None:
+        from vibecomfy.executor.prompts import parse_classify_response
+
+        parsed = parse_classify_response(
+            '{"research": false, "implement": false, "reply": true, '
+            '"effort": "low", "plan_summary": "answer", "intent": "respond"}'
+            " trailing note about {LoRA}"
+        )
+        assert parsed.intent == "respond"
+        assert parsed.plan_summary == "answer"
 
 
 class TestModelFamilyBriefNudge:

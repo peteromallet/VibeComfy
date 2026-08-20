@@ -1,0 +1,37 @@
+{
+  "id": "video-svd-image-to-video-generation-fc240f",
+  "query": "The generated video looks almost like a still image. Can you increase the motion_bucket_id to add more visible motion?",
+  "workflow_path": "external_workflows/corpus/fc240f1c4331a5e5.json",
+  "network": true,
+  "timeout": 280,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The video exhibits perceptibly stronger movement while still being coherent with the input image.",
+    "quality": "Only the motion_bucket_id (or equivalent motion parameter) is changed; video generation remains intact with no broken links.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "image_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-video",
+      "svd",
+      "video-generation",
+      "stable-video-diffusion",
+      "video-linear-cfg"
+    ],
+    "source_workflow_id": "fc240f1c4331a5e5",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "A precise, parameter\u2011level tweak tied to a well\u2011known SVD control; avoids asking for generic 'more motion' without a concrete lever."
+  }
+}

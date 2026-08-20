@@ -578,8 +578,8 @@ def _mutate_turn_state(
                 "entries": _scoped_accept_result["entries"],
                 "ok": _scoped_accept_result["ok"],
             }
-        if _delta_ops_echo is not None:
-            response["delta_ops"] = _delta_ops_echo
+        if _delta_ops_echo is not None and "accepted_batch" not in response:
+            response["accepted_batch"] = [{"op": op} for op in _delta_ops_echo]
         if key is not None and response_writer is not None:
             response_path = response_writer(response)
             state["idempotency_records"][key] = {

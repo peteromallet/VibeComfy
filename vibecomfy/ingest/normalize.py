@@ -3,7 +3,75 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+
+# Door-owned LiteGraph accessors.  Defined before other vibecomfy
+# imports so identity/aliases can import them without cycling.
+_DOOR_MISSING = object()
+
+
+def door_get_nodes(graph: Any, default: Any = None) -> Any:
+    getter = getattr(graph, "get", None)
+    if callable(getter):
+        return getter("nodes", default)
+    return default
+
+
+def door_nodes(graph: Any) -> Any:
+    return graph["nodes"]
+
+
+def door_pop_nodes(graph: Any, default: Any = _DOOR_MISSING) -> Any:
+    if default is _DOOR_MISSING:
+        return graph.pop("nodes")
+    return graph.pop("nodes", default)
+
+
+def door_setdefault_nodes(graph: Any, default: Any = None) -> Any:
+    return graph.setdefault("nodes", default)
+
+
+def door_get_links(graph: Any, default: Any = None) -> Any:
+    getter = getattr(graph, "get", None)
+    if callable(getter):
+        return getter("links", default)
+    return default
+
+
+def door_links(graph: Any) -> Any:
+    return graph["links"]
+
+
+def door_pop_links(graph: Any, default: Any = _DOOR_MISSING) -> Any:
+    if default is _DOOR_MISSING:
+        return graph.pop("links")
+    return graph.pop("links", default)
+
+
+def door_setdefault_links(graph: Any, default: Any = None) -> Any:
+    return graph.setdefault("links", default)
+
+
+def door_get_widgets_values(node: Any, default: Any = None) -> Any:
+    getter = getattr(node, "get", None)
+    if callable(getter):
+        return getter("widgets_values", default)
+    return default
+
+
+def door_widgets_values(node: Any) -> Any:
+    return node["widgets_values"]
+
+
+def door_pop_widgets_values(node: Any, default: Any = _DOOR_MISSING) -> Any:
+    if default is _DOOR_MISSING:
+        return node.pop("widgets_values")
+    return node.pop("widgets_values", default)
+
+
+def door_setdefault_widgets_values(node: Any, default: Any = None) -> Any:
+    return node.setdefault("widgets_values", default)
+
 
 import warnings
 
@@ -25,6 +93,7 @@ from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
 from vibecomfy.security.provenance import PROVENANCE_KEY
 from vibecomfy.workflow import (
+    NodeMode,
     RawWidgetPayload,
     VibeEdge,
     VibeInput,
@@ -35,10 +104,308 @@ from vibecomfy.workflow import (
     WorkflowSource,
     _embedded_api_link_details,
     _embedded_api_link_message,
+    litegraph_to_mode,
+    mode_to_litegraph,
 )
 
 EXEC_SOURCE_MAX_BYTES = 48 * 1024
 EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
+
+# Door-owned wire-retention key (Law 1: ``emit_ui(from_ui(J)) == J``).  The
+# ingest boundary stashes the raw top-level fields and raw node payloads under
+# this ``workflow.metadata`` key so the emit boundary can reproduce the
+# original bytes for an UNTOUCHED graph.  The blob is door-owned wire data —
+# per plan.md π_edit, positions/sizes/groups/opaque ``_ui``/wire metadata are
+# excluded from the editable quotient and belong to the door law.  Only the
+# door boundary (``ingest/normalize.py`` and ``porting/emit/ui.py``) reads or
+# writes it; ``VibeWorkflow.to_envelope`` delegates the untouched-graph
+# restore decision to this module rather than touching the blob itself.
+_UI_DOOR_KEY = "_ui_door"
+
+def _door_freeze(value: Any) -> Any:
+    """Deterministic freeze of an editable IR value for the door fingerprint.
+
+    Dicts/lists/tuples/sets are normalized to sorted tuples so the same
+    logical value always fingerprints identically regardless of insertion
+    order; ``RawWidgetPayload`` is reduced to its five payload fields.
+    """
+    if isinstance(value, RawWidgetPayload):
+        return (
+            "raw_widgets",
+            _door_freeze(value.values),
+            str(value.shape),
+            str(value.source),
+            bool(value.has_dict_rows),
+            int(value.length),
+        )
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _door_freeze(item)) for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_door_freeze(item) for item in value)
+    if isinstance(value, set):
+        return tuple(sorted(_door_freeze(item) for item in value))
+    return value
+
+
+def _door_signature_ports(entries: Any) -> tuple[Any, ...]:
+    ports: list[tuple[Any, ...]] = []
+    if not isinstance(entries, (list, tuple)):
+        return ()
+    for item in entries:
+        if not isinstance(item, Mapping):
+            continue
+        ports.append(
+            (
+                str(item.get("name") or ""),
+                item.get("type"),
+                str(item.get("label") or ""),
+            )
+        )
+    return tuple(ports)
+
+
+def _door_definitions_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
+    """Editable subgraph signatures for the door fingerprint.
+
+    Covers id, name, and each port's name/type/label.  Inner nodes, links,
+    and geometry stay door-owned and are not fingerprinted.
+    """
+    metadata = getattr(workflow, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return ()
+    definitions = metadata.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return ()
+    subgraphs = definitions.get("subgraphs")
+    if not isinstance(subgraphs, (list, tuple)):
+        return ()
+    return tuple(
+        sorted(
+            (
+                str(entry.get("id") or entry.get("name") or ""),
+                str(entry.get("name") or ""),
+                _door_signature_ports(entry.get("inputs")),
+                _door_signature_ports(entry.get("outputs")),
+            )
+            for entry in subgraphs
+            if isinstance(entry, Mapping)
+        )
+    )
+
+
+def _door_schema_status(metadata: Mapping[str, Any]) -> str:
+    """Schema status derived from the IR-only ``schema_source`` metadata.
+
+    Mirrors the pi_edit classification (known/provisional/unknown) but is
+    computed WITHOUT a schema provider, so ingest and emit agree on the same
+    IR.  Nodes ingested without a provider carry no ``schema_source`` and
+    fingerprint as ``unknown``.
+    """
+    source = metadata.get("schema_source")
+    if not isinstance(source, Mapping):
+        return "unknown"
+    provider = str(source.get("provider", "") or "")
+    if provider in ("comfy_registry_provisional", "workflow_json_provisional"):
+        return "provisional"
+    return "known" if provider else "unknown"
+
+
+def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
+    """Canonical fingerprint of the editable IR surface for the door law.
+
+    Stored in the door blob at ingest and recomputed at emit.  Equal
+    fingerprints prove the graph is UNTOUCHED since ingest, so the emit
+    boundary may pass the captured raw wire bytes through unchanged.  The
+    fingerprint covers the full editable quotient: every semantic edit through
+    ANY path (``set_prompt``/``set_input``/``set_seed``, ``confirm_node``,
+    direct input/widget/metadata/raw_widgets mutation) changes at least one
+    component, so an edited graph is never byte-passthrough with the edit
+    silently discarded.
+
+    Inputs and widgets are fingerprinted as SEPARATE channels: a ``set_input``
+    on a widget-backed field is a real edit even when the same field name
+    exists in both channels.  ``node.metadata`` (which carries provenance and
+    the schema source) is included in full — over-refusal on furniture-only
+    metadata churn is conservative and acceptable, while the wire bytes
+    themselves (pos/size/order/opaque ``_ui`` values) are still preserved
+    verbatim for untouched graphs by the door restore.
+    """
+    nodes = tuple(
+        (
+            str(node_id),
+            str(node.class_type),
+            str(node.uid),
+            mode_to_litegraph(node.mode),
+            str(node.pack) if node.pack is not None else None,
+            tuple(
+                sorted(
+                    (str(key), _door_freeze(value))
+                    for key, value in node.inputs.items()
+                )
+            ),
+            tuple(
+                sorted(
+                    (str(key), _door_freeze(value))
+                    for key, value in node.widgets.items()
+                )
+            ),
+            tuple(
+                sorted(
+                    (str(key), _door_freeze(value))
+                    for key, value in node.metadata.items()
+                )
+            ),
+            _door_freeze(node.raw_widgets),
+            str(node.provenance),
+            _door_schema_status(node.metadata),
+        )
+        for node_id, node in sorted(
+            workflow.nodes.items(),
+            key=lambda kv: (int(kv[0]) if kv[0].isdigit() else (1 << 30), kv[0]),
+        )
+    )
+    edges = tuple(
+        sorted(
+            (str(e.from_node), str(e.from_output), str(e.to_node), str(e.to_input))
+            for e in workflow.edges
+        )
+    )
+    public_inputs = tuple(
+        sorted(
+            (
+                str(name),
+                str(item.node_id),
+                str(item.field),
+                _door_freeze(item.value),
+                str(item.type) if item.type is not None else None,
+                _door_freeze(item.default),
+                bool(item.required),
+                _door_freeze(item.range),
+                tuple(str(alias) for alias in item.aliases),
+                str(item.media_semantics) if item.media_semantics is not None else None,
+            )
+            for name, item in workflow.inputs.items()
+        )
+    )
+    public_outputs = tuple(
+        sorted(
+            (str(item.node_id), str(item.output_type), str(item.name))
+            for item in workflow.outputs
+        )
+    )
+    # Grammar-visible subgraph signatures (id, name, ports).  A
+    # definitions-only edit that changes an emitted port (e.g. a subgraph
+    # input label that becomes the Python kwarg) must flip this fingerprint
+    # so the emit door cannot restore the captured original and discard it.
+    # Inner bodies / furniture stay door-owned and are not fingerprinted.
+    return (nodes, edges, public_inputs, public_outputs, _door_definitions_fingerprint(workflow))
+
+
+def _capture_ui_door(
+    raw: dict[str, Any],
+    workflow: "VibeWorkflow",
+    *,
+    use_comfy_converter: bool = False,
+) -> dict[str, Any]:
+    """Capture the raw wire bytes at the ingest boundary (Law 1).
+
+    ``top`` holds every top-level field verbatim (including opaque keys) except
+    the ``nodes`` payload itself; ``nodes`` holds the raw per-node payloads
+    keyed by string id; ``node_order`` preserves the raw node list order;
+    ``top_order`` preserves the raw top-level key order (including where
+    ``nodes`` sits); ``fingerprint`` freezes the editable IR surface so the
+    emit boundary can prove a graph is untouched; ``shape`` records whether the
+    raw was a litegraph UI envelope (``"ui"``) or a serialized Vibe envelope
+    (``"envelope"``); ``use_comfy_converter`` records the ingest converter
+    request so the emit boundary only byte-passes graphs whose IR provably
+    derives from the offline normalizer (the comfy-converter ingest path is
+    not guaranteed to normalize back to the same API, so it keeps the
+    deterministic reconstruction path).
+    """
+    top = {
+        key: deepcopy(value)
+        for key, value in raw.items()
+        if key != "nodes" and key != _UI_DOOR_KEY
+    }
+    nodes_raw = raw.get("nodes")
+    node_payloads: dict[str, Any] = {}
+    node_order: list[str] = []
+    if isinstance(nodes_raw, list):
+        for entry in nodes_raw:
+            if not isinstance(entry, dict) or "id" not in entry:
+                continue
+            nid = str(entry["id"])
+            node_payloads[nid] = deepcopy(entry)
+            node_order.append(nid)
+    elif isinstance(nodes_raw, dict):
+        for key, entry in nodes_raw.items():
+            if isinstance(entry, dict):
+                node_payloads[str(key)] = deepcopy(entry)
+                node_order.append(str(key))
+    return {
+        "top": top,
+        "top_order": list(raw.keys()),
+        "nodes": node_payloads,
+        "node_order": node_order,
+        "fingerprint": _door_node_fingerprint(workflow),
+        "shape": "ui" if isinstance(nodes_raw, list) else "envelope",
+        "use_comfy_converter": use_comfy_converter,
+    }
+
+
+def _restore_untouched_door(door: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild the original ingest bytes from the door blob (Law 1).
+
+    Preserves the raw top-level key order (``top_order``), the raw top-level
+    fields, and the raw node payloads in raw order.  The result is a detached
+    deep copy — mutating it never touches the IR or the blob.  The door key
+    itself is never wire data: a stale blob that captured it is stripped.
+    """
+    top = door.get("top")
+    nodes_raw = door.get("nodes")
+    order = door.get("node_order") or []
+    if not isinstance(top, Mapping) or not isinstance(nodes_raw, Mapping):
+        raise ValueError("door blob malformed: missing top/nodes")
+    if door.get("shape") == "ui":
+        nodes: Any = [deepcopy(nodes_raw[nid]) for nid in order if nid in nodes_raw]
+    else:
+        # Envelope shape: the rich ``nodes`` mapping is the stored wire shape.
+        nodes = {nid: deepcopy(nodes_raw[nid]) for nid in order if nid in nodes_raw}
+    envelope: dict[str, Any] = {}
+    keys = list(door.get("top_order")) if isinstance(door.get("top_order"), list) else list(top)
+    nodes_placed = False
+    for key in keys:
+        if key == "nodes":
+            envelope["nodes"] = nodes
+            nodes_placed = True
+        elif key in top and key != _UI_DOOR_KEY:
+            envelope[key] = deepcopy(top[key])
+    for key, value in top.items():
+        if key not in envelope and key != "nodes" and key != _UI_DOOR_KEY:
+            envelope[key] = deepcopy(value)
+    if not nodes_placed:
+        envelope["nodes"] = nodes
+    return envelope
+
+
+def _restore_untouched_envelope(workflow: "VibeWorkflow") -> dict[str, Any] | None:
+    """Door-owned Law-1 restore for the envelope serializer.
+
+    Returns the raw ingest bytes verbatim when the IR is UNTOUCHED since
+    ingest (door shape ``envelope`` and fingerprint match), else ``None`` so
+    the serializer falls through to the plain IR rendering.  This keeps ALL
+    door-blob inspection at the door boundary: ``workflow.py`` never reads the
+    blob or compares fingerprints itself.
+    """
+    metadata = getattr(workflow, "metadata", None)
+    door = metadata.get(_UI_DOOR_KEY) if isinstance(metadata, dict) else None
+    if (
+        isinstance(door, Mapping)
+        and door.get("shape") == "envelope"
+        and _door_node_fingerprint(workflow) == door.get("fingerprint")
+    ):
+        return _restore_untouched_door(door)
+    return None
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
@@ -169,7 +536,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
     for node_id, node in nodes.items():
         inputs: dict[str, Any] = {}
         input_provenance: dict[str, str] = {}
-        class_type = str(node.get("type", "Unknown"))
+        class_type = str(node.get("type") or node.get("class_type") or "Unknown")
         ui_widget_names: list[str] = []
         for input_item in node.get("inputs", []) or []:
             if not isinstance(input_item, dict):
@@ -418,18 +785,24 @@ def _vibe_groups(value: Any) -> list[dict[str, Any]]:
     return deepcopy(value)
 
 
-def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
+def _node_mode_from_metadata(metadata: dict[str, Any]) -> NodeMode:
     """First-class mode value for a node: ``_ui.mode`` then legacy
-    ``metadata["mode"]``, else 0.  Only ints are accepted."""
+    ``metadata[\"mode\"]``, else ENABLED.  Only ints are accepted from the
+    raw substrate; the IR stores the semantic :class:`NodeMode`."""
     ui = metadata.get("_ui")
     if isinstance(ui, dict):
         ui_mode = ui.get("mode", 0)
         if isinstance(ui_mode, int):
-            return ui_mode
+            return litegraph_to_mode(ui_mode)
     meta_mode = metadata.get("mode")
     if isinstance(meta_mode, int):
-        return meta_mode
-    return 0
+        return litegraph_to_mode(meta_mode)
+    if isinstance(meta_mode, str):
+        try:
+            return NodeMode(meta_mode)
+        except ValueError:
+            return NodeMode.ENABLED
+    return NodeMode.ENABLED
 
 
 def _geometry_pair(value: Any) -> list[float] | None:
@@ -800,6 +1173,10 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 
     workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(raw, workflow)
+    # Law 1: stash the raw envelope bytes at the door so the envelope
+    # serializer (``to_envelope``) reproduces them byte-for-byte for an
+    # untouched envelope (``to_envelope(from_envelope(J)) == J``).
+    workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(raw, workflow)
 
     return workflow
 
@@ -840,6 +1217,18 @@ def from_ui(
     # produced by the converter drops them, so carry them across from the raw
     # graph here (fail-closed: a non-list groups is rejected).
     workflow.groups = _vibe_groups(raw.get("groups"))
+    # Subgraph signatures are part of π_edit.  Copy them onto the IR BEFORE
+    # the door fingerprint is captured so a later definitions-only edit is
+    # distinguishable from the ingest snapshot.
+    raw_definitions = raw.get("definitions")
+    if isinstance(raw_definitions, dict):
+        workflow.metadata["definitions"] = deepcopy(raw_definitions)
+    # Law 1: stash the raw wire bytes at the door.  The emit boundary
+    # reproduces them byte-for-byte for an untouched graph
+    # (``emit_ui(from_ui(J)) == J``) and prefers them for edited graphs.
+    workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(
+        raw, workflow, use_comfy_converter=use_comfy_converter
+    )
     return workflow
 
 
@@ -1272,3 +1661,203 @@ def _schema_source_provenance(schema_provider: SchemaProvider | None, class_type
         "hash": getattr(schema, "source_hash", None),
         "confidence": getattr(schema, "confidence", 1.0),
     }
+
+
+def ingest_workflow_and_ui(
+    graph: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> tuple[VibeWorkflow, dict[str, Any]]:
+    """Named door: convert any supported graph shape once and retain the IR.
+
+    List-nodes UI graphs keep object identity. Envelope/API graphs are
+    converted and re-emitted as canonical UI JSON.
+    """
+    from vibecomfy.porting.emit.ui import emit_ui_json
+
+    entries = graph.get("nodes")
+    if isinstance(entries, list):
+        return from_ui(graph, schema_provider=schema_provider), graph
+    if isinstance(entries, dict) and any(not isinstance(entry, dict) for entry in entries.values()):
+        raise ValueError("nodes must contain only node objects")
+    if isinstance(entries, dict):
+        workflow = from_envelope(graph)
+    else:
+        workflow = from_api(graph, schema_provider=schema_provider)
+    return workflow, emit_ui_json(
+        workflow,
+        schema_provider=schema_provider,
+        guard_original_ui=graph,
+    )
+
+
+# ── Door-owned subgraph helper resolution ──────────────────────────────────
+# These helpers inspect and mutate subgraph definition JSON.  They live in
+# the ingest door because that is the only allowed graph-JSON mutation
+# surface besides the emit door.  convert() calls this after snapshotting
+# the unresolved definitions onto the IR.
+
+_SUBGRAPH_RESOLVABLE = frozenset({
+    "GetNode", "SetNode", "Reroute", "PrimitiveNode",
+    "PrimitiveBoolean", "PrimitiveInt", "PrimitiveFloat",
+    "PrimitiveString", "PrimitiveStringMultiline",
+})
+
+
+def _subgraph_link_origin_id(link: Any) -> str:
+    if isinstance(link, dict):
+        return str(link.get("origin_id", ""))
+    return str(link[1])
+
+
+def _subgraph_link_origin_slot(link: Any) -> int:
+    if isinstance(link, dict):
+        return int(link.get("origin_slot", 0))
+    return int(link[2])
+
+
+def _subgraph_link_target_id(link: Any) -> str:
+    if isinstance(link, dict):
+        return str(link.get("target_id", ""))
+    return str(link[3])
+
+
+def _subgraph_set_link_origin(link: Any, node_id: str, slot: int) -> None:
+    if isinstance(link, dict):
+        link["origin_id"] = int(node_id) if node_id.isdigit() else node_id
+        link["origin_slot"] = slot
+    else:
+        link[1] = int(node_id) if node_id.isdigit() else node_id
+        link[2] = slot
+
+
+def _subgraph_widget(node: dict[str, Any], idx: int = 0) -> Any:
+    values = node.get("widgets_values", [])
+    if isinstance(values, list) and idx < len(values):
+        return values[idx]
+    return None
+
+
+def resolve_subgraph_helpers(
+    raw_workflow: dict[str, Any] | None,
+    top_level_nodes: dict[str, Any],
+    top_level_edges: list[Any],
+    pre_collected_broadcasts: dict[str, list[Any]] | None = None,
+) -> None:
+    """Door-owned: fold Get/Set/Reroute/Primitive helpers inside subgraph defs."""
+    if not raw_workflow:
+        return
+    defs = raw_workflow.get("definitions")
+    if not isinstance(defs, dict):
+        return
+    subgraphs = defs.get("subgraphs")
+    if not isinstance(subgraphs, list):
+        return
+
+    if pre_collected_broadcasts is not None:
+        top_broadcasts = pre_collected_broadcasts
+    else:
+        from vibecomfy._compile._helpers import collect_broadcast_sources
+        top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
+
+    for subgraph in subgraphs:
+        if isinstance(subgraph, dict):
+            _resolve_subgraph_definition(subgraph, top_broadcasts)
+
+
+def _resolve_subgraph_definition(subgraph: dict[str, Any], top_broadcasts: dict[str, Any]) -> None:
+    nodes_list = subgraph.get("nodes")
+    if not isinstance(nodes_list, list):
+        return
+    links_list = subgraph.get("links")
+    if not isinstance(links_list, list):
+        links_list = []
+
+    nodes_dict: dict[str, dict[str, Any]] = {}
+    for node in nodes_list:
+        if isinstance(node, dict) and "id" in node:
+            nodes_dict[str(node["id"])] = node
+
+    for _ in range(100):
+        changed = False
+        helper_ids = [
+            str(node["id"]) for node in nodes_list
+            if isinstance(node, dict) and node.get("type") in _SUBGRAPH_RESOLVABLE
+        ]
+        for node_id in helper_ids:
+            node = nodes_dict.get(node_id)
+            if node is None:
+                continue
+            class_type = node.get("type", "")
+            if class_type == "GetNode":
+                changed |= _resolve_subgraph_getnode(
+                    nodes_dict, nodes_list, links_list, node_id, node, top_broadcasts
+                )
+            elif class_type in ("Reroute", "PrimitiveNode"):
+                changed |= _resolve_subgraph_passthrough(
+                    nodes_dict, nodes_list, links_list, node_id
+                )
+            elif isinstance(class_type, str) and class_type.startswith("Primitive"):
+                changed |= _resolve_subgraph_primitive(
+                    nodes_dict, nodes_list, links_list, node_id
+                )
+        if not changed:
+            break
+
+    subgraph["nodes"] = nodes_list
+    subgraph["links"] = links_list
+
+
+def _resolve_subgraph_getnode(
+    nodes_dict: dict[str, dict[str, Any]],
+    nodes_list: list[Any],
+    links_list: list[Any],
+    node_id: str,
+    node: dict[str, Any],
+    top_broadcasts: dict[str, Any],
+) -> bool:
+    name = _subgraph_widget(node, 0)
+    if not name or str(name) not in top_broadcasts:
+        return False
+    source = top_broadcasts[str(name)]
+    source_id, source_slot = str(source[0]), int(source[1])
+    for link in [item for item in links_list if _subgraph_link_origin_id(item) == node_id]:
+        _subgraph_set_link_origin(link, source_id, source_slot)
+    nodes_dict.pop(node_id, None)
+    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
+    return True
+
+
+def _resolve_subgraph_passthrough(
+    nodes_dict: dict[str, dict[str, Any]],
+    nodes_list: list[Any],
+    links_list: list[Any],
+    node_id: str,
+) -> bool:
+    inbound = [item for item in links_list if _subgraph_link_target_id(item) == node_id]
+    if not inbound:
+        return False
+    source_id = _subgraph_link_origin_id(inbound[0])
+    source_slot = _subgraph_link_origin_slot(inbound[0])
+    for link in [item for item in links_list if _subgraph_link_origin_id(item) == node_id]:
+        _subgraph_set_link_origin(link, source_id, source_slot)
+    nodes_dict.pop(node_id, None)
+    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
+    links_list[:] = [item for item in links_list if _subgraph_link_target_id(item) != node_id]
+    return True
+
+
+def _resolve_subgraph_primitive(
+    nodes_dict: dict[str, dict[str, Any]],
+    nodes_list: list[Any],
+    links_list: list[Any],
+    node_id: str,
+) -> bool:
+    nodes_dict.pop(node_id, None)
+    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
+    links_list[:] = [
+        item for item in links_list
+        if _subgraph_link_origin_id(item) != node_id and _subgraph_link_target_id(item) != node_id
+    ]
+    return True
+

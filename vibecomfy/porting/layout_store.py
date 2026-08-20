@@ -46,6 +46,7 @@ from vibecomfy.porting.canonical_coords import snap_pos, snap_size
 from vibecomfy.identity.scope import compose_scope_path, sg_key
 from vibecomfy.identity.uid import make_uid, mint_local_uid
 
+from vibecomfy.ingest.normalize import door_get_nodes
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
 
@@ -125,7 +126,7 @@ def _iter_subgraph_defs(definitions: Any) -> Iterable[dict]:
                 if isinstance(sg, dict):
                     yield sg
             return
-        if isinstance(definitions.get("nodes"), list):
+        if isinstance(door_get_nodes(definitions), list):
             yield definitions
             return
         for sg in definitions.values():
@@ -155,7 +156,7 @@ def _assemble_definition_entries(
     for sg_def in _iter_subgraph_defs(definitions):
         chain = (*scope_chain, sg_key(sg_def))
         scope_path = compose_scope_path(chain)
-        for node in sg_def.get("nodes") or []:
+        for node in door_get_nodes(sg_def) or []:
             if not isinstance(node, dict):
                 continue
             if node.get("pos") is None:
@@ -271,7 +272,7 @@ def migrate_store(data: dict[str, Any]) -> dict[str, Any]:
     if data.get("layout_version") != 1:
         return data
 
-    nodes = data.get("nodes")
+    nodes = door_get_nodes(data)
     entries: dict[str, dict] = {}
     if isinstance(nodes, dict):
         for uid, node in nodes.items():
@@ -397,7 +398,7 @@ def store_from_ui_json(ui_json_or_path: Any) -> dict[str, Any]:
     unkeyed: list[str] = []          # lit_ids of uidless nodes
     lit_to_uid: dict[str, str] = {}  # lit_id (str) -> vibecomfy_uid
 
-    for node in ui.get("nodes") or []:
+    for node in door_get_nodes(ui) or []:
         if not isinstance(node, dict):
             continue
         lit_id = str(node.get("id", ""))
@@ -431,8 +432,9 @@ def store_from_ui_json(ui_json_or_path: Any) -> dict[str, Any]:
             groups.append(grp)
             continue
         grp_copy = dict(grp)
-        if isinstance(grp_copy.get("nodes"), list):
-            grp_copy["nodes"] = [_rekey(n) for n in grp_copy["nodes"]]
+        grp_nodes = door_get_nodes(grp_copy)
+        if isinstance(grp_nodes, list):
+            grp_copy = {**grp_copy, "nodes": [_rekey(n) for n in grp_nodes]}
         groups.append(grp_copy)
 
     # extra — carry forward as-is but re-key virtual_wires endpoints
@@ -464,11 +466,15 @@ def store_from_ui_json(ui_json_or_path: Any) -> dict[str, Any]:
             for item in defs:
                 if isinstance(item, dict):
                     item_copy = dict(item)
-                    if isinstance(item_copy.get("nodes"), list):
-                        item_copy["nodes"] = [
-                            dict(n, id=_rekey(n.get("id"))) if isinstance(n, dict) else n
-                            for n in item_copy["nodes"]
-                        ]
+                    item_nodes = door_get_nodes(item_copy)
+                    if isinstance(item_nodes, list):
+                        item_copy = {
+                            **item_copy,
+                            "nodes": [
+                                dict(n, id=_rekey(n.get("id"))) if isinstance(n, dict) else n
+                                for n in item_nodes
+                            ],
+                        }
                     result.append(item_copy)
                 else:
                     result.append(item)

@@ -13,6 +13,7 @@ output is classifiable and tests are deterministic.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -24,6 +25,8 @@ from .contracts import (
     parse_target_node_type,
 )
 from .stage_contracts import NeedsInput
+
+LOGGER = logging.getLogger(__name__)
 
 # ── classify prompt ──────────────────────────────────────────────────────────
 
@@ -149,6 +152,10 @@ _CLASSIFY_SYSTEM = (
     "- No implement=true for non-applyable routes: clarify, respond, inspect, "
     "and research must all set implement=false.\n"
     "- No research=true for respond, inspect, or revise.\n"
+    "- Hard rule: when the interaction expects a graph change "
+    "(expect_graph_changed=true is declared), route MUST be an edit route "
+    "(\"revise\", \"adapt\", \"reorganise\"). Non-applyable routes including "
+    "\"inspect\" and \"respond\" are rejected.\n"
     "- Be conservative only when the user request is ambiguous, underspecified, "
     "or references nodes/options/attachments without enough detail to safely "
     "edit; then prefer route=\"clarify\" with a concise clarification_question "
@@ -172,9 +179,6 @@ _CLASSIFY_SYSTEM = (
     "names a unique matching node (e.g. \"the SaveImage node\"). A concrete "
     "named target is an edit request: route to route=\"revise\" (or "
     "route=\"adapt\" when the target is a custom-node class) and edit it.\n"
-    "- ComfyUI node titles are editable via the set_title edit op, so a "
-    "request to rename, retitle, or relabel a named node is a concrete graph "
-    "edit: route to route=\"revise\", never route=\"clarify\".\n"
     "- When the user asks you to choose, decide, pick defaults, or use your "
     "judgment, do not clarify merely because options exist. Continue with the "
     "most reasonable route, record that choice as needs_input.bounded_assumption, "
@@ -211,15 +215,20 @@ _CLASSIFY_SYSTEM = (
     "validate local addability.\n"
     "- A simple, concrete graph edit request with no research needed "
     "→ route=\"revise\".\n"
-    "- A concrete edit that targets or must preserve a custom-node / non-core "
-    "node family whose schema may not be locally known should use route=\"adapt\" "
-    "rather than route=\"revise\". This includes simple parameter changes on "
-    "video, audio, 3D, loop/grid, Qwen, AnimateDiff, VACE/Wan/LTX, IP-Adapter, "
-    "ReActor, VHS, EasyUse, rgthree, Inspire, Rodin, or other branded/custom "
-    "nodes when the graph summary/reference map exposes those class names. The "
-    "research goal should ask for workflow precedents, wiring patterns, and "
-    "community knowledge around the existing class type and the field/socket "
-    "being edited. Do not ask research to prove local schema availability or "
+    "- Widget, edge, and single-node-swap intents are route=\"revise\" "
+    "(research=false) even when the target is a custom/branded node. Examples: "
+    "set a named widget (steps, fps, frame_rate, strength_model, "
+    "motion_bucket_id, batch size), add a missing required input edge when "
+    "both endpoints already exist, or swap a same-class checkpoint/model "
+    "string that is already in the inventory. Do not send these down "
+    "route=\"adapt\".\n"
+    "- A concrete edit that must invent architecture around a custom-node / "
+    "non-core node family (new node classes, ControlNet/IPAdapter chains, "
+    "multi-link rewires, named external workflows not already in the graph) "
+    "should use route=\"adapt\" rather than route=\"revise\". The research "
+    "goal should ask for workflow precedents, wiring patterns, and community "
+    "knowledge around the existing class type and the field/socket being "
+    "edited. Do not ask research to prove local schema availability or "
     "addability; the edit engine validates that later.\n"
     "- Requests to add a self-contained node, code node, PIL/video-frame "
     "processing step, preview, note, label, or local parameter/wiring change are "
@@ -267,11 +276,13 @@ _CLASSIFY_SYSTEM = (
     "task=\"layout_reorganise\". Do not use route=\"revise\" for layout-only "
     "canvas readability cleanup, and do not use route=\"adapt\" unless the "
     "user also asks for outside workflow/template research.\n"
-    "- Exception to the previous rule: if the generic edit is inside a graph "
-    "dominated by custom class types, targets a custom class itself, or edits "
-    "the output/composition path fed by a custom graph, use route=\"adapt\" with "
-    "search_directions naming the exact class type(s), terminal output roles, "
-    "intended field/socket, and expected value/change.\n"
+    "- Exception to the previous rule: if the generic edit must invent "
+    "architecture inside a graph dominated by custom class types (new node "
+    "classes, multi-link rewires, or a named external workflow not already "
+    "present), use route=\"adapt\" with search_directions naming the exact "
+    "class type(s), terminal output roles, intended field/socket, and expected "
+    "value/change. A named widget, missing required edge, or same-class model "
+    "swap on those custom nodes stays route=\"revise\".\n"
     "\n"
     "Examples:\n"
     "- \"What is this workflow doing?\" -> route=\"inspect\".\n"
@@ -284,8 +295,10 @@ _CLASSIFY_SYSTEM = (
     "- \"Add a PIL transform code node after decode\" -> route=\"revise\".\n"
     "- \"Research how people add PIL transform code nodes, then add one\" -> "
     "route=\"adapt\".\n"
-    "- \"Switch to generating 16 frames with Hotshot\" with a graph attached -> "
-    "route=\"adapt\".\n"
+    "- \"Set VHS_VideoCombine.frame_rate to 16\" with a graph attached -> "
+    "route=\"revise\".\n"
+    "- \"Switch to generating 16 frames with Hotshot\" when Hotshot is not "
+    "already in the graph -> route=\"adapt\".\n"
     "- \"Generate the standard SD1.5 workflow\" -> route=\"revise\".\n"
     "- \"Switch this workflow to SDXL\" -> route=\"revise\".\n"
     "- \"/reorganise_comfy_workflow\" -> route=\"reorganise\", "
@@ -310,34 +323,47 @@ _CLASSIFY_SYSTEM = (
 )
 
 
+_CLASSIFY_EXPECT_GRAPH_CHANGED = (
+    "This interaction expects a graph change (expect_graph_changed=true). "
+    "Classify route MUST be an edit route (\"revise\", \"adapt\", "
+    "or \"reorganise\"). Non-applyable routes such as \"inspect\" and "
+    "\"respond\" will be rejected."
+)
+
+
 def build_classify_messages(
     query: str,
     *,
     has_graph: bool = False,
     graph_summary: str | None = None,
     session_context: dict[str, Any] | None = None,
-    graph_reference_map: dict[str, str] | None = None,
+    expect_graph_changed: bool | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
     When *has_graph* is True, the executor tells the model a graph is attached
     so it can decide whether research / implementation is warranted.
-    *graph_summary* is an optional compact summary (≤ 200 chars) of the
-    attached graph for context.
+    *graph_summary* is the renderer's ``census`` lens (batch 12, Law 4) — the
+    compact node/class census with the reference map (node ids + class types,
+    derived from the IR via the renderer); classify never sees widgets,
+    edges, topology, or a raw-JSON sidecar.
 
     *session_context* provides access to recent conversation history and prior
     clarification artifacts so the classifier can resolve follow-up references
-    (e.g. \"option 2\", \"that node\") against prior turn context.
+    (e.g. "option 2", "that node") against prior turn context.
 
-    *graph_reference_map* is a compact ``{node_id: label}`` lookup built from
-    the current graph so the classifier can map user references like
-    \"the KSampler\" or \"node #3\" to concrete ids.
+    *expect_graph_changed* declares the interaction's edit contract: when
+    True the scenario expects a graph change, and the classifier is told its
+    route MUST be an applyable edit route; ``inspect`` and ``respond`` are
+    non-applyable and therefore rejected (RC14).
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
         parts.append("\nA ComfyUI canvas graph is attached to this request.")
     if graph_summary:
-        parts.append(f"\nGraph summary: {graph_summary}")
+        parts.append(f"\nGraph census (the attached workflow's node/class census):\n{graph_summary}")
+    if expect_graph_changed:
+        parts.append(f"\n{_CLASSIFY_EXPECT_GRAPH_CHANGED}")
 
     # ── session context: durable chat messages (backend-owned) ───────────
     if isinstance(session_context, dict):
@@ -414,73 +440,10 @@ def build_classify_messages(
                     + ", ".join(candidate_bits)
                 )
 
-    # ── graph reference map ──────────────────────────────────────────────
-    if isinstance(graph_reference_map, dict) and graph_reference_map:
-        ref_lines = []
-        schema_fragile_labels: list[str] = []
-        for node_id, label in sorted(graph_reference_map.items(), key=lambda kv: _ref_sort_key(kv[0])):
-            label_text = str(label)
-            ref_lines.append(f"  id={node_id}: {label_text}")
-            if _looks_schema_fragile_label(label_text):
-                schema_fragile_labels.append(f"id={node_id}: {label_text}")
-        if ref_lines:
-            parts.append(
-                "\nCurrent graph node reference map (use these ids to resolve "
-                "\"that node\", \"the KSampler\", etc.):\n"
-                + "\n".join(ref_lines[:30])
-            )
-        if schema_fragile_labels:
-            parts.append(
-                "\nSchema-fragile/custom node hint (if the requested edit touches "
-                "or depends on these classes, route adapt and use the exact class "
-                "names only as anchors for workflow/community precedent research):\n"
-                + "\n".join(schema_fragile_labels[:20])
-            )
-
     return [
         {"role": "system", "content": _CLASSIFY_SYSTEM},
         {"role": "user", "content": "\n".join(parts)},
     ]
-
-
-def _ref_sort_key(node_id: str) -> tuple[int, str]:
-    """Sort node ids numerically when possible, for stable reference maps."""
-    try:
-        return (0, str(int(node_id)).zfill(8))
-    except (ValueError, TypeError):
-        return (1, node_id)
-
-
-def _looks_schema_fragile_label(label: str) -> bool:
-    """Heuristic hint for class families where local schema may be incomplete."""
-    text = str(label)
-    lower = text.lower()
-    branded_markers = (
-        "qwen",
-        "animatediff",
-        "ade_",
-        "vhs_",
-        "reactor",
-        "ipadapter",
-        "ip-adapter",
-        "easy ",
-        "rgthree",
-        "inspire",
-        "wan",
-        "vace",
-        "ltx",
-        "rodin",
-        "gguf",
-        "faceswap",
-        "face swap",
-        "modelscope",
-    )
-    if any(marker in lower for marker in branded_markers):
-        return True
-    # Core ComfyUI classes are usually simple CamelCase without symbols/spaces.
-    # Spaces, slashes, emoji/punctuation, or lowercase prefixes often identify
-    # custom-pack nodes whose widgets/slots need exact schema hydration.
-    return any(ch in text for ch in (" ", "/", "|", "+", "-", "✨", "//"))
 
 
 # ── reply prompt ─────────────────────────────────────────────────────────────
@@ -498,17 +461,31 @@ _REPLY_SYSTEM = (
     "- Acknowledge what was done (if anything).\n"
     "- Be concrete: mention node names, template names, or parameter values "
     "when relevant.\n"
-    "- Route-aware behavior: for route=\"clarify\", ask the clarifying question "
+    "Route-aware behavior: for route=\"clarify\", ask the clarifying question "
     "plainly and do not imply work has run; for route=\"respond\", answer from "
     "existing context only; for route=\"inspect\", explain the current graph "
-    "from inspection evidence only; for route=\"research\", summarize the "
-    "C5 decision memo without implying an edit; for route=\"revise\", describe "
-    "the concrete graph edit; for route=\"reorganise\", describe the layout "
-    "cleanup without implying semantic workflow changes; for route=\"adapt\", "
-    "explain how the researched precedent informed the edit.\n"
-    "- For route=\"research\", return the supplied C5 memo: question, conclusion, "
-    "resolvable citation IDs, uncertainty/conflicts, and next action. Do not add "
-    "sources or claims that are absent from that memo.\n"
+    "from inspection evidence only; for route=\"research\", answer from the "
+    "supplied research memo plus the attached graph and your own knowledge "
+    "without implying an edit; for route=\"revise\", describe the concrete "
+    "graph edit; for route=\"reorganise\", describe the layout cleanup without "
+    "implying semantic workflow changes; for route=\"adapt\", explain how the "
+    "researched precedent informed the edit (or, when no edit was made, why "
+    "nothing was changed).\n"
+    "- For route=\"research\", treat the C5 decision memo as evidence you may "
+    "cite from: question, conclusion, resolvable citation IDs, "
+    "uncertainty/conflicts, and next action. Do not add sources or claims "
+    "that are absent from that memo, and never relay the memo verbatim — "
+    "answer the user's question in your own words. When the memo records no "
+    "external evidence (research_attempt=never/empty), answer directly from "
+    "the attached workflow graph and general knowledge — the reply must "
+    "NEVER say that no supported conclusion was produced.\n"
+    "- When a research memo includes durable trace fields, interpret them "
+    "literally: research_status=exhausted means the agent stopped before a "
+    "synthesis; research_status=failed means it failed for research_error. "
+    "Only say tools found nothing when tool_calls_executed is positive and "
+    "evidence_artifacts is zero. Empty citations alone do not mean empty "
+    "research. If evidence_preview is present, name the concrete gathered "
+    "sources it contains before explaining that synthesis did not finish.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -544,12 +521,22 @@ _REPLY_SYSTEM = (
     "[weight=0.7]\". Never invent parameters, modes, or settings that are "
     "absent from the IR; if the IR does not show a parameter, say it is not "
     "present rather than guessing.\n"
+    "- If the inspection lens marks a widget `unlabeled`, say it is unlabeled "
+    "and do not name it. Do not infer codec families, bit depths, or compositing "
+    "behavior from the string `auto` or from a `switch` widget.\n"
     "- Do NOT reply with \"semantics unknowable\", \"cannot be determined\", "
     "or similar refusals when the workflow IR provides labeled inputs, a node "
     "inventory, widget values, or link ids: reason from those provided graph "
     "facts and answer as concretely as the evidence allows. Reserve "
     "\"unknowable\" only for facts the provided evidence genuinely does not "
     "contain.\n"
+    "- Never reply with \"no supported conclusion was produced\", \"no usable "
+    "synthesis\", or similar research-failure refusals on ANY route. Research "
+    "outcome never gates the reply: when research gathered no evidence "
+    "(research_attempt=never/empty) or only search-hit leads "
+    "(research_attempt=thin), answer from the attached workflow graph and "
+    "your own knowledge, and say plainly that outside sources were not found "
+    "rather than presenting non-results as findings.\n"
     "- When research produced zero on-topic evidence (for example Hivemind "
     "returned off-topic or failed results), say so explicitly in the reply "
     "instead of presenting those non-results as findings; make claims only "
@@ -576,12 +563,19 @@ def build_reply_messages(
     effective_task: str | None = None,
     candidate_present: bool = False,
     interaction_mode: str | None = None,
+    research_attempt: str | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the reply phase.
 
     *plan*, *research_summary*, *implementation_message*, *graph_summary*, and
     *graph_inspection* provide the context the model needs to write an informed
     reply.
+
+    *graph_summary* is the composable renderer's ``surface`` + ``diff`` +
+    ``topology`` output (batch 12, Law 4) — the complete Python-surface view,
+    the accepted Δ (what changed), and the FULL computed topology with link
+    ids.  The cite-link preamble attaches to that renderer output: the model
+    cites link ids and named fields exactly as the renderer lists them.
 
     When *graph_inspection* is provided (inspect-only route), it supplies
     detailed node-by-node structure that the model should describe without
@@ -610,7 +604,12 @@ def build_reply_messages(
             f"{graph_inspection}"
         )
     elif graph_summary:
-        parts.append(f"\nAttached workflow graph: {graph_summary}")
+        parts.append(
+            "\nAttached workflow graph (the authoritative source of node ids, "
+            "widget values, and link ids — cite link ids and widget "
+            "keys/values from it exactly as listed):\n"
+            f"{graph_summary}"
+        )
     if effective_route:
         parts.append(f"\nActive route: {effective_route}"
                      + (f", task: {effective_task}" if effective_task else ""))
@@ -622,12 +621,23 @@ def build_reply_messages(
             "No graph edit was made and none is permitted; answer the user's "
             "question directly without suggesting or implying an edit."
         )
+    if research_attempt:
+        # Batch 14: the typed attempt is the Python-derived statement of what
+        # research actually did; it lets the reply answer honestly from the
+        # graph + knowledge on never/empty instead of refusing on thin
+        # research.
+        parts.append(
+            f"\nResearch attempt: {research_attempt} (derived from the "
+            "research tool ledger — what research actually did, not a "
+            "judgment)."
+        )
     if candidate_present:
         parts.append("\nA graph edit candidate was produced and is available for review.")
     if research_memo:
         parts.append(
-            "\nC5 research decision memo (return this bounded content, with no "
-            f"invented sources):\n{json.dumps(research_memo, sort_keys=True)}"
+            "\nC5 research decision memo (evidence you may cite from for this "
+            "reply — answer the user's question in your own words, do not "
+            f"relay the memo verbatim):\n{json.dumps(research_memo, sort_keys=True)}"
         )
     if research_ledger:
         parts.append(
@@ -714,17 +724,40 @@ def build_reply_messages(
 
 # ── response parsers ─────────────────────────────────────────────────────────
 
-# Matches a JSON object that starts with { and ends with } across lines.
-# More permissive than the top-level json.loads so we can extract from
-# model output that may have stray whitespace or a trailing period.
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _first_json_object_span(text: str) -> tuple[int, int] | None:
+    """Return the first balanced JSON-object span, respecting JSON strings."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    return None
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
     """Extract the first JSON object from potentially noisy model output.
 
     Strips markdown fences, trims surrounding whitespace, and falls back to
-    regex extraction before handing off to ``json.loads``.
+    balanced-brace extraction before handing off to ``json.loads``.
     """
     stripped = text.strip()
     # Strip outermost ``` fences (with or without ``json`` language tag).
@@ -741,11 +774,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Fall back to regex extraction: find the first { ... } span.
-    match = _JSON_OBJECT_RE.search(stripped)
-    if match:
+    # Fall back to the first balanced object. A greedy regex incorrectly
+    # absorbs braces from explanatory prose after otherwise-valid JSON.
+    span = _first_json_object_span(stripped)
+    if span is not None:
+        start, end = span
         try:
-            parsed = json.loads(match.group(0))
+            parsed = json.loads(stripped[start:end])
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
@@ -882,12 +917,27 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
         clarification_options=clarification_options,
     )
     if isinstance(needs_input_payload, dict):
-        needs_input = NeedsInput.from_dict(needs_input_payload)
-        if decision.effective_route == "clarify" and needs_input.bounded_assumption:
-            raise ValueError(
-                "A clarify decision cannot also record a bounded assumption."
+        try:
+            needs_input = NeedsInput.from_dict(needs_input_payload)
+        except (TypeError, ValueError):
+            valid_apply_decision = (
+                decision.effective_route in {"revise", "adapt"}
+                and decision.implement is True
+                and decision.intent == "edit"
             )
-        object.__setattr__(decision, "needs_input", needs_input)
+            if not valid_apply_decision:
+                raise
+            LOGGER.warning(
+                "Dropping malformed needs_input sidecar from valid %s classification.",
+                decision.effective_route,
+                exc_info=True,
+            )
+        else:
+            if decision.effective_route == "clarify" and needs_input.bounded_assumption:
+                raise ValueError(
+                    "A clarify decision cannot also record a bounded assumption."
+                )
+            object.__setattr__(decision, "needs_input", needs_input)
     return decision
 
 

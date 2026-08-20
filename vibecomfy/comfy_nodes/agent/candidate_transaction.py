@@ -8,9 +8,10 @@ append-only lifecycle events are the durable source of truth.
 
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, schema_for
@@ -132,7 +133,7 @@ def _graph_class_types(graph: Mapping[str, Any] | None) -> set[str]:
     result: set[str] = set()
 
     def visit(scope: Mapping[str, Any]) -> None:
-        nodes = scope.get("nodes")
+        nodes = door_get_nodes(scope)
         if isinstance(nodes, list):
             for node in nodes:
                 if not isinstance(node, Mapping):
@@ -398,8 +399,8 @@ def build_candidate_transaction(
     plan_hash: str,
     submit_graph: Mapping[str, Any],
     candidate_graph: Mapping[str, Any],
-    delta_ops_envelope: Mapping[str, Any],
-    delta_hash: str,
+    accepted_batch: Sequence[Mapping[str, Any]] | None = None,
+    delta_hash: str | None = None,
     submit_graph_hash: str | None,
     submit_structural_graph_hash: str | None,
     candidate_graph_hash: str,
@@ -418,10 +419,18 @@ def build_candidate_transaction(
 ) -> dict[str, Any]:
     if state not in CANONICAL_TRANSACTION_STATES:
         raise ValueError(f"Unknown candidate transaction state {state!r}.")
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
+    if accepted_batch is None:
+        raise ValueError("Candidate authority requires accepted_batch.")
+    persisted_batch = [dict(item) for item in accepted_batch if isinstance(item, Mapping)]
+    derived_envelope = derived_accepted_delta_envelope({"accepted_batch": persisted_batch})
+    if delta_hash is None:
+        delta_hash = content_hash(derived_envelope)
     canonical_state = state
     actions = available_actions_for_state(canonical_state) if applyable else ()
     workflow_identity_v1(workflow_id)
-    if delta_ops_envelope.get("schema_version") != AUTHORITY_RECEIPT_DELTA_SCHEMA:
+    if derived_envelope.get("schema_version") != AUTHORITY_RECEIPT_DELTA_SCHEMA:
         raise ValueError("New candidate authority requires delta wire schema 2.0.0.")
     if (
         not isinstance(authority_receipt_hash, str)
@@ -442,11 +451,11 @@ def build_candidate_transaction(
     restoration_digest = _registry_hash(
         {"contract_version": "baseline_snapshot_v1", "ref": restoration_ref}
     )
-    delta_ops = list(delta_ops_envelope.get("ops", []))
+    delta_ops = list(derived_envelope.get("ops", []))
     operation: dict[str, Any] = {
         "delta_contract": "delta_v1",
         "wire_version": "2.0.0",
-        "ops": delta_ops,
+        "accepted_batch_digest": delta_hash,
     }
     hashes_extra: dict[str, Any] = {}
     if family == "layout":
@@ -522,12 +531,10 @@ def build_candidate_transaction(
         "generation": None,
         "lease_nonce": None,
         "plan": {
-            "schema_version": delta_ops_envelope.get("schema_version"),
-            "delta_ops_envelope": dict(delta_ops_envelope),
+            "schema_version": derived_envelope.get("schema_version"),
+            "accepted_batch": persisted_batch,
             "delta_hash": delta_hash,
-            "op_count": len(delta_ops_envelope.get("ops", []))
-            if isinstance(delta_ops_envelope.get("ops"), list)
-            else 0,
+            "op_count": len(delta_ops),
             "schema_provenance": schema_provenance_summary(schema_witness),
         },
         "hashes": {
@@ -664,10 +671,13 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
     candidate_authority = value.get("candidate_authority")
     if not all(isinstance(item, Mapping) for item in (plan, hashes, authority)):
         return False, "malformed_candidate_transaction"
-    envelope = plan.get("delta_ops_envelope")
-    if not isinstance(envelope, Mapping) or not isinstance(envelope.get("ops"), list):
+    accepted = plan.get("accepted_batch")
+    if not isinstance(accepted, list):
         return False, "missing_persisted_delta_plan"
-    if plan.get("delta_hash") != content_hash(envelope):
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
+    derived = derived_accepted_delta_envelope({"accepted_batch": accepted})
+    if plan.get("delta_hash") != content_hash(derived):
         return False, "persisted_delta_hash_mismatch"
     required_hashes = ("candidate_graph_hash", "candidate_structural_graph_hash", "authority_receipt_hash")
     if any(not isinstance(hashes.get(field), str) or not hashes.get(field) for field in required_hashes):
@@ -685,9 +695,11 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
             if hashes.get("layout_operation_digest") != recomputed_layout:
                 return False, "layout_operation_digest_mismatch"
         if isinstance(operation.get("mutation_materialization"), Mapping):
+            from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
             recomputed_mat = _compute_mutation_materialization_digest(
                 operation["mutation_materialization"].get("entries", []),
-                operation.get("ops", []),
+                list(_ops_from_accepted_batch({"accepted_batch": accepted})),
             )
             if hashes.get("mutation_materialization_digest") != recomputed_mat:
                 return False, "mutation_materialization_digest_mismatch"

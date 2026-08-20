@@ -55,7 +55,6 @@ export const STAGED_WEB_MODULES = [
   "json_clone.js",
   "graph_projection.js",
   "layout_verification_contract.js",
-  "field_registry_v1.js",
   "root_scope_v1.js",
   "identity_contract_v1.js",
   "projection_registry_v1.js",

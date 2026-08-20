@@ -51,6 +51,7 @@ from pathlib import Path
 
 from vibecomfy.comfy_nodes.agent.session import iter_turn_records
 
+from vibecomfy.ingest.normalize import door_get_nodes
 HOME = os.path.expanduser("~")
 COMFY_DIR = os.environ.get("COMFY_DIR", os.path.join(HOME, "Documents/reigh-workspace/ComfyUI"))
 SESS_ROOT = os.path.join(COMFY_DIR, "out", "editor_sessions")
@@ -105,8 +106,8 @@ def _normalize_node(node):
 def _faithful_diff(before_graph, candidate_graph):
     if not isinstance(before_graph, dict) or not isinstance(candidate_graph, dict):
         return None
-    o = {x.get("id"): x for x in before_graph.get("nodes", [])}
-    c = {x.get("id"): x for x in candidate_graph.get("nodes", [])}
+    o = {x.get("id"): x for x in door_get_nodes(before_graph, [])}
+    c = {x.get("id"): x for x in door_get_nodes(candidate_graph, [])}
     changed = [i for i in (set(o) & set(c)) if _normalize_node(o[i]) != _normalize_node(c[i])]
     added = sorted(set(c) - set(o))
     removed = sorted(set(o) - set(c))

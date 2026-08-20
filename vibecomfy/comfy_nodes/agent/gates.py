@@ -411,6 +411,24 @@ def _queue_blocker_issues(stage_results: Mapping[str, StageResult]) -> tuple[dic
     return tuple(blockers)
 
 
+def _hard_queue_blockers(issues: Any) -> tuple[dict[str, Any], ...]:
+    """Return only error-severity issues from an explicit queue-stage result.
+
+    ``queue_stage_result`` intentionally carries warnings alongside blockers so
+    callers can surface schema-less provenance.  Passing that complete issue
+    list into :func:`derive_gates` must not turn a successful queue stage back
+    into a failed gate merely because the tuple is non-empty.
+    """
+    if not isinstance(issues, (list, tuple)):
+        return ()
+    return tuple(
+        dict(issue)
+        for issue in issues
+        if isinstance(issue, Mapping)
+        and str(issue.get("severity", "error")) == "error"
+    )
+
+
 def _extract_probe_receipt_from_stage(
     results: Mapping[str, StageResult],
 ) -> RuntimeProbeReceipt | Mapping[str, Any] | None:
@@ -580,9 +598,11 @@ def update_queue_gate(
     verify_timeout: float = 10.0,
 ) -> tuple[dict[str, Any], ...]:
     results = context.stage_results if stage_results is None else stage_results
-    blockers = queue_blockers
-    if blockers is None:
-        blockers = _queue_blocker_issues(results)
+    blockers = (
+        _queue_blocker_issues(results)
+        if queue_blockers is None
+        else _hard_queue_blockers(queue_blockers)
+    )
     if probe_receipt is None:
         probe_receipt = _extract_probe_receipt_from_stage(results)
     if max_age_seconds is None:

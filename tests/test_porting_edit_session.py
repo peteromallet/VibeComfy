@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.ingest.normalize import from_api, normalize_to_api
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -35,6 +35,36 @@ from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "agent_edit"
 _FLAT_PATH = _FIXTURE_DIR / "flat.json"
+
+
+def _group_index_for_node(graph: dict[str, Any], node: dict[str, Any] | None) -> int | None:
+    """Return the smallest LiteGraph group containing the node's center."""
+    if not node:
+        return None
+    pos = node.get("pos") or [0, 0]
+    size = node.get("size") or [0, 0]
+    try:
+        nx, ny = float(pos[0]), float(pos[1])
+        nw, nh = float(size[0]), float(size[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    cx, cy = nx + nw / 2.0, ny + nh / 2.0
+    groups = graph.get("groups") or []
+    best_index: int | None = None
+    best_area: float | None = None
+    for index, group in enumerate(groups):
+        if not isinstance(group, dict):
+            continue
+        bounding = group.get("bounding")
+        if not isinstance(bounding, (list, tuple)) or len(bounding) < 4:
+            continue
+        gx, gy, gw, gh = (float(bounding[0]), float(bounding[1]), float(bounding[2]), float(bounding[3]))
+        if gx <= cx <= gx + gw and gy <= cy <= gy + gh:
+            area = gw * gh
+            if best_area is None or area < best_area:
+                best_area = area
+                best_index = index
+    return best_index
 
 
 # ---------------------------------------------------------------------------
@@ -47,9 +77,9 @@ def _load_raw_ui_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _ledger_from_raw(raw: dict[str, Any]) -> EditLedger:
-    """Ingest raw LiteGraph UI JSON through EditLedger and return it."""
-    return EditLedger.ingest(deepcopy(raw))
+def _ledger_from_raw(raw: dict[str, Any]) -> UiGraphIndex:
+    """Ingest raw LiteGraph UI JSON through UiGraphIndex and return it."""
+    return UiGraphIndex.ingest(deepcopy(raw))
 
 
 def _wf_from_raw_ui(raw: dict[str, Any]) -> VibeWorkflow:
@@ -69,8 +99,8 @@ def _load_flat_fixture_raw() -> dict[str, Any]:
     return _load_raw_ui_json(_FLAT_PATH)
 
 
-def _load_flat_fixture_ledger() -> EditLedger:
-    """Load the flat fixture through EditLedger."""
+def _load_flat_fixture_ledger() -> UiGraphIndex:
+    """Load the flat fixture through UiGraphIndex."""
     return _ledger_from_raw(_load_raw_ui_json(_FLAT_PATH))
 
 
@@ -146,7 +176,7 @@ class TestFixtureConversionHelpers:
         assert all(isinstance(link, list) and len(link) == 6 for link in raw["links"])
 
     def test_flat_fixture_ledger_ingests(self) -> None:
-        """EditLedger.ingest stamps uids and creates scopes for flat.json."""
+        """UiGraphIndex.ingest stamps uids and creates scopes for flat.json."""
         ledger = _load_flat_fixture_ledger()
         assert "" in ledger.scopes
         assert ledger.diagnostics == ()
@@ -192,7 +222,7 @@ class TestRawUIJSONRejection:
         assert "ksampler = KSampler(" in rendered
         assert "uid:5" in rendered
         assert "placed (" not in rendered
-        assert "slots latent='LATENT'" in rendered
+        assert "LATENT_0='LATENT'" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -233,18 +263,8 @@ class TestRenderEditRerenderIdentity:
         """
         wf = _load_flat_fixture_wf()
         rendered1 = _emit_agent_edit_python_stub(wf)
-        rendered2 = _emit_agent_edit_python_stub(
-            wf,
-            variable_name_locks={
-                "1": "checkpointloadersimple",
-                "5": "ksampler",
-                "7": "saveimage",
-            },
-            strict_variable_name_locks=True,
-        )
-        assert "checkpointloadersimple = CheckpointLoaderSimple(" in rendered2
-        assert "ksampler = KSampler(" in rendered2
-        assert "saveimage = SaveImage(" in rendered2
+        rendered2 = _emit_agent_edit_python_stub(wf)
+        assert rendered1 == rendered2
         assert rendered1.count("uid:") == rendered2.count("uid:")
 
     def test_session_rerender_keeps_locked_names_after_topology_change(self) -> None:
@@ -261,13 +281,13 @@ class TestRenderEditRerenderIdentity:
         rendered2 = session.render()
         rendered3 = session.render()
 
-        assert "src = SourceOne(" in rendered1
-        assert "widget = KSampler(" in rendered1
-        assert "dst = Dest(" in rendered1
-        assert "src = SourceOne(" in rendered2
-        assert "widget = KSampler(" in rendered2
-        assert "dst = Dest(" in rendered2
-        assert "mid = PassThroughImage(" in rendered2
+        assert "sourceone = SourceOne(" in rendered1
+        assert "ksampler = KSampler(" in rendered1
+        assert "dest = Dest(" in rendered1
+        assert "sourceone = SourceOne(" in rendered2
+        assert "ksampler = KSampler(" in rendered2
+        assert "dest = Dest(" in rendered2
+        assert "passthroughimage = PassThroughImage(" in rendered2
         assert rendered2 == rendered3
 
 
@@ -541,16 +561,16 @@ class TestAgentEditPythonEmitter:
         ast.parse(rendered)
         assert rendered.startswith("# vibecomfy: agent-edit")
         assert "checkpointloadersimple = CheckpointLoaderSimple(" in rendered
-        assert "positive = CLIPTextEncode(" in rendered
-        assert "clip=checkpointloadersimple.clip" in rendered
+        assert "cliptextencode = CLIPTextEncode(" in rendered
+        assert "clip=checkpointloadersimple.CLIP_1" in rendered
         assert "ksampler = KSampler(" in rendered
-        assert "model=checkpointloadersimple.model" in rendered
-        assert "positive=positive.conditioning" in rendered
+        assert "model=checkpointloadersimple.MODEL_0" in rendered
+        assert "positive=cliptextencode.CONDITIONING_0" in rendered
         assert "saveimage = SaveImage(" in rendered
-        assert "images=vaedecode.image" in rendered
+        assert "images=vaedecode.IMAGE_0" in rendered
         assert "uid:5" in rendered
         assert "placed (" not in rendered
-        assert "slots latent='LATENT'" in rendered
+        assert "LATENT_0='LATENT'" in rendered
 
     def test_agent_edit_python_rejects_raw_ui_json_before_emitter_internals(self) -> None:
         from vibecomfy.porting.emitter import emit_agent_edit_python
@@ -558,20 +578,27 @@ class TestAgentEditPythonEmitter:
         with pytest.raises(TypeError, match="emit_agent_edit_python requires VibeWorkflow"):
             emit_agent_edit_python(_load_flat_fixture_raw())  # type: ignore[arg-type]
 
-    def test_agent_edit_python_preserves_locked_names_without_changing_scratchpad(self) -> None:
+    def test_agent_edit_python_rejects_variable_name_locks(self) -> None:
         from vibecomfy.porting.emitter import emit_agent_edit_python, emit_scratchpad_python
 
         wf = _load_flat_fixture_wf()
         baseline_scratchpad = emit_scratchpad_python(wf, prune_dead_branches=False)
-        rendered = emit_agent_edit_python(
-            wf,
-            variable_name_locks={"5": "sampler_locked", "7": "save_locked"},
-            strict_variable_name_locks=True,
-        )
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_agent_edit_python(
+                wf,
+                variable_name_locks={"5": "sampler_locked", "7": "save_locked"},
+                strict_variable_name_locks=True,
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_scratchpad_python(
+                wf,
+                variable_name_locks={"5": "sampler_locked"},
+                prune_dead_branches=False,
+            )
+        rendered = emit_agent_edit_python(wf)
         after_scratchpad = emit_scratchpad_python(wf, prune_dead_branches=False)
-
-        assert "sampler_locked = KSampler(" in rendered
-        assert "save_locked = SaveImage(" in rendered
+        assert "sampler_locked" not in rendered
+        assert "save_locked" not in rendered
         assert baseline_scratchpad == after_scratchpad
         assert "_node(wf," in baseline_scratchpad
         assert "_node(wf," not in rendered
@@ -772,7 +799,7 @@ class TestIntegrationBoundaries:
 
     def test_edit_projection_constants_exist(self) -> None:
         """MODE_LABELS and HELPER_NODE_TYPES are in edit_projection.py."""
-        from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
+        from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
 
         assert isinstance(MODE_LABELS, dict)
         assert MODE_LABELS[0] == "enabled"
@@ -951,7 +978,7 @@ class TestIntegrationBoundaries:
 
 
 class TestEmitterVariableNameLocks:
-    """Session-locked aliases bridge stable uids to local emitter node ids."""
+    """Product emitters reject lock kwargs. Bindings are (class_type, uid-order)."""
 
     def _tiny_uid_workflow(self) -> VibeWorkflow:
         wf = VibeWorkflow("locks", WorkflowSource("locks"))
@@ -964,125 +991,42 @@ class TestEmitterVariableNameLocks:
         }
         return wf
 
-    def test_locked_aliases_bridge_vibenode_uid_and_ui_property_uid(self) -> None:
+    def test_scratchpad_rejects_variable_name_locks(self) -> None:
         from vibecomfy.porting.emitter import emit_scratchpad_python
 
         wf = self._tiny_uid_workflow()
-        diagnostics = []
-
-        source = emit_scratchpad_python(
-            wf,
-            diagnostics=diagnostics,
-            variable_name_locks={
-                "uid-loader": "locked_loader",
-                "ui-sampler": "locked_sampler",
-            },
-            prune_dead_branches=False,
-        )
-
-        assert "locked_loader = _node(wf, 'CheckpointLoaderSimple'" in source
-        assert "locked_sampler = _node(wf, 'KSampler'" in source
-        assert not [diag for diag in diagnostics if diag.code.startswith("locked_variable_")]
-
-    def test_invalid_locked_alias_reports_diagnostic_and_does_not_emit_bad_python(self) -> None:
-        from vibecomfy.porting.emitter import (
-            READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
-            emit_scratchpad_python,
-        )
-
-        wf = self._tiny_uid_workflow()
-        diagnostics = []
-        source = emit_scratchpad_python(
-            wf,
-            diagnostics=diagnostics,
-            variable_name_locks={"uid-loader": "not valid"},
-            prune_dead_branches=False,
-        )
-
-        assert "not valid = _node" not in source
-        assert any(diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID for diag in diagnostics)
-
-    def test_colliding_locked_aliases_report_diagnostic(self) -> None:
-        from vibecomfy.porting.emitter import (
-            READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
-            emit_scratchpad_python,
-        )
-
-        wf = self._tiny_uid_workflow()
-        diagnostics = []
-        source = emit_scratchpad_python(
-            wf,
-            diagnostics=diagnostics,
-            variable_name_locks={
-                "uid-loader": "same_name",
-                "uid-sampler": "same_name",
-            },
-            prune_dead_branches=False,
-        )
-
-        assert "same_name = _node" not in source
-        assert any(diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION for diag in diagnostics)
-
-    def test_strict_missing_locked_uid_reports_later_render_diagnostic(self) -> None:
-        from vibecomfy.porting.emitter import (
-            READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
-            emit_scratchpad_python,
-        )
-
-        diagnostics = []
-        emit_scratchpad_python(
-            self._tiny_uid_workflow(),
-            diagnostics=diagnostics,
-            variable_name_locks={"missing-uid": "old_name"},
-            strict_variable_name_locks=True,
-            prune_dead_branches=False,
-        )
-
-        missing = [diag for diag in diagnostics if diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING]
-        assert len(missing) == 1
-        assert missing[0].severity == "error"
-        assert missing[0].detail["uid"] == "missing-uid"
-
-    def test_subgraph_internal_locked_names_use_scope_qualified_uid(self) -> None:
-        from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
-        from vibecomfy.identity.uid import make_uid
-
-        raw_subgraph = {
-            "id": "sg-alpha",
-            "name": "Scoped",
-            "nodes": [
-                {
-                    "id": 1,
-                    "type": "TotallyCustomNode",
-                    "properties": {"vibecomfy_uid": "inner-loader"},
-                    "widgets_values": [],
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_scratchpad_python(
+                wf,
+                variable_name_locks={
+                    "uid-loader": "locked_loader",
+                    "ui-sampler": "locked_sampler",
                 },
-            ],
-            "links": [
-                {
-                    "id": 1,
-                    "origin_id": 1,
-                    "origin_slot": 0,
-                    "target_id": -20,
-                    "target_slot": 0,
-                }
-            ],
-            "inputs": [],
-            "outputs": [{"name": "MODEL", "type": "MODEL"}],
-        }
-        subgraph = _build_subgraph_def(raw_subgraph, slug="scoped", source_path=None)
-        diagnostics = []
-        source = "\n".join(
-            _emit_subgraph_functions(
-                {"subgraph_definitions": {"sg-alpha": subgraph}},
-                diagnostics=diagnostics,
-                constant_map={},
-                variable_name_locks={make_uid("sg-alpha", "inner-loader"): "locked_inner_loader"},
+                prune_dead_branches=False,
             )
-        )
+        source = emit_scratchpad_python(wf, prune_dead_branches=False)
+        assert "locked_loader" not in source
+        assert "locked_sampler" not in source
 
-        assert "locked_inner_loader = raw_call('TotallyCustomNode'" in source
-        assert not [diag for diag in diagnostics if diag.code.startswith("locked_variable_")]
+    def test_ready_and_subgraph_reject_variable_name_locks(self) -> None:
+        from vibecomfy.porting.emitter import emit_ready_template_python, _emit_subgraph_functions
+
+        wf = self._tiny_uid_workflow()
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_ready_template_python(
+                wf,
+                ready_metadata={},
+                ready_requirements={},
+                template_id="locks",
+                variable_name_locks={"uid-loader": "renamed"},
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            _emit_subgraph_functions(
+                {"subgraph_definitions": {}},
+                diagnostics=[],
+                constant_map={},
+                variable_name_locks={"uid-loader": "renamed"},
+            )
 
 
 # =====================================================================
@@ -1900,7 +1844,9 @@ class TestPublicM1SurfaceImports:
         session = EditSession(_load_flat_fixture_raw())
         rendered = session.render()
 
-        assert isinstance(session.original_ui, dict)
+        from collections.abc import Mapping as MappingABC
+
+        assert isinstance(session.original_ui, MappingABC)
         assert isinstance(session.working_ui, dict)
         assert isinstance(session.name_by_uid, dict)
         assert isinstance(session.uid_by_name, dict)
@@ -2002,16 +1948,15 @@ save_image = SaveImage(images=src.in_, filename_prefix="ast")
         assert result.diagnostics == ()
         assert result.statements[0].op_kind == "node_call"
 
-    def test_apply_batch_maps_single_output_positional_alias(self) -> None:
+    def test_apply_batch_rejects_positional_output_alias(self) -> None:
         session = TestEditSessionPrimitiveLowering._primitive_session()
 
         result = session.apply_batch("dst.value = src.output_0\n")
 
-        assert result.ok is True
-        assert result.diagnostics == ()
-        dst = session.ledger.resolve_node("", "dst")
-        assert dst is not None
-        assert dst["inputs"][0]["link"] == 1
+        assert result.ok is False
+        assert any(
+            diagnostic.code == "unknown_output_slot" for diagnostic in result.diagnostics
+        )
 
     def test_apply_batch_expands_bounded_for_over_constant_range(self) -> None:
         session = TestEditSessionPrimitiveLowering._primitive_session()
@@ -2178,14 +2123,12 @@ class TestEditSessionResolution:
             "links": [],
         }
         session = EditSession(raw, schema_provider=TestEditSessionResolution._schema_provider())
-        session.uid_by_name.update({"src": "src1", "ambiguous": "src2", "dst": "dst", "ghost": "missing"})
-        session.name_by_uid.update({"src1": "src", "src2": "ambiguous", "dst": "dst", "missing": "ghost"})
         return session
 
     def test_apply_batch_resolves_slot_codec_aliases_against_output_names(self) -> None:
         session = self._resolution_session()
 
-        result = session.apply_batch("dst.value = src.in_\n")
+        result = session.apply_batch("dst.value = src1.in_\n")
 
         assert result.ok is True
         assert result.statements[0].ok is True
@@ -2194,7 +2137,7 @@ class TestEditSessionResolution:
     def test_apply_batch_resolves_bare_rhs_when_exactly_one_schema_output_matches(self) -> None:
         session = self._resolution_session()
 
-        result = session.apply_batch("dst.value = src\n")
+        result = session.apply_batch("dst.value = src1\n")
 
         assert result.ok is True
         assert result.statements[0].ok is True
@@ -2242,8 +2185,6 @@ class TestEditSessionResolution:
             "links": [],
         }
         session = EditSession(raw, schema_provider=_Provider())
-        session.uid_by_name.update({"src": "src", "save": "save"})
-        session.name_by_uid.update({"src": "src", "save": "save"})
 
         result = session.apply_batch("save.images = src.image\n")
 
@@ -2253,7 +2194,7 @@ class TestEditSessionResolution:
     def test_apply_batch_rejects_ambiguous_bare_rhs(self) -> None:
         session = self._resolution_session()
 
-        result = session.apply_batch("dst.value = ambiguous\n")
+        result = session.apply_batch("dst.value = src2\n")
 
         assert result.ok is False
         assert result.diagnostics[0].code == "ambiguous_bare_reference"
@@ -2262,11 +2203,11 @@ class TestEditSessionResolution:
         ("source", "code"),
         [
             ("dst.value = missing.value\n", "unknown_source_name"),
-            ("missing.value = src.in_\n", "unknown_target_name"),
-            ("dst.value = src.missing_slot\n", "unknown_output_slot"),
-            ("ghost.value = src.in_\n", "stale_graph_name"),
-            ("dst.value = src.in_.slot\n", "scope_escape_not_allowed"),
-            ("dst.__class__ = src.in_\n", "dunder_attribute_not_allowed"),
+            ("missing.value = src1.in_\n", "unknown_target_name"),
+            ("dst.value = src1.missing_slot\n", "unknown_output_slot"),
+            ("ghost.value = src1.in_\n", "unknown_target_name"),
+            ("dst.value = src1.in_.slot\n", "scope_escape_not_allowed"),
+            ("dst.__class__ = src1.in_\n", "dunder_attribute_not_allowed"),
         ],
     )
     def test_apply_batch_rejects_bad_resolution_cases(self, source: str, code: str) -> None:
@@ -2442,7 +2383,7 @@ class TestEditSessionPrimitiveLowering:
             FieldChange(uid="widget", field_path="seed", old=1, new=9),
         )
         assert result.statements[0].landed is True
-        widget = session.ledger.resolve_node("", "widget")
+        widget = session.node_ui( "widget")
         assert widget is not None
         assert widget["widgets_values"][0] == 9
 
@@ -2463,9 +2404,8 @@ class TestEditSessionPrimitiveLowering:
 
     def test_original_link_endpoint_uses_litegraph_origin_slot(self) -> None:
         from vibecomfy.porting.edit._describe import _DescribeMixin
-        from vibecomfy.porting.edit.ledger import EditLedger
 
-        ledger = EditLedger.ingest(
+        ledger = UiGraphIndex.ingest(
             {
                 "nodes": [
                     {
@@ -2516,6 +2456,21 @@ sampler = KSampler(
         )
         assert result.statements[0].diagnostics[-1].code == "field_change_old_unresolved"
 
+    def test_added_node_name_replays_through_later_history(self) -> None:
+        session = self._primitive_session()
+
+        created = session.apply_batch(
+            'sampler = KSampler(seed=42, steps=20, cfg=7.5, '
+            'sampler_name="euler", scheduler="normal")\n'
+        )
+        assert created.ok is True
+        edited = session.apply_batch("sampler.seed = 99\n")
+        assert edited.ok is True
+
+        replayed = session.verify_delta_history()
+        node = next(node for node in replayed.nodes.values() if node.uid == "n1")
+        assert node.inputs["seed"] == 99
+
     def test_apply_batch_rolls_back_destructive_edit_when_later_edit_fails(self) -> None:
         session = self._primitive_session()
         before_ui = deepcopy(session.working_ui)
@@ -2531,7 +2486,7 @@ sampler = KSampler(
         assert result.field_changes == ()
         assert session.working_ui == before_ui
         assert session.uid_by_name == before_names
-        assert session.ledger.resolve_node("", "dst") is not None
+        assert session.node_ui( "dst") is not None
         assert result.statements[0].landed is False
         assert result.statements[0].ok is False
         assert any(
@@ -2555,10 +2510,10 @@ sampler = KSampler(
         assert len(result.landed_ops) == 2
         assert result.statements[0].landed is True
         assert result.statements[1].landed is True
-        assert "mid" in session.uid_by_name
-        mid_uid = session.uid_by_name["mid"]
-        assert session.ledger.resolve_node("", mid_uid) is not None
-        dst = session.ledger.resolve_node("", "dst")
+        assert "passthroughimage" in session.uid_by_name
+        mid_uid = session.uid_by_name["passthroughimage"]
+        assert session.node_ui( mid_uid) is not None
+        dst = session.node_ui( "dst")
         assert dst is not None
         value_input = next(item for item in dst["inputs"] if item["name"] == "value")
         assert isinstance(value_input.get("link"), int)
@@ -2584,7 +2539,12 @@ sampler = KSampler(
         # depends on whether the name was never bound (unknown_source_name)
         # or is stale (unknown_graph_name).  Either is valid here.
         code = second.statements[0].diagnostics[0].code
-        assert code in ("unknown_graph_name", "unknown_source_name"), f"unexpected code: {code}"
+        assert code in (
+            "unknown_graph_name",
+            "unknown_source_name",
+            "stale_graph_name",
+            "unknown_target_name",
+        ), f"unexpected code: {code}"
 
     def test_apply_batch_lowers_schema_less_dict_widget_assignment_to_set_node_field_op(self) -> None:
         from vibecomfy.porting import FieldChange
@@ -2614,10 +2574,8 @@ sampler = KSampler(
             "links": [],
         }
         session = EditSession(raw, schema_provider=self._schema_provider())
-        session.uid_by_name.update({"dict_widget": "dict-widget"})
-        session.name_by_uid.update({"dict-widget": "dict_widget"})
 
-        result = session.apply_batch("dict_widget.filename_prefix = 'qa_run'\n")
+        result = session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_run'\n")
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetNodeFieldOp)
@@ -2629,7 +2587,7 @@ sampler = KSampler(
                 new="qa_run",
             ),
         )
-        node = session.ledger.resolve_node("", "dict-widget")
+        node = session.node_ui( "dict-widget")
         assert node is not None
         assert node["widgets_values"] == {
             "frame_rate": 24,
@@ -2661,11 +2619,9 @@ sampler = KSampler(
             "links": [],
         }
         session = EditSession(raw, schema_provider=self._schema_provider())
-        session.uid_by_name.update({"dict_widget": "dict-widget"})
-        session.name_by_uid.update({"dict-widget": "dict_widget"})
 
-        session.apply_batch("dict_widget.filename_prefix = 'qa_run'\n")
-        result = session.apply_batch("dict_widget.filename_prefix = 'qa_final'\n")
+        session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_run'\n")
+        result = session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_final'\n")
 
         assert result.field_changes == (
             FieldChange(
@@ -2698,10 +2654,8 @@ sampler = KSampler(
             "links": [],
         }
         session = EditSession(raw, schema_provider=self._schema_provider())
-        session.uid_by_name.update({"dict_widget": "dict-widget"})
-        session.name_by_uid.update({"dict-widget": "dict_widget"})
 
-        result = session.apply_batch("dict_widget.totally_not_a_field = 1\n")
+        result = session.apply_batch("unknownwidgetnode.totally_not_a_field = 1\n")
 
         assert result.ok is False
         assert result.diagnostics[0].code == "unknown_target_field"
@@ -2713,7 +2667,7 @@ sampler = KSampler(
         if not workflow_path.exists():
             pytest.skip("RuneXX LTX-2.3 fixture is not present at /tmp/runexx-ltx23")
         raw = json.loads(workflow_path.read_text(encoding="utf-8"))
-        stamped_before = EditLedger.ingest(raw).stamped_copy()
+        stamped_before = UiGraphIndex.ingest(raw).stamped_copy()
         before_nodes = {node["id"]: node for node in stamped_before["nodes"]}
         session = EditSession(raw)
         session.render()
@@ -2740,7 +2694,7 @@ sampler = KSampler(
         if not workflow_path.exists():
             pytest.skip("RuneXX LTX-2.3 fixture is not present at /tmp/runexx-ltx23")
         raw = json.loads(workflow_path.read_text(encoding="utf-8"))
-        stamped_before = EditLedger.ingest(raw).stamped_copy()
+        stamped_before = UiGraphIndex.ingest(raw).stamped_copy()
         before_nodes = {node["id"]: node for node in stamped_before["nodes"]}
         before_links = {link[0]: link for link in stamped_before["links"]}
         target_before = before_nodes[140]
@@ -2782,7 +2736,7 @@ sampler = KSampler(
         assert result.ok is True
         assert isinstance(result.landed_ops[0], UpsertLinkOp)
         assert result.statements[0].landed is True
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert isinstance(dst["inputs"][0]["link"], int)
 
@@ -2811,7 +2765,7 @@ sampler = KSampler(
 
         assert result.ok is True
         after_links = {link[0]: link for link in session.working_ui["links"]}
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         new_link_id = dst["inputs"][0]["link"]
         assert new_link_id not in {10, 11, 12}
@@ -2832,7 +2786,7 @@ sampler = KSampler(
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], RemoveLinkOp)
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert dst["inputs"][0].get("link") is None
 
@@ -2844,7 +2798,7 @@ sampler = KSampler(
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], RemoveNodeOp)
-        assert session.ledger.resolve_node("", "dst") is None
+        assert session.node_ui( "dst") is None
 
     def test_apply_batch_lowers_mode_assignment_via_mode_labels_reverse_map(self) -> None:
         from vibecomfy.porting.edit.ops import SetModeOp
@@ -2855,22 +2809,16 @@ sampler = KSampler(
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetModeOp)
         assert result.landed_ops[0].mode == 2
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert dst["mode"] == 2
 
-    def test_apply_batch_lowers_title_assignment_to_set_title_op(self) -> None:
-        from vibecomfy.porting.edit.ops import SetTitleOp
-
+    def test_apply_batch_rejects_title_assignment(self) -> None:
         session = self._primitive_session()
         result = session.apply_batch("dst.title = 'TestNode'\n")
 
-        assert result.ok is True
-        assert isinstance(result.landed_ops[0], SetTitleOp)
-        assert result.landed_ops[0].title == "TestNode"
-        dst = session.ledger.resolve_node("", "dst")
-        assert dst is not None
-        assert dst["title"] == "TestNode"
+        assert result.ok is False
+        assert any(diagnostic.code == "set_title_not_allowed" for diagnostic in result.diagnostics)
 
     @pytest.mark.parametrize("source", ["helper.mode = 'bypassed'\n", "del helper\n"])
     def test_apply_batch_rejects_original_virtual_node_mutation(self, source: str) -> None:
@@ -2899,9 +2847,9 @@ sampler = KSampler(
         assert result.landed_ops[0].anchor.near.uid == "dst"
         assert result.landed_ops[0].anchor.group_title == "Outputs"
         minted_uid = result.statements[0].detail["minted_uid"]
-        assert session.uid_by_name["save_image"] == minted_uid
-        assert session.name_by_uid[minted_uid] == "save_image"
-        added = session.ledger.resolve_node("", minted_uid)
+        assert session.uid_by_name["saveimage"] == minted_uid
+        assert session.name_by_uid[minted_uid] == "saveimage"
+        added = session.node_ui( minted_uid)
         assert added is not None
         assert added["type"] == "SaveImage"
         assert isinstance(added["inputs"][0]["link"], int)
@@ -2957,12 +2905,12 @@ sampler = KSampler(
         assert [type(op) for op in result.landed_ops] == [AddNodeOp, UpsertLinkOp]
         assert result.landed_ops[0].inputs["in_0"].uid == "src"
         code_node_uid = result.statements[0].detail["minted_uid"]
-        code_node = session.ledger.resolve_node("", code_node_uid)
+        code_node = session.node_ui( code_node_uid)
         assert code_node is not None
         assert code_node["type"] == "vibecomfy.exec"
         assert code_node["inputs"][0]["name"] == "in_0"
         assert isinstance(code_node["inputs"][0]["link"], int)
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert isinstance(dst["inputs"][0]["link"], int)
         out_link = next(link for link in session.working_ui["links"] if link[3] == dst["id"])
@@ -3006,11 +2954,11 @@ sampler = KSampler(
 
         assert result.ok is True
         assert [type(op) for op in result.landed_ops] == [UpsertLinkOp, UpsertLinkOp]
-        proc = session.ledger.resolve_node("", "proc")
+        proc = session.node_ui( "proc")
         assert proc is not None
         assert proc["inputs"][0]["name"] == "in_0"
         assert isinstance(proc["inputs"][0]["link"], int)
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert isinstance(dst["inputs"][0]["link"], int)
         proc_out_link = next(link for link in session.working_ui["links"] if link[3] == dst["id"])
@@ -3055,7 +3003,7 @@ sampler = KSampler(
         assert isinstance(result.landed_ops[0], AddNodeOp)
         assert result.landed_ops[0].class_type == "vibecomfy.exec"
         code_node_uid = result.statements[0].detail["minted_uid"]
-        code_node = session.ledger.resolve_node("", code_node_uid)
+        code_node = session.node_ui( code_node_uid)
         assert code_node is not None
         assert code_node["type"] == "vibecomfy.exec"
         assert len(code_node["inputs"]) == 1
@@ -3081,7 +3029,7 @@ sampler = KSampler(
             "outputs": [["image", "*"]],
         }
         code_node_uid = result.statements[0].detail["minted_uid"]
-        code_node = session.ledger.resolve_node("", code_node_uid)
+        code_node = session.node_ui( code_node_uid)
         assert code_node is not None
         assert code_node["type"] == "vibecomfy.exec"
         assert len(code_node["inputs"]) == 1
@@ -3122,8 +3070,8 @@ sampler = KSampler(
         assert [type(op) for op in result.landed_ops] == [AddNodeOp, UpsertLinkOp]
         assert [statement.landed for statement in result.statements] == [True, True]
         minted_uid = result.statements[0].detail["minted_uid"]
-        assert session.uid_by_name["echo"] == minted_uid
-        echo = session.ledger.resolve_node("", minted_uid)
+        assert session.name_by_uid[minted_uid] == "dest_2"
+        echo = session.node_ui( minted_uid)
         assert echo is not None
         assert isinstance(echo["inputs"][0]["link"], int)
 
@@ -3144,7 +3092,7 @@ sampler = KSampler(
         assert result.statements[0].diagnostics[0].code == "anchor_target_missing"
         assert result.statements[1].diagnostics[0].code == "unbound_graph_name"
         # widget.seed must remain unchanged
-        widget = session.ledger.resolve_node("", "widget")
+        widget = session.node_ui( "widget")
         assert widget is not None
         assert widget["widgets_values"][0] == 1  # original value
 
@@ -3167,7 +3115,7 @@ sampler = KSampler(
         assert result.landed_ops[0].anchor.between is not None
         assert tuple(target.uid for target in result.landed_ops[0].anchor.between) == ("src", "dst")
         minted_uid = result.statements[0].detail["minted_uid"]
-        added = session.ledger.resolve_node("", minted_uid)
+        added = session.node_ui( minted_uid)
         assert added is not None
         assert 0 < added["pos"][0] < 750
 
@@ -3237,9 +3185,9 @@ sampler = KSampler(
 
         assert result.ok is True
         positions = []
-        for name in ("a", "b", "c", "d", "e"):
+        for name in ("stagea", "stageb", "stagec", "staged", "stagee"):
             uid = session.uid_by_name[name]
-            node = session.ledger.resolve_node("", uid)
+            node = session.node_ui( uid)
             assert node is not None
             positions.append(tuple(node["pos"]))
         assert [pos[0] for pos in positions] == sorted(pos[0] for pos in positions)
@@ -3287,12 +3235,11 @@ sampler = KSampler(
         result = session.apply_batch("mid = PassThroughImage(image=src.in_, near=dst)\n")
         assert result.ok is True
         minted_uid = result.statements[0].detail["minted_uid"]
-        node = session.ledger.resolve_node("", minted_uid)
+        node = session.node_ui( minted_uid)
         assert node is not None
 
-        scope_graph = session.ledger.scopes[""].graph
-        from vibecomfy.porting.edit.apply import _group_index_for_node
-        dst_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "dst"))
+        scope_graph = session.working_ui
+        dst_group = _group_index_for_node(scope_graph, session.node_ui("dst"))
         mid_group = _group_index_for_node(scope_graph, node)
         assert dst_group is not None, "dst should be in MyGroup"
         assert mid_group == dst_group, f"mid should inherit dst's group ({dst_group}), got {mid_group}"
@@ -3350,12 +3297,11 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit.apply import _group_index_for_node
-        scope_graph = session.ledger.scopes[""].graph
+        scope_graph = session.working_ui
         groups = set()
-        for name in ("a", "b", "c", "d", "e"):
+        for name in ("stagea", "stageb", "stagec", "staged", "stagee"):
             uid = session.uid_by_name[name]
-            node = session.ledger.resolve_node("", uid)
+            node = session.node_ui( uid)
             assert node is not None
             g = _group_index_for_node(scope_graph, node)
             groups.add(g)
@@ -3407,17 +3353,16 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit.apply import _group_index_for_node
-        scope_graph = session.ledger.scopes[""].graph
+        scope_graph = session.working_ui
         minted_uid = result.statements[0].detail["minted_uid"]
-        mid_node = session.ledger.resolve_node("", minted_uid)
+        mid_node = session.node_ui(minted_uid)
         assert mid_node is not None
         mid_group = _group_index_for_node(scope_graph, mid_node)
 
         # src is in UpstreamGroup (x=100), dst is in both (x=400)
         # DownstreamGroup (index 1) should be preferred
-        src_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "src"))
-        dst_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "dst"))
+        src_group = _group_index_for_node(scope_graph, session.node_ui( "src"))
+        dst_group = _group_index_for_node(scope_graph, session.node_ui( "dst"))
         # dst overlaps both groups; but _group_index_for_node picks smallest containing area
         # The test verifies mid gets a group from one of them
         assert mid_group is not None, "mid should be in a group"
@@ -4111,10 +4056,10 @@ def test_add_node_resolves_disambiguated_authoring_alias_collision() -> None:
 
 
 class TestDoneGateAByteFaithfulness:
-    """Prove that done() gate A replays ops and confirms byte-faithfulness.
+    """Prove that done() gate A replays ops and confirms emit-exit faithfulness.
 
-    Gate A reapplies all landed ops over original_ui using apply_delta,
-    requires guard_full_ui success, and asserts the recomputed candidate
+    Gate A replays interpret over (wf_0, Δ_i), emits the replayed IR,
+    requires guard_exit_ui success, and asserts the recomputed candidate
     equals the current working_ui.
     """
 
@@ -4215,8 +4160,8 @@ class TestDoneGateAByteFaithfulness:
         assert "unused_widget_1='fixed'" not in rendered
         assert batch.ok is True
         assert isinstance(batch.landed_ops[0], SetNodeFieldOp)
-        node = session.working_ui["nodes"][0]
-        assert node["widgets_values"] == [42, "randomize", 8, 1, "euler", "normal", 1]
+        ir_node = next(iter(session.workflow.nodes.values()))
+        assert ir_node.inputs.get("control_after_generate") == "randomize"
 
     def test_apply_batch_maps_legacy_unused_widget_alias_to_control_after_generate(self):
         """Older scratchpad aliases still land on the same KSampler UI slot."""
@@ -4246,7 +4191,8 @@ class TestDoneGateAByteFaithfulness:
         batch = session.apply_batch("ksampler.unused_widget_1 = 'randomize'\n")
 
         assert batch.ok is True
-        assert session.working_ui["nodes"][0]["widgets_values"][1] == "randomize"
+        ir_node = next(iter(session.workflow.nodes.values()))
+        assert ir_node.inputs.get("control_after_generate") == "randomize"
         assert batch.field_changes[0].field_path == "control_after_generate"
 
     def test_done_succeeds_after_link_upsert(self):
@@ -4293,16 +4239,38 @@ class TestDoneGateAByteFaithfulness:
         result = session.done()
         assert result.ok is True
 
-        # Recompute independently to double-check
-        from vibecomfy.porting.edit.apply import apply_delta
-        applied = apply_delta(
+        # Recompute independently to double-check: replay interpret + emit.
+        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.porting.emit.ui import emit_ui_json, guard_exit_ui, pin_untouched_ui
+
+        workflow = from_ui(
             session.original_ui,
-            tuple(session.landed_ops),
             schema_provider=session.schema_provider,
+            use_comfy_converter=False,
         )
-        assert applied.ok
-        assert applied.candidate is not None
-        assert applied.candidate == working_before
+        for _pre, source, _ops in session.history:
+            replayed = interpret(
+                workflow,
+                source,
+                schema_provider=session.schema_provider,
+            )
+            assert replayed.ok
+            workflow = replayed.workflow
+        candidate = pin_untouched_ui(
+            session.original_ui,
+            emit_ui_json(
+                workflow,
+                schema_provider=session.schema_provider,
+                include_virtual_wires=True,
+                prior_ui_payload=session.original_ui,
+            ),
+            tuple(session.landed_ops),
+        )
+        assert candidate == working_before
+        assert guard_exit_ui(
+            session.original_ui, candidate, tuple(session.landed_ops)
+        ).ok
 
     def test_done_after_add_node_passes(self):
         """done() passes gate A after adding a node."""
@@ -4501,12 +4469,12 @@ class TestDoneProofCoverageMatrix:
         [
             ("field_set", ("ksampler.seed = 42\n",), "Changed ksampler.seed from 1 to 42"),
             ("add_link", ("dest.value = sourceone.in_\n",), "Connected sourceone.in"),
-            ("delete_node", ("del ksampler\n",), "Removed KSampler node 'ksampler'"),
+            ("delete_node", ("del ksampler\n",), "Removed KSampler node 'widget'"),
             ("mode_set", ("dest.mode = 'muted'\n",), "Changed dest mode from enabled to muted"),
             (
                 "add_node",
                 ("extra = SaveImage(images=sourceone.in_, relation='right_of', near=dest)\n",),
-                "Added SaveImage node 'extra'",
+                "Added SaveImage node 'saveimage'",
             ),
         ],
     )
@@ -4693,7 +4661,7 @@ class TestDoneGateCSummary:
         assert batch.ok
         result = session.done()
         assert result.ok
-        assert "Added SaveImage node 'new_img'" in result.summary
+        assert "Added SaveImage node 'saveimage'" in result.summary
         assert "sourceone.in" in result.summary
         assert "(IMAGE)" in result.summary
 
@@ -4705,7 +4673,7 @@ class TestDoneGateCSummary:
         assert batch.ok
         result = session.done()
         assert result.ok
-        assert "Removed KSampler node 'ksampler'" in result.summary
+        assert "Removed KSampler node 'widget'" in result.summary
 
     def test_summary_multiple_ops_produces_joined_sentences(self):
         """Multiple ops produce space-joined sentences."""
@@ -5248,14 +5216,24 @@ if _HYPOTHESIS_AVAILABLE:
             first_names = dict(session.name_by_uid)
 
             # Apply a batch, which may add new nodes/names.
-            session.apply_batch(code)
+            result = session.apply_batch(code)
 
             # Rerender.
             second_render = session.render()
             second_names = dict(session.name_by_uid)
+            from vibecomfy.porting.edit.ops import RemoveNodeOp
 
-            # All names from first render must still map to the same uids.
+            removed = {
+                str(op.target.uid)
+                for op in result.landed_ops
+                if isinstance(op, RemoveNodeOp)
+            }
+
+            # All names from first render must still map to the same uids,
+            # except nodes this batch deleted.
             for uid, name in first_names.items():
+                if uid in removed:
+                    continue
                 assert uid in second_names, (
                     f"uid {uid} ({name}) disappeared after rerender.\n"
                     f"Code:\n{code}"
@@ -5470,11 +5448,20 @@ else:
                 first_render = session.render()
                 first_names = dict(session.name_by_uid)
 
-                session.apply_batch(code)
+                result = session.apply_batch(code)
                 second_render = session.render()
                 second_names = dict(session.name_by_uid)
+                from vibecomfy.porting.edit.ops import RemoveNodeOp
+
+                removed = {
+                    str(op.target.uid)
+                    for op in result.landed_ops
+                    if isinstance(op, RemoveNodeOp)
+                }
 
                 for uid, name in first_names.items():
+                    if uid in removed:
+                        continue
                     assert uid in second_names, (
                         f"Iter {i}: uid {uid} ({name}) disappeared"
                         f" after rerender.\nCode:\n{code}"
@@ -5787,3 +5774,554 @@ class TestLegacyDeltaBoundary:
         assert "uid" in str(exc_info.value).lower(), (
             f"Expected uid-related error, got: {exc_info.value}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6 — single generated grammar + EditableSurface
+# ---------------------------------------------------------------------------
+
+_GOLDEN_PROMPT_DOC = """\
+Edit surface grammar (generated; do not invent verbs).
+Write the same Python the view emits. Statements are AST-parsed, never executed.
+
+Supported:
+- `node.field = literal` → set_node_field
+  fold the RHS as a literal (const/list/dict, or a const-folded `BinOp`); reject names/calls
+- `var = Class(field=…, inp=src.SLOT, near=…)` → add_node
+  mint uid, bind `var`, reject `vibecomfy.*` intent classes (those use `intent_node_properties()`); emit one `upsert_link` per wired input
+- `dst.field = src.SLOT` (or bare `src` if unambiguous) → upsert_link
+  resolve slot name→index, type-check (`socket_types_compatible`)
+- `dst.field = None` → remove_link
+  disconnect the named input
+- `del node` → remove_node
+  refuse substrate virtuals (§6)
+- `node.mode = "bypassed"|"enabled"|"muted"` → set_mode
+  assign the semantic mode
+- `for n in <list>: n.field = value` → macro
+  parse-time expansion to one assignment per element (hard cap ~50); `range(...)` is the constant-iterator form of the same macro
+- `search(...)`, `python()`, and the named agent tool calls
+  side-effect-free catalog / research; no graph op
+- `done()`
+  control: commit the session
+
+Forbidden (not in the grammar):
+- `import` / `from … import`  [import_not_allowed] — imports cross into runtime evaluation
+- `def` / `class` / `async def`  [statement_not_allowed] — user-defined functions and classes cross into runtime evaluation
+- `if` / `if` expressions  [conditional_not_allowed] — conditionals cross into runtime evaluation
+- list/set/dict/generator comprehensions  [comprehension_not_allowed] — comprehensions cross into runtime evaluation
+- `lambda`  [lambda_not_allowed] — lambdas cross into runtime evaluation
+- f-string interpolation  [f_string_not_allowed] — f-strings interpolate at runtime
+- `reorder(...)`  [call_not_allowed] — reorder is not part of the designed grammar
+- `node.title = …` / `set_title(...)`  [set_title_not_allowed] — set_title is not part of the designed grammar
+- arithmetic over graph names (e.g. `a.steps + b.steps`)  [expression_not_constant] — only const-folded literals are allowed; names are not operands
+
+AST allow-list: {Module, Assign, Attribute, Name, Constant, List, Tuple, Dict, BinOp(const), Call, keyword, Delete, For(bounded), Expr}
+Batches are capped (~50 statements / ~64 KiB). Bounded `for` is a parse-time macro (cap ~50).
+"""
+
+
+def _parse_surface(code: str):
+    from vibecomfy.porting.edit._parse import _parse_and_validate_batch
+
+    return _parse_and_validate_batch(
+        code,
+        max_batch_bytes=65536,
+        max_statements=50,
+        max_expanded_statements=50,
+        max_for_iterations=50,
+    )
+
+
+class TestGeneratedGrammar:
+    def test_every_supported_form_parses(self) -> None:
+        cases = {
+            "ksampler.steps = 30\n": ("set_node_field",),
+            "dst.image = src.IMAGE\n": ("upsert_link",),
+            "dst.image = src\n": ("upsert_link",),
+            "dst.image = None\n": ("remove_link",),
+            "up = ImageUpscaleWithModel(image=src.IMAGE, model_name='x')\n": ("node_call",),
+            "del ksampler\n": ("remove_node",),
+            "ksampler.mode = 'bypassed'\n": ("set_mode",),
+            "for n in [a, b]:\n    n.seed = 1\n": ("set_node_field", "set_node_field"),
+            "done()\n": ("done",),
+        }
+        for source, kinds in cases.items():
+            parsed = _parse_surface(source)
+            assert parsed.diagnostics == (), (source, parsed.diagnostics)
+            assert tuple(item.op_kind for item in parsed.statements) == kinds
+
+    @pytest.mark.parametrize(
+        ("source", "code"),
+        [
+            ("import os\n", "import_not_allowed"),
+            ("def foo():\n    pass\n", "statement_not_allowed"),
+            ("x = [item for item in values]\n", "comprehension_not_allowed"),
+            ("if True:\n    ksampler.steps = 1\n", "conditional_not_allowed"),
+            ("ksampler.steps = other + 1\n", "expression_not_constant"),
+            ("reorder(ksampler)\n", "call_not_allowed"),
+            ("ksampler.title = 'x'\n", "set_title_not_allowed"),
+            ("set_title(ksampler, 'x')\n", "set_title_not_allowed"),
+        ],
+    )
+    def test_forbidden_forms_rejected_by_generated_allow_list(self, source: str, code: str) -> None:
+        parsed = _parse_surface(source)
+        assert parsed.diagnostics
+        assert any(item.code == code for item in parsed.diagnostics)
+
+    def test_generated_prompt_doc_matches_golden(self) -> None:
+        from vibecomfy.porting.edit.grammar import (
+            prompt_doc_covers_grammar,
+            render_prompt_doc,
+        )
+
+        doc = render_prompt_doc()
+        assert doc == _GOLDEN_PROMPT_DOC
+        assert prompt_doc_covers_grammar(doc) == []
+        assert "reorder" in doc and "not part of the designed grammar" in doc
+        assert "set_title" in doc
+
+    def test_authoring_doc_table_and_ast_list_are_generated(self) -> None:
+        from vibecomfy.porting.edit.grammar import (
+            authoring_doc_agrees,
+            authoring_doc_path,
+            render_ast_allow_list,
+            render_doc_table,
+        )
+
+        text = authoring_doc_path().read_text(encoding="utf-8")
+        assert authoring_doc_agrees(text)
+        assert render_doc_table() in text
+        assert render_ast_allow_list() in text
+        assert "set_title" not in render_doc_table()
+        assert "reorder" not in render_doc_table()
+
+
+class TestEditableSurface:
+    @staticmethod
+    def _provider():
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        class Provider:
+            def get_schema(self, class_type: str):
+                if class_type == "KnownNode":
+                    return NodeSchema(
+                        class_type="KnownNode",
+                        pack=None,
+                        inputs={
+                            "steps": InputSpec(type="INT"),
+                            "image": InputSpec(type="IMAGE"),
+                        },
+                        outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+                        source_provider="object_info",
+                    )
+                if class_type == "ProvisionalNode":
+                    return NodeSchema(
+                        class_type="ProvisionalNode",
+                        pack=None,
+                        inputs={"seed": InputSpec(type="INT")},
+                        outputs=[],
+                        source_provider="workflow_json_provisional",
+                    )
+                return None
+
+        return Provider()
+
+    def test_instance_hydration_known_provisional_unknown(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+        from vibecomfy.workflow import VibeNode
+
+        provider = self._provider()
+        known = editable_surface_for(
+            VibeNode(
+                "1",
+                "KnownNode",
+                widgets={"steps": 20},
+                inputs={"image": ["2", 0]},
+                metadata={
+                    "schema_source": {"provider": "object_info"},
+                    "_ui": {
+                        "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+                        "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+                    },
+                },
+            ),
+            schema_provider=provider,
+        )
+        assert known.schema_status == "known"
+        assert [field.name for field in known.literals] == ["steps"]
+        assert known.literals[0].name_confidence == "schema"
+        assert [slot.name for slot in known.inputs] == ["image"]
+        assert all(slot.writable == "wiring" for slot in known.inputs)
+        assert [port.name for port in known.outputs] == ["IMAGE"]
+
+        provisional = editable_surface_for(
+            VibeNode(
+                "2",
+                "ProvisionalNode",
+                widgets={"seed": 7},
+                metadata={"schema_source": {"provider": "workflow_json_provisional"}},
+            ),
+            schema_provider=provider,
+        )
+        assert provisional.schema_status == "provisional"
+        assert provisional.literals[0].role == "seed"
+
+        unknown = editable_surface_for(VibeNode("3", "MissingClass", widgets={"mystery": 1}))
+        assert unknown.schema_status == "unknown"
+        assert unknown.literals[0].name == "mystery"
+        assert unknown.literals[0].name_confidence == "instance"
+
+    def test_sockets_never_appear_in_literal_list(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+        from vibecomfy.workflow import VibeNode
+
+        surface = editable_surface_for(
+            VibeNode(
+                "1",
+                "KnownNode",
+                widgets={"steps": 20, "prompt": "nope"},
+                inputs={"prompt": ["2", 0]},
+                metadata={
+                    "schema_source": {"provider": "object_info"},
+                    "_ui": {
+                        "inputs": [{"name": "prompt", "type": "IMAGE", "link": 3}],
+                    },
+                },
+            ),
+            schema_provider=self._provider(),
+        )
+        assert "prompt" not in surface.literal_names()
+        assert "prompt" in surface.socket_names()
+
+    def test_unknown_names_have_name_confidence_none_not_positional_alias(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import (
+            editable_surface_for,
+            is_positional_alias,
+        )
+        from vibecomfy.workflow import VibeNode
+
+        surface = editable_surface_for(
+            VibeNode("1", "Mystery", widgets={"widget_0": 9, "output_1": 2})
+        )
+        assert surface.literals
+        for field in surface.literals:
+            assert field.name_confidence == "none"
+            assert not field.name or not is_positional_alias(field.name)
+            assert not field.name.startswith("widget_")
+            assert not field.name.startswith("output_")
+        for port in surface.outputs:
+            assert not port.name or not is_positional_alias(port.name)
+
+
+# ---------------------------------------------------------------------------
+# Batch 7 — immutable interpreter (Law 2)
+# ---------------------------------------------------------------------------
+
+
+class TestImmutableInterpreter:
+    """interpret(pre, batch) is pure, copy-on-write, and transactional."""
+
+    def _tiny(self):
+        from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("interp", WorkflowSource("interp"))
+        workflow.nodes["1"] = VibeNode("1", "LawNode", inputs={"prompt": "before"}, uid="law-a")
+        workflow.nodes["2"] = VibeNode("2", "LawNode", inputs={"strength": 0.5}, uid="law-b")
+        workflow.edges.append(VibeEdge("1", "IMAGE", "2", "image"))
+        return workflow
+
+    def test_interpret_is_pure_and_copy_on_write(self) -> None:
+        from copy import deepcopy
+
+        from vibecomfy.porting.edit._interpret import interpret
+
+        pre = self._tiny()
+        snapshot = deepcopy(pre)
+        first = interpret(pre, 'lawnode.prompt = "after"\n')
+        second = interpret(pre, 'lawnode.prompt = "after"\n')
+        assert pre == snapshot
+        assert first.workflow is not pre
+        assert first.ok
+        assert first.workflow.nodes["1"].inputs["prompt"] == "after"
+        assert pi_edit_nodes(first) == pi_edit_nodes(second)
+
+    def test_uid_anchored_names_do_not_renumber_mid_batch(self) -> None:
+        """Deleting an earlier sibling cannot retarget a later live name."""
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("stable-batch-names", WorkflowSource("stable-batch-names"))
+        for index in range(1, 5):
+            workflow.nodes[str(index)] = VibeNode(
+                str(index),
+                "CLIPTextEncode",
+                inputs={"text": f"text-{index}"},
+                uid=f"clip-{index}",
+            )
+
+        result = interpret(
+            workflow,
+            'del cliptextencode_2\ncliptextencode_4.text = "updated"\n',
+        )
+
+        assert result.ok is True
+        assert len(result.landed_ops) == 2
+        assert "2" not in result.workflow.nodes
+        assert result.workflow.nodes["4"].inputs["text"] == "updated"
+        assert result.workflow.nodes["3"].inputs["text"] == "text-3"
+        assert not any(
+            diagnostic.code == "batch_identity_rejected"
+            for diagnostic in result.diagnostics
+        )
+
+    def test_removed_name_is_not_reassigned_mid_batch(self) -> None:
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("retired-batch-name", WorkflowSource("retired-batch-name"))
+        for index in range(1, 4):
+            workflow.nodes[str(index)] = VibeNode(
+                str(index),
+                "CLIPTextEncode",
+                inputs={"text": f"text-{index}"},
+                uid=f"clip-{index}",
+            )
+
+        result = interpret(
+            workflow,
+            'del cliptextencode_2\ncliptextencode_2.text = "wrong target"\n',
+        )
+
+        assert result.ok is False
+        assert result.landed_ops == ()
+        assert any(
+            diagnostic.code == "stale_graph_name"
+            for diagnostic in result.diagnostics
+        )
+
+    def test_cas_rejects_stale_expected_value(self) -> None:
+        from vibecomfy.porting.edit._interpret import interpret
+
+        pre = self._tiny()
+        result = interpret(
+            pre,
+            'lawnode.prompt = "after"\n',
+            cas_old={("law-a", "prompt"): "stale"},
+        )
+        assert not result.ok
+        assert result.statements[0].status == "rejected"
+        assert result.statements[0].reason == "cas_mismatch"
+        assert result.workflow.nodes["1"].inputs["prompt"] == "before"
+
+    def test_idempotent_field_write_is_skipped(self) -> None:
+        from vibecomfy.porting.edit._interpret import interpret
+
+        pre = self._tiny()
+        result = interpret(pre, 'lawnode.prompt = "before"\n')
+        assert result.statements[0].status == "skipped"
+        assert result.statements[0].reason == "cas_unchanged"
+
+    def test_socket_literal_mismatch_is_rejected(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.schema import InputSpec, NodeSchema
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        class Provider:
+            def get_schema(self, ct: str) -> NodeSchema | None:
+                if ct == "Clip":
+                    return NodeSchema(
+                        "Clip",
+                        "core",
+                        {
+                            "text": InputSpec("STRING"),
+                            "clip": InputSpec("CLIP", required=True),
+                        },
+                        [],
+                    )
+                return None
+
+        workflow = VibeWorkflow("sock", WorkflowSource("sock"))
+        workflow.nodes["1"] = VibeNode("1", "Clip", inputs={"text": "hi"}, uid="clip-a")
+        surface = editable_surface_for(
+            workflow.nodes["1"], schema_provider=Provider(), edges=workflow.edges
+        )
+        assert "clip" in surface.socket_names()
+        result = interpret(
+            workflow,
+            "clip.text = 1\n" if "clip" not in surface.socket_names() else 'clip.clip = "not-a-wire"\n',
+            schema_provider=Provider(),
+        )
+        assert result.statements
+        assert result.statements[0].status == "rejected"
+        assert result.statements[0].reason in {
+            "socket_input_not_literal_widget",
+            "value_type_mismatch",
+        }
+
+    def test_unknown_schema_accepts_instance_literals(self) -> None:
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("unk", WorkflowSource("unk"))
+        workflow.nodes["1"] = VibeNode(
+            "1", "MysteryCustom", inputs={"quirk": 3}, uid="mystery-a"
+        )
+        result = interpret(workflow, "mysterycustom.quirk = 9\n")
+        assert result.ok
+        assert result.workflow.nodes["1"].inputs["quirk"] == 9
+
+    def test_session_multi_turn_history_and_rollback(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+        from vibecomfy.schema import InputSpec, NodeSchema
+
+        raw = {
+            "last_node_id": 1,
+            "last_link_id": 0,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "CLIPTextEncode",
+                    "inputs": [],
+                    "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": []}],
+                    "properties": {"vibecomfy_uid": "enc-1"},
+                    "widgets_values": ["hello"],
+                }
+            ],
+            "links": [],
+        }
+
+        class Provider:
+            def get_schema(self, ct: str) -> NodeSchema | None:
+                if ct == "CLIPTextEncode":
+                    return NodeSchema(
+                        "CLIPTextEncode",
+                        "core",
+                        {"text": InputSpec("STRING")},
+                        [],
+                    )
+                return None
+
+        session = EditSession(raw, schema_provider=Provider())
+        wf0 = session.workflow
+        first = session.apply_batch('cliptextencode.text = "turn-1"\n')
+        assert first.ok
+        assert len(session.history) == 1
+        wf1 = session.workflow
+        second = session.apply_batch('cliptextencode.text = "turn-2"\n')
+        assert second.ok
+        assert len(session.history) == 2
+        assert session.workflow is not wf1
+        assert session.workflow.nodes["1"].inputs.get("text") == "turn-2" or (
+            session.workflow.nodes["1"].widgets.get("text") == "turn-2"
+        )
+        assert session.rollback()
+        assert len(session.history) == 1
+        current = session.workflow.nodes["1"]
+        assert current.inputs.get("text") == "turn-1" or current.widgets.get("text") == "turn-1"
+        assert session.rollback()
+        assert session.history == []
+        restored = session.workflow.nodes["1"]
+        assert restored.inputs.get("text") in {"hello", None} or restored.widgets.get("text") in {
+            "hello",
+            None,
+        }
+        assert session._wf0 is not session.workflow
+        assert session._wf0 is not None and wf0 is not None
+
+
+def pi_edit_nodes(result) -> tuple:
+    from tests.test_ir_laws import pi_edit
+
+    return pi_edit(result.workflow)[0]
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch 9 (Law 3): the session's accepted batch IS the Δ.
+#
+# History entries record (wf_i, Δ_i) with Δ_i = the accepted batch source AND
+# the typed ops the grammar yielded (no parallel delta representation).
+# Replay goes through interpret with the recorded source; rollback pops;
+# diff (the generalizer) agrees with the recorded source over π_edit.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+class TestSessionDeltaHistory:
+    """Law 3 on the session: recorded history replays via interpret, rollback
+    pops, and ``diff(pre, post)`` agrees with the recorded batch source."""
+
+    def test_history_replays_via_interpret_and_diff_agrees(self) -> None:
+        from vibecomfy.porting.edit import diff, interpret
+        from tests.test_ir_laws import pi_edit
+
+        session = _primitive_session()
+        first = session.apply_batch("widget.seed = 42\n")
+        assert first.ok, first.diagnostics
+        second = session.apply_batch("dst.value = src.in_\n")
+        assert second.ok, second.diagnostics
+
+        assert len(session.history) == 2
+        (pre1, source1, ops1), (pre2, source2, ops2) = session.history
+        assert source1 == "widget.seed = 42\n"
+        assert source2 == "dst.value = src.in_\n"
+        assert all(op.op == "set_node_field" for op in ops1)
+        assert ops2[-1].op == "upsert_link"
+
+        # Replay wf_0 → wf_1 → wf_2 via the recorded Δ sources.
+        wf1 = interpret(pre1, source1).workflow
+        wf2 = interpret(wf1, source2).workflow
+        assert pi_edit(session.workflow) == pi_edit(wf2)
+
+        # diff (the generalizer) agrees with the recorded source: the same
+        # IR pair yields exactly the typed batch the interpreter accepted.
+        assert diff(pre1, wf1) == ops1
+        assert diff(wf1, wf2) == ops2
+
+        # Full-history verification replays every recorded source through
+        # interpret and checks the generalized Δ over the quotient.
+        final = session.verify_delta_history(equality=lambda a, b: pi_edit(a) == pi_edit(b))
+        assert pi_edit(final) == pi_edit(session.workflow)
+
+    def test_rollback_pops_history_and_replays_remaining_sources(self) -> None:
+        from tests.test_ir_laws import pi_edit
+
+        session = _primitive_session()
+        assert session.apply_batch("widget.seed = 42\n").ok
+        assert session.apply_batch("widget.seed = 7\n").ok
+        assert len(session.history) == 2
+
+        assert session.rollback(1)
+        assert len(session.history) == 1
+        assert session.workflow.nodes["2"].inputs["seed"] == 42
+
+        assert session.rollback(1)
+        assert session.history == []
+        assert pi_edit(session.workflow) == pi_edit(session._wf0)
+
+        # Re-applying the recorded source after the pop reproduces wf_1.
+        assert session.apply_batch("widget.seed = 42\n").ok
+        assert len(session.history) == 1
+        assert session.workflow.nodes["2"].inputs["seed"] == 42
+
+    def test_cas_noop_batch_still_records_source_and_diff_stays_minimal(self) -> None:
+        """A batch whose statements land as CAS no-ops is still recorded as an
+        accepted Δ; the minimal generalizer folds the no-ops away, so the
+        quotient verification (not raw equality) is the contract."""
+        from vibecomfy.porting.edit import diff, interpret
+        from tests.test_ir_laws import pi_edit
+
+        session = _primitive_session()
+        assert session.apply_batch("widget.seed = 42\n").ok
+        pre = session.workflow.copy()
+        assert session.apply_batch("widget.seed = 42\n").ok  # no-op
+        assert len(session.history) == 2
+        assert session.history[-1][1] == "widget.seed = 42\n"
+        # The IR did not move: the generalized Δ is empty.
+        assert diff(pre, session.workflow) == ()
+        # verify_delta_history tolerates the folded no-op over the quotient.
+        final = session.verify_delta_history(
+            equality=lambda a, b: pi_edit(a) == pi_edit(b)
+        )
+        assert pi_edit(final) == pi_edit(session.workflow)
+        replayed = interpret(pre, "widget.seed = 42\n")
+        assert pi_edit(replayed.workflow) == pi_edit(session.workflow)

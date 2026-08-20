@@ -1,9 +1,10 @@
 // mutation_materialization_v1.js — bound add_node construction payload (JS owner)
 //
 // A materialization envelope accompanies ONE delta envelope — either the
-// forward operation.ops or an inverse restoration_strategy.payload.ops.  Each
-// entry binds exactly one add_node op in that accompanying envelope and carries
-// only native construction data NOT already authoritative in the op.
+// forward ops derived from plan.accepted_batch or an inverse
+// restoration_strategy.payload.ops. Each entry binds exactly one add_node op
+// in that accompanying envelope and carries only native construction data
+// NOT already authoritative in the op.
 //
 // Envelope (frozen, identical JS + Python):
 //   { contract_version, wire_version, entries: [...], digest }

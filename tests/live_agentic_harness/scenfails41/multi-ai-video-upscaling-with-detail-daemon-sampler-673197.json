@@ -1,0 +1,62 @@
+{
+  "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
+  "query": "I'm using the Detail Daemon Sampler with beta scheduling to upscale a low-res video. The output has strong color shifting compared to the input, and details look smeared rather than enhanced. I've tried different SeedVR2 checkpoints but the issue persists. Where should I look?",
+  "workflow_path": "external_workflows/corpus/673197a9269d00f8.json",
+  "network": true,
+  "timeout": 360,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "diagnose",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "upscaling",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-upscaling",
+      "beta-sampling",
+      "detail-daemon",
+      "seedvr2",
+      "image-upscaling",
+      "custom-sampler",
+      "ai-workflow"
+    ],
+    "source_workflow_id": "673197a9269d00f8",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This query forces the agent to analyze the interaction between beta scheduling, detail daemon, and SeedVR2 models to pinpoint the root cause of color shift and smearing, which are realistic symptoms in video upscaling."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/673197a9269d00f8.json",
+    "required_node_evidence": [
+      "SeedVR2VideoUpscaler",
+      "DetailDaemonSamplerNode",
+      "BetaSamplingScheduler",
+      "Sigmas Rescale",
+      "VAEDecode"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Prioritize plausible causes of both color shift and smeared detail in the SeedVR2/detail-daemon/sigma/VAE chain, and give discriminating checks before recommending parameter changes.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

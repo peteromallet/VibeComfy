@@ -1,0 +1,62 @@
+{
+  "id": "video-video-loading-and-saving-workflow-1c7ad8",
+  "query": "This workflow loads a video and an image, applies boolean logic, and saves three separate video outputs. Explain what each boolean operation is doing and how the three resulting videos differ from one another.",
+  "workflow_path": "external_workflows/corpus/1c7ad8a2a8c0224b.json",
+  "network": true,
+  "timeout": 320,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "explain",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video",
+      "image",
+      "save-video",
+      "boolean",
+      "workflow"
+    ],
+    "source_workflow_id": "1c7ad8a2a8c0224b",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "The boolean-logic core is the only notable feature here; the query forces the agent to deduce the logic branch outcomes instead of naming nodes."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/1c7ad8a2a8c0224b.json",
+    "required_node_evidence": [
+      "LoadVideo",
+      "LoadImage",
+      "PrimitiveBoolean",
+      "SaveVideo",
+      "2dc75cab-e957-4437-a5bb-2afb0ea00516",
+      "3ad0b41c-8c47-4e10-a53e-ed340cc26b5f",
+      "b83ac947-e174-4a8e-b0c1-f7c3b8f00419"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Use the three custom-node connections and shared boolean inputs to explain each operation/output distinctly; unknown UUID node semantics must be derived from metadata/connections or stated as uncertain, not guessed.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

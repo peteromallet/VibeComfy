@@ -301,9 +301,7 @@ def _warn_ignored_public_protocol_envs_once(env_names: tuple[str, ...]) -> None:
     _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS.update(unseen)
     LOGGER.warning(
         "agent-edit ignoring legacy public protocol env vars (%s); product protocol is always "
-        "'batch_repl'. For dev-only legacy protocols set "
-        "VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS=1 and "
-        "VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL=delta|full.",
+        "'batch_repl'.",
         ", ".join(unseen),
     )
 
@@ -315,25 +313,18 @@ def _agent_edit_contract() -> str:
             "VIBECOMFY_AGENT_EDIT_LEGACY",
             "VIBECOMFY_AGENT_EDIT_V2",
             "VIBECOMFY_AGENT_EDIT_BATCH_REPL",
+            "VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS",
+            "VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL",
         )
         if os.getenv(name) is not None
     )
     if ignored_public_envs:
         _warn_ignored_public_protocol_envs_once(ignored_public_envs)
-    if os.getenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS") == "1":
-        dev_protocol = os.getenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL")
-        if dev_protocol in {"delta", "full"}:
-            _warn_legacy_contract_once(dev_protocol)
-            return dev_protocol
     return "batch_repl"
 
 
-def _agent_edit_v2_enabled() -> bool:
-    return _agent_edit_contract() == "delta"
-
-
 def _agent_edit_batch_repl_enabled() -> bool:
-    return _agent_edit_contract() == "batch_repl"
+    return True
 
 
 def _edit_lint_enabled() -> bool:
@@ -346,11 +337,11 @@ def _edit_lint_enabled() -> bool:
     Rollout flag / off-switch
     -------------------------
     Setting ``VIBECOMFY_AGENT_EDIT_LINT=0`` disables the entire lint gate in
-    ``_stage_apply_delta`` and ``_stage_agent_batch_repl``.  When lint is off the
-    pipeline falls back to pre-lint behaviour: ``apply_delta()`` receives every
-    op unchecked, no-ops are not pre-filtered, and diagnostics come from
-    ``resolve_delta`` / ``apply_delta`` rather than from ``lint_delta()``.  This
-    flag is intended as an emergency off-switch; the default path is *enabled*.
+    ``_stage_agent_batch_repl``.  When lint is off the
+    pipeline sends every op straight to ``interpret``: no-ops are not
+    pre-filtered, and diagnostics come from interpret / the emit-exit guard
+    rather than from ``lint_delta()``.  This flag is intended as an emergency
+    off-switch; the default path is *enabled*.
     """
     raw = os.getenv("VIBECOMFY_AGENT_EDIT_LINT")
     if raw is None:
@@ -359,7 +350,7 @@ def _edit_lint_enabled() -> bool:
 
 
 __all__ = (
-     "_agent_edit_batch_repl_enabled", "_agent_edit_contract", "_agent_edit_v2_enabled",
+     "_agent_edit_batch_repl_enabled", "_agent_edit_contract",
      "_compact_diag_to_dict", "_edit_lint_enabled", "_port_issue_to_dict",
      "_warn_ignored_public_protocol_envs_once", "_warn_legacy_contract_once",
      "read_session_bundle", "read_session_json",

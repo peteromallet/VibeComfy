@@ -32,6 +32,7 @@ from typing import Any, Iterator, Literal
 
 from .contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 # T-045 module-level host import: ``TurnState`` is referenced only in annotations
 # (PEP 563 strings -- never evaluated at runtime), imported here so those
 # annotations stay resolvable for type checkers; ``session`` is fully defined
@@ -112,44 +113,24 @@ def _load_turn_candidate_graph(
 def _load_turn_delta_ops(
     *, session_dir: Path, turn_id: str
 ) -> tuple[dict[str, Any], ...] | None:
-    """Load canonical ``delta_ops`` from the persisted turn response.
+    """Load canonical Δ ops from the persisted turn ``accepted_batch``.
 
-    Prefers the ``delta_ops_envelope`` (``{schema_version: "2.0.0", ops: [...]}``)
-    over the legacy flat ``delta_ops`` list.  Returns None if the response does
-    not contain a valid ops list.
+    The accepted batch is the sole durable Δ.  Compatibility envelope/flat
+    fields and FieldChange inference are not consulted.
     """
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
     response = _load_turn_response_payload(session_dir=session_dir, turn_id=turn_id)
     if response is None:
         return None
-
-    # Canonical path: delta_ops_envelope with {schema_version, ops}
-    envelope = response.get("delta_ops_envelope")
-    if isinstance(envelope, Mapping):
-        ops = envelope.get("ops")
-        if isinstance(ops, list) and all(isinstance(op, Mapping) for op in ops):
-            # Validate each op through the backend normaliser so that
-            # malformed ops (unknown op kind, missing required fields,
-            # etc.) inside a syntactically-valid envelope are rejected
-            # before downstream accept verification consumes them.
-            try:
-                parse_edit_delta(ops)
-            except ValueError:
-                return None
-            return tuple(dict(op) for op in ops)
-        # Envelope present but ops is malformed — fall through to delta_ops.
-        # We record the shape for diagnostics in _build_v2_accept_evidence.
-
-    # Legacy bridge: flat delta_ops list
-    delta_ops = response.get("delta_ops")
-    if isinstance(delta_ops, list) and all(isinstance(op, Mapping) for op in delta_ops):
-        return tuple(dict(op) for op in delta_ops)
-
-    # Legacy wrapped shape: a dict under delta_ops that is NOT a list
-    # (e.g. {"delta_ops": {...}, "diagnostics": [...]}) — reject.
-    if isinstance(delta_ops, Mapping):
+    ops = _ops_from_accepted_batch(response)
+    if not ops:
         return None
-
-    return _infer_delta_ops_from_legacy_field_changes(response)
+    try:
+        parse_edit_delta(list(ops))
+    except ValueError:
+        return None
+    return ops
 
 
 def _iter_legacy_field_changes(payload: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
@@ -249,60 +230,32 @@ def _load_turn_delta_ops_diagnostic(
             "detail": {},
         }
 
-    envelope = response.get("delta_ops_envelope")
-    if isinstance(envelope, Mapping):
-        ops = envelope.get("ops")
-        if isinstance(ops, list):
-            # Validate each op through the backend normaliser so that
-            # malformed entries (unknown op kind, missing required fields,
-            # etc.) are classified as malformed rather than canonical.
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+    accepted = response.get("accepted_batch")
+    if isinstance(accepted, list):
+        ops = list(_ops_from_accepted_batch(response))
+        if ops:
             try:
                 parse_edit_delta(ops)
             except ValueError:
                 return {
                     "shape": "canonical",
-                    "code": "canonical_envelope_malformed_ops",
+                    "code": "canonical_accepted_batch_malformed_ops",
                     "detail": {
-                        "schema_version": envelope.get("schema_version"),
-                        "reason": "ops list present but entries failed parse_edit_delta validation",
+                        "reason": "accepted_batch ops failed parse_edit_delta validation",
+                        "op_count": len(ops),
                     },
                 }
-            return {
-                "shape": "canonical",
-                "code": "canonical_delta_ops",
-                "detail": {"schema_version": envelope.get("schema_version")},
-            }
         return {
             "shape": "canonical",
-            "code": "canonical_envelope_malformed_ops",
-            "detail": {"ops_type": type(ops).__name__},
-        }
-
-    delta_ops = response.get("delta_ops")
-    if isinstance(delta_ops, list):
-        return {
-            "shape": "legacy_flat",
-            "code": "legacy_delta_ops_flat",
-            "detail": {},
-        }
-    if isinstance(delta_ops, Mapping):
-        legacy_keys = sorted(
-            k for k in delta_ops
-            if k in (
-                "delta", "delta_ops", "diagnostics", "guard_result",
-                "automatic_link_removals", "re_stitches", "normalize",
-                "ops",
-            )
-        )
-        return {
-            "shape": "legacy_wrapped",
-            "code": "legacy_delta_shape",
-            "detail": {"keys": legacy_keys},
+            "code": "canonical_accepted_batch",
+            "detail": {"op_count": len(ops)},
         }
 
     return {
         "shape": "missing",
-        "code": "missing_delta_ops",
+        "code": "missing_accepted_batch",
         "detail": {},
     }
 
@@ -321,7 +274,7 @@ def _build_graph_index(graph: Mapping[str, Any]) -> _GraphIndex:
     nodes_by_uid: dict[str, Mapping[str, Any]] = {}
     nodes_by_id: dict[int | str, Mapping[str, Any]] = {}
     nodes_by_str_id: dict[str, Mapping[str, Any]] = {}
-    for node in graph.get("nodes") if isinstance(graph.get("nodes"), list) else []:
+    for node in door_get_nodes(graph) if isinstance(door_get_nodes(graph), list) else []:
         if not isinstance(node, Mapping):
             continue
         node_id = node.get("id")
@@ -334,7 +287,7 @@ def _build_graph_index(graph: Mapping[str, Any]) -> _GraphIndex:
             if isinstance(uid, str) and uid:
                 nodes_by_uid[uid] = node
     links_by_id: dict[int | str, Any] = {}
-    for link in graph.get("links") if isinstance(graph.get("links"), list) else []:
+    for link in door_get_links(graph) if isinstance(door_get_links(graph), list) else []:
         if isinstance(link, list) and link:
             link_id = link[0]
         elif isinstance(link, Mapping):
@@ -435,7 +388,7 @@ def _descend_field_value(root: Any, segments: list[str]) -> Any:
 
 def _read_widget_value(node: Mapping[str, Any], widget_name: str) -> Any:
     widgets = node.get("widgets")
-    widgets_values = node.get("widgets_values")
+    widgets_values = door_get_widgets_values(node)
     if isinstance(widgets, list) and isinstance(widgets_values, list):
         for index, widget in enumerate(widgets):
             if (
@@ -472,7 +425,7 @@ def _read_field_value_from_node(
         root = _read_named_socket(node.get("widgets"), tail[0]) if tail else node.get("widgets")
         return _descend_field_value(root, tail[1:]) if tail else root
     if head == "widgets_values":
-        return _descend_field_value(node.get("widgets_values"), tail)
+        return _descend_field_value(door_get_widgets_values(node), tail)
     if head == "inputs":
         root = _read_named_socket(node.get("inputs"), tail[0]) if tail else node.get("inputs")
         return _descend_field_value(root, tail[1:]) if tail else root
@@ -571,11 +524,6 @@ def _resolve_candidate_value_for_op(
         if node is None:
             return (_SENTINEL_NODE_ABSENT, None)
         return (_read_field_value_from_node(node, "mode"), None)
-    if op_kind == "reorder":
-        order = op.get("order")
-        if isinstance(order, list):
-            return (tuple(order), None)
-        return (_SENTINEL_NO_VALUE, "Reorder op missing order.")
     if op_kind == "upsert_link":
         source = op.get("from")
         if isinstance(source, list) and len(source) >= 3:
@@ -665,54 +613,6 @@ def _resolve_submit_value_for_set_mode(
     if node is None:
         return (_SENTINEL_NODE_ABSENT, None)
     return (_read_field_value_from_node(node, "mode"), None)
-
-
-def _resolve_submit_value_for_reorder(
-    submit_graph: Mapping[str, Any],
-    op: Mapping[str, Any],
-) -> tuple[Any, str | None]:
-    """Derive expected_old for a ``reorder`` op (current widget/slot order)."""
-    target = op.get("target")
-    uid = _normalize_target_uid(target)
-    if uid is None:
-        return (None, "Invalid target for reorder op")
-    node = _find_node_in_graph(submit_graph, uid)
-    if node is None:
-        return (_SENTINEL_NODE_ABSENT, None)
-    axis = op.get("axis")
-    if axis == "widgets":
-        widgets = node.get("widgets")
-        if isinstance(widgets, list):
-            return (
-                tuple(w.get("name") for w in widgets if isinstance(w, Mapping)),
-                None,
-            )
-        return (_SENTINEL_NO_VALUE, "Could not resolve widget reorder from serialized graph.")
-    if axis == "inputs":
-        inputs = node.get("inputs")
-        if isinstance(inputs, list):
-            return (
-                tuple(
-                    entry.get("name")
-                    for entry in inputs
-                    if isinstance(entry, Mapping) and entry.get("name") is not None
-                ),
-                None,
-            )
-        return (_SENTINEL_NO_VALUE, "Could not resolve input reorder from serialized graph.")
-    if axis == "outputs":
-        outputs = node.get("outputs")
-        if isinstance(outputs, list):
-            return (
-                tuple(
-                    entry.get("name")
-                    for entry in outputs
-                    if isinstance(entry, Mapping) and entry.get("name") is not None
-                ),
-                None,
-            )
-        return (_SENTINEL_NO_VALUE, "Could not resolve output reorder from serialized graph.")
-    return (_SENTINEL_NO_VALUE, f"Unsupported reorder axis: {axis!r}")
 
 
 def _resolve_submit_value_for_upsert_link(
@@ -863,8 +763,6 @@ def _resolve_submit_value_for_op(
         return _resolve_submit_value_for_set_node_field(submit_graph, op)
     if op_kind == "set_mode":
         return _resolve_submit_value_for_set_mode(submit_graph, op)
-    if op_kind == "reorder":
-        return _resolve_submit_value_for_reorder(submit_graph, op)
     if op_kind == "upsert_link":
         return _resolve_submit_value_for_upsert_link(submit_graph, op)
     if op_kind == "remove_link":
@@ -1029,9 +927,6 @@ def _scoped_issue_field_path(op: Mapping[str, Any]) -> str | None:
         return None
     if op_kind == "set_mode":
         return "mode"
-    if op_kind == "reorder":
-        axis = op.get("axis")
-        return str(axis) if isinstance(axis, str) and axis else None
     return None
 
 
@@ -1113,8 +1008,8 @@ def _build_v2_accept_evidence(
     Returns a dict with keys:
       * ``submit_graph`` -- the submit-time graph loaded from ``request.json``
       * ``candidate_graph`` -- the candidate graph loaded from ``response.json``
-      * ``delta_ops`` -- authoritative mutation-intent list from the canonical
-        envelope (preferred) or legacy flat bridge
+      * ``delta_ops`` -- authoritative mutation-intent list derived from
+        ``accepted_batch[*].op`` (legacy envelope/flat are archived-turn only)
       * ``delta_shape_diagnostic`` -- classification of the delta payload shape
       * ``submit_graph_hash`` -- hash of the loaded submit graph
       * ``candidate_graph_hash`` -- from the turn record
@@ -1164,15 +1059,17 @@ def _build_v2_accept_evidence(
     if delta_ops is not None:
         evidence["delta_ops"] = delta_ops
         # Optional: surface legacy flat bridge use as an info diagnostic.
-        if shape_diag.get("code") == "legacy_delta_ops_flat":
+        if shape_diag.get("code") in {
+            "legacy_delta_ops_flat",
+            "legacy_delta_ops_envelope",
+        }:
             evidence["diagnostics"].append(
                 {
                     "code": "legacy_delta_shape",
                     "severity": "info",
                     "message": (
-                        "Delta loaded from legacy flat delta_ops list; "
-                        "canonical consumers should migrate to "
-                        "delta_ops_envelope."
+                        "Delta loaded from a legacy envelope/flat payload; "
+                        "canonical consumers should persist accepted_batch."
                     ),
                     "detail": shape_diag.get("detail", {}),
                 }
@@ -1183,22 +1080,25 @@ def _build_v2_accept_evidence(
         diag_message: str
         if diag_code == "legacy_delta_shape":
             diag_message = (
-                "Persisted delta uses a legacy wrapped shape that is not a "
-                "canonical V2 envelope; re-persist the turn with a canonical "
-                "delta_ops_envelope."
+                "Persisted delta uses a legacy wrapped shape; re-persist the "
+                "turn with accepted_batch as the sole durable Δ."
             )
             evidence["delta_ops"] = ()
-        elif diag_code == "canonical_envelope_malformed_ops":
+        elif diag_code == "canonical_accepted_batch_malformed_ops":
             diag_code = "malformed_delta"
             diag_message = (
-                "Canonical delta_ops_envelope is present but its `ops` field "
-                "is malformed."
+                "accepted_batch is present but its statement ops are malformed."
+            )
+        elif diag_code == "legacy_delta_ops_envelope":
+            diag_message = (
+                "Persisted delta uses a legacy envelope; re-persist the turn "
+                "with accepted_batch."
             )
         elif diag_code == "missing_turn_response":
             diag_message = "Could not load the persisted turn response."
         else:
             diag_message = (
-                "Could not load delta_ops from persisted turn response."
+                "Could not load accepted_batch ops from persisted turn response."
             )
         evidence["diagnostics"].append(
             {
@@ -1315,7 +1215,6 @@ __all__ = (
     "_resolve_candidate_value_for_op",
     "_resolve_submit_value_for_set_node_field",
     "_resolve_submit_value_for_set_mode",
-    "_resolve_submit_value_for_reorder",
     "_resolve_submit_value_for_upsert_link",
     "_resolve_submit_value_for_remove_link",
     "_resolve_submit_value_for_add_node",

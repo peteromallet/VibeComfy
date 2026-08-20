@@ -10,15 +10,15 @@ The `agent_edit_protocol` field on each turn record cleanly branches accept
 behavior:
 
 - **`v2_delta`** (V2): Accept uses **scoped delta-region validation**. Only the
-  nodes, fields, and links referenced by `delta_ops` are compared between the
-  submit-time graph and the live accept graph. Unrelated graph drift (e.g. a
+  nodes, fields, and links referenced by `accepted_batch` are compared between
+  the submit-time graph and the live accept graph. Unrelated graph drift (e.g. a
   node added elsewhere on the canvas) does not block accept. Whole-graph
   structural CAS is computed as a diagnostic only and never gates V2 accept.
 - **Legacy / absent** (V1): Accept uses the existing **whole-graph structural
   CAS** and submit-hash checks. These gates are preserved unchanged.
 
-V1 candidates lack `delta_ops` and cannot be scoped; preserving their existing
-gates avoids risk to legacy workflows.
+V1 candidates lack `accepted_batch` and cannot be scoped; preserving their
+existing gates avoids risk to legacy workflows.
 
 ### 1.1 Baseline authority
 
@@ -60,29 +60,29 @@ delta-region validation** instead of whole-graph structural CAS equality.
 #### Touched region
 
 The **touched region** is the set of nodes, fields, modes, link endpoints, and
-ordering positions referenced by `delta_ops`. For each op, the backend resolves:
+ordering positions referenced by `accepted_batch`. For each op, the backend resolves:
 
 - `expected_old`: the value at that location in the **submit-time graph**
   (loaded from persisted `request.json`).
 - `actual_before`: the value at that location in the **live graph** (the
   `live_graph` field sent with the accept request).
-- `desired_new`: the mutation target value (from `delta_ops` or the candidate
-  graph for add-node / link ops).
+- `desired_new`: the mutation target value (from `accepted_batch` or the
+  candidate graph for add-node / link ops).
 
 Only mismatches within the touched region cause accept rejection. Unrelated
 nodes, fields, or links that changed elsewhere on the canvas are ignored.
 
 #### Scoped validation plan (`_build_scoped_validation_plan`)
 
-Each `delta_op` produces one validation entry:
+Each `accepted_batch` op produces one validation entry:
 
 | Field | Source | Description |
 |---|---|---|
-| `op` | `delta_op.op` | The op kind (`set_node_field`, `set_mode`, `reorder`, `upsert_link`, `remove_link`, `add_node`, `remove_node`). |
-| `target` | `delta_op.target` or `delta_op.to` | Graph location path (e.g. `["nodes", "abc123", "widgets_values", 0]`). |
+| `op` | `accepted_batch[].op` | The op kind (`set_node_field`, `set_mode`, `upsert_link`, `remove_link`, `add_node`, `remove_node`, `subgraph_interface`). |
+| `target` | op target | Graph location path (e.g. `["nodes", "abc123", "widgets_values", 0]`). |
 | `expected_old` | submit graph | Value resolved from the submit-time graph. |
 | `actual_before` | live graph | Value resolved from the live graph sent with accept. |
-| `desired_new` | candidate graph / delta_op | The mutation target value. |
+| `desired_new` | candidate graph / accepted_batch op | The mutation target value. |
 | `status` | computed | One of `ok`, `conflict`, `noop`, `already_applied`, `already_absent`, `unscopable`. |
 | `error` | string or null | Diagnostic message when status is `unscopable`. |
 
@@ -100,7 +100,7 @@ the turn because the desired state is already present on the canvas.
 #### Evidence loading fail-closed
 
 If the backend cannot load required V2 evidence (missing `submit_graph` from
-`request.json`, missing `delta_ops` from `response.json`), accept **fails
+`request.json`, missing `accepted_batch` from `response.json`), accept **fails
 closed** with `MISSING_REQUIRED_FIELD` / `evidence_loading_failure` diagnostics
 and a `rebaseline_recovery` payload scoped to the turn.
 
@@ -131,7 +131,7 @@ When scoped validation finds conflicts, the backend returns a
 
 - V1 structural CAS and submit-hash checks remain blocking for non-v2_delta
   turns. No V1 gate was weakened.
-- V1 candidates (lacking `delta_ops`) cannot reach the V2 scoped path.
+- V1 candidates (lacking `accepted_batch`) cannot reach the V2 scoped path.
 - `client_live_canvas_token` remains browser-local race diagnostic only.
 
 Rebaseline reasons are declared in [session.py](../../vibecomfy/comfy_nodes/agent/session.py):

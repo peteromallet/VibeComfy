@@ -8,6 +8,8 @@ Judge ONLY against the structured evidence in the payload:
 - node_inventory (ids and class types present in that workflow)
 - required_node_evidence (nodes the scenario author identified as relevant)
 - expected_criteria and fail_conditions from the rubric
+- `mode_labels` (authoritative ComfyUI node mode integers: 0=enabled, 2=muted,
+  4=bypassed). mode=4 is bypassed, never "Never" or any other folklore label.
 
 Do not treat the answer text as evidence of its own correctness. Do not accept
 an answer because it sounds confident, lists node names without causal content,
@@ -41,3 +43,6 @@ Respond with a JSON object and nothing else:
 
 `pass_` must be true if and only if all three criteria are true.
 Do not add any text before or after the JSON object.
+Emit exactly one JSON object — no trailing text, no second object, and
+nothing after the closing brace.  Extra data after the first object makes
+the response unparsable and forces the caller to retry.

@@ -91,7 +91,63 @@ def test_final_summary_replaces_partial_summary(tmp_path: Path) -> None:
     assert not (tmp_path / "tag" / "run_summary.partial.json").exists()
 
 
-def test_runner_does_not_retry_outer_timeout(
+def test_runner_persists_dispatch_liveness_before_child_returns(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """A dispatched child is visible before its potentially long work ends."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "slow-start.json"
+    scenario_path.write_text(
+        json.dumps({"id": "slow-start", "query": "do it"}),
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        attempt_dir = (
+            tmp_path
+            / "out"
+            / "tag"
+            / "attempts"
+            / "slow-start"
+            / "attempt_1"
+            / "slow-start"
+        )
+        assert attempt_dir.is_dir()
+        partial_path = tmp_path / "out" / "tag" / "run_summary.partial.json"
+        partial = json.loads(partial_path.read_text(encoding="utf-8"))
+        assert partial["completed"] == 0
+        assert partial["pending"] == 1
+
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        attempt_tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / attempt_tag, "slow-start", ok=True)
+        payload["output_dir"] = str(attempt_dir)
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return (0, "", "")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner._run_scenario_subprocess",
+        fake_run,
+    )
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        infra_retries=0,
+        progress_every=0,
+    )
+
+    assert summary["passed"] == 1
+    assert (tmp_path / "out" / "tag" / "run_summary.json").is_file()
+    assert not (tmp_path / "out" / "tag" / "run_summary.partial.json").exists()
+
+
+def test_runner_retries_outer_timeout_with_empty_attempts_once(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
@@ -106,6 +162,7 @@ def test_runner_does_not_retry_outer_timeout(
         nonlocal calls
         calls += 1
         if calls == 1:
+            kwargs["before_terminate"]()
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
         out_file = Path(cmd[cmd.index("--single-out") + 1])
         tag = cmd[cmd.index("--tag") + 1]
@@ -129,18 +186,35 @@ def test_runner_does_not_retry_outer_timeout(
     )
 
     scenario = summary["scenarios"][0]
-    assert calls == 1
-    assert summary["passed"] == 0
+    assert calls == 2
+    assert summary["passed"] == 1
     assert summary["raw_first_attempt_passed"] == 0
-    assert scenario["attempt_count"] == 1
+    assert scenario["attempt_count"] == 2
     assert scenario["attempts"][0]["failure_class"] == "infra_timeout"
     assert scenario["attempts"][0]["score_class"] == "infra_blocked"
-    assert scenario["attempts"][0]["retryable_infra"] is False
+    assert scenario["attempts"][0]["retryable_infra"] is True
     assert scenario["attempts"][0]["agent_exercised"] is False
+    assert scenario["attempts"][0]["model_attempts"] == []
+    assert scenario["attempts"][0]["killed_before_first_attempt"] is True
     assert scenario["attempts"][0]["elapsed_s"] is not None
+    assert scenario["final_attempt"] == 2
     assert (
         tmp_path / "out" / "tag" / "retry-me" / "agentic_summary.json"
     ).exists()
+    partial = json.loads(
+        (
+            tmp_path
+            / "out"
+            / "tag"
+            / "attempts"
+            / "retry-me"
+            / "attempt_1"
+            / "retry-me"
+            / "agentic_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert partial["killed_before_first_attempt"] is True
+    assert partial["model_attempts"] == []
 
 
 def test_runner_types_provider_capacity_without_retry(
@@ -504,6 +578,15 @@ def test_retryability_is_derived_from_canonical_typed_evidence() -> None:
     assert summary["retryable_infra"] is True
 
 
+def test_outer_timeout_marker_requires_empty_model_attempts() -> None:
+    summary = _summary(Path("/tmp"), "outer-timeout", ok=False)
+    summary["failure_class"] = "infra_timeout"
+    summary["killed_before_first_attempt"] = True
+    summary["model_attempts"] = [_failed_attempt("malformed_json")]
+
+    assert _is_retryable_infra_summary(summary) is False
+
+
 @pytest.fixture
 def leaky_canonical_attempt() -> dict:
     """Canonical failed attempt whose preview embeds oracle finding 5 JSON secrets.
@@ -801,7 +884,10 @@ def test_run_single_forwards_transport_selector_to_adapter(
     monkeypatch.setattr(
         "tests.live_agentic_harness.adapter.run_headless_scenario", fake_headless
     )
-    monkeypatch.setattr("tests.live_agentic_harness.guard.guard_output_dir", fake_guard)
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner._guard_scenario_output",
+        fake_guard,
+    )
 
     summary = run_single(
         str(scenario_path), "tag", tmp_path / "out", None, transport="openrouter"
@@ -809,3 +895,273 @@ def test_run_single_forwards_transport_selector_to_adapter(
 
     assert calls["transport"] == "openrouter"
     assert summary["transport"] == "openrouter"
+
+
+# ── I-B: pre-first-attempt research-hang kills ──────────────────────────────
+
+
+def test_failure_summary_persists_pre_attempt_reason(tmp_path: Path) -> None:
+    from tests.live_agentic_harness.runner import _failure_summary
+
+    summary = _failure_summary(
+        "research-hang",
+        tmp_path / "out",
+        "tag",
+        "scenario exceeded 1200s and was killed",
+        failure_class="infra_timeout",
+        killed_before_first_attempt=True,
+        pre_attempt_reason="research_hang",
+    )
+
+    assert summary["killed_before_first_attempt"] is True
+    assert summary["pre_attempt_reason"] == "research_hang"
+    assert summary["model_attempts"] == []
+    assert summary["failure_class"] == "infra_timeout"
+
+
+def test_infer_pre_attempt_reason_classifies_research_hang_only() -> None:
+    from tests.live_agentic_harness.runner import _infer_pre_attempt_reason
+
+    assert (
+        _infer_pre_attempt_reason(
+            "[INFO] HTTP Request: GET https://api.github.com/search/code"
+            "?q=GroundingDinoModelLoader ComfyUI ... 422 Unprocessable Entity"
+        )
+        == "research_hang"
+    )
+    assert (
+        _infer_pre_attempt_reason(
+            "registry sub-budget exceeded during GitHub lookup; partial evidence."
+        )
+        == "research_hang"
+    )
+    assert _infer_pre_attempt_reason("hivemind_query_degraded_after_57014") == "research_hang"
+    # Implement-stage silence (v5-batch-3 #2/#6) is NOT a research hang: the
+    # retry keeps its plain full-budget shape.
+    assert _infer_pre_attempt_reason("profiler worker_profile backend_phase=batch") is None
+    assert (
+        _infer_pre_attempt_reason(
+            "old: GET https://api.github.com/search/code?q=StaleNode ComfyUI\n"
+            "current: profiler worker_profile backend_phase=batch"
+        )
+        is None
+    )
+    assert _infer_pre_attempt_reason(None) is None
+    assert _infer_pre_attempt_reason("") is None
+
+
+def test_runner_marks_research_hang_kill_and_bounds_retry_research(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """A zero-attempt outer kill whose stderr shows the GitHub code-search path
+    is typed ``pre_attempt_reason=research_hang`` AND the retry child gets a
+    hard-bounded research env (GitHub tier skipped, tiny registry sub-budget)
+    so the retry is not a second 1200s black hole."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "research-hang.json"
+    scenario_path.write_text(
+        json.dumps({"id": "research-hang", "query": "do it"}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("VIBECOMFY_REGISTRY_SKIP_GITHUB", raising=False)
+    monkeypatch.delenv("VIBECOMFY_REGISTRY_SUB_BUDGET", raising=False)
+    monkeypatch.delenv("VIBECOMFY_RESEARCH_HANG_RETRY_SKIP", raising=False)
+
+    calls = 0
+    child_envs: list[dict] = []
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        nonlocal calls
+        calls += 1
+        child_envs.append(dict(kwargs.get("env") or {}))
+        if calls == 1:
+            kwargs["before_terminate"]()
+            raise subprocess.TimeoutExpired(
+                cmd=cmd,
+                timeout=kwargs.get("timeout"),
+                output=b"",
+                stderr=(
+                    b"[INFO] HTTP Request: GET https://api.github.com/search/code"
+                    b"?q=GroundingDinoModelLoader ComfyUI ... 422 Unprocessable Entity\n"
+                ),
+            )
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "research-hang", ok=True)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "research-hang")
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return (0, "", "")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=1,
+        progress_every=0,
+    )
+
+    scenario = summary["scenarios"][0]
+    assert calls == 2  # retry-once preserved
+    assert summary["passed"] == 1
+    first = scenario["attempts"][0]
+    assert first["killed_before_first_attempt"] is True
+    assert first["model_attempts"] == []
+    assert first["pre_attempt_reason"] == "research_hang"
+    # The retry child's research path is hard-bounded; the first attempt is not.
+    assert "VIBECOMFY_REGISTRY_SKIP_GITHUB" not in child_envs[0]
+    assert "VIBECOMFY_REGISTRY_SUB_BUDGET" not in child_envs[0]
+    assert child_envs[1]["VIBECOMFY_REGISTRY_SKIP_GITHUB"] == "1"
+    assert child_envs[1]["VIBECOMFY_REGISTRY_SUB_BUDGET"] == "8"
+    assert child_envs[1]["VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"] == "1"
+
+
+def test_runner_retry_without_research_hang_reason_keeps_full_budget(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """A zero-attempt outer kill WITHOUT research markers (implement-stage
+    silence) still retries once, but the retry child keeps the plain full
+    research budget — only a research-hang reason bounds the retry."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "implement-kill.json"
+    scenario_path.write_text(
+        json.dumps({"id": "implement-kill", "query": "do it"}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("VIBECOMFY_REGISTRY_SKIP_GITHUB", raising=False)
+    monkeypatch.delenv("VIBECOMFY_REGISTRY_SUB_BUDGET", raising=False)
+    monkeypatch.delenv("VIBECOMFY_RESEARCH_HANG_RETRY_SKIP", raising=False)
+
+    calls = 0
+    child_envs: list[dict] = []
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        nonlocal calls
+        calls += 1
+        child_envs.append(dict(kwargs.get("env") or {}))
+        if calls == 1:
+            kwargs["before_terminate"]()
+            raise subprocess.TimeoutExpired(
+                cmd=cmd,
+                timeout=kwargs.get("timeout"),
+                output=b"",
+                stderr=(
+                    b"old: GET https://api.github.com/search/code?q=StaleNode ComfyUI\n"
+                    b"current: profiler worker_profile backend_phase=batch"
+                ),
+            )
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "implement-kill", ok=True)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "implement-kill")
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return (0, "", "")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=1,
+        progress_every=0,
+    )
+
+    scenario = summary["scenarios"][0]
+    assert calls == 2
+    first = scenario["attempts"][0]
+    assert first["killed_before_first_attempt"] is True
+    assert first["pre_attempt_reason"] is None
+    assert "VIBECOMFY_REGISTRY_SKIP_GITHUB" not in child_envs[1]
+    assert "VIBECOMFY_REGISTRY_SUB_BUDGET" not in child_envs[1]
+    assert "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP" not in child_envs[1]
+
+
+def test_outer_timeout_marker_persists_pre_attempt_reason_when_stderr_available(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """The persisted outer-timeout marker (written before the group is killed)
+    carries a pre_attempt_reason inferred from whatever stderr was flushed."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "marker-reason.json"
+    scenario_path.write_text(
+        json.dumps({"id": "marker-reason", "query": "do it"}),
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        # No stderr file exists (the fake never wrote one): the marker's
+        # best-effort read degrades to an empty tail and reason stays None.
+        kwargs["before_terminate"]()
+        raise subprocess.TimeoutExpired(
+            cmd=cmd,
+            timeout=kwargs.get("timeout"),
+            output=b"",
+            stderr=b"",
+        )
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=1,
+        progress_every=0,
+    )
+
+    scenario = summary["scenarios"][0]
+    assert scenario["attempts"][0]["killed_before_first_attempt"] is True
+    # No stderr content reached the marker: reason stays None (never invented).
+    assert scenario["attempts"][0]["pre_attempt_reason"] is None
+def test_live_scenario_assessment_wires_expect_graph_changed_into_request(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Harness assessment metadata must reach the real headless contract."""
+    from types import SimpleNamespace
+
+    from tests.live_agentic_harness.adapter import run_headless_scenario
+
+    seen: dict[str, object] = {}
+
+    def fake_run_headless(request, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["headless"] = request.expect_graph_changed
+        seen["executor"] = request.to_executor_request().expect_graph_changed
+        return SimpleNamespace(
+            status="ok",
+            ok=True,
+            output_dir=tmp_path,
+            readiness={"ready": True},
+            error=None,
+            response={},
+        )
+
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    monkeypatch.setattr("vibecomfy.agent.service.run_headless", fake_run_headless)
+    summary = run_headless_scenario(
+        {
+            "id": "expected-edit",
+            "query": "change the sampler",
+            "assessment": {"expect_graph_changed": True},
+        },
+        output_base=tmp_path,
+    )
+
+    assert summary["ok"] is True
+    assert seen == {"headless": True, "executor": True}

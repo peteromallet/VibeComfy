@@ -1,0 +1,41 @@
+{
+  "id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
+  "query": "Restructure the pipeline to first generate a base image with Flux, then use the inpainted region as a condition for ControlNet-driven style transfer to the entire image, effectively merging the two branches.",
+  "workflow_path": "external_workflows/corpus/00444a9409f56c07.json",
+  "network": true,
+  "timeout": 260,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "A unified workflow where the base Flux generation is followed by inpainting, then the inpainted region is used as a conditioning input to ControlNet style transfer applied to the full image, yielding a coherent stylized composite.",
+    "quality": "All original modules (inpainting, compositing, style transfer, ControlNet) are retained and rewired logically; no dangling connections; preview outputs are preserved; the original compositing or masking stages are either integrated or replaced cleanly to achieve the merged pipeline.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "controlnet",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "flux",
+      "inpainting",
+      "compositing",
+      "controlnet",
+      "depth-anything",
+      "canny-edge",
+      "style-transfer",
+      "image-masking",
+      "lora"
+    ],
+    "source_workflow_id": "00444a9409f56c07",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This query forces the agent to deeply understand both the inpainting/compositing and ControlNet/style-transfer paths and redesign their interaction, which is the most agentic and specific structural change possible for this workflow."
+  }
+}

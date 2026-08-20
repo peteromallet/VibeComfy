@@ -219,12 +219,11 @@ def test_provenance_for_path_never_returns_agent_generated():
 
 
 def test_provenance_for_path_returns_only_valid_provenance(tmp_path, monkeypatch):
-    """Every return from _provenance_for_path must be in the Provenance literal,
+    """Every return from _provenance_for_path must be in the Provenance enum,
     but must never be agent_generated."""
     from vibecomfy.security.provenance import Provenance
-    from typing import get_args
 
-    valid = frozenset(get_args(Provenance))
+    valid = frozenset(Provenance)
     monkeypatch.setattr(lp, "find_repo_root", lambda: tmp_path)
 
     # trusted path

@@ -17,6 +17,7 @@ import time
 from typing import Any, Mapping
 
 
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 def load_agent_generated_scratchpad(path: Any) -> Any:
     """T-039 required_post_split surface: top-level edit-module attr.
 
@@ -175,308 +176,6 @@ def _ensure_canonical_delta_ops(
     return envelope.ops
 
 
-def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageResult:
-    from vibecomfy.comfy_nodes.agent.edit import (FailureKind, StageResult, _canonical_delta_ops_envelope_payload, _duration_ms, _edit_lint_enabled, _ensure_canonical_delta_ops, _json_safe, _port_issue_to_dict, write_json_artifact)  # T-039 late import: host namespace lookup; resolved at call time
-    from vibecomfy.porting.edit.apply import apply_delta
-    from vibecomfy.porting.edit.apply import (
-        AppliedAddNodeSpec,
-        ResolvedFieldRef,
-        ResolvedRemoveNodePlan,
-    )
-    from vibecomfy.porting.edit.ops import EditOpParseError
-
-    def _build_delta_audit(result: Any) -> dict[str, Any]:
-        automatic_link_removals: list[dict[str, Any]] = []
-        re_stitches: list[dict[str, Any]] = []
-        for op, resolved_op in result.resolved_ops:
-            if isinstance(resolved_op, ResolvedFieldRef) and resolved_op.automatic_link_removal is not None:
-                automatic_link_removals.append(
-                    {
-                        "scope_path": resolved_op.target.scope_path,
-                        "uid": resolved_op.target.uid,
-                        "field_path": resolved_op.target.field_path,
-                        "link_id": resolved_op.automatic_link_removal,
-                    }
-                )
-            elif isinstance(resolved_op, ResolvedRemoveNodePlan) and resolved_op.link_rewires:
-                re_stitches.append(
-                    {
-                        "scope_path": resolved_op.node_ref.target.scope_path,
-                        "uid": resolved_op.node_ref.target.uid,
-                        "class_type": resolved_op.node_ref.class_type,
-                        "link_rewrites": [
-                            {
-                                "scope_path": rewire.scope_path,
-                                "link_id": rewire.link_id,
-                                "old_origin_id": rewire.old_origin_id,
-                                "new_origin_id": rewire.new_origin_id,
-                                "new_origin_slot": rewire.new_origin_slot,
-                            }
-                            for rewire in resolved_op.link_rewires
-                        ],
-                    }
-                )
-            elif isinstance(resolved_op, AppliedAddNodeSpec):
-                continue
-        guard = result.guard_result
-        guard_payload = {
-            "ok": bool(guard.ok) if guard is not None else True,
-            "diagnostics": [
-                _port_issue_to_dict(issue) for issue in (guard.diagnostics if guard is not None else ())
-            ],
-        }
-        normalize_payload = {
-            "fallback_used": bool(getattr(guard, "normalize_fallback_used", False)),
-            "allow_list_used": bool(getattr(guard, "normalize_allow_list_used", False)),
-        }
-        return {
-            "diagnostics": [_port_issue_to_dict(issue) for issue in result.diagnostics],
-            "automatic_link_removals": automatic_link_removals,
-            "re_stitches": re_stitches,
-            "guard_result": guard_payload,
-            "normalize": normalize_payload,
-        }
-
-    start = time.monotonic()
-    state.delta_audit = None
-
-    try:
-        state.delta_ops = _ensure_canonical_delta_ops(state.delta_ops)
-    except EditOpParseError as exc:
-        issue = {
-            "code": exc.code,
-            "message": str(exc),
-            "severity": "error",
-        }
-        if isinstance(exc.detail, Mapping) and exc.detail:
-            issue["detail"] = _json_safe(dict(exc.detail))
-        state.delta_diagnostics = [dict(issue)]
-        return StageResult(
-            stage="apply_delta",
-            ok=False,
-            blocking=True,
-            duration_ms=_duration_ms(start),
-            issues=(issue,),
-            value={
-                "failure_kind": FailureKind.VALIDATION_ERROR.value,
-                "mutation_started": 0,
-                "op_count": len(state.delta_ops),
-            },
-        )
-
-    # ── lint gate (VIBECOMFY_AGENT_EDIT_LINT defaults ON) ──────────────────
-    original_ui = state.guard_original_ui or state.graph
-    if _edit_lint_enabled() and state.delta_ops:
-        from vibecomfy.porting.edit.lint import LintIndex, lint_delta
-
-        index = LintIndex.build(original_ui)
-        lint_result = lint_delta(
-            state.delta_ops,
-            index,
-            schema_provider=state.schema_provider,
-        )
-
-        def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
-            return {
-                "code": issue.code,
-                "message": issue.message,
-                "severity": issue.severity,
-                "op_index": getattr(issue, "op_index", None),
-                "op_kind": getattr(issue, "op_kind", None),
-            }
-
-        lint_issue_dicts = tuple(
-            _lint_issue_to_dict(issue) for issue in lint_result.issues
-        )
-
-        # Rejected ops → fail before mutation
-        if lint_result.rejected_count > 0:
-            error_issues = tuple(
-                i for i in lint_issue_dicts if i.get("severity") == "error"
-            )
-            return StageResult(
-                stage="apply_delta",
-                ok=False,
-                blocking=True,
-                duration_ms=_duration_ms(start),
-                issues=error_issues or lint_issue_dicts,
-                value={
-                    "failure_kind": FailureKind.VALIDATION_ERROR.value,
-                    "mutation_started": 0,
-                    "op_count": len(state.delta_ops),
-                    "lint_rejected": lint_result.rejected_count,
-                    "lint_dropped": lint_result.dropped_count,
-                },
-            )
-
-        # All ops dropped as no-ops → clean no-op turn
-        if lint_result.passed_count == 0:
-            state.delta_ops = lint_result.surviving
-            state.ui_payload = original_ui
-            state.delta_diagnostics = [
-                dict(d) for d in lint_issue_dicts
-            ]
-            delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
-            state.delta_audit = {
-                "diagnostics": [dict(d) for d in lint_issue_dicts],
-                "automatic_link_removals": [],
-                "re_stitches": [],
-                "guard_result": {"ok": True, "diagnostics": []},
-                "normalize": {"fallback_used": False, "allow_list_used": False},
-            }
-            # Collect human-readable no-op messages for user-facing display
-            _noop_msgs: list[str] = []
-            for norm in lint_result.normalizations:
-                if norm.disposition == "dropped_noop" and norm.issue is not None:
-                    _noop_msgs.append(norm.issue.message)
-            state.lint_noop_messages = tuple(_noop_msgs)
-            state.report = {
-                "change": {
-                    "mode": "agent_edit_v2_delta",
-                    "op_count": len(state.delta_ops),
-                    "delta_ops_envelope": delta_envelope,
-                    "ops": list(delta_envelope["ops"]),
-                    "mutation_started": 0,
-                    "lint_noop": True,
-                },
-                "recovery": [],
-                "felt": {},
-                "diagnostics": lint_issue_dicts,
-            }
-            return StageResult(
-                stage="apply_delta",
-                ok=True,
-                blocking=False,
-                duration_ms=_duration_ms(start),
-                issues=lint_issue_dicts,
-                value={
-                    "mode": "agent_edit_v2_delta",
-                    "op_count": 0,
-                    "mutation_started": 0,
-                    "lint_noop": True,
-                    "lint_dropped": lint_result.dropped_count,
-                },
-                gate_updates={
-                    "python_load_ok": True,
-                    "lower_ok": True,
-                    "ir_validate_ok": True,
-                    "ui_emit_ok": True,
-                    "ui_fidelity_ok": True,
-                    "ui_load_safe_ok": True,
-                },
-            )
-
-        # Surviving ops proceed to apply
-        state.delta_ops = lint_result.surviving
-        state.delta_lint = {
-            "issues": [dict(d) for d in lint_issue_dicts],
-            "dropped": lint_result.dropped_count,
-            "rejected": lint_result.rejected_count,
-            "passed": lint_result.passed_count,
-        }
-
-    result = apply_delta(
-        original_ui,
-        state.delta_ops,
-        schema_provider=state.schema_provider,
-    )
-    state.emit_guard_resolved_ops = result.resolved_ops
-    issues = tuple(_port_issue_to_dict(issue) for issue in result.diagnostics)
-    if not result.ok or result.candidate is None:
-        return StageResult(
-            stage="apply_delta",
-            ok=False,
-            blocking=True,
-            duration_ms=_duration_ms(start),
-            issues=issues,
-            value={
-                "failure_kind": FailureKind.VALIDATION_ERROR.value,
-                "mutation_started": result.mutation_started,
-                "op_count": len(state.delta_ops),
-            },
-        )
-
-    state.ui_payload = result.candidate
-    candidate_ui_ref = write_json_artifact(state.candidate_ui_path, state.ui_payload)
-
-    # Populate add_node ops with assigned uid/node_id from the resolved ops.
-    from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp
-    from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec as _AppliedAddNodeSpec
-
-    _updated_ops: list[Any] = []
-    _uid_node_id_by_index: dict[int, tuple[str, str]] = {}
-    for _idx, (_op, _resolved) in enumerate(result.resolved_ops):
-        if isinstance(_op, _AddNodeOp) and isinstance(_resolved, _AppliedAddNodeSpec):
-            _uid_node_id_by_index[_idx] = (_resolved.uid, str(_resolved.node_id))
-    _add_node_idx = 0
-    for _op in state.delta_ops:
-        if isinstance(_op, _AddNodeOp):
-            _uid, _nid = _uid_node_id_by_index.get(_add_node_idx, (None, None))
-            if _uid is not None and _nid is not None:
-                _op = _AddNodeOp(
-                    op=_op.op,
-                    scope_path=_op.scope_path,
-                    class_type=_op.class_type,
-                    fields=dict(_op.fields),
-                    inputs=dict(_op.inputs),
-                    anchor=_op.anchor,
-                    uid=_uid,
-                    node_id=_nid,
-                )
-            _add_node_idx += 1
-        _updated_ops.append(_op)
-    state.delta_ops = tuple(_updated_ops)
-
-    delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
-    ops = list(delta_envelope["ops"])
-    state.delta_diagnostics = [_port_issue_to_dict(issue) for issue in result.diagnostics]
-    state.guard_result = {
-        "ok": bool(result.guard_result.ok) if result.guard_result is not None else True,
-        "diagnostics": [
-            _port_issue_to_dict(issue)
-            for issue in (result.guard_result.diagnostics if result.guard_result is not None else ())
-        ],
-        "normalize": {
-            "fallback_used": bool(getattr(result.guard_result, "normalize_fallback_used", False)),
-            "allow_list_used": bool(getattr(result.guard_result, "normalize_allow_list_used", False)),
-        },
-    }
-    state.delta_audit = _build_delta_audit(result)
-    state.report = {
-        "change": {
-            "mode": "agent_edit_v2_delta",
-            "op_count": len(ops),
-            "delta_ops_envelope": delta_envelope,
-            "ops": ops,
-            "mutation_started": result.mutation_started,
-        },
-        "recovery": [],
-        "felt": {},
-        "diagnostics": [issue for issue in issues if issue.get("severity") != "info"],
-    }
-    return StageResult(
-        stage="apply_delta",
-        ok=True,
-        blocking=False,
-        duration_ms=_duration_ms(start),
-        artifacts=(candidate_ui_ref,),
-        issues=issues,
-        value={
-            "mode": "agent_edit_v2_delta",
-            "op_count": len(ops),
-            "mutation_started": result.mutation_started,
-        },
-        gate_updates={
-            "python_load_ok": True,
-            "lower_ok": True,
-            "ir_validate_ok": True,
-            "ui_emit_ok": True,
-            "ui_fidelity_ok": True,
-            "ui_load_safe_ok": True,
-        },
-    )
-
-
 def _stage_summarize(state: AgentEditState, context: TurnContext) -> StageResult:
     from vibecomfy.comfy_nodes.agent.edit import (StageResult, _artifact, _duration_ms, _queue_recovery_report_for_candidate, _record, derive_gates, queue_stage_result)  # T-039 late import: host namespace lookup; resolved at call time
     start = time.monotonic()
@@ -543,7 +242,7 @@ def _recovery_report_from_ui_payload(
     recovery: list[dict[str, Any]] = []
     if ui_payload is None or schema_provider is None:
         return recovery
-    nodes = ui_payload.get("nodes")
+    nodes = door_get_nodes(ui_payload)
     if not isinstance(nodes, list):
         return recovery
     get_schema = getattr(schema_provider, "get_schema", None)
@@ -566,7 +265,7 @@ def _recovery_report_from_ui_payload(
         def _output_signature(item: Any) -> tuple[Any, ...] | None:
             if not isinstance(item, Mapping):
                 return None
-            links = item.get("links")
+            links = door_get_links(item)
             if isinstance(links, list):
                 links_sig: Any = tuple(links)
             else:
@@ -597,16 +296,77 @@ def _recovery_report_from_ui_payload(
             ),
         )
 
-    def _node_input_shape_signature(node: Mapping[str, Any]) -> tuple[Any, ...]:
-        inputs = node.get("inputs")
-        if not isinstance(inputs, list):
-            return ()
-        signature: list[tuple[Any, ...]] = []
-        for item in inputs:
-            if not isinstance(item, Mapping):
+    def _linked_input_signature(
+        node: Mapping[str, Any],
+        *,
+        links_by_id: Mapping[Any, Any],
+        nodes_by_id: Mapping[str, Mapping[str, Any]],
+    ) -> tuple[tuple[Any, str], ...]:
+        """Return linked input names and their stable destination node uids."""
+
+        linked: list[tuple[Any, str]] = []
+        for item in node.get("inputs") if isinstance(node.get("inputs"), list) else []:
+            if not isinstance(item, Mapping) or item.get("link") is None:
                 continue
-            signature.append((item.get("name"), item.get("type")))
-        return tuple(signature)
+            link = links_by_id.get(item.get("link"))
+            destination_id: Any = None
+            if isinstance(link, list) and len(link) >= 3:
+                destination_id = link[3] if len(link) >= 5 else node.get("id")
+            elif isinstance(link, Mapping):
+                destination_id = link.get("target_id", link.get("to_node", node.get("id")))
+            destination_node = nodes_by_id.get(str(destination_id))
+            destination_uid = (
+                _stable_node_uid(destination_node)
+                if destination_node is not None
+                else str(destination_id)
+            )
+            linked.append((item.get("name"), destination_uid))
+        return tuple(sorted(linked, key=lambda value: (str(value[0]), value[1])))
+
+    def _node_widget_signature(node: Mapping[str, Any]) -> Any:
+        def _stable(value: Any) -> str:
+            return json.dumps(value, sort_keys=True, default=str)
+
+        widgets = door_get_widgets_values(node)
+        if isinstance(widgets, list):
+            return tuple(_stable(value) for value in widgets)
+        if isinstance(widgets, Mapping):
+            return tuple(
+                (str(key), _stable(value))
+                for key, value in sorted(widgets.items(), key=lambda item: str(item[0]))
+            )
+        return None
+
+    def _node_widget_shape_signature(node: Mapping[str, Any]) -> Any:
+        widgets = door_get_widgets_values(node)
+        if isinstance(widgets, list):
+            return ("list", len(widgets))
+        if isinstance(widgets, Mapping):
+            return (
+                "mapping",
+                tuple(sorted((str(key) for key in widgets), key=str)),
+            )
+        return (type(widgets).__name__,)
+
+    def _original_ui_node(node: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Return the LiteGraph surface nested in an ingested IR node, if any."""
+        metadata = node.get("metadata")
+        if isinstance(metadata, Mapping):
+            raw_ui = metadata.get("_ui")
+            if isinstance(raw_ui, Mapping):
+                return raw_ui
+        return node
+
+    def _stable_node_uid(node: Mapping[str, Any]) -> str:
+        properties = node.get("properties")
+        if isinstance(properties, Mapping):
+            uid = properties.get("vibecomfy_uid")
+            if uid is not None and str(uid):
+                return str(uid)
+        uid = node.get("uid")
+        if uid is not None and str(uid):
+            return str(uid)
+        return str(node.get("id", ""))
 
     def _node_output_slots(node: Mapping[str, Any]) -> dict[tuple[Any, Any, Any], set[Any]]:
         outputs = node.get("outputs")
@@ -617,12 +377,12 @@ def _recovery_report_from_ui_payload(
             if not isinstance(item, Mapping):
                 continue
             key = (item.get("name"), item.get("type"), item.get("slot_index"))
-            links = item.get("links")
+            links = door_get_links(item)
             slots[key] = set(links if isinstance(links, list) else [])
         return slots
 
     def _ui_links_by_id(ui_payload: Mapping[str, Any] | None) -> dict[Any, Any]:
-        links = ui_payload.get("links") if isinstance(ui_payload, Mapping) else None
+        links = door_get_links(ui_payload) if isinstance(ui_payload, Mapping) else None
         if not isinstance(links, list):
             return {}
         result: dict[Any, Any] = {}
@@ -662,7 +422,7 @@ def _recovery_report_from_ui_payload(
         for output in outputs:
             if not isinstance(output, Mapping):
                 continue
-            links = output.get("links")
+            links = door_get_links(output)
             if isinstance(links, list):
                 link_ids.update(links)
         return link_ids
@@ -709,6 +469,7 @@ def _recovery_report_from_ui_payload(
         candidate_node: Mapping[str, Any],
         original_links_by_id: Mapping[Any, Any],
         candidate_links_by_id: Mapping[Any, Any],
+        original_nodes_by_id: Mapping[str, Mapping[str, Any]],
         candidate_node_ids: set[str],
         candidate_nodes_by_id: Mapping[str, Mapping[str, Any]],
         schema_less_transitive_intermediates: set[str],
@@ -718,16 +479,49 @@ def _recovery_report_from_ui_payload(
             if candidate_node_id in schema_less_transitive_intermediates:
                 return (True, "transitive_reroute_intermediate")
             return (False, "new_schema_less_node")
-        if _connection_signature(original_node) == _connection_signature(candidate_node):
-            return (True, "connection_shape_unchanged")
-        if _node_input_shape_signature(original_node) != _node_input_shape_signature(candidate_node):
+        if original_node.get("type") != candidate_node.get("type"):
+            return (False, "schema_less_class_changed")
+        if _node_widget_shape_signature(original_node) != _node_widget_shape_signature(
+            candidate_node
+        ):
+            return (False, "schema_less_widget_shape_changed")
+        linked_inputs_unchanged = _linked_input_signature(
+            original_node,
+            links_by_id=original_links_by_id,
+            nodes_by_id=original_nodes_by_id,
+        ) == _linked_input_signature(
+            candidate_node,
+            links_by_id=candidate_links_by_id,
+            nodes_by_id=candidate_nodes_by_id,
+        )
+        if not linked_inputs_unchanged:
             return (False, "schema_less_inputs_changed")
         original_slots = _node_output_slots(original_node)
         candidate_slots = _node_output_slots(candidate_node)
-        if set(original_slots) != set(candidate_slots):
+        # RC5: compare output *names* only. Link-id / slot_index churn after
+        # inserting a downstream node is not a schema-less slot rename.
+        if {key[0] for key in original_slots} != {key[0] for key in candidate_slots}:
             return (False, "schema_less_output_slots_changed")
+        widgets_changed = _node_widget_signature(original_node) != _node_widget_signature(
+            candidate_node
+        )
+        if (
+            not widgets_changed
+            and _connection_signature(original_node) == _connection_signature(candidate_node)
+        ):
+            return (True, "connection_shape_unchanged")
+        def _links_for_slot_name(
+            slots: Mapping[tuple[Any, Any, Any], set[Any]],
+            slot_name: Any,
+        ) -> set[Any]:
+            combined: set[Any] = set()
+            for key, links in slots.items():
+                if key[0] == slot_name:
+                    combined.update(links)
+            return combined
+
         for key, original_links in original_slots.items():
-            candidate_links = candidate_slots.get(key, set())
+            candidate_links = _links_for_slot_name(candidate_slots, key[0])
             original_destinations = _output_destinations(
                 original_links,
                 original_links_by_id,
@@ -748,6 +542,12 @@ def _recovery_report_from_ui_payload(
                     if path_nodes is not None:
                         continue
                     return (False, "schema_less_existing_output_links_removed")
+        if widgets_changed:
+            # Schema-less emit may reorder linked inputs, remint their types to
+            # UNKNOWN, and omit unlinked optionals. Stable linked input names,
+            # destination uids, and output destinations prove that this remains a
+            # bounded value-only edit rather than a topology change.
+            return (True, "preexisting_schema_less_widget_values_changed")
         for key, original_links in original_slots.items():
             candidate_links = candidate_slots.get(key, set())
             original_destinations = _output_destinations(
@@ -826,12 +626,13 @@ def _recovery_report_from_ui_payload(
     original_node_classes: dict[str, str] = {}
     original_node_connections: dict[str, tuple[Any, ...]] = {}
     original_nodes_by_id: dict[str, Mapping[str, Any]] = {}
+    original_nodes_by_uid: dict[str, Mapping[str, Any]] = {}
     candidate_nodes_by_id: dict[str, Mapping[str, Any]] = {}
     original_links_by_id = _ui_links_by_id(original_ui_payload)
     candidate_links_by_id = _ui_links_by_id(ui_payload)
     candidate_node_ids: set[str] = set()
     original_nodes = (
-        original_ui_payload.get("nodes")
+        door_get_nodes(original_ui_payload)
         if isinstance(original_ui_payload, Mapping)
         else None
     )
@@ -839,13 +640,20 @@ def _recovery_report_from_ui_payload(
         for original_node in original_nodes:
             if not isinstance(original_node, Mapping):
                 continue
-            original_node_id = str(original_node.get("id", ""))
-            original_class_type = str(original_node.get("type", ""))
+            original_surface = _original_ui_node(original_node)
+            original_node_id = str(
+                original_surface.get("id", original_node.get("id", original_node.get("uid", "")))
+            )
+            original_class_type = str(
+                original_surface.get("type", original_node.get("class_type", ""))
+            )
             if original_node_id and original_class_type:
-                original_node_classes[original_node_id] = original_class_type
-                original_nodes_by_id[original_node_id] = original_node
-                original_node_connections[original_node_id] = _connection_signature(
-                    original_node
+                original_uid = _stable_node_uid(original_surface)
+                original_node_classes[original_uid] = original_class_type
+                original_nodes_by_id[original_node_id] = original_surface
+                original_nodes_by_uid[original_uid] = original_surface
+                original_node_connections[original_uid] = _connection_signature(
+                    original_surface
                 )
     for candidate_node in nodes:
         if isinstance(candidate_node, Mapping):
@@ -862,10 +670,11 @@ def _recovery_report_from_ui_payload(
         class_type = str(node.get("type", ""))
         if not class_type:
             continue
-        preexisting_ui_node = original_node_classes.get(node_id) == class_type
+        stable_uid = _stable_node_uid(node)
+        preexisting_ui_node = original_node_classes.get(stable_uid) == class_type
         ui_connection_shape_unchanged = (
             preexisting_ui_node
-            and original_node_connections.get(node_id) == _connection_signature(node)
+            and original_node_connections.get(stable_uid) == _connection_signature(node)
         )
         schema = get_schema(class_type)
         if schema is None:
@@ -874,6 +683,7 @@ def _recovery_report_from_ui_payload(
                 recovery.append(
                     {
                         "node_id": node_id,
+                        "stable_uid": stable_uid,
                         "class_type": class_type,
                         **local_schema_evidence,
                         "preexisting_ui_node": preexisting_ui_node,
@@ -884,12 +694,13 @@ def _recovery_report_from_ui_payload(
                 )
                 continue
             schema_less_safe, schema_less_reason = _preexisting_schema_less_queue_safe(
-                original_node=original_nodes_by_id.get(node_id)
+                original_node=original_nodes_by_uid.get(stable_uid)
                 if preexisting_ui_node
                 else None,
                 candidate_node=node,
                 original_links_by_id=original_links_by_id,
                 candidate_links_by_id=candidate_links_by_id,
+                original_nodes_by_id=original_nodes_by_id,
                 candidate_node_ids=candidate_node_ids,
                 candidate_nodes_by_id=candidate_nodes_by_id,
                 schema_less_transitive_intermediates=schema_less_transitive_intermediates,
@@ -897,6 +708,7 @@ def _recovery_report_from_ui_payload(
             recovery.append(
                 {
                     "node_id": node_id,
+                    "stable_uid": stable_uid,
                     "class_type": class_type,
                     "provider": None,
                     "confidence": None,
@@ -937,6 +749,7 @@ def _recovery_report_from_ui_payload(
             recovery.append(
                 {
                     "node_id": node_id,
+                    "stable_uid": stable_uid,
                     "class_type": class_type,
                     "provider": getattr(schema, "source_provider", None),
                     "confidence": getattr(schema, "confidence", None),
@@ -967,20 +780,27 @@ def _queue_recovery_report_for_candidate(
     if not existing_recovery_report:
         return resolved_recovery
 
+    def _recovery_identity(entry: Mapping[str, Any]) -> tuple[str, str] | None:
+        node_identity = entry.get("stable_uid", entry.get("uid", entry.get("node_id")))
+        class_type = entry.get("class_type")
+        if node_identity is None or class_type is None:
+            return None
+        return (str(node_identity), str(class_type))
+
     resolved_by_key: dict[tuple[str, str], dict[str, Any]] = {}
     for entry in resolved_recovery:
         if not isinstance(entry, Mapping):
             continue
-        node_id = entry.get("node_id")
-        class_type = entry.get("class_type")
-        if node_id is None or class_type is None:
+        key = _recovery_identity(entry)
+        if key is None:
             continue
-        resolved_by_key[(str(node_id), str(class_type))] = dict(entry)
+        resolved_by_key[key] = dict(entry)
 
     queue_fields = (
         "provider",
         "confidence",
         "schema_less",
+        "stable_uid",
         "preexisting_ui_node",
         "ui_connection_shape_unchanged",
         "schema_less_queue_safe",
@@ -993,12 +813,10 @@ def _queue_recovery_report_for_candidate(
         if not isinstance(existing, Mapping):
             continue
         merged_entry = dict(existing)
-        node_id = merged_entry.get("node_id")
-        class_type = merged_entry.get("class_type")
-        if node_id is None or class_type is None:
+        key = _recovery_identity(merged_entry)
+        if key is None:
             merged.append(merged_entry)
             continue
-        key = (str(node_id), str(class_type))
         seen.add(key)
         overlay = resolved_by_key.get(key)
         if overlay is not None:
@@ -1072,20 +890,11 @@ def _stage_audit(
     response: dict[str, Any] | None = None,
     failure: FailureEnvelope | None = None,
 ) -> ArtifactRef:
-    from vibecomfy.comfy_nodes.agent.edit import (_agent_edit_batch_repl_enabled, _agent_edit_v2_enabled, _build_lowering_audit_entries, _canonical_delta_ops_envelope_payload, _json_safe, normalize_agent_edit_v2_metadata, write_audit)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (_agent_edit_batch_repl_enabled, _build_lowering_audit_entries, _canonical_delta_ops_envelope_payload, _json_safe, normalize_agent_edit_v2_metadata, write_audit)  # T-039 late import: host namespace lookup; resolved at call time
     metadata: dict[str, Any] = {
         "provider": state.provider_metadata or {},
         "lowering": _build_lowering_audit_entries(state.lowering_evidence),
     }
-    if _agent_edit_v2_enabled():
-        metadata["agent_edit_v2"] = normalize_agent_edit_v2_metadata(
-            {
-                "enabled": True,
-                "op_count": len(state.delta_ops),
-                "delta_ops_envelope": _canonical_delta_ops_envelope_payload(state.delta_ops),
-                "delta_audit": state.delta_audit or {},
-            }
-        )
     if _agent_edit_batch_repl_enabled():
         metadata["batch_repl"] = {
             "enabled": True,
@@ -1158,7 +967,6 @@ __all__ = (
     "_ensure_canonical_delta_ops",
     "_queue_recovery_report_for_candidate",
     "_recovery_report_from_ui_payload",
-    "_stage_apply_delta",
     "_stage_audit",
     "_stage_emit",
     "_stage_load_python",

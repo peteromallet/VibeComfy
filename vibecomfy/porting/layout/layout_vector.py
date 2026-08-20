@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
+from vibecomfy.ingest.normalize import door_get_nodes
 @dataclass
 class LayoutDriftReport:
     """Summary of positional drift between two layout snapshots."""
@@ -35,7 +36,7 @@ def layout_vector(
     centroid, or ``None`` if no group claims the node.  ``mode`` is the litegraph
     node mode integer (0 = active, 2 = bypassed, 4 = muted).
     """
-    nodes: list[dict[str, Any]] = ui_json.get("nodes", [])
+    nodes: list[dict[str, Any]] = door_get_nodes(ui_json, [])
     groups: list[dict[str, Any]] = ui_json.get("groups", [])
 
     result: dict[str, dict[str, Any]] = {}

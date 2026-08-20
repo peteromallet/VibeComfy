@@ -11,7 +11,8 @@ Every applyable V2 turn persists an immutable aggregate at
 `turns/<turn>/transactions/<plan>/candidate_transaction.json`. It binds:
 
 - session, turn, and mutation-plan identity;
-- the normalized `delta_ops_envelope` and its content hash;
+- the persisted `accepted_batch` (sole durable Δ) and the content hash of
+  its derived apply-time ops projection;
 - submit and candidate full/structural graph hashes;
 - an optional, explicitly versioned layout authority for layout-only turns;
 - the immutable authority-receipt hash;

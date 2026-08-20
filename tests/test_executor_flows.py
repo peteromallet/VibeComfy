@@ -18,6 +18,7 @@ import json
 import tempfile
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Generator
 from unittest import mock
 
@@ -25,10 +26,20 @@ import pytest
 
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
+    ExecutorHostPorts,
     ExecutorRequest,
 )
 from vibecomfy.executor import core as executor_core
-from vibecomfy.executor.agent_research_stage import DECISION_SYNTHESIZE, AgentResearchTrace
+from vibecomfy.executor.agent_research_stage import (
+    DECISION_GET,
+    DECISION_SYNTHESIZE,
+    RESEARCH_ATTEMPT_EMPTY,
+    RESEARCH_ATTEMPT_GROUNDED,
+    RESEARCH_ATTEMPT_NEVER,
+    RESEARCH_ATTEMPT_THIN,
+    AgentResearchTrace,
+    derive_research_attempt,
+)
 from vibecomfy.executor.core import AgentResearchResult, run_executor
 from vibecomfy.executor.evidence_pack import (
     EvidenceArtifact,
@@ -136,6 +147,38 @@ def test_terminal_no_candidate_response_allows_real_changed_candidate() -> None:
     assert result.graph == candidate
 
 
+def test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph(
+    profile_dir: Path,
+) -> None:
+    """The direct terminal reply path cannot bypass node-ID grounding."""
+    request = ExecutorRequest(
+        query="change the checkpoint",
+        graph={"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}], "links": []},
+        profile="default",
+    )
+    plan = ClassifyDecision(
+        route="adapt", implement=True, research=True, intent="edit", task="edit_graph"
+    )
+
+    with mock.patch("vibecomfy.executor.core.run_classify_turn", return_value=plan):
+        with mock.patch(
+            "vibecomfy.executor.core.handle_agent_edit",
+            return_value={
+                "ok": True,
+                "message": "No safe candidate was produced for node 999.",
+                "graph_unchanged": True,
+                "no_candidate_reason": "no_changes",
+                "outcome": {"kind": "noop"},
+                "accepted_batch": [],
+            },
+        ):
+            result = run_executor(request)
+
+    assert result.ok is True
+    assert "999" not in result.reply
+    assert "node 999" not in result.reply
+
+
 def _write_toml(dir_path: Path, name: str, content: str) -> Path:
     """Write a TOML profile file into *dir_path* and return its path."""
     file_path = dir_path / f"{name}.toml"
@@ -189,12 +232,27 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
     ) -> tuple[AgentResearchTrace, EvidencePack]:
         del research_brief
         del spec
+        # Batch 14: the offline fixture records an EXECUTED hivemind_get call
+        # plus a synthesize citation so the derived research_attempt is
+        # "grounded" (thin/grounded is what lets adapt proceed to implement).
         ledger = EvidenceLedger(
             entries=(
                 EvidenceLedgerEntry(
+                    decision=DECISION_GET,
+                    conclusion="workflow record hivemind_get:fixture",
+                    evidence_ids=("hivemind_get:fixture",),
+                    uncertainty="",
+                ),
+                EvidenceLedgerEntry(
                     decision="agent_research",
                     conclusion="Agent-owned research completed for the requested route.",
-                    evidence_ids=(),
+                    evidence_ids=("hivemind_get:fixture",),
+                    uncertainty="low",
+                ),
+                EvidenceLedgerEntry(
+                    decision=DECISION_SYNTHESIZE,
+                    conclusion="Agent-owned research completed for the requested route.",
+                    evidence_ids=("hivemind_get:fixture",),
                     uncertainty="low",
                 ),
             )
@@ -210,7 +268,17 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
             status="ok",
             elapsed_seconds=0.0,
         )
-        return trace, EvidencePack(artifacts={}, ledger=ledger)
+        return trace, EvidencePack(
+            artifacts={
+                "hivemind_get:fixture": EvidenceArtifact(
+                    evidence_id="hivemind_get:fixture",
+                    kind="hivemind_get",
+                    body={"content": "fixture fetched record"},
+                    source="hivemind",
+                ),
+            },
+            ledger=ledger,
+        )
 
     monkeypatch.setattr(executor_core, "run_agent_research_stage", fake_agent_research_stage)
 
@@ -369,35 +437,51 @@ def _fake_reply_hotshot(
     return "Hotshot XL is an SDXL-based text-to-video model. You can insert it before SVD-XT as a frame generator."
 
 
-def test_iter_graph_nodes_uses_dict_form_nodes_mapping() -> None:
-    """Dict-form VibeComfy graphs should iterate the nested nodes mapping."""
+def test_classify_census_derives_reference_map_from_dict_form_nodes() -> None:
+    """Batch 12 fix: classify's reference map (node ids + class types) is
+    derived from the IR via the renderer's census lens — the raw-JSON
+    ``_build_graph_reference_map`` walk is gone."""
     graph = {
+        "vibecomfy_format_version": "1.0",
+        "id": "dict-form",
         "nodes": {
-            "27": {"id": "27", "class_type": "SaveVideo", "inputs": {}},
-            "34": {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}},
+            "27": {"id": "27", "class_type": "SaveVideo", "inputs": {}, "widgets": {}, "uid": "uid-27", "metadata": {"_ui": {"mode": 0}}},
+            "34": {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}, "widgets": {}, "uid": "uid-34", "metadata": {"_ui": {"mode": 0}}},
         },
-        "links": [],
-        "extra": {"note": "top-level metadata should not be treated as a node"},
+        "edges": [],
+        "source": {"id": "dict-form", "path": None, "source_type": "workflow"},
+        "requirements": {},
+        "inputs": {},
+        "outputs": [],
+        "metadata": {},
     }
 
-    assert executor_core._iter_graph_nodes(graph) == [
-        ("27", {"id": "27", "class_type": "SaveVideo", "inputs": {}}),
-        ("34", {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}}),
-    ]
+    census = executor_core._render_census_text(graph)
+    assert census is not None
+    assert "## Census" in census
+    assert "class list:" in census
+    assert "reference map:" in census
+    assert "SaveVideo" in census
+    assert "MoonvalleyImg2VideoNode" in census
 
 
-def test_iter_graph_nodes_preserves_top_level_mapping_fallback() -> None:
-    """Legacy top-level graph mappings should still be supported."""
+def test_classify_census_reference_map_covers_ui_list_form_nodes() -> None:
+    """The census lens resolves node ids + class types for UI-list graphs too —
+    the same facts the old raw-JSON walk provided, now via the renderer."""
     graph = {
-        "27": {"id": "27", "class_type": "SaveVideo", "inputs": {}},
-        "34": {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}},
-        "meta": {"note": "not a node"},
+        "nodes": [
+            {"id": 27, "type": "SaveVideo", "class_type": "SaveVideo"},
+            {"id": 34, "type": "MoonvalleyImg2VideoNode", "class_type": "MoonvalleyImg2VideoNode"},
+        ],
+        "links": [],
     }
 
-    assert executor_core._iter_graph_nodes(graph) == [
-        ("27", {"id": "27", "class_type": "SaveVideo", "inputs": {}}),
-        ("34", {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}}),
-    ]
+    census = executor_core._render_census_text(graph)
+    assert census is not None
+    assert "## Census" in census
+    assert "reference map:" in census
+    assert "SaveVideo" in census
+    assert "MoonvalleyImg2VideoNode" in census
 
 
 def _fake_reply_edit(
@@ -437,13 +521,14 @@ def _fake_reply_reject_adaptation_plan(
     research_summary: str | None = None,
     implementation_message: str | None = None,
     graph_summary: str | None = None,
+    graph_inspection: str | None = None,
     **kwargs: Any,
 ) -> str:
     """Simulate an older reply wrapper that rejects adaptation_plan only."""
     if "adaptation_plan" in kwargs:
         raise TypeError("run_reply_turn() got an unexpected keyword argument 'adaptation_plan'")
-    if not graph_summary:
-        raise AssertionError("graph_summary should survive adaptation_plan fallback")
+    if not (graph_summary or graph_inspection):
+        raise AssertionError("graph context should survive adaptation_plan fallback")
     return "This workflow loads a checkpoint and runs sampling."
 
 
@@ -667,6 +752,7 @@ class TestAgentOwnedResearchFlow:
             "conclusion": "Agent-owned research completed for the requested route.",
             "citations": [],
             "uncertainty": "low Requested source 'web' is unavailable in the active C1 research stage; it was not silently substituted or removed.",
+            "research_attempt": RESEARCH_ATTEMPT_GROUNDED,
             "next_action": "Use this conclusion for the requested next step.",
         }
         wire_research = result.to_dict()["report"]["executor"]["research"]
@@ -1833,6 +1919,18 @@ def _agent_owned_research_result(
             evidence_ids=("hivemind_get:abc123",),
             uncertainty="low",
         ),
+        EvidenceLedgerEntry(
+            decision=DECISION_GET,
+            conclusion="workflow record hivemind_get:abc123",
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="",
+        ),
+        EvidenceLedgerEntry(
+            decision=DECISION_SYNTHESIZE,
+            conclusion=summary,
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="low",
+        ),
     ))
     trace = AgentResearchTrace(
         route="adapt",
@@ -1941,13 +2039,28 @@ def _failed_research_trace(*, status: str = "failed", verdict: str = "failed") -
     )
 
 
-def test_adapt_implement_fails_closed_when_research_failed() -> None:
-    """P0-b: a failed C1 research package (status=unavailable) must stop the
-    adapt implement phase — handle_agent_edit is never called and the request
-    fails instead of proceeding to success without usable synthesis."""
-    plan = _fake_classify_adapt("Switch to Hotshot")
+def _adapt_never_research_result() -> AgentResearchResult:
+    """Adapt research result typed ``never`` (zero executed tool calls)."""
+    return _agent_owned_research_result_with_trace(
+        AgentResearchTrace(
+            route="adapt",
+            question="q",
+            iterations=(),
+            final_verdict="enough",
+            summary="",
+            citations=(),
+            uncertainty="",
+            status="ok",
+            elapsed_seconds=0.0,
+        )
+    )
+
+
+def test_adapt_implement_proceeds_when_research_failed_with_graph() -> None:
+    """RC2: UNAVAILABLE research on adapt with a graph still implements."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
     request = ExecutorRequest(
-        query="Switch to Hotshot",
+        query="Set KSampler.steps to 30",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _agent_owned_research_result_with_trace(_failed_research_trace())
@@ -1955,27 +2068,22 @@ def test_adapt_implement_fails_closed_when_research_failed() -> None:
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
     ) as mock_edit:
-        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
-            executor_core._run_implement(
-                request,
-                AgentSpecShape(agent="hermes", model="test"),
-                plan=plan,
-                research_result=research,
-            )
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
-    mock_edit.assert_not_called()
-    assert excinfo.value.stage == "research"
-    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
-    assert "no usable synthesis" in explanation
-    assert "status=failed" in explanation
+    mock_edit.assert_called_once()
+    assert result.graph is not None
 
 
-def test_adapt_implement_fails_closed_when_research_exhausted() -> None:
-    """P0-b + P1-a: deadline/max-turn exhaustion (status=exhausted) is
-    consumed fail-closed — no implement without an agent finish."""
-    plan = _fake_classify_adapt("Switch to Hotshot")
+def test_adapt_implement_proceeds_when_research_exhausted_with_graph() -> None:
+    """RC2: exhausted-from-timeout no longer skips implement on adapt+graph."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
     request = ExecutorRequest(
-        query="Switch to Hotshot",
+        query="Set KSampler.steps to 30",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _agent_owned_research_result_with_trace(
@@ -1985,58 +2093,144 @@ def test_adapt_implement_fails_closed_when_research_exhausted() -> None:
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
     ) as mock_edit:
-        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
-            executor_core._run_implement(
-                request,
-                AgentSpecShape(agent="hermes", model="test"),
-                plan=plan,
-                research_result=research,
-            )
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
-    mock_edit.assert_not_called()
-    assert excinfo.value.stage == "research"
-    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
-    assert "status=exhausted" in explanation
-    # The typed package carries the exhausted diagnostic and unavailable status.
+    mock_edit.assert_called_once()
+    assert result.graph is not None
     assert research.package.status is ToolStatus.UNAVAILABLE
     codes = [diag.code for diag in research.package.diagnostics]
     assert "research_stage_exhausted" in codes
 
 
-def test_adapt_implement_fails_closed_when_research_refined_without_synthesis() -> None:
-    """REC-B gate rule: a refine verdict alone no longer skips implement — but
-    a refine verdict with NO recorded synthesis in the ledger still fails
-    closed (there is nothing evidence-backed to implement from)."""
+def test_adapt_implement_proceeds_when_research_never_with_graph() -> None:
+    """RC2: a ``never`` attempt on adapt with a graph still implements."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
+    request = ExecutorRequest(
+        query="Set KSampler.steps to 30",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+    )
+    research = _adapt_never_research_result()
+    assert research.research_attempt == RESEARCH_ATTEMPT_NEVER
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    mock_edit.assert_called_once()
+    assert result.graph is not None
+
+
+def test_adapt_implement_skips_when_research_never_without_graph() -> None:
+    """RC2: never/empty still skip implement when there is no graph to act on."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
+    request = ExecutorRequest(query="Set KSampler.steps to 30", graph=None)
+    research = _adapt_never_research_result()
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    mock_edit.assert_not_called()
+    assert result.graph is None
+    assert "research produced no" in result.message
+
+
+def test_adapt_implement_proceeds_for_widget_edit_when_research_unavailable() -> None:
+    """RC2 flow: named widget / fps / missing-edge work proceeds on UNAVAILABLE."""
+    plan = _fake_classify_adapt("Set EmptyLatentImage batch to 8")
+    request = ExecutorRequest(
+        query="Set EmptyLatentImage batch to 8",
+        graph={"nodes": [{"id": 1, "type": "EmptyLatentImage", "widgets_values": [512, 512, 1]}], "links": []},
+    )
+    thin_pack = EvidencePack(
+        artifacts={
+            "hivemind:ext:1": EvidenceArtifact(
+                evidence_id="hivemind:ext:1",
+                kind="hivemind_search_hit",
+                body={"title": "lead"},
+                source="hivemind",
+            ),
+        },
+        ledger=EvidenceLedger(entries=(
+            EvidenceLedgerEntry(
+                decision="hivemind_search",
+                conclusion="timeout: hivemind timed out",
+                evidence_ids=("hivemind:ext:1",),
+                uncertainty="timeout: hivemind timed out",
+            ),
+        )),
+    )
+    trace = _failed_research_trace(status="exhausted", verdict="refine")
+    research = AgentResearchResult(
+        route="adapt",
+        trace=trace,
+        evidence_pack=thin_pack,
+        package=executor_core._research_stage_package(
+            route="adapt", trace=trace, pack=thin_pack, policy_diagnostics=(),
+        ),
+    )
+    assert research.research_attempt == RESEARCH_ATTEMPT_THIN
+    assert research.package.status is ToolStatus.OK
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    mock_edit.assert_called_once()
+    assert result.graph is not None
+
+
+def test_adapt_implement_proceeds_when_research_grounded() -> None:
+    """Batch 14: a ``grounded`` attempt (fetched citation) proceeds to
+    implement."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
-    research = _agent_owned_research_result_with_trace(
-        _failed_research_trace(status="ok", verdict="refine")
-    )
+    research = _agent_owned_research_result()
+    assert research.research_attempt == RESEARCH_ATTEMPT_GROUNDED
 
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
     ) as mock_edit:
-        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
-            executor_core._run_implement(
-                request,
-                AgentSpecShape(agent="hermes", model="test"),
-                plan=plan,
-                research_result=research,
-            )
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
-    mock_edit.assert_not_called()
-    assert excinfo.value.stage == "research"
-    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
-    assert "verdict=refine" in explanation
+    assert result.graph is not None
+    mock_edit.assert_called_once()
 
 
 def _refined_research_result_with_synthesis() -> AgentResearchResult:
     """Refine-verdict research result whose ledger records an evidence-backed
-    partial synthesis — the REC-B recovery shape (research concluded a
-    direction despite a Hivemind hiccup / unresolved refine question)."""
+    partial synthesis (a fetched hivemind_get citation) — typed ``grounded``."""
     trace = AgentResearchTrace(
         route="adapt",
         question="q",
@@ -2049,6 +2243,12 @@ def _refined_research_result_with_synthesis() -> AgentResearchResult:
         elapsed_seconds=0.0,
     )
     ledger = EvidenceLedger(entries=(
+        EvidenceLedgerEntry(
+            decision=DECISION_GET,
+            conclusion="workflow record hivemind_get:abc123",
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="",
+        ),
         EvidenceLedgerEntry(
             decision=DECISION_SYNTHESIZE,
             conclusion="Use LoadAudio -> ConditioningCombine before WanImageToVideo",
@@ -2082,15 +2282,15 @@ def _refined_research_result_with_synthesis() -> AgentResearchResult:
 
 
 def test_adapt_implement_proceeds_when_research_refined_with_synthesis() -> None:
-    """REC-B gate rule: a refine verdict WITH an evidence-backed partial
-    synthesis in the ledger must proceed to implement — the gate checks 'was
-    there a synthesis at all', not 'was it perfect'."""
+    """Batch 14: a refine verdict WITH a fetched-citation partial synthesis is
+    typed ``grounded`` and proceeds to implement."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _refined_research_result_with_synthesis()
+    assert research.research_attempt == RESEARCH_ATTEMPT_GROUNDED
 
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
@@ -2113,9 +2313,8 @@ def test_adapt_implement_proceeds_when_research_refined_with_synthesis() -> None
 
 
 def test_research_package_usable_gate_matrix() -> None:
-    """REC-B gate matrix: strict about package validity + status; the verdict
-    requirement is 'an evidence-backed synthesis was recorded', not 'enough'.
-    Skip happens ONLY when no synthesis whatsoever was recorded."""
+    """RC2 gate matrix: thin/grounded stay usable; never/empty/UNAVAILABLE
+    become usable on adapt when a graph is attached."""
     base_kwargs = dict(
         route="adapt",
         question="q",
@@ -2127,62 +2326,139 @@ def test_research_package_usable_gate_matrix() -> None:
         elapsed_seconds=0.0,
     )
     assert executor_core._research_package_is_usable(None) is False
-    # Typed package validity + status stay fail-closed.
     failed = _agent_owned_research_result_with_trace(
         _failed_research_trace(status="failed", verdict="failed")
     )
     assert executor_core._research_package_is_usable(failed) is False
+    assert executor_core._research_package_is_usable(
+        failed, route="adapt", has_graph=True
+    ) is True
     exhausted = _agent_owned_research_result_with_trace(
         _failed_research_trace(status="exhausted", verdict="refine")
     )
     assert executor_core._research_package_is_usable(exhausted) is False
-    # Enough verdict → usable without needing a ledger.
-    enough = _agent_owned_research_result_with_trace(
-        AgentResearchTrace(final_verdict="enough", **base_kwargs)
-    )
-    assert executor_core._research_package_is_usable(enough) is True
-    # Refine with NO synthesis in the ledger → skip.
-    refined_empty = _agent_owned_research_result_with_trace(
-        AgentResearchTrace(final_verdict="refine", **base_kwargs)
-    )
-    assert executor_core._research_package_is_usable(refined_empty) is False
-    # Refine WITH an evidence-backed synthesis → usable (the recovery path).
     assert executor_core._research_package_is_usable(
-        _refined_research_result_with_synthesis()
+        exhausted, route="adapt", has_graph=True
     ) is True
-    # Refine with a synthesize entry that cites NO evidence → still skip.
-    trace = AgentResearchTrace(final_verdict="refine", **base_kwargs)
-    pack = EvidencePack(
+    never_result = _adapt_never_research_result()
+    assert never_result.research_attempt == RESEARCH_ATTEMPT_NEVER
+    assert executor_core._research_package_is_usable(never_result) is False
+    assert executor_core._research_package_is_usable(
+        never_result, route="adapt", has_graph=True
+    ) is True
+    empty_trace = AgentResearchTrace(final_verdict="enough", **base_kwargs)
+    empty_pack = EvidencePack(
         artifacts={},
         ledger=EvidenceLedger(entries=(
             EvidenceLedgerEntry(
-                decision=DECISION_SYNTHESIZE,
-                conclusion="direction with no backing citation",
+                decision=DECISION_GET,
+                conclusion="timeout: hivemind timed out",
                 evidence_ids=(),
+                uncertainty="timeout: hivemind timed out",
+            ),
+        )),
+    )
+    empty_result = AgentResearchResult(
+        route="adapt",
+        trace=empty_trace,
+        evidence_pack=empty_pack,
+        package=executor_core._research_stage_package(
+            route="adapt", trace=empty_trace, pack=empty_pack, policy_diagnostics=(),
+        ),
+    )
+    assert empty_result.research_attempt == RESEARCH_ATTEMPT_EMPTY
+    assert executor_core._research_package_is_usable(empty_result) is False
+    assert executor_core._research_package_is_usable(
+        empty_result, route="adapt", has_graph=True
+    ) is True
+    # grounded → usable (the recovery path now types by fetched citation).
+    assert executor_core._research_package_is_usable(
+        _refined_research_result_with_synthesis()
+    ) is True
+    # thin (search hits only, no fetched citation) → usable.
+    thin_trace = AgentResearchTrace(final_verdict="enough", **base_kwargs)
+    thin_pack = EvidencePack(
+        artifacts={
+            "hivemind:ext:1": EvidenceArtifact(
+                evidence_id="hivemind:ext:1",
+                kind="hivemind_search_hit",
+                body={"title": "lead"},
+                source="hivemind",
+            ),
+        },
+        ledger=EvidenceLedger(entries=(
+            EvidenceLedgerEntry(
+                decision="hivemind_search",
+                conclusion="1 hit(s)",
+                evidence_ids=("hivemind:ext:1",),
+                uncertainty="",
+            ),
+            EvidenceLedgerEntry(
+                decision=DECISION_SYNTHESIZE,
+                conclusion="direction from search lead",
+                evidence_ids=("hivemind:ext:1",),
                 uncertainty="",
             ),
         )),
     )
-    package = executor_core._research_stage_package(
-        route="adapt", trace=trace, pack=pack, policy_diagnostics=(),
+    thin_result = AgentResearchResult(
+        route="adapt",
+        trace=thin_trace,
+        evidence_pack=thin_pack,
+        package=executor_core._research_stage_package(
+            route="adapt", trace=thin_trace, pack=thin_pack, policy_diagnostics=(),
+        ),
     )
-    ungrounded = AgentResearchResult(
-        route="adapt", trace=trace, evidence_pack=pack, package=package,
+    assert thin_result.research_attempt == RESEARCH_ATTEMPT_THIN
+    assert executor_core._research_package_is_usable(thin_result) is True
+    thin_unavailable_trace = AgentResearchTrace(
+        final_verdict="refine",
+        **{**base_kwargs, "status": "exhausted"},
     )
-    assert executor_core._research_package_is_usable(ungrounded) is False
+    thin_unavailable = AgentResearchResult(
+        route="adapt",
+        trace=thin_unavailable_trace,
+        evidence_pack=thin_pack,
+        package=executor_core._research_stage_package(
+            route="adapt",
+            trace=thin_unavailable_trace,
+            pack=thin_pack,
+            policy_diagnostics=(),
+        ),
+    )
+    assert thin_unavailable.research_attempt == RESEARCH_ATTEMPT_THIN
+    # RC1: artifacts exist, so a 57014/exhaustion does not fail the package.
+    assert thin_unavailable.package.status is ToolStatus.OK
+    assert executor_core._research_package_is_usable(thin_unavailable) is True
 
 
-def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Path) -> None:
-    """P0-b end-to-end: run_executor with a failing research stage returns a
-    research-stage failure and never calls handle_agent_edit."""
-    def failing_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
-        del route, question, spec, research_brief
-        return _failed_research_trace(), EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=()))
+def test_run_executor_implements_when_adapt_research_never(profile_dir: Path) -> None:
+    """RC2 end-to-end: never research on adapt with a graph still implements."""
+    def never_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
+        del route, spec, research_brief
+        return _failed_research_trace(status="ok", verdict="refine"), EvidencePack(
+            artifacts={
+                "research_question": EvidenceArtifact(
+                    evidence_id="research_question",
+                    kind="research_question",
+                    body={"question": question, "route": "adapt"},
+                    source="classify",
+                ),
+            },
+            ledger=EvidenceLedger(entries=(
+                EvidenceLedgerEntry(
+                    decision="research_question",
+                    conclusion=question,
+                    evidence_ids=("research_question",),
+                    uncertainty="",
+                ),
+            )),
+        )
 
     with mock.patch(
         "vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt
     ), mock.patch(
-        "vibecomfy.executor.core.run_agent_research_stage", side_effect=failing_research_stage
+        "vibecomfy.executor.core.run_agent_research_stage", side_effect=never_research_stage
     ), mock.patch(
         "vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe
     ) as mock_reply, mock.patch(
@@ -2196,15 +2472,303 @@ def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Pat
             )
         )
 
-    assert result.ok is False
-    assert result.failure_stage == "research"
-    assert result.failure_kind == "ValidationError"
-    impl_failure = result.report.implementation.failure
-    assert impl_failure is not None
-    explanation = impl_failure["agent_failure_context"]["explanation"]
-    assert "no usable synthesis" in explanation
-    mock_edit.assert_not_called()
-    mock_reply.assert_not_called()
+    assert result.ok is True
+    assert result.report.research.research_attempt == RESEARCH_ATTEMPT_NEVER
+    assert result.report.implementation is not None
+    assert result.report.implementation.graph is not None
+    mock_edit.assert_called_once()
+    mock_reply.assert_called_once()
+
+
+# ── Batch 14: semantic non-gating enforced on the PRODUCED reply ─────────────
+
+
+def _fake_reply_model_turn(
+    task: str,
+    messages: list[dict[str, Any]] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Provider-level fake for the REAL reply turn (batch 14).
+
+    Emulates a model that follows the reply prompt: if the prompt still
+    carries the C5 ``return this bounded content`` relay instruction, or the
+    memo still contains a fake synthesis (``synthesis produced no
+    conclusion``), it refuses — which trips the assertions below.  Otherwise
+    it answers substantively from the query/graph and never refuses on thin
+    research.
+    """
+    del kwargs
+    prompt_text = "\n".join(
+        str(message.get("content") or "") for message in (messages or [])
+    )
+    if "return this bounded content" in prompt_text:
+        return {"content": "I cannot provide a supported conclusion."}
+    if "synthesis produced no conclusion" in prompt_text:
+        return {"content": "No supported conclusion was produced by research."}
+    query = str(task or "")
+    query_l = query.casefold()
+    if "hotshot" in query_l:
+        return {
+            "content": (
+                "Your graph contains a single KSampler node with no model "
+                "checkpoint attached. Switching to a Hotshot workflow means "
+                "replacing the checkpoint with a Hotshot-compatible video "
+                "model and adding the Hotshot loader nodes. No outside "
+                "sources were found, so this is based on the attached graph "
+                "and general knowledge."
+            )
+        }
+    if "upscale" in query_l:
+        return {
+            "content": (
+                "For latent upscaling without changing your sampler, add a "
+                "LatentUpscale node after the KSampler and keep the sampler "
+                "settings unchanged — the upscale operates on the latent "
+                "before decoding."
+            )
+        }
+    return {
+        "content": (
+            "The attached workflow contains one KSampler node. A KSampler "
+            "takes a model, positive and negative conditioning, and a latent "
+            "image, then runs the configured sampler steps to produce a "
+            "denoised latent."
+        )
+    }
+
+
+def test_research_as_answer_reply_is_substantive_when_research_never_empty(profile_dir: Path) -> None:
+    """Batch 14: never/empty research NEVER gates the research-as-answer reply.
+
+    The real reply turn runs (only the provider model call is faked) and the
+    produced reply is a substantive answer addressing the query — no
+    ``no supported conclusion`` refusal.  The decision memo is attempt-typed:
+    a never/empty attempt carries its own conclusion (no evidence tools were
+    called / no evidence was gathered), never a fake synthesis from a blank
+    trace.summary.
+    """
+    def research_stage_for(attempt: str):
+        def stage(
+            *,
+            route: str,
+            question: str,
+            spec: Any,
+            research_brief: str = "",
+        ) -> tuple[AgentResearchTrace, EvidencePack]:
+            del route, spec, research_brief
+            question_artifact = EvidenceArtifact(
+                evidence_id="research_question",
+                kind="research_question",
+                body={"question": question, "route": "research"},
+                source="classify",
+            )
+            if attempt == RESEARCH_ATTEMPT_NEVER:
+                return _failed_research_trace(status="ok", verdict="refine"), EvidencePack(
+                    artifacts={"research_question": question_artifact},
+                    ledger=EvidenceLedger(entries=(
+                        EvidenceLedgerEntry(
+                            decision="research_question",
+                            conclusion=question,
+                            evidence_ids=("research_question",),
+                            uncertainty="",
+                        ),
+                    )),
+                )
+            return AgentResearchTrace(
+                route="research",
+                question=question,
+                iterations=(),
+                final_verdict="refine",
+                summary="",
+                citations=(),
+                uncertainty="",
+                status="ok",
+                elapsed_seconds=0.0,
+            ), EvidencePack(
+                artifacts={"research_question": question_artifact},
+                ledger=EvidenceLedger(entries=(
+                    EvidenceLedgerEntry(
+                        decision="research_question",
+                        conclusion=question,
+                        evidence_ids=("research_question",),
+                        uncertainty="",
+                    ),
+                    EvidenceLedgerEntry(
+                        decision=DECISION_GET,
+                        conclusion="no_results: hivemind returned nothing",
+                        evidence_ids=(),
+                        uncertainty="no_results: hivemind returned nothing",
+                    ),
+                )),
+            )
+
+        return stage
+
+    def classify_research(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=True,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="research Hotshot workflows",
+            intent="research",
+            route="research",
+            task="research_nodes",
+        )
+
+    for attempt in (RESEARCH_ATTEMPT_NEVER, RESEARCH_ATTEMPT_EMPTY):
+        with mock.patch(
+            "vibecomfy.executor.core.run_classify_turn", side_effect=classify_research
+        ), mock.patch(
+            "vibecomfy.executor.core.run_agent_research_stage",
+            side_effect=research_stage_for(attempt),
+        ), mock.patch(
+            "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+            side_effect=_fake_reply_model_turn,
+        ):
+            result = run_executor(
+                ExecutorRequest(
+                    query="What is the best way to run Hotshot workflows?",
+                    graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+                    profile="default",
+                )
+            )
+
+        assert result.ok is True, result.failure_message
+        assert result.report.research is not None
+        assert result.report.research.research_attempt == attempt
+        memo = result.report.research.decision_memo
+        assert memo is not None
+        assert memo["research_attempt"] == attempt
+        conclusion = memo["conclusion"].casefold()
+        assert "synthesis produced no conclusion" not in conclusion
+        if attempt == RESEARCH_ATTEMPT_NEVER:
+            assert "no evidence tools were called" in conclusion
+        else:
+            assert "evidence tools were called but returned no evidence" in conclusion
+        # The produced reply is substantive and addresses the query — the
+        # real reply turn ran with the provider faked, not run_reply_turn.
+        assert result.reply is not None and result.reply.strip()
+        assert "no supported conclusion" not in result.reply.casefold()
+        assert "hotshot" in result.reply.casefold()
+
+
+def test_research_reply_prompt_has_no_c5_return_instruction() -> None:
+    """Batch 14: the research reply prompt no longer tells the model to RELAY
+    the C5 memo as bounded content — the memo is evidence it may cite from,
+    and on never/empty the model answers from the graph + knowledge."""
+    from vibecomfy.executor.prompts import build_reply_messages
+
+    memo = {
+        "question": "How should I run Hotshot workflows?",
+        "conclusion": (
+            "No evidence tools were called; no external evidence was gathered. "
+            "Answer from the attached workflow graph and general knowledge."
+        ),
+        "citations": [],
+        "uncertainty": "",
+        "research_attempt": RESEARCH_ATTEMPT_NEVER,
+        "next_action": (
+            "Answer from the attached graph and general knowledge; "
+            "no external evidence was gathered."
+        ),
+    }
+    messages = build_reply_messages(
+        "What is the best way to run Hotshot workflows?",
+        plan=ClassifyDecision(
+            research=True, implement=False, reply=True, route="research"
+        ),
+        research_memo=memo,
+        research_attempt=RESEARCH_ATTEMPT_NEVER,
+        effective_route="research",
+        graph_summary="[1] KSampler\n",
+    )
+    system = messages[0]["content"]
+    user = messages[1]["content"]
+    # The C5-return relay contract is deleted from the reply prompt.
+    assert "return this bounded content" not in system
+    assert "return this bounded content" not in user
+    assert "no invented sources" not in system
+    assert "no invented sources" not in user
+    # The memo is still supplied as citable evidence — not verbatim relay.
+    assert "C5 decision memo" in system
+    assert "never relay the memo verbatim" in system
+    assert "C5 research decision memo" in user
+    assert '"research_attempt": "never"' in user
+    # On never/empty the model answers from the graph + knowledge.
+    assert "research_attempt=never/empty" in system
+    assert "answer directly from " in system
+
+
+def test_inspect_and_respond_reply_substantive_without_research(profile_dir: Path) -> None:
+    """Batch 14: inspect/respond routes with never/empty research (research
+    skipped — zero evidence tools) still produce a substantive answer from the
+    graph + knowledge; no 'no supported conclusion' refusal on any route."""
+    def classify_inspect(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="explain what the graph does",
+            intent="explain_graph",
+            route="inspect",
+            task="inspect_graph",
+        )
+
+    def classify_respond(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            effort="low",
+            plan_summary="answer directly",
+            intent="respond",
+            route="respond",
+            task="respond",
+        )
+
+    with mock.patch(
+        "vibecomfy.executor.core.run_classify_turn", side_effect=classify_inspect
+    ), mock.patch(
+        "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+        side_effect=_fake_reply_model_turn,
+    ):
+        inspect_result = run_executor(
+            ExecutorRequest(
+                query="Explain what this graph does",
+                graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+                profile="default",
+            )
+        )
+
+    assert inspect_result.ok is True, inspect_result.failure_message
+    assert inspect_result.report.plan.effective_route == "inspect"
+    # Research skipped on inspect → research outcome is effectively never.
+    assert inspect_result.report.research is None
+    assert inspect_result.reply is not None and inspect_result.reply.strip()
+    assert "no supported conclusion" not in inspect_result.reply.casefold()
+    assert "ksampler" in inspect_result.reply.casefold()
+
+    with mock.patch(
+        "vibecomfy.executor.core.run_classify_turn", side_effect=classify_respond
+    ), mock.patch(
+        "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+        side_effect=_fake_reply_model_turn,
+    ):
+        respond_result = run_executor(
+            ExecutorRequest(
+                query="How do I upscale latents without changing my sampler?",
+                profile="default",
+            )
+        )
+
+    assert respond_result.ok is True, respond_result.failure_message
+    assert respond_result.report.plan.effective_route == "respond"
+    assert respond_result.report.research is None
+    assert respond_result.reply is not None and respond_result.reply.strip()
+    assert "no supported conclusion" not in respond_result.reply.casefold()
+    assert "upscale" in respond_result.reply.casefold()
 
 
 def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:
@@ -2590,6 +3154,43 @@ class TestRouteGateFlows:
         # Implementation MUST be called.
         mock_edit.assert_called_once()
         # Reply MUST be called.
+        mock_reply.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_research_hang_retry_skips_research_but_runs_product_path(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """I-B live path: the retry cannot re-enter the hanging research phase.
+
+        Classify, implement, reply, and the normal result construction still
+        execute.  The switch is scoped to the retry child environment.
+        """
+        monkeypatch.setenv("VIBECOMFY_RESEARCH_HANG_RETRY_SKIP", "1")
+        with mock.patch(
+            "vibecomfy.executor.core._run_agent_owned_research",
+            side_effect=AssertionError("research must be skipped on the retry"),
+        ) as mock_research:
+            result = run_executor(
+                ExecutorRequest(
+                    query="adapt the graph after research infrastructure hung",
+                    graph={"nodes": [{"id": 1, "type": "LoadImage"}]},
+                    profile="default",
+                )
+            )
+
+        assert result.ok is True
+        assert result.report.plan.effective_route == "adapt"
+        assert result.report.research is None
+        assert result.report.implementation is not None
+        mock_research.assert_not_called()
+        mock_edit.assert_called_once()
         mock_reply.assert_called_once()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
@@ -3102,7 +3703,7 @@ class TestInspectOnlyFlow:
         assert mock_reply.call_count == 1
         reply_kwargs = mock_reply.call_args.kwargs
         assert "adaptation_plan" not in reply_kwargs
-        assert "CheckpointLoaderSimple" in str(reply_kwargs.get("graph_summary"))
+        assert "CheckpointLoaderSimple" in str(reply_kwargs.get("graph_inspection"))
         mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
@@ -3122,6 +3723,7 @@ class TestInspectOnlyFlow:
             "nodes": [
                 {"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"},
                 {"id": 2, "type": "KSampler", "class_type": "KSampler"},
+                {"id": 3, "type": "UnknownSwitchNode", "widgets_values": ["auto"]},
             ],
             "links": [
                 [1, 1, 0, 2, 0, "MODEL"],
@@ -3136,12 +3738,17 @@ class TestInspectOnlyFlow:
 
         assert result.ok is True
         assert result.reply is not None
-        # graph_inspection should be passed to _run_reply
+        # The inspect-only named/unlabeled lens reaches the reply backend.
         reply_kwargs = mock_reply.call_args.kwargs
-        graph_summary = reply_kwargs.get("graph_summary")
-        assert graph_summary is not None
-        assert "CheckpointLoaderSimple" in graph_summary
-        assert "KSampler" in graph_summary
+        graph_inspection = reply_kwargs.get("graph_inspection")
+        assert graph_inspection is not None
+        assert "## Key Nodes" in graph_inspection
+        assert "CheckpointLoaderSimple" in graph_inspection
+        assert "KSampler" in graph_inspection
+        assert "unlabeled_count=1" in graph_inspection
+        assert "widget_0" not in graph_inspection
+        assert "unlabeled[0]" not in graph_inspection
+        assert reply_kwargs.get("graph_summary") is None
         # Implementation must never be called
         mock_edit.assert_not_called()
         # Research must NOT be called (inspect answers from graph inspection only)
@@ -3288,8 +3895,26 @@ class TestInspectOnlyFlow:
 
         input_graph = {
             "nodes": [
-                {"id": 1, "type": "KSampler", "widgets_values": [42, 7.5, "euler"]},
-                {"id": 2, "type": "VAEDecode", "widgets_values": [None]},
+                {
+                    "id": 1,
+                    "type": "KSampler",
+                    "class_type": "KSampler",
+                    "widgets_values": [42, 7.5, "euler"],
+                    # Well-formed LiteGraph declares output slots; the door
+                    # preserves the link only when the target input is named.
+                    "outputs": [
+                        {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0},
+                    ],
+                },
+                {
+                    "id": 2,
+                    "type": "VAEDecode",
+                    "class_type": "VAEDecode",
+                    "widgets_values": [None],
+                    "inputs": [
+                        {"name": "samples", "type": "LATENT", "link": 1, "slot_index": 0},
+                    ],
+                },
             ],
             "links": [[1, 1, 0, 2, 0, "LATENT"]],
         }
@@ -3611,7 +4236,6 @@ class TestSessionReferenceContext:
                     "clarification_options": ["seed", "steps"],
                 },
             },
-            graph_reference_map={"1": "KSampler"},
         )
 
         system = messages[0]["content"]
@@ -3628,7 +4252,6 @@ class TestSessionReferenceContext:
             "Switch this workflow to generate 8 frames using HotShotXL",
             has_graph=True,
             graph_summary="2 node(s): LoadImage, KSampler",
-            graph_reference_map={"1": "LoadImage", "2": "KSampler"},
         )
 
         system = messages[0]["content"]
@@ -4580,3 +5203,367 @@ class TestImplementPhaseHeartbeat:
         ]
         assert all(payload["executor_id"] for payload in working_payloads)
         assert all(payload["session_id"] == request.session_id for payload in working_payloads)
+
+
+# ── Batch 12 (Law 4): stage lens wiring + reply-prompt goldens ──────────────
+
+_BATCH12_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _batch12_classify_edit(
+    query: str,
+    *,
+    route: str = "",
+    model: str = "",
+    has_graph: bool = False,
+    graph_summary: str | None = None,
+    **kwargs: Any,
+) -> ClassifyDecision:
+    """Classify fake that records the graph context it received."""
+    _batch12_state["classify_graph_summary"] = graph_summary
+    return ClassifyDecision.edit(
+        research=False,
+        effort="low",
+        plan_summary="batch 12 lens wiring edit",
+    )
+
+
+def _batch12_reply_capture(
+    query: str,
+    *,
+    route: str = "",
+    model: str = "",
+    plan: ClassifyDecision | None = None,
+    graph_summary: str | None = None,
+    **kwargs: Any,
+) -> str:
+    """Reply fake that records the graph context it received."""
+    _batch12_state["reply_graph_summary"] = graph_summary
+    return "Batch 12 reply."
+
+
+_batch12_state: dict[str, Any] = {}
+
+
+@mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_batch12_classify_edit)
+@mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_batch12_reply_capture)
+def test_batch12_classify_gets_census_only_and_reply_gets_surface_diff_topology(
+    mock_reply: mock.MagicMock,
+    mock_classify: mock.MagicMock,
+    profile_dir: Path,
+) -> None:
+    """Law 4 (batch 12): classify sees ONLY the census lens; the reply sees
+    surface + diff(Δ) + topology (complete, with link ids) — never the
+    truncated ``_build_text_summary`` view."""
+    _batch12_state.clear()
+    input_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CLIPTextEncode",
+                "class_type": "CLIPTextEncode",
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0},
+                ],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "inputs": [{"name": "model", "type": "MODEL", "link": 1, "slot_index": 0}],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "MODEL"]],
+    }
+
+    def passthrough_edit(payload: dict, **kwargs: Any) -> dict:
+        # Preserve the full envelope (nodes + links) so the reply's topology
+        # lens sees the wired edge with its named endpoints.
+        return {"graph": payload.get("graph") or {}, "message": "no-op"}
+
+    with mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=passthrough_edit):
+        result = run_executor(
+            ExecutorRequest(
+                query="describe and edit my graph",
+                graph=input_graph,
+                profile="default",
+            )
+        )
+    assert result.ok is True
+
+    # ── classify: census ONLY (node/class census + reference map) ─────────
+    census = _batch12_state.get("classify_graph_summary")
+    assert census is not None
+    assert "## Census" in census
+    assert "class list:" in census
+    assert "reference map:" in census
+    assert "## Topology" not in census
+    assert "## Diff" not in census
+    assert "edges:" not in census
+
+    # ── reply: surface + diff(Δ) + topology (complete, link ids) ──────────
+    reply_ctx = _batch12_state.get("reply_graph_summary")
+    assert reply_ctx is not None
+    assert "# vibecomfy: agent-edit" in reply_ctx  # surface (Python view)
+    assert "## Diff" in reply_ctx  # diff(Δ)
+    assert "## Topology" in reply_ctx  # full computed topology
+    assert "1 -> 2 (1.0 -> 2.model)" in reply_ctx
+    # Named fields from the surface view, not the truncated summary.
+    assert "KSampler" in reply_ctx
+    assert "CLIPTextEncode" in reply_ctx
+    # The truncated text-summary view is NOT the authority (no `values=(` /
+    # `inputs=(` truncated slot dumps, no `Edges:` cap header).
+    assert "Edges:" not in reply_ctx
+
+
+def test_batch12_reply_graph_context_is_renderer_output_not_text_summary() -> None:
+    """Reply-prompt golden: the reply's graph context is the composable
+    renderer's output (complete topology, link ids, named fields) — the
+    renderer output is embedded verbatim, not re-summarized."""
+    from vibecomfy.executor.core import _render_graph_text
+    from vibecomfy.porting.render import render_text
+
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "CLIPTextEncode", "class_type": "CLIPTextEncode"},
+            {"id": 2, "type": "KSampler", "class_type": "KSampler"},
+        ],
+        "links": [[1, 1, 0, 2, 0, "MODEL"]],
+    }
+    rendered = _render_graph_text(raw, delta=())
+    assert rendered is not None
+    # The reply prompt embeds the renderer output verbatim behind the
+    # cite-link preamble (link ids live in the topology lens).
+    from vibecomfy.executor.prompts import build_reply_messages
+
+    msgs = build_reply_messages("explain", graph_summary=rendered)
+    user = msgs[1]["content"]
+    assert "cite link ids and widget" in user
+    assert rendered in user
+    # Renderer output is the complete view — never the truncated
+    # `_build_text_summary` format (no `node(s):\n[1] ...` compact header).
+    assert "node(s):\n[" not in user
+
+
+def test_batch12_3c978e_live_reply_gets_complete_controlnet_topology(
+    profile_dir: Path,
+) -> None:
+    """3c978e live: the reply's graph context carries the COMPLETE ControlNet
+    chain (all 6 links with named endpoints) — the real specimen that lost
+    links to the old ``[:20]`` truncation."""
+    fixture = _BATCH12_REPO_ROOT / "tests" / "fixtures" / "3c978e6c11a8a768.json"
+    assert fixture.is_file(), f"3c978e fixture missing: {fixture}"
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    _batch12_state.clear()
+
+    def passthrough_edit(payload: dict, **kwargs: Any) -> dict:
+        # Preserve the full envelope (nodes + edges) so the reply's topology
+        # lens sees the complete ControlNet chain.
+        return {"graph": payload.get("graph") or {}, "message": "no-op"}
+
+    with mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_batch12_classify_edit):
+        with mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_batch12_reply_capture):
+            with mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=passthrough_edit):
+                result = run_executor(
+                    ExecutorRequest(
+                        query="explain and edit this video workflow",
+                        graph=raw,
+                        profile="default",
+                    )
+                )
+    assert result.ok is True
+    reply_ctx = _batch12_state.get("reply_graph_summary")
+    assert reply_ctx is not None
+    chain = (
+        ("15", "16", "conditioning"),
+        ("18", "16", "image"),
+        ("25", "26", "image"),
+        ("26", "3", "positive"),
+        ("33", "16", "control_net"),
+        ("34", "26", "control_net"),
+    )
+    for origin, target, target_input in chain:
+        assert (
+            f"{origin} -> {target} ({origin}.0 -> {target}.{target_input})"
+        ) in reply_ctx, f"ControlNet chain link {origin}->{target} missing from reply topology"
+def test_expect_graph_changed_contract_reaches_production_classify(monkeypatch) -> None:
+    """The request field is not fixture-only: run_executor forwards it."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
+
+    request = ExecutorRequest.from_payload(
+        {"query": "change the sampler", "expect_graph_changed": True}
+    )
+    assert request.to_dict()["expect_graph_changed"] is True
+
+    seen: dict[str, object] = {}
+
+    def fake_classify(req, spec, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["expect_graph_changed"] = kwargs.get("expect_graph_changed")
+        return ClassifyDecision(intent="edit", route="revise")
+
+    monkeypatch.setattr("vibecomfy.executor.core._run_classify", fake_classify)
+    monkeypatch.setattr(
+        "vibecomfy.executor.core._resolve_spec",
+        lambda *args, **kwargs: SimpleNamespace(agent="test", model="test", effort="low"),
+    )
+
+    result = run_executor(request, classify_only=True)
+    assert result.ok is True
+    assert seen["expect_graph_changed"] is True
+
+
+def _isolated_host_ports(events: list[tuple[str, object]]) -> ExecutorHostPorts:
+    def unused(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        raise AssertionError("unused host operation")
+
+    return ExecutorHostPorts(
+        handle_agent_edit=unused,
+        payload_hash=lambda payload: "test-hash",
+        classify_failure=unused,
+        failure_envelope=unused,
+        begin_deepseek_usage_capture=lambda: events.append(("begin_usage", None)) or "usage",
+        snapshot_deepseek_usage_capture=lambda: ({}, True),
+        end_deepseek_usage_capture=lambda token: events.append(("end_usage", token)),
+        begin_model_attempt_capture=lambda: events.append(("begin_attempts", None)) or "attempts",
+        snapshot_model_attempt_capture=lambda: (),
+        end_model_attempt_capture=lambda token: events.append(("end_attempts", token)),
+    )
+
+
+def test_run_executor_uses_injected_host_ports_without_default_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+    seen: dict[str, object] = {}
+
+    def fake_classify_turn(query: str, **kwargs: Any) -> ClassifyDecision:
+        seen.update(kwargs)
+        return ClassifyDecision(intent="respond", route="respond", reply=True)
+
+    monkeypatch.setattr(
+        executor_core,
+        "_default_host_ports",
+        lambda: (_ for _ in ()).throw(AssertionError("default adapter loaded")),
+    )
+    monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify_turn)
+    monkeypatch.setattr(
+        executor_core,
+        "_resolve_spec",
+        lambda *args, **kwargs: SimpleNamespace(agent="test", model="test", effort="low"),
+    )
+
+    result = run_executor(
+        ExecutorRequest(query="hello"),
+        classify_only=True,
+        host_ports=_isolated_host_ports(events),
+    )
+
+    assert result.ok is True
+    assert seen["max_parse_attempts"] == 1
+    assert events == [
+        ("begin_usage", None),
+        ("begin_attempts", None),
+        ("end_usage", "usage"),
+        ("end_attempts", "attempts"),
+    ]
+
+
+def test_classify_non_parse_value_error_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_classify_turn(query: str, **kwargs: Any) -> ClassifyDecision:
+        nonlocal calls
+        calls += 1
+        raise ValueError("invalid non-parser configuration")
+
+    monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify_turn)
+
+    with pytest.raises(executor_core._ExecutorPhaseError):
+        executor_core._run_classify(
+            ExecutorRequest(query="hello"),
+            SimpleNamespace(agent="test", model="test", effort="low"),
+        )
+    assert calls == 1
+
+
+def test_research_profiler_span_uses_trace_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+    finished: list[tuple[str | None, str]] = []
+
+    class RecordingSpan:
+        def __init__(self, fields: dict[str, Any]) -> None:
+            self.fields = fields
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):  # noqa: ANN001, ANN204, ARG002
+            self.finish(status="error" if exc is not None else "ok")
+            return False
+
+        def update(self, **fields: Any) -> None:
+            self.fields.update(fields)
+
+        def finish(self, *, status: str = "ok", **fields: Any) -> None:
+            self.fields.update(fields)
+            finished.append((self.fields.get("phase"), status))
+
+    trace = AgentResearchTrace(
+        route="research",
+        question="q",
+        iterations=(),
+        final_verdict="refine",
+        summary="",
+        citations=(),
+        uncertainty="",
+        status="exhausted",
+        elapsed_seconds=1.0,
+    )
+    research_result = AgentResearchResult(
+        route="research",
+        trace=trace,
+        evidence_pack=EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=())),
+    )
+
+    monkeypatch.setattr(
+        executor_core,
+        "profiler_span",
+        lambda logger, event, **fields: RecordingSpan(fields),
+    )
+    monkeypatch.setattr(
+        executor_core,
+        "_resolve_spec",
+        lambda *args, **kwargs: SimpleNamespace(agent="test", model="test", effort="low"),
+    )
+    monkeypatch.setattr(
+        executor_core,
+        "_run_classify",
+        lambda *args, **kwargs: ClassifyDecision(
+            research=True,
+            intent="research",
+            route="research",
+            reply=True,
+        ),
+    )
+    monkeypatch.setattr(
+        executor_core,
+        "_run_agent_owned_research",
+        lambda *args, **kwargs: research_result,
+    )
+    monkeypatch.setattr(executor_core, "_run_reply", lambda *args, **kwargs: "done")
+
+    result = run_executor(
+        ExecutorRequest(query="research this"),
+        host_ports=_isolated_host_ports(events),
+    )
+
+    assert result.ok is True
+    assert ("research", "exhausted") in finished
+    assert ("research", "ok") not in finished

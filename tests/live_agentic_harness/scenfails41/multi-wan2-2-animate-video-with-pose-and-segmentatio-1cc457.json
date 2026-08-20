@@ -1,0 +1,41 @@
+{
+  "id": "multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457",
+  "query": "Swap the Wan2.2 model for a Stable Video Diffusion (SVD) based animation model. Also, remove the SAM2 segmentation branch and replace it with a simple foreground mask derived from the pose keypoints, keeping the relighting LoRA stage.",
+  "workflow_path": "external_workflows/corpus/1cc45704dcffe34a.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The pipeline now uses SVD with pose/face detection still providing conditioning, segmentation replaced by keypoint masking, and the LoRA relighting still applied.",
+    "quality": "All connections are correctly rewired; the video output node is properly linked, and the workflow remains executable end-to-end.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "image_to_video",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-to-video",
+      "wan2.2",
+      "animation",
+      "pose-detection",
+      "face-detection",
+      "sam2",
+      "segmentation",
+      "lora",
+      "relighting"
+    ],
+    "source_workflow_id": "1cc45704dcffe34a",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "It tests the agent's ability to restructure the animation pipeline by replacing the core video model and simplifying segmentation, requiring precise rerouting of data flow."
+  }
+}

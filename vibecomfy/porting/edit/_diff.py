@@ -1,29 +1,518 @@
 from __future__ import annotations
 
 import difflib
-from typing import Any
+from typing import Any, Mapping
 
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
     LinkSourceRef,
+    LinkTargetRef,
+    NodeFieldTarget,
+    NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
-    ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.edit.projection import MODE_LABELS
+from vibecomfy.porting.edit.constants import MODE_LABELS
 from vibecomfy.porting.edit._session_types import (
     CompactDiagnostic,
     StatementResult,
     _diag,
 )
 from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.workflow import VibeWorkflow, mode_to_litegraph
 
 _UNRESOLVED_OLD_VALUE = object()
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch 9 (Law 3): canonical Δ as a batch value.
+#
+# ``diff(pre, post)`` is the pure generalizer: it computes the minimal set of
+# Python-surface statements (the same six-op grammar ``interpret`` accepts) that
+# transform ``pre`` into ``post`` over the editable quotient (π_edit).  The
+# session's accepted batch IS the Δ; ``diff`` exists for judge/replay use and
+# must be an inverse of ``interpret`` over the quotient:
+#
+#   pi_edit(interpret(pre, diff(pre, post))) == pi_edit(post)
+#   diff(pre, interpret(pre, batch))  ~  the accepted statements (minimal,
+#                                         deterministic)
+#
+# No parallel prose/JSON delta representation: the VALUE is the batch (the
+# typed ops the grammar yields).  The summary functions below remain as the
+# humanization layer only.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _quotient_bindings(workflow: VibeWorkflow) -> dict[str, str]:
+    """uid → emitted binding for the editable-quotient nodes.
+
+    Mirrors ``pi_edit``'s node filter exactly (UI-only furniture is stripped,
+    unresolvable helpers are excluded, virtual wires are kept) so ``diff`` and
+    ``pi_edit`` agree on which nodes are editable.  Bindings are the pure
+    ``(class_type, uid-order)`` function, so they are identical for pre, post,
+    and any interpret reconstruction that preserves uids.
+    """
+    from vibecomfy._compile._helpers import (
+        RESOLVABLE_HELPER_CLASS_TYPES,
+        UI_ONLY_CLASS_TYPES,
+    )
+    from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
+    from vibecomfy.porting.emit.emit_prepare import (
+        _VIRTUAL_WIRE_EMITTER_CLASS_TYPES,
+    )
+    from vibecomfy.workflow import VibeEdge
+
+    nodes = {
+        str(node_id): node
+        for node_id, node in workflow.nodes.items()
+        if str(node.class_type) not in UI_ONLY_CLASS_TYPES
+        and not (
+            str(node.class_type) in RESOLVABLE_HELPER_CLASS_TYPES
+            and str(node.class_type) not in _VIRTUAL_WIRE_EMITTER_CLASS_TYPES
+        )
+    }
+    edges = [
+        VibeEdge(edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+        for edge in workflow.edges
+        if str(edge.from_node) in nodes and str(edge.to_node) in nodes
+    ]
+    names = _compute_variable_names(nodes, edges)
+    return {
+        str(node.uid): str(names[str(node_id)])
+        for node_id, node in nodes.items()
+        if getattr(node, "uid", None) is not None
+        and str(node.uid)
+        and str(node_id) in names
+    }
+
+
+def _quotient_node_by_uid(workflow: VibeWorkflow, uid: str) -> Any | None:
+    for node in workflow.nodes.values():
+        if str(getattr(node, "uid", "") or "") == str(uid):
+            return node
+    return None
+
+
+def _node_id_by_uid(workflow: VibeWorkflow, uid: str) -> str | None:
+    for node_id, node in workflow.nodes.items():
+        if str(getattr(node, "uid", "") or "") == str(uid):
+            return str(node_id)
+    return None
+
+
+def _edge_output_port(workflow: VibeWorkflow, edge: Any) -> str:
+    """Normalize an edge's ``from_output`` to the π_edit-visible named port.
+
+    Numeric slots are resolved through the deterministic typed-port aliases
+    (``_agent_edit_output_ports``) so the emitted ``upsert_link`` source and
+    ``pi_edit(post)`` agree even when the post IR stores a numeric slot.
+    Named ports (raw output names or typed ``MASK_0`` aliases) pass through
+    unchanged.
+    """
+    from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_aliases
+
+    raw = edge.from_output
+    if isinstance(raw, str) and raw.isdigit():
+        raw = int(raw)
+    if isinstance(raw, int):
+        source = workflow.nodes.get(str(edge.from_node))
+        if source is not None:
+            aliases = _agent_edit_output_aliases(source)
+            if raw in aliases:
+                return aliases[raw]
+        return str(raw)
+    return str(raw)
+
+
+def _connection_key(workflow: VibeWorkflow, edge: Any) -> tuple[str, str, str, str]:
+    return (
+        str(getattr(workflow.nodes.get(str(edge.from_node)), "uid", "") or ""),
+        _edge_output_port(workflow, edge),
+        str(getattr(workflow.nodes.get(str(edge.to_node)), "uid", "") or ""),
+        str(edge.to_input),
+    )
+
+
+def _quotient_connections(
+    workflow: VibeWorkflow, uids: set[str]
+) -> set[tuple[str, str, str, str]]:
+    result: set[tuple[str, str, str, str]] = set()
+    for edge in workflow.edges:
+        src = workflow.nodes.get(str(edge.from_node))
+        dst = workflow.nodes.get(str(edge.to_node))
+        src_uid = str(getattr(src, "uid", "") or "")
+        dst_uid = str(getattr(dst, "uid", "") or "")
+        if src_uid not in uids or dst_uid not in uids:
+            continue
+        result.add(
+            (
+                src_uid,
+                _edge_output_port(workflow, edge),
+                dst_uid,
+                str(edge.to_input),
+            )
+        )
+    return result
+
+
+def _incoming_connections(
+    workflow: VibeWorkflow, target_uid: str, uids: set[str]
+) -> set[tuple[str, str, str, str]]:
+    return {
+        key
+        for key in _quotient_connections(workflow, uids)
+        if key[2] == target_uid
+    }
+
+
+def _common_node_rebuild_required(
+    pre_node: Any, post_node: Any
+) -> bool:
+    """True when a common node's π_edit delta needs remove+add.
+
+    ``set_node_field`` writes by name to the channel the pre-node already has
+    (widgets preferred, else inputs), so any change the op cannot express — a
+    class-type change, a removed field name, a widget field added/removed/moved
+    between channels, or a dual-channel name whose input value also changed —
+    must be expressed as ``remove_node`` + ``add_node`` (the minimal batch
+    that can reproduce post's node exactly).  A brand-new INPUT field needs no
+    rebuild: ``set_node_field`` lands unknown names in the input channel.
+    """
+    if str(pre_node.class_type) != str(post_node.class_type):
+        return True
+    pre_widgets = dict(getattr(pre_node, "widgets", {}) or {})
+    post_widgets = dict(getattr(post_node, "widgets", {}) or {})
+    pre_inputs = dict(getattr(pre_node, "inputs", {}) or {})
+    post_inputs = dict(getattr(post_node, "inputs", {}) or {})
+    if set(pre_widgets) != set(post_widgets):
+        return True
+    if set(pre_inputs) - set(post_inputs):
+        return True
+    # A name in BOTH channels of the pre-node can only be written by
+    # set_node_field into the widget channel; if its input value changed too,
+    # the op cannot reproduce post.
+    overlap = set(pre_widgets) & set(pre_inputs)
+    for name in overlap:
+        if pre_inputs.get(name) != post_inputs.get(name):
+            return True
+    return False
+
+
+def _node_field_ops(uid: str, pre_node: Any, post_node: Any) -> list[EditOp]:
+    """set_node_field ops for a common node over stable channels."""
+    pre_widgets = dict(getattr(pre_node, "widgets", {}) or {})
+    post_widgets = dict(getattr(post_node, "widgets", {}) or {})
+    pre_inputs = dict(getattr(pre_node, "inputs", {}) or {})
+    post_inputs = dict(getattr(post_node, "inputs", {}) or {})
+    ops: list[EditOp] = []
+    for name in sorted(pre_widgets):
+        if pre_widgets.get(name) != post_widgets.get(name):
+            ops.append(
+                SetNodeFieldOp(
+                    op="set_node_field",
+                    target=NodeFieldTarget("", uid, name),
+                    value=post_widgets.get(name),
+                )
+            )
+    for name in sorted(pre_inputs):
+        if name in pre_widgets:
+            # Dual-channel name: the input value is unchanged (checked by the
+            # rebuild guard); the widget op above already covers the name.
+            continue
+        if pre_inputs.get(name) != post_inputs.get(name):
+            ops.append(
+                SetNodeFieldOp(
+                    op="set_node_field",
+                    target=NodeFieldTarget("", uid, name),
+                    value=post_inputs.get(name),
+                )
+            )
+    for name in sorted(set(post_inputs) - set(pre_inputs) - set(pre_widgets)):
+        # Brand-new input field: set_node_field lands unknown names in the
+        # input channel, exactly where post keeps it.
+        ops.append(
+            SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget("", uid, name),
+                value=post_inputs.get(name),
+            )
+        )
+    return ops
+
+
+def _add_node_op_for(uid: str, post: VibeWorkflow, uids: set[str]) -> AddNodeOp:
+    post_node = _quotient_node_by_uid(post, uid)
+    assert post_node is not None
+    wired_names = {
+        key[3]
+        for key in _incoming_connections(post, uid, uids)
+    }
+    fields: dict[str, Any] = {}
+    # Inputs first, then widgets: a name in BOTH channels keeps its WIDGET
+    # value (the literal channel), which ``widget_field_names`` restores.
+    for name, value in (dict(getattr(post_node, "inputs", {}) or {})).items():
+        if str(name) in wired_names:
+            continue
+        fields[str(name)] = value
+    for name, value in (dict(getattr(post_node, "widgets", {}) or {})).items():
+        fields[str(name)] = value
+    inputs: dict[str, LinkSourceRef] = {}
+    for src_uid, port, _dst_uid, input_name in sorted(
+        _incoming_connections(post, uid, uids)
+    ):
+        inputs[input_name] = LinkSourceRef("", src_uid, port)
+    return AddNodeOp(
+        op="add_node",
+        scope_path="",
+        class_type=str(post_node.class_type),
+        fields=fields,
+        inputs=inputs,
+        uid=uid,
+        node_id=_node_id_by_uid(post, uid),
+        # Batch 9 fix: carry the instance widgets channel explicitly so
+        # ``_split_add_fields`` restores unknown-schema widget fields on the
+        # interpret side (schema classification alone would drop them).
+        widget_field_names=tuple(
+            sorted(str(name) for name in (getattr(post_node, "widgets", {}) or {}))
+        ),
+    )
+
+
+def _subgraph_interfaces(workflow: VibeWorkflow) -> dict[str, tuple[str, tuple, tuple]]:
+    """id → (name, inputs, outputs) for retained ``definitions`` subgraphs.
+
+    Mirrors π_edit's ``_graph_interfaces`` projection exactly (same raw
+    definitions source and same ``_subgraph_definitions_from_raw`` parser) so
+    ``diff`` and the quotient agree on which signatures are grammar-visible.
+    """
+    from vibecomfy.porting.emit.emit_subgraph import _subgraph_definitions_from_raw
+
+    metadata = getattr(workflow, "metadata", None) or {}
+    definitions = metadata.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return {}
+    subgraphs = _subgraph_definitions_from_raw(
+        {"definitions": dict(definitions)}, source_path=None
+    )
+    return {
+        str(subgraph.id): (
+            str(subgraph.raw_name),
+            tuple((port.name, port.type) for port in subgraph.inputs),
+            tuple((port.name, port.type) for port in subgraph.outputs),
+        )
+        for subgraph in subgraphs.values()
+    }
+
+
+def _subgraph_interface_ops(
+    pre: VibeWorkflow, post: VibeWorkflow
+) -> list[SubgraphInterfaceOp]:
+    """Add/remove/change statements for grammar-visible subgraph signatures."""
+    pre_subgraphs = _subgraph_interfaces(pre)
+    post_subgraphs = _subgraph_interfaces(post)
+    ops: list[SubgraphInterfaceOp] = []
+    for sub_id in sorted(post_subgraphs):
+        if sub_id not in pre_subgraphs:
+            name, inputs, outputs = post_subgraphs[sub_id]
+            ops.append(
+                SubgraphInterfaceOp(
+                    op="subgraph_interface",
+                    action="add",
+                    name=name,
+                    inputs=inputs,
+                    outputs=outputs,
+                    id=sub_id,
+                )
+            )
+        elif pre_subgraphs[sub_id] != post_subgraphs[sub_id]:
+            name, inputs, outputs = post_subgraphs[sub_id]
+            ops.append(
+                SubgraphInterfaceOp(
+                    op="subgraph_interface",
+                    action="change",
+                    name=name,
+                    inputs=inputs,
+                    outputs=outputs,
+                    id=sub_id,
+                )
+            )
+    for sub_id in sorted(pre_subgraphs):
+        if sub_id not in post_subgraphs:
+            name, _inputs, _outputs = pre_subgraphs[sub_id]
+            ops.append(
+                SubgraphInterfaceOp(
+                    op="subgraph_interface",
+                    action="remove",
+                    name=name,
+                    id=sub_id,
+                )
+            )
+    return ops
+
+
+def _order_add_uids(add_uids: set[str], post: VibeWorkflow, uids: set[str]) -> list[str]:
+    """Deterministic topological order: sources added before dependents."""
+    remaining = set(add_uids)
+    ordered: list[str] = []
+    while remaining:
+        ready = sorted(
+            uid
+            for uid in remaining
+            if all(
+                src_uid not in remaining
+                for src_uid, _port, _dst, _input_name in _incoming_connections(
+                    post, uid, uids
+                )
+            )
+        )
+        if not ready:
+            ready = [sorted(remaining)[0]]
+        ordered.extend(ready)
+        remaining.difference_update(ready)
+    return ordered
+
+
+def diff(
+    pre: VibeWorkflow,
+    post: VibeWorkflow,
+    *,
+    schema_provider: Any = None,
+) -> tuple[EditOp, ...]:
+    """Canonical Δ: the minimal deterministic batch that turns ``pre`` into
+    ``post`` over the editable quotient (Law 3).
+
+    The result is a tuple of the SAME six ops ``interpret`` accepts
+    (``set_node_field``, ``set_mode``, ``add_node``, ``upsert_link``,
+    ``remove_node``, ``remove_link``) — a valid batch source — so
+    ``interpret(pre, diff(pre, post))`` reconstructs ``post``'s π_edit.
+    Pure and deterministic: the inputs are never mutated and the same
+    ``(pre, post)`` always yields the same Δ.  ``diff(pre, pre)`` is the
+    empty batch.
+
+    ``schema_provider`` is accepted for API symmetry with ``interpret``; the
+    quotient derivation is schema-independent (bindings are a pure function
+    of class_type + uid order), so it is not required.
+    """
+    _ = schema_provider
+    if not isinstance(pre, VibeWorkflow) or not isinstance(post, VibeWorkflow):
+        raise TypeError("diff requires VibeWorkflow pre and post")
+
+    pre_bindings = _quotient_bindings(pre)
+    post_bindings = _quotient_bindings(post)
+    pre_uids = set(pre_bindings)
+    post_uids = set(post_bindings)
+    common_uids = sorted(pre_uids & post_uids)
+    removed_uids = sorted(pre_uids - post_uids)
+    added_uids = sorted(post_uids - pre_uids)
+
+    rebuild_uids: set[str] = set()
+    ops: list[EditOp] = []
+
+    # 0. Subgraph-interface statements: π_edit includes grammar-visible
+    #    subgraph signatures (``metadata["definitions"]``), so a definitions
+    #    delta is part of the canonical Δ (Law 3).  Emitted first; they are
+    #    independent of the node/link ops below.  Interface-only graphs have
+    #    no root quotient nodes — still emit these ops (do not early-return).
+    ops.extend(_subgraph_interface_ops(pre, post))
+    if not (common_uids or removed_uids or added_uids):
+        return tuple(ops)
+
+    # 1. Node removals (incl. rebuild removals for common nodes whose π_edit
+    #    cannot be expressed with set_node_field/set_mode alone).
+    for uid in common_uids:
+        pre_node = _quotient_node_by_uid(pre, uid)
+        post_node = _quotient_node_by_uid(post, uid)
+        if pre_node is None or post_node is None:
+            continue
+        if _common_node_rebuild_required(pre_node, post_node):
+            rebuild_uids.add(uid)
+    for uid in sorted(rebuild_uids) + removed_uids:
+        ops.append(RemoveNodeOp(op="remove_node", target=NodeTarget("", uid)))
+
+    # 2. Link removals: pre-only connections whose target node survives.
+    #    A rewire (same target input, new source in post) needs no remove_link:
+    #    upsert_link is replace-semantics over the target input.
+    pre_conns = _quotient_connections(pre, pre_uids)
+    post_conns = _quotient_connections(post, post_uids)
+    post_target_inputs = {
+        (dst_uid, input_name) for _src, _port, dst_uid, input_name in post_conns
+    }
+    for src_uid, port, dst_uid, input_name in sorted(pre_conns - post_conns):
+        if dst_uid not in post_uids or dst_uid in rebuild_uids:
+            continue  # covered by remove_node
+        if src_uid in removed_uids or src_uid in rebuild_uids:
+            continue  # remove_node drops the source's edges
+        if (dst_uid, input_name) in post_target_inputs:
+            continue  # rewire: covered by upsert_link
+        ops.append(
+            RemoveLinkOp(
+                op="remove_link",
+                target=LinkTargetRef("", dst_uid, input_name),
+            )
+        )
+
+    # 3. Mode + literal-field changes on surviving common nodes.
+    for uid in common_uids:
+        if uid in rebuild_uids:
+            continue
+        pre_node = _quotient_node_by_uid(pre, uid)
+        post_node = _quotient_node_by_uid(post, uid)
+        if pre_node is None or post_node is None:
+            continue
+        if mode_to_litegraph(pre_node.mode) != mode_to_litegraph(post_node.mode):
+            ops.append(
+                SetModeOp(
+                    op="set_mode",
+                    target=NodeTarget("", uid),
+                    mode=mode_to_litegraph(post_node.mode),
+                )
+            )
+        ops.extend(_node_field_ops(uid, pre_node, post_node))
+
+    # 4. Node additions (topologically ordered: a new node's wired inputs may
+    #    reference other new nodes).  AddNodeOp has no mode channel, so a
+    #    non-default mode needs an explicit set_mode right after the add.
+    for uid in _order_add_uids(rebuild_uids | set(added_uids), post, post_uids):
+        ops.append(_add_node_op_for(uid, post, post_uids))
+        post_node = _quotient_node_by_uid(post, uid)
+        if post_node is not None and mode_to_litegraph(post_node.mode) != 0:
+            ops.append(
+                SetModeOp(
+                    op="set_mode",
+                    target=NodeTarget("", uid),
+                    mode=mode_to_litegraph(post_node.mode),
+                )
+            )
+
+    # 5. New connections whose target survives: upsert (replaces any pre edge
+    #    on the same input, so a rewire needs no separate remove_link).
+    #    A rebuilt node's remove_node also drops its OUTGOING edges, so every
+    #    post edge from a rebuilt node to a surviving target is re-established
+    #    here too (incoming edges travel via add_node.inputs).
+    emitted_upserts: set[tuple[str, str, str, str]] = set()
+    for src_uid, port, dst_uid, input_name in sorted(post_conns - pre_conns):
+        if dst_uid in added_uids or dst_uid in rebuild_uids:
+            continue  # covered by add_node.inputs
+        emitted_upserts.add((src_uid, port, dst_uid, input_name))
+    for src_uid, port, dst_uid, input_name in sorted(post_conns):
+        if src_uid not in rebuild_uids or dst_uid in added_uids or dst_uid in rebuild_uids:
+            continue
+        emitted_upserts.add((src_uid, port, dst_uid, input_name))
+    for src_uid, port, dst_uid, input_name in sorted(emitted_upserts):
+        ops.append(
+            UpsertLinkOp(
+                op="upsert_link",
+                source=LinkSourceRef("", src_uid, port),
+                target=LinkTargetRef("", dst_uid, input_name),
+            )
+        )
+
+    return tuple(ops)
+
 
 
 class _DiffMixin:
@@ -43,10 +532,9 @@ class _DiffMixin:
             return self._summarize_remove_link(op)
         if isinstance(op, SetModeOp):
             return self._summarize_set_mode(op)
-        if isinstance(op, SetTitleOp):
-            return self._summarize_set_title(op)
-        if isinstance(op, ReorderOp):
-            return self._summarize_reorder(op)
+        if isinstance(op, SubgraphInterfaceOp):
+            target = op.id or op.name or "subgraph"
+            return f"{op.action.capitalize()} subgraph interface {target}."
         return ""
 
     def _summarize_set_node_field(self, op: SetNodeFieldOp) -> str:
@@ -54,7 +542,7 @@ class _DiffMixin:
         field = op.target.field_path
         old_value = self._original_node_field_value(op.target.scope_path, op.target.uid, field)
         new_value = op.value
-        if old_value is not None:
+        if old_value is not None and old_value is not _UNRESOLVED_OLD_VALUE:
             return f"Changed {name}.{field} from {old_value!r} to {new_value!r}."
         return f"Set {name}.{field} = {new_value!r}."
 
@@ -104,10 +592,11 @@ class _DiffMixin:
         socket_type = self._output_socket_type(op.source.scope_path, op.source.uid, op.source.output_slot)
         type_hint = f" ({socket_type})" if socket_type else ""
 
-        # Check original ledger for a pre-existing link to determine new vs rewire
-        prev_link = self._find_link_to_target_in_ledger(
-            self.original_ledger, op.target.scope_path, op.target.uid, op.target.input_field
+        prev_link = self._find_link_to_target_in_workflow(
+            getattr(self, "_wf0", None), op.target.uid, op.target.input_field
         )
+        if prev_link is _UNRESOLVED_OLD_VALUE:
+            prev_link = None
         if prev_link is not None:
             # Rewire case: original ledger had a link
             pass
@@ -145,17 +634,6 @@ class _DiffMixin:
         old_label = MODE_LABELS.get(old_mode, f"mode={old_mode}")
         new_label = MODE_LABELS.get(op.mode, f"mode={op.mode}")
         return f"Changed {name} mode from {old_label} to {new_label}."
-
-    def _summarize_set_title(self, op: SetTitleOp) -> str:
-        name = self._node_display_name(op.target.scope_path, op.target.uid)
-        old_title = self._original_node_title(op.target.scope_path, op.target.uid)
-        if old_title:
-            return f"Renamed {name} from {old_title!r} to {op.title!r}."
-        return f"Titled {name} {op.title!r}."
-
-    def _summarize_reorder(self, op: ReorderOp) -> str:
-        name = self._node_display_name(op.target.scope_path, op.target.uid)
-        return f"Reordered {name} {op.axis}."
 
     def _build_field_changes(
         self,
@@ -196,6 +674,8 @@ class _DiffMixin:
                 touched_uids=statement.touched_uids,
                 dependency_cause=statement.dependency_cause,
                 teaching_hint=statement.teaching_hint,
+                status=statement.status,
+                reason=statement.reason,
             )
         return tuple(field_changes), tuple(updated_results)
 
@@ -213,11 +693,6 @@ class _DiffMixin:
             old = self._original_node_mode(op.target.scope_path, op.target.uid)
             new = op.mode
             field_path = "mode"
-            uid = op.target.uid
-        elif isinstance(op, SetTitleOp):
-            old = self._original_node_title(op.target.scope_path, op.target.uid)
-            new = op.title
-            field_path = "title"
             uid = op.target.uid
         elif isinstance(op, UpsertLinkOp):
             old = self._original_link_value(
@@ -304,10 +779,13 @@ def _render_op_diff(op: Any, *, old_value: Any = None) -> str:
         return f"remove_link  link_id={op.link_id}"
     if isinstance(op, SetModeOp):
         return f"set_mode  uid={op.target.uid!r} → mode={op.mode}"
-    if isinstance(op, SetTitleOp):
-        return f"set_title  uid={op.target.uid!r} → title={op.title!r}"
-    if isinstance(op, ReorderOp):
-        return f"reorder  uid={op.target.uid!r} axis={op.axis}"
+    if isinstance(op, SubgraphInterfaceOp):
+        detail = f"action={op.action} name={op.name!r}"
+        if op.inputs:
+            detail += f" inputs={len(op.inputs)}"
+        if op.outputs:
+            detail += f" outputs={len(op.outputs)}"
+        return f"subgraph_interface  {detail}"
     return repr(type(op).__name__)
 
 

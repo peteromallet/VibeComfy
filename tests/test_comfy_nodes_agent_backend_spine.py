@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from types import SimpleNamespace
 import os
@@ -327,8 +328,7 @@ def _record_candidate_response(
         },
         "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": [],
+        "accepted_batch": [],
     }
     record_idempotent_response(
         session_root=root,
@@ -2960,6 +2960,211 @@ def test_queue_stage_tolerates_preexisting_schema_less_nodes_after_recovery_enri
     assert {issue["code"] for issue in raw_result.issues} == {"schema_less_queue_blocker"}
     assert enriched_result.ok is True
     assert enriched_result.issues == ()
+
+
+def test_queue_stage_allows_schema_less_slot_index_churn_when_destinations_remain() -> None:
+    """RC5 / B2 S4: inserting downstream of preexisting schema-less TTS is safe."""
+    original = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [1]}],
+            },
+            {
+                "id": 12,
+                "type": "SaveAudio",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 1}],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 11, 0, 12, 0, "AUDIO"]],
+    }
+    candidate = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 1, "links": [7]}],
+            },
+            {
+                "id": 20,
+                "type": "AudioEqualizer3Band",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 7}],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [8]}],
+            },
+            {
+                "id": 12,
+                "type": "SaveAudio",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 8}],
+                "outputs": [],
+            },
+        ],
+        "links": [
+            [7, 11, 0, 20, 0, "AUDIO"],
+            [8, 20, 0, 12, 0, "AUDIO"],
+        ],
+    }
+    emit_recovery = [
+        {
+            "node_id": "11",
+            "class_type": "VibeVoiceTTS",
+            "schema_less": True,
+            "diagnostic": "schema-less: emitting best-effort slots",
+        }
+    ]
+    provider = _Provider({"AudioEqualizer3Band": _schema("AudioEqualizer3Band"), "SaveAudio": _schema("SaveAudio")})
+    result = queue_stage_result(
+        recovery_report=_queue_recovery_report_for_candidate(
+            ui_payload=candidate,
+            schema_provider=provider,
+            original_ui_payload=original,
+            existing_recovery_report=emit_recovery,
+        ),
+        change_report={},
+    )
+    assert result.ok is True
+
+    new_schema_less = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [1]}],
+            },
+            {
+                "id": 99,
+                "type": "BrandNewSchemaLess",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 1}],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 11, 0, 99, 0, "AUDIO"]],
+    }
+    blocked = queue_stage_result(
+        recovery_report=_queue_recovery_report_for_candidate(
+            ui_payload=new_schema_less,
+            schema_provider=provider,
+            original_ui_payload=original,
+            existing_recovery_report=emit_recovery,
+        ),
+        change_report={},
+    )
+    assert blocked.ok is False
+    assert any(issue["code"] == "schema_less_queue_blocker" for issue in blocked.issues)
+
+
+def test_queue_stage_scopes_schema_less_blocker_to_ir_delta_touched_nodes() -> None:
+    """RC12a: production's ingested-IR baseline must not make old nodes look new."""
+    original_ir = {
+        "nodes": [
+            {
+                "id": "11",
+                "uid": "11",
+                "class_type": "VibeVoiceTTS",
+                "metadata": {
+                    "_ui": {
+                        "id": 11,
+                        "type": "VibeVoiceTTS",
+                        "inputs": [{"name": "voice", "type": "AUDIO", "link": 2}],
+                        "outputs": [{"name": "AUDIO", "type": "AUDIO", "links": [1]}],
+                        "widgets_values": ["VibeVoice-Large", 30],
+                    }
+                },
+            },
+            {
+                "id": "12",
+                "uid": "12",
+                "class_type": "SaveAudio",
+                "metadata": {
+                    "_ui": {
+                        "id": 12,
+                        "type": "SaveAudio",
+                        "inputs": [{"name": "audio", "type": "AUDIO", "link": 1}],
+                        "outputs": [],
+                    }
+                },
+            },
+        ],
+        "edges": [
+            {"from_node": "11", "from_output": "0", "to_node": "12", "to_input": "audio"}
+        ],
+    }
+    candidate = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "inputs": [{"name": "voice", "type": "AUDIO", "link": 2}],
+                # Schema-less round-trip normalization is not a user edit.
+                "outputs": [{"name": "AUDIO_0", "type": "AUDIO_0", "slot_index": 0, "links": [7]}],
+                "widgets_values": ["VibeVoice-Large", 30],
+            },
+            {
+                "id": 20,
+                "type": "AudioEqualizer3Band",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 7}],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [8]}],
+            },
+            {
+                "id": 12,
+                "type": "SaveAudio",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 8}],
+                "outputs": [],
+            },
+        ],
+        "links": [
+            [7, 11, 0, 20, 0, "AUDIO"],
+            [8, 20, 0, 12, 0, "AUDIO"],
+        ],
+    }
+    provider = _Provider(
+        {
+            "AudioEqualizer3Band": _schema("AudioEqualizer3Band"),
+            "SaveAudio": _schema("SaveAudio"),
+        }
+    )
+    recovery = _queue_recovery_report_for_candidate(
+        ui_payload=candidate,
+        schema_provider=provider,
+        original_ui_payload=original_ir,
+    )
+
+    untouched = next(entry for entry in recovery if entry["node_id"] == "11")
+    assert untouched["preexisting_ui_node"] is True
+    result = queue_stage_result(
+        recovery_report=recovery,
+        change_report={
+            "content_edits": {
+                "preserved": ["11"],
+                "edited": ["12"],
+                "new_auto_placed": ["20"],
+            }
+        },
+    )
+    assert result.ok is True
+    assert {issue["code"] for issue in result.issues} == {"schema_less_queue_warning"}
+
+    for mutation in ("widgets", "slot_name"):
+        changed = copy.deepcopy(candidate)
+        if mutation == "widgets":
+            changed["nodes"][0]["widgets_values"][1] = 31
+        else:
+            changed["nodes"][0]["outputs"][0]["name"] = "ALTERED_AUDIO"
+        changed_recovery = _queue_recovery_report_for_candidate(
+            ui_payload=changed,
+            schema_provider=provider,
+            original_ui_payload=original_ir,
+        )
+        changed_result = queue_stage_result(
+            recovery_report=changed_recovery,
+            change_report={"content_edits": {"preserved": [], "edited": ["11"]}},
+        )
+        assert changed_result.ok is False, mutation
+        assert any(
+            issue["code"] == "schema_less_queue_blocker"
+            for issue in changed_result.issues
+        ), mutation
 
 
 def test_queue_recovery_allows_schema_less_transitive_reroute_with_schema_less_intermediate() -> None:
@@ -10550,8 +10755,7 @@ def test_response_durability_explicit_v2_persists_canonical_plan_binding(
         },
         "eligibility": {"applyable": True},
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
     }
 
     record_idempotent_response(
@@ -12018,12 +12222,10 @@ def _setup_v2_session_with_candidate(
             }
         ],
     }
-    from vibecomfy.porting.edit.apply_core import apply_delta
-    from vibecomfy.porting.edit.ops import normalize_delta_ops
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
 
-    applied = apply_delta(request["graph"], normalize_delta_ops(envelope))
-    assert applied.ok and applied.candidate is not None
-    candidate_graph = applied.candidate
+    ok, candidate_graph, error, _ = recompute_apply(request["graph"], envelope)
+    assert ok and candidate_graph is not None, error
     candidate_graph_hash = payload_hash(candidate_graph)
     structural_hash = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(
@@ -12044,8 +12246,7 @@ def _setup_v2_session_with_candidate(
         },
         "eligibility": {"applyable": True},
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
     }
     record_idempotent_response(
         session_root=root,

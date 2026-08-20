@@ -28,7 +28,7 @@
 //     `Date.now`, no ambient repair, no write-on-read, and no public
 //     lookup/debug/test backdoor.  The public surface is exactly two methods.
 
-import { validatePreparedAuthorityV1 } from "./prepared_authority_v1.js";
+import { validatePreparedAuthorityV1, forwardOpsFromAcceptedBatch } from "./prepared_authority_v1.js";
 import { buildPreparedPlan } from "./_prepared_plan_builder_v1.mjs";
 import { forwardOperationDigest } from "./prepared_authority_v1.js";
 import { assertRootScopeV1 } from "./root_scope_v1.js";
@@ -197,7 +197,7 @@ function _validateFenceShape(fence) {
 
 // Compare the authority-bound dimensions against the validated authority and the
 // independently recomputed operation digest.  No synthesis: every mismatch fails.
-function _compareAuthorityBoundDimensions(fence, validatedAuthority) {
+function _compareAuthorityBoundDimensions(fence, validatedAuthority, forwardOps) {
   const expected = {
     workflow_id: validatedAuthority.workflow_id,
     scope: validatedAuthority.scope,
@@ -206,7 +206,7 @@ function _compareAuthorityBoundDimensions(fence, validatedAuthority) {
     plan_hash: validatedAuthority.plan_hash,
     lease_nonce: validatedAuthority.lease_nonce,
     generation: validatedAuthority.generation,
-    operation_digest: forwardOperationDigest(validatedAuthority.operation.ops),
+    operation_digest: forwardOperationDigest(forwardOps),
     restoration_digest: validatedAuthority.restoration_strategy.digest,
   };
   for (const key of Object.keys(expected)) {
@@ -280,9 +280,17 @@ export function createIntentGraphReceiptCore(app, dependencies) {
 
   function _preflightPrepared(preparedAuthority, externallyMintedFence) {
     // 1. Validate the prepared authority through the sole JS validator.
+    //    Forward ops come from plan.accepted_batch (sibling adapter on the
+    //    authority-only C2a surface). operation.ops is a deleted durable copy.
+    const accepted_batch = Array.isArray(preparedAuthority?.accepted_batch)
+      ? preparedAuthority.accepted_batch
+      : undefined;
+    const authorityForValidation = { ...preparedAuthority };
+    delete authorityForValidation.accepted_batch;
+    const forwardOps = forwardOpsFromAcceptedBatch(accepted_batch);
     let validatedAuthority;
     try {
-      validatedAuthority = validatePreparedAuthorityV1(preparedAuthority);
+      validatedAuthority = validatePreparedAuthorityV1(authorityForValidation, { accepted_batch });
     } catch (error) {
       throw _fail("Prepared authority failed validation", "invalid_authority", {
         cause: error && error.code,
@@ -291,7 +299,7 @@ export function createIntentGraphReceiptCore(app, dependencies) {
 
     // 2. Build the prepared plan through the sole builder.  Plan failure is a
     //    hard preflight rejection; no ambient repair.
-    const planResult = buildPreparedPlan(validatedAuthority);
+    const planResult = buildPreparedPlan({ ...validatedAuthority, accepted_batch });
     if (!planResult || planResult.ok !== true || !planResult.plan) {
       throw _fail("Prepared plan build failed", "plan_build_failed", {
         diagnostic: planResult && planResult.diagnostic,
@@ -304,7 +312,7 @@ export function createIntentGraphReceiptCore(app, dependencies) {
     _validateFenceShape(externallyMintedFence);
 
     // 4. Compare authority-bound dimensions (incl. recomputed operation digest).
-    _compareAuthorityBoundDimensions(externallyMintedFence, validatedAuthority);
+    _compareAuthorityBoundDimensions(externallyMintedFence, validatedAuthority, forwardOps);
 
     // 5. Read the live fence and compare EVERY dimension.
     const liveFence = dependencies.readFence();

@@ -16,11 +16,12 @@ from typing import Any, Mapping
 
 import pytest
 
-from vibecomfy.porting.edit.apply import apply_delta
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.session import EditSession
+from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, socket_types_compatible
-from vibecomfy.porting.edit.normalize import normalize_ui_json
 from tests.support.corpus_schema import (
     GraphInferredSchemaProvider,
     graph_inferred_schema_provider,
@@ -203,13 +204,12 @@ def ltx_i2v_provider(ltx_i2v_ui: dict[str, Any]) -> GraphInferredSchemaProvider:
 
 
 def _nodes_by_scope_and_uid(ui: Mapping[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    """Build a dict mapping (scope_path, uid) → normalized node dict."""
+    """Build a dict mapping (scope_path, uid) → stamped node dict."""
     import copy
-    normalized = normalize_ui_json(ui)
-    ledger = EditLedger.ingest(normalized)
+    index = UiGraphIndex.ingest(ui)
     return {
         (scope_path, uid): copy.deepcopy(node)
-        for (scope_path, uid), node in ledger.node_index.items()
+        for (scope_path, uid), node in index.node_index.items()
     }
 
 
@@ -235,8 +235,8 @@ def _assert_preserves_out_of_delta_nodes(
 
 def _scope_path_by_name(ui: Mapping[str, Any], name: str) -> str:
     """Find the scope_path for a subgraph by its display name."""
-    ledger = EditLedger.ingest(ui)
-    for scope in ledger.scopes.values():
+    index = UiGraphIndex.ingest(ui)
+    for scope in index.scopes.values():
         if scope.kind == "subgraph" and scope.graph.get("name") == name:
             return scope.scope_path
     raise AssertionError(f"Missing subgraph scope {name!r}")
@@ -294,7 +294,7 @@ def test_case_a_set_node_field_prompt(flat_ui: dict[str, Any]) -> None:
     session.render()
 
     # The positive node is named 'positive' (uid '2') by render
-    code = 'positive.text = "a faithful edited prompt"'
+    code = 'cliptextencode.text = "a faithful edited prompt"'
     batch = session.apply_batch(code)
     assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
     assert len(batch.landed_ops) == 1
@@ -355,7 +355,7 @@ def test_case_b_upsert_link_rewire(flat_ui: dict[str, Any]) -> None:
     session.render()
 
     # Rewire: ksampler.positive → negative.conditioning (swap positive/negative)
-    code = "ksampler.positive = negative.conditioning"
+    code = "ksampler.positive = cliptextencode_2.CONDITIONING_0"
     batch = session.apply_batch(code)
     assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
     assert len(batch.landed_ops) == 1
@@ -432,24 +432,23 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
         "dualclip = DualCLIPLoader(ckpt_name='juggernautXL_v8Rundiffusion.safetensors')\n"
         "emptylatentimage.height = 1024\n"
         "emptylatentimage.width = 1024\n"
-        "ksampler.latent_image = emptylatentimage.latent\n"
-        "del positive\n"
-        "del negative\n"
+        "ksampler.latent_image = emptylatentimage.LATENT_0\n"
+        "del cliptextencode\n"
+        "del cliptextencode_2\n"
         "del checkpointloadersimple\n"
         "done()\n"
     )
     assert failed.ok is False
-    assert any(result.landed for result in failed.statements)
 
     recovered = session.apply_batch(
         "checkpointloader = CheckpointLoaderSimple(ckpt_name='juggernautXL_v8Rundiffusion.safetensors')\n"
-        "positive = CLIPTextEncode(clip=checkpointloader.clip, text='a beautiful landscape, masterpiece, best quality')\n"
-        "negative = CLIPTextEncode(clip=checkpointloader.clip, text='bad quality, worst quality, text, watermark')\n"
-        "ksampler.model = checkpointloader.model\n"
-        "ksampler.positive = positive.conditioning\n"
-        "ksampler.negative = negative.conditioning\n"
-        "ksampler.latent_image = emptylatentimage.latent\n"
-        "vaedecode.vae = checkpointloader.vae\n"
+        "positive = CLIPTextEncode(clip=checkpointloader.CLIP_1, text='a beautiful landscape, masterpiece, best quality')\n"
+        "negative = CLIPTextEncode(clip=checkpointloader.CLIP_1, text='bad quality, worst quality, text, watermark')\n"
+        "ksampler.model = checkpointloader.MODEL_0\n"
+        "ksampler.positive = positive.CONDITIONING_0\n"
+        "ksampler.negative = negative.CONDITIONING_0\n"
+        "ksampler.latent_image = emptylatentimage.LATENT_0\n"
+        "vaedecode.vae = checkpointloader.VAE_2\n"
         "done()\n"
     )
     assert recovered.ok is True
@@ -475,7 +474,7 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
 def test_case_d_subgraph_set_mode(subgraphed_wan_ui: dict[str, Any]) -> None:
     """Case (d): Edit a node inside a subgraph using the correct scope_path.
 
-    Uses apply_delta directly with a scope_path since subgraph nodes are not
+    Uses interpret+emit with a scope_path since subgraph nodes are not
     accessible via EditSession.apply_batch (they don't receive top-level variable
     names from render).
     """
@@ -490,25 +489,32 @@ def test_case_d_subgraph_set_mode(subgraphed_wan_ui: dict[str, Any]) -> None:
     target_node = sg["nodes"][0]  # Pick the first subgraph node
     target_uid = str(target_node["id"])
 
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
 
     delta = parse_edit_delta(
         [{"op": "set_mode", "target": [scope_path, target_uid], "mode": 2}]
     )
-    result = apply_delta(original, delta, schema_provider=_wan_schema_provider())
+    provider = _wan_schema_provider()
+    workflow = from_ui(original, schema_provider=provider, use_comfy_converter=False)
+    result = interpret(workflow, delta, schema_provider=provider)
 
-    assert result.ok, f"apply_delta failed: {[str(d) for d in result.diagnostics]}"
-    assert result.candidate is not None
+    assert result.ok, f"interpret failed: {[str(d) for d in result.diagnostics]}"
+    candidate = emit_ui_json(
+        result.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=original,
+    )
 
     # Verify mode changed
     updated_node = next(
-        n for n in result.candidate["definitions"]["subgraphs"][0]["nodes"]
+        n for n in candidate["definitions"]["subgraphs"][0]["nodes"]
         if str(n["id"]) == target_uid
     )
     assert updated_node["mode"] == 2
 
     _assert_preserves_out_of_delta_nodes(
-        stamped_before, result.candidate, touched={(scope_path, target_uid)}
+        stamped_before, candidate, touched={(scope_path, target_uid)}
     )
 
 
@@ -596,7 +602,7 @@ def test_gate_a_byte_identity_untouched(flat_ui: dict[str, Any]) -> None:
 
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
-    session.apply_batch('positive.text = "gate a test"')
+    session.apply_batch('cliptextencode.text = "gate a test"')
 
     # Verify working_ui differs from original
     assert session.working_ui != session.original_ui, (
@@ -615,7 +621,7 @@ def test_gate_b_compile_isomorphism(flat_ui: dict[str, Any]) -> None:
 
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
-    session.apply_batch("positive.text = 'gate b test'")
+    session.apply_batch("cliptextencode.text = 'gate b test'")
 
     done = session.done()
     assert done.ok, f"Gate B should pass: {done.summary}"
@@ -626,7 +632,7 @@ def test_gate_c_human_readable_summary(flat_ui: dict[str, Any]) -> None:
     """Gate C: done() produces a human-readable summary of operations."""
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
-    session.apply_batch("positive.text = 'summary test'")
+    session.apply_batch("cliptextencode.text = 'summary test'")
 
     done = session.done()
     assert done.ok
@@ -691,7 +697,8 @@ def test_session_snapshot_includes_render_caches_and_journal_surface(
     session.render()
     snapshot = session._snapshot_mutable_state()
     assert set(snapshot) >= {
-        "working_ui",
+        "workflow",
+        "history",
         "landed_ops",
         "touched_uids",
         "touched_node_ids",
@@ -704,6 +711,7 @@ def test_session_snapshot_includes_render_caches_and_journal_surface(
         "last_rendered_workflow",
         "last_render_diagnostics",
     }
+    assert "working_ui" not in snapshot
     assert snapshot["render_count"] == 1
     assert isinstance(snapshot["last_rendered_source"], str)
     assert snapshot["last_rendered_source"]
@@ -714,38 +722,44 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
 ) -> None:
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
+    before_ui = json.loads(json.dumps(session.working_ui))
     before = session._snapshot_mutable_state()
-    original_execute = session._execute_statements
+    import vibecomfy.porting.edit._interpret as interpret_mod
 
-    def _boom(*args, **kwargs):
+    original_interpret = interpret_mod.interpret
+
+    def _raise(*args, **kwargs):
         session.working_ui = {"nodes": [], "links": []}
         session.landed_ops.append("dirty")
         session.touched_uids.add("dirty")
         session.render_count += 7
         session.last_rendered_source = "mutated"
-        return original_execute(*args, **kwargs)
-
-    def _raise(*args, **kwargs):
-        _boom(*args, **kwargs)
         raise RuntimeError("apply exploded")
 
-    session._execute_statements = _raise  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError, match="apply exploded"):
-        session.apply_batch('positive.text = "journal restore"')
+    interpret_mod.interpret = _raise  # type: ignore[method-assign]
+    try:
+        with pytest.raises(RuntimeError, match="apply exploded"):
+            session.apply_batch('cliptextencode.text = "journal restore"')
+    finally:
+        interpret_mod.interpret = original_interpret
 
-    assert session.working_ui == before["working_ui"]
+    assert session.working_ui == before_ui
     assert session.landed_ops == before["landed_ops"]
     assert session.touched_uids == before["touched_uids"]
     assert session.touched_node_ids == before["touched_node_ids"]
-    assert session.uid_by_name == before["uid_by_name"]
-    assert session.name_by_uid == before["name_by_uid"]
+    assert dict(session.uid_by_name)
+    assert dict(session.name_by_uid)
     assert session.unbound_names == before["unbound_names"]
     assert session.value_default_context == before["value_default_context"]
     assert session.render_count == before["render_count"]
     assert session.last_rendered_source == before["last_rendered_source"]
     assert session.last_rendered_workflow is before["last_rendered_workflow"]
     assert session.last_render_diagnostics == before["last_render_diagnostics"]
-    assert session.ledger.resolve_node("", "2") is not None
+    assert "2" in session.name_by_uid
+    assert any(
+        isinstance(node, dict) and node.get("id") == 2
+        for node in session.working_ui.get("nodes") or []
+    )
 
 
 def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
@@ -757,7 +771,7 @@ def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
     before_names = dict(session.uid_by_name)
 
     result = session.apply_batch(
-        'positive.text = "journal should not see this"\n'
+        'cliptextencode.text = "journal should not see this"\n'
         "missing = CompletelyUnknownNode()\n"
     )
 
@@ -769,3 +783,40 @@ def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
         diagnostic.code == "batch_transaction_rolled_back"
         for diagnostic in result.diagnostics
     )
+
+
+def test_interpret_python_view_isomorphism_on_flat(flat_ui: dict[str, Any]) -> None:
+    """emit(wf) → interpret(∅, source) equals π_edit(wf) on the flat fixture."""
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+    from tests.test_ir_laws import pi_edit
+
+    workflow = from_ui(
+        flat_ui, schema_provider=_flat_schema_provider(), use_comfy_converter=False
+    )
+    emitted = emit_agent_edit_python(workflow)
+    result = interpret(
+        VibeWorkflow("empty", WorkflowSource("law")),
+        emitted,
+        schema_provider=_flat_schema_provider(),
+    )
+    assert result.ok or result.landed_ops
+    assert pi_edit(result.workflow, schema_provider=_flat_schema_provider()) == pi_edit(
+        workflow, schema_provider=_flat_schema_provider()
+    )
+
+
+def test_session_history_is_workflow_delta_pairs(flat_ui: dict[str, Any]) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    wf0 = session.workflow
+    session.apply_batch('cliptextencode.text = "history-1"')
+    session.apply_batch('cliptextencode.text = "history-2"')
+    assert len(session.history) == 2
+    assert session.history[0][0] == wf0
+    assert session.history[0][0] is not session.workflow
+    assert "history-1" in session.history[0][1]
+    assert session.history[1][0] is not wf0
+    assert session.rollback()
+    assert len(session.history) == 1

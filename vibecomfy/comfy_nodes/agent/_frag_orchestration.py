@@ -288,63 +288,6 @@ def _run_batch_repl_product_path(
     return state
 
 
-def _run_delta_dev_path(
-    state: AgentEditState,
-    context: TurnContext,
-    *,
-    deepseek_client: DeepSeekClient | None = None,
-    route: str | None = None,
-    model: str | None = None,
-    effort: str | None = None,
-) -> AgentEditState:
-    from vibecomfy.comfy_nodes.agent.edit import (_run_stage, _stage_agent_delta, _stage_apply_delta, _stage_ingest_v2, _stage_project_v2, _stage_summarize_v2)  # T-039 late import: host namespace lookup; resolved at call time
-    _run_stage("ingest", state, context, _stage_ingest_v2)
-    _run_stage("project", state, context, _stage_project_v2)
-    _run_stage(
-        "agent_delta",
-        state,
-        context,
-        _stage_agent_delta,
-        deepseek_client=deepseek_client,
-        route=route,
-        model=model,
-        effort=effort,
-    )
-    _run_stage("apply_delta", state, context, _stage_apply_delta)
-    _run_stage("summarize", state, context, _stage_summarize_v2)
-    return state
-
-
-def _run_full_dev_path(
-    state: AgentEditState,
-    context: TurnContext,
-    *,
-    deepseek_client: DeepSeekClient | None = None,
-    route: str | None = None,
-    model: str | None = None,
-    effort: str | None = None,
-) -> AgentEditState:
-    from vibecomfy.comfy_nodes.agent.edit import (_run_stage, _stage_agent, _stage_convert, _stage_emit, _stage_ingest, _stage_load_python, _stage_lower, _stage_summarize, _stage_validate)  # T-039 late import: host namespace lookup; resolved at call time
-    _run_stage("ingest", state, context, _stage_ingest)
-    _run_stage("convert", state, context, _stage_convert)
-    _run_stage(
-        "agent",
-        state,
-        context,
-        _stage_agent,
-        deepseek_client=deepseek_client,
-        route=route,
-        model=model,
-        effort=effort,
-    )
-    _run_stage("load_python", state, context, _stage_load_python)
-    _run_stage("lower", state, context, _stage_lower)
-    _run_stage("validate", state, context, _stage_validate)
-    _run_stage("emit", state, context, _stage_emit)
-    _run_stage("summarize", state, context, _stage_summarize)
-    return state
-
-
 _RUNTIME_OBJECT_INFO_PATH: list[str] = []
 
 
@@ -466,8 +409,7 @@ __all__ = (
     "_is_provider_exception",
     "_run_batch_repl_product_path",
     "_run_batch_repl_queue_validate_if_needed",
-    "_run_delta_dev_path",
-    "_run_full_dev_path",
+
     "_run_stage",
     "_stage_batch_repl_queue_validate",
 )

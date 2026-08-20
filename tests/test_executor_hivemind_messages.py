@@ -129,7 +129,8 @@ class TestDistinctiveTokens:
 
     def test_single_or_phrase_ilike(self) -> None:
         assert _hivemind_single_or_phrase_ilike("ltx 2.5") == (
-            "(title.ilike.*ltx 2.5*,body.ilike.*ltx 2.5*)"
+            "(title.ilike.*ltx*,body.ilike.*ltx*,"
+            "title.ilike.*2.5*,body.ilike.*2.5*)"
         )
         assert _hivemind_single_or_phrase_ilike("ltx") == (
             "(title.ilike.*ltx*,body.ilike.*ltx*)"

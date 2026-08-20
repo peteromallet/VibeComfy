@@ -7,11 +7,12 @@ from typing import Any, Mapping
 
 import pytest
 
-from vibecomfy.porting.edit.apply import apply_delta
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.ops import parse_edit_delta
+from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.porting.edit.normalize import normalize_ui_json
 
 
 class _SchemaProvider:
@@ -98,20 +99,33 @@ def _fixture(name: str) -> dict[str, Any]:
 
 
 def _scope_path_by_name(ui: Mapping[str, Any], name: str) -> str:
-    ledger = EditLedger.ingest(ui)
-    for scope in ledger.scopes.values():
+    index = UiGraphIndex.ingest(ui)
+    for scope in index.scopes.values():
         if scope.kind == "subgraph" and scope.graph.get("name") == name:
             return scope.scope_path
     raise AssertionError(f"missing subgraph scope {name!r}")
 
 
 def _nodes_by_scope_and_uid(ui: Mapping[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    normalized = normalize_ui_json(ui)
-    ledger = EditLedger.ingest(normalized)
+    index = UiGraphIndex.ingest(ui)
     return {
         (scope_path, uid): copy.deepcopy(node)
-        for (scope_path, uid), node in ledger.node_index.items()
+        for (scope_path, uid), node in index.node_index.items()
     }
+
+
+def _apply(ui: Mapping[str, Any], ops, schema_provider=None):
+    workflow = from_ui(dict(ui), schema_provider=schema_provider, use_comfy_converter=False)
+    result = interpret(workflow, ops, schema_provider=schema_provider)
+    candidate = None
+    if result.ok:
+        candidate = emit_ui_json(
+            result.workflow,
+            schema_provider=schema_provider,
+            include_virtual_wires=True,
+            prior_ui_payload=ui,
+        )
+    return result, candidate
 
 
 def _assert_preserves_out_of_delta_nodes(
@@ -196,41 +210,41 @@ def _flat_with_reroute_before_save() -> dict[str, Any]:
 
 def test_edit_corpus_prompt_set_preserves_flat_fixture_nodes() -> None:
     original = _fixture("flat.json")
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
     delta = parse_edit_delta(
         [{"op": "set_node_field", "target": ["", "2", "text"], "value": "a faithful edited prompt"}]
     )
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert _node(result.candidate, 2)["widgets_values"] == ["a faithful edited prompt"]
-    _assert_preserves_out_of_delta_nodes(stamped_before, result.candidate, touched={("", "2")})
+    assert candidate is not None
+    assert _node(candidate, 2)["widgets_values"] == ["a faithful edited prompt"]
+    _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={("", "2")})
 
 
 def test_edit_corpus_seed_auto_unlink_preserves_flat_fixture_nodes() -> None:
     original = _flat_with_linked_seed()
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
     delta = parse_edit_delta([{"op": "set_node_field", "target": ["", "5", "seed"], "value": 12345}])
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    sampler = _node(result.candidate, 5)
+    assert candidate is not None
+    sampler = _node(candidate, 5)
     seed_input = next((slot for slot in sampler["inputs"] if slot["name"] == "seed"), None)
     assert seed_input is None
     assert sampler["widgets_values"][0] == 12345
-    assert all(link[0] != 10 for link in result.candidate["links"])
-    assert _node(result.candidate, 8)["outputs"][0]["links"] == []
+    assert all(link[0] != 10 for link in candidate["links"])
+    assert _node(candidate, 8)["outputs"][0]["links"] == []
     assert any(issue.code == "automatic_link_removal" for issue in result.diagnostics)
-    _assert_preserves_out_of_delta_nodes(stamped_before, result.candidate, touched={("", "5"), ("", "8")})
+    _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={("", "5"), ("", "8")})
 
 
 def test_edit_corpus_add_node_and_upsert_link_script_preserves_flat_fixture_nodes() -> None:
     original = _fixture("flat.json")
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
     delta = parse_edit_delta(
         [
             {
@@ -245,91 +259,91 @@ def test_edit_corpus_add_node_and_upsert_link_script_preserves_flat_fixture_node
         ]
     )
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert _node(result.candidate, 8)["type"] == "SaveImage"
-    assert _node(result.candidate, 8)["widgets_values"] == ["agent-edit/corpus"]
-    sampler_positive = next(slot for slot in _node(result.candidate, 5)["inputs"] if slot["name"] == "positive")
+    assert candidate is not None
+    assert _node(candidate, 8)["type"] == "SaveImage"
+    assert _node(candidate, 8)["widgets_values"] == ["agent-edit/corpus"]
+    sampler_positive = next(slot for slot in _node(candidate, 5)["inputs"] if slot["name"] == "positive")
     assert sampler_positive["link"] == 11
     assert any(issue.code == "add_node_applied" for issue in result.diagnostics)
     assert any(issue.code == "upsert_link_replaced_existing" for issue in result.diagnostics)
     _assert_preserves_out_of_delta_nodes(
         stamped_before,
-        result.candidate,
+        candidate,
         touched={("", "2"), ("", "3"), ("", "5"), ("", "6")},
     )
 
 
 def test_edit_corpus_remove_reroute_restitches_flat_fixture_links() -> None:
     original = _flat_with_reroute_before_save()
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
     delta = parse_edit_delta([{"op": "remove_node", "target": ["", "8"]}])
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert {node["id"] for node in result.candidate["nodes"]} == {1, 2, 3, 4, 5, 6, 7}
-    assert [link for link in result.candidate["links"] if link[0] == 11] == [[11, 6, 0, 7, 0, "IMAGE"]]
-    assert _node(result.candidate, 6)["outputs"][0]["links"] == [11]
-    assert next(slot for slot in _node(result.candidate, 7)["inputs"] if slot["name"] == "images")["link"] == 11
+    assert candidate is not None
+    assert {node["id"] for node in candidate["nodes"]} == {1, 2, 3, 4, 5, 6, 7}
+    assert [link for link in candidate["links"] if link[0] == 11] == [[11, 6, 0, 7, 0, "IMAGE"]]
+    assert _node(candidate, 6)["outputs"][0]["links"] == [11]
+    assert next(slot for slot in _node(candidate, 7)["inputs"] if slot["name"] == "images")["link"] == 11
     assert any(issue.code == "remove_node_passthrough_rewire" for issue in result.diagnostics)
-    _assert_preserves_out_of_delta_nodes(stamped_before, result.candidate, touched={("", "6"), ("", "7"), ("", "8")})
+    _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={("", "6"), ("", "7"), ("", "8")})
 
 
 def test_edit_corpus_set_mode_bypass_preserves_flat_fixture_nodes() -> None:
     original = _fixture("flat.json")
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
     delta = parse_edit_delta([{"op": "set_mode", "target": ["", "5"], "mode": 4}])
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert _node(result.candidate, 5)["mode"] == 4
-    _assert_preserves_out_of_delta_nodes(stamped_before, result.candidate, touched={("", "5")})
+    assert candidate is not None
+    assert _node(candidate, 5)["mode"] == 4
+    _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={("", "5")})
 
 
 def test_edit_corpus_subgraph_internal_edit_preserves_available_fixture_nodes() -> None:
     original = _fixture("subgraphed_wan_i2v.json")
     scope_path = _scope_path_by_name(original, "Image to Video (Wan 2.2)")
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
     delta = parse_edit_delta([{"op": "set_mode", "target": [scope_path, "110"], "mode": 2}])
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert _subgraph_node(result.candidate, "Image to Video (Wan 2.2)", 110)["mode"] == 2
-    _assert_preserves_out_of_delta_nodes(stamped_before, result.candidate, touched={(scope_path, "110")})
+    assert candidate is not None
+    assert _subgraph_node(candidate, "Image to Video (Wan 2.2)", 110)["mode"] == 2
+    _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={(scope_path, "110")})
 
 
 def test_edit_corpus_multi_turn_re_edit_preserves_flat_fixture_nodes_each_turn() -> None:
     original = _fixture("flat.json")
-    first_before = EditLedger.ingest(original).stamped_copy()
+    first_before = UiGraphIndex.ingest(original).stamped_copy()
     first_delta = parse_edit_delta(
         [{"op": "set_node_field", "target": ["", "2", "text"], "value": "first edit"}]
     )
 
-    first = apply_delta(original, first_delta, schema_provider=_SchemaProvider())
+    first, first_candidate = _apply(original, first_delta, schema_provider=_SchemaProvider())
 
     assert first.ok is True
-    assert first.candidate is not None
-    _assert_preserves_out_of_delta_nodes(first_before, first.candidate, touched={("", "2")})
+    assert first_candidate is not None
+    _assert_preserves_out_of_delta_nodes(first_before, first_candidate, touched={("", "2")})
 
-    second_before = EditLedger.ingest(first.candidate).stamped_copy()
+    second_before = UiGraphIndex.ingest(first_candidate).stamped_copy()
     second_delta = parse_edit_delta(
         [{"op": "set_node_field", "target": ["", "2", "text"], "value": "second edit"}]
     )
 
-    second = apply_delta(first.candidate, second_delta, schema_provider=_SchemaProvider())
+    second, second_candidate = _apply(first_candidate, second_delta, schema_provider=_SchemaProvider())
 
     assert second.ok is True
-    assert second.candidate is not None
-    assert _node(second.candidate, 2)["widgets_values"] == ["second edit"]
-    _assert_preserves_out_of_delta_nodes(second_before, second.candidate, touched={("", "2")})
+    assert second_candidate is not None
+    assert _node(second_candidate, 2)["widgets_values"] == ["second edit"]
+    _assert_preserves_out_of_delta_nodes(second_before, second_candidate, touched={("", "2")})
 
 
 @pytest.mark.parametrize(
@@ -360,11 +374,10 @@ def test_edit_corpus_rejects_invalid_scripted_ops_atomically(
     original = _fixture("flat.json")
     before = copy.deepcopy(original)
 
-    result = apply_delta(original, parse_edit_delta(raw_delta), schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, parse_edit_delta(raw_delta), schema_provider=_SchemaProvider())
 
     assert result.ok is False
-    assert result.candidate is None
-    assert result.mutation_started is False
+    assert candidate is None
     assert original == before
     assert any(issue.code == expected_code for issue in result.diagnostics)
 
@@ -379,10 +392,9 @@ def test_edit_corpus_later_rejection_keeps_earlier_successful_op_atomic() -> Non
         ]
     )
 
-    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
     assert result.ok is False
-    assert result.candidate is None
-    assert result.mutation_started is False
+    assert candidate is None
     assert original == before
     assert any(issue.code == "value_not_in_enum" for issue in result.diagnostics)

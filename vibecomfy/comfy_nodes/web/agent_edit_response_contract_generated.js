@@ -274,13 +274,20 @@ export function readDeltaEnvelope(response) {
   if (!isObject(response)) {
     return null;
   }
-  const envelope = response.delta_ops_envelope;
-  if (!isObject(envelope)) {
+  const accepted = response.accepted_batch;
+  if (!Array.isArray(accepted)) {
     return null;
   }
+  const ops = [];
+  for (const statement of accepted) {
+    if (!isObject(statement) || !isObject(statement.op)) {
+      continue;
+    }
+    ops.push(statement.op);
+  }
   return {
-    schema_version: asString(envelope.schema_version),
-    ops: Array.isArray(envelope.ops) ? envelope.ops : [],
+    schema_version: "2.0.0",
+    ops,
   };
 }
 

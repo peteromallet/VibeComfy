@@ -105,9 +105,16 @@ class HeadlessAgentRequest:
     # ``apply`` — that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Scenario assessment contract forwarded into ExecutorRequest/classify.
+    expect_graph_changed: bool | None = None
     # Batch-REPL per-request turn budget (PR-D).  Integer 1..250; None =
     # default 50.  Forwarded through to_executor_request → implement payload.
     max_batches: int | None = None
+    # Deliberation driver. Canonical values are ``staged`` and ``threaded``;
+    # legacy aliases are accepted only while constructing this boundary type.
+    # None preserves the executor's staged default without changing legacy
+    # request bytes.
+    pipeline_mode: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -149,6 +156,12 @@ class HeadlessAgentRequest:
             raise ValueError(
                 "HeadlessAgentRequest `interaction_mode` must be a string or null."
             )
+        if self.expect_graph_changed is not None and not isinstance(
+            self.expect_graph_changed, bool
+        ):
+            raise ValueError(
+                "HeadlessAgentRequest `expect_graph_changed` must be a boolean or null."
+            )
         if self.max_batches is not None:
             from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
 
@@ -156,6 +169,14 @@ class HeadlessAgentRequest:
                 self,
                 "max_batches",
                 coerce_max_batches(self.max_batches, field_name="max_batches"),
+            )
+        if self.pipeline_mode is not None:
+            from vibecomfy.executor.contracts import coerce_orchestration_mode  # noqa: PLC0415
+
+            object.__setattr__(
+                self,
+                "pipeline_mode",
+                coerce_orchestration_mode(self.pipeline_mode),
             )
         object.__setattr__(self, "extra", dict(self.extra or {}))
 
@@ -182,7 +203,9 @@ class HeadlessAgentRequest:
             profile=self.profile,
             idempotency_key=self.idempotency_key,
             interaction_mode=self.interaction_mode,
+            expect_graph_changed=self.expect_graph_changed,
             max_batches=self.max_batches,
+            pipeline_mode=self.pipeline_mode,
         )
 
     def resolve_provider_readiness_kwargs(self, *, stage: str = "classify") -> dict[str, str | None]:
@@ -221,15 +244,22 @@ class HeadlessAgentRequest:
             payload["timeout"] = self.timeout
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.expect_graph_changed is not None:
+            payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
+        if self.pipeline_mode is not None:
+            payload["pipeline_mode"] = self.pipeline_mode
         if self.extra:
             payload["extra"] = dict(self.extra)
         return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "HeadlessAgentRequest":
-        from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
+        from vibecomfy.executor.contracts import (  # noqa: PLC0415
+            coerce_max_batches,
+            coerce_orchestration_mode,
+        )
 
         if not isinstance(payload, Mapping):
             raise ValueError("HeadlessAgentRequest payload must be a mapping.")
@@ -278,10 +308,16 @@ class HeadlessAgentRequest:
                 payload.get("interaction_mode"),
                 field_name="interaction_mode",
             ),
+            expect_graph_changed=_parse_bool(
+                payload.get("expect_graph_changed"),
+                field_name="expect_graph_changed",
+                default=False,
+            ) if "expect_graph_changed" in payload else None,
             max_batches=coerce_max_batches(
                 payload.get("max_batches"),
                 field_name="max_batches",
             ),
+            pipeline_mode=coerce_orchestration_mode(payload.get("pipeline_mode")),
             extra=_parse_extra(payload.get("extra")),
         )
 

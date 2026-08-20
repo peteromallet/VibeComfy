@@ -18,8 +18,6 @@ from typing import Any
 from unittest.mock import patch
 from urllib.parse import unquote_plus
 
-import pytest
-
 from vibecomfy.executor.hivemind_clients import (
     _evidence_id,
     _hivemind_scope_params,
@@ -33,7 +31,9 @@ from vibecomfy.executor.hivemind_tools import (
     HIVE_MIND_SEARCH_TOOL,
     hivemind_get,
     hivemind_search,
+    serve_hivemind_record,
 )
+from vibecomfy.executor.contracts import HivemindRecordView
 from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
 
 _HIVEMIND_ROOT = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1"
@@ -109,14 +109,12 @@ def _message_row(
     **extra: Any,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
-        "item_id": item_id,
-        "kind": "message",
-        "title": title,
-        "body": "community chatter about ltx",
-        "author": "alice",
-        "channel": "ltx_chatter",
+        "message_id": item_id,
+        "content": f"{title}: community chatter about ltx",
+        "author_name": "alice",
+        "channel_name": "ltx_chatter",
         "created_at": created_at,
-        "url": "https://discord.com/channels/1/2/3",
+        "permalink": "https://discord.com/channels/1/2/3",
     }
     row.update(extra)
     return row
@@ -140,6 +138,41 @@ def _distillation_row(
     }
     row.update(extra)
     return row
+
+
+def _ui_workflow_json() -> dict[str, Any]:
+    """A small LiteGraph UI-shape workflow (LoadAudio -> ConditioningCombine)."""
+    return {
+        "last_node_id": 2,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadAudio",
+                "pos": [0, 0],
+                "size": [300, 100],
+                "widgets_values": ["audio.mp3"],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "links": [2]}],
+            },
+            {
+                "id": 2,
+                "type": "ConditioningCombine",
+                "pos": [400, 0],
+                "size": [300, 100],
+                "widgets_values": [],
+                "inputs": [{"name": "conditioning_1", "type": "CONDITIONING", "link": 2}],
+                "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": None}],
+            },
+        ],
+        "links": [[2, 1, 0, 2, 0, "AUDIO"]],
+        "groups": [],
+    }
+
+
+def _envelope_workflow_json() -> dict[str, Any]:
+    """A versioned rich-envelope workflow serialized from the UI fixture."""
+    from vibecomfy.ingest.normalize import from_ui
+
+    return from_ui(_ui_workflow_json(), use_comfy_converter=False).to_envelope()
 
 
 # ── Validation: all failures are typed INVALID_REQUEST, no network ──────────
@@ -249,10 +282,10 @@ class TestSearchScopeTranslation:
         assert "/external_resources?" in url
         assert "kind=eq.workflow" in url
         assert "select=*" in url
-        assert "limit=20" in url  # fixed candidate pool, not the page size
+        assert "limit=100" in url  # fixed candidate pool, not the page size
         assert "order=created_at.desc" in url
 
-    def test_source_type_discord_queries_unified_feed_messages(self) -> None:
+    def test_source_type_discord_queries_raw_message_feed(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -264,8 +297,9 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert len(seen) == 1
         url = seen[0]
-        assert "/unified_feed?" in url
-        assert "kind=eq.message" in url
+        assert "/message_feed?" in url
+        assert "content.ilike.*ltx*" in url
+        assert "order=created_at.desc" in url
 
     def test_source_type_distillation_queries_unified_feed_distillations(self) -> None:
         seen: list[str] = []
@@ -290,7 +324,7 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert len(seen) == 3
         assert any("/external_resources?" in u for u in seen)
-        assert any("kind=eq.message" in u for u in seen)
+        assert any("/message_feed?" in u for u in seen)
         assert any("kind=eq.distillation" in u for u in seen)
 
     def test_stopword_only_query_runs_only_external_scope(self) -> None:
@@ -384,7 +418,7 @@ class TestSearchFilterTranslation:
         assert '"node_types":["LTXVLoader"]' in url
         assert '"has_workflow_json":true' in url
 
-    def test_unified_feed_family_translates_to_ilike_or_groups(self) -> None:
+    def test_message_feed_family_translates_to_content_or_groups(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -396,11 +430,11 @@ class TestSearchFilterTranslation:
             )
         url = seen[0]
         # text query AND family aliases -> nested or: groups inside and=
-        assert "and=(or:(title.ilike.*ltx*,body.ilike.*ltx*)" in url
-        assert "title.ilike.*ltxv*" in url
-        assert "title.ilike.*lightricks*" in url
+        assert "and=(or:(content.ilike.*ltx*)" in url
+        assert "content.ilike.*ltxv*" in url
+        assert "content.ilike.*lightricks*" in url
 
-    def test_unified_feed_channel_author_dates(self) -> None:
+    def test_message_feed_channel_author_dates(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -417,8 +451,8 @@ class TestSearchFilterTranslation:
                 },
             )
         url = seen[0]
-        assert "channel=eq.wan_chatter" in url
-        assert "author=eq.alice" in url
+        assert "channel_name=eq.wan_chatter" in url
+        assert "author_name=eq.alice" in url
         assert (
             "and=(created_at.gte.2026-08-01,created_at.lte.2026-08-10)"
             in url
@@ -441,7 +475,8 @@ class TestSearchFilterTranslation:
             )
         url = seen[0]
         assert url.count("and=(") == 1
-        assert "or:(title.ilike.*ltx*,body.ilike.*ltx*,title.ilike.*ltxv*" in url
+        assert "or:(content.ilike.*ltx*),or:(content.ilike.*ltx*" in url
+        assert "content.ilike.*ltxv*" in url
         assert "created_at.gte.2026-08-01,created_at.lte.2026-08-10)" in url
 
     def test_scope_params_return_none_without_criteria(self) -> None:
@@ -533,7 +568,7 @@ class TestSearchResults:
             )
         assert result.status is ToolStatus.OK
         assert [h["evidence_id"] for h in result.result["hits"]] == [
-            "hivemind:unified_feed:1"
+            "hivemind:message_feed:1"
         ]
 
     def test_validated_sort_prefers_approved_distillations(self) -> None:
@@ -554,7 +589,7 @@ class TestSearchResults:
                         )
                     ]
                 )
-            if "kind=eq.message" in url:
+            if "/message_feed?" in url:
                 return _json_response(
                     [_message_row(1, created_at="2026-08-02T00:00:00Z")]
                 )
@@ -587,7 +622,7 @@ class TestSearchResults:
             )
         assert result.status is ToolStatus.OK
         assert result.result["count"] == 1
-        assert result.result["hits"][0]["evidence_id"] == "hivemind:unified_feed:42"
+        assert result.result["hits"][0]["evidence_id"] == "hivemind:message_feed:42"
 
     def test_opaque_cursor_pages_deterministically(self) -> None:
         rows = [
@@ -711,7 +746,7 @@ class TestTransportOnlyGuarantee:
                 return _json_response(
                     [_workflow_row("wf-1", title="LTX workflow", created_at="2026-08-05T00:00:00Z")]
                 )
-            if "kind=eq.message" in url:
+            if "/message_feed?" in url:
                 raise urllib.error.HTTPError(
                     req.full_url, 500, "statement timeout", {}, io.BytesIO(b'{"code":"57014"}')
                 )
@@ -726,7 +761,7 @@ class TestTransportOnlyGuarantee:
         assert result.result["count"] == 1
         codes = {d.code for d in result.diagnostics}
         assert codes == {"hivemind_scope_failed"}
-        assert result.diagnostics[0].details["scope"] == "unified_feed:message"
+        assert result.diagnostics[0].details["scope"] == "message_feed:message"
 
     def test_all_scopes_failed_returns_typed_failure(self) -> None:
         def _responder(req: Any, url: str) -> Any:
@@ -761,12 +796,12 @@ class TestGet:
         assert result.result["row"] == row
         assert "id=eq.wf-1" in seen[0]
 
-    def test_resolves_unified_feed_message_and_distillation(self) -> None:
+    def test_resolves_message_feed_message_and_unified_distillation(self) -> None:
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response([_message_row(42)])),
         ):
-            result = hivemind_get("hivemind:unified_feed:42")
+            result = hivemind_get("hivemind:message_feed:42")
         assert result.status is ToolStatus.OK
         assert result.result["source_type"] == "discord"
 
@@ -798,6 +833,172 @@ class TestGet:
             result = hivemind_get("   ", cache_root=tmp_path)
         assert result.status is ToolStatus.INVALID_REQUEST
         assert result.diagnostics[0].code == "evidence_id_required"
+
+
+# ── Batch 13: IR-shaped record serving (surface lens / typed evidence) ───────
+
+
+class TestServeRecordView:
+    """Record matrix: workflow (UI/API/envelope) → surface lens; message →
+    typed non-workflow; malformed → typed malformed; all with evidence IDs."""
+
+    def test_workflow_ui_shape_serves_surface_lens(self) -> None:
+        row = _workflow_row("wf-ui", payload={"workflow_json": _ui_workflow_json()})
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-ui"
+        )
+        assert isinstance(view, HivemindRecordView)
+        assert view.record_type == "workflow"
+        assert view.shape == "ui"
+        assert view.evidence_id == "hivemind:external_resources:wf-ui"
+        assert view.source_type == "workflow"
+        # The served content is the IR surface lens (the Python view), not the
+        # raw JSON: node assignments with named sockets, no raw graph keys.
+        assert "loadaudio = LoadAudio(" in view.surface_lens
+        assert "conditioning_1=loadaudio.AUDIO_0" in view.surface_lens
+        assert '"nodes"' not in view.surface_lens
+        assert '"links"' not in view.surface_lens
+        assert "workflow_json" not in view.surface_lens
+        assert view.content is None and view.error is None
+
+    def test_workflow_api_shape_serves_surface_lens(self) -> None:
+        row = _workflow_row(
+            "wf-api",
+            payload={
+                "workflow_json": {"3": {"class_type": "KSampler", "inputs": {"seed": 42}}}
+            },
+        )
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-api"
+        )
+        assert view.record_type == "workflow"
+        assert view.shape == "api"
+        assert "ksampler = KSampler(seed=42)" in view.surface_lens
+
+    def test_workflow_envelope_shape_serves_surface_lens(self) -> None:
+        row = _workflow_row(
+            "wf-env", payload={"workflow_json": _envelope_workflow_json()}
+        )
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-env"
+        )
+        assert view.record_type == "workflow"
+        assert view.shape == "vibe"
+        assert "loadaudio = LoadAudio(" in view.surface_lens
+
+    def test_message_row_is_typed_non_workflow_with_content(self) -> None:
+        row = _message_row(42)
+        view = serve_hivemind_record(row, evidence_id="hivemind:message_feed:42")
+        assert view.record_type == "non_workflow"
+        assert view.source_type == "discord"
+        # The agent sees the record type + its actual content (text/body).
+        assert view.content == "ltx discussion: community chatter about ltx"
+        assert view.surface_lens is None and view.error is None
+
+    def test_distillation_row_is_typed_non_workflow_with_content(self) -> None:
+        row = _distillation_row(7)
+        view = serve_hivemind_record(row, evidence_id="hivemind:unified_feed:7")
+        assert view.record_type == "non_workflow"
+        assert view.source_type == "distillation"
+        assert view.content == "distilled ltx knowledge"
+
+    def test_workflow_kind_without_json_is_typed_malformed(self) -> None:
+        row = _workflow_row("wf-nojson")
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-nojson"
+        )
+        assert view.record_type == "malformed_record"
+        assert "no workflow JSON" in view.error
+        # Never pretended to be a workflow; never normalized with a fake shape.
+        assert view.surface_lens is None and view.content is None
+
+    def test_non_object_workflow_json_is_typed_malformed(self) -> None:
+        # A workflow_json that is a string is never normalized with a fake
+        # shape — it is a workflow-shaped record that cannot be normalized.
+        row = _workflow_row("wf-str", payload={"workflow_json": "not an object"})
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-str"
+        )
+        assert view.record_type == "malformed_record"
+        assert "no workflow JSON" in view.error
+
+    def test_unknown_shape_fails_named_door_normalization_typed_malformed(self) -> None:
+        # A workflow-shaped JSON object whose shape no named door accepts.
+        row = _workflow_row(
+            "wf-unknown", payload={"workflow_json": {"nodes": "garbage", "links": []}}
+        )
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-unknown"
+        )
+        assert view.record_type == "malformed_record"
+        assert "unsupported workflow shape" in view.error
+        assert view.surface_lens is None
+
+
+class TestGetTypedRecordView:
+    """hivemind_get returns the typed record view; the raw row stays under
+    ``row`` (the evidence artifact side) and never leaks into the view."""
+
+    def test_get_returns_typed_surface_lens_for_workflow(self) -> None:
+        row = _workflow_row(
+            "wf-ui", title="LTX pipeline", payload={"workflow_json": _ui_workflow_json()}
+        )
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen([], _json_response([row])),
+        ):
+            result = hivemind_get("hivemind:external_resources:wf-ui")
+        assert result.status is ToolStatus.OK
+        view = result.result["record_view"]
+        assert view["record_type"] == "workflow"
+        assert view["shape"] == "ui"
+        assert view["evidence_id"] == "hivemind:external_resources:wf-ui"
+        assert "loadaudio = LoadAudio(" in view["surface_lens"]
+        # The raw source row is retained (the evidence artifact side) ...
+        assert result.result["row"]["id"] == "wf-ui"
+        assert result.result["row"]["payload"]["workflow_json"]["nodes"]
+        # ... and the model-facing view carries no raw JSON: no payload, no
+        # raw graph keys, no workflow_json key.
+        assert "payload" not in view
+        assert "row" not in view
+        assert "workflow_json" not in view["surface_lens"]
+        assert '"nodes"' not in view["surface_lens"]
+
+    def test_get_returns_typed_non_workflow_for_message(self) -> None:
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen([], _json_response([_message_row(42)])),
+        ):
+            result = hivemind_get("hivemind:message_feed:42")
+        assert result.status is ToolStatus.OK
+        view = result.result["record_view"]
+        assert view["record_type"] == "non_workflow"
+        assert view["content"] == "ltx discussion: community chatter about ltx"
+        # The raw row is still resolvable as the evidence artifact side.
+        assert result.result["row"]["content"] == (
+            "ltx discussion: community chatter about ltx"
+        )
+
+    def test_get_returns_typed_malformed_for_workflow_without_json(self) -> None:
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen([], _json_response([_workflow_row("wf-nojson")])),
+        ):
+            result = hivemind_get("hivemind:external_resources:wf-nojson")
+        assert result.status is ToolStatus.OK
+        view = result.result["record_view"]
+        assert view["record_type"] == "malformed_record"
+        assert "no workflow JSON" in view["error"]
+        assert "surface_lens" not in view
+
+    def test_record_view_round_trips_through_contract(self) -> None:
+        row = _workflow_row("wf-ui", payload={"workflow_json": _ui_workflow_json()})
+        view = serve_hivemind_record(
+            row, evidence_id="hivemind:external_resources:wf-ui"
+        )
+        rebuilt = HivemindRecordView.from_dict(view.to_dict())
+        assert rebuilt == view
+        assert rebuilt.surface_lens == view.surface_lens
 
 
 # ── Typed transport failures: 429/Retry-After + circuit, timeout, etc. ──────
@@ -1013,15 +1214,98 @@ class TestStatementTimeoutRetry:
         assert calls["n"] == 2
         sleep.assert_called_once()
 
-    def test_persistent_57014_is_soft_miss_not_hard_failure(self) -> None:
+    def test_57014_on_fat_query_succeeds_on_degraded_query(self) -> None:
+        """RC1: persistent 57014 on the leading-wildcard query retries the
+        degraded (no leading ``*``) query and returns hits."""
+        from urllib.parse import unquote
+
+        calls: list[str] = []
+
+        def _fat_then_degraded(req: Any, *args: Any, **kwargs: Any) -> Any:
+            url = unquote(req.full_url)
+            calls.append(url)
+            if "ilike.*" in url:
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    500,
+                    "statement timeout",
+                    {},
+                    io.BytesIO(
+                        b'{"code":"57014","message":"canceling statement due to statement timeout"}'
+                    ),
+                )
+            return _json_response([_workflow_row("wf-degraded", title="LTX workflow")])
+
         with patch(
             "vibecomfy.executor.hivemind_clients.time.sleep",
-        ), patch("urllib.request.urlopen", side_effect=_statement_timeout_error):
+        ), patch("urllib.request.urlopen", side_effect=_fat_then_degraded):
+            result = hivemind_search("ltx video generation workflow", filters={"source_type": "workflow"})
+        assert result.status is ToolStatus.OK
+        assert result.result["count"] == 1
+        assert any("ilike.*" in url for url in calls)
+        assert any("ilike." in url and "ilike.*" not in url for url in calls)
+
+    def test_persistent_57014_is_soft_miss_not_hard_failure(self) -> None:
+        calls: list[str] = []
+
+        def _persistent(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(unquote_plus(req.full_url))
+            return _statement_timeout_error(req, *args, **kwargs)
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ), patch("urllib.request.urlopen", side_effect=_persistent):
             result = hivemind_search("ltx", filters={"source_type": "workflow"})
         assert result.status is ToolStatus.UNAVAILABLE
         assert result.diagnostics[0].code == "hivemind_statement_timeout"
         assert result.evidence_ids == ()
         assert result.result is None
+        assert len(calls) == 3  # two fat attempts, then exactly one degraded attempt
+        degraded = [url for url in calls if "ilike." in url and "ilike.*" not in url]
+        assert len(degraded) == 1
+
+    def test_shared_deadline_stops_later_scopes(self) -> None:
+        clock = {"t": 0.0}
+        calls: list[float] = []
+
+        def _timeout(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(float(kwargs["timeout"]))
+            clock["t"] = 5.0
+            raise TimeoutError("spent the operation budget")
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.monotonic",
+            side_effect=lambda: clock["t"],
+        ), patch("urllib.request.urlopen", side_effect=_timeout):
+            result = hivemind_search("ltx", timeout=5.0)
+        assert result.status is ToolStatus.TIMEOUT
+        assert result.diagnostics[0].code == "hivemind_timeout"
+        assert calls == [5.0]
+
+    def test_partial_rows_survive_later_scope_deadline(self) -> None:
+        clock = {"t": 0.0}
+        seen: list[str] = []
+
+        def _partial(req: Any, *args: Any, **kwargs: Any) -> Any:
+            url = unquote_plus(req.full_url)
+            seen.append(url)
+            if "/external_resources?" in url:
+                clock["t"] = 1.0
+                return _json_response([_workflow_row("wf-before-timeout")])
+            clock["t"] = 5.0
+            raise TimeoutError("later scope spent the remaining budget")
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.monotonic",
+            side_effect=lambda: clock["t"],
+        ), patch("urllib.request.urlopen", side_effect=_partial):
+            result = hivemind_search("ltx", timeout=5.0)
+        assert result.status is ToolStatus.OK
+        assert result.evidence_ids == (
+            "hivemind:external_resources:wf-before-timeout",
+        )
+        assert len(seen) == 2
+        assert not any("kind=eq.distillation" in url for url in seen)
 
     def test_57014_on_get_also_soft_miss(self) -> None:
         with patch(

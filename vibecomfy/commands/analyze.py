@@ -22,6 +22,7 @@ from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import VibeWorkflow
 
 
+from vibecomfy.ingest.normalize import door_nodes
 ANALYSIS_FORMATS = ("text", "json", "tsv")
 
 
@@ -209,10 +210,10 @@ def _format_subgraph(data: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"id: {data['id']}",
-            f"nodes: {len(data['nodes'])}",
+            f"nodes: {len(door_nodes(data))}",
             f"edges: {len(data['edges'])}",
             "node ids:",
-            *_indent_rows(sorted(data["nodes"])),
+            *_indent_rows(sorted(door_nodes(data))),
         ]
     )
 

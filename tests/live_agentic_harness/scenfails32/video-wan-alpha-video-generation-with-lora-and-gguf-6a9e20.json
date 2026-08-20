@@ -1,0 +1,39 @@
+{
+  "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
+  "query": "Lower the LoRA model strength to 0.5 to reduce the intensity of the stylization effect",
+  "workflow_path": "external_workflows/corpus/6a9e200909ff7692.json",
+  "network": true,
+  "timeout": 280,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The LoRA influence is reduced by half, producing a more subtle stylization that lets the base model's characteristics show through more clearly.",
+    "quality": "The LoRA strength parameter is correctly located and updated to 0.5; all node connections remain intact and the workflow continues to generate complete videos.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "animation",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-generation",
+      "wan-alpha",
+      "lora",
+      "gguf",
+      "hunyuan",
+      "text-to-video",
+      "animated-webp"
+    ],
+    "source_workflow_id": "6a9e200909ff7692",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This pinpoints the key LoRA parameter unique to this workflow, forcing the agent to locate it among Wan Alpha/Hunyuan nodes rather than making a vague quality tweak."
+  }
+}

@@ -32,6 +32,7 @@ import {
   classifyCandidateTransactionBoundary,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
 import { sha256Hex } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import { acceptedBatchDigest } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 
 const UUID = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -62,7 +63,7 @@ function legacyCandidateAuthority({
     operation: Object.freeze({
       delta_contract: "delta_v1",
       wire_version: "2.0.0",
-      ops: Object.freeze([]),
+      accepted_batch_digest: acceptedBatchDigest([]),
     }),
     operation_family: "structural",
     precondition: Object.freeze({
@@ -102,6 +103,7 @@ function legacyCandidateTransaction({ candidateAuthority = legacyCandidateAuthor
     lease_nonce: "lease-legacy-001",
     plan: Object.freeze({
       schema_version: "2.0.0",
+      accepted_batch: Object.freeze([]),
       delta_ops_envelope: Object.freeze({ schema_version: "2.0.0", ops: Object.freeze([]) }),
       delta_hash: "delta-legacy-001",
       op_count: 0,

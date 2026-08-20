@@ -41,9 +41,13 @@ jobs:
           uv venv --seed
           make PYTHON=.venv/bin/python install-ci
 
+      - name: Enforce IR boundary
+        run: PYTHONPATH=. .venv/bin/python scripts/check_ir_boundary.py
+
       - name: Run maintained repo gate
         # Makefile is the local/GitHub contract for repo hygiene, Python tests,
-        # browser smoke, snapshot freshness, and the Comfy oracle.
+        # browser smoke, snapshot freshness, the Comfy oracle, and the IR
+        # boundary checker (also invoked via `make ir-boundary` from `make ci`).
         run: make PYTHON=.venv/bin/python ci
 
       - name: Upload coverage artifact

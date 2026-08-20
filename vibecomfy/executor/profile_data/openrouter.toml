@@ -4,7 +4,8 @@
 # runtime enforces OpenRouter's canonical endpoint and OPENROUTER_API_KEY for
 # this route instead of allowing generic Hermes/DeepSeek overrides to hijack it.
 [profiles.openrouter]
-classify   = "openrouter:openrouter:deepseek/deepseek-v4-flash"
-research   = "openrouter:openrouter:deepseek/deepseek-v4-pro"
-implement  = "openrouter:openrouter:deepseek/deepseek-v4-pro"
-reply      = "openrouter:openrouter:deepseek/deepseek-v4-flash"
+classify   = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+research   = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+implement  = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+reply      = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+execute    = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"

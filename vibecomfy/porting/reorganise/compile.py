@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes
 import hashlib
 import json
 import re
@@ -5789,7 +5790,7 @@ def _compiled_idempotence_delta(
 def _candidate_group_match_key(group: Mapping[str, Any]) -> str:
     if group.get("id") is not None:
         return f"id:{group.get('id')}"
-    nodes = group.get("nodes") if isinstance(group.get("nodes"), Sequence) and not isinstance(group.get("nodes"), (str, bytes)) else ()
+    nodes = door_get_nodes(group) if isinstance(door_get_nodes(group), Sequence) and not isinstance(door_get_nodes(group), (str, bytes)) else ()
     return json.dumps(
         {
             "title": group.get("title"),

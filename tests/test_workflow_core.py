@@ -145,6 +145,26 @@ def test_raw_api_link_input_fails_validation_serialization_and_compile() -> None
         assert exc_info.value.detail["edge_collision"] == "none"
 
 
+def test_raw_api_link_widget_fails_validation_serialization_and_compile() -> None:
+    workflow = VibeWorkflow("raw-widget-link", WorkflowSource("raw-widget-link"))
+    workflow.nodes["1"] = VibeNode("1", "Source", uid="uid-1")
+    workflow.nodes["2"] = VibeNode(
+        "2", "Sink", widgets={"image": ["1", 0]}, uid="uid-2"
+    )
+
+    report = workflow.validate()
+    assert not report.ok
+    issue = next(issue for issue in report.issues if issue.code == "embedded_api_link")
+    assert issue.detail["storage"] == "widgets"
+    assert issue.detail["edge_collision"] == "none"
+
+    for operation in (workflow.to_envelope, lambda: workflow.compile("api")):
+        with pytest.raises(WorkflowCompileError) as exc_info:
+            operation()
+        assert exc_info.value.code == "embedded_api_link"
+        assert exc_info.value.detail["storage"] == "widgets"
+
+
 @pytest.mark.parametrize(
     ("edge", "expected_collision"),
     [
@@ -2051,9 +2071,5 @@ def test_convert_to_vibe_format_is_not_a_public_ingest_export() -> None:
 def test_agent_edit_ingest_uses_nodes_is_list_not_shape_sniff() -> None:
     """edit_ingest successor: list-nodes pass through; no detect_workflow_shape."""
     frag = Path("vibecomfy/comfy_nodes/agent/_frag_ingest.py").read_text(encoding="utf-8")
-    norm = Path("vibecomfy/comfy_nodes/agent/graph_normalization.py").read_text(
-        encoding="utf-8"
-    )
     assert "detect_workflow_shape" not in frag
-    assert "detect_workflow_shape" not in norm
-    assert 'isinstance(graph.get("nodes"), list)' in norm
+    assert 'isinstance(graph.get("nodes"), list)' in frag

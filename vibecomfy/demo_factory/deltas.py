@@ -6,6 +6,7 @@ field-by-field.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_links, door_nodes
 import json
 import copy
 from dataclasses import dataclass, field
@@ -63,7 +64,7 @@ def _build_node_index(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
     Node ids are normalized to ``str`` so they match the str-ified keys used by
     ``_build_link_index`` (ComfyUI node ids are often ints in UI JSON).
     """
-    nodes = graph.get("nodes", [])
+    nodes = door_get_nodes(graph, [])
     return {str(node.get("id", "")): node for node in nodes if isinstance(node, dict)}
 
 
@@ -72,7 +73,7 @@ def _build_link_index(graph: dict[str, Any]) -> dict[tuple[str, str, str, str, s
 
     UI links are arrays: [link_id, from_slot, from_node, to_slot, to_node, type]
     """
-    links = graph.get("links", [])
+    links = door_get_links(graph, [])
     index = {}
     for link in links:
         if not isinstance(link, list) or len(link) < 6:
@@ -180,7 +181,7 @@ def _find_link_source(
 ) -> tuple[str | None, str | None]:
     """Return (from_node, from_slot) of the link feeding ``to_node:to_slot``."""
     to_node_s, to_slot_s = str(to_node), str(to_slot)
-    for link in graph.get("links", []):
+    for link in door_get_links(graph, []):
         if not isinstance(link, list) or len(link) < 6:
             continue
         # ComfyUI UI link: [link_id, from_node, from_slot, to_node, to_slot, type]
@@ -248,13 +249,13 @@ def _additive_witness_locus(
     """
     golden_nodes = _build_node_index(golden)
     golden_node = golden_nodes.get(str(added_id), {})
-    widgets_values = golden_node.get("widgets_values")
+    widgets_values = door_get_widgets_values(golden_node)
     if not isinstance(widgets_values, list):
         widgets_values = []
 
     edges: list[dict[str, Any]] = []
     added_id_s = str(added_id)
-    for link in golden.get("links", []):
+    for link in door_get_links(golden, []):
         if not isinstance(link, list) or len(link) < 6:
             continue
         # ComfyUI UI link: [link_id, from_node, from_slot, to_node, to_slot, type]
@@ -447,8 +448,8 @@ def _build_predicates_from_delta(
         _gnode = _gn.get(_nid)
         if not isinstance(_gnode, dict):
             continue
-        _bw = _bnode.get("widgets_values")
-        _gw = _gnode.get("widgets_values")
+        _bw = door_get_widgets_values(_bnode)
+        _gw = door_get_widgets_values(_gnode)
         if not isinstance(_bw, list) or not isinstance(_gw, list):
             continue
         for _i in range(min(len(_bw), len(_gw))):
@@ -599,11 +600,11 @@ def inject_final_output_bypass_fault(
     """
     # Deep copy to create broken version
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
-    b_links = broken.get("links", [])
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
+    b_links = door_get_links(broken, [])
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -669,7 +670,7 @@ def inject_final_output_bypass_fault(
 
     # Rewire the links array: drop processing->Save*, add Load*->Save*.
     broken["links"] = [l for l in b_links if not (isinstance(l, list) and l and l[0] == old_link_id)]
-    broken["links"].append([new_id, load_id, load_slot, save_id, to_slot, ltype])
+    door_links(broken).append([new_id, load_id, load_slot, save_id, to_slot, ltype])
 
     # Keep node input/output link references consistent (no dangling links, no
     # absent endpoints) so the broken graph stays valid for the fixer + port check.
@@ -677,10 +678,10 @@ def inject_final_output_bypass_fault(
     proc_node = b_nodes.get(proc_id)
     if isinstance(proc_node, dict):
         for o in proc_node.get("outputs", []):
-            if isinstance(o.get("links"), list):
-                o["links"] = [x for x in o["links"] if x != old_link_id]
+            if isinstance(door_get_links(o), list):
+                o["links"] = [x for x in door_links(o) if x != old_link_id]
     if isinstance(load_out, dict):
-        load_links = load_out.get("links") if isinstance(load_out.get("links"), list) else []
+        load_links = door_get_links(load_out) if isinstance(door_get_links(load_out), list) else []
         if new_id not in load_links:
             load_links.append(new_id)
         load_out["links"] = load_links
@@ -731,11 +732,11 @@ def inject_conditioning_swap_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
-    b_links = broken.get("links", [])
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
+    b_links = door_get_links(broken, [])
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -779,21 +780,21 @@ def inject_conditioning_swap_fault(
 
     if isinstance(pos_source, dict):
         for o in pos_source.get("outputs", []):
-            if isinstance(o.get("links"), list):
+            if isinstance(door_get_links(o), list):
                 # Replace old link_id with neg_link_id at target input
-                for idx, link_ref in enumerate(o["links"]):
+                for idx, link_ref in enumerate(door_links(o)):
                     if link_ref == pos_link_id:
-                        o["links"][idx] = neg_link_id
+                        door_links(o)[idx] = neg_link_id
 
     if isinstance(neg_source, dict):
         for o in neg_source.get("outputs", []):
-            if isinstance(o.get("links"), list):
-                for idx, link_ref in enumerate(o["links"]):
+            if isinstance(door_get_links(o), list):
+                for idx, link_ref in enumerate(door_links(o)):
                     if link_ref == neg_link_id:
-                        o["links"][idx] = pos_link_id
+                        door_links(o)[idx] = pos_link_id
 
     # Update links array
-    for link in broken["links"]:
+    for link in door_links(broken):
         if isinstance(link, list) and len(link) >= 6:
             if link[0] == pos_link_id:
                 link[3] = sampler_id
@@ -849,11 +850,11 @@ def inject_vae_output_bypass_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
-    b_links = broken.get("links", [])
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
+    b_links = door_get_links(broken, [])
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -923,7 +924,7 @@ def inject_vae_output_bypass_fault(
 
     # Remove old VAE->Save* link, add upstream->Save* link
     broken["links"] = [l for l in b_links if not (isinstance(l, list) and l and l[0] == old_save_link_id)]
-    broken["links"].append([new_id, upstream_from_node, upstream_from_slot, save_id, to_slot, link_type])
+    door_links(broken).append([new_id, upstream_from_node, upstream_from_slot, save_id, to_slot, link_type])
 
     # Update Save* input reference
     save_input["link"] = new_id
@@ -931,16 +932,16 @@ def inject_vae_output_bypass_fault(
     # Update VAE output to remove the old link
     if isinstance(vae_node, dict):
         for o in vae_node.get("outputs", []):
-            if isinstance(o.get("links"), list):
-                o["links"] = [x for x in o["links"] if x != old_save_link_id]
+            if isinstance(door_get_links(o), list):
+                o["links"] = [x for x in door_links(o) if x != old_save_link_id]
 
     # Update upstream node's output to include new link
     upstream_node = b_nodes.get(str(upstream_from_node))
     if isinstance(upstream_node, dict):
         for o in upstream_node.get("outputs", []):
-            if isinstance(o.get("links"), list):
-                if new_id not in o["links"]:
-                    o["links"].append(new_id)
+            if isinstance(door_get_links(o), list):
+                if new_id not in door_links(o):
+                    door_links(o).append(new_id)
 
     injection = derive_repair_delta(broken, golden)
 
@@ -988,11 +989,11 @@ def inject_latent_source_swap_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
-    b_links = broken.get("links", [])
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
+    b_links = door_get_links(broken, [])
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1038,7 +1039,7 @@ def inject_latent_source_swap_fault(
 
     # Remove old link, add alternative->sampler link
     broken["links"] = [l for l in b_links if not (isinstance(l, list) and l and l[0] == old_link_id)]
-    broken["links"].append([new_id, alt_id, alt_slot, sampler_id, latent_input.get("name", "latent_image"), "LATENT"])
+    door_links(broken).append([new_id, alt_id, alt_slot, sampler_id, latent_input.get("name", "latent_image"), "LATENT"])
 
     # Update sampler input
     latent_input["link"] = new_id
@@ -1047,12 +1048,12 @@ def inject_latent_source_swap_fault(
     old_source = b_nodes.get(str(old_from_node))
     if isinstance(old_source, dict):
         for o in old_source.get("outputs", []):
-            if isinstance(o.get("links"), list):
-                o["links"] = [x for x in o["links"] if x != old_link_id]
+            if isinstance(door_get_links(o), list):
+                o["links"] = [x for x in door_links(o) if x != old_link_id]
 
     # Update alternative source output to include new link
     if isinstance(alt_out, dict):
-        alt_links = alt_out.get("links") if isinstance(alt_out.get("links"), list) else []
+        alt_links = door_get_links(alt_out) if isinstance(door_get_links(alt_out), list) else []
         if new_id not in alt_links:
             alt_links.append(new_id)
         alt_out["links"] = alt_links
@@ -1102,11 +1103,11 @@ def inject_wrong_output_slot_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
-    b_links = broken.get("links", [])
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
+    b_links = door_get_links(broken, [])
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1161,7 +1162,7 @@ def inject_wrong_output_slot_fault(
 
     # Remove IMAGE->target link, add MASK->target link
     broken["links"] = [l for l in b_links if not (isinstance(l, list) and l and l[0] == old_link_id)]
-    broken["links"].append([new_id, load_id, mask_slot, target_id, to_slot, "MASK"])
+    door_links(broken).append([new_id, load_id, mask_slot, target_id, to_slot, "MASK"])
 
     # Update target input
     if target_input:
@@ -1169,12 +1170,12 @@ def inject_wrong_output_slot_fault(
 
     # Update IMAGE output to remove the link
     if isinstance(image_out, dict):
-        if isinstance(image_out.get("links"), list):
-            image_out["links"] = [x for x in image_out["links"] if x != old_link_id]
+        if isinstance(door_get_links(image_out), list):
+            image_out["links"] = [x for x in door_links(image_out) if x != old_link_id]
 
     # Update MASK output to include new link
     if isinstance(mask_out, dict):
-        mask_links = mask_out.get("links") if isinstance(mask_out.get("links"), list) else []
+        mask_links = door_get_links(mask_out) if isinstance(door_get_links(mask_out), list) else []
         if new_id not in mask_links:
             mask_links.append(new_id)
         mask_out["links"] = mask_links
@@ -1225,11 +1226,11 @@ def inject_prompt_not_wired_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
-    b_links = broken.get("links", [])
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
+    b_links = door_get_links(broken, [])
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1276,8 +1277,8 @@ def inject_prompt_not_wired_fault(
     # Update CLIPTextEncode output to remove the link
     if isinstance(clip_node, dict):
         for o in clip_node.get("outputs", []):
-            if isinstance(o.get("links"), list):
-                o["links"] = [x for x in o["links"] if x != pos_link_id]
+            if isinstance(door_get_links(o), list):
+                o["links"] = [x for x in door_links(o) if x != pos_link_id]
 
     injection = derive_repair_delta(broken, golden)
 
@@ -1324,10 +1325,10 @@ def inject_disabled_control_preprocessor_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1347,7 +1348,7 @@ def inject_disabled_control_preprocessor_fault(
     node_type = control_node.get("type", "")
 
     # Get current mode and widgets_values
-    widgets_values = control_node.get("widgets_values", [])
+    widgets_values = door_get_widgets_values(control_node, [])
     if not isinstance(widgets_values, list):
         widgets_values = []
 
@@ -1421,10 +1422,10 @@ def inject_denoise_too_high_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1438,7 +1439,7 @@ def inject_denoise_too_high_fault(
     node_type = sampler_node.get("type", "")
 
     # Get widgets_values
-    widgets_values = sampler_node.get("widgets_values", [])
+    widgets_values = door_get_widgets_values(sampler_node, [])
     if not isinstance(widgets_values, list):
         raise ValueError(f"{node_type} has no widgets_values")
 
@@ -1514,10 +1515,10 @@ def inject_cfg_too_high_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1531,7 +1532,7 @@ def inject_cfg_too_high_fault(
     node_type = sampler_node.get("type", "")
 
     # Get widgets_values
-    widgets_values = sampler_node.get("widgets_values", [])
+    widgets_values = door_get_widgets_values(sampler_node, [])
     if not isinstance(widgets_values, list):
         raise ValueError(f"{node_type} has no widgets_values")
 
@@ -1603,10 +1604,10 @@ def inject_steps_too_low_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1620,7 +1621,7 @@ def inject_steps_too_low_fault(
     node_type = sampler_node.get("type", "")
 
     # Get widgets_values
-    widgets_values = sampler_node.get("widgets_values", [])
+    widgets_values = door_get_widgets_values(sampler_node, [])
     if not isinstance(widgets_values, list):
         raise ValueError(f"{node_type} has no widgets_values")
 
@@ -1685,10 +1686,10 @@ def inject_resolution_wrong_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1703,7 +1704,7 @@ def inject_resolution_wrong_fault(
     node_type = empty_node.get("type", "")
 
     # Get widgets_values
-    widgets_values = empty_node.get("widgets_values", [])
+    widgets_values = door_get_widgets_values(empty_node, [])
     if not isinstance(widgets_values, list) or len(widgets_values) < 2:
         raise ValueError(f"{node_type} has insufficient widgets_values")
 
@@ -1772,10 +1773,10 @@ def inject_fps_framecount_desync_fault(
         Structured fault injection with broken graph and repair delta.
     """
     broken = copy.deepcopy(golden)
-    b_nodes = {n.get("id"): n for n in broken.get("nodes", [])}
+    b_nodes = {n.get("id"): n for n in door_get_nodes(broken, [])}
 
     def _find_node(pred):
-        for n in broken["nodes"]:
+        for n in door_nodes(broken):
             if pred((n.get("type") or "")):
                 return n
         return None
@@ -1785,8 +1786,8 @@ def inject_fps_framecount_desync_fault(
     video_node = _find_node(lambda t: "video" in t.lower() or "fps" in t.lower() or "frame" in t.lower())
     if video_node is None:
         # Try to find node with fps in widgets_values
-        for n in broken.get("nodes", []):
-            wv = n.get("widgets_values", [])
+        for n in door_get_nodes(broken, []):
+            wv = door_get_widgets_values(n, [])
             if isinstance(wv, list) and any(isinstance(v, (int, float)) and v > 1 and v < 120 for v in wv):
                 video_node = n
                 break
@@ -1798,7 +1799,7 @@ def inject_fps_framecount_desync_fault(
     node_type = video_node.get("type", "")
 
     # Get widgets_values
-    widgets_values = video_node.get("widgets_values", [])
+    widgets_values = door_get_widgets_values(video_node, [])
     if not isinstance(widgets_values, list):
         raise ValueError(f"{node_type} has no widgets_values")
 

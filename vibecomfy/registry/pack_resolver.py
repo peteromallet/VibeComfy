@@ -36,11 +36,29 @@ DEFAULT_REGISTRY_SUB_BUDGET_SECONDS = 30.0
 COOLDOWN_FILE_NAME = ".cooldown.json"
 COOLDOWN_LOCK_FILE_NAME = ".cooldown.lock"
 DEFAULT_COOLDOWN_SECONDS = 60.0
-MAX_COOLDOWN_SECONDS = 3600.0
+# A persisted GitHub cooldown must not outlive one registry research budget.
+MAX_COOLDOWN_SECONDS = DEFAULT_REGISTRY_SUB_BUDGET_SECONDS
 
 # R2-B2: brief negative-cache TTL for GitHub 422 "validation failed" queries.
 NEGATIVE_CACHE_TTL_SECONDS = 60.0
 NEGATIVE_CACHE_MARKER = "_vibecomfy_negative"
+
+# I-B: process-wide aggregate bound on the api.github.com/search/code tier.
+# In the harness one process == one scenario attempt, so this caps the
+# pre-first-attempt research hang even when many node classes each trigger
+# their own resolve_missing_nodes() call (each with a fresh per-call
+# sub-budget).  The per-call sub-budget alone is insufficient: N classes x 30s
+# can still eat the whole 1200s scenario wall before a first model attempt.
+# Env-overridable; 0 disables (VIBECOMFY_REGISTRY_GITHUB_SEARCH_BUDGET /
+# VIBECOMFY_REGISTRY_GITHUB_SEARCH_MAX_REQUESTS).  A hard skip switch
+# (VIBECOMFY_REGISTRY_SKIP_GITHUB) disables the entire GitHub tier — the
+# harness sets it on the retry of a pre-first-attempt research-hang kill so
+# the retry cannot become a second 1200s black hole.
+DEFAULT_GITHUB_CODE_SEARCH_BUDGET_SECONDS = 45.0
+DEFAULT_GITHUB_CODE_SEARCH_MAX_REQUESTS = 6
+GITHUB_SEARCH_BUDGET_ENV = "VIBECOMFY_REGISTRY_GITHUB_SEARCH_BUDGET"
+GITHUB_SEARCH_MAX_REQUESTS_ENV = "VIBECOMFY_REGISTRY_GITHUB_SEARCH_MAX_REQUESTS"
+GITHUB_SKIP_ENV = "VIBECOMFY_REGISTRY_SKIP_GITHUB"
 
 
 class PackResolverError(RuntimeError):
@@ -234,6 +252,14 @@ def _budget_exceeded(deadline: float | None) -> bool:
     return deadline is not None and time.monotonic() >= deadline
 
 
+def _bounded_request_timeout(timeout_seconds: float, deadline: float | None) -> float:
+    """Clamp one request to both its hard cap and the remaining sub-budget."""
+    timeout = min(timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+    if deadline is not None:
+        timeout = min(timeout, max(0.001, deadline - time.monotonic()))
+    return timeout
+
+
 # ── Rate-limit cooldown circuit (R2-B2) ─────────────────────────────────────
 # On GitHub 403/429 the resolver writes a shared cooldown sentinel (per cache
 # root, keyed by endpoint) and honors Retry-After.  A process-wide mirror avoids
@@ -361,6 +387,100 @@ def _set_cooldown(cache_root: Path, endpoint: str, retry_after: float | None) ->
             _atomic_write_json(file_path, payload)
     except OSError:
         pass  # Cooldown is best-effort; the in-process flag still applies.
+
+
+# ── GitHub code-search process budget (I-B) ─────────────────────────────────
+# api.github.com/search/code is the pre-first-attempt hang of record (v5-batch-3
+# #1/#7): repeated 422/503 responses across MANY resolve_missing_nodes() calls
+# burned the full 1200s scenario wall before a first model attempt.  Each call
+# gets its own sub-budget, so the aggregate needed a process-wide bound: one
+# process == one scenario attempt in the live harness.  The tier skips itself
+# (with a typed warning) once the process has spent its wall budget or made its
+# request budget of real HTTP calls; disk-cache hits are not charged.
+
+_PROCESS_GITHUB_CODE_SEARCH_SPENT = 0.0
+_PROCESS_GITHUB_CODE_SEARCH_REQUESTS = 0
+_PROCESS_GITHUB_MUTEX = threading.Lock()
+
+
+def _github_code_search_budget_seconds() -> float:
+    try:
+        seconds = float(
+            os.environ.get(GITHUB_SEARCH_BUDGET_ENV, "")
+            or DEFAULT_GITHUB_CODE_SEARCH_BUDGET_SECONDS
+        )
+    except ValueError:
+        seconds = DEFAULT_GITHUB_CODE_SEARCH_BUDGET_SECONDS
+    return max(0.0, seconds)
+
+
+def _github_code_search_max_requests() -> int:
+    try:
+        requests = int(
+            os.environ.get(GITHUB_SEARCH_MAX_REQUESTS_ENV, "")
+            or DEFAULT_GITHUB_CODE_SEARCH_MAX_REQUESTS
+        )
+    except ValueError:
+        requests = DEFAULT_GITHUB_CODE_SEARCH_MAX_REQUESTS
+    return max(0, requests)
+
+
+def _github_tier_disabled() -> bool:
+    """True when the whole GitHub evidence tier is disabled for this process.
+
+    The harness sets VIBECOMFY_REGISTRY_SKIP_GITHUB on the retry of a
+    pre-first-attempt research-hang kill so the retry cannot become a second
+    1200s black hole on api.github.com/search/code.
+    """
+    return bool(os.environ.get(GITHUB_SKIP_ENV))
+
+
+def _reserve_github_code_search() -> tuple[bool, str | None]:
+    """Atomically reserve one real HTTP attempt from the process-wide cap."""
+    global _PROCESS_GITHUB_CODE_SEARCH_REQUESTS
+    budget = _github_code_search_budget_seconds()
+    max_requests = _github_code_search_max_requests()
+    with _PROCESS_GITHUB_MUTEX:
+        if max_requests > 0 and _PROCESS_GITHUB_CODE_SEARCH_REQUESTS >= max_requests:
+            return False, (
+                "GitHub code search skipped: process request budget exhausted "
+                f"({_PROCESS_GITHUB_CODE_SEARCH_REQUESTS}/{max_requests})."
+            )
+        if budget > 0 and _PROCESS_GITHUB_CODE_SEARCH_SPENT >= budget:
+            return False, (
+                "GitHub code search skipped: process wall budget exhausted "
+                f"({_PROCESS_GITHUB_CODE_SEARCH_SPENT:.1f}s/{budget:.1f}s)."
+            )
+        # Check + charge is one critical section: concurrent resolvers cannot
+        # both observe the last slot as available and overspend the cap.
+        _PROCESS_GITHUB_CODE_SEARCH_REQUESTS += 1
+    return True, None
+
+
+def _finish_github_code_search(elapsed_seconds: float, *, http_request: bool) -> None:
+    """Finish a reserved attempt, charging only real HTTP work.
+
+    The normal path reserves only after a cache miss.  ``http_request=False``
+    handles the narrow race where another resolver fills the disk cache after
+    our first cache check; that reservation is refunded and no wall time is
+    charged.
+    """
+    global _PROCESS_GITHUB_CODE_SEARCH_SPENT, _PROCESS_GITHUB_CODE_SEARCH_REQUESTS
+    with _PROCESS_GITHUB_MUTEX:
+        if http_request:
+            _PROCESS_GITHUB_CODE_SEARCH_SPENT += max(0.0, elapsed_seconds)
+        else:
+            _PROCESS_GITHUB_CODE_SEARCH_REQUESTS = max(
+                0, _PROCESS_GITHUB_CODE_SEARCH_REQUESTS - 1
+            )
+
+
+def _reset_process_github_code_search_budget() -> None:
+    """Reset the process budget (test seam; also exported for daemon hosts)."""
+    global _PROCESS_GITHUB_CODE_SEARCH_SPENT, _PROCESS_GITHUB_CODE_SEARCH_REQUESTS
+    with _PROCESS_GITHUB_MUTEX:
+        _PROCESS_GITHUB_CODE_SEARCH_SPENT = 0.0
+        _PROCESS_GITHUB_CODE_SEARCH_REQUESTS = 0
 
 
 # ── Negative cache (R2-B2) ───────────────────────────────────────────────────
@@ -614,7 +734,7 @@ class _ComfyRegistryClient:
 
     @property
     def _request_timeout(self) -> float:
-        return min(self.timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+        return _bounded_request_timeout(self.timeout_seconds, self.deadline)
 
     def resolve_class(self, class_name: str) -> PackResolution | None:
         exact_path = f"/comfy-nodes/{quote(class_name, safe='')}/node"
@@ -770,7 +890,7 @@ class _ExternalJsonCache:
 
     @property
     def _request_timeout(self) -> float:
-        return min(self.timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+        return _bounded_request_timeout(self.timeout_seconds, self.deadline)
 
     def _get_json_url(
         self,
@@ -785,19 +905,10 @@ class _ExternalJsonCache:
         A brief negative-cache marker (R2-B2) short-circuits repeated 422
         validation failures as ``(None, True, 422)`` with no HTTP call.
         """
+        cached_result = self._read_cached_json_url(url, params)
+        if cached_result is not None:
+            return cached_result
         cache_file = self._cache_file_for_url(url, params)
-        if cache_file.exists():
-            cached = _read_json_file(cache_file)
-            if _is_negative_cache(cached):
-                try:
-                    expires_at = float(cached.get("expires_at") or 0.0)
-                except (TypeError, ValueError):
-                    expires_at = 0.0
-                if expires_at > time.time():
-                    return None, True, 422, httpx.Headers()
-                # Expired negative entry → refetch below (and overwrite on success).
-            else:
-                return cached, True, 200, httpx.Headers()
         self._check_budget()
         response = self.client.get(
             url,
@@ -814,6 +925,26 @@ class _ExternalJsonCache:
             payload = response.json()
         _atomic_write_json(cache_file, payload)
         return payload, False, response.status_code, response.headers
+
+    def _read_cached_json_url(
+        self,
+        url: str,
+        params: dict[str, str] | None = None,
+    ) -> tuple[Any, bool, int, httpx.Headers] | None:
+        """Return a live disk-cache entry without consulting network budgets."""
+        cache_file = self._cache_file_for_url(url, params)
+        if not cache_file.exists():
+            return None
+        cached = _read_json_file(cache_file)
+        if _is_negative_cache(cached):
+            try:
+                expires_at = float(cached.get("expires_at") or 0.0)
+            except (TypeError, ValueError):
+                expires_at = 0.0
+            if expires_at > time.time():
+                return None, True, 422, httpx.Headers()
+            return None
+        return cached, True, 200, httpx.Headers()
 
     def _cache_file_for_url(self, url: str, params: dict[str, str] | None) -> Path:
         query = urlencode(sorted((params or {}).items()))
@@ -902,6 +1033,15 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
         existing_candidates: Any,
     ) -> tuple[list[ResolverCandidate], list[str]]:
         warnings: list[str] = []
+        # I-B: the harness hard-disables the GitHub tier on the retry of a
+        # pre-first-attempt research-hang kill — one env var, whole tier off
+        # (code search AND repository search), zero GitHub HTTP.
+        if _github_tier_disabled():
+            warnings.append(
+                "GitHub tier skipped: VIBECOMFY_REGISTRY_SKIP_GITHUB is set "
+                "(retry of a pre-first-attempt research hang)."
+            )
+            return (), warnings
         if not self.configured:
             return (), ("GitHub code search skipped: no token or configured client.",)
         headers = {"Accept": "application/vnd.github+json"}
@@ -1007,15 +1147,40 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
         headers: dict[str, str],
         warnings: list[str],
     ) -> tuple[Any, bool, int, httpx.Headers]:
+        params = {"q": f"{query} ComfyUI"}
+        # Cache is authoritative and free: a hit must still work after the
+        # process HTTP cap/wall budget is exhausted.
+        cached = self._read_cached_json_url(self.CODE_SEARCH_URL, params)
+        if cached is not None:
+            return cached
+
+        # Reserve atomically before EVERY real attempt (original query and
+        # sanitized retry alike), so concurrent missing-class resolutions
+        # cannot all consume the final process-budget slot.
+        allowed, reason = _reserve_github_code_search()
+        if not allowed:
+            warnings.append(reason)
+            return None, False, 599, httpx.Headers()
+        started = time.monotonic()
         try:
-            return self._get_json_url(
+            payload, cache_hit, status, response_headers = self._get_json_url(
                 self.CODE_SEARCH_URL,
-                params={"q": f"{query} ComfyUI"},
+                params=params,
                 headers=headers,
             )
+        except _BudgetExceeded:
+            _finish_github_code_search(
+                time.monotonic() - started, http_request=False
+            )
+            raise
         except httpx.HTTPError as exc:
+            _finish_github_code_search(time.monotonic() - started, http_request=True)
             warnings.append(f"GitHub code search failed ({type(exc).__name__}); falling back to repository search.")
             return None, False, 599, httpx.Headers()
+        _finish_github_code_search(
+            time.monotonic() - started, http_request=not cache_hit
+        )
+        return payload, cache_hit, status, response_headers
 
 
 def _pack_refs_from_search_payload(payload: Any) -> list[PackRef]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -12,30 +13,66 @@ from vibecomfy.porting.edit._session_types import (
     _ParsedBatch,
     _diag,
 )
+from vibecomfy.porting.edit.constants import (
+    WIDGET_CHANNEL_SIDE_KEY,
+    decode_channel_side_payload,
+)
+from vibecomfy.porting.edit.grammar import (
+    ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
+    CONTROL_CALL_NAMES,
+    FORBIDDEN_ASSIGN_ATTRS,
+    FORBIDDEN_CALL_NAMES,
+    QUERY_CALL_NAMES,
+    diagnose_unadmitted_ast,
+    op_kind_for_assignment,
+    op_kind_for_statement,
+)
 from vibecomfy.executor.tool_specs import (
     AGENT_TOOL_CALL_NAMES as _AGENT_TOOL_CALL_NAMES,
 )
 
-_FORBIDDEN_CALL_NAMES = frozenset(
-    {
-        "__import__",
-        "compile",
-        "eval",
-        "exec",
-        "globals",
-        "locals",
-        "open",
-    }
-)
-_ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES = frozenset({"vibecomfy.exec"})
+# Admission sets are generated from grammar.py — do not hand-maintain copies.
+_FORBIDDEN_CALL_NAMES = FORBIDDEN_CALL_NAMES
+_ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES = ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES
 _RAW_COORDINATE_HINT_NAMES = frozenset({"pos", "position", "coords", "x", "y"})
-# I01/C01: the named agent tool calls admitted to the batch protocol as
-# standalone top-level query statements.  Names, per-phase partition, argument
-# contract, budgets, handlers, and ledger projectors are declared ONCE in
-# _tool_specs.TOOL_SPECS; parser admission is derived from that registry.
-_QUERY_CALL_NAMES = frozenset({"python", "research", "search"}) | _AGENT_TOOL_CALL_NAMES
+_QUERY_CALL_NAMES = QUERY_CALL_NAMES
 _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
+
+
+def _channel_side_unpack(
+    keyword: ast.keyword,
+    *,
+    env: Mapping[str, Any],
+) -> tuple[tuple[str, ...], tuple[str, ...], CompactDiagnostic | None] | None:
+    """Return ``(widgets, order, issue)`` if *keyword* is the field roster.
+
+    The side channel is ``**{WIDGET_CHANNEL_SIDE_KEY: {widgets, order}}`` —
+    a non-identifier unpack key.  A real field with that raw name is never
+    emitted as this unpack.  Returns ``None`` when this is not that unpack.
+    """
+    if keyword.arg is not None:
+        return None
+    literal, issue = _fold_constant(keyword.value, env=env)
+    if issue is not None:
+        return None
+    if not isinstance(literal, dict) or set(literal) != {WIDGET_CHANNEL_SIDE_KEY}:
+        return None
+    decoded = decode_channel_side_payload(literal[WIDGET_CHANNEL_SIDE_KEY])
+    if decoded is not None:
+        return decoded[0], decoded[1], None
+    return (
+        (),
+        (),
+        _unsafe(
+            keyword.value,
+            "invalid_widget_channel_side",
+            (
+                f"{WIDGET_CHANNEL_SIDE_KEY!r} must be a field-name sequence "
+                "or a {{widgets, order}} roster."
+            ),
+        ),
+    )
 
 
 def _resolve_vibecomfy_constructor(func: ast.expr) -> tuple[str | None, bool]:
@@ -82,6 +119,17 @@ def _parse_and_validate_batch(
                     detail={"line": exc.lineno, "offset": exc.offset},
                 ),
             ),
+        )
+
+    admission_issues = [
+        _unsafe(node, code, message)
+        for node, code, message in diagnose_unadmitted_ast(module)
+    ]
+    if admission_issues:
+        return _ParsedBatch(
+            statements=(),
+            expanded=(),
+            diagnostics=tuple(admission_issues),
         )
 
     if len(module.body) > max_statements:
@@ -162,7 +210,7 @@ def _expand_statement(
             source=segment.strip(),
             ok=True,
             landed=False,
-            op_kind=_statement_op_kind(statement),
+            op_kind=op_kind_for_statement(statement),
             detail={
                 "ast_node": statement,
                 "constant_env": dict(env),
@@ -182,9 +230,27 @@ def _expand_for(
         return [], [_unsafe(statement, "for_target_not_name", "Only simple for-loop targets are allowed.")]
     if statement.orelse:
         return [], [_unsafe(statement, "for_else_not_allowed", "for/else is not allowed.")]
+    if isinstance(statement.iter, (ast.List, ast.Tuple)):
+        return _expand_for_sequence(
+            statement, source, env=env, max_for_iterations=max_for_iterations
+        )
     values, diagnostic = _constant_range_values(statement.iter, max_for_iterations=max_for_iterations)
     if diagnostic is not None:
         return [], [diagnostic]
+    return _expand_for_constant_values(
+        statement, source, values, env=env, max_for_iterations=max_for_iterations
+    )
+
+
+def _expand_for_constant_values(
+    statement: ast.For,
+    source: str,
+    values: tuple[Any, ...],
+    *,
+    env: Mapping[str, Any],
+    max_for_iterations: int,
+) -> tuple[list[StatementResult], list[CompactDiagnostic]]:
+    assert isinstance(statement.target, ast.Name)
     expanded: list[StatementResult] = []
     issues: list[CompactDiagnostic] = []
     for value in values:
@@ -200,6 +266,69 @@ def _expand_for(
             issues.extend(child_issues)
             expanded.extend(child_expanded)
     return expanded, issues
+
+
+class _RewriteLoopName(ast.NodeTransformer):
+    def __init__(self, name: str, replacement: ast.expr) -> None:
+        self._name = name
+        self._replacement = replacement
+
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        if node.id != self._name:
+            return node
+        return ast.copy_location(copy.deepcopy(self._replacement), node)
+
+
+def _expand_for_sequence(
+    statement: ast.For,
+    source: str,
+    *,
+    env: Mapping[str, Any],
+    max_for_iterations: int,
+) -> tuple[list[StatementResult], list[CompactDiagnostic]]:
+    assert isinstance(statement.target, ast.Name)
+    assert isinstance(statement.iter, (ast.List, ast.Tuple))
+    items = list(statement.iter.elts)
+    if len(items) > max_for_iterations:
+        return [], [
+            _unsafe(
+                statement.iter,
+                "for_iteration_cap_exceeded",
+                "for-loop exceeds the configured iteration cap.",
+                detail={"iterations": len(items), "max_iterations": max_for_iterations},
+            )
+        ]
+    if all(_is_graph_reference_value(item) for item in items):
+        expanded: list[StatementResult] = []
+        issues: list[CompactDiagnostic] = []
+        rewriter = None
+        for item in items:
+            rewriter = _RewriteLoopName(statement.target.id, item)
+            for child in statement.body:
+                rewritten = rewriter.visit(copy.deepcopy(child))
+                ast.fix_missing_locations(rewritten)
+                child_expanded, child_issues = _expand_statement(
+                    rewritten,
+                    source,
+                    env=env,
+                    max_for_iterations=max_for_iterations,
+                )
+                issues.extend(child_issues)
+                expanded.extend(child_expanded)
+        return expanded, issues
+    values: list[Any] = []
+    for item in items:
+        value, diagnostic = _fold_constant(item, env=env)
+        if diagnostic is not None:
+            return [], [diagnostic]
+        values.append(value)
+    return _expand_for_constant_values(
+        statement,
+        source,
+        tuple(values),
+        env=env,
+        max_for_iterations=max_for_iterations,
+    )
 
 
 def _constant_range_values(
@@ -271,6 +400,48 @@ def _validate_planned_statement(
     return [_unsafe(statement, "statement_not_allowed", f"{type(statement).__name__} statements are not allowed.")]
 
 
+_SUBGRAPH_INTERFACE_KWARGS = frozenset({"name", "id", "inputs", "outputs"})
+
+
+def _validate_subgraph_interface_call(
+    node: ast.Call,
+    *,
+    env: Mapping[str, Any],
+) -> list[CompactDiagnostic]:
+    if node.args:
+        return [_unsafe(node, "positional_args_not_allowed", "subgraph_interface() must use keyword arguments.")]
+    issues: list[CompactDiagnostic] = []
+    seen: set[str] = set()
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            issues.append(_unsafe(keyword.value, "kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed."))
+            continue
+        if keyword.arg not in _SUBGRAPH_INTERFACE_KWARGS:
+            issues.append(
+                _unsafe(
+                    keyword.value,
+                    "unknown_subgraph_interface_field",
+                    f"subgraph_interface() does not accept {keyword.arg!r}.",
+                )
+            )
+            continue
+        seen.add(keyword.arg)
+        _, fold_issue = _fold_constant(keyword.value, env=env)
+        if fold_issue is not None:
+            issues.append(fold_issue)
+    missing = {"name", "inputs", "outputs"} - seen
+    if missing:
+        issues.append(
+            _unsafe(
+                node,
+                "missing_subgraph_interface_field",
+                "subgraph_interface() requires name=, inputs=, and outputs=.",
+                detail={"missing": sorted(missing)},
+            )
+        )
+    return issues
+
+
 def _validate_call(
     node: ast.expr,
     *,
@@ -290,11 +461,17 @@ def _validate_call(
         ]
     if name is None:
         return [_unsafe(node, "call_target_not_name", "Calls must target a simple function name.")]
-    if name in _FORBIDDEN_CALL_NAMES or name.startswith("__"):
+    if name in FORBIDDEN_CALL_NAMES or name.startswith("__"):
+        if name == "set_title":
+            return [_unsafe(node, "set_title_not_allowed", "set_title is not part of the edit grammar.")]
         return [_unsafe(node, "call_not_allowed", f"Call to {name!r} is not allowed.")]
     if name == "range":
         return [_unsafe(node, "range_only_in_for", "range(...) is only allowed as a for-loop iterator.")]
-    if name == "done":
+    if name == "subgraph_interface":
+        if not top_level:
+            return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
+        return _validate_subgraph_interface_call(node, env=env)
+    if name in CONTROL_CALL_NAMES:
         if node.args or node.keywords:
             return [_unsafe(node, "done_arguments_not_allowed", "done() does not accept arguments.")]
         return []
@@ -319,10 +496,31 @@ def _validate_call(
     if not top_level:
         return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
     if node.args:
-        return [_unsafe(node, "positional_args_not_allowed", "Node calls must use keyword arguments.")]
+        # `node("ClassType", **kwargs)` is the emit form for identifiers that
+        # are not valid Python names (subgraph uuids, hyphenated classes).
+        if name == "node" and len(node.args) == 1:
+            class_type, class_issue = _fold_constant(node.args[0], env=env)
+            if class_issue is not None:
+                return [class_issue]
+            if not isinstance(class_type, str) or not class_type:
+                return [
+                    _unsafe(
+                        node.args[0],
+                        "invalid_node_class_type",
+                        "node(...) requires a non-empty class-type string.",
+                    )
+                ]
+        else:
+            return [_unsafe(node, "positional_args_not_allowed", "Node calls must use keyword arguments.")]
     issues: list[CompactDiagnostic] = []
     for keyword in node.keywords:
         if keyword.arg is None:
+            side = _channel_side_unpack(keyword, env=env)
+            if side is not None:
+                _widgets, _inputs, side_issue = side
+                if side_issue is not None:
+                    issues.append(side_issue)
+                continue
             issues.append(_unsafe(keyword.value, "kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed."))
             continue
         if keyword.arg.startswith("__"):
@@ -409,6 +607,15 @@ def _validate_edit_assignment(
     issues = _validate_graph_attribute(target, role="target")
     if issues:
         return issues
+    forbidden_attr_code = FORBIDDEN_ASSIGN_ATTRS.get(target.attr)
+    if forbidden_attr_code is not None:
+        return [
+            _unsafe(
+                target,
+                forbidden_attr_code,
+                f"{target.attr} assignment is not part of the edit grammar.",
+            )
+        ]
     if target.attr == "mode":
         literal_value, diagnostic = _fold_constant(value, env=env)
         _ = literal_value
@@ -591,35 +798,6 @@ def _apply_binop(op: ast.operator, left: Any, right: Any) -> Any:
                 detail={"left": repr(left), "right": repr(right), "op": "Mod"},
             ) from None
     raise TypeError(type(op).__name__)
-
-
-def _statement_op_kind(statement: ast.stmt) -> str | None:
-    if isinstance(statement, ast.Assign):
-        target = statement.targets[0]
-        if isinstance(target, ast.Name) and isinstance(statement.value, ast.Call):
-            return "node_call"
-        if isinstance(target, ast.Attribute):
-            return _assignment_op_kind(statement.value, target_attr=target.attr)
-        return "assign"
-    if isinstance(statement, ast.Delete):
-        return "remove_node"
-    if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
-        if _call_name(statement.value) == "done":
-            return "done"
-        return "query"
-    return None
-
-
-def _assignment_op_kind(value: ast.expr, *, target_attr: str) -> str:
-    if target_attr == "mode":
-        return "set_mode"
-    if target_attr == "title":
-        return "set_title"
-    if isinstance(value, ast.Constant) and value.value is None:
-        return "remove_link"
-    if _is_graph_reference_value(value):
-        return "upsert_link"
-    return "set_node_field"
 
 
 def _call_name(node: ast.Call) -> str | None:

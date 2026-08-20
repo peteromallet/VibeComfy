@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
 
 from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.emit.emit_prepare import _prepare_workflow_for_emit
@@ -45,8 +45,6 @@ def emit_scratchpad_python(
     diagnostics: list[EmissionDiagnostic] | None = None,
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
-    variable_name_locks: Mapping[str, str] | None = None,
-    strict_variable_name_locks: bool = False,
 ) -> str:
     workflow_id = workflow_id or getattr(workflow, "id", "scratchpad")
     prepared = _prepare_workflow_for_emit(
@@ -54,8 +52,6 @@ def emit_scratchpad_python(
         apply_overrides=apply_overrides,
         keep_virtual_wires=keep_virtual_wires,
         prune_dead_branches=prune_dead_branches,
-        variable_name_locks=variable_name_locks,
-        strict_variable_name_locks=strict_variable_name_locks,
         diagnostics=diagnostics,
     )
     source_path_expr = repr(source_path) if source_path is not None else "__file__"

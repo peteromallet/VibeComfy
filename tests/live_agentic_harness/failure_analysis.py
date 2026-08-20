@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_ANALYSIS_MODEL = "deepseek:deepseek-v4-pro"
+DEFAULT_ANALYSIS_MODEL = "deepseek:deepseek-v4-flash-0731"
 DEFAULT_RECOMMENDATIONS_MODEL = "gpt-5.5"
 DEFAULT_ANALYSIS_WORKERS = 12
 DEFAULT_AGENT_TIMEOUT_S = 1800

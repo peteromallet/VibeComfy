@@ -81,6 +81,7 @@ from dataclasses import dataclass, fields
 from typing import Any, Mapping
 
 
+from vibecomfy.ingest.normalize import door_get_nodes
 class MissingEditBatchReplDepsError(KeyError):
     """Façade globals lacked one or more names the batch REPL requires.
 
@@ -221,6 +222,83 @@ def _import_from(module_path: str, name: str) -> Any:
     helper is only ever called from inside the extracted loop functions.
     """
     return getattr(importlib.import_module(module_path), name)
+
+
+_BATCH_IDENTITY_DIAGNOSTIC_CODES = frozenset(
+    {
+        "batch_identity_rejected",
+        "unknown_graph_name",
+        "unknown_source_name",
+        "unknown_target_name",
+        "unbound_graph_name",
+        "stale_graph_name",
+    }
+)
+
+
+def _batch_identity_failure_names(batch_result: Any) -> tuple[str, ...]:
+    """Return invalid graph names from one atomically rejected batch."""
+    diagnostics = list(getattr(batch_result, "diagnostics", ()) or ())
+    for statement in tuple(getattr(batch_result, "statements", ()) or ()):
+        diagnostics.extend(tuple(getattr(statement, "diagnostics", ()) or ()))
+    return tuple(
+        sorted(
+            {
+                str(detail.get("name"))
+                for diagnostic in diagnostics
+                if getattr(diagnostic, "code", "") in _BATCH_IDENTITY_DIAGNOSTIC_CODES
+                for detail in (getattr(diagnostic, "detail", {}) or {},)
+                if detail.get("name") is not None
+            }
+        )
+    )
+
+
+def _in_graph_nodes_from_session(session: Any) -> dict[str, Any] | None:
+    """Retained-IR in-graph payload for search(); UI-shaped for catalog callers.
+
+    The payload is rebuilt from the retained IR (``workflow.nodes``) only —
+    no ``working_ui`` fallback, the IR is the authority.  ``search()`` and
+    ``signatures._iter_graph_nodes`` accept the ``{"nodes": [...]}`` shape,
+    which is also the shape the batch loop's turn transcript records.
+    """
+    workflow = getattr(session, "workflow", None)
+    nodes = getattr(workflow, "nodes", None)
+    if not isinstance(nodes, Mapping) or not nodes:
+        return None
+    payload: list[dict[str, Any]] = []
+    for node in nodes.values():
+        item: dict[str, Any] = {
+            "type": getattr(node, "class_type", ""),
+            "class_type": getattr(node, "class_type", ""),
+            "id": getattr(node, "id", None),
+        }
+        uid = getattr(node, "uid", None)
+        if uid:
+            item["properties"] = {"vibecomfy_uid": uid}
+        widgets = getattr(node, "widgets", None)
+        if isinstance(widgets, dict) and widgets:
+            item["widgets"] = dict(widgets)
+        inputs = getattr(node, "inputs", None)
+        if isinstance(inputs, dict) and inputs:
+            item["inputs"] = dict(inputs)
+        metadata = getattr(node, "metadata", None)
+        if isinstance(metadata, dict) and metadata:
+            item["metadata"] = metadata
+        payload.append(item)
+    return {"nodes": payload}
+
+
+def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """The UI door (porting/emit/ui.py) — the designed Agent Edit exit.
+
+    The batch REPL exit goes through ``emit_ui_json`` exactly like the delta
+    path's emit stage: the retained IR is rendered to the canonical litegraph
+    envelope and the full-UI guard (guard_emit inside the door, fed by
+    ``guard_original_ui`` / ``guard_resolved_ops``) validates the emitted
+    candidate.  No raw-JSON writer bypasses the door.
+    """
+    return _import_from("vibecomfy.porting.emit.ui", "emit_ui_json")(*args, **kwargs)
 
 
 # ── Research collection fold (B03) ──────────────────────────────────────────
@@ -441,7 +519,7 @@ def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
             ordered.append(class_type)
 
     def visit(scope: Mapping[str, Any]) -> None:
-        nodes = scope.get("nodes")
+        nodes = door_get_nodes(scope)
         if isinstance(nodes, list):
             for node in nodes:
                 add_node(node)
@@ -495,7 +573,7 @@ def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]
                 )
     candidate_graph = plan.get("candidate_graph")
     if isinstance(candidate_graph, Mapping):
-        nodes = candidate_graph.get("nodes")
+        nodes = door_get_nodes(candidate_graph)
         records = (
             nodes
             if isinstance(nodes, list)
@@ -519,7 +597,7 @@ def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ..
     """
     if not isinstance(manifest, Mapping):
         return ()
-    nodes_raw = manifest.get("nodes")
+    nodes_raw = door_get_nodes(manifest)
     if not isinstance(nodes_raw, (list, tuple)):
         return ()
     ordered: list[str] = []
@@ -768,7 +846,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
 ) -> deps.StageResult:
     deps = build_edit_batch_repl_deps(globals_dict)
     edit_session_module = importlib.import_module("vibecomfy.porting.edit.session")
-    ValueDefaultContext = _import_from("vibecomfy.porting.edit.apply_types", "ValueDefaultContext")
+    ValueDefaultContext = _import_from("vibecomfy.porting.edit.value_defaults", "ValueDefaultContext")
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
@@ -902,12 +980,25 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # omitted research() sources= to ("messages", "web") on the research route.
     canonical_route = deps._canonical_agent_edit_route(state.route or route)
     research_only_route = canonical_route == "research"
+    threaded_route = (
+        state.request_payload.get("pipeline_mode") == "threaded"
+        and not research_only_route
+    )
     session = edit_session_module.EditSession(
         prepared_ui,
         schema_provider=state.schema_provider,
         value_default_context=value_default_context,
+        # Batch 3 (one retained ingest authority): seed the session with the IR
+        # the named door already built at allocation so the first render does
+        # not re-derive the ingest JSON from working_ui.
+        initial_workflow=state.workflow,
     )
     session.research_only = research_only_route
+    session.tool_phase = (
+        "threaded" if threaded_route else ("research" if research_only_route else "implement")
+    )
+    # Multi-turn identity is session.history: (wf_i, Δ_i).  Bindings for
+    # turn N resolve against the accumulated IR, not raw UI snapshots.
     state.batch_session = session
     initial_render = session.render()
     present_types = deps._present_class_types(session)
@@ -928,7 +1019,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     signature_catalog = session.search(
         focus_types=sorted(focus_types),
         formatted=True,
-        in_graph_nodes=session.working_ui,
+        in_graph_nodes=_in_graph_nodes_from_session(session),
     )
     available_node_names = deps._format_available_node_names(session.search(formatted=False))
     state.python_before = initial_render
@@ -981,6 +1072,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     done_error_nudges = 0
     done_candidate_rejection_nudges = 0
     done_validation_repair_turns = 0
+    identity_repair_turns = 0
     failed_edit_turns = 0
     last_failed_edit_turn = -1
     last_successful_edit_turn_after_failure = -1
@@ -1114,6 +1206,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             max_batches=max_batches,
             conversation_messages=conversation_messages if turn_number == 0 else None,
             research_only=research_only_route,
+            tool_phase=session.tool_phase,
             evidence_ledger=evidence_ledger,
             revision_evidence_json=deps._revision_evidence_prompt_json(state)
             if turn_number == 0
@@ -1322,6 +1415,26 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             state.user_message = clarify_message
             state.python_after = current_render
             state.after_py_path.write_text(current_render, encoding="utf-8")
+            # Batch 3: the exit goes through the UI door (emit_ui_json) so the
+            # emitted candidate is guard-validated (guard_emit via
+            # guard_original_ui/guard_resolved_ops) exactly like the delta
+            # path's emit stage; the edited IR is retained on state for
+            # IR-authority renders.  The PUBLISHED candidate is the apply
+            # engine's exact working candidate: emit_ui_json's deterministic
+            # reconstruction re-stamps ledger ids, canonicalizes geometry, and
+            # recomputes the breadcrumb, so it cannot carry schema-less batch
+            # nodes byte-faithfully — and the durable authority replay verifies
+            # the published graph byte-for-byte against apply(submit, delta),
+            # which the apply engine's own candidate reproduces exactly.
+            state.edited_workflow = session.last_rendered_workflow
+            _emit_ui_json(
+                state.edited_workflow,
+                schema_provider=state.schema_provider,
+                prior_store=state.prior_store,
+                guard_original_ui=state.guard_original_ui or state.graph,
+                guard_resolved_ops=session.resolved_ops,
+                prior_ui_payload=state.guard_original_ui or state.graph,
+            )
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             state.report = {
@@ -1418,6 +1531,26 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             _batch_journal_mod.maybe_inject_batch_fault("after_render")
             state.python_after = next_render
             state.after_py_path.write_text(next_render, encoding="utf-8")
+            # Batch 3: the exit goes through the UI door (emit_ui_json) so the
+            # emitted candidate is guard-validated (guard_emit via
+            # guard_original_ui/guard_resolved_ops) exactly like the delta
+            # path's emit stage; the edited IR is retained on state for
+            # IR-authority renders.  The PUBLISHED candidate is the apply
+            # engine's exact working candidate: emit_ui_json's deterministic
+            # reconstruction re-stamps ledger ids, canonicalizes geometry, and
+            # recomputes the breadcrumb, so it cannot carry schema-less batch
+            # nodes byte-faithfully — and the durable authority replay verifies
+            # the published graph byte-for-byte against apply(submit, delta),
+            # which the apply engine's own candidate reproduces exactly.
+            state.edited_workflow = session.last_rendered_workflow
+            _emit_ui_json(
+                state.edited_workflow,
+                schema_provider=state.schema_provider,
+                prior_store=state.prior_store,
+                guard_original_ui=state.guard_original_ui or state.graph,
+                guard_resolved_ops=session.resolved_ops,
+                prior_ui_payload=state.guard_original_ui or state.graph,
+            )
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             _batch_journal_mod.maybe_inject_batch_fault("after_candidate_write")
@@ -1427,10 +1560,15 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
             lint_dropped_count = 0
             lint_diag_dicts: tuple[dict[str, Any], ...] = ()
-            persisted_landed_ops = batch_result.landed_ops
+            # Publish the emit-side projection of interpret's Δ.  Authority
+            # replay is apply_delta(submit, envelope); IR typed slots
+            # (IMAGE_0) are not UI names and must not be the durable ops.
+            persisted_landed_ops = tuple(
+                session._projection_op(op) for op in batch_result.landed_ops
+            )
             if (
                 deps._edit_lint_enabled()
-                and batch_result.landed_ops
+                and persisted_landed_ops
                 and deps._agent_edit_batch_repl_enabled()
             ):
                 LintIndex, lint_delta = _import_from("vibecomfy.porting.edit.lint", "LintIndex"), _import_from("vibecomfy.porting.edit.lint", "lint_delta")
@@ -1438,7 +1576,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
 
                 index = LintIndex.build(state.graph)
                 lint_result = lint_delta(
-                    batch_result.landed_ops,
+                    persisted_landed_ops,
                     index,
                     schema_provider=state.schema_provider,
                 )
@@ -1500,7 +1638,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_diag_dicts = tuple(
                     _lint_issue_to_dict(issue) for issue in lint_issues
                 )
-                persisted_landed_ops = lint_result.surviving
 
             raw_landed = len(batch_result.landed_ops)
             effective_landed = raw_landed - lint_dropped_count
@@ -1513,18 +1650,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             # this turn — a search followed by a successful edit is not a dead-end
             # and must not trigger the cycle guard on repeat.
             current_search_signatures = deps._extract_search_signatures(batch_result)
-            if batch_result.landed_ops:
-                DELTA_SCHEMA_VERSION, ensure_root_scoped_delta_envelope, op_to_dict = _import_from("vibecomfy.porting.edit.ops", "DELTA_SCHEMA_VERSION"), _import_from("vibecomfy.porting.edit.ops", "ensure_root_scoped_delta_envelope"), _import_from("vibecomfy.porting.edit.ops", "op_to_dict")
-
-                delta_envelope_payload = ensure_root_scoped_delta_envelope(
-                    {
-                        "schema_version": DELTA_SCHEMA_VERSION,
-                        "ops": [op_to_dict(op) for op in persisted_landed_ops],
-                    },
-                    strict=True,
-                ).to_dict()
-            else:
-                delta_envelope_payload = None
             turn_is_read_only = effective_landed == 0 and all(
                 str(item.op_kind or "") in {"query", "done", "clarify"}
                 for item in batch_result.statements
@@ -1546,6 +1671,31 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_dropped_count=lint_dropped_count,
                 lint_diagnostics=lint_diag_dicts,
             )
+            identity_failure_names = _batch_identity_failure_names(batch_result)
+            identity_reprompt = bool(
+                identity_failure_names
+                and identity_repair_turns < 1
+                and (turn_number + 1) < max_batches
+                and not research_only_route
+            )
+            if identity_reprompt:
+                available_names = sorted(str(name) for name in session.uid_by_name)
+                shown_names = available_names[:80]
+                inventory_suffix = (
+                    f" (plus {len(available_names) - len(shown_names)} more)"
+                    if len(available_names) > len(shown_names)
+                    else ""
+                )
+                report_text += (
+                    "\n\nIDENTITY CORRECTION REQUIRED: the batch was rejected "
+                    "atomically; none of its edits landed. Invalid graph name(s): "
+                    + ", ".join(repr(name) for name in identity_failure_names)
+                    + ". Re-rendered bound names are: "
+                    + (", ".join(shown_names) or "(none)")
+                    + inventory_suffix
+                    + ". Submit one corrected batch using only those exact names, "
+                    "or a uid that is present in the current render."
+                )
             # Duplicate-query cycle guard (Part C): detect when the agent re-emits
             # an identical search() on consecutive turns after the prior search
             # landed nothing.  Reads the PRIOR turn's search record
@@ -1615,11 +1765,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             }
             if execution_plan_status:
                 turn_record["execution_plan_status"] = execution_plan_status
-            if delta_envelope_payload is not None:
-                turn_record["delta_ops_envelope"] = delta_envelope_payload
-                turn_record["delta_ops"] = list(delta_envelope_payload["ops"])
-            if noop_field_changes:
-                turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
+            turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
             if clarify_message is not None:
                 turn_record["clarification_required"] = True
                 turn_record["clarification_message"] = clarify_message
@@ -1663,6 +1809,32 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 json.dumps(message_record, sort_keys=True)
                 + "\n"
             )
+            if identity_reprompt:
+                identity_repair_turns += 1
+                turn_record["identity_repair"] = {
+                    "attempt": identity_repair_turns,
+                    "invalid_names": list(identity_failure_names),
+                    "atomic_rejection": True,
+                }
+                if response_log and isinstance(response_log[-1], dict):
+                    batch_response_record = response_log[-1].get("batch_result")
+                    if isinstance(batch_response_record, dict):
+                        batch_response_record["identity_repair"] = dict(
+                            turn_record["identity_repair"]
+                        )
+                    deps.write_json_artifact(
+                        state.model_response_path,
+                        {"turns": response_log},
+                    )
+                # This bounded correction turn is an explicit recovery path,
+                # not a second generic error.  Keep the unchanged render and
+                # do not let max_consecutive_errors suppress the promised
+                # re-prompt.
+                consecutive_errors = max(0, consecutive_errors - 1)
+                current_render = next_render
+                last_diff = diff_text
+                last_report = report_text
+                continue
             if selected_precedent_unknown_class_feedback and not deps._batch_candidate_graph_changed(state):
                 state.batch_exit_mode = deps._BATCH_EXIT_PURE_CLARIFY
                 state.batch_final_summary = (
@@ -1998,8 +2170,21 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                     turn_result.message,
                     fallback="I made the requested workflow changes.",
                 )
+                edited_node_ids = sorted(
+                    {
+                        str(change.uid)
+                        for change in state.batch_field_changes
+                        if getattr(change, "uid", None) is not None
+                    }
+                )
                 state.report = {
                     "done_summary": done_result.summary,
+                    "change": {
+                        "content_edits": {
+                            "edited": edited_node_ids,
+                            "preserved": [],
+                        }
+                    },
                     "queue_blockers": [],
                 }
                 deps._finalize_revision_evidence_with_candidate(

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scenario_root": "tests/live_agentic_harness/scen30b5",
+  "scenario_count": 5,
+  "entries": [
+    {
+      "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
+      "path": "tests/live_agentic_harness/scen30b5/multi-svd-image-to-video-with-animation-builder-99e2a9.json",
+      "descriptor_sha256": "7f7753d1f23a9a376d1926a1110a5d7673bf44f9698d6cf453b4de3f9ff2b531",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "99e2a967a579197f",
+        "path": "external_workflows/corpus/99e2a967a579197f.json",
+        "sha256": "f149b2397b765bcf5f0b82c91d63e0a806afe8aac0558352f626708ea8ac4263"
+      }
+    },
+    {
+      "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
+      "path": "tests/live_agentic_harness/scen30b5/video-animatediff-video-with-ipadapter-and-controlne-4eebf3.json",
+      "descriptor_sha256": "7b47cafe952646c9a0c0fb89f517e7f45b1591068b0c184633fce8b5b1efaf1c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "4eebf3dc07942c52",
+        "path": "external_workflows/corpus/4eebf3dc07942c52.json",
+        "sha256": "1b6b276f31d6959bad780bba577b9570e1addd72429be1432a9e2d25d5764afa"
+      }
+    },
+    {
+      "id": "video-seedvr2-video-upscaling-workflow-052e59",
+      "path": "tests/live_agentic_harness/scen30b5/video-seedvr2-video-upscaling-workflow-052e59.json",
+      "descriptor_sha256": "6a6ef6f9f992f2bdbebf847bbf0be5cb00cefc37475c80e79db36424cb33d4ce",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "052e59d2d54625ac",
+        "path": "external_workflows/corpus/052e59d2d54625ac.json",
+        "sha256": "ffa4b51b3a241cf0b1a5902b2edfa494c342034f827affe0ec0e63aa8dc648bd"
+      }
+    },
+    {
+      "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
+      "path": "tests/live_agentic_harness/scen30b5/video-video-inpainting-with-spline-based-cut-and-dra-485ff2.json",
+      "descriptor_sha256": "7dac91561e39270ea35e71c8eb1e7e4335dda4bc70f5efe8e271bd7ee841beb1",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "485ff2fa6dcc1917",
+        "path": "external_workflows/corpus/485ff2fa6dcc1917.json",
+        "sha256": "7a12d7bfb8fbef41e0ae847a755545c25fbbc4f9d6f57103829542403abfaa8f"
+      }
+    },
+    {
+      "id": "video-video-loading-and-saving-workflow-1c7ad8",
+      "path": "tests/live_agentic_harness/scen30b5/video-video-loading-and-saving-workflow-1c7ad8.json",
+      "descriptor_sha256": "4a42efa6c4cd9a67e3e627741da499170930bda6be1368618aed1fefa1edd01c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "1c7ad8a2a8c0224b",
+        "path": "external_workflows/corpus/1c7ad8a2a8c0224b.json",
+        "sha256": "5106b5b32b6866c2c45e61f1c9f9b99ac09763d2a907fc480ad47fb43763a8c3"
+      }
+    }
+  ]
+}

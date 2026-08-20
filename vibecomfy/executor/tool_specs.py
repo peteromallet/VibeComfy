@@ -38,6 +38,7 @@ from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
 
 PHASE_RESEARCH = "research"
 PHASE_IMPLEMENT = "implement"
+PHASE_THREADED = "threaded"
 
 _PHASES = frozenset({PHASE_RESEARCH, PHASE_IMPLEMENT})
 
@@ -146,10 +147,19 @@ def _hivemind_search_projector(
             source="hivemind",
         )
     ids = tuple(artifacts)
-    titles = [_shorten_query_text(hit.get("title") or hit.get("body") or "", max_chars=80) for hit in hits]
+    titles = [
+        text
+        for text in (
+            _shorten_query_text(
+                hit.get("title") or hit.get("body") or "", max_chars=80
+            )
+            for hit in hits
+        )
+        if text
+    ]
     conclusion = f"{len(hits)} hit(s)"
     if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
+        conclusion += ": " + " | ".join(titles)[:380].rstrip()
     entry = _ledger_entry_dict(
         decision=f"hivemind_search {_tool_arg_summary(args)}",
         conclusion=conclusion,
@@ -219,10 +229,17 @@ def _web_search_projector(
             source="web",
         )
     ids = tuple(artifacts)
-    titles = [_shorten_query_text(item.get("title") or "", max_chars=80) for item in results]
+    titles = [
+        text
+        for text in (
+            _shorten_query_text(item.get("title") or "", max_chars=80)
+            for item in results
+        )
+        if text
+    ]
     conclusion = f"{len(results)} result(s)"
     if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
+        conclusion += ": " + " | ".join(titles)[:380].rstrip()
     entry = _ledger_entry_dict(
         decision=f"web_search {_tool_arg_summary(args)}",
         conclusion=conclusion,
@@ -580,12 +597,21 @@ def _ready_template_load_handler(
     )
 
 
+def _session_emit_graph(session: Any) -> Any:
+    """Emit-door snapshot of the retained IR.  ``working_ui`` is not authority."""
+    emit = getattr(session, "_emit_working_snapshot", None)
+    workflow = getattr(session, "workflow", None)
+    if callable(emit) and workflow is not None:
+        return emit()
+    return None
+
+
 def _rank_edit_targets_handler(
     session: Any, args: Mapping[str, Any], budget_payload: Any
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.edit_suggestion_tools")
     return mod.rank_edit_targets(
-        getattr(session, "working_ui", None),
+        _session_emit_graph(session),
         args["intent"],
         explicit=True,
         max_targets=args.get("max_targets", 4),
@@ -599,7 +625,7 @@ def _suggest_seed_nodes_handler(
     return mod.suggest_seed_nodes(
         args["intent"],
         args.get("constraints"),
-        graph=getattr(session, "working_ui", None),
+        graph=_session_emit_graph(session),
         explicit=True,
         max_suggestions=args.get("max_suggestions", 4),
     )
@@ -610,7 +636,7 @@ def _layout_hints_handler(
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.layout_hints")
     return mod.layout_hints_tool(
-        getattr(session, "working_ui", None),
+        _session_emit_graph(session),
         args["operation"],
         anchors=args.get("anchors"),
     )
@@ -703,7 +729,12 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         phase=PHASE_RESEARCH,
         description=(
             "search the Hivemind corpus (Discord community, external resources, "
-            "curated distillations) for workflow precedents and community knowledge"
+            "curated distillations) for workflow precedents and community knowledge. "
+            "Choose filters.source_type by need: 'workflow' for exact graph "
+            "precedents, 'discord' for community usage/settings/gotchas, and "
+            "'distillation' for curated Q&A. A distillation/speed/turbo LoRA is "
+            "a model type, not the 'distillation' source tier; search workflow "
+            "or discord for those models."
         ),
         positional_names=("query",),
         keywords=("query", "filters", "cursor", "limit", "timeout"),
@@ -823,6 +854,10 @@ RESEARCH_PHASE_TOOLS: frozenset[str] = frozenset(
 IMPLEMENT_PHASE_TOOLS: frozenset[str] = frozenset(
     spec.name for spec in TOOL_SPECS if spec.phase == PHASE_IMPLEMENT
 )
+# Threaded mode deliberately composes the two existing partitions. Tool
+# identity, validation, handlers, budgets, and evidence projectors remain the
+# same registry entries; this is an orchestration allowlist, not a third copy.
+THREADED_PHASE_TOOLS: frozenset[str] = AGENT_TOOL_CALL_NAMES
 
 # The two phase sets must be a clean partition of every registered tool: a
 # tool is research or implement, never both, never neither.
@@ -848,6 +883,8 @@ def phase_allows(phase: str | None, name: str) -> bool:
     """
     if phase is None:
         return name in TOOL_SPEC_BY_NAME
+    if phase == PHASE_THREADED:
+        return name in THREADED_PHASE_TOOLS
     return phase_for_tool(name) == phase
 
 
@@ -858,7 +895,11 @@ def tool_catalog_docs(phase: str | None = None, *, allowed_names: frozenset[str]
     actually admits — e.g. the research stage passes its effective allowlist
     so a disabled-by-default tool (``web_search``) is never advertised.
     """
-    specs = TOOL_SPECS if phase is None else tuple(spec for spec in TOOL_SPECS if spec.phase == phase)
+    specs = (
+        TOOL_SPECS
+        if phase is None or phase == PHASE_THREADED
+        else tuple(spec for spec in TOOL_SPECS if spec.phase == phase)
+    )
     if allowed_names is not None:
         specs = tuple(spec for spec in specs if spec.name in allowed_names)
     return "\n".join(spec.catalog_line() for spec in specs)
@@ -921,9 +962,11 @@ __all__ = [
     "IMPLEMENT_PHASE_TOOLS",
     "PHASE_IMPLEMENT",
     "PHASE_RESEARCH",
+    "PHASE_THREADED",
     "RESEARCH_PHASE_TOOLS",
     "TOOL_SPECS",
     "TOOL_SPEC_BY_NAME",
+    "THREADED_PHASE_TOOLS",
     "ToolSpec",
     "invoke_tool",
     "phase_allows",

@@ -116,6 +116,167 @@ _M2_PRECISION = 2
 # ``include_main_positions=True`` and no sidecar ``extra`` provides overrides.
 _DEFAULT_DS = {"scale": 1.0, "offset": [0.0, 0.0]}
 
+# Door-owned wire-retention metadata key (mirror of
+# ``vibecomfy.ingest.normalize._UI_DOOR_KEY``).  Only the door boundary reads
+# or writes the blob; this literal avoids importing normalize at module level.
+_UI_DOOR_KEY = "_ui_door"
+
+
+def _door_ui_passthrough_applicable(
+    wf: Any,
+    door: Any,
+    *,
+    include_virtual_wires: bool,
+    include_main_positions: bool,
+    extra: Mapping[str, Any] | None,
+    definitions: Mapping[str, Any] | None,
+    prior_store: Mapping[str, Any] | None,
+    layout: Any,
+    strict: bool,
+) -> bool:
+    """Law 1 passthrough gate: may this UNTOUCHED graph be re-emitted verbatim?
+
+    The door blob is consulted only when the caller asks for the default output
+    shape (no flat/virtual-wire toggle, no main positions, no explicit
+    extra/definitions/prior_store/layout overrides, no strict request) and the
+    graph was ingested through the OFFLINE normalizer (``use_comfy_converter``
+    is recorded at ingest).  Comfy-converter ingest is not guaranteed to
+    normalize back to the same API, so those graphs keep the deterministic
+    reconstruction path.  The final fingerprint comparison proves the graph is
+    untouched since ingest; anything else takes the reconstruction path (where
+    captured wire values are still preferred for unaffected parts).
+    """
+    if not isinstance(door, Mapping):
+        return False
+    if door.get("shape") != "ui":
+        return False
+    if door.get("use_comfy_converter") is not False:
+        return False
+    if not include_virtual_wires or include_main_positions or strict:
+        return False
+    if extra is not None or definitions is not None:
+        return False
+    if prior_store or layout:
+        return False
+    if not isinstance(door.get("top"), Mapping) or not isinstance(door.get("nodes"), Mapping):
+        return False
+    if not isinstance(door.get("node_order"), list):
+        return False
+    from vibecomfy.ingest.normalize import _door_node_fingerprint  # noqa: PLC0415
+
+    return _door_node_fingerprint(wf) == door.get("fingerprint")
+
+
+def _emit_untouched_door_ui(door: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild the original litegraph envelope byte-for-byte from the door blob.
+
+    Preserves the raw top-level key order, every raw top-level field (id,
+    version, counters, links with ids/order/type, extra, definitions, state,
+    config, revision, opaque keys), and the raw node payloads in raw order —
+    node geometry, ``order``, ``properties``, ``widgets_values``, input/output
+    link refs included.  The result is a detached deep copy.
+    """
+    from vibecomfy.ingest.normalize import _restore_untouched_door  # noqa: PLC0415
+
+    return _restore_untouched_door(door)
+
+
+def _door_top(door: Any) -> Mapping[str, Any] | None:
+    """Return the door blob's captured top-level fields, or None."""
+    if not isinstance(door, Mapping):
+        return None
+    top = door.get("top")
+    return top if isinstance(top, Mapping) else None
+
+
+def _wire_id(wf: Any, door: Any) -> str:
+    """Envelope id: the captured wire id when present, else the deterministic id."""
+    top = _door_top(door)
+    if isinstance(top, Mapping) and isinstance(top.get("id"), str) and top["id"]:
+        return top["id"]
+    return _envelope_id(wf)
+
+
+def _wire_version(door: Any) -> Any:
+    """Envelope ``version``: the captured wire value when present."""
+    top = _door_top(door)
+    if isinstance(top, Mapping) and isinstance(top.get("version"), (int, float)) and not isinstance(
+        top["version"], bool
+    ):
+        return top["version"]
+    return _LITEGRAPH_VERSION
+
+
+def _wire_counter(door: Any, key: str, computed: int) -> int:
+    """Counter field: captured value when still consistent (>= computed), else recomputed."""
+    top = _door_top(door)
+    captured = top.get(key) if isinstance(top, Mapping) else None
+    if isinstance(captured, int) and not isinstance(captured, bool) and captured >= computed:
+        return captured
+    return computed
+
+
+def _captured_link_id_map(
+    door: Any,
+) -> dict[tuple[str, str, str, str], int]:
+    """Map IR edge keys ``(from_node, from_output, to_node, to_input)`` to the
+    ORIGINAL litegraph link ids captured at ingest.
+
+    Endpoints resolve through the captured raw node payloads: each captured
+    link id is located in the captured to-node's ``inputs`` (name) and the
+    captured from-node's ``outputs`` (``slot_index``).  Links that cannot be
+    resolved (helper endpoints, missing slots) are simply absent from the map —
+    the emitter mints fresh ids for those.  This lets an edited graph keep the
+    original ids for structurally unchanged links (Law 1, wire preference).
+    """
+    if not isinstance(door, Mapping):
+        return {}
+    top = _door_top(door)
+    links = top.get("links") if isinstance(top, Mapping) else None
+    nodes = door.get("nodes") if isinstance(door.get("nodes"), Mapping) else {}
+    if not isinstance(links, list):
+        return {}
+    input_name_by_link: dict[int, tuple[str, str]] = {}
+    output_slot_by_link: dict[int, tuple[str, str]] = {}
+    for nid, payload in nodes.items():
+        if not isinstance(payload, Mapping):
+            continue
+        for entry in payload.get("inputs") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            link_ref = entry.get("link")
+            if isinstance(link_ref, int):
+                input_name_by_link[link_ref] = (str(nid), str(entry.get("name", "")))
+        for entry in payload.get("outputs") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            slot = entry.get("slot_index")
+            if slot is None:
+                continue
+            try:
+                slot_int = int(slot)
+            except (TypeError, ValueError):
+                continue
+            for link_ref in entry.get("links") or []:
+                if isinstance(link_ref, int):
+                    output_slot_by_link[link_ref] = (str(nid), str(slot_int))
+    result: dict[tuple[str, str, str, str], int] = {}
+    for link in links:
+        if not isinstance(link, (list, tuple)) or len(link) < 5:
+            continue
+        lid = link[0]
+        if not isinstance(lid, int):
+            continue
+        from_node, to_node = str(link[1]), str(link[3])
+        in_info = input_name_by_link.get(lid)
+        out_info = output_slot_by_link.get(lid)
+        if in_info is None or out_info is None:
+            continue
+        if in_info[0] != to_node or out_info[0] != from_node:
+            continue
+        result[(from_node, out_info[1], to_node, in_info[1])] = lid
+    return result
+
 
 def _intent_recovery_fields(node: Any) -> dict[str, Any]:
     class_type = str(getattr(node, "class_type", ""))
@@ -420,6 +581,48 @@ def _emission_order(wf: Any) -> list[str]:
     return sorted(wf.nodes.keys(), key=key)
 
 
+def _flat_layout_workflow(
+    wf: Any,
+    virtual_wire_ids: set[str],
+    flat_edges: list[Any],
+) -> Any:
+    """Return a shallow flat-graph view of *wf* for layout computation.
+
+    Flat mode (``include_virtual_wires=False``) drops virtual-wire nodes
+    (SetNode/GetNode/Reroute) from the emitted node list and resolves their
+    edges into direct links.  The layout engine must therefore compute
+    positions against the same flat projection — otherwise a workflow whose
+    helpers were retained in the IR (``--keep-virtual-wires``) would lay out
+    real nodes at different layers/lanes than an identical flat graph whose
+    helpers were resolved during conversion, breaking flat round-trip
+    byte-equivalence (``test_keep_virtual_wires_round_trip``).
+
+    The view is a shallow ``dataclasses.replace``: node objects, inputs and
+    metadata are shared with the original workflow (never mutated by the
+    engine); only the node dict and edge list are the flat projection.  Node
+    uids are preserved, so ``engine_positions[uid]`` still resolves for every
+    surviving node in the caller's ``order_list``.
+    """
+    import dataclasses  # noqa: PLC0415
+
+    flat_nodes = {
+        node_id: node
+        for node_id, node in wf.nodes.items()
+        if node_id not in virtual_wire_ids
+    }
+    flat_inputs = {
+        name: value
+        for name, value in (getattr(wf, "inputs", None) or {}).items()
+        if str(getattr(value, "node_id", "") or "") in flat_nodes
+    }
+    return dataclasses.replace(
+        wf,
+        nodes=flat_nodes,
+        edges=list(flat_edges),
+        inputs=flat_inputs,
+    )
+
+
 def _build_id_remap(order_list: list[str]) -> dict[str, int]:
     """Map string VibeNode ids → litegraph integer node ids.
 
@@ -655,7 +858,10 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
         return None
     out_subgraphs: list[dict[str, Any]] = []
     for raw_sg in subgraphs:
-        sg = dict(raw_sg)
+        # Detached copy: stamping uids/state below must never mutate the IR's
+        # metadata definitions (``dict(raw_sg)`` alone would alias the inner
+        # ``nodes`` list into the caller's data).
+        sg = deepcopy(raw_sg)
         links = sg.get("links")
         if isinstance(links, list):
             sg["links"] = [
@@ -719,6 +925,27 @@ def _emitted_socket_slot_for_link(
         if isinstance(socket, dict) and socket.get("slot_index") == slot:
             return index
     return None
+
+
+def _emitted_input_slot_for_link(
+    sockets: list[dict[str, Any]] | None,
+    canonical_name: str,
+) -> int | None:
+    """Resolve an inbound endpoint by its canonical input name only.
+
+    Widget materialization may collapse the physical input array.  Old slot
+    numbers and ``slot_index`` furniture are therefore not identity evidence
+    for inbound links.  A unique canonical name is required; ambiguity or a
+    missing name fails closed through the caller's B2 refusal path.
+    """
+    if not isinstance(sockets, list) or not canonical_name:
+        return None
+    matches = [
+        index
+        for index, socket in enumerate(sockets)
+        if isinstance(socket, dict) and socket.get("name") == canonical_name
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _emitted_socket_array_evidence(
@@ -810,6 +1037,29 @@ def _remap_attempts_evidence(
                 if isinstance(socket, dict) and socket.get("slot_index") == slot
             ],
         },
+    ]
+
+
+def _input_remap_attempts_evidence(
+    sockets: list[dict[str, Any]] | None,
+    slot: int,
+    canonical_name: str,
+) -> list[dict[str, Any]]:
+    """Evidence for strict canonical-name inbound endpoint resolution."""
+    if not isinstance(sockets, list):
+        return [{"strategy": "invalid_socket_array", "detail": type(sockets).__name__}]
+    return [
+        {
+            "strategy": "canonical_input_name_scan",
+            "sought_name": canonical_name,
+            "requested_slot": slot,
+            "found_at": [
+                index
+                for index, socket in enumerate(sockets)
+                if isinstance(socket, dict) and socket.get("name") == canonical_name
+            ],
+            "requires_unique_match": True,
+        }
     ]
 
 
@@ -2243,6 +2493,40 @@ def emit_ui_json(
     """
     _raise_embedded_api_links(wf, surface="UI serialization")
 
+    # ── Law 1 door passthrough (batch 2) ───────────────────────────────────
+    # An UNTOUCHED graph (fingerprint unchanged since offline ingest) is
+    # re-emitted byte-faithfully from the wire data captured at the ingest
+    # boundary: original id/version/counters, link ids/order/type,
+    # extra/definitions/state, groups, node geometry/order/properties, and
+    # opaque keys.  A semantic edit (node/widget/edge change) takes the
+    # deterministic reconstruction path below instead.  The passthrough is
+    # bypassed whenever the caller asks for a different output shape (flat/
+    # virtual-wire toggle, include_main_positions, explicit extra/definitions/
+    # prior_store/layout overrides, strict) or the graph was ingested through
+    # the comfy converter.  ``guard_original_ui`` (guard_full_ui) is still
+    # enforced on the passthrough envelope — the exit fidelity is not weakened.
+    _door = (wf.metadata or {}).get(_UI_DOOR_KEY)
+    if _door_ui_passthrough_applicable(
+        wf,
+        _door,
+        include_virtual_wires=include_virtual_wires,
+        include_main_positions=include_main_positions,
+        extra=extra,
+        definitions=definitions,
+        prior_store=prior_store,
+        layout=layout,
+        strict=strict,
+    ):
+        envelope = _emit_untouched_door_ui(_door)
+        if guard_original_ui is not None:
+            from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
+            from vibecomfy.porting.refuse import guard_emit as _guard_emit  # noqa: PLC0415
+
+            _snap = (wf.metadata or {}).get("_ingest_snapshot", {})
+            _delta = compute_field_delta(_snap, wf) if _snap else {}
+            _guard_emit(guard_original_ui, envelope, _delta, resolved_ops=guard_resolved_ops)
+        return envelope
+
     # T9a: prior_store is the full envelope ({entries, groups, extra, definitions,
     # virtual_wires}); reconcile() is called once at top and the result exposed to
     # the per-node loop as a local. The legacy ``_resolve_furniture`` chain still
@@ -2400,8 +2684,19 @@ def emit_ui_json(
     for k, v in computed_anchors.items():
         effective_anchors.setdefault(k, v)
 
+    # Flat mode (include_virtual_wires=False): the layout engine must compute
+    # positions against the FLAT execution graph — virtual-wire nodes removed,
+    # broadcast/Reroute edges already resolved — so emitted geometry is a pure
+    # function of the flat graph.  Without this, a workflow whose helpers were
+    # retained in the IR (--keep-virtual-wires) would lay out real nodes at
+    # different layers/lanes than the same flat graph whose helpers were
+    # resolved during conversion, breaking flat round-trip byte-equivalence.
+    _layout_wf = wf
+    if not include_virtual_wires and virtual_wire_ids:
+        _layout_wf = _flat_layout_workflow(wf, virtual_wire_ids, display_edges)
+
     _engine_result = _compute_layout(
-        wf,
+        _layout_wf,
         schema_provider=schema_provider,
         schema_cache=schema_cache,
         pinned=pinned_for_engine,
@@ -2550,13 +2845,28 @@ def emit_ui_json(
         key=lambda e: (e.from_node.zfill(20), e.from_output, e.to_node.zfill(20), e.to_input),
     )
 
-    # Assign deterministic link IDs (1-indexed)
+    # Assign link IDs: prefer the captured wire ids for structurally unchanged
+    # links (Law 1 wire preference); mint fresh ids above the captured maximum
+    # for changed/added links.  Non-door workflows keep the deterministic
+    # 1-indexed numbering (the captured map is empty there).
     EdgeKey = tuple[str, str, str, str]
-    link_id_map: dict[EdgeKey, int] = {
-        (e.from_node, e.from_output, e.to_node, e.to_input): idx
-        for idx, e in enumerate(sorted_edges, start=1)
-    }
-    last_link_id = len(sorted_edges)
+    captured_link_ids = _captured_link_id_map(_door)
+    used_link_ids: set[int] = set()
+    link_id_map: dict[EdgeKey, int] = {}
+    next_link_id = max(captured_link_ids.values(), default=0) + 1
+    for edge in sorted_edges:
+        key = (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+        captured = captured_link_ids.get(key)
+        if captured is not None and captured not in used_link_ids:
+            link_id_map[key] = captured
+            used_link_ids.add(captured)
+            continue
+        while next_link_id in used_link_ids:
+            next_link_id += 1
+        link_id_map[key] = next_link_id
+        used_link_ids.add(next_link_id)
+        next_link_id += 1
+    last_link_id = max(used_link_ids) if used_link_ids else 0
 
     # Edge lookup by node
     edges_from: dict[str, list[Any]] = defaultdict(list)
@@ -2807,12 +3117,10 @@ def emit_ui_json(
             else:
                 from_slot = remapped
         if emitted_inputs is not None:
-            remapped = _emitted_socket_slot_for_link(
-                emitted_inputs, to_slot, edge.to_input
-            )
+            remapped = _emitted_input_slot_for_link(emitted_inputs, edge.to_input)
             if remapped is None:
                 target_socket_missing = True
-                target_endpoint["attempted_remaps"] = _remap_attempts_evidence(
+                target_endpoint["attempted_remaps"] = _input_remap_attempts_evidence(
                     emitted_inputs, to_slot, edge.to_input
                 )
             else:
@@ -2910,7 +3218,19 @@ def emit_ui_json(
     breadcrumb = _breadcrumb(wf, source_template, prior_path)
 
     # --- extra: merge caller-provided extra (e.g. sidecar ds) with vibecomfy breadcrumb ---
-    merged_extra: dict[str, Any] = dict(extra) if extra else {}
+    # ``extra`` has exactly ONE storage owner per emit: the caller's explicit
+    # ``extra`` kwarg XOR the door-captured wire ``extra`` — never both.  When
+    # the caller supplies ``extra`` it is the sole source (sidecar/ds state);
+    # otherwise the door-captured wire ``extra`` is the sole source so
+    # ds/frontendVersion/VHS_* and opaque keys survive re-emission (Law 1
+    # wire preference).  The fresh breadcrumb is stamped on top either way.
+    merged_extra: dict[str, Any] = {}
+    if extra:
+        merged_extra.update(dict(extra))
+    else:
+        captured_extra = _door_top(_door).get("extra") if isinstance(_door_top(_door), Mapping) else None
+        if isinstance(captured_extra, Mapping):
+            merged_extra.update(dict(captured_extra))
     merged_extra["vibecomfy"] = dict(breadcrumb)
 
     # When include_main_positions=True, ensure extra.ds (canvas drag/scale state) is
@@ -2933,10 +3253,10 @@ def emit_ui_json(
         _canonicalize_group_geometry(emitted_groups)
 
     envelope: dict[str, Any] = {
-        "id": _envelope_id(wf),
-        "version": _LITEGRAPH_VERSION,
-        "last_node_id": last_node_id,
-        "last_link_id": last_link_id,
+        "id": _wire_id(wf, _door),
+        "version": _wire_version(_door),
+        "last_node_id": _wire_counter(_door, "last_node_id", last_node_id),
+        "last_link_id": _wire_counter(_door, "last_link_id", last_link_id),
         "groups": emitted_groups,
         "nodes": nodes,
         "links": links,
@@ -2944,17 +3264,44 @@ def emit_ui_json(
     }
 
     # Subgraph definitions: caller-provided `definitions` (from sidecar envelope)
-    # takes precedence over re-emitting from IR metadata.
-    effective_defs = definitions if definitions else _emit_definitions(wf)
+    # takes precedence.  When the retained IR definitions differ from the
+    # door-captured blob (a definitions-only edit: label, ports, add/remove),
+    # emit from the IR so the edit is not silently discarded.  Otherwise keep
+    # the captured wire blob so untouched subgraph bodies stay byte-stable.
+    effective_defs = definitions
+    if effective_defs is None:
+        captured_defs = (
+            _door_top(_door).get("definitions")
+            if isinstance(_door_top(_door), Mapping)
+            else None
+        )
+        metadata = getattr(wf, "metadata", None)
+        ir_defs = metadata.get("definitions") if isinstance(metadata, Mapping) else None
+        from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
+
+        if (
+            isinstance(ir_defs, Mapping)
+            and isinstance(captured_defs, Mapping)
+            and _door_freeze(ir_defs) != _door_freeze(captured_defs)
+        ):
+            effective_defs = _emit_definitions(wf)
+            if effective_defs is None:
+                effective_defs = deepcopy(ir_defs)
+        else:
+            effective_defs = (
+                deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
+            )
     if effective_defs is not None:
+        if effective_defs is definitions:
+            effective_defs = deepcopy(effective_defs)
         for sg in effective_defs.get("subgraphs", []):
             sg_extra = dict(sg.get("extra") or {})
             sg_extra["vibecomfy"] = dict(breadcrumb)
             sg["extra"] = sg_extra
         envelope["definitions"] = effective_defs
         envelope["state"] = {
-            "lastNodeId": last_node_id,
-            "lastLinkId": last_link_id,
+            "lastNodeId": _wire_counter(_door, "last_node_id", last_node_id),
+            "lastLinkId": _wire_counter(_door, "last_link_id", last_link_id),
             "lastRerouteId": 0,
         }
 
@@ -2962,8 +3309,8 @@ def emit_ui_json(
     # are no definitions (the lean default ties state to definitions presence).
     if include_main_positions and "state" not in envelope:
         envelope["state"] = {
-            "lastNodeId": last_node_id,
-            "lastLinkId": last_link_id,
+            "lastNodeId": _wire_counter(_door, "last_node_id", last_node_id),
+            "lastLinkId": _wire_counter(_door, "last_link_id", last_link_id),
             "lastRerouteId": 0,
         }
 
@@ -3136,4 +3483,785 @@ __all__ = [
     "offline_emitter_normalizer_self_consistency_check",
     "structural_validate",
     "default_output_path",
+    "ExitGuardResult",
+    "guard_exit_ui",
+    "pin_untouched_ui",
 ]
+
+
+# ── Emit-exit fidelity guard (batch 15) ──
+"""Independent emit-exit fidelity guard.
+
+Validates that ``emit(workflow)`` differs from the original ingest UI only
+where the accepted Δ (landed ops) attributes a change.  This is the
+IR/emit successor of the raw-JSON ``guard_full_ui`` invariant: untouched
+nodes, links, and scope fields stay byte-identical.
+"""
+
+from dataclasses import dataclass
+from typing import Any, Iterable, Literal, Mapping, Sequence
+
+from vibecomfy.porting.edit.ops import (
+    AddNodeOp,
+    EditOp,
+    RemoveLinkOp,
+    RemoveNodeOp,
+    SetModeOp,
+    SetNodeFieldOp,
+    SubgraphInterfaceOp,
+    UpsertLinkOp,
+)
+from vibecomfy.porting.report import PortIssue
+
+
+def _issue(
+    code: str,
+    message: str,
+    *,
+    severity: Literal["error", "warning", "info"] = "error",
+    detail: Mapping[str, Any] | None = None,
+) -> PortIssue:
+    return PortIssue(code=code, message=message, severity=severity, detail=dict(detail or {}))
+
+
+@dataclass(frozen=True, slots=True)
+class ExitGuardResult:
+    ok: bool
+    diagnostics: tuple[PortIssue, ...] = ()
+    normalize_fallback_used: bool = False
+    normalize_allow_list_used: bool = False
+
+
+def _node_uid(node: Mapping[str, Any]) -> str | None:
+    properties = node.get("properties")
+    if isinstance(properties, Mapping):
+        uid = properties.get("vibecomfy_uid")
+        if isinstance(uid, str) and uid:
+            return uid
+    node_id = node.get("id")
+    if node_id is None:
+        return None
+    text = str(node_id)
+    return text or None
+
+
+def _link_id(link: Any) -> int | None:
+    if isinstance(link, Mapping) and isinstance(link.get("id"), int):
+        return link["id"]
+    if isinstance(link, Sequence) and not isinstance(link, (str, bytes)):
+        if link and isinstance(link[0], int):
+            return link[0]
+    return None
+
+
+def _iter_scopes(graph: Mapping[str, Any], scope_path: str = "") -> list[tuple[str, Mapping[str, Any]]]:
+    scopes: list[tuple[str, Mapping[str, Any]]] = [(scope_path, graph)]
+    definitions = graph.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return scopes
+    subgraphs = definitions.get("subgraphs")
+    if not isinstance(subgraphs, list):
+        return scopes
+    for index, definition in enumerate(subgraphs):
+        if isinstance(definition, Mapping):
+            child = f"{scope_path}/sg{index}" if scope_path else f"sg{index}"
+            scopes.extend(_iter_scopes(definition, child))
+    return scopes
+
+
+def _index_nodes(graph: Mapping[str, Any]) -> dict[tuple[str, str], Mapping[str, Any]]:
+    index: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for scope_path, scope in _iter_scopes(graph):
+        nodes = scope.get("nodes")
+        if not isinstance(nodes, list):
+            continue
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            uid = _node_uid(node)
+            if uid is not None:
+                index[(scope_path, uid)] = node
+    return index
+
+
+def _index_links(graph: Mapping[str, Any]) -> dict[tuple[str, int], Any]:
+    index: dict[tuple[str, int], Any] = {}
+    for scope_path, scope in _iter_scopes(graph):
+        links = scope.get("links")
+        if not isinstance(links, list):
+            continue
+        for link in links:
+            link_id = _link_id(link)
+            if link_id is not None:
+                index[(scope_path, link_id)] = link
+    return index
+
+
+def _nodes_by_native_id(scope: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    nodes = scope.get("nodes")
+    if not isinstance(nodes, list):
+        return {}
+    return {
+        str(node.get("id")): node
+        for node in nodes
+        if isinstance(node, Mapping) and node.get("id") is not None
+    }
+
+
+def _socket_name_at(node: Mapping[str, Any] | None, direction: str, slot: Any) -> str | None:
+    if not isinstance(node, Mapping) or not isinstance(slot, int):
+        return None
+    sockets = node.get("inputs" if direction == "input" else "outputs")
+    if not isinstance(sockets, list) or not (0 <= slot < len(sockets)):
+        return None
+    socket = sockets[slot]
+    if not isinstance(socket, Mapping):
+        return None
+    name = socket.get("name")
+    return str(name) if isinstance(name, str) and name else None
+
+
+def _remap_preserved_inbound_links(
+    original_scope: Mapping[str, Any],
+    candidate_scope: Mapping[str, Any],
+    links: Sequence[Any],
+    *,
+    changed_target_ids: set[str],
+    materialized_input_names: Mapping[str, set[str]] | None = None,
+) -> list[Any]:
+    """Re-slot preserved links whose target input array was materialized anew."""
+    if not changed_target_ids:
+        return deepcopy(list(links))
+    original_nodes = _nodes_by_native_id(original_scope)
+    candidate_nodes = _nodes_by_native_id(candidate_scope)
+    remapped_links: list[Any] = []
+    dangling_links: list[dict[str, Any]] = []
+    for raw_link in links:
+        if not isinstance(raw_link, (list, tuple)) or len(raw_link) != 6:
+            remapped_links.append(deepcopy(raw_link))
+            continue
+        link = list(raw_link)
+        _, from_node, from_slot, to_node, to_slot, _socket_type = link
+        target_id = str(to_node)
+        if target_id not in changed_target_ids:
+            remapped_links.append(deepcopy(link))
+            continue
+        original_target = original_nodes.get(target_id)
+        candidate_target = candidate_nodes.get(target_id)
+        canonical_name = _socket_name_at(original_target, "input", to_slot)
+        candidate_inputs = (
+            candidate_target.get("inputs")
+            if isinstance(candidate_target, Mapping)
+            else None
+        )
+        remapped = _emitted_input_slot_for_link(candidate_inputs, canonical_name or "")
+        if remapped is not None:
+            link[4] = remapped
+            remapped_links.append(link)
+            continue
+        if canonical_name in (materialized_input_names or {}).get(target_id, set()):
+            # The field write itself replaces this inbound link with a widget
+            # value.  Only that explicitly named endpoint may disappear; all
+            # remaining links must resolve by canonical name below.
+            continue
+        source = candidate_nodes.get(str(from_node)) or original_nodes.get(str(from_node))
+        outputs = source.get("outputs") if isinstance(source, Mapping) else None
+        dangling_links.append(
+            {
+                "key": f"{from_node}.{from_slot} -> {to_node}.{canonical_name or to_slot}",
+                "evidence": {
+                    "source": {
+                        "node_id": str(from_node),
+                        "requested_output": _socket_name_at(source, "output", from_slot)
+                        or str(from_slot),
+                        "requested_slot": from_slot,
+                        "emitted_sockets": _emitted_socket_array_evidence(outputs),
+                    },
+                    "target": {
+                        "node_id": target_id,
+                        "requested_input": canonical_name,
+                        "requested_slot": to_slot,
+                        "emitted_sockets": _emitted_socket_array_evidence(candidate_inputs),
+                        "attempted_remaps": _input_remap_attempts_evidence(
+                            candidate_inputs,
+                            to_slot,
+                            canonical_name or "",
+                        ),
+                    },
+                    "missing": "target_socket",
+                },
+            }
+        )
+    if dangling_links:
+        from vibecomfy.porting.refuse import (  # noqa: PLC0415
+            refused_dangling_links as _refused_dangling_links,
+        )
+
+        raise _refused_dangling_links(dangling_links)
+    return remapped_links
+
+
+def _link_preserves_canonical_target(
+    original_link: Any,
+    candidate_link: Any,
+    original_scope: Mapping[str, Any],
+    candidate_scope: Mapping[str, Any],
+) -> bool:
+    """True for a derived target re-slot that preserves endpoint identity."""
+    if not (
+        isinstance(original_link, (list, tuple))
+        and isinstance(candidate_link, (list, tuple))
+        and len(original_link) == 6
+        and len(candidate_link) == 6
+    ):
+        return False
+    if list(original_link[:4]) != list(candidate_link[:4]) or original_link[5] != candidate_link[5]:
+        return False
+    original_nodes = _nodes_by_native_id(original_scope)
+    candidate_nodes = _nodes_by_native_id(candidate_scope)
+    target_id = str(original_link[3])
+    original_name = _socket_name_at(
+        original_nodes.get(target_id), "input", original_link[4]
+    )
+    candidate_name = _socket_name_at(
+        candidate_nodes.get(target_id), "input", candidate_link[4]
+    )
+    return bool(original_name and original_name == candidate_name)
+
+
+def _scope_node_uids(scope_graph: Mapping[str, Any]) -> list[str]:
+    nodes = scope_graph.get("nodes")
+    if not isinstance(nodes, list):
+        return []
+    result: list[str] = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        uid = _node_uid(node)
+        if uid is not None:
+            result.append(uid)
+    return result
+
+
+def _value_diff_paths(original: Any, candidate: Any, prefix: str = "") -> list[str]:
+    if original == candidate:
+        return []
+    if isinstance(original, Mapping) and isinstance(candidate, Mapping):
+        paths: list[str] = []
+        for key in sorted(set(original) | set(candidate)):
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            paths.extend(_value_diff_paths(original.get(key), candidate.get(key), child_prefix))
+        return paths
+    if isinstance(original, list) and isinstance(candidate, list):
+        paths: list[str] = []
+        max_len = max(len(original), len(candidate))
+        for index in range(max_len):
+            child_prefix = f"{prefix}[{index}]"
+            left = original[index] if index < len(original) else None
+            right = candidate[index] if index < len(candidate) else None
+            paths.extend(_value_diff_paths(left, right, child_prefix))
+        return paths
+    return [prefix or "<root>"]
+
+
+# Emit may materialize derived identity/layout furniture on every node
+# even when the accepted Δ did not touch that node.  These paths are not
+# editable-quotient changes and must not fail the exit guard closed.
+_EMIT_FURNITURE_PREFIXES = (
+    "order",
+    "properties.vibecomfy_id",
+    "properties._vibecomfy_schema_provider",
+)
+_EMIT_SCOPE_FURNITURE = frozenset({"version", "id", "extra", "config"})
+
+
+def _path_is_at_or_below(path: str, allowed: str) -> bool:
+    return path == allowed or path.startswith(f"{allowed}.") or path.startswith(f"{allowed}[")
+
+
+def _is_emit_furniture_path(path: str) -> bool:
+    return any(
+        path == prefix or path.startswith(f"{prefix}.") or path.startswith(f"{prefix}[")
+        for prefix in _EMIT_FURNITURE_PREFIXES
+    )
+
+
+def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
+    if not allowed_paths:
+        return False
+    return all(any(_path_is_at_or_below(diff, allowed) for allowed in allowed_paths) for diff in diffs)
+
+
+def _counter_advanced_or_materialized(original: Any, candidate: Any) -> bool:
+    if isinstance(candidate, int) and original is None:
+        return True
+    if isinstance(original, int) and isinstance(candidate, int) and candidate >= original:
+        return True
+    return False
+
+
+def _scope_definition_id(scope: Any) -> str | None:
+    if not isinstance(scope, Mapping):
+        return None
+    scope_id = scope.get("id")
+    if scope_id is None:
+        return None
+    text = str(scope_id)
+    return text or None
+
+
+def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
+    node_paths: dict[tuple[str, str], set[str]] = {}
+    scope_field_paths: dict[str, set[str]] = {}
+    removed_nodes: set[tuple[str, str]] = set()
+    new_nodes: set[tuple[str, str]] = set()
+    touched_scopes: set[str] = set()
+    link_ops: set[str] = set()
+    new_scope_ids: set[str] = set()
+    removed_scope_ids: set[str] = set()
+    changed_scope_ids: set[str] = set()
+    set_node_fields: dict[tuple[str, str], set[str]] = {}
+
+    def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
+        node_paths.setdefault((scope_path, uid), set()).update(paths)
+        touched_scopes.add(scope_path)
+
+    for op in ops:
+        if isinstance(op, SetNodeFieldOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs", "properties")
+            set_node_fields.setdefault(
+                (op.target.scope_path, op.target.uid), set()
+            ).add(op.target.field_path)
+            continue
+        if isinstance(op, SetModeOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "mode")
+            continue
+        if isinstance(op, UpsertLinkOp):
+            allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
+            allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
+            link_ops.add(op.target.scope_path)
+            continue
+        if isinstance(op, RemoveLinkOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
+            link_ops.add(op.target.scope_path)
+            continue
+        if isinstance(op, RemoveNodeOp):
+            removed_nodes.add((op.target.scope_path, op.target.uid))
+            link_ops.add(op.target.scope_path)
+            continue
+        if isinstance(op, AddNodeOp):
+            uid = op.uid or ""
+            if uid:
+                new_nodes.add((op.scope_path, uid))
+                allow_node_paths(op.scope_path, uid, "widgets_values", "inputs", "outputs", "pos", "size", "properties", "mode", "type", "id", "order", "flags")
+            if op.inputs:
+                for source in op.inputs.values():
+                    allow_node_paths(source.scope_path, source.uid, "outputs")
+            scope_field_paths.setdefault(op.scope_path, set()).update({"groups", "last_node_id", "last_link_id"})
+            link_ops.add(op.scope_path)
+            continue
+        if isinstance(op, SubgraphInterfaceOp):
+            # Attribute only the emitted paths this op can touch: root
+            # revision / state.lastRerouteId, and the named subgraph
+            # signature.  Never the whole state/definitions objects.
+            touched_scopes.add("")
+            scope_field_paths.setdefault("", set()).update(
+                {"revision", "state.lastRerouteId"}
+            )
+            if op.id:
+                sid = str(op.id)
+                if op.action == "add":
+                    new_scope_ids.add(sid)
+                elif op.action == "remove":
+                    removed_scope_ids.add(sid)
+                else:
+                    changed_scope_ids.add(sid)
+            continue
+    return {
+        "node_paths": node_paths,
+        "scope_field_paths": scope_field_paths,
+        "removed_nodes": removed_nodes,
+        "new_nodes": new_nodes,
+        "touched_scopes": touched_scopes,
+        "link_ops": link_ops,
+        "new_scope_ids": new_scope_ids,
+        "removed_scope_ids": removed_scope_ids,
+        "changed_scope_ids": changed_scope_ids,
+        "set_node_fields": set_node_fields,
+    }
+
+
+def _guard_counter(scope_path: str, field: str, original: Any, candidate: Any) -> list[PortIssue]:
+    if original == candidate:
+        return []
+    if _counter_advanced_or_materialized(original, candidate):
+        return []
+    return [
+        _issue(
+            "full_ui_counter_changed_unattributed",
+            "Candidate changed a LiteGraph id counter except for monotonic advancement.",
+            detail={"scope_path": scope_path, "field": field, "original": original, "candidate": candidate},
+        )
+    ]
+
+
+def _guard_subgraph_state(
+    scope_path: str,
+    original: Any,
+    candidate: Any,
+    allowed_paths: set[str] | None = None,
+) -> list[PortIssue]:
+    if original == candidate:
+        return []
+    allowed_paths = allowed_paths or set()
+    if "state" in allowed_paths:
+        return []
+    original_state = original if isinstance(original, Mapping) else {}
+    candidate_state = candidate if isinstance(candidate, Mapping) else {}
+    diagnostics: list[PortIssue] = []
+    keys = set(original_state) | set(candidate_state)
+    for key in sorted(keys):
+        field = f"state.{key}"
+        if any(_path_is_at_or_below(field, allowed) for allowed in allowed_paths):
+            continue
+        if key in {"lastNodeId", "lastLinkId"}:
+            diagnostics.extend(_guard_counter(scope_path, field, original_state.get(key), candidate_state.get(key)))
+            continue
+        if original_state.get(key) != candidate_state.get(key):
+            diagnostics.append(
+                _issue(
+                    "full_ui_scope_field_changed_unattributed",
+                    "Candidate changed a subgraph state field without an attributed operation.",
+                    detail={"scope_path": scope_path, "field": field},
+                )
+            )
+    return diagnostics
+
+
+def pin_untouched_ui(
+    original_ui: Mapping[str, Any],
+    candidate_ui: Mapping[str, Any],
+    ops: Sequence[EditOp] = (),
+) -> dict[str, Any]:
+    """Restore original node/link JSON for anything the accepted Δ did not touch.
+
+    Reconstructive emit rewrites every node.  The exit snapshot must keep
+    unattributed nodes and links byte-identical to the ingest UI so
+    ``guard_exit_ui`` can fail closed on real drift.
+    """
+    attribution = _attribution(ops)
+    attributed_nodes = set(attribution["node_paths"]) | set(attribution["new_nodes"])
+    pinned = deepcopy(dict(candidate_ui))
+    original_nodes = _index_nodes(original_ui)
+    original_scopes = dict(_iter_scopes(original_ui))
+    for scope_path, scope in _iter_scopes(pinned):
+        if not isinstance(scope, dict):
+            continue
+        nodes = scope.get("nodes")
+        if isinstance(nodes, list):
+            for index, node in enumerate(nodes):
+                if not isinstance(node, Mapping):
+                    continue
+                uid = _node_uid(node)
+                if uid is None:
+                    continue
+                key = (scope_path, uid)
+                original_node = original_nodes.get(key)
+                if original_node is None:
+                    continue
+                if key in attributed_nodes:
+                    allowed = attribution["node_paths"].get(key, set())
+                    merged = deepcopy(dict(original_node))
+                    for field in allowed:
+                        if field in node:
+                            merged[field] = deepcopy(node[field])
+                    nodes[index] = merged
+                    continue
+                nodes[index] = deepcopy(dict(original_node))
+        original_scope = original_scopes.get(scope_path)
+        if original_scope is None:
+            continue
+        if scope_path not in attribution["link_ops"] and "links" in original_scope:
+            changed_target_ids: set[str] = set()
+            materialized_input_names: dict[str, set[str]] = {}
+            candidate_by_uid = {
+                _node_uid(node): node
+                for node in scope.get("nodes") or []
+                if isinstance(node, Mapping) and _node_uid(node) is not None
+            }
+            for (node_scope, uid), allowed in attribution["node_paths"].items():
+                if node_scope != scope_path or "inputs" not in allowed:
+                    continue
+                original_node = original_nodes.get((scope_path, uid))
+                candidate_node = candidate_by_uid.get(uid)
+                if (
+                    isinstance(original_node, Mapping)
+                    and isinstance(candidate_node, Mapping)
+                    and original_node.get("inputs") != candidate_node.get("inputs")
+                    and candidate_node.get("id") is not None
+                ):
+                    native_id = str(candidate_node["id"])
+                    changed_target_ids.add(native_id)
+                    materialized_input_names[native_id] = set(
+                        attribution["set_node_fields"].get((node_scope, uid), set())
+                    )
+            scope["links"] = _remap_preserved_inbound_links(
+                original_scope,
+                scope,
+                original_scope.get("links") or [],
+                changed_target_ids=changed_target_ids,
+                materialized_input_names=materialized_input_names,
+            )
+        allowed_scope = set(attribution["scope_field_paths"].get(scope_path, set()))
+        scope_id = _scope_definition_id(scope) or _scope_definition_id(original_scope)
+        if scope_id and scope_id in attribution["changed_scope_ids"]:
+            allowed_scope.update({"name", "inputs", "outputs", "revision", "state.lastRerouteId"})
+        for key in list(scope):
+            if key in {"nodes", "links", "definitions", "last_node_id", "last_link_id"}:
+                continue
+            if key == "state":
+                allowed_state_keys = {
+                    allowed.split(".", 1)[1].split(".", 1)[0]
+                    for allowed in allowed_scope
+                    if allowed.startswith("state.")
+                }
+                if "state" in allowed_scope:
+                    continue
+                original_state = original_scope.get("state")
+                candidate_state = scope.get("state")
+                if allowed_state_keys and isinstance(candidate_state, dict):
+                    merged = (
+                        deepcopy(dict(original_state))
+                        if isinstance(original_state, Mapping)
+                        else {}
+                    )
+                    for state_key in allowed_state_keys:
+                        if state_key in candidate_state:
+                            merged[state_key] = deepcopy(candidate_state[state_key])
+                    if merged:
+                        scope["state"] = merged
+                    elif "state" in original_scope:
+                        scope["state"] = deepcopy(original_scope["state"])
+                    else:
+                        del scope["state"]
+                    continue
+                if "state" in original_scope:
+                    scope["state"] = deepcopy(original_scope["state"])
+                else:
+                    del scope["state"]
+                continue
+            if key in allowed_scope:
+                continue
+            if key == "groups" and "groups" in allowed_scope:
+                continue
+            if key in original_scope:
+                scope[key] = deepcopy(original_scope[key])
+            elif key in _EMIT_SCOPE_FURNITURE or key in {"extra", "config", "groups"}:
+                del scope[key]
+    return pinned
+
+
+def guard_exit_ui(
+    original_ui: Mapping[str, Any],
+    candidate_ui: Mapping[str, Any],
+    ops: Sequence[EditOp] = (),
+) -> ExitGuardResult:
+    """Refuse emit candidates that change UI outside the accepted Δ."""
+    attribution = _attribution(ops)
+    diagnostics: list[PortIssue] = []
+    original_scopes = dict(_iter_scopes(original_ui))
+    candidate_scopes = dict(_iter_scopes(candidate_ui))
+
+    for scope_path, original_scope in original_scopes.items():
+        candidate_scope = candidate_scopes.get(scope_path)
+        if candidate_scope is None:
+            removed_id = _scope_definition_id(original_scope)
+            if removed_id and removed_id in attribution["removed_scope_ids"]:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_scope_removed",
+                    "Candidate removed a UI scope without an attributed operation.",
+                    detail={"scope_path": scope_path},
+                )
+            )
+            continue
+        ignored = {"nodes", "links", "definitions"}
+        keys = (set(original_scope) | set(candidate_scope)) - ignored
+        allowed_scope_paths = set(attribution["scope_field_paths"].get(scope_path, set()))
+        scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
+        if scope_id and scope_id in attribution["changed_scope_ids"]:
+            allowed_scope_paths.update({"name", "inputs", "outputs", "revision", "state.lastRerouteId"})
+        for key in sorted(keys):
+            if key == "last_node_id":
+                diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
+                continue
+            if key == "last_link_id":
+                diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
+                continue
+            if key == "state":
+                diagnostics.extend(
+                    _guard_subgraph_state(
+                        scope_path,
+                        original_scope.get(key),
+                        candidate_scope.get(key),
+                        allowed_paths=allowed_scope_paths,
+                    )
+                )
+                continue
+            if key in _EMIT_SCOPE_FURNITURE or (
+                key == "groups" and not original_scope.get("groups")
+            ):
+                continue
+            if key == "groups":
+                diffs = _value_diff_paths(original_scope.get(key), candidate_scope.get(key), "groups")
+                if not diffs or _all_diffs_op_allowed(diffs, allowed_scope_paths):
+                    continue
+            if key in allowed_scope_paths:
+                continue
+            if original_scope.get(key) != candidate_scope.get(key):
+                diagnostics.append(
+                    _issue(
+                        "full_ui_scope_field_changed_unattributed",
+                        "Candidate changed a scope-level UI field without an attributed operation.",
+                        detail={"scope_path": scope_path, "field": key},
+                    )
+                )
+
+        original_order = [
+            uid for uid in _scope_node_uids(original_scope)
+            if (scope_path, uid) not in attribution["removed_nodes"]
+        ]
+        candidate_order = [
+            uid for uid in _scope_node_uids(candidate_scope)
+            if (scope_path, uid) not in attribution["new_nodes"]
+        ]
+        if original_order != candidate_order:
+            diagnostics.append(
+                _issue(
+                    "full_ui_node_order_changed_unattributed",
+                    "Candidate changed the relative order of existing nodes without an attributed operation.",
+                    detail={"scope_path": scope_path, "original": original_order, "candidate": candidate_order},
+                )
+            )
+
+        original_links = {
+            _link_id(link): link
+            for link in (original_scope.get("links") or [])
+            if _link_id(link) is not None
+        }
+        candidate_links = {
+            _link_id(link): link
+            for link in (candidate_scope.get("links") or [])
+            if _link_id(link) is not None
+        }
+        scope_has_link_ops = scope_path in attribution["link_ops"]
+        for link_id, original_link in original_links.items():
+            if link_id not in candidate_links:
+                if scope_has_link_ops:
+                    continue
+                diagnostics.append(
+                    _issue(
+                        "full_ui_link_removed_unattributed",
+                        "Candidate removed a link without an attributed operation.",
+                        detail={"scope_path": scope_path, "link_id": link_id},
+                    )
+                )
+                continue
+            if candidate_links[link_id] == original_link:
+                continue
+            if scope_has_link_ops:
+                continue
+            if _link_preserves_canonical_target(
+                original_link,
+                candidate_links[link_id],
+                original_scope,
+                candidate_scope,
+            ):
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_changed_unattributed",
+                    "Candidate changed a link without an attributed operation.",
+                    detail={"scope_path": scope_path, "link_id": link_id},
+                )
+            )
+        for link_id in candidate_links:
+            if link_id in original_links:
+                continue
+            if scope_has_link_ops:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_added_unattributed",
+                    "Candidate added a link without an attributed operation.",
+                    detail={"scope_path": scope_path, "link_id": link_id},
+                )
+            )
+
+    for scope_path in candidate_scopes:
+        if scope_path not in original_scopes:
+            added_id = _scope_definition_id(candidate_scopes[scope_path])
+            if added_id and added_id in attribution["new_scope_ids"]:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_scope_added",
+                    "Candidate added a UI scope without an attributed operation.",
+                    detail={"scope_path": scope_path},
+                )
+            )
+
+    original_nodes = _index_nodes(original_ui)
+    candidate_nodes = _index_nodes(candidate_ui)
+    for key, original_node in original_nodes.items():
+        scope_path, uid = key
+        candidate_node = candidate_nodes.get(key)
+        if candidate_node is None:
+            if key in attribution["removed_nodes"]:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_node_removed_unattributed",
+                    "Candidate removed an out-of-delta node.",
+                    detail={"scope_path": scope_path, "uid": uid},
+                )
+            )
+            continue
+        if candidate_node == original_node:
+            continue
+        diffs = [
+            path
+            for path in _value_diff_paths(original_node, candidate_node)
+            if not _is_emit_furniture_path(path)
+        ]
+        if not diffs:
+            continue
+        allowed_paths = attribution["node_paths"].get(key, set())
+        if _all_diffs_op_allowed(diffs, allowed_paths):
+            continue
+        diagnostics.append(
+            _issue(
+                "full_ui_node_changed_unattributed",
+                "Candidate changed an out-of-delta node.",
+                detail={"scope_path": scope_path, "uid": uid, "field_paths": diffs[:20]},
+            )
+        )
+
+    for key in candidate_nodes:
+        if key in original_nodes:
+            continue
+        if key in attribution["new_nodes"]:
+            continue
+        diagnostics.append(
+            _issue(
+                "full_ui_node_added_unattributed",
+                "Candidate added a node without an attributed add_node operation.",
+                detail={"scope_path": key[0], "uid": key[1]},
+            )
+        )
+
+    return ExitGuardResult(
+        ok=not any(issue.severity == "error" for issue in diagnostics),
+        diagnostics=tuple(diagnostics),
+    )

@@ -21,6 +21,7 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, Mapping
 
+from vibecomfy.ingest.normalize import door_get_nodes
 _ConvertUiToApi = Callable[[dict[str, Any]], Mapping[str, Any]]
 _convert_ui_to_api: _ConvertUiToApi | None = None
 _IMPORT_ERROR: BaseException | None = None
@@ -123,11 +124,12 @@ def refused_dangling_links(links: Iterable[Mapping[str, Any]]) -> RefusedEmit:
     it is either emitted/remapped or the whole emit is refused.
     """
     entries = list(links)
-    diff: dict[str, Any] = {"links": {}}
+    link_diff: dict[str, Any] = {}
     for entry in entries:
         key = str(_read_attr(entry, "key"))
         evidence = _read_attr(entry, "evidence")
-        diff["links"][key] = _jsonable(evidence) if evidence is not None else {}
+        link_diff[key] = _jsonable(evidence) if evidence is not None else {}
+    diff: dict[str, Any] = {"links": link_diff}
     return RefusedEmit(
         f"refusing to emit {len(entries)} dangling link(s): "
         "link endpoint has no matching emitted socket",
@@ -219,7 +221,7 @@ class EditorAheadError(Exception):
 def _uid_to_litegraph_id(ui_json: Mapping[str, Any]) -> dict[str, str]:
     """Build a ``{vibecomfy_uid: str(litegraph_id)}`` map from a UI JSON."""
     out: dict[str, str] = {}
-    for node in ui_json.get("nodes", []) or []:
+    for node in door_get_nodes(ui_json, []) or []:
         if not isinstance(node, dict):
             continue
         props = node.get("properties") or {}

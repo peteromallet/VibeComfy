@@ -43,16 +43,17 @@ from vibecomfy.porting.edit._parse import (
     _AGENT_TOOL_CALL_NAMES,
     _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
     _RAW_COORDINATE_HINT_NAMES,
-    _assignment_op_kind,
     _call_name,
     _fold_constant,
     _is_graph_reference_value,
     _resolve_vibecomfy_constructor,
     _unsafe,
 )
+from vibecomfy.porting.edit.grammar import op_kind_for_assignment
 from vibecomfy.executor.tool_specs import (
     PHASE_IMPLEMENT,
     PHASE_RESEARCH,
+    PHASE_THREADED,
     TOOL_SPEC_BY_NAME,
     TOOL_SPECS,
     invoke_tool,
@@ -75,11 +76,14 @@ from vibecomfy.porting.edit._ir_utils import (
     _widget_value_for_field,
 )
 from vibecomfy.porting.edit.apply_field_aliases import field_diagnostics_for_node
-from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field
+from vibecomfy.porting.edit.widget_slots import _canonical_ui_only_widget_field
 from vibecomfy.porting.resolution import _find_named_slot
 
 _EXEC_CLASS_TYPE = "vibecomfy.exec"
-_OUTPUT_ALIAS_RE = re.compile(r"output_(\d+)\Z")
+# Named typed ports (Law 5, batch 4): ``LATENT_0`` / ``IMAGE_1`` — the
+# deterministic synthetic names the emitter produces.  Positional
+# ``output_N`` aliases are never emitted and no longer resolved.
+_TYPED_PORT_RE = re.compile(r"^[A-Z][A-Z0-9_]*_(\d+)\Z")
 
 
 def _normalize_exec_io_entries(value: Any) -> list[tuple[str, str]]:
@@ -338,10 +342,13 @@ class _AgentToolSurface:
 def _session_phase(session: Any) -> str | None:
     """Resolve the session's pipeline phase for tool-call enforcement.
 
-    The live batch REPL sets ``session.research_only`` for every route
-    (``edit_batch_repl``), so the phase is always known there.  ``None``
-    (offline/standalone validation without a phase marker) is permissive.
+    The live batch REPL sets the explicit ``tool_phase`` marker. The older
+    ``research_only`` boolean remains a compatibility fallback for offline
+    callers. ``None`` is permissive only outside the live host.
     """
+    explicit = getattr(session, "tool_phase", None)
+    if explicit in {PHASE_RESEARCH, PHASE_IMPLEMENT, PHASE_THREADED}:
+        return str(explicit)
     research_only = getattr(session, "research_only", None)
     if research_only is True:
         return PHASE_RESEARCH
@@ -467,16 +474,15 @@ class _ResolveMixin:
     """Symbolic-name resolution methods — the named M4 seam."""
 
     def _uid_for_scope(self, scope_path: str, class_type: str) -> str:
-        """Best-effort uid lookup for a newly added node by looking at the ledger."""
-        # Look for nodes matching class_type that were recently added.
-        # The simplest approach: check the most recently added node in the ledger.
-        nodes = self.ledger.graph.get("nodes") or []
+        """Best-effort uid lookup for a newly added node from the retained IR."""
+        workflow = getattr(self, "workflow", None)
+        nodes = list((getattr(workflow, "nodes", None) or {}).values())
         for node in reversed(nodes):
-            ct = str(node.get("type") or node.get("class_type") or "")
-            if ct == class_type:
-                uid = node.get("properties", {}).get("vibecomfy_uid", "")
-                if uid and uid in self.name_by_uid:
-                    return uid
+            if str(getattr(node, "class_type", "") or "") != class_type:
+                continue
+            uid = str(getattr(node, "uid", "") or "")
+            if uid and uid in self.name_by_uid:
+                return uid
         return ""
 
     def _resolve_statement(
@@ -523,7 +529,7 @@ class _ResolveMixin:
                     source=source,
                     ok=False,
                     landed=False,
-                    op_kind=_assignment_op_kind(statement.value, target_attr=target.attr),
+                    op_kind=op_kind_for_assignment(statement.value, target_attr=target.attr),
                     diagnostics=tuple(target_issues),
                 )
             assert field_target is not None
@@ -545,7 +551,7 @@ class _ResolveMixin:
                         source=source,
                         ok=False,
                         landed=False,
-                        op_kind=_assignment_op_kind(rhs, target_attr=target.attr),
+                        op_kind=op_kind_for_assignment(rhs, target_attr=target.attr),
                         diagnostics=tuple(endpoint_issues),
                     )
                 assert endpoint is not None
@@ -564,7 +570,6 @@ class _ResolveMixin:
                 landed=False,
                 op_kind=(
                     "set_mode" if target.attr == "mode"
-                    else "set_title" if target.attr == "title"
                     else "set_node_field"
                 ),
                 detail={"resolved_target": field_target, "ast_node": statement, "constant_env": dict(env)},
@@ -759,6 +764,7 @@ class _ResolveMixin:
                 compatible_input_type=kwargs.get("compatible_input_type"),
                 compatible_output_type=kwargs.get("compatible_output_type"),
                 formatted=True,
+                in_graph_nodes=getattr(self, "workflow", None),
             )
         except Exception as exc:  # noqa: BLE001 - report query failures in-band
             return StatementResult(
@@ -779,12 +785,23 @@ class _ResolveMixin:
 
         output_text = str(output)
         focus_types = kwargs.get("focus_types")
+        missing_classes: list[str] = []
+        if isinstance(focus_types, (list, tuple)):
+            get_schema = getattr(self.schema_provider, "get_schema", None)
+            if callable(get_schema):
+                for raw_class_type in focus_types:
+                    class_type = str(raw_class_type or "").strip()
+                    if (
+                        class_type
+                        and class_type not in missing_classes
+                        and get_schema(class_type) is None
+                    ):
+                        missing_classes.append(class_type)
         if (
-            isinstance(focus_types, (list, tuple))
-            and focus_types
+            missing_classes
             and "No node signature found" in output_text
         ):
-            exact_focus = ", ".join(str(item) for item in focus_types if str(item).strip())
+            exact_focus = ", ".join(missing_classes)
             output_text += (
                 "\nThis local schema miss does not prove the named external workflow "
                 f"or model family is unavailable. Missing class name(s): {exact_focus}. "
@@ -794,13 +811,19 @@ class _ResolveMixin:
                 "by this edit session."
             )
 
+        detail: dict[str, Any] = {"query": "search", "query_output": output_text}
+        if missing_classes:
+            # Exact focus-type misses are structured proof from the active
+            # schema provider.  Response shaping may use this only when the
+            # user named the same class and the batch ends in a real choice.
+            detail["missing_classes"] = missing_classes
         return StatementResult(
             statement_index=statement_index,
             source=source,
             ok=True,
             landed=False,
             op_kind="query",
-            detail={"query": "search", "query_output": output_text},
+            detail=detail,
         )
 
     def _resolve_tool_call_statement(
@@ -986,22 +1009,20 @@ class _ResolveMixin:
             self._tool_surface = surface
         return surface
 
-    def _bind_graph_name(self, name: str, uid: str) -> None:
-        prior_uid = self.uid_by_name.get(name)
-        if prior_uid is not None and self.name_by_uid.get(prior_uid) == name:
-            self.name_by_uid.pop(prior_uid, None)
-        prior_name = self.name_by_uid.get(uid)
-        if prior_name is not None and self.uid_by_name.get(prior_name) == uid:
-            self.uid_by_name.pop(prior_name, None)
-        self.uid_by_name[name] = uid
-        self.name_by_uid[uid] = name
-        self.unbound_names.discard(name)
-
     def _mark_name_unbound(self, name: str) -> None:
-        prior_uid = self.uid_by_name.pop(name, None)
-        if prior_uid is not None and self.name_by_uid.get(prior_uid) == name:
-            self.name_by_uid.pop(prior_uid, None)
         self.unbound_names.add(name)
+
+    def _register_transient_name(self, name: str, uid: str) -> None:
+        """Transient within-batch name registration (Law 5, batch 4).
+
+        Bridges an add-node statement's ``target_name`` to its minted uid
+        for LATER statements in the SAME batch.  Nothing is written to the
+        ledger/working_ui and the pure naming function never consults this
+        index, so no stored binding and no session lock exists.
+        """
+        self._transient_name_index[name] = uid
+        self._transient_uid_index[uid] = name
+        self.unbound_names.discard(name)
 
     def _resolve_add_node_statement(
         self,
@@ -1359,49 +1380,43 @@ class _ResolveMixin:
         target = self._resolve_graph_name_soft(target_name)
         if target is None:
             return None
-        inputs = target.node.get("inputs")
-        if not isinstance(inputs, list):
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
             return None
-        input_slot = _find_named_slot(inputs, target_field)
-        if input_slot is None:
-            return None
-        link_id = input_slot.get("link")
-        if not isinstance(link_id, int):
-            return None
-        raw_link = self.ledger.resolve_link(target.scope_path, link_id)
-        if raw_link is None:
-            return None
-        origin_id, origin_slot = _link_origin(raw_link)
-        if origin_id is None:
-            return None
-        origin_node = self._node_by_id(target.scope_path, origin_id)
-        if origin_node is None:
-            return None
-        origin_uid = str(origin_node.get("properties", {}).get("vibecomfy_uid") or origin_node.get("id"))
-        slot_name = _output_slot_name(origin_node, origin_slot, self.schema_provider)
-        output_slot: str | int = slot_name if slot_name is not None else origin_slot
-        return LinkSourceRef(target.scope_path, origin_uid, output_slot)
+        target_id = str(getattr(target.node, "id", "") or "")
+        for edge in getattr(workflow, "edges", ()) or ():
+            if str(getattr(edge, "to_node", "") or "") != target_id:
+                continue
+            if str(getattr(edge, "to_input", "") or "") != target_field:
+                continue
+            source = workflow.nodes.get(str(getattr(edge, "from_node", "") or ""))
+            if source is None:
+                return None
+            return LinkSourceRef(
+                target.scope_path,
+                str(getattr(source, "uid", "") or ""),
+                getattr(edge, "from_output", ""),
+            )
+        return None
 
     def _target_has_any_link(self, target_name: str) -> bool:
         target = self._resolve_graph_name_soft(target_name)
         if target is None:
             return False
-        inputs = target.node.get("inputs")
-        if not isinstance(inputs, list):
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
             return False
-        return any(isinstance(slot, Mapping) and isinstance(slot.get("link"), int) for slot in inputs)
+        target_id = str(getattr(target.node, "id", "") or "")
+        return any(
+            str(getattr(edge, "to_node", "") or "") == target_id
+            for edge in getattr(workflow, "edges", ()) or ()
+        )
 
-    def _node_by_id(self, scope_path: str, node_id: int) -> Mapping[str, Any] | None:
-        scope = self.ledger.scopes.get(scope_path)
-        if scope is None:
+    def _node_by_id(self, scope_path: str, node_id: int) -> Any | None:
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
             return None
-        nodes = scope.graph.get("nodes")
-        if not isinstance(nodes, list):
-            return None
-        for node in nodes:
-            if isinstance(node, Mapping) and node.get("id") == node_id:
-                return node
-        return None
+        return (getattr(workflow, "nodes", None) or {}).get(str(node_id))
 
     @staticmethod
     def _dependency_cause(statement: StatementResult) -> str | None:
@@ -1409,6 +1424,17 @@ class _ResolveMixin:
             if diagnostic.code == "unbound_graph_name":
                 name = str(diagnostic.detail.get("name", "?"))
                 return f"Statement depends on graph name {name!r} whose add-node statement did not land."
+        return None
+
+    def _uid_if_present(self, name: str) -> str | None:
+        """Return *name* when it is already a live node uid."""
+        if not name:
+            return None
+        workflow = getattr(self, "workflow", None)
+        nodes = getattr(workflow, "nodes", None) or {}
+        for node in nodes.values():
+            if str(getattr(node, "uid", "") or "") == name:
+                return name
         return None
 
     def _resolve_graph_name(
@@ -1428,6 +1454,14 @@ class _ResolveMixin:
             ]
         uid = self.uid_by_name.get(name)
         if uid is None:
+            # Batch 4 (Law 5): transient within-batch registration for a
+            # node minted by an earlier add-node statement in this batch.
+            uid = self._transient_name_index.get(name)
+        if uid is None:
+            # Designed identity fallback: the uid comment is always a valid
+            # address.  This is not a session lock — the uid is the IR key.
+            uid = self._uid_if_present(name)
+        if uid is None:
             return None, [
                 _diag(
                     "unknown_graph_name",
@@ -1436,8 +1470,13 @@ class _ResolveMixin:
                     detail={"name": name},
                 )
             ]
-        matches = [(scope_path, node) for (scope_path, node_uid), node in self.ledger.node_index.items() if node_uid == uid]
-        if not matches:
+        workflow = getattr(self, "workflow", None)
+        ir_node = None
+        for node in (getattr(workflow, "nodes", None) or {}).values():
+            if str(getattr(node, "uid", "") or "") == uid:
+                ir_node = node
+                break
+        if ir_node is None:
             return None, [
                 _diag(
                     "stale_graph_name",
@@ -1446,18 +1485,8 @@ class _ResolveMixin:
                     detail={"name": name, "uid": uid},
                 )
             ]
-        if len(matches) > 1:
-            return None, [
-                _diag(
-                    "scope_escape_not_allowed",
-                    f"Graph name {name!r} resolves to multiple scopes; explicit scope paths are not allowed in M1.",
-                    severity="error",
-                    detail={"name": name, "uid": uid, "scope_paths": [scope for scope, _ in matches]},
-                )
-            ]
-        scope_path, node = matches[0]
-        class_type = str(node.get("type") or node.get("class_type") or "")
-        return _ResolvedGraphName(name=name, uid=uid, scope_path=scope_path, node=node, class_type=class_type), []
+        class_type = str(getattr(ir_node, "class_type", "") or "")
+        return _ResolvedGraphName(name=name, uid=uid, scope_path="", node=ir_node, class_type=class_type), []
 
     def _resolve_target_field(
         self,
@@ -1487,7 +1516,12 @@ class _ResolveMixin:
             field_name = ui_only_alias[0]
         schema_input = _input_spec_for_field(schema_inputs, field_name)
         raw_input = _find_named_slot(node_ref.node.get("inputs"), field_name)
-        widget_value = _widget_value_for_field(node_ref.node, node_ref.class_type, field_name)
+        widget_value = _widget_value_for_field(
+            node_ref.node,
+            node_ref.class_type,
+            field_name,
+            schema_provider=self.schema_provider,
+        )
         if (
             raw_input is None
             and schema_input is None
@@ -1592,31 +1626,13 @@ class _ResolveMixin:
         except (KeyError, ValueError):
             raw_slot = None
         if raw_slot is None:
-            alias_match = _OUTPUT_ALIAS_RE.fullmatch(slot_attr)
-            if alias_match is not None:
-                alias_index = int(alias_match.group(1))
-                if 0 <= alias_index < len(raw_outputs):
-                    if len(raw_outputs) == 1:
-                        item = raw_outputs[alias_index]
-                        raw_slot = item["name"]
-                    else:
-                        return None, [
-                            _diag(
-                                "ambiguous_output_alias",
-                                (
-                                    f"{node_ref.class_type}.{slot_attr} is a positional output alias, but this node has "
-                                    "multiple named outputs; use the exact output slot name instead."
-                                ),
-                                severity="error",
-                                detail={
-                                    "name": node_ref.name,
-                                    "uid": node_ref.uid,
-                                    "slot": slot_attr,
-                                    "slot_index": alias_index,
-                                    "available_slots": [item["name"] for item in raw_outputs if item["name"]],
-                                },
-                            )
-                        ]
+            port_match = _TYPED_PORT_RE.fullmatch(slot_attr)
+            if port_match is not None:
+                port_index = int(port_match.group(1))
+                by_index = {item["index"]: item for item in raw_outputs}
+                item = by_index.get(port_index)
+                if item is not None:
+                    raw_slot = item["name"] or f"output_{port_index}"
         if raw_slot is None:
             return None, [
                 _diag(

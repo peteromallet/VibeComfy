@@ -1,0 +1,35 @@
+{
+  "id": "video-video-combine-with-image-loading-5b31ce",
+  "query": "I want the video to be 10 seconds long, with each of the two images shown for exactly 5 seconds.",
+  "workflow_path": "external_workflows/corpus/5b31ce48557b8ac2.json",
+  "network": true,
+  "timeout": 280,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "A 10\u2011second video where the first image fills seconds 0\u20115 and the second fills seconds 5\u201110.",
+    "quality": "The frame rate and total frame count are adjusted correctly; no image is skipped or duration is miscalculated.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 1,
+    "task_type": "image_to_video",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-combine",
+      "image-loading",
+      "video-generation"
+    ],
+    "source_workflow_id": "5b31ce48557b8ac2",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "A simple, numeric, non\u2011ambiguous duration edit that tests understanding of frame rate vs. frame count in a video\u2011combine workflow."
+  }
+}

@@ -10,6 +10,7 @@ from vibecomfy.model_assets import _node_class_type, _strip_download_true, _subd
 from vibecomfy.porting.report import AssetCandidate, AssetCheckResult, PortIssue
 
 
+from vibecomfy.ingest.normalize import door_get_nodes
 _MODEL_NAME_SUFFIXES = (
     ".safetensors",
     ".ckpt",
@@ -400,7 +401,7 @@ def _default_head_client(url: str, timeout_seconds: float) -> Any:
 
 
 def _iter_workflow_nodes(raw: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
-    yield from _sorted_node_values(raw.get("nodes"))
+    yield from _sorted_node_values(door_get_nodes(raw))
     definitions = raw.get("definitions", {})
     if not isinstance(definitions, Mapping):
         return

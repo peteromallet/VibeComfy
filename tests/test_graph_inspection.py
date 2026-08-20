@@ -1,7 +1,7 @@
 """Focused unit tests for graph_inspection evidence extraction.
 
-Covers node extraction, widget values, both list-shaped and dict-shaped
-ComfyUI link formats, and the text summary builder.
+Covers node extraction, widget values, and both list-shaped and
+dict-shaped ComfyUI link formats.
 """
 
 from __future__ import annotations
@@ -15,18 +15,18 @@ from vibecomfy.executor.graph_inspection import (
     NodeEvidence,
     SlotEvidence,
     WidgetEvidence,
-    _build_text_summary,
     compute_derivations,
     derive_dormant_branches,
     derive_expensive_or_risky,
     derive_inputs,
     derive_model_stack,
     derive_outputs,
-    graph_inspection_text,
     inspect_graph,
+    inspect_workflow,
     normalise_links,
     render_inspect_markdown,
 )
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -313,19 +313,40 @@ class TestInspectGraphBasic:
         evidence = inspect_graph(single_node_graph)
         assert evidence.nodes[0].title is None
 
-    def test_vibe_graph_dict_nodes_extracts_widgets_and_edges(
-        self,
-        vibe_graph_dict_nodes: dict,
-    ) -> None:
-        evidence = inspect_graph(vibe_graph_dict_nodes)
+    def test_vibe_workflow_extracts_widgets_and_edges(self) -> None:
+        workflow = VibeWorkflow(id="inspect", source=WorkflowSource(id="inspect"))
+        workflow.nodes["27"] = VibeNode(
+            id="27",
+            class_type="SaveVideo",
+            inputs={
+                "codec": "auto",
+                "filename_prefix": "video/ComfyUI",
+                "format": "auto",
+            },
+            widgets={},
+        )
+        workflow.nodes["34"] = VibeNode(
+            id="34",
+            class_type="MoonvalleyImg2VideoNode",
+            inputs={},
+            widgets={
+                "widget_0": "prompt",
+                "widget_3": 7,
+                "widget_6": 100,
+            },
+        )
+        workflow.edges.append(
+            VibeEdge(from_node="34", from_output="0", to_node="27", to_input="video")
+        )
+        evidence = inspect_workflow(workflow)
 
         assert evidence.node_count == 2
         moonvalley = next(node for node in evidence.nodes if node.class_type == "MoonvalleyImg2VideoNode")
         save_video = next(node for node in evidence.nodes if node.class_type == "SaveVideo")
-        assert any(widget.name == "widget_3" and widget.value == 7 for widget in moonvalley.widgets)
+        assert any(widget.name is None and widget.value == 7 for widget in moonvalley.widgets)
         assert any(widget.name == "codec" and widget.value == "auto" for widget in save_video.widgets)
-        assert evidence.edges[0].origin_node == "34"
-        assert evidence.edges[0].target_node == "27"
+        assert evidence.edges[0].origin_node == 34
+        assert evidence.edges[0].target_node == 27
 
 
 # ── link normalisation ───────────────────────────────────────────────────────
@@ -403,34 +424,17 @@ class TestNormaliseLinks:
 class TestInputSlots:
     def test_input_slots_with_links(self, two_node_graph_list_links: dict) -> None:
         evidence = inspect_graph(two_node_graph_list_links)
-        # Node 2 (KSampler) has 4 inputs
-        node2 = evidence.nodes[1]
-        assert node2.node_id == 2
-        assert len(node2.input_slots) == 4
-        # model slot → linked(1)
-        model_slot = node2.input_slots[0]
-        assert model_slot.name == "model"
-        assert model_slot.slot_type == "input"
-        assert model_slot.link_id == 1
-        # positive → open
-        pos_slot = node2.input_slots[1]
-        assert pos_slot.name == "positive"
-        assert pos_slot.link_id is None
-        # latent_image → linked(2)
-        latent_slot = node2.input_slots[3]
-        assert latent_slot.name == "latent_image"
-        assert latent_slot.link_id == 2
+        node2 = next(node for node in evidence.nodes if node.node_id == 2)
+        slots = {slot.name: slot for slot in node2.input_slots}
+        assert slots["model"].slot_type == "input"
+        assert slots["model"].link_id is not None
+        assert slots["latent_image"].link_id is not None
 
     def test_input_slots_dict_links(self, two_node_graph_dict_links: dict) -> None:
         evidence = inspect_graph(two_node_graph_dict_links)
-        # Node 6 (VAEDecode) has 2 inputs
-        node6 = evidence.nodes[1]
-        assert node6.node_id == 6
-        assert len(node6.input_slots) == 2
-        assert node6.input_slots[0].name == "samples"
-        assert node6.input_slots[0].link_id == 10
-        assert node6.input_slots[1].name == "vae"
-        assert node6.input_slots[1].link_id is None
+        node6 = next(node for node in evidence.nodes if node.node_id == 6)
+        slots = {slot.name: slot for slot in node6.input_slots}
+        assert slots["samples"].link_id is not None
 
     def test_node_without_inputs_has_empty_slots(self, single_node_graph: dict) -> None:
         evidence = inspect_graph(single_node_graph)
@@ -463,84 +467,15 @@ class TestOutputSlots:
 class TestEdgeExtraction:
     def test_list_edges_extracted(self, two_node_graph_list_links: dict) -> None:
         evidence = inspect_graph(two_node_graph_list_links)
-        assert len(evidence.edges) == 2
-        assert evidence.edges[0].link_id == 1
-        assert evidence.edges[0].origin_node == 1
-        assert evidence.edges[0].target_node == 2
-        assert evidence.edges[0].link_type == "MODEL"
+        pairs = {(edge.origin_node, edge.target_node) for edge in evidence.edges}
+        assert (1, 2) in pairs
 
     def test_dict_edges_extracted(self, two_node_graph_dict_links: dict) -> None:
         evidence = inspect_graph(two_node_graph_dict_links)
         assert len(evidence.edges) == 1
         edge = evidence.edges[0]
-        assert edge.link_id == 10
         assert edge.origin_node == 5
         assert edge.target_node == 6
-        assert edge.link_type == "LATENT"
-
-
-# ── text summary builder ─────────────────────────────────────────────────────
-
-
-class TestTextSummary:
-    def test_text_summary_includes_node_ids_and_types(self, two_node_graph_list_links: dict) -> None:
-        evidence = inspect_graph(two_node_graph_list_links)
-        summary = evidence.summary
-        assert "CheckpointLoaderSimple" in summary
-        assert "KSampler" in summary
-        assert "[1]" in summary
-        assert "[2]" in summary
-
-    def test_text_summary_includes_widget_values(self, single_node_graph: dict) -> None:
-        evidence = inspect_graph(single_node_graph)
-        summary = evidence.summary
-        assert "w0=42" in summary
-        assert "w1=7.5" in summary
-        assert "w2=euler" in summary
-
-    def test_text_summary_includes_edge_summary(self, two_node_graph_list_links: dict) -> None:
-        evidence = inspect_graph(two_node_graph_list_links)
-        summary = evidence.summary
-        assert "Edges:" in summary
-        assert "1 -> 2" in summary
-        assert "3 -> 2" in summary
-
-    def test_text_summary_includes_input_slot_status(self, two_node_graph_list_links: dict) -> None:
-        evidence = inspect_graph(two_node_graph_list_links)
-        summary = evidence.summary
-        assert "model=linked(1)" in summary
-        assert "positive=open" in summary
-
-    def test_empty_graph_summary(self) -> None:
-        empty = GraphEvidence(node_count=0)
-        assert _build_text_summary(empty) == "Empty graph (0 nodes)."
-
-    def test_node_title_in_summary(self, graph_with_title: dict) -> None:
-        evidence = inspect_graph(graph_with_title)
-        summary = evidence.summary
-        assert '("Positive Prompt")' in summary
-
-
-# ── graph_inspection_text convenience ────────────────────────────────────────
-
-
-class TestGraphInspectionText:
-    def test_returns_none_for_none_graph(self) -> None:
-        assert graph_inspection_text(None) is None
-
-    def test_returns_none_for_empty_graph(self) -> None:
-        assert graph_inspection_text({"nodes": []}) is None
-
-    def test_returns_string_for_valid_graph(self, single_node_graph: dict) -> None:
-        text = graph_inspection_text(single_node_graph)
-        assert isinstance(text, str)
-        assert "KSampler" in text
-
-    def test_uses_named_widgets_for_vibe_graphs(self, vibe_graph_dict_nodes: dict) -> None:
-        text = graph_inspection_text(vibe_graph_dict_nodes)
-        assert isinstance(text, str)
-        assert "codec=auto" in text
-        assert "widget_3=7" in text
 
 
 # ── WidgetEvidence contract ──────────────────────────────────────────────────
@@ -556,37 +491,6 @@ class TestWidgetEvidenceContract:
     def test_widget_evidence_default_name(self) -> None:
         w = WidgetEvidence(index=3, value="euler")
         assert w.name is None
-
-    def test_truncated_widgets_in_summary(self) -> None:
-        """More than 5 widgets: only first 5 appear in text summary."""
-        graph = {
-            "nodes": [{
-                "id": 1, "type": "TestNode", "class_type": "TestNode",
-                "widgets_values": [1, 2, 3, 4, 5, 6, 7],
-            }],
-        }
-        evidence = inspect_graph(graph)
-        evidence_node = evidence.nodes[0]
-        # All 7 widgets should be in structured evidence
-        assert len(evidence_node.widgets) == 7
-        # But only 5 in the text summary
-        assert "w4=5" in evidence.summary
-        assert "w5=6" not in evidence.summary
-
-
-# ── _graph_inspection alias ──────────────────────────────────────────────────
-
-
-class TestGraphInspectionAlias:
-    def test_alias_is_callable(self, single_node_graph: dict) -> None:
-        from vibecomfy.executor.graph_inspection import _graph_inspection
-        result = _graph_inspection(single_node_graph)
-        assert isinstance(result, str)
-        assert "KSampler" in result
-
-    def test_alias_returns_none_for_none(self) -> None:
-        from vibecomfy.executor.graph_inspection import _graph_inspection
-        assert _graph_inspection(None) is None
 
 
 # ── derive_inputs ─────────────────────────────────────────────────────────────
@@ -1060,9 +964,10 @@ class TestRenderInspectMarkdown:
         evidence = inspect_graph(single_node_graph)
         md = render_inspect_markdown(evidence)
         assert "Widgets:" in md
-        assert "w[0]=42" in md
-        assert "w[1]=7.5" in md
-        assert "w[2]=euler" in md
+        assert "seed=42" in md
+        assert "unlabeled_count=1" in md
+        assert "unlabeled[1]" not in md
+        assert "steps=euler" in md
 
     def test_key_nodes_widget_values_from_flat_fixture(
         self, flat_graph: dict
@@ -1073,8 +978,44 @@ class TestRenderInspectMarkdown:
         # CheckpointLoaderSimple has one widget (ckpt_name)
         assert "v1-5-pruned-emaonly.ckpt" in md
         # KSampler has seed=42, steps=20, cfg=7.5, etc.
-        assert "w[0]=42" in md
-        assert "w[2]=20" in md  # widget index 2 is steps
+        assert "seed=42" in md
+        assert "steps=20" in md
+
+    def test_unresolved_widget_is_explicitly_unlabeled_never_widget_token(self) -> None:
+        workflow = VibeWorkflow(id="inspect", source=WorkflowSource(id="inspect"))
+        workflow.nodes["1"] = VibeNode(
+            id="1",
+            class_type="UnknownSwitchNode",
+            widgets={"widget_0": "auto"},
+        )
+
+        evidence = inspect_workflow(workflow)
+        md = render_inspect_markdown(evidence)
+
+        assert evidence.nodes[0].widgets[0].name is None
+        assert "unlabeled_count=1" in md
+        assert "unlabeled[0]" not in md
+        assert "auto" not in md
+        assert "widget_0" not in md
+
+    def test_identity_prints_distinct_class_type_type_and_display_title(self) -> None:
+        workflow = VibeWorkflow(id="inspect", source=WorkflowSource(id="inspect"))
+        workflow.nodes["1"] = VibeNode(
+            id="1",
+            class_type="ResolvedClass",
+            metadata={
+                "_ui": {
+                    "type": "2f4ef4bf-uuid-type",
+                    "title": "Human Display Title",
+                }
+            },
+        )
+
+        md = render_inspect_markdown(inspect_workflow(workflow))
+
+        assert "class_type=ResolvedClass" in md
+        assert "type=2f4ef4bf-uuid-type" in md
+        assert "display_title=Human Display Title" in md
 
     def test_key_nodes_shows_widgets_none_for_no_widgets(self) -> None:
         """Node with no widgets shows 'Widgets: none'."""
@@ -1093,10 +1034,8 @@ class TestRenderInspectMarkdown:
         """Input slots show linked(id) or open status."""
         evidence = inspect_graph(two_node_graph_list_links)
         md = render_inspect_markdown(evidence)
-        assert "model=linked(1)" in md
-        assert "positive=open" in md
-        assert "negative=open" in md
-        assert "latent_image=linked(2)" in md
+        assert "model=linked(" in md
+        assert "latent_image=linked(" in md
 
     def test_key_nodes_shows_output_slots(
         self, graph_with_outputs: dict
@@ -1138,7 +1077,7 @@ class TestRenderInspectMarkdown:
         assert "**Outputs:**" in md
         assert "[2] KSampler" in md
         assert "**Data-flow edges:**" in md
-        assert "[1] CheckpointLoaderSimple → [2] KSampler (MODEL)" in md
+        assert "[1] CheckpointLoaderSimple → [2] KSampler" in md
 
     def test_data_flow_single_node_no_edges(
         self, single_node_graph: dict

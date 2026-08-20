@@ -12,10 +12,16 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from typing import Any, Mapping
 
 
-from ._frag_state import LOGGER
+from ._frag_state import (
+    LOGGER,
+    _accepted_batch_delta_ops,
+    _accepted_batch_statements,
+    derived_accepted_delta_envelope,
+)
 
 from .contracts import _clarification_payload
 
@@ -74,39 +80,17 @@ def _canonical_delta_ops_envelope_payload(delta_ops: tuple[Any, ...]) -> dict[st
 
 
 def _build_cumulative_batch_repl_delta_envelope(state: AgentEditState) -> dict[str, Any] | None:
-    """Assemble one cumulative normalized V2 delta envelope from landed
-    batch_repl operations across all turns.
+    """Assemble one cumulative V2 delta envelope from landed accepted-batch ops.
 
     Returns ``{schema_version, ops}`` or ``None`` when no ops were landed.
-    ``delta_ops`` must only be exposed as a read-only derived compatibility
-    view from this canonical envelope.
+    Transient apply-time serializer only — not a durable product field.
     """
-    from vibecomfy.porting.edit.ops import (
-        DELTA_SCHEMA_VERSION,
-        ensure_root_scoped_delta_envelope,
-    )
-
-    cumulative_ops: list[dict[str, Any]] = []
-    for turn in state.batch_turns:
-        if not isinstance(turn, dict):
-            continue
-        turn_envelope = turn.get("delta_ops_envelope")
-        if not isinstance(turn_envelope, dict):
-            continue
-        turn_ops = turn_envelope.get("ops")
-        if isinstance(turn_ops, list):
-            cumulative_ops.extend(turn_ops)
-
-    if not cumulative_ops:
+    ops = _accepted_batch_delta_ops(state)
+    if not ops:
         return None
-
-    return ensure_root_scoped_delta_envelope(
-        {
-            "schema_version": DELTA_SCHEMA_VERSION,
-            "ops": cumulative_ops,
-        },
-        strict=True,
-    ).to_dict()
+    return derived_accepted_delta_envelope(
+        {"accepted_batch": list(_accepted_batch_statements(state))}
+    )
 
 
 def _product_failure_response(failure: AgentError) -> dict[str, Any]:
@@ -135,27 +119,25 @@ def _build_compatibility_response_fields(state: AgentEditState) -> dict[str, Any
 def _v2_candidate_mutation_plan_fields(
     *,
     compatibility_fields: Mapping[str, Any],
-    delta_ops_envelope: Mapping[str, Any] | None,
+    accepted_ops: list[dict[str, Any]] | None = None,
 ) -> dict[str, str | None]:
     from vibecomfy.comfy_nodes.agent.edit import (v2_mutation_plan_hash)  # T-039 late import: host namespace lookup; resolved at call time
     """Bind a reviewable V2 candidate to its canonical mutation evidence.
 
-    The plan identity covers both the canonical delta and the structural graph
-    boundary it is expected to cross.  Keeping this derivation on the server
-    prevents the browser from inventing an arbitrary transaction identity and
-    makes ordinary adapt/revise candidates use the same prepare/finalize path
-    as layout candidates.
+    The plan identity covers the accepted-batch ops (the sole durable Δ) and
+    the structural graph boundary it is expected to cross.
     """
-    if not isinstance(delta_ops_envelope, Mapping):
+    if accepted_ops is None:
         return {
             "plan_hash": None,
             "structural_hash_before": None,
             "structural_hash_after": None,
         }
+    derived_envelope = {"schema_version": "2.0.0", "ops": list(accepted_ops)}
     structural_hash_before = compatibility_fields.get("submit_structural_graph_hash")
     structural_hash_after = compatibility_fields.get("candidate_structural_graph_hash")
     plan_hash = v2_mutation_plan_hash(
-        delta_ops_envelope=delta_ops_envelope,
+        delta_ops_envelope=derived_envelope,
         structural_hash_before=(
             structural_hash_before if isinstance(structural_hash_before, str) else None
         ),
@@ -505,7 +487,7 @@ def _sync_narrated_clarify_outcome(
     internal_outcome: TurnOutcome,
     public_outcome: Mapping[str, Any],
 ) -> tuple[TurnOutcome, dict[str, Any]]:
-    from vibecomfy.comfy_nodes.agent.edit import (TurnOutcome, _clarification_payload, _format_clarify_markdown_message)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (TurnOutcome, _clarification_payload, _ensure_specific_clarify_action, _format_clarify_markdown_message)  # T-039 late import: host namespace lookup; resolved at call time
     if internal_outcome.kind not in {"clarify", "edit+clarify"}:
         return internal_outcome, dict(public_outcome)
     if internal_outcome.kind == "edit+clarify":
@@ -518,7 +500,9 @@ def _sync_narrated_clarify_outcome(
             else message
         )
     else:
-        question = _format_clarify_markdown_message(message)
+        question = _format_clarify_markdown_message(
+            _ensure_specific_clarify_action(message)
+        )
     if internal_outcome.kind == "clarify":
         synced_internal = TurnOutcome.clarify(question=question)
     else:
@@ -529,6 +513,154 @@ def _sync_narrated_clarify_outcome(
     synced_public = dict(public_outcome)
     synced_public.update(_clarification_payload(question))
     return synced_internal, synced_public
+
+
+def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
+    """Return exact schema misses that the current edit request named.
+
+    ``search(focus_types=[...])`` records provider-backed misses in statement
+    detail.  We intentionally do not infer absence from refusal prose: a class
+    must be both a structured exact miss and a named target in this request.
+    """
+    request_text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(state, "task", ""),
+            state.request_payload.get("query")
+            if isinstance(getattr(state, "request_payload", None), Mapping)
+            else "",
+        )
+    )
+    missing: list[str] = []
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping):
+                continue
+            for raw_class_type in detail.get("missing_classes") or ():
+                class_type = str(raw_class_type or "").strip()
+                if not class_type or class_type in missing:
+                    continue
+                if re.search(
+                    rf"(?<![A-Za-z0-9_]){re.escape(class_type)}(?![A-Za-z0-9_])",
+                    request_text,
+                    re.IGNORECASE,
+                ):
+                    missing.append(class_type)
+    return tuple(missing)
+
+
+def _clarification_has_question_and_options(message: Any) -> bool:
+    """Recognise marked or prose alternatives in a clarification."""
+    if not isinstance(message, str):
+        return False
+    option_markers = re.findall(
+        r"(?:\([a-z]\)|(?:^|[\s;])\d+[.)](?=\s))",
+        message,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    if len(option_markers) >= 2:
+        return True
+    compact = " ".join(message.split())
+    return bool(
+        re.search(r"\beither\b.+?\bor\b.+", compact, re.IGNORECASE)
+        or re.search(
+            r"\bkeep\b.+?\bor\s+(?:name|choose|select|specify)\b.+",
+            compact,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _persisted_delta_empty_for_named_schema_absence(state: AgentEditState) -> bool:
+    """Return whether the apparent batch candidate failed to persist."""
+    from vibecomfy.comfy_nodes.agent.edit import _net_field_changes
+
+    if _net_field_changes(tuple(state.batch_field_changes or ())):
+        return False
+    report = state.report if isinstance(state.report, Mapping) else {}
+    if report.get("graph_unchanged") is True or report.get("no_candidate_reason") == "no_changes":
+        return True
+    return any(
+        isinstance(turn, Mapping)
+        and isinstance(turn.get("done_validation_repair"), Mapping)
+        for turn in (state.batch_turns or ())
+    )
+
+
+def _record_named_schema_absence_blocker(
+    state: AgentEditState,
+    *,
+    has_candidate: bool,
+) -> tuple[str, ...]:
+    """Attach typed class-absence proof for a no-candidate terminal choice."""
+    if has_candidate or not _clarification_has_question_and_options(state.user_message):
+        return ()
+    missing = _batch_named_schema_absences(state)
+    if not missing:
+        return ()
+    report = dict(state.report) if isinstance(state.report, Mapping) else {}
+    blocker = (
+        dict(report.get("authoring_blocker"))
+        if isinstance(report.get("authoring_blocker"), Mapping)
+        else {}
+    )
+    blocker.update(
+        {
+            "reason": "named_class_absent_from_schema",
+            "missing_runtime_classes": list(missing),
+            "message": state.user_message,
+        }
+    )
+    report["authoring_blocker"] = blocker
+    report["clarification_required"] = True
+    report["graph_unchanged"] = True
+    state.report = report
+    return missing
+
+
+_SPECIFIC_CLARIFY_ACTION_RE = re.compile(
+    r"\b(?:install|provide|choose|select|specify|confirm|share|name|tell me|"
+    r"connect|add|remove|enable|disable|retry)\b|\bwhich\s+[a-z0-9_]",
+    re.IGNORECASE,
+)
+_VAGUE_CLARIFY_TAIL_RE = re.compile(
+    r"(?:\s*[-—,:;]\s*)?(?:how|what)\s+would\s+you\s+like\s+(?:me\s+)?to\s+"
+    r"(?:proceed|continue|do)(?:\s+next)?\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _ensure_specific_clarify_action(message: Any) -> str:
+    """Keep a pure refusal actionable even when narration becomes generic.
+
+    The grounded-refusal contract requires a concrete unblocking action.  The
+    narrator is presentation-only, so it must not be able to erase that
+    product fact by replacing a blocker with only "how would you like to
+    proceed?".  Named actions produced by the narrator are preserved; vague
+    clarifications receive a bounded deterministic action request.
+    """
+    text = message.strip() if isinstance(message, str) else ""
+    vague_tail = _VAGUE_CLARIFY_TAIL_RE.search(text)
+    if not text or _SPECIFIC_CLARIFY_ACTION_RE.search(text) or vague_tail is None:
+        return text
+    base = _VAGUE_CLARIFY_TAIL_RE.sub("", text).rstrip(" -—,:;?.!")
+    action = (
+        "Please provide the missing dependency or answer the unresolved choice "
+        "named above so I can continue."
+    )
+    if not base:
+        return action
+    # Narrator messages are capped at 300 characters. Preserve the leading
+    # blocker/name evidence and leave enough room for the required next action.
+    max_base = max(1, 298 - len(action) - 1)
+    if len(base) > max_base:
+        base = base[:max_base].rsplit(" ", 1)[0].rstrip(" -—,:;?.!")
+    return f"{base}. {action}"
 
 
 def _execution_plan_task_satisfaction_entries(state: AgentEditState) -> list[dict[str, Any]]:
@@ -681,11 +813,16 @@ def _sanitize_pure_clarify_response(response: dict[str, Any]) -> dict[str, Any]:
     markdown = _format_clarify_markdown_message(message)
     response = dict(response)
     response["message"] = markdown
-    response["outcome"] = {
+    sanitized_outcome = {
         "kind": "clarify",
         "question": markdown,
         "clarification": {"message": markdown},
     }
+    for key in ("missing_classes", "options"):
+        value = outcome.get(key)
+        if isinstance(value, (list, tuple)) and value:
+            sanitized_outcome[key] = list(value)
+    response["outcome"] = sanitized_outcome
     internal_outcome = response.get("internal_outcome")
     if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
         response["internal_outcome"] = {"kind": "clarify", "question": markdown}
@@ -1048,6 +1185,14 @@ def _build_batch_repl_response(
     )
     if has_candidate and not delta_evidence_valid:
         has_candidate = False
+    blocker_has_candidate = has_candidate and not _persisted_delta_empty_for_named_schema_absence(
+        state
+    )
+    named_schema_absence_terminal = bool(
+        _record_named_schema_absence_blocker(state, has_candidate=blocker_has_candidate)
+    )
+    if named_schema_absence_terminal:
+        has_candidate = False
     response_apply_eligibility = derive_apply_eligibility(
         context,
         has_candidate=has_candidate,
@@ -1070,7 +1215,13 @@ def _build_batch_repl_response(
     compatibility_fields = _build_compatibility_response_fields(state)
     candidate_plan_fields = _v2_candidate_mutation_plan_fields(
         compatibility_fields=compatibility_fields,
-        delta_ops_envelope=delta_evidence_envelope if has_candidate else None,
+        accepted_ops=[
+            dict(item["op"])
+            for item in _accepted_batch_statements(state)
+            if isinstance(item.get("op"), Mapping)
+        ]
+        if has_candidate
+        else None,
     )
     candidate_payload = _build_candidate_payload(
         state,
@@ -1084,7 +1235,7 @@ def _build_batch_repl_response(
     # external evidence is not a success: the edit cannot satisfy the request
     # with only the partial graph change. Weak registry/code-search leads are
     # not authoring capability and should not force a special product route.
-    unresolved_schema_terminal = (
+    unresolved_schema_terminal = named_schema_absence_terminal or (
         state.batch_exit_mode in (_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY)
         and any(
             _resolver_candidate_is_authoring_capability(candidate)
@@ -1125,6 +1276,16 @@ def _build_batch_repl_response(
         internal_outcome,
         response={"candidate": candidate_payload},
     )
+    from vibecomfy.comfy_nodes.agent.contracts import (
+        missing_runtime_classes_from_report,
+        promote_requires_custom_nodes_outcome,
+    )
+
+    public_outcome = promote_requires_custom_nodes_outcome(
+        public_outcome,
+        missing_classes=missing_runtime_classes_from_report(state.report),
+        unresolved_schema_terminal=unresolved_schema_terminal,
+    )
     change_details = _change_details_payload(state, context)
     _prepare_narrative_artifact_paths(state)
     try:
@@ -1156,6 +1317,22 @@ def _build_batch_repl_response(
         message,
         internal_outcome=internal_outcome,
         public_outcome=public_outcome,
+    )
+    if (
+        internal_outcome.kind == "clarify"
+        and isinstance(internal_outcome.question, str)
+        and internal_outcome.question.strip()
+    ):
+        message = internal_outcome.question
+    from vibecomfy.comfy_nodes.agent.contracts import (
+        missing_runtime_classes_from_report,
+        promote_requires_custom_nodes_outcome,
+    )
+
+    public_outcome = promote_requires_custom_nodes_outcome(
+        public_outcome,
+        missing_classes=missing_runtime_classes_from_report(state.report),
+        unresolved_schema_terminal=unresolved_schema_terminal,
     )
     gate_snapshot = context.gate_snapshot()
     response = success_envelope(
@@ -1226,18 +1403,45 @@ def _build_batch_repl_response(
             dict(state.post_edit_reorganisation_advisory)
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
-    # ── Cumulative V2 delta envelope from landed batch_repl operations ──────
-    # Use the envelope validated by _validate_delta_evidence_for_apply rather
-    # than rebuilding it here.  For applyable turns with a candidate, the
-    # validated envelope includes any synthesized empty V2 envelope so that
-    # identity/no-op apply carries explicit evidence.  When delta evidence
-    # validation failed (has_candidate cleared), the envelope is None.
-    cumulative_delta_envelope = delta_evidence_envelope
-    if cumulative_delta_envelope is not None:
+    # ── Accepted Δ ────────────────────────────────────────────────────────
+    # The response's change claims (reply, report, outcome) are grounded in
+    # the accepted Δ: the batch statements that landed.  ``accepted_batch``
+    # carries those statements (each with its landed op) so consumers can
+    # verify claims ⊆ Δ (the reply-must-match-diff law).  It is the sole
+    # durable Δ; apply/plan_hash derive a transient envelope from it.
+    response["accepted_batch"] = _json_safe(list(_accepted_batch_statements(state)))
+    # accepted_batch is the sole durable Δ.  Apply/plan_hash derive ops from
+    # accepted_batch[*].op at the call site.
+    if response["accepted_batch"] or delta_evidence_envelope is not None:
         response["agent_edit_protocol"] = "v2_delta"
-        response["delta_ops_envelope"] = cumulative_delta_envelope
-        # delta_ops is a read-only derived compatibility view from the canonical envelope.
-        response["delta_ops"] = list(cumulative_delta_envelope["ops"])
+    # ── "claims ⊆ Δ" enforcement on the product path ──────────────────────
+    # The reply may only claim changes the accepted Δ actually landed.  Any
+    # invalid claim is stripped from outcome.changes and recorded so a false
+    # claim can never reach the client as fact.
+    try:
+        from vibecomfy.executor.contracts import validate_reply_change_claims
+
+        claims_violations = validate_reply_change_claims(response)
+        if claims_violations:
+            response["claims_violations"] = claims_violations
+            outcome_payload = response.get("outcome")
+            if isinstance(outcome_payload, Mapping):
+                cleaned = dict(outcome_payload)
+                changes = cleaned.get("changes")
+                if isinstance(changes, list):
+                    claim_keys = _accepted_delta_claim_keys(response)
+                    cleaned["changes"] = [
+                        change
+                        for change in changes
+                        if not (
+                            isinstance(change, Mapping)
+                            and (str(change.get("uid")), str(change.get("field_path"))) not in claim_keys
+                            and (str(change.get("uid")), "*") not in claim_keys
+                        )
+                    ]
+                response["outcome"] = cleaned
+    except Exception:
+        pass
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)
@@ -1319,14 +1523,22 @@ def _build_dev_success_response(
     )
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
-    delta_envelope = (
-        _canonical_delta_ops_envelope_payload(state.delta_ops)
-        if contract == "delta" and has_candidate
-        else None
-    )
+    accepted_batch: list[dict[str, Any]] | None = None
+    if contract == "delta" and has_candidate:
+        derived_ops = _canonical_delta_ops_envelope_payload(state.delta_ops)["ops"]
+        accepted_batch = [{"op": dict(op)} for op in derived_ops if isinstance(op, Mapping)]
+        accepted_ops_for_plan = [dict(item["op"]) for item in accepted_batch]
+    elif has_candidate:
+        accepted_ops_for_plan = [
+            dict(item["op"])
+            for item in _accepted_batch_statements(state)
+            if isinstance(item.get("op"), Mapping)
+        ]
+    else:
+        accepted_ops_for_plan = None
     candidate_plan_fields = _v2_candidate_mutation_plan_fields(
         compatibility_fields=compatibility_fields,
-        delta_ops_envelope=delta_envelope,
+        accepted_ops=accepted_ops_for_plan,
     )
     public_outcome_kind = public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None
     if _has_enough_grounded_facts_for_dev_narrative(state):
@@ -1360,6 +1572,12 @@ def _build_dev_success_response(
         internal_outcome=internal_outcome,
         public_outcome=public_outcome,
     )
+    if (
+        internal_outcome.kind == "clarify"
+        and isinstance(internal_outcome.question, str)
+        and internal_outcome.question.strip()
+    ):
+        message = internal_outcome.question
     response = success_envelope(
         context,
         message=message,
@@ -1407,10 +1625,10 @@ def _build_dev_success_response(
         response["layout_reorganisation"] = _json_safe(
             dict(state.post_edit_reorganisation_advisory)
         )
-    if delta_envelope is not None:
+    if accepted_batch is not None:
+        response["accepted_batch"] = _json_safe(accepted_batch)
+    if response.get("accepted_batch"):
         response["agent_edit_protocol"] = "v2_delta"
-        response["delta_ops_envelope"] = delta_envelope
-        response["delta_ops"] = list(delta_envelope["ops"])
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)
@@ -1453,6 +1671,7 @@ __all__ = (
     "_execution_plan_debug_fields",
     "_execution_plan_response_fields",
     "_execution_plan_task_satisfaction_entries",
+    "_ensure_specific_clarify_action",
     "_failure_response",
     "_format_clarify_markdown_message",
     "_has_enough_grounded_facts_for_dev_narrative",

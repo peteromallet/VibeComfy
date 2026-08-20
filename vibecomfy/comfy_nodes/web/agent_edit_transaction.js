@@ -2,7 +2,6 @@
 // UI phase is presentation only; available_actions on this aggregate governs
 // Apply/Reject/rollback/finalize availability.
 
-import { normalizeDeltaEnvelope } from "./canonical_delta.js";
 import { deep_plain } from "./deep_plain.js";
 import { canonicalSessionJsonString } from "./canonical_hash.js";
 import { normalizeLayoutVerification } from "./layout_verification_contract.js";
@@ -109,7 +108,11 @@ export function normalizeCandidateTransaction(value) {
   const state = canonicalTransactionState(source.state);
   if (!state || !isObject(source.plan) || !isObject(source.hashes) || !isObject(source.authority)) return null;
   try { validateCandidateTransactionV2(source); } catch (_error) { return null; }
-  const envelope = normalizeDeltaEnvelope(source.plan.delta_ops_envelope, { strict: false });
+  const accepted = Array.isArray(source.plan.accepted_batch) ? source.plan.accepted_batch : null;
+  if (!accepted) return null;
+  const ops = accepted
+    .filter((statement) => statement && typeof statement === "object" && statement.op && typeof statement.op === "object")
+    .map((statement) => deep_plain(statement.op));
   if (typeof source.plan.delta_hash !== "string" || !source.plan.delta_hash) return null;
   if (typeof source.plan_hash !== "string" || !source.plan_hash) return null;
   if (typeof source.hashes.candidate_graph_hash !== "string") return null;
@@ -136,8 +139,8 @@ export function normalizeCandidateTransaction(value) {
     resume_state: canonicalTransactionState(source.resume_state),
     plan: {
       ...deep_plain(source.plan),
-      delta_ops_envelope: deep_plain(envelope),
-      op_count: envelope.ops.length,
+      accepted_batch: deep_plain(accepted),
+      op_count: ops.length,
     },
     authority: {
       ...deep_plain(source.authority),
@@ -232,8 +235,8 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
   if (candidate.plan_hash !== prepared.plan_hash) throw new Error("Prepared plan hash differs from candidate authority.");
   if (candidate.plan.delta_hash !== prepared.plan.delta_hash) throw new Error("Prepared delta hash differs from candidate authority.");
   if (
-    canonicalSessionJsonString(candidate.plan.delta_ops_envelope)
-    !== canonicalSessionJsonString(prepared.plan.delta_ops_envelope)
+    canonicalSessionJsonString(candidate.plan.accepted_batch)
+    !== canonicalSessionJsonString(prepared.plan.accepted_batch)
   ) {
     throw new Error("Prepared operations differ from persisted candidate operations.");
   }
@@ -255,9 +258,12 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
   ) {
     throw new Error("Prepared layout verification contract differs from candidate authority.");
   }
+  const preparedOps = (Array.isArray(prepared.plan.accepted_batch) ? prepared.plan.accepted_batch : [])
+    .filter((statement) => statement && typeof statement === "object" && statement.op && typeof statement.op === "object")
+    .map((statement) => deep_plain(statement.op));
   return {
-    envelope: deep_plain(prepared.plan.delta_ops_envelope),
-    deltaOps: deep_plain(prepared.plan.delta_ops_envelope.ops),
+    accepted_batch: deep_plain(prepared.plan.accepted_batch || []),
+    deltaOps: preparedOps,
     deltaHash: prepared.plan.delta_hash,
     verificationKind: resolvedPreparedKind,
     layoutVerification: preparedLayoutVerification,

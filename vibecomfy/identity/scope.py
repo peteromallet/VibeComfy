@@ -40,8 +40,10 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
     pos, properties, widget values, and graphUuid so the key is invariant to
     cosmetic / value-only edits but changes on topology or class_type edits.
     """
+    from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
+
     skel_nodes: list[dict[str, Any]] = []
-    for node in sg_def.get("nodes") or []:
+    for node in door_get_nodes(sg_def) or []:
         if not isinstance(node, Mapping):
             continue
         inputs = [
@@ -50,7 +52,7 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(i, Mapping)
         ]
         outputs = [
-            {"name": o.get("name"), "links": o.get("links"), "type": o.get("type")}
+            {"name": o.get("name"), "links": door_get_links(o), "type": o.get("type")}
             for o in (node.get("outputs") or [])
             if isinstance(o, Mapping)
         ]
@@ -65,7 +67,7 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
     skel_nodes.sort(key=lambda n: json.dumps(n.get("id"), sort_keys=True, default=str))
 
     skel_links: list[Any] = []
-    for link in sg_def.get("links") or []:
+    for link in door_get_links(sg_def) or []:
         # litegraph link form: [link_id, origin_id, origin_slot, target_id, target_slot, type]
         if isinstance(link, Sequence) and not isinstance(link, (str, bytes)):
             skel_links.append(list(link)[1:])  # drop the volatile link_id

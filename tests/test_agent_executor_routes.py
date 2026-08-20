@@ -1054,6 +1054,59 @@ class TestComposedRouteAuthorityParity:
             else:
                 sys.modules.pop("aiohttp", None)
 
+
+    def test_recover_route_rebuilds_workflow_scope_binding(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+        routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+        edit = importlib.import_module("vibecomfy.comfy_nodes.agent.edit")
+        workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+        request_path = tmp_path / "session-recovered" / "turns" / "0001" / "request.json"
+        request_path.parent.mkdir(parents=True)
+        request_path.write_text(json.dumps({"workflow_id": workflow_id}), encoding="utf-8")
+        monkeypatch.setattr(edit, "_SESSION_ROOT", tmp_path)
+
+        registered = {}
+
+        class _Routes:
+            def post(self, path):
+                def _decorator(fn):
+                    registered[("POST", path)] = fn
+                    return fn
+                return _decorator
+
+            def get(self, path):
+                def _decorator(fn):
+                    registered[("GET", path)] = fn
+                    return fn
+                return _decorator
+
+        real_aiohttp = sys.modules.get("aiohttp")
+        aiohttp_module = types.ModuleType("aiohttp")
+        aiohttp_module.web = types.SimpleNamespace(
+            json_response=lambda body, status=200, **_kwargs: {"status": status, "body": body},
+        )
+        monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+
+        try:
+            routes.register_agent_edit_routes(types.SimpleNamespace(routes=_Routes()))
+            handler = registered[("GET", "/vibecomfy/agent-edit/recover")]
+            response = routes.asyncio.run(
+                handler(types.SimpleNamespace(query={"workflow_id": workflow_id}))
+            )
+            missing = routes.asyncio.run(handler(types.SimpleNamespace(query={})))
+        finally:
+            if real_aiohttp is not None:
+                sys.modules["aiohttp"] = real_aiohttp
+            else:
+                sys.modules.pop("aiohttp", None)
+
+        assert response == {
+            "status": 200,
+            "body": {"session_id": "session-recovered", "turn_id": "0001"},
+        }
+        assert missing["status"] == 400
+        assert missing["body"]["stage"] == "recover"
+
     def test_public_routes_return_identical_authority_fields(
         self, monkeypatch,
     ) -> None:

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("dotenv", reason="requires runpod-launch extra (python-dotenv)")
+pytest.importorskip("runpod_lifecycle", reason="requires sibling runpod-lifecycle package")
 
 from scripts import runpod_runner
 

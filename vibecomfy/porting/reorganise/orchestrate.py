@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes
 import copy
 import hashlib
 import json
@@ -12,7 +13,7 @@ from typing import Any, Callable, Literal, Mapping, Sequence
 
 from vibecomfy.identity.uid import SCOPE_CHAIN_JOIN
 from vibecomfy.identity.uid import parse_uid
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.porting.layout_store import migrate_store
 
 from .assess import assess_layout_facts
@@ -1189,7 +1190,7 @@ def apply_layout_candidate_patch_to_ui(
     topology_hash_before = topology_hash_for_layout_facts(facts_before)
     structural_hash_before = structural_hash_for_layout_facts(facts_before)
 
-    ledger = EditLedger.ingest(loaded.ui_json)
+    ledger = UiGraphIndex.ingest(loaded.ui_json)
     graph = ledger.graph
     applied_entry_keys, skipped_entry_keys = _apply_candidate_entries(ledger, patch)
     applied_group_scopes = _apply_candidate_groups(ledger, patch)
@@ -1499,7 +1500,7 @@ def _candidate_patch_mapping(
 
 
 def _apply_candidate_entries(
-    ledger: EditLedger,
+    ledger: UiGraphIndex,
     patch: Mapping[str, Any],
 ) -> tuple[list[str], list[str]]:
     raw_entries = patch.get("entries")
@@ -1545,7 +1546,7 @@ def _apply_node_properties(node: dict[str, Any], value: Any) -> None:
 
 
 def _apply_candidate_groups(
-    ledger: EditLedger,
+    ledger: UiGraphIndex,
     patch: Mapping[str, Any],
 ) -> list[str]:
     raw_groups = patch.get("groups")
@@ -1571,7 +1572,7 @@ def _apply_candidate_groups(
 
 
 def _candidate_group_scope(group: Mapping[str, Any]) -> str:
-    nodes = group.get("nodes")
+    nodes = door_get_nodes(group)
     node_keys = nodes if isinstance(nodes, Sequence) and not isinstance(nodes, (str, bytes)) else ()
     scopes = {parse_uid(str(node_key))[0] for node_key in node_keys}
     return scopes.pop() if len(scopes) == 1 else ""
@@ -1580,12 +1581,12 @@ def _candidate_group_scope(group: Mapping[str, Any]) -> str:
 def _group_for_ui_scope(
     group: Mapping[str, Any],
     scope_path: str,
-    ledger: EditLedger,
+    ledger: UiGraphIndex,
 ) -> dict[str, Any]:
     ui_group = _freeze_jsonish(group)
     if not isinstance(ui_group, dict):
         ui_group = {}
-    nodes = group.get("nodes")
+    nodes = door_get_nodes(group)
     node_keys = nodes if isinstance(nodes, Sequence) and not isinstance(nodes, (str, bytes)) else ()
     ui_nodes: list[Any] = []
     for node_key in node_keys:
@@ -1702,7 +1703,7 @@ def _iter_subgraph_definitions(definitions: Any) -> tuple[Mapping[str, Any], ...
         subgraphs = definitions.get("subgraphs")
         if isinstance(subgraphs, Sequence) and not isinstance(subgraphs, (str, bytes)):
             return tuple(item for item in subgraphs if isinstance(item, Mapping))
-        if isinstance(definitions.get("nodes"), Sequence):
+        if isinstance(door_get_nodes(definitions), Sequence):
             return (definitions,)
         return tuple(item for item in definitions.values() if isinstance(item, Mapping))
     if isinstance(definitions, Sequence) and not isinstance(definitions, (str, bytes)):

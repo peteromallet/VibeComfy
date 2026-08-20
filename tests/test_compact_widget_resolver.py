@@ -5,13 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.porting.edit.apply import apply_delta, resolve_delta
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.ops import parse_edit_delta
-from vibecomfy.porting.edit.projection import ProjectionOptions, render_edit_projection
 from vibecomfy.porting.emit.ui import (
     _build_widget_values,
     _widget_names_for_emission,
     derive_widget_shape_evidence,
+    emit_ui_json,
 )
 from vibecomfy.porting.strict_ready import (
     HIDDEN_MODEL_FILENAME,
@@ -63,6 +64,20 @@ def _corpus_ui_node(path: str, node_id: str) -> dict[str, Any]:
     ui = copy.deepcopy(node["metadata"]["_ui"])
     ui.setdefault("properties", {})
     return ui
+
+
+def _interpret_ops(ui: dict[str, Any], ops, schema_provider=None):
+    workflow = from_ui(dict(ui), schema_provider=schema_provider, use_comfy_converter=False)
+    result = interpret(workflow, ops, schema_provider=schema_provider)
+    candidate = None
+    if result.ok:
+        candidate = emit_ui_json(
+            result.workflow,
+            schema_provider=schema_provider,
+            include_virtual_wires=True,
+            prior_ui_payload=ui,
+        )
+    return result, candidate
 
 
 def _single_node_ui(node: dict[str, Any]) -> dict[str, Any]:
@@ -142,7 +157,7 @@ def test_set_node_field_rejects_svd_link_only_input_with_schema_provider() -> No
         ]
     )
 
-    result = resolve_delta(original, delta, schema_provider=get_authoring_schema_provider())
+    result, _ = _interpret_ops(original, delta, schema_provider=get_authoring_schema_provider())
 
     assert result.ok is False
     assert any(issue.code == "socket_input_not_literal_widget" for issue in result.diagnostics)
@@ -162,11 +177,11 @@ def test_set_node_field_applies_svd_motion_bucket_with_schema_provider() -> None
         ]
     )
 
-    result = apply_delta(original, delta, schema_provider=get_authoring_schema_provider())
+    result, candidate = _interpret_ops(original, delta, schema_provider=get_authoring_schema_provider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"][3] == 200
+    assert candidate is not None
+    assert candidate["nodes"][0]["widgets_values"][3] == 200
     assert not any(issue.code == "non_widget_field_not_editable" for issue in result.diagnostics)
 
 
@@ -198,15 +213,7 @@ def test_style_model_apply_strength_uses_hidden_widget_padding_from_object_info(
     assert widget_index_for_field(node, "strength_type", schema_provider=provider) == 3
     assert widget_index_for_field(node, "widget_0", schema_provider=provider) is None
 
-    projection = render_edit_projection(
-        _single_node_ui(copy.deepcopy(node)),
-        schema_provider=provider,
-        options=ProjectionOptions(full_detail_node_limit=10),
-    )
-    assert 'target=["", "12", "strength"] source=widgets_values[2] value=1.0' in projection.text
-    assert 'target=["", "12", "widget_0"]' not in projection.text
-
-    result = apply_delta(
+    result, candidate = _interpret_ops(
         _single_node_ui(copy.deepcopy(node)),
         parse_edit_delta(
             [
@@ -221,8 +228,8 @@ def test_style_model_apply_strength_uses_hidden_widget_padding_from_object_info(
     )
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"] == [None, None, 0.65, "multiply"]
+    assert candidate is not None
+    assert candidate["nodes"][0]["widgets_values"] == [None, None, 0.65, "multiply"]
 
 
 def test_empty_latent_image_batch_size_round_trips_by_named_widget() -> None:
@@ -248,14 +255,7 @@ def test_empty_latent_image_batch_size_round_trips_by_named_widget() -> None:
     )
     assert widget_index_for_field(node, "batch_size", schema_provider=provider) == 2
 
-    projection = render_edit_projection(
-        _single_node_ui(copy.deepcopy(node)),
-        schema_provider=provider,
-        options=ProjectionOptions(full_detail_node_limit=10),
-    )
-    assert 'target=["", "9", "batch_size"] source=widgets_values[2] value=16' in projection.text
-
-    result = apply_delta(
+    result, candidate = _interpret_ops(
         _single_node_ui(copy.deepcopy(node)),
         parse_edit_delta(
             [
@@ -270,8 +270,8 @@ def test_empty_latent_image_batch_size_round_trips_by_named_widget() -> None:
     )
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"] == [512, 512, 8]
+    assert candidate is not None
+    assert candidate["nodes"][0]["widgets_values"] == [512, 512, 8]
 
 
 def test_acn_source_backed_schema_resolves_strength_and_rejects_stub_names() -> None:
@@ -290,7 +290,7 @@ def test_acn_source_backed_schema_resolves_strength_and_rejects_stub_names() -> 
     assert widget_index_for_field(node, "latent_kf_override") is None
 
 
-def test_render_projection_and_apply_use_same_compact_widget_names() -> None:
+def test_interpret_uses_same_compact_widget_names() -> None:
     cases = [
         (
             "external_workflows/corpus/19d221f074b42462.json",
@@ -312,12 +312,6 @@ def test_render_projection_and_apply_use_same_compact_widget_names() -> None:
         ui_node = _corpus_ui_node(path, node_id)
         original = _single_node_ui(copy.deepcopy(ui_node))
 
-        projection = render_edit_projection(
-            original,
-            options=ProjectionOptions(full_detail_node_limit=10),
-        )
-        assert f'target=["", "{node_id}", "{field_name}"] source=widgets_values[{expected_index}]' in projection.text
-
         delta = parse_edit_delta(
             [
                 {
@@ -327,11 +321,11 @@ def test_render_projection_and_apply_use_same_compact_widget_names() -> None:
                 }
             ]
         )
-        result = apply_delta(original, delta)
+        result, candidate = _interpret_ops(original, delta)
 
         assert result.ok is True
-        assert result.candidate is not None
-        changed = result.candidate["nodes"][0]["widgets_values"]
+        assert candidate is not None
+        changed = candidate["nodes"][0]["widgets_values"]
         assert changed[expected_index] == new_value
         assert len(changed) == len(ui_node["widgets_values"])
 
@@ -355,13 +349,6 @@ def test_unknown_widget_names_render_as_widget_n_and_fail_closed_on_apply() -> N
     assert compact_widget_names_for_node(node, "NoTrustworthyNames").names == ("widget_0",)
     assert widget_index_for_field(node, "fabricated_name") is None
 
-    projection = render_edit_projection(
-        original,
-        options=ProjectionOptions(full_detail_node_limit=10),
-    )
-    assert 'target=["", "1", "widget_0"] source=widgets_values[0] value=123' in projection.text
-    assert "fabricated_name" not in projection.text
-
     delta = parse_edit_delta(
         [
             {
@@ -371,7 +358,7 @@ def test_unknown_widget_names_render_as_widget_n_and_fail_closed_on_apply() -> N
             }
         ]
     )
-    result = resolve_delta(original, delta)
+    result, _ = _interpret_ops(original, delta)
 
     assert result.ok is False
     assert any(issue.code == "unknown_node_field" for issue in result.diagnostics)
@@ -438,14 +425,16 @@ def test_duplicate_widget_names_require_explicit_widget_key() -> None:
         ]
     )
 
-    duplicate_result = resolve_delta(_single_node_ui(copy.deepcopy(ui_node)), duplicate_name)
+    duplicate_result, _ = _interpret_ops(_single_node_ui(copy.deepcopy(ui_node)), duplicate_name)
     assert duplicate_result.ok is False
     assert any(issue.code == "unknown_node_field" for issue in duplicate_result.diagnostics)
 
-    explicit_result = apply_delta(_single_node_ui(copy.deepcopy(ui_node)), explicit_widget)
+    explicit_result, explicit_candidate = _interpret_ops(
+        _single_node_ui(copy.deepcopy(ui_node)), explicit_widget
+    )
     assert explicit_result.ok is True
-    assert explicit_result.candidate is not None
-    assert explicit_result.candidate["nodes"][0]["widgets_values"] == [1, 9]
+    assert explicit_candidate is not None
+    assert explicit_candidate["nodes"][0]["widgets_values"] == [1, 9]
 
 
 def test_widget_apply_refuses_to_grow_widgets_values_past_compact_count() -> None:
@@ -475,11 +464,10 @@ def test_widget_apply_refuses_to_grow_widgets_values_past_compact_count() -> Non
         ]
     )
 
-    result = apply_delta(original, delta)
+    result, candidate = _interpret_ops(original, delta)
 
     assert result.ok is False
-    assert result.candidate is None
-    assert result.mutation_started is False
+    assert candidate is None
     assert any(issue.code == "unknown_node_field" for issue in result.diagnostics)
     assert original == before
 
@@ -611,7 +599,7 @@ def test_tripo_stale_node_geometry_quality_reports_node_field_not_resolvable() -
         ]
     )
 
-    result = resolve_delta(original, delta, schema_provider=get_authoring_schema_provider())
+    result, _ = _interpret_ops(original, delta, schema_provider=get_authoring_schema_provider())
 
     assert result.ok is False
     assert any(issue.code == "node_field_not_resolvable" for issue in result.diagnostics)
@@ -637,11 +625,11 @@ def test_tripo_stale_node_texture_quality_still_settable() -> None:
         ]
     )
 
-    result = apply_delta(original, delta, schema_provider=get_authoring_schema_provider())
+    result, candidate = _interpret_ops(original, delta, schema_provider=get_authoring_schema_provider())
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"][9] == "standard"
+    assert candidate is not None
+    assert candidate["nodes"][0]["widgets_values"][9] == "standard"
 
 
 def test_tripo_current_node_geometry_quality_resolvable() -> None:
@@ -658,10 +646,10 @@ def test_tripo_current_node_geometry_quality_resolvable() -> None:
         ]
     )
 
-    result = apply_delta(original, delta, schema_provider=get_authoring_schema_provider())
+    result, candidate = _interpret_ops(original, delta, schema_provider=get_authoring_schema_provider())
 
     assert result.ok is True
-    assert result.candidate["nodes"][0]["widgets_values"][12] == "detailed"
+    assert candidate["nodes"][0]["widgets_values"][12] == "detailed"
 
 
 def test_filter_signature_rows_drops_schema_drifted_literals_for_in_graph_nodes() -> None:

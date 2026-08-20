@@ -17,6 +17,8 @@ import pytest
 
 from vibecomfy.executor.profiles import (
     DECLARED_STAGES,
+    STAGED_STAGES,
+    THREADED_STAGES,
     AgentSpecShape,
     load_all_profiles,
     load_profile,
@@ -78,9 +80,11 @@ def _stage_names(profile: dict[str, AgentSpecShape]) -> set[str]:
 # ── canonical stages ─────────────────────────────────────────────────────────
 
 
-def test_declared_stages_are_exactly_the_four_phases() -> None:
-    """The module-level constant must contain exactly our four phases."""
-    assert DECLARED_STAGES == {"classify", "research", "implement", "reply"}
+def test_declared_stages_cover_staged_and_threaded_phases() -> None:
+    """Profiles require staged phases and may opt into threaded execute."""
+    assert STAGED_STAGES == {"classify", "research", "implement", "reply"}
+    assert THREADED_STAGES == {"execute"}
+    assert DECLARED_STAGES == STAGED_STAGES | THREADED_STAGES
 
 
 # ── AgentSpecShape ───────────────────────────────────────────────────────────
@@ -111,7 +115,7 @@ class TestLoadProfile:
 
     def test_load_default_profile(self, profile_dir: Path) -> None:
         profile = load_profile("default")
-        assert _stage_names(profile) == DECLARED_STAGES
+        assert STAGED_STAGES <= _stage_names(profile) <= DECLARED_STAGES
 
         classify = profile["classify"]
         assert classify.agent == "hermes"
@@ -172,19 +176,21 @@ def test_packaged_openrouter_profile_preserves_explicit_provider_route() -> None
 
     assert profile["classify"] == AgentSpecShape(
         agent="openrouter",
-        model="openrouter:deepseek/deepseek-v4-flash",
+        model="openrouter:deepseek/deepseek-v4-flash-0731",
         effort="low",
     )
     assert profile["implement"] == AgentSpecShape(
         agent="openrouter",
-        model="openrouter:deepseek/deepseek-v4-pro",
+        model="openrouter:deepseek/deepseek-v4-flash-0731",
         effort="low",
     )
 
     def test_all_profiles_have_exactly_four_stages(self, profile_dir: Path) -> None:
         for name in ("default", "openai", "anthropic", "opensource"):
             profile = load_profile(name)
-            assert _stage_names(profile) == DECLARED_STAGES, f"{name} has {_stage_names(profile)}"
+            assert STAGED_STAGES <= _stage_names(profile) <= DECLARED_STAGES, (
+                f"{name} has {_stage_names(profile)}"
+            )
 
     def test_all_profiles_have_valid_effort_values(self, profile_dir: Path) -> None:
         for name in ("default", "openai", "anthropic", "opensource"):
@@ -208,8 +214,8 @@ class TestLoadAllProfiles:
     def test_every_profile_maps_all_stages(self, profile_dir: Path) -> None:
         all_profiles = load_all_profiles()
         for name, profile in all_profiles.items():
-            assert _stage_names(profile) == DECLARED_STAGES, (
-                f"{name} missing stages: {DECLARED_STAGES - _stage_names(profile)}"
+            assert STAGED_STAGES <= _stage_names(profile) <= DECLARED_STAGES, (
+                f"{name} has invalid stages: {_stage_names(profile) - DECLARED_STAGES}"
             )
 
 
@@ -386,7 +392,7 @@ class TestNestedToml:
             """,
         )
         profile = load_profile("nested")
-        assert _stage_names(profile) == DECLARED_STAGES
+        assert STAGED_STAGES <= _stage_names(profile) <= DECLARED_STAGES
         assert profile["classify"].agent == "hermes"
         assert profile["implement"].agent == "codex"
 

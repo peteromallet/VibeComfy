@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scenario_root": "tests/live_agentic_harness/scen30b6",
+  "scenario_count": 5,
+  "entries": [
+    {
+      "id": "video-video-output-workflow-f855de",
+      "path": "tests/live_agentic_harness/scen30b6/video-video-output-workflow-f855de.json",
+      "descriptor_sha256": "c18f241b403ed7d3c533330a9f4851f6e0870bb450c9d6edda713db827785be0",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "f855deb7cdef4ace",
+        "path": "external_workflows/corpus/f855deb7cdef4ace.json",
+        "sha256": "213b367cc227ceb5b18f2ea26a36ff922f29306c047c1bde675969b32326d05a"
+      }
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
+      "path": "tests/live_agentic_harness/scen30b6/video-wan2-2-text-to-video-with-dual-unet-and-model-03fced.json",
+      "descriptor_sha256": "f4b4d6aadc320f1e02d88c0c33fdaf05ba3f146e63ebf9c13780569d081cca87",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "03fcedf997c13003",
+        "path": "external_workflows/corpus/03fcedf997c13003.json",
+        "sha256": "59dd2c79a049f5cc7c822e01265c9874f7215565f71e7eda403426c23bac774a"
+      }
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
+      "path": "tests/live_agentic_harness/scen30b6/video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3.json",
+      "descriptor_sha256": "b39a28160c01c811f0ef1f70811960ee4b6a4b45b2c8cbed619375f59e3addac",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "7c8bb3b65e8084ae",
+        "path": "external_workflows/corpus/7c8bb3b65e8084ae.json",
+        "sha256": "93eb79de70cc379a83d40bcb131b6e9d8c9b1133de89e961b325ab5c7078ee83"
+      }
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
+      "path": "tests/live_agentic_harness/scen30b6/video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a.json",
+      "descriptor_sha256": "637dfff0f769548b04e2b699b7f9e54aa1f156b9a6142e82bcc3b9ef76619c52",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "62682a77ae33b43a",
+        "path": "external_workflows/corpus/62682a77ae33b43a.json",
+        "sha256": "a518f843af614e923733dbee9e3cd7d346fb1d220bc1404abb9c5cc640545969"
+      }
+    },
+    {
+      "id": "video-wanvideo-text-to-video-generation-71f825",
+      "path": "tests/live_agentic_harness/scen30b6/video-wanvideo-text-to-video-generation-71f825.json",
+      "descriptor_sha256": "df4959641e24bfcd7b62ad558dc4cede081febf7e14f44475fd3a70855f60d31",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "71f825e4550c95b7",
+        "path": "external_workflows/corpus/71f825e4550c95b7.json",
+        "sha256": "87bcefccfcba650f83aa8568f6572b623151ccd4e296a44d442048f2f737bef3"
+      }
+    }
+  ]
+}

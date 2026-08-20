@@ -778,15 +778,8 @@ function _obligations({ render = false, dirtySections, ...extras } = {}) {
 // ── normalizeDeltaOpsFromSubmit ────────────────────────────────────────────
 // Extracts and normalizes delta ops from a V2 submit response.
 //
-// Canonical path (preferred): consumes ``delta_ops_envelope``
-// (``{schema_version: "2.0.0", ops: [...]}``) produced by the backend
-// persistence layer.  Each op is validated against the canonical contract
-// (exactly six op types, add_node must carry ``uid`` and ``node_id``).
-//
-// Legacy bridge: falls back to ``delta_ops`` as a flat V2 array when the
-// canonical envelope is absent.  Legacy wrapped mappings are rejected as
-// ``legacy_delta_shape`` so consumers do not silently confuse audit metadata
-// with canonical ops.
+// Canonical path: ``accepted_batch[*].op``. Envelope/flat remain archived-turn
+// readers only (via canonical_delta.js).
 //
 // Diagnostic codes are aligned with the Python backend:
 //   - ``malformed_delta`` — structurally invalid envelope or op
@@ -805,7 +798,6 @@ export function normalizeDeltaOpsFromSubmit(result) {
     return null;
   }
 
-  // ── Canonical path: delta_ops_envelope with {schema_version, ops} ────
   try {
     const ops = normalizeDeltaOpsFromSubmitPayload(result);
     // Successfully normalized — clear any previous diagnostic.
@@ -813,10 +805,8 @@ export function normalizeDeltaOpsFromSubmit(result) {
       delete result._deltaDiagnostic;
     }
     if (ops.length === 0) {
-      // Backward compat: an empty legacy flat delta_ops array (length 0)
-      // returns []; all-invalid entries after filtering returns null.
-      const rawDeltaOps = result.delta_ops;
-      if (Array.isArray(rawDeltaOps) && rawDeltaOps.length === 0) {
+      // Empty accepted_batch is an explicit identity Δ.
+      if (Array.isArray(result.accepted_batch)) {
         return [];
       }
       return null;
@@ -845,6 +835,28 @@ export function normalizeDeltaOpsFromSubmit(result) {
   }
 }
 
+function _opsFromAcceptedBatch(payload) {
+  const accepted = payload?.accepted_batch;
+  if (!Array.isArray(accepted)) {
+    return null;
+  }
+  return accepted
+    .filter((statement) => statement && typeof statement === "object" && statement.op && typeof statement.op === "object")
+    .map((statement) => deep_plain(statement.op));
+}
+
+function _deltaOpsFromTransactionOrAccepted(transaction, payload) {
+  const fromPlan = _opsFromAcceptedBatch(transaction?.plan);
+  if (fromPlan !== null) {
+    return fromPlan;
+  }
+  const acceptedOps = _opsFromAcceptedBatch(payload);
+  if (acceptedOps !== null) {
+    return acceptedOps;
+  }
+  return normalizeDeltaOpsFromSubmit(payload || {});
+}
+
 function _candidateEditProtocol(result, candidate, deltaOps) {
   const raw = result?.raw && typeof result.raw === "object" ? result.raw : result;
   const explicit = candidate?.agentEditProtocol
@@ -855,12 +867,7 @@ function _candidateEditProtocol(result, candidate, deltaOps) {
   if (typeof explicit === "string" && explicit) {
     return explicit;
   }
-  const rawEnvelopeOps = raw?.delta_ops_envelope?.ops;
-  if (
-    Array.isArray(deltaOps)
-    || Array.isArray(rawEnvelopeOps)
-    || Array.isArray(raw?.delta_ops)
-  ) {
+  if (Array.isArray(deltaOps) || Array.isArray(raw?.accepted_batch)) {
     return "v2_delta";
   }
   return null;
@@ -1163,9 +1170,10 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.auditRef = payload?.auditRef || payload?.result?.audit_ref || panel.state.auditRef || null;
   panel.state.lastSubmitFieldChanges = fieldChanges;
   panel.state.changeDetails = payload?.changeDetails || null;
-  panel.state.deltaOps = candidateTransaction
-    ? deep_plain(candidateTransaction.plan.delta_ops_envelope.ops)
-    : normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
+  panel.state.deltaOps = _deltaOpsFromTransactionOrAccepted(
+    candidateTransaction,
+    payload?.baseline?.raw || payload?.baseline || payload?.result || {},
+  );
   panel.state.agentEditProtocol = _candidateEditProtocol(
     payload?.result || payload?.baseline || {},
     candidate,
@@ -1962,9 +1970,7 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.auditRef = payload?.auditRef || null;
   panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
-  panel.state.deltaOps = candidateTransaction
-    ? deep_plain(candidateTransaction.plan.delta_ops_envelope.ops)
-    : normalizeDeltaOpsFromSubmit(result);
+  panel.state.deltaOps = _deltaOpsFromTransactionOrAccepted(candidateTransaction, result);
   panel.state.agentEditProtocol = _candidateEditProtocol(
     result,
     projectedCandidate,
@@ -2270,6 +2276,33 @@ function _handleChatRehydrateNoSession(panel, payload) {
   if (_isStaleChatRehydrate(panel, payload?.requestEpoch)) {
     return { render: false, stale: true };
   }
+  // A fresh-session submit races this rehydrate: a scope switch starts
+  // recovery while the submit is still painting its optimistic user bubble.
+  // If no durable session exists yet, preserve only the current submit epoch
+  // instead of wiping the in-flight thread.
+  if (panel.state.phase === PANEL_STATE.SUBMITTING) {
+    const existingProjection = splitRehydrateProjectionInput({
+      messages: Array.isArray(panel.state.chatMessages) ? panel.state.chatMessages : [],
+    });
+    const reconciled = reconcileChatMessages(
+      existingProjection.normalTranscriptMessage,
+      [],
+      panel.state,
+    );
+    panel.state.chatMessages = reconciled;
+    panel.state.transcriptMessages = reconciled.slice();
+    panel.state.chatLoaded = false;
+    panel.state.chatRehydratePending = false;
+    panel.state.chatError = null;
+    panel.state.chatSessionPath = null;
+    panel.state.chatDetailJsonPath = null;
+    panel.state.chatSessionPathResolved = null;
+    panel.state.chatDetailJsonPathResolved = null;
+    return _obligations({
+      render: false,
+      dirtySections: THREAD_DIRTY_SECTIONS,
+    });
+  }
   panel.state.chatMessages = [];
   Object.assign(panel.state, createAgentStateCompartments());
   panel.state.chatLoaded = false;
@@ -2292,6 +2325,30 @@ function _handleChatRehydrateMissingSession(panel, payload) {
   const confirmedSessionId = typeof payload?.sessionId === "string" ? payload.sessionId : null;
   if (confirmedSessionId && panel.state.sessionId === confirmedSessionId) {
     panel.state.sessionId = null;
+  }
+  if (panel.state.phase === PANEL_STATE.SUBMITTING) {
+    const existingProjection = splitRehydrateProjectionInput({
+      messages: Array.isArray(panel.state.chatMessages) ? panel.state.chatMessages : [],
+    });
+    const reconciled = reconcileChatMessages(
+      existingProjection.normalTranscriptMessage,
+      [],
+      panel.state,
+    );
+    panel.state.chatMessages = reconciled;
+    panel.state.transcriptMessages = reconciled.slice();
+    panel.state.chatLoaded = true;
+    panel.state.chatRehydratePending = false;
+    panel.state.chatError = null;
+    panel.state.chatSessionPath = null;
+    panel.state.chatDetailJsonPath = null;
+    panel.state.chatSessionPathResolved = null;
+    panel.state.chatDetailJsonPathResolved = null;
+    return _obligations({
+      render: false,
+      dirtySections: confirmedSessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS,
+      forgetSession: true,
+    });
   }
   panel.state.chatMessages = [];
   Object.assign(panel.state, createAgentStateCompartments());
@@ -3108,7 +3165,7 @@ function _handlePrepareSuccess(panel, payload) {
   panel.state.preparedReceipt = receipt;
   panel.state.candidateTransaction = transaction || panel.state.candidateTransaction;
   panel.state.deltaOps = transaction
-    ? deep_plain(transaction.plan.delta_ops_envelope.ops)
+    ? _deltaOpsFromTransactionOrAccepted(transaction, payload)
     : panel.state.deltaOps;
   panel.state.mutationPlanHash = transaction?.plan_hash
     || durableReceipt?.plan_hash || durableReceipt?.planHash
@@ -3412,7 +3469,7 @@ function _handleReconcileReceipts(panel, payload) {
     panel.state.mutationPlanHash = transaction.plan_hash;
     panel.state.generation = transaction.generation ?? null;
     panel.state.leaseNonce = transaction.lease_nonce || null;
-    panel.state.deltaOps = deep_plain(transaction.plan.delta_ops_envelope.ops);
+    panel.state.deltaOps = _deltaOpsFromTransactionOrAccepted(transaction, payload);
   }
   let terminalReconciled = false;
   if (receipts && typeof receipts === "object") {

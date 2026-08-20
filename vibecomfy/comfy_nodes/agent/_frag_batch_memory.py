@@ -15,6 +15,7 @@ from vibecomfy.comfy_nodes.agent.provider import AgentTurnResult, BatchTurnResul
 
 from vibecomfy.porting.widgets.settings_contract import node_settings_for
 
+from vibecomfy.ingest.normalize import door_get_nodes
 def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult:
     python = response.get("python")
     message = response.get("message")
@@ -73,7 +74,7 @@ def _iter_ui_nodes(ui_payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
     def visit(value: Any) -> None:
         if isinstance(value, Mapping):
-            nodes = value.get("nodes")
+            nodes = door_get_nodes(value)
             if isinstance(nodes, list):
                 for node in nodes:
                     if isinstance(node, Mapping):
@@ -93,32 +94,53 @@ def _iter_ui_nodes(ui_payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _present_class_types(session: Any) -> list[str]:
-    """Enumerate class types currently present in an EditSession working graph."""
-    working_ui = getattr(session, "working_ui", None)
-    if not isinstance(working_ui, Mapping):
-        return []
-    types: set[str] = set()
-    for node in _iter_ui_nodes(working_ui):
-        class_type = node.get("type") or node.get("class_type")
-        if isinstance(class_type, str) and class_type:
-            types.add(class_type)
-    return sorted(types)
+    """Enumerate class types currently present in the retained IR."""
+    workflow = getattr(session, "workflow", None)
+    nodes = getattr(workflow, "nodes", None)
+    if isinstance(nodes, Mapping) and nodes:
+        types = {
+            str(getattr(node, "class_type", "") or "")
+            for node in nodes.values()
+            if str(getattr(node, "class_type", "") or "")
+        }
+        return sorted(types)
+    return []
 
 
 def _format_node_variable_index(session: Any) -> str:
-    """Return ``var = ClassType`` lines for the current EditSession graph."""
-    working_ui = getattr(session, "working_ui", None)
+    """Return ``var = ClassType`` lines plus EditableSurface field names."""
+    from vibecomfy.porting.edit.editable_surface import editable_surface_for
+
+    workflow = getattr(session, "workflow", None)
     name_by_uid = getattr(session, "name_by_uid", None)
-    if not isinstance(working_ui, Mapping) or not isinstance(name_by_uid, Mapping):
+    nodes = getattr(workflow, "nodes", None)
+    if not isinstance(nodes, Mapping) or not isinstance(name_by_uid, Mapping):
         return ""
     rows: list[tuple[str, str, str]] = []
-    for node in _iter_ui_nodes(working_ui):
-        uid = _ui_node_uid(node)
+    for node in nodes.values():
+        uid = str(getattr(node, "uid", "") or "")
         if not uid:
             continue
         name = name_by_uid.get(uid)
-        class_type = node.get("type") or node.get("class_type")
-        if isinstance(name, str) and name and isinstance(class_type, str) and class_type:
+        class_type = str(getattr(node, "class_type", "") or "")
+        if isinstance(name, str) and name and class_type:
+            try:
+                surface = editable_surface_for(
+                    node,
+                    schema_provider=getattr(session, "schema_provider", None),
+                    edges=getattr(workflow, "edges", None),
+                )
+                literals = ",".join(sorted(surface.literal_names()))
+                sockets = ",".join(sorted(surface.socket_names()))
+                extras = []
+                if literals:
+                    extras.append(f"literals={literals}")
+                if sockets:
+                    extras.append(f"sockets={sockets}")
+                if extras:
+                    class_type = f"{class_type} [{'; '.join(extras)}]"
+            except Exception:
+                pass
             rows.append((name, uid, class_type))
     rows.sort(key=lambda item: (item[0], item[1]))
     return "\n".join(f"{name} = {class_type}" for name, _uid, class_type in rows)
@@ -350,7 +372,7 @@ def _resolver_candidate_is_authoring_capability(candidate: Mapping[str, Any]) ->
     if isinstance(schema_payload, Mapping):
         raw_schema = schema_payload.get("schema")
         if isinstance(raw_schema, Mapping):
-            nodes = raw_schema.get("nodes") or raw_schema.get("object_info") or raw_schema
+            nodes = door_get_nodes(raw_schema) or raw_schema.get("object_info") or raw_schema
             if isinstance(nodes, Mapping) and nodes:
                 return True
     evidence = candidate.get("evidence")
@@ -492,125 +514,65 @@ _PARAMETER_TWEAK_TARGET_TERMS = (
 
 
 def _existing_parameter_tweak_targets_from_graph(
-    graph: Mapping[str, Any],
+    graph: Any,
     *,
     query_text: str,
     seen_targets: set[str],
 ) -> list[tuple[int, str]]:
-    nodes: Any = graph.get("nodes")
-    if not isinstance(nodes, (Mapping, list)):
-        # The rich ``nodes`` mapping (or UI list) is the sole structural
-        # authority; there is no compiled_api twin to fall back to.
-        return []
-    if isinstance(nodes, Mapping):
-        node_items = list(nodes.items())
-    elif isinstance(nodes, list):
+    """Rank existing nodes as parameter-tweak targets (EditableSurface-only).
+
+    Accepts the retained IR (a workflow-like object with a ``nodes`` Mapping
+    of IR nodes) or a UI-shaped graph (``nodes`` list of node dicts), and
+    reads each node's writable surface exclusively through
+    ``editable_surface_for`` — no settings-contract fallback.  The IR is the
+    authority for the agent flow.
+    """
+    from vibecomfy.porting.edit.editable_surface import editable_surface_for
+
+    nodes: Any = getattr(graph, "nodes", None)
+    if isinstance(nodes, Mapping) and nodes:
+        node_items = list(nodes.values())
+        edges = getattr(graph, "edges", None)
+    elif isinstance(nodes, (list, tuple)):
         node_items = [
-            (
-                str(node.get("id") or index),
-                node,
-            )
-            for index, node in enumerate(nodes)
-            if isinstance(node, Mapping)
+            node for node in nodes if isinstance(node, Mapping)
         ]
+        edges = None
     else:
+        # The retained IR ``nodes`` mapping is the sole structural
+        # authority; there is no UI-Mapping twin to fall back to.
         return []
 
     ranked_targets: list[tuple[int, str]] = []
-    for node_id, node in node_items:
-        if not isinstance(node, Mapping):
-            continue
-        class_type = str(node.get("class_type") or node.get("type") or "").strip()
+    for node in node_items:
+        class_type = str(
+            getattr(node, "class_type", None)
+            or (node.get("class_type") or node.get("type") if isinstance(node, Mapping) else "")
+            or ""
+        ).strip()
         if not class_type:
             continue
-        inputs = node.get("inputs")
+        node_id = getattr(node, "id", None)
+        if node_id is None and isinstance(node, Mapping):
+            node_id = node.get("id")
+        if node_id is None:
+            continue
 
-        # ── 1. Capture scalar input fields (unconnected defaults) ──
-        input_fields: list[str] = []
-        if isinstance(inputs, Mapping):
-            input_fields = [
-                str(name)
-                for name, value in inputs.items()
-                if not isinstance(value, (Mapping, list, tuple))
-            ]
-        if isinstance(inputs, list):
-            for input_spec in inputs:
-                if not isinstance(input_spec, Mapping):
-                    continue
-                if input_spec.get("link") is not None:
-                    continue
-                name = input_spec.get("name")
-                if isinstance(name, str) and name:
-                    input_fields.append(name)
-
-        # ── 2. Primary: compact field names via shared settings contract ──
         field_previews: list[str] = []
         have_compact_names = False
         try:
-            info = node_settings_for(node, class_type)
-            if info.fields:
-                have_compact_names = True
-                for field in info.fields:
-                    name = field.name
-                    # Capped enum annotations: show up to 3 choices for enum fields
-                    if field.choices and not name.startswith("widget_"):
-                        choices = list(field.choices)
-                        if len(choices) <= 3:
-                            enum_hint = "|".join(choices)
-                        else:
-                            shown = choices[:3]
-                            remaining = len(choices) - 3
-                            enum_hint = "|".join(shown) + f"|+{remaining}"
-                        name = f"{name}[{enum_hint}]"
-                    field_previews.append(name)
+            surface = editable_surface_for(node, edges=edges)
+            have_compact_names = bool(surface.literals or surface.inputs)
+            for field in surface.literals:
+                field_previews.append(field.name)
+            compact_set = {preview.split("[")[0] for preview in field_previews}
+            for slot in surface.inputs:
+                if slot.name and slot.name not in compact_set:
+                    field_previews.append(slot.name)
         except Exception:
             pass
 
-        # ── 3. Fallback: old widget resolution when settings_contract can't help ──
-        widget_fields: list[str] = []
-        raw_widget_count = None
-        if not have_compact_names:
-            widgets = node.get("widgets")
-            raw_widgets = node.get("raw_widgets")
-            if isinstance(widgets, Mapping):
-                widget_fields = [str(name) for name in sorted(widgets, key=str)]
-            elif isinstance(widgets, list):
-                widget_fields = [
-                    str(widget.get("name") or f"widget_{index}")
-                    for index, widget in enumerate(widgets)
-                    if isinstance(widget, Mapping)
-                ]
-            widget_values = node.get("widgets_values") if isinstance(node, Mapping) else None
-            if not widget_fields and isinstance(widget_values, list):
-                widget_fields = [f"widget_{index}" for index in range(min(len(widget_values), 4))]
-            if isinstance(raw_widgets, Mapping):
-                values = raw_widgets.get("values")
-                if isinstance(values, list):
-                    raw_widget_count = len(values)
-            elif raw_widgets is not None:
-                values = getattr(raw_widgets, "values", None)
-                if isinstance(values, list):
-                    raw_widget_count = len(values)
-
-        # ── 4. Assemble final field list ──
-        if have_compact_names:
-            # Merge input fields (deduped against compact widget names) +
-            # compact names.  Strip enum annotation brackets for dedup.
-            merged: list[str] = []
-            compact_set = {f.split("[")[0] for f in field_previews}
-            for inp in input_fields:
-                if inp not in compact_set:
-                    merged.append(inp)
-            merged.extend(field_previews)
-            field_previews = merged
-        else:
-            field_previews = input_fields + widget_fields
-            if raw_widget_count and not widget_fields:
-                field_previews.extend(
-                    f"widget_{index}" for index in range(min(raw_widget_count, 4))
-                )
-
-        if not field_previews:
+        if not have_compact_names or not field_previews:
             continue
 
         # ── 5. Build preview and score ──
@@ -626,7 +588,7 @@ def _existing_parameter_tweak_targets_from_graph(
             score += 4
         if any(token and token in field_text for token in query_text.split() if len(token) >= 5):
             score += 3
-        if have_compact_names or widget_fields or raw_widget_count:
+        if have_compact_names or field_previews:
             score += 3
         if class_type == "ACN_AdvancedControlNetApply" and "controlnet" in query_text:
             score += 8

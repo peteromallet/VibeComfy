@@ -382,11 +382,14 @@ export function makeValidCandidateTransactionV2({
   }
 
   // ── Operation ─────────────────────────────────────────────────────────────
+  const structuralOps = isLayout ? [] : deltaOps;
+  const acceptedBatch = structuralOps.map((op) => ({ op }));
+  const batchDigest = sha256Hex({ schema_version: "2.0.0", ops: structuralOps });
   /** @type {Record<string, unknown>} */
   const operation = {
     delta_contract: "delta_v1",
     wire_version: "2.0.0",
-    ops: isLayout ? [] : deltaOps,
+    accepted_batch_digest: batchDigest,
   };
 
   let resolvedLayoutOps = null;
@@ -478,6 +481,9 @@ export function makeValidCandidateTransactionV2({
     lease_nonce: isPrepared ? (leaseNonce || `${planHash}-lease`) : null,
     plan: {
       schema_version: "2.0.0",
+      accepted_batch: acceptedBatch,
+      // Test-only dual-write for fixtures that still read the archived envelope
+      // shape. Live validators consume accepted_batch only.
       delta_ops_envelope: {
         schema_version: "2.0.0",
         ops: deltaOps,

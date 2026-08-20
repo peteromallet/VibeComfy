@@ -3,7 +3,11 @@ from __future__ import annotations
 """Edit-op parsing plus canonical delta-envelope normalization.
 
 The canonical persisted/runtime-facing V2 contract is
-``{schema_version: "2.0.0", ops: [...]}`` with exactly seven supported op kinds.
+``{schema_version: "2.0.0", ops: [...]}`` with seven supported op kinds
+(``set_node_field``, ``set_mode``, ``add_node``, ``upsert_link``,
+``remove_node``, ``remove_link``, ``subgraph_interface``).  ``reorder`` and
+``set_title`` are not part of the designed grammar — they are rejected at
+parse time.
 
 Legacy handling is explicit:
 
@@ -26,7 +30,6 @@ from vibecomfy.comfy_nodes.agent.provider import (
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _RELATIONS = frozenset({"near", "right_of", "left_of", "below", "between"})
-_REORDER_AXES = frozenset({"widgets", "slots"})
 _SET_MODE_VALUES = frozenset({0, 2, 4})
 _FORBIDDEN_RAW_NODE_KEYS = frozenset({"node", "raw_node", "node_payload"})
 _FORBIDDEN_RAW_LINK_KEYS = frozenset({"link", "raw_link", "link_payload"})
@@ -58,11 +61,11 @@ DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "replay_mismatch"
 CANONICAL_DELTA_OP_NAMES = (
     "set_node_field",
     "set_mode",
-    "set_title",
     "add_node",
     "upsert_link",
     "remove_node",
     "remove_link",
+    "subgraph_interface",
 )
 
 
@@ -112,7 +115,6 @@ EDIT_OP_RESPONSE_SCHEMA_V2: dict[str, Any] = {
                         ]
                     },
                     {"type": "object", "required": ["op", "target", "mode"]},
-                    {"type": "object", "required": ["op", "target", "title"]},
                 ],
             },
         },
@@ -185,6 +187,11 @@ class AddNodeOp:
     anchor: AnchorRef | None = None
     uid: str | None = field(default=None, repr=False)
     node_id: str | None = field(default=None, repr=False)
+    # Explicit widget-channel classification for ``fields`` (batch 9 fix).
+    # Set by ``diff`` for every add_node it emits so unknown-schema widget
+    # fields survive the diff→interpret round-trip; the Python-surface path
+    # leaves it empty and falls back to schema classification.
+    widget_field_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,14 +215,6 @@ class RemoveLinkOp:
 
 
 @dataclass(frozen=True, slots=True)
-class ReorderOp:
-    op: Literal["reorder"]
-    target: NodeTarget
-    axis: Literal["widgets", "slots"]
-    order: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class SetModeOp:
     op: Literal["set_mode"]
     target: NodeTarget
@@ -223,10 +222,22 @@ class SetModeOp:
 
 
 @dataclass(frozen=True, slots=True)
-class SetTitleOp:
-    op: Literal["set_title"]
-    target: NodeTarget
-    title: str
+class SubgraphInterfaceOp:
+    """Definition-level subgraph signature statement (Law 3, batch 9 fix).
+
+    ``diff`` emits these when pre/post ``metadata["definitions"]`` subgraph
+    signatures differ; ``apply_edit_cow`` mirrors what ``interpret``'s
+    ``subgraph_interface(...)`` source statement applies (append/remove/upsert
+    into ``metadata["definitions"]["subgraphs"]``).  ``id`` is the stable
+    identity key; ``name``/``inputs``/``outputs`` are the emitted signature.
+    """
+
+    op: Literal["subgraph_interface"]
+    action: Literal["add", "remove", "change"]
+    name: str
+    inputs: tuple[tuple[str, Any], ...] = ()
+    outputs: tuple[tuple[str, Any], ...] = ()
+    id: str | None = None
 
 
 EditOp = (
@@ -235,9 +246,8 @@ EditOp = (
     | RemoveNodeOp
     | UpsertLinkOp
     | RemoveLinkOp
-    | ReorderOp
     | SetModeOp
-    | SetTitleOp
+    | SubgraphInterfaceOp
 )
 
 
@@ -279,10 +289,9 @@ class AgentDeltaTurnResult:
         return normalize_delta_envelope(payload)
 
     def to_dict(self) -> dict[str, Any]:
-        envelope = self.canonical_envelope().to_dict()
+        ops = [canonical_op_to_dict(op) for op in self.delta]
         return {
-            "delta": list(envelope["ops"]),
-            "delta_ops_envelope": envelope,
+            "accepted_batch": [{"op": op} for op in ops],
             "message": self.message,
             "route": self.route,
             "model": self.model,
@@ -444,23 +453,25 @@ def _parse_inputs(value: Any, *, path: str) -> dict[str, LinkSourceRef]:
     return parsed
 
 
-def _parse_reorder_order(value: Any, *, path: str) -> tuple[str, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise EditOpParseError(f"{path} must be a list of field names.")
-    parsed: list[str] = []
-    for index, item in enumerate(value):
-        parsed.append(_require_string(item, path=f"{path}[{index}]"))
-    if not parsed:
-        raise EditOpParseError(f"{path} must not be empty.")
-    if len(set(parsed)) != len(parsed):
-        raise EditOpParseError(f"{path} must not contain duplicate entries.")
-    return tuple(parsed)
-
-
 def _parse_optional_identity(value: Any, *, path: str) -> str | None:
     if value is None:
         return None
     return _require_string(value, path=path)
+
+
+def _require_port_list(value: Any, *, path: str) -> tuple[tuple[str, Any], ...]:
+    """Parse a subgraph_interface ports payload into (name, type) pairs."""
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise EditOpParseError(f"{path} must be a list of [name, type] pairs.")
+    ports: list[tuple[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Sequence) or isinstance(item, (str, bytes)) or not item:
+            raise EditOpParseError(f"{path}[{index}] must be a [name, type] pair.")
+        name = _require_string(item[0], path=f"{path}[{index}][0]")
+        ports.append((name, item[1] if len(item) > 1 else None))
+    return tuple(ports)
 
 
 def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -487,6 +498,19 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
 
     if op_name == "add_node":
         _reject_forbidden_keys(data, path="add_node", keys=_FORBIDDEN_RAW_NODE_KEYS)
+        widget_field_names = data.get("widget_field_names")
+        if widget_field_names is None:
+            parsed_widget_field_names: tuple[str, ...] = ()
+        else:
+            if not isinstance(widget_field_names, Sequence) or isinstance(widget_field_names, (str, bytes)):
+                raise EditOpParseError(
+                    "add_node.widget_field_names must be a list of field names.",
+                    detail={"path": "add_node.widget_field_names"},
+                )
+            parsed_widget_field_names = tuple(
+                _require_string(item, path=f"add_node.widget_field_names[{index}]")
+                for index, item in enumerate(widget_field_names)
+            )
         return AddNodeOp(
             op="add_node",
             scope_path=_require_string(data.get("scope_path"), path="scope_path", allow_empty=True),
@@ -496,6 +520,23 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             anchor=_parse_anchor(data["anchor"], path="anchor") if "anchor" in data else None,
             uid=_parse_optional_identity(data.get("uid"), path="uid"),
             node_id=_parse_optional_identity(data.get("node_id"), path="node_id"),
+            widget_field_names=parsed_widget_field_names,
+        )
+
+    if op_name == "subgraph_interface":
+        action = data.get("action")
+        if action not in ("add", "remove", "change"):
+            raise EditOpParseError(
+                "subgraph_interface.action must be one of: add, remove, change.",
+                detail={"path": "subgraph_interface.action"},
+            )
+        return SubgraphInterfaceOp(
+            op="subgraph_interface",
+            action=action,  # type: ignore[arg-type]
+            name=_require_string(data.get("name"), path="subgraph_interface.name"),
+            inputs=_require_port_list(data.get("inputs"), path="subgraph_interface.inputs"),
+            outputs=_require_port_list(data.get("outputs"), path="subgraph_interface.outputs"),
+            id=_parse_optional_identity(data.get("id"), path="subgraph_interface.id"),
         )
 
     if op_name == "remove_node":
@@ -529,18 +570,6 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             target=_parse_link_target(target, path="to") if target is not None else None,
         )
 
-    if op_name == "reorder":
-        axis = _require_string(data.get("axis"), path="axis")
-        if axis not in _REORDER_AXES:
-            allowed = ", ".join(sorted(_REORDER_AXES))
-            raise EditOpParseError(f"axis must be one of: {allowed}.")
-        return ReorderOp(
-            op="reorder",
-            target=_parse_node_target(data.get("target"), path="target"),
-            axis=axis,  # type: ignore[arg-type]
-            order=_parse_reorder_order(data.get("order"), path="order"),
-        )
-
     if op_name == "set_mode":
         mode = data.get("mode")
         if isinstance(mode, bool) or not isinstance(mode, int) or mode not in _SET_MODE_VALUES:
@@ -550,13 +579,6 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             op="set_mode",
             target=_parse_node_target(data.get("target"), path="target"),
             mode=mode,  # type: ignore[arg-type]
-        )
-
-    if op_name == "set_title":
-        return SetTitleOp(
-            op="set_title",
-            target=_parse_node_target(data.get("target"), path="target"),
-            title=_require_string(data.get("title"), path="title"),
         )
 
     raise EditOpParseError(f"Unsupported edit op {op_name!r}.")
@@ -594,6 +616,8 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
             for key, ref in op.inputs.items()
         },
     }
+    if op.widget_field_names:
+        payload["widget_field_names"] = list(op.widget_field_names)
     if op.anchor is not None:
         anchor: dict[str, Any] = {"relation": op.anchor.relation}
         if op.anchor.group_title is not None:
@@ -611,11 +635,6 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
 
 def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
     parsed = parse_edit_op(op) if isinstance(op, Mapping) else op
-    if isinstance(parsed, ReorderOp):
-        raise EditOpParseError(
-            "Canonical V2 deltas support exactly six op types; `reorder` is legacy-only.",
-            detail={"op": "reorder"},
-        )
     if isinstance(parsed, SetNodeFieldOp):
         return {
             "op": parsed.op,
@@ -645,12 +664,19 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
             "target": [parsed.target.scope_path, parsed.target.uid],
             "mode": parsed.mode,
         }
-    if isinstance(parsed, SetTitleOp):
-        return {
+    if isinstance(parsed, SubgraphInterfaceOp):
+        payload: dict[str, Any] = {
             "op": parsed.op,
-            "target": [parsed.target.scope_path, parsed.target.uid],
-            "title": parsed.title,
+            "action": parsed.action,
+            "name": parsed.name,
         }
+        if parsed.inputs:
+            payload["inputs"] = [list(port) for port in parsed.inputs]
+        if parsed.outputs:
+            payload["outputs"] = [list(port) for port in parsed.outputs]
+        if parsed.id is not None:
+            payload["id"] = parsed.id
+        return payload
     raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
 
 
@@ -772,10 +798,6 @@ def ensure_root_scoped_delta_envelope(
         elif isinstance(op, RemoveLinkOp) and op.target is not None:
             scoped_paths.append(op.target.scope_path)
         elif isinstance(op, SetModeOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, SetTitleOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, ReorderOp):
             scoped_paths.append(op.target.scope_path)
         bad = sorted({path for path in scoped_paths if path})
         if bad:
@@ -905,24 +927,11 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
         if op.target is not None:
             payload["to"] = [op.target.scope_path, op.target.uid, op.target.input_field]
         return payload
-    if isinstance(op, ReorderOp):
-        return {
-            "op": op.op,
-            "target": [op.target.scope_path, op.target.uid],
-            "axis": op.axis,
-            "order": list(op.order),
-        }
     if isinstance(op, SetModeOp):
         return {
             "op": op.op,
             "target": [op.target.scope_path, op.target.uid],
             "mode": op.mode,
-        }
-    if isinstance(op, SetTitleOp):
-        return {
-            "op": op.op,
-            "target": [op.target.scope_path, op.target.uid],
-            "title": op.title,
         }
     raise TypeError(f"Unsupported edit op instance: {type(op)!r}")
 
@@ -1148,10 +1157,9 @@ __all__ = [
     "NodeTarget",
     "RemoveLinkOp",
     "RemoveNodeOp",
-    "ReorderOp",
     "SetModeOp",
     "SetNodeFieldOp",
-    "SetTitleOp",
+    "SubgraphInterfaceOp",
     "UpsertLinkOp",
     "canonical_op_to_dict",
     "ensure_root_scoped_delta_envelope",

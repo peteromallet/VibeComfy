@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Mapping
 
 from vibecomfy.porting.authoring_names import constructor_aliases_for_class_types
-from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+from vibecomfy.porting.authoring_surface import (
+    input_spec_is_literal_widget,
+    input_spec_is_socket_only,
+)
 
 READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT = "avoidable_positional_output"
 READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY = "output_name_ambiguity"
@@ -200,14 +204,56 @@ def emit_available_node_signatures(
     return rows
 
 
+def signature_row_from_surface(surface: Any, *, pack: str | None = None) -> NodeSignatureRow:
+    """Build a catalog row from an instance-hydrated ``EditableSurface``.
+
+    Literals and sockets are already split by the surface; this does not
+    reclassify them from class schema alone.
+    """
+    inputs = [
+        InputSignatureField(name=field.name, type=field.kind, required=False, default=field.value)
+        for field in surface.literals
+        if field.name
+    ]
+    inputs.extend(
+        InputSignatureField(name=slot.name, type=slot.socket_type, required=False)
+        for slot in surface.inputs
+        if slot.name
+    )
+    outputs = [
+        OutputSignatureField(name=port.name or None, type=port.socket_type)
+        for port in surface.outputs
+    ]
+    status = (
+        "installed"
+        if surface.schema_status == "known"
+        else "provisional_schema"
+        if surface.schema_status == "provisional"
+        else "schema_placeholder"
+    )
+    return NodeSignatureRow(
+        class_type=surface.class_type,
+        inputs=inputs,
+        outputs=outputs,
+        source_confidence=1.0 if surface.schema_status == "known" else 0.0,
+        pack=pack,
+        status=status,
+    )
+
+
 def _iter_graph_nodes(nodes: Any):
-    """Yield node mappings from a raw UI graph (list, dict, or ``{nodes: ...}``)."""
+    """Yield node mappings or IR nodes from a UI graph or retained workflow."""
+    ir_nodes = getattr(nodes, "nodes", None)
+    if ir_nodes is not None and not isinstance(nodes, Mapping) and isinstance(ir_nodes, Mapping):
+        yield from ir_nodes.values()
+        return
     if isinstance(nodes, Mapping):
-        raw = nodes.get("nodes")
+        raw = door_get_nodes(nodes)
         if isinstance(raw, (list, tuple, Mapping)):
             nodes = raw
         elif isinstance(nodes, Mapping) and all(
-            isinstance(v, Mapping) for v in nodes.values()
+            not isinstance(v, Mapping) or "class_type" in v or "type" in v
+            for v in nodes.values()
         ):
             nodes = list(nodes.values())
         else:
@@ -215,7 +261,11 @@ def _iter_graph_nodes(nodes: Any):
     if isinstance(nodes, Mapping):
         yield from nodes.values()
     elif isinstance(nodes, (list, tuple)):
-        yield from (n for n in nodes if isinstance(n, Mapping))
+        yield from (
+            node
+            for node in nodes
+            if isinstance(node, Mapping) or getattr(node, "class_type", None) is not None
+        )
 
 
 def filter_signature_rows_to_in_graph_nodes(
@@ -233,13 +283,14 @@ def filter_signature_rows_to_in_graph_nodes(
     them as writable; socket inputs are never dropped.  Classes without
     in-graph nodes keep their full schema (they may be added new).
     """
-    from vibecomfy.porting.widgets.compact_resolver import (  # noqa: PLC0415
-        compact_widget_names_for_node,
-    )
+    from vibecomfy.porting.edit.editable_surface import editable_surface_for
 
     nodes_by_class: dict[str, list[Any]] = {}
     for node in _iter_graph_nodes(nodes):
-        class_type = str(node.get("type") or node.get("class_type") or "")
+        if isinstance(node, Mapping):
+            class_type = str(node.get("type") or node.get("class_type") or "")
+        else:
+            class_type = str(getattr(node, "class_type", "") or getattr(node, "type", "") or "")
         if class_type:
             nodes_by_class.setdefault(class_type, []).append(node)
 
@@ -252,18 +303,16 @@ def filter_signature_rows_to_in_graph_nodes(
         resolvable: set[str] = set()
         for node in nodes_of_class:
             try:
-                names = compact_widget_names_for_node(node).names
+                surface = editable_surface_for(node)
             except Exception:
                 continue
-            resolvable.update(
-                str(name)
-                for name in names
-                if isinstance(name, str) and not name.startswith("widget_")
-            )
+            resolvable.update(surface.literal_names())
         inputs: list[InputSignatureField] = [
             field
             for field in row.inputs
-            if not input_spec_is_literal_widget(field) or field.name in resolvable
+            if input_spec_is_socket_only(field)
+            or not input_spec_is_literal_widget(field)
+            or field.name in resolvable
         ]
         if len(inputs) == len(row.inputs):
             filtered.append(row)
@@ -384,7 +433,7 @@ def format_signature_rows(
             name_ident = to_python_identifier(input_field.name)
             if input_spec_is_literal_widget(input_field):
                 literal_fields.append(name_ident)
-            else:
+            elif input_spec_is_socket_only(input_field) or not input_spec_is_literal_widget(input_field):
                 socket_inputs.append(name_ident)
             if input_field.choices is not None:
                 choices = input_field.choices
@@ -458,5 +507,7 @@ __all__ = [
     'OutputSignatureField',
     'NodeSignatureRow',
     'emit_available_node_signatures',
+    'filter_signature_rows_to_in_graph_nodes',
     'format_signature_rows',
+    'signature_row_from_surface',
 ]

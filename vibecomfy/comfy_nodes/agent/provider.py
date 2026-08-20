@@ -20,6 +20,7 @@ from vibecomfy.executor.contracts import (
 from vibecomfy.executor.tool_specs import (
     PHASE_IMPLEMENT,
     PHASE_RESEARCH,
+    PHASE_THREADED,
     tool_catalog_docs,
 )
 
@@ -378,6 +379,7 @@ def build_batch_messages(
     max_batches: int = 12,
     conversation_messages: list[dict[str, Any]] | None = None,
     research_only: bool = False,
+    tool_phase: str | None = None,
     revision_evidence_json: str = "",
     execution_plan_status: Mapping[str, Any] | None = None,
     evidence_ledger: str = "",
@@ -391,6 +393,8 @@ def build_batch_messages(
     render only when the caller supplies it (for example after a no-edit
     search/report turn).
 
+    ``tool_phase="threaded"`` composes the registered research and implement
+    tools without changing the batch protocol or creating another session.
     The system prompt describes prose + a single ```batch fenced block with
     ``done()`` and ``clarify(\"...\")`` as in-batch calls.  It does **not**
     mention JSON delta response requirements.
@@ -418,6 +422,44 @@ def build_batch_messages(
     # references ``mission``; research() is removed, so there is no separate
     # research mission to advertise.
     mission = "You edit a ComfyUI canvas as live Python objects.\n"
+    active_tool_phase = (
+        PHASE_RESEARCH
+        if research_only
+        else PHASE_THREADED
+        if tool_phase == PHASE_THREADED
+        else PHASE_IMPLEMENT
+    )
+    threaded_tools = active_tool_phase == PHASE_THREADED
+    tool_heading = (
+        "- Agent tool calls (no edit lands) — threaded research+implement surface:\n"
+        if threaded_tools
+        else "- Agent tool calls (no edit lands) — implement phase only:\n"
+    )
+    research_handoff = (
+        "this same durable conversation may gather workflow and community evidence "
+        "with the registered research tools, then edit from its compact ledger — "
+        if threaded_tools
+        else "the research phase already gathered workflow and community evidence and "
+        "handed it to you as compact ledger entries + evidence IDs — the "
+        "implement phase has NO external research/search tools. "
+    )
+    ledger_guidance = (
+        "Prior tool results reach later continuations only as compact ledger entries + "
+        "evidence IDs; pass an evidence ID only to its registered fetch tool and never "
+        "repeat raw bodies back into the conversation. "
+        if threaded_tools
+        else "Prior tool results reach you only as compact ledger entries + evidence IDs; "
+        "the ledger is already resolved — evidence IDs are provenance labels, not "
+        "callable handles; never repeat raw bodies back into the conversation. "
+    )
+    tool_budget_guidance = (
+        "Tool budget: 3 searches, 6 fetches, 1 registry lookup, and a ~90s "
+        "phase deadline; exhaustion is a typed refusal that preserves gathered "
+        "evidence — then synthesize and `done()`. "
+        if threaded_tools
+        else "Tool budget: 6 fetches and a ~90s phase deadline; exhaustion is a "
+        "typed refusal that preserves gathered evidence — then synthesize and `done()`. "
+    )
     if research_only:
         # C01 research-only prompt: no graph-construction surface; the agent
         # gathers auditable evidence with the research-phase tool catalog
@@ -449,6 +491,10 @@ def build_batch_messages(
             f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n"
         )
     else:
+        # Single prompt grammar: the generated surface doc (grammar.py) is the
+        # only description of the edit surface — no hand-maintained copy.
+        from vibecomfy.porting.edit.grammar import render_prompt_doc
+
         system = (
         mission +
         "Each node is a variable; wiring uses `.OUTPUT` from other variables.\n\n"
@@ -459,15 +505,14 @@ def build_batch_messages(
         "- `del x`\n"
         "- `node.mode = \"bypassed\" | \"muted\" | \"enabled\"` (bypass does NOT pass input through)\n"
         "- `search(focus_types=[\"ClassName\"])` — exact current authoring-schema lookup only; no internet/precedent search and no edit lands\n"
-        "- Agent tool calls (no edit lands) — implement phase only:\n"
-        f"{tool_catalog_docs(PHASE_IMPLEMENT)}\n"
-        "Tool budget: 6 fetches and a ~90s phase deadline; exhaustion is a typed refusal that preserves gathered evidence — then synthesize and `done()`. Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
+        f"{tool_heading}"
+        f"{tool_catalog_docs(active_tool_phase)}\n"
+        f"{tool_budget_guidance}"
+        "Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
         "- `python()` — view current workflow Python\n"
         "- `done()` — commit landed edits\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
-        "Known limits:\n"
-        "- `attr = None` disconnects a wire\n"
-        "- No list sockets/reorder/group/cross-subgraph edits\n\n"
+        f"{render_prompt_doc()}\n"
         f"{effective_surface_rule}"
         "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, answer from it and `done()` — ground every claim in the visible render's node ids, link ids, and widget keys/values; never invent parameters or connections.\n\n"
         "Undo abandoned edits before done().\n\n"
@@ -495,6 +540,12 @@ def build_batch_messages(
         "`search(...)` is factual current authoring-schema lookup, not workflow/web research, and never justifies substituting a merely similar node for the user's named target. "
         "A local miss is not a product-level failure: use workflow precedent and visible graph evidence to choose the smallest defensible edit, then let the edit/apply path validate whether it is authorable. "
         "Do not tell the user to install nodes.\n\n"
+        "Representable-edit preflight (mandatory before clarify/refusal): inspect the rendered node inventory and exact node-variable reference map first. "
+        "For each requested change, name the concrete existing field/socket or visible positional widget that could carry it. "
+        "If the target is absent, search by compatible output/input type or an exact class name already present in evidence; use an available concrete substitute when it satisfies the requested behavior. "
+        "If any graph-local requested edit is authorable, perform that edit instead of refusing the whole request or proposing an external pack. "
+        "Use `clarify()` only when this preflight finds no defensible authorable edit or when a real user choice changes the result. "
+        "For schema-less/provisional nodes, a visible `widget_N` is authorable when its current value and the requested replacement make the mapping self-evident (for example a visible model id, preset, angle, or mode); name the exact class, node variable, and `widget_N` in your prose.\n\n"
         "For generic save/export/view/output requests, start from the graph's actual terminal output type. "
         "If the graph ends in `IMAGE`, search local consumers with `search(compatible_output_type=\"IMAGE\")`; "
         "if you need an mp4-style video sink, search both the image-to-video step and video sink, e.g. "
@@ -502,10 +553,17 @@ def build_batch_messages(
         "Do this before guessing branded output-node class names. Use exact `focus_types` only after a class name appears in those compatibility results or other evidence. "
         "For seed-variation grids, contact sheets, preview montages, format/export changes, or other graph-local output/composition edits, preserve the existing generation/custom-node core and add or rewire only deterministic local consumer/composition nodes after the visible terminal outputs. "
         "Prefer the exact visible sink/compositor schema over workflow precedent; do not replace a working custom model stack just to make a layout/export edit.\n\n"
-        "Authoring strategy (bounded guidance): for edit-by-precedent, the "
-        "research phase already gathered workflow and community evidence and "
-        "handed it to you as compact ledger entries + evidence IDs — the "
-        "implement phase has NO external research/search tools. Use `node_schema` for "
+        "If research is thin, empty, never, UNAVAILABLE, or exhausted, apply a "
+        "graph-local edit that is fully justified by the attached IR: a named "
+        "widget change (including a self-evident visible positional widget on a schema-less node), a missing required input edge when both endpoints already "
+        "exist, an fps/frame-count mismatch on existing nodes, or a same-class "
+        "model/ckpt string already in the inventory. Refuse only architectural "
+        "invention (new node classes, ControlNet/IPAdapter chains, multi-link "
+        "rewires, slot-name invention, architecture swaps). Prefer schema field names "
+        "(lossless, steps, seed) over positional widgets whenever a schema name exists.\n\n"
+        "Authoring strategy (bounded guidance): for edit-by-precedent, "
+        f"{research_handoff}"
+        "Use `node_schema` for "
         "the exact classes you intend to add and `ready_template_load` for a "
         "direct-load asset when the request names one. "
         "Do not research installation, provider packs, registry, or local addability unless "
@@ -519,9 +577,7 @@ def build_batch_messages(
         "`clarify()` over splicing. `rank_edit_targets` and `suggest_seed_nodes` "
         "are lossy advisory hints — use them if helpful, ignore them if not; "
         "they never override your judgment. "
-        "Prior tool results reach you only as compact ledger entries + evidence IDs; "
-        "the ledger is already resolved — evidence IDs are provenance labels, not "
-        "callable handles; never repeat raw bodies back into the conversation. "
+        f"{ledger_guidance}"
         "Workflow_schema classes from selected workflow precedent are provisional constructor permission "
         "when they appear in the signature catalog. Do not invent replacement classes. Supported node setup is automatic; "
         "do not request installation. Never write a field/socket not visible in "
@@ -531,7 +587,9 @@ def build_batch_messages(
         "workflow value; do not translate positional widgets into guessed friendly field names. "
         "Opaque `widget_N` needs a corroborating `search()`/schema hit or a self-evident current "
         "value, else `clarify()`.\n\n"
-        "Placement: `near=anchor, relation='left_of|right_of|below'`; upstream left, downstream right; no coords.\n\n"
+        "Placement: `near=anchor, relation='left_of|right_of|below'`; upstream left, downstream right; no coords. "
+        "Every add-node statement that uses `relation=` MUST also include `near=...` or `group=...`; "
+        "`relation=` alone is rejected.\n\n"
         "Envelope: start with one user-facing prose sentence, then exactly one ```batch fence. "
         "Never respond with only a fenced block. `clarify(\"...\")` is terminal and creates no candidate. "
         "Use it only when no defensible edit is possible after graph context, precedent research, and authoring-signature checks. "

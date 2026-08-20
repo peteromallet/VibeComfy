@@ -15,7 +15,10 @@
 
 // ── Canonical delta constants (aligned with canonical_delta.js) ─────────────
 
-import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
+import {
+  CANONICAL_DELTA_OP_NAMES,
+  decodeNodeFieldPathV1,
+} from "./canonical_delta.js";
 import { canonicalJsonString } from "./canonical_hash.js";
 import {
   createIntentGraphAdapter,
@@ -27,17 +30,6 @@ const DELTA_SCHEMA_VERSION = "2.0.0";
 
 /** Diagnostic code: non-root scoped apply is unsupported in the browser adapter. */
 const DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_apply";
-
-/** The seven canonical delta op types. */
-const CANONICAL_DELTA_OP_NAMES = Object.freeze([
-  "set_node_field",
-  "set_mode",
-  "set_title",
-  "add_node",
-  "upsert_link",
-  "remove_node",
-  "remove_link",
-]);
 
 /**
  * Structured diagnostic error for delta contract violations.
@@ -1637,18 +1629,6 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       plan.push({ op: opKind, uidOrId: parsed.uidOrId, mode: node.mode, ...authority });
       continue;
     }
-    if (opKind === "set_title") {
-      const parsed = parseNodeTarget(op.target);
-      requireRootScope(parsed, opKind);
-      const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
-      const candidateNode = resolveNodeFromGraph(candidateGraph, parsed.uidOrId);
-      if (!node || !candidateNode) {
-        throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for set_title.`);
-      }
-      node.title = candidateNode.title ?? op.title;
-      plan.push({ op: opKind, uidOrId: parsed.uidOrId, title: node.title, ...authority });
-      continue;
-    }
     if (opKind === "upsert_link") {
       const link = findCandidateLinkForOp(candidateGraph, op);
       upsertLinkInSerializedGraph(workingGraph, link);
@@ -1751,15 +1731,6 @@ function applyPreflightPlanLive(app, capability, plan, options = {}, preparedAdd
         throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
       }
       liveNode.mode = step.mode;
-      decorateLiveNode(options, liveNode, { op: step });
-      continue;
-    }
-    if (step.op === "set_title") {
-      const liveNode = resolveLiveNode(graph, step.uidOrId);
-      if (!liveNode) {
-        throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
-      }
-      liveNode.title = step.title;
       decorateLiveNode(options, liveNode, { op: step });
       continue;
     }

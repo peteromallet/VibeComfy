@@ -1,0 +1,12 @@
+{
+  "id": "image-generates-a-2x2-seed-variation",
+  "query": "Arrange the four variations in a single horizontal row instead of a 2x2 grid.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "specific"
+}
