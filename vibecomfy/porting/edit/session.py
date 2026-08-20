@@ -307,6 +307,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         workflow = _cow_workflow_copy(workflow)
         remaining_ops: list[Any] = []
         remaining_resolved: list[Any] = []
+        name_hints: dict[str, str] = {}
         for entry in self.history:
             _pre, delta, _recorded_ops = entry
             result = interpret(
@@ -317,9 +318,16 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 max_statements=self.max_statements,
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
+                name_hints=name_hints,
             )
             workflow = result.workflow
             remaining_ops.extend(result.landed_ops)
+            for outcome in result.statements:
+                if outcome.status == "applied" and outcome.op_kind == "node_call":
+                    name = outcome.detail.get("target_name")
+                    uid = outcome.detail.get("minted_uid")
+                    if isinstance(name, str) and isinstance(uid, str):
+                        name_hints[name] = uid
         self.workflow = workflow
         self.landed_ops = remaining_ops
         self.resolved_ops = remaining_resolved
@@ -358,6 +366,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         if workflow is None:
             raise RuntimeError("EditSession.verify_delta_history requires retained ingest IR")
         workflow = _cow_workflow_copy(workflow)
+        name_hints: dict[str, str] = {}
         for index, (_pre, source, recorded_ops) in enumerate(self.history):
             result = interpret(
                 workflow,
@@ -367,6 +376,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 max_statements=self.max_statements,
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
+                name_hints=name_hints,
             )
             if not result.ok:
                 raise ValueError(
@@ -388,6 +398,12 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                     f"{tuple(generalized)!r} does not match the recorded batch "
                     f"{tuple(recorded_ops)!r} for source {source!r}"
                 )
+            for outcome in result.statements:
+                if outcome.status == "applied" and outcome.op_kind == "node_call":
+                    name = outcome.detail.get("target_name")
+                    uid = outcome.detail.get("minted_uid")
+                    if isinstance(name, str) and isinstance(uid, str):
+                        name_hints[name] = uid
             workflow = result.workflow
         return workflow
 

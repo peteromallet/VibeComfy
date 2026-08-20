@@ -2456,6 +2456,21 @@ sampler = KSampler(
         )
         assert result.statements[0].diagnostics[-1].code == "field_change_old_unresolved"
 
+    def test_added_node_name_replays_through_later_history(self) -> None:
+        session = self._primitive_session()
+
+        created = session.apply_batch(
+            'sampler = KSampler(seed=42, steps=20, cfg=7.5, '
+            'sampler_name="euler", scheduler="normal")\n'
+        )
+        assert created.ok is True
+        edited = session.apply_batch("sampler.seed = 99\n")
+        assert edited.ok is True
+
+        replayed = session.verify_delta_history()
+        node = next(node for node in replayed.nodes.values() if node.uid == "n1")
+        assert node.inputs["seed"] == 99
+
     def test_apply_batch_rolls_back_destructive_edit_when_later_edit_fails(self) -> None:
         session = self._primitive_session()
         before_ui = deepcopy(session.working_ui)

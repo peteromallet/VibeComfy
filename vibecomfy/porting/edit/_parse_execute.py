@@ -130,6 +130,7 @@ class _ParseExecuteMixin:
                     delta=code,
                     landed_ops=interpreted.landed_ops,
                     schema_provider=self.schema_provider,
+                    name_hints=self._transient_name_index,
                 )
                 apply_gate_eligible = gate.apply_eligible
                 if not gate.ok:

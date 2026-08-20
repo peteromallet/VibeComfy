@@ -51,6 +51,7 @@ def verify_apply(
     delta: str | Sequence[EditOp] | None = None,
     landed_ops: Sequence[EditOp] = (),
     schema_provider: Any | None = None,
+    name_hints: Mapping[str, str] | None = None,
 ) -> ApplyGateResult:
     """Replay-verify ``post`` against ``pre`` + Δ and reject corrupt topology.
 
@@ -111,6 +112,7 @@ def verify_apply(
         post,
         replay_source,
         schema_provider=schema_provider,
+        name_hints=name_hints,
     )
     if reconstruct_diag is not None:
         diagnostics.append(reconstruct_diag)
@@ -331,10 +333,16 @@ def _replay_reconstruct_diagnostic(
     replay_source: str | Sequence[EditOp],
     *,
     schema_provider: Any | None,
+    name_hints: Mapping[str, str] | None,
 ) -> CompactDiagnostic | None:
     from vibecomfy.porting.edit._interpret import interpret
 
-    replayed = interpret(pre, replay_source, schema_provider=schema_provider)
+    replayed = interpret(
+        pre,
+        replay_source,
+        schema_provider=schema_provider,
+        name_hints=name_hints,
+    )
     if not replayed.ok:
         return _diag(
             "apply_gate_replay_failed",

@@ -229,6 +229,7 @@ class _GatesMixin:
                 ),
             )
         workflow = _cow_workflow_copy(workflow)
+        name_hints: dict[str, str] = {}
         for entry in getattr(self, "history", []) or ():
             _pre, delta, _recorded_ops = entry
             result = interpret(
@@ -239,10 +240,17 @@ class _GatesMixin:
                 max_statements=self.max_statements,
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
+                name_hints=name_hints,
             )
             if not result.ok:
                 return None, result.diagnostics
             workflow = result.workflow
+            for outcome in result.statements:
+                if outcome.status == "applied" and outcome.op_kind == "node_call":
+                    name = outcome.detail.get("target_name")
+                    uid = outcome.detail.get("minted_uid")
+                    if isinstance(name, str) and isinstance(uid, str):
+                        name_hints[name] = uid
         return workflow, ()
 
     def _done_gate_b_from_ir(
