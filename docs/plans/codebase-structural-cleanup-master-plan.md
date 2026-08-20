@@ -217,6 +217,8 @@ This reconciliation is planning evidence only. It does not authorize cleanup, de
 | `25260147` | Closed replay-schema, compact-prompt, and typed empty-worker-response contract gaps found by adjacent verification. |
 | `58727689` | Passed the configured Python interpreter into browser contract/smoke targets, fixing PR156's `spawnSync(...).status === null` CI failure. |
 | `9eca3ed1` | Initial post-PR156 cleanup-plan reconciliation submitted to independent CR-0A review. |
+| `cf29bd1a` | Corrected CR-0A's runtime-contract and dependency-gate findings; 2 sensitive nodeids and all 45 runtime-adapter tests passed, Markdown links passed, and `git diff --check` was clean. |
+| `CR-0A: continue` | Independent GPT-5.6 Sol reviewer accepted the corrected reconciliation; the reviewer did not implement, manage, or verify the integration. |
 | Final integration location | Branch `integrate/pr156-local-cleanup-20260820`, worktree `/private/tmp/vibecomfy-pr156-local-integration`. |
 | Live tree | Original live worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` is preserved unchanged. |
 
@@ -242,7 +244,7 @@ Status vocabulary: **resolved** means the stated package behavior is evidenced a
 | Package | Status | Current evidence | Remaining goal or blocker |
 |---|---|---|---|
 | `P00` | blocked | Integrated branch/worktree receipts above; six dirty worktree payloads plus one active test worktree remain outside an ownership ledger. | Assign owner/landing decision to every dirty path and choose a clean execution worktree. |
-| `P00A` | reconciliation assembled / review pending | Checkpoint, intermediate, PR156 head, integrated replay, correction, CI, conflict, and verification receipts are recorded above. | Independent `[XHARD-REVIEW] CR-0A` must accept provenance and landing decisions; P00 still owns the six other dirty payloads and active test worktree. |
+| `P00A` | accepted by `CR-0A` | Checkpoint, intermediate, PR156 head, integrated replay, correction, CI, conflict, verification receipts, and independent `continue` verdict are recorded above. | P00 still owns and blocks on the six other dirty payloads and active test worktree; P01–P03 require completed P00 as well as this acceptance. |
 | `A25` | partial | `contracts.py`, `_frag_response_contract.py`, generated JS, `tools/generate_agent_contract_js.py`, `tests/test_agent_contract_codegen.py`, browser response/canonical-delta tests. | Freeze one matrix covering Python/JS fields, `accepted_batch`, mode, paid submit, virtual-wire sidecar, fixtures, and legacy projections; pair with B38/F42. |
 | `A26` | partial | `comfy_adapter.js`, `intent_graph_adapter.js`, projection registry, graph projection, ownership tests. | Freeze canonical IR/raw UI/furniture/sidecar/refusal ownership; shell and emitter still duplicate graph semantics. |
 | `B33` | partial | `_session_storage.py` and `_session_transaction_journal.py` exist; storage tests cover persistence. | Remove implementation imports back into `session.py` (including `structural_graph_hash` and journal `session as host`) while preserving façade names. |
@@ -464,6 +466,8 @@ Freeze the provenance and ownership boundary between the preserved PR154 checkpo
 - `25260147` — adjacent-verification contract corrections;
 - `58727689` — configured-Python browser CI correction and latest verified code HEAD before this plan-only reconciliation;
 - `9eca3ed1` — initial post-PR156 cleanup-plan reconciliation submitted to independent CR-0A review;
+- `cf29bd1a` — correction of CR-0A's runtime-contract and dependency-gate findings;
+- `CR-0A: continue` — independent GPT-5.6 Sol acceptance after the bounded correction and requested verification;
 - branch/worktree: `integrate/pr156-local-cleanup-20260820` at `/private/tmp/vibecomfy-pr156-local-integration`;
 - original live worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` unchanged.
 
@@ -2327,6 +2331,6 @@ The program is complete only when:
 - Independent clarity, frontend, graph/migration, shim, and execution-readiness reviews: integrated.
 - Plain-language architectural and contributor end-state: integrated.
 - `[XHARD]` classification, GPT-5.6 Sol ownership, and decision/review gates: integrated for 23 execution units, including P00A.
-- `[XHARD-REVIEW]` governance: integrated for CR-0A and CR-2 through CR-8; ordinary package reviews and verifier runs remain distinct.
+- `[XHARD-REVIEW]` governance: CR-0A independently returned `continue`; CR-2 through CR-8 are execution-time gates; ordinary package reviews and verifier runs remain distinct.
 - Agent roles, independent review loops, chunk gates, test sharding, resource limits, and dispatch templates: integrated.
 - Cleanup execution: **not authorized and not started**.
