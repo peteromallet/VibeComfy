@@ -84,3 +84,69 @@ The goal attachment names laptop launcher paths under `/Users/peteromalley/.code
 - **Next unblocked card:** post-commit Grok `[XHARD-REVIEW]` of the complete
   T0.4 diff; then evidence/log integration. T7.1/T7.2/T7.3 briefs must
   reference final50. No live run on this card.
+ 
+## 2026-08-20 — T0.2 [XHARD-REVIEW] contract and overlap freeze
+
+- **Disposition:** `continue`; Grok 4.6 wrapper-routed review at `20:06Z`.
+- **Receipt/result:** `T0.2-receipt.json`; result digest `3d83446906b99fa81bc1c1240464be57d634ebb1436af592d7ec68564e6ce883`.
+- **Wrapper outcome:** exit was blocked only by a false-positive allowance violation caused by pre-existing untracked plan/goal documents under old base-SHA accounting.
+
+## 2026-08-20 — T0.2 allowance adjudication
+
+- **Disposition:** `correct`; Grok 4.6 at `20:19Z`; receipt `T0.2-allowance-adjudication-receipt.json`; result digest `15d5b839b70d6638bbcb9d23661e5c03cf4410dd827aaf1e3339a858d1a7c3ee`.
+- **Process correction:** changed-file accounting must use process lifetime; finding `F-T03-CHANGED-FILES-BASELINE` introduced.
+
+## 2026-08-20 — T0.3 revision2
+
+- **Disposition:** passed; Luna implementer commit `1c2eb90cf4c319eea0439a693dc53a2850c952ab` applied the ignore-rule accounting fix.
+- **Receipt/result:** `T0.3-revision2-receipt.json`; result digest `99db4517319931e5da45d979707cf488fd2153274cf750075d871d2ce6b64e4a`; 17 focused tests passed.
+
+## 2026-08-20 — T0.3 revision2 re-review
+
+- **Disposition:** CLEAN; fresh independent Luna review; receipt `T0.3-revision2-rereview-receipt.json`; result digest `c0e339a955582225fe357e811a10d90915e3337febe9778e682e26d3b08f8df0`.
+- **Closed findings:** `F-T03-IGNORE-RULE-NEW-CREATE`, `F-T03-CHANGED-FILES-BASELINE`, `F-T03-REVIEW-MUTATING-SELF-DISPATCH`, `F-T03-REREVIEW-CHAIN-OPEN`, and `F-T03-D427-UNREVIEWED-CANDIDATE`.
+- **Review quarantine:** `T0.3-revision-review-receipt.INVALID-MUTATING-REVIEW.json` was invalidated and quarantined.
+
+## 2026-08-20 — T0.3 review adjudication
+
+- **Disposition:** `stop`; Grok at `20:57Z` on the invalid mutating review; receipt `T0.3-review-adjudication-receipt.json`; result digest `25a4efae51e5e7dbe7ac9df916057a378c42e46c6a808ccc01a30a5a62f4c2c1`.
+- **Resolution:** the revision2 and independent re-review chain above resolves the issue; do not reopen it.
+
+## 2026-08-20 — Operator directive: fifty scenarios
+
+- The operator directive quoted in the brief supersedes the five-scenario finale count. `T0.4-plan-amendment-50` implements 50 scenarios × 2 modes (staged and threaded) = 100 legs, concurrency 10, 10 waves, tag `final-50x2`, and one authoritative G7.2 run.
+
+## 2026-08-20 — T0.4 plan amendment 50 brief
+
+- Luna brief agent receipt `T0.4-plan-amendment-50-brief-receipt.json` produced the review brief, implementer brief, and allowance.
+
+## 2026-08-20 — T0.4 plan amendment 50 pre-code review
+
+- Fresh Grok XHARD review; receipt `T0.4-plan-amendment-50-review-receipt.json`; exit `0`; `changed_files: []`; result digest `d26b080e2e3a46f6127c9908bf71b05bb3f5469b53e463a81ebf639a62b1da91`.
+- All adversarial checks passed; `JUDGMENT_REQUIRED: none`; amendment was coherent, complete, and non-conflicting.
+
+## 2026-08-20 — T0.4 plan amendment 50 implementer
+
+- Grok 4.6 commit `b34eb5ad8f6ec70053a2d0a1822122ac02a2b2f9` (`docs(exec-spine): amend G7 finale to 50x2/100 legs`); receipt `T0.4-plan-amendment-50-receipt.json`.
+- Changed files were exactly the four allowed paths: plan, goal, execution log, and `threaded_comparison_manifest_final50.json`.
+- `final50` has schema `1`, staged and threaded modes, 50 unique entries, entries 1–5 byte-identical to final5, and no null locks. final5 and the canonical six-entry manifest remain unchanged (`857bf9cb…` and `96b287c0…`).
+- Wrapper `ALLOWANCE_VIOLATION` was recorded and adjudicated in the next entry.
+
+## 2026-08-20 — T0.4 allowance adjudication
+
+- **Disposition:** `correct`; fresh Grok review; receipt `T0.4-allowance-adjudication-receipt.json`; result digest `fb21fabb395adbf5e39ae36df3fa472794c7e43ba77ef8f2bbccc1afc277242d`.
+- The violation was a false positive caused by a self-contradictory allowance file: `"**"` in `forbidden` overrode the concrete `allowed` list. Commit `b34eb5ad` is allowance-compliant.
+- **Process correction:** mutating-card allowances must use a concrete `allowed` list with `forbidden: []`, matching the T0.3-revision2 shape.
+
+## 2026-08-20 — T0.4 post-commit review
+
+- Fresh independent Grok XHARD review of complete diff `1c2eb90c..b34eb5ad`; receipt `T0.4-postcommit-review-receipt.json`; exit `0`; `changed_files: []`; result digest `a658f716f758636642817ee100c885ef4642b23a72b027c343f95b7787c4aa75`.
+- Must findings: none; `JUDGMENT_REQUIRED: none`. Production path verified: `--manifest final50 --concurrency 10` produced 100 unique legs in 10 waves with model-free preflight. Plan, goal, log, and manifest are consistent.
+
+## 2026-08-20 — Residual risks and next card
+
+- `scripts/validate_workflow_execution_spine_evidence.py` still hard-codes `mode == "5x2"` and exactly 10 leg receipts; `CARD_ORDER` and `GATE_CARDS["G0"]` omit T0.4. A follow-on card must retarget the validator before G7 evidence close; this is outside the T0.4 allowance and is not a G0 blocker.
+- `external_workflows/corpus/` is not mounted in this worktree. final50 locked-input digests match catalog metadata, but T7.1 preflight still needs the corpus mount for source-file presence.
+- T0.4 is an intentional out-of-sequence operator insert; the G0 graph remains `T0.0 → T0.1 → T0.3 → T0.2 → G0`.
+- Test shards were already consistent with the plan (focused T1.x–T6.2 shards plus singleton `broad_suite_once_v1`); no shard changes were required.
+- **Next unblocked card:** `T0.2-recertification` — fresh Grok XHARD review of the contract/overlap freeze on then-reviewed SHA `b34eb5ad`, with a regenerated brief referencing the amended plan and final50 identity; then G0 gate.
