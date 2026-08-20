@@ -71,6 +71,36 @@ def test_threaded_readiness_uses_execute_profile(monkeypatch: pytest.MonkeyPatch
     assert result["model"] == "execute-model"
 
 
+def test_environment_threaded_readiness_uses_execute_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    monkeypatch.setenv("VIBECOMFY_EXECUTOR_PIPELINE_MODE", "two_step")
+    from vibecomfy.agent import service
+    from vibecomfy.agent.contracts import HeadlessAgentRequest
+    from vibecomfy.comfy_nodes.agent import provider
+
+    stages: list[str] = []
+    request = HeadlessAgentRequest(query="edit")
+
+    def readiness_kwargs(*, stage: str = "classify") -> dict[str, str | None]:
+        stages.append(stage)
+        return {"route": "opensource", "model": "execute-model"}
+
+    object.__setattr__(request, "resolve_provider_readiness_kwargs", readiness_kwargs)
+    monkeypatch.setattr(
+        provider,
+        "readiness",
+        lambda **kwargs: {"ready": True, **kwargs},
+    )
+
+    result = service._check_live_readiness(request)
+
+    assert stages == ["execute"]
+    assert result["route"] == "opensource"
+    assert result["model"] == "execute-model"
+
+
 def test_environment_threaded_mode_is_materialized_before_driver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -102,11 +132,14 @@ def test_chat_recovery_returns_latest_canonical_mode(tmp_path: Path) -> None:
     from vibecomfy.comfy_nodes.agent.contracts import public_chat_rehydrate_payload
 
     session_id = "mode-session"
-    for turn_id, mode in [("0000", "full"), ("0001", "two_step")]:
+    for turn_id, mode in [("0000", "full"), ("0001", "two_step"), ("0002", None)]:
         turn_dir = tmp_path / session_id / "turns" / turn_id
         turn_dir.mkdir(parents=True)
+        request = {"task": "edit"}
+        if mode is not None:
+            request["pipeline_mode"] = mode
         (turn_dir / "request.json").write_text(
-            json.dumps({"task": "edit", "pipeline_mode": mode}),
+            json.dumps(request),
             encoding="utf-8",
         )
         (turn_dir / "response.json").write_text(
@@ -117,8 +150,8 @@ def test_chat_recovery_returns_latest_canonical_mode(tmp_path: Path) -> None:
     raw = read_session_chat(tmp_path, session_id)
     public = public_chat_rehydrate_payload(raw)
 
-    assert raw["pipeline_mode"] == "threaded"
-    assert public["pipeline_mode"] == "threaded"
+    assert raw["pipeline_mode"] == "staged"
+    assert public["pipeline_mode"] == "staged"
 
 
 def test_executor_only_durable_request_persists_canonical_mode(tmp_path: Path) -> None:

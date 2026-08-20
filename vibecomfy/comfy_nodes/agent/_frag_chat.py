@@ -706,13 +706,21 @@ def read_session_chat(
                 request_metadata = None
             if isinstance(request_metadata, dict):
                 raw_pipeline_mode = request_metadata.get("pipeline_mode")
-                if isinstance(raw_pipeline_mode, str):
-                    try:
-                        from vibecomfy.executor.contracts import coerce_orchestration_mode
+                try:
+                    from vibecomfy.executor.contracts import coerce_orchestration_mode
 
-                        latest_pipeline_mode = coerce_orchestration_mode(raw_pipeline_mode)
-                    except ValueError:
-                        pass
+                    # An omitted mode is the legacy staged default. Reset on
+                    # every valid request artifact so a newer legacy turn does
+                    # not inherit a prior threaded turn during recovery.
+                    latest_pipeline_mode = (
+                        coerce_orchestration_mode(raw_pipeline_mode)
+                        if raw_pipeline_mode is not None
+                        else "staged"
+                    )
+                except ValueError:
+                    # Invalid persisted values fail closed at the public
+                    # boundary, just like an invalid current request.
+                    latest_pipeline_mode = "staged"
 
         # Try chat.json first.
         if chat_path.is_file():

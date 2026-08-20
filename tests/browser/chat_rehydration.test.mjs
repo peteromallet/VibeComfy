@@ -68,6 +68,7 @@ const TOP_LEVEL_ALIAS_TABLE = Object.freeze([
   { canonical: "baselineSource", wire: "baseline_source", precedence: "camel-first" },
   { canonical: "baselineRebaselineId", wire: "baseline_rebaseline_id", precedence: "camel-first" },
   { canonical: "baselineGraphSourcePath", wire: "baseline_graph_source_path", precedence: "camel-first" },
+  { canonical: "pipelineMode", wire: "pipeline_mode", precedence: "camel-first" },
   { canonical: "latestTurnLifecycle", wire: "latest_turn_lifecycle", precedence: "camel-first" },
   { canonical: "latestCandidate", wire: "latest_candidate", precedence: "camel-first" },
 ]);

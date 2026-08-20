@@ -75,10 +75,23 @@ _ensure_headless_env()
 
 def _check_live_readiness(request: HeadlessAgentRequest) -> dict[str, Any]:
     from vibecomfy.comfy_nodes.agent import provider  # noqa: PLC0415
+    from vibecomfy.executor.contracts import resolve_orchestration_mode  # noqa: PLC0415
 
     # Threaded mode has no classifier: readiness must probe the combined
     # execute spec users actually selected, not an unused staged dependency.
-    readiness_stage = "execute" if request.pipeline_mode == "threaded" else "classify"
+    # Resolve through the same request -> environment -> default precedence as
+    # run_executor().  Without this, a headless caller selecting threaded mode
+    # through VIBECOMFY_EXECUTOR_PIPELINE_MODE would probe the staged classifier
+    # profile and could be reported ready before the actual execute profile was
+    # checked.
+    try:
+        effective_mode = resolve_orchestration_mode(request)
+    except Exception:
+        # Preserve run_executor's authoritative configuration error. Readiness
+        # is only a best-effort preflight and must not turn an invalid mode env
+        # value into a misleading profile result here.
+        effective_mode = "staged"
+    readiness_stage = "execute" if effective_mode == "threaded" else "classify"
     readiness_kwargs = request.resolve_provider_readiness_kwargs(stage=readiness_stage)
     route = readiness_kwargs.get("route") or "auto"
     model = readiness_kwargs.get("model")
