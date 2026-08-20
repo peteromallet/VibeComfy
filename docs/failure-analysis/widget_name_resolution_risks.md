@@ -112,19 +112,19 @@ This differs from the shared brief: in the checked-in scenario graph, `motion_bu
 
 ### Apply path
 
-[vibecomfy/porting/edit/apply_resolve_base.py](../../vibecomfy/porting/edit/apply_resolve_base.py)
+[`vibecomfy/porting/edit/_resolve.py`](../../vibecomfy/porting/edit/_resolve.py#L1491) (`_resolve_target_field`; split replacement for the historical `apply_resolve_base.py`)
 
-- `_resolve_set_node_field` canonicalizes the requested field, checks raw input slots, then calls `_widget_index_for_field` at [line 207](../../vibecomfy/porting/edit/apply_resolve_base.py).
-- `_widget_index_for_field` in [apply_slots.py](../../vibecomfy/porting/edit/apply_slots.py) directly enumerates `ui_widget_value_names_for_class(..., allow_object_info_fallback=True)`.
-- `_widget_index_from_input_stubs` at [line 35](../../vibecomfy/porting/edit/apply_slots.py) only runs if the raw input slot's `widget.name` equals the requested field. The current ACN/SVD `_ui.inputs` rows do not have `widget` dicts, so this recovery does not help.
-- `_apply_set_node_field` writes to the resolved index and extends `widgets_values` with `None` up to that index at [apply_mutate.py:409](../../vibecomfy/porting/edit/apply_mutate.py).
+- `_resolve_target_field` canonicalizes the requested field, checks raw input slots, then resolves the widget value at [`_resolve.py:1491`](../../vibecomfy/porting/edit/_resolve.py#L1491).
+- `_widget_index_for_field` in [`widget_slots.py:31`](../../vibecomfy/porting/edit/widget_slots.py#L31) delegates to the compact resolver (`allow_object_info_fallback=True`).
+- `_widget_index_from_input_stubs` at [`widget_slots.py:65`](../../vibecomfy/porting/edit/widget_slots.py#L65) only runs if the raw input slot's `widget.name` equals the requested field. The current ACN/SVD `_ui.inputs` rows do not have `widget` dicts, so this recovery does not help.
+- `apply_edit_cow` applies the resolved field to the IR widget/input channel at [`_ir_utils.py:709`](../../vibecomfy/porting/edit/_ir_utils.py#L709), replacing the historical `_apply_set_node_field` mutation seam.
 - Change impact: more accurate names will immediately route model edits to different physical slots. That is desired only when the source is proven 1:1 with `widgets_values`. A wrong longer list is dangerous because `_write_widget_value` will grow `widgets_values`, creating shape overflow.
 
 ### Graph inspection and agent rendering
 
-[vibecomfy/porting/edit/projection.py](../../vibecomfy/porting/edit/projection.py)
+[`vibecomfy/executor/graph_inspection.py`](../../vibecomfy/executor/graph_inspection.py#L252) (`_widgets_from_ir`; current graph-inspection replacement for the historical `projection.py`)
 
-- `_field_rows` labels each `widgets_values[index]` using `ui_widget_value_names_for_class`; if the list is short, it recovers from input stubs only when there are enough widget names.
+- `_widgets_from_ir` labels each `widgets_values[index]` using the compact widget resolver; if the list is short, it recovers from named widget/input carriers.
 - This is why ACN can be shown as `mask_optional=0.6`, `timestep_kf=0`, `latent_kf_override=0.75`.
 - [emit_prepare.py](../../vibecomfy/porting/emit/emit_prepare.py) renders Python-call kwargs for the agent. For `widget_N`, it calls `resolve_widget_key_with_provenance` using `metadata.input_aliases` or `_ui_widget_aliases`.
 - `_ui_widget_aliases` only reads `item["widget"]["name"]` from `_ui.inputs`, and returns `None` if alias count does not cover the highest `widget_N` key at [emit_constants.py:1062](../../vibecomfy/porting/emit/emit_constants.py).
