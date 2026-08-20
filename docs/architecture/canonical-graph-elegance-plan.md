@@ -964,7 +964,7 @@ Not new, still true: `detect_workflow_shape` must keep its vibe branch until 1.2
 - Live IR: [`vibecomfy/workflow.py`](../../vibecomfy/workflow.py) (`VibeWorkflow` `:148`, `copy()` `:214`, `compile()` `:738`, mode/bypass `:1148-1177`, `WorkflowSource.source_type` `:36`)
 - Decoder / detector: [`vibecomfy/ingest/normalize.py`](../../vibecomfy/ingest/normalize.py) (`detect_workflow_shape` `:41`, `normalize_to_api` vibe branch `:82`, `_decode_serialized_vibe` `:382`, uid fail-closed `:479-481`, `convert_to_vibe_format` `:669`)
 - Public loaders: [`vibecomfy/cli_loader.py`](../../vibecomfy/cli_loader.py) `:38-39`, [`vibecomfy/registry/library.py`](../../vibecomfy/registry/library.py) `:22-24,48-50`, [`vibecomfy/porting/workbench.py`](../../vibecomfy/porting/workbench.py) `:771-782,796-807,832`
-- Agent-edit UI adapter: [`vibecomfy/comfy_nodes/agent/graph_normalization.py`](../../vibecomfy/comfy_nodes/agent/graph_normalization.py) (stale module docstring `:5-6`; correct function docstring `:22-43`)
+- Agent-edit UI adapter: [`vibecomfy/ingest/normalize.py`](../../vibecomfy/ingest/normalize.py) (`ingest_workflow_and_ui`: the single shape-dispatch door that replaced the deleted `graph_normalization.py` adapter)
 - UI emit (not a compile backend): [`vibecomfy/porting/emit/ui.py`](../../vibecomfy/porting/emit/ui.py) `:1-7, 1994`
 - B02 proof: [`tests/test_porting_normalize_ingest.py`](../../tests/test_porting_normalize_ingest.py) `:642-704`, [`tests/test_b02_rich_preservation.py`](../../tests/test_b02_rich_preservation.py), [`scripts/check_b02_rich_preservation.py`](../../scripts/check_b02_rich_preservation.py)
 - Smoking-gun envelope: `external_workflows/corpus/90a1d5ff9044902e.json` (corpus is not part of the repo; present only in local/downloaded corpora)
