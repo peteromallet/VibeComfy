@@ -245,6 +245,14 @@ def port_convert_workflow(
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
 ) -> PortConvertResult:
+    # Capture the virtual-wire display/diagnostic sidecar on the caller-owned
+    # graph before cloning.  This is the one intentional caller-visible
+    # metadata update: conversion must not mutate caller topology or nodes,
+    # while downstream layout consumers require the captured furniture there.
+    _virtual_wires = _capture_virtual_wires(workflow)
+    if _virtual_wires:
+        workflow.metadata["virtual_wires"] = copy.deepcopy(_virtual_wires)
+
     # Conversion resolves helpers and annotates metadata in place. Work on a
     # private snapshot so callers can safely reuse the ingested IR (and raw UI
     # evidence) after conversion, including when conversion raises midway.
@@ -268,13 +276,12 @@ def port_convert_workflow(
     from vibecomfy._compile._helpers import collect_broadcast_sources as _collect_broadcasts
     _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
 
-    # ── M2 Step 8: snapshot furniture BEFORE any helper resolution ──────
+    # ── M2 Step 8: retain the furniture snapshot before helper resolution ─
     # resolve_subgraph_helpers (below) and resolve_helpers (further down)
     # both delete Get/Set/Reroute and subgraph-inner nodes in place. Snapshot
-    # the data needed to reconstruct the editor view into workflow.metadata
-    # *before* that deletion. This is metadata-only — nothing reaches the
-    # execution API graph, so compile('api') stays byte-identical.
-    _virtual_wires = _capture_virtual_wires(workflow)
+    # above is copied into the private workflow metadata before that deletion.
+    # This is metadata-only — nothing reaches the execution API graph, so
+    # compile('api') stays byte-identical.
     if _virtual_wires:
         workflow.metadata["virtual_wires"] = _virtual_wires
 

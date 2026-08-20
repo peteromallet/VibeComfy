@@ -20,6 +20,7 @@ Runs in the default offline suite (no marker).
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -177,6 +178,9 @@ def test_default_convert_round_trip(tmp_path: Path):
     # Count virtual-wire nodes before conversion
     vw_count_before = sum(1 for n in wf.nodes.values() if n.class_type in _VW_TYPES)
     assert vw_count_before == 5, f"Expected 5 virtual-wire nodes, got {vw_count_before}"
+    caller_nodes_before = copy.deepcopy(wf.nodes)
+    caller_edges_before = copy.deepcopy(wf.edges)
+    caller_metadata_before = copy.deepcopy(wf.metadata)
 
     # ── Emit to UI *before* conversion (while virtual-wire nodes still exist) ──
     # This serves as the reference for what the display-mode output should contain.
@@ -209,6 +213,11 @@ def test_default_convert_round_trip(tmp_path: Path):
     assert len(vw_meta) == vw_count_before, (
         f"Expected {vw_count_before} virtual wires in metadata, got {len(vw_meta)}"
     )
+    # Conversion owns a private graph copy.  The required virtual-wire
+    # diagnostic sidecar is the only intentional caller-visible update.
+    assert wf.nodes == caller_nodes_before
+    assert wf.edges == caller_edges_before
+    assert wf.metadata == {**caller_metadata_before, "virtual_wires": vw_meta}
 
     # ── Write .py and reload ─────────────────────────────────────────────
     py_path.write_text(result.text, encoding="utf-8")
