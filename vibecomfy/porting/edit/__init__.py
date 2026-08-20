@@ -7,6 +7,7 @@ from typing import Any
 
 _EXPORT_MODULES = {
     "BatchResult": "vibecomfy.porting.edit.session",
+    "ApplyOpsResult": "vibecomfy.porting.edit.session",
     "CompactDiagnostic": "vibecomfy.porting.edit.session",
     "DoneResult": "vibecomfy.porting.edit.session",
     "EditSession": "vibecomfy.porting.edit.session",
@@ -55,6 +56,18 @@ _EXPORT_MODULES = {
     "HELPER_NODE_TYPES": "vibecomfy.porting.edit.constants",
     "MODE_LABELS": "vibecomfy.porting.edit.constants",
     "ValueDefaultContext": "vibecomfy.porting.edit.value_defaults",
+    "EDIT_TOOL_NAMES": "vibecomfy.porting.edit.typed_tools",
+    "EditToolError": "vibecomfy.porting.edit.typed_tools",
+    "apply_edit_tool_call": "vibecomfy.porting.edit.typed_tools",
+    "lower_edit_tool_call": "vibecomfy.porting.edit.typed_tools",
+    "resolve_target": "vibecomfy.porting.edit.typed_tools",
+    "AcceptedDelta": "vibecomfy.porting.edit.checkpoint",
+    "ClaimReferenceError": "vibecomfy.porting.edit.checkpoint",
+    "ClaimReferences": "vibecomfy.porting.edit.checkpoint",
+    "TerminalCheckpoint": "vibecomfy.porting.edit.checkpoint",
+    "TerminalProjection": "vibecomfy.porting.edit.checkpoint",
+    "accepted_delta_id": "vibecomfy.porting.edit.checkpoint",
+    "close_terminal_checkpoint": "vibecomfy.porting.edit.checkpoint",
 }
 
 __all__ = list(_EXPORT_MODULES)

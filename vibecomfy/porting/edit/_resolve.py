@@ -53,6 +53,7 @@ from vibecomfy.porting.edit.grammar import op_kind_for_assignment
 from vibecomfy.executor.tool_specs import (
     PHASE_IMPLEMENT,
     PHASE_RESEARCH,
+    PHASE_THREADED,
     TOOL_SPEC_BY_NAME,
     TOOL_SPECS,
     invoke_tool,
@@ -341,10 +342,13 @@ class _AgentToolSurface:
 def _session_phase(session: Any) -> str | None:
     """Resolve the session's pipeline phase for tool-call enforcement.
 
-    The live batch REPL sets ``session.research_only`` for every route
-    (``edit_batch_repl``), so the phase is always known there.  ``None``
-    (offline/standalone validation without a phase marker) is permissive.
+    The live batch REPL sets the explicit ``tool_phase`` marker. The older
+    ``research_only`` boolean remains a compatibility fallback for offline
+    callers. ``None`` is permissive only outside the live host.
     """
+    explicit = getattr(session, "tool_phase", None)
+    if explicit in {PHASE_RESEARCH, PHASE_IMPLEMENT, PHASE_THREADED}:
+        return str(explicit)
     research_only = getattr(session, "research_only", None)
     if research_only is True:
         return PHASE_RESEARCH

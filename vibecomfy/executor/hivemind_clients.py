@@ -414,16 +414,27 @@ def _distinctive_tokens(query: str) -> list[str]:
 
 
 def _hivemind_single_or_phrase_ilike(query: str) -> str | None:
-    """Build ``or=(title.ilike.*Q*,body.ilike.*Q*)`` for this one query.
-
-    ``Q`` is the distinctive tokens joined with a single space (one token
-    if only one remains). Returns None only when no distinctive token remains.
-    """
+    """Build an index-friendlier per-token title/body OR query."""
     tokens = _distinctive_tokens(query)
     if not tokens:
         return None
-    q = " ".join(tokens)
-    return f"(title.ilike.*{q}*,body.ilike.*{q}*)"
+    patterns: list[str] = []
+    for token in tokens:
+        patterns.append(f"title.ilike.*{token}*")
+        patterns.append(f"body.ilike.*{token}*")
+    return "(" + ",".join(patterns[:16]) + ")"
+
+
+def _hivemind_message_ilike(query: str, *, degraded: bool = False) -> str | None:
+    """Build a per-token content query for the raw ``message_feed`` table."""
+    tokens = _distinctive_tokens(query)
+    if not tokens:
+        return None
+    patterns = [
+        f"content.ilike.{token}*" if degraded else f"content.ilike.*{token}*"
+        for token in tokens
+    ]
+    return "(" + ",".join(patterns[:8]) + ")"
 
 
 def _hivemind_degraded_ilike(query: str) -> str | None:
@@ -458,10 +469,10 @@ def _first_text(item: dict[str, Any], *keys: str) -> str:
     return ""
 
 
-def _workflow_semantics(item: dict[str, Any]) -> dict[str, Any]:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+def _workflow_semantics(item: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
     semantics = metadata.get("workflow_semantics")
-    return semantics if isinstance(semantics, dict) else {}
+    return dict(semantics) if isinstance(semantics, Mapping) else {}
 
 
 def _workflow_semantics_text(item: dict[str, Any]) -> str:
@@ -701,17 +712,17 @@ _HIVEMIND_TABLE_ID_COLUMNS = {
 _SOURCE_TYPE_SCOPES: dict[str | None, tuple[tuple[str, str], ...]] = {
     None: (
         ("external_resources", "workflow"),
-        ("unified_feed", "message"),
+        ("message_feed", "message"),
         ("unified_feed", "distillation"),
     ),
     "workflow": (("external_resources", "workflow"),),
-    "discord": (("unified_feed", "message"),),
+    "discord": (("message_feed", "message"),),
     "distillation": (("unified_feed", "distillation"),),
 }
 
 # Candidate pool fetched per scope.  Fixed so pagination (client-side offset
 # over the deterministically ordered pool) is stable across calls.
-_SCOPE_FETCH_LIMIT = 20
+_SCOPE_FETCH_LIMIT = 100
 
 
 def _evidence_id(table: str, row: Mapping[str, Any]) -> str | None:
@@ -822,7 +833,41 @@ def _hivemind_scope_params(
             containment["has_workflow_json"] = has_workflow
         if containment:
             params["metadata"] = _json_containment(containment)
+    elif table == "message_feed":
+        text_or = _hivemind_message_ilike(query, degraded=degraded)
+        or_groups: list[str] = []
+        if text_or:
+            or_groups.append(text_or)
+        if model_family and not degraded:
+            aliases = _HIVEMIND_SEMANTIC_FAMILY_TERMS.get(
+                model_family.casefold(), (model_family,)
+            )
+            family_or = _hivemind_message_ilike(" ".join(aliases))
+            if family_or:
+                or_groups.append(family_or)
+        if capability and not degraded:
+            aliases = _HIVEMIND_SEMANTIC_TASK_TERMS.get(
+                capability.casefold(), (capability,)
+            )
+            capability_or = _hivemind_message_ilike(" ".join(aliases))
+            if capability_or:
+                or_groups.append(capability_or)
+        if node_class and not degraded:
+            node_or = _hivemind_message_ilike(node_class)
+            if node_or:
+                or_groups.append(node_or)
+        if len(or_groups) == 1:
+            params["or"] = or_groups[0]
+        elif len(or_groups) > 1:
+            params["and"] = _nested_or_params(or_groups)
+        if channel:
+            params["channel_name"] = f"eq.{channel}"
+        if author:
+            params["author_name"] = f"eq.{author}"
     elif table == "unified_feed":
+        # Avoid a server-side sort over the body-heavy view. Results are
+        # deterministically ranked client-side after the bounded fetch.
+        params.pop("order", None)
         params["kind"] = f"eq.{kind}"
         text_or = (
             _hivemind_degraded_ilike(query)
@@ -854,10 +899,7 @@ def _hivemind_scope_params(
             params["or"] = or_groups[0]
         elif len(or_groups) > 1:
             params["and"] = _nested_or_params(or_groups)
-        if channel:
-            params["channel"] = f"eq.{channel}"
-        if author:
-            params["author"] = f"eq.{author}"
+        # Discord lives on raw message_feed; unified_feed is distillation-only.
         if has_workflow is not None:
             params["metadata"] = _json_containment({"has_workflow": has_workflow})
     else:  # pragma: no cover - message_feed is not a search scope

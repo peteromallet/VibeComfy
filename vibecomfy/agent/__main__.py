@@ -64,6 +64,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Executor profile name (default profile if omitted).",
     )
+    parser.add_argument(
+        "--pipeline-mode",
+        "--mode",
+        choices=("staged", "threaded", "full", "two_step"),
+        default=None,
+        help=(
+            "Agent deliberation mode: staged (default) or threaded. "
+            "Legacy full/two_step aliases are accepted and normalized."
+        ),
+    )
     parser.add_argument("--session-id", default=None, help="Session id for durable turns.")
     parser.add_argument("--idempotency-key", default=None, help="Idempotency key.")
     parser.add_argument(
@@ -164,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         apply=args.apply,
         network=args.network,
         timeout=args.timeout,
+        pipeline_mode=args.pipeline_mode,
         extra={"research": args.research},
     )
 

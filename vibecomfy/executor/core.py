@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import threading
-import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -57,7 +56,7 @@ from .contracts import (
     VALIDATION_FAILURE_KIND,
     _ALLOWED_ROUTES,
     coerce_model_attempts,
-    warning_detail_from_exception,
+    resolve_orchestration_mode,
 )
 from .profiles import (
     AgentSpecShape,
@@ -73,48 +72,11 @@ def _default_host_ports() -> ExecutorHostPorts:
     """Build the production ComfyUI host adapter on first use."""
     global _DEFAULT_HOST_PORTS
     if _DEFAULT_HOST_PORTS is None:
-        from vibecomfy.comfy_nodes.agent.contracts import (  # noqa: PLC0415
-            classify_failure as host_classify_failure,
-            failure_envelope as host_failure_envelope,
+        from vibecomfy.comfy_nodes.agent.executor_adapter import (  # noqa: PLC0415
+            build_executor_host_ports,
         )
-        from vibecomfy.comfy_nodes.agent.edit import (  # noqa: PLC0415
-            handle_agent_edit as host_handle_agent_edit,
-        )
-        from vibecomfy.comfy_nodes.agent.provider import (  # noqa: PLC0415
-            AuthError,
-            MalformedModelJSON,
-            MissingRequiredField,
-            ProviderError,
-        )
-        from vibecomfy.comfy_nodes.agent.runtime import (  # noqa: PLC0415
-            begin_deepseek_usage_capture as host_begin_deepseek_usage_capture,
-            begin_model_attempt_capture as host_begin_model_attempt_capture,
-            end_deepseek_usage_capture as host_end_deepseek_usage_capture,
-            end_model_attempt_capture as host_end_model_attempt_capture,
-            snapshot_deepseek_usage_capture as host_snapshot_deepseek_usage_capture,
-            snapshot_model_attempt_capture as host_snapshot_model_attempt_capture,
-        )
-        from vibecomfy.comfy_nodes.agent.session import payload_hash  # noqa: PLC0415
 
-        _DEFAULT_HOST_PORTS = ExecutorHostPorts(
-            handle_agent_edit=host_handle_agent_edit,
-            payload_hash=payload_hash,
-            classify_failure=host_classify_failure,
-            failure_envelope=host_failure_envelope,
-            begin_deepseek_usage_capture=host_begin_deepseek_usage_capture,
-            snapshot_deepseek_usage_capture=host_snapshot_deepseek_usage_capture,
-            end_deepseek_usage_capture=host_end_deepseek_usage_capture,
-            begin_model_attempt_capture=host_begin_model_attempt_capture,
-            snapshot_model_attempt_capture=host_snapshot_model_attempt_capture,
-            end_model_attempt_capture=host_end_model_attempt_capture,
-            provider_error_types=(
-                ProviderError,
-                AuthError,
-                MalformedModelJSON,
-                MissingRequiredField,
-                TimeoutError,
-            ),
-        )
+        _DEFAULT_HOST_PORTS = build_executor_host_ports()
     return _DEFAULT_HOST_PORTS
 
 
@@ -167,6 +129,28 @@ def _payload_hash(payload: Mapping[str, Any]) -> str:
 # events emitted while the implement phase is running.
 _IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _RESEARCH_HANG_RETRY_SKIP_ENV = "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"
+
+
+def _legacy_host_ports() -> ExecutorHostPorts:
+    """Adapt the existing ComfyUI-owned globals to the narrow host protocol.
+
+    This remains lazy at call time so existing tests that monkeypatch the core
+    compatibility names continue to observe their patches.
+    """
+    ports = _default_host_ports()
+    return replace(
+        ports,
+        handle_agent_edit=handle_agent_edit,
+        payload_hash=_payload_hash,
+        classify_failure=classify_failure,
+        failure_envelope=failure_envelope,
+        begin_deepseek_usage_capture=begin_deepseek_usage_capture,
+        snapshot_deepseek_usage_capture=snapshot_deepseek_usage_capture,
+        end_deepseek_usage_capture=end_deepseek_usage_capture,
+        begin_model_attempt_capture=begin_model_attempt_capture,
+        snapshot_model_attempt_capture=snapshot_model_attempt_capture,
+        end_model_attempt_capture=end_model_attempt_capture,
+    )
 
 
 def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
@@ -1378,6 +1362,11 @@ def _run_implement(
         "additive": bool(additive),
         "max_batches": request.max_batches,
     }
+    if request.pipeline_mode is not None:
+        # Boundary-only orchestration marker. The agent-edit host remains the
+        # sole session, graph writer, checkpoint, replay, and emit authority;
+        # it uses this only to select the admitted tool phase.
+        payload["pipeline_mode"] = request.pipeline_mode
     # Batch 11/12 (Law 4): the implement stage's model-facing graph text is
     # the composable renderer's surface+topology view (COMPLETE — no
     # 5-widget/6-input/20-edge caps).  The implement stage has no accepted Δ
@@ -1424,22 +1413,22 @@ def _run_implement(
         payload["expected_baseline_graph_hash"] = request.expected_baseline_graph_hash
     if request.on_demand_schemas is not None:
         payload["on_demand_schemas"] = request.on_demand_schemas
+    if request.pipeline_mode is not None:
+        # Persist the canonical driver choice with the durable edit request so
+        # browser/headless recovery continues the same conversation mode.
+        payload["pipeline_mode"] = request.pipeline_mode
 
+    ports = host_ports or _legacy_host_ports()
     try:
-        edit_handler = (
-            host_ports.handle_agent_edit if host_ports is not None else handle_agent_edit
-        )
-        hash_payload = host_ports.payload_hash if host_ports is not None else _payload_hash
-        result = edit_handler(
+        result = ports.handle_agent_edit(
             payload,
             client_id=client_id,
             # Classifier/research output is server-derived and may vary across
             # retries. Bind deduplication to the stable public submit instead.
-            idempotency_request_hash=hash_payload(request.to_dict()),
+            idempotency_request_hash=ports.payload_hash(request.to_dict()),
         )
     except Exception as exc:
-        classify = host_ports.classify_failure if host_ports is not None else classify_failure
-        failure = classify("implement", exc)
+        failure = ports.classify_failure("implement", exc)
         raise _ExecutorPhaseError(
             stage="implement",
             failure_kind=failure.kind.value,
@@ -1448,10 +1437,7 @@ def _run_implement(
         ) from exc
 
     if not isinstance(result, dict):
-        make_failure = (
-            host_ports.failure_envelope if host_ports is not None else failure_envelope
-        )
-        failure = make_failure(
+        failure = ports.failure_envelope(
             VALIDATION_FAILURE_KIND,
             "implement",
             agent_failure_context={
@@ -1485,9 +1471,7 @@ def _run_implement(
             value = result.get(key)
             if value is not None:
                 failure_payload[key] = value
-        make_failure = (
-            host_ports.failure_envelope if host_ports is not None else failure_envelope
-        )
+        make_failure = ports.failure_envelope
         failure_context_payload = {
             "explanation": fm,
             **{
@@ -2266,7 +2250,7 @@ def _classification_plan_summary(plan: ClassifyDecision) -> str:
     return _route_behavior(plan).plan_summary
 
 
-def run_executor(
+def _run_staged_executor(
     request: ExecutorRequest,
     *,
     client_id: str | None = None,
@@ -2301,6 +2285,7 @@ def run_executor(
         Always returns a result — failures are captured in the result
         shape, never raised as raw exceptions.
     """
+    ports = host_ports or _legacy_host_ports()
     plan: ClassifyDecision | None = None
     research_result: AgentResearchResult | None = None
     implementation_result: ImplementationResult | None = None
@@ -2316,18 +2301,8 @@ def run_executor(
     }
 
     profiler_log(LOGGER, "executor.request", **request_fields)
-    begin_usage = (
-        host_ports.begin_deepseek_usage_capture
-        if host_ports is not None
-        else begin_deepseek_usage_capture
-    )
-    begin_attempts = (
-        host_ports.begin_model_attempt_capture
-        if host_ports is not None
-        else begin_model_attempt_capture
-    )
-    usage_token = begin_usage()
-    attempt_token = begin_attempts()
+    usage_token = ports.begin_deepseek_usage_capture()
+    attempt_token = ports.begin_model_attempt_capture()
 
     def _build_report(
         *,
@@ -2337,18 +2312,8 @@ def run_executor(
         classification_status: str = "",
         fallback_model_attempts: tuple[dict[str, Any], ...] = (),
     ) -> Report:
-        snapshot_usage = (
-            host_ports.snapshot_deepseek_usage_capture
-            if host_ports is not None
-            else snapshot_deepseek_usage_capture
-        )
-        snapshot_attempts = (
-            host_ports.snapshot_model_attempt_capture
-            if host_ports is not None
-            else snapshot_model_attempt_capture
-        )
-        usage, cache_breakout_complete = snapshot_usage()
-        model_attempts = snapshot_attempts()
+        usage, cache_breakout_complete = ports.snapshot_deepseek_usage_capture()
+        model_attempts = ports.snapshot_model_attempt_capture()
         if not model_attempts:
             model_attempts = coerce_model_attempts(fallback_model_attempts)
         est_cost_usd, cost_basis = estimate_deepseek_cost_usd(
@@ -2367,25 +2332,15 @@ def run_executor(
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
-        end_usage = (
-            host_ports.end_deepseek_usage_capture
-            if host_ports is not None
-            else end_deepseek_usage_capture
-        )
-        end_attempts = (
-            host_ports.end_model_attempt_capture
-            if host_ports is not None
-            else end_model_attempt_capture
-        )
-        end_usage(usage_token)
-        end_attempts(attempt_token)
+        ports.end_deepseek_usage_capture(usage_token)
+        ports.end_model_attempt_capture(attempt_token)
         return result
 
     # ── Resolve profile specs ────────────────────────────────────────────
     try:
         classify_spec = _resolve_spec(request.profile, "classify")
     except Exception as exc:
-        classify = host_ports.classify_failure if host_ports is not None else classify_failure
+        classify = ports.classify_failure
         failure = classify("profile", exc)
         return _finish(ExecutorResult.failure(
             kind=failure.kind.value,
@@ -2426,7 +2381,7 @@ def run_executor(
                 classify_spec,
                 session_context=session_context,
                 expect_graph_changed=request.expect_graph_changed,
-                host_ports=host_ports,
+                host_ports=ports,
             )
             span.update(
                 plan_research=plan.research,
@@ -2541,7 +2496,7 @@ def run_executor(
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
-            classify = host_ports.classify_failure if host_ports is not None else classify_failure
+            classify = ports.classify_failure
             failure = classify("profile", exc)
             return _finish(ExecutorResult.failure(
                 kind=failure.kind.value,
@@ -2616,7 +2571,7 @@ def run_executor(
             implement_spec = _resolve_spec(request.profile, "implement")
         except Exception as exc:
             # Profile missing implement spec → failure.
-            classify = host_ports.classify_failure if host_ports is not None else classify_failure
+            classify = ports.classify_failure
             failure = classify("profile", exc)
             report = _build_report(plan=plan, research=research_result)
             return _finish(ExecutorResult.failure(
@@ -2670,7 +2625,7 @@ def run_executor(
                         research_result=research_result,
                         client_id=client_id,
                         additive=additive,
-                        host_ports=host_ports,
+                        host_ports=ports,
                     )
                 finally:
                     heartbeat_stop.set()
@@ -2775,7 +2730,7 @@ def run_executor(
     try:
         reply_spec = _resolve_spec(request.profile, "reply")
     except Exception as exc:
-        classify = host_ports.classify_failure if host_ports is not None else classify_failure
+        classify = ports.classify_failure
         failure = classify("profile", exc)
         report = _build_report(
             plan=plan,
@@ -2813,7 +2768,7 @@ def run_executor(
                 graph_inspection=render_inspect_markdown(inspect_graph(effective_graph))
                 if route_behavior.reply_uses_graph_inspection
                 else None,
-                host_ports=host_ports,
+                host_ports=ports,
             )
             span.update(reply_preview=short_text(reply_text))
     except _ExecutorPhaseError as exc:
@@ -2900,6 +2855,69 @@ def _implementation_result_is_terminal_no_candidate(result: ImplementationResult
     if durable is None:
         return False
     return _implementation_response_is_terminal_no_candidate(dict(durable))
+
+
+def run_executor(
+    request: ExecutorRequest,
+    *,
+    client_id: str | None = None,
+    classify_only: bool = False,
+    additive: bool = False,
+    host_ports: ExecutorHostPorts | None = None,
+) -> ExecutorResult:
+    """Dispatch once between staged and threaded deliberation drivers.
+
+    ``staged`` remains the default and enters the original function without
+    altering its events or serialized result. ``threaded`` is imported lazily
+    to keep the shared kernel free of mode branches below this seam.
+    """
+    ports = host_ports or _legacy_host_ports()
+    try:
+        mode = resolve_orchestration_mode(request)
+    except Exception as exc:
+        failure = ports.classify_failure("configuration", exc)
+        kind = getattr(getattr(failure, "kind", None), "value", "ValidationError")
+        return ExecutorResult.failure(
+            kind=str(kind),
+            stage="configuration",
+            message=str(getattr(failure, "user_facing_message", exc)),
+        )
+
+    # Environment selection is an ingress boundary too. Materialize only the
+    # non-default value so threaded sessions persist their canonical mode while
+    # legacy staged requests retain byte-compatible omission.
+    if request.pipeline_mode is None and mode == "threaded":
+        request = replace(request, pipeline_mode=mode)
+
+    if mode == "staged":
+        return _run_staged_executor(
+            request,
+            client_id=client_id,
+            classify_only=classify_only,
+            additive=additive,
+            host_ports=ports,
+        )
+
+    from .threaded import ThreadedKernel, run_threaded_executor
+
+    kernel = ThreadedKernel(
+        resolve_spec=_resolve_spec,
+        run_implement=_run_implement,
+        emit_phase=_emit_executor_phase_event,
+        enforce_reply_grounding=_enforce_reply_grounding,
+        accepted_delta_ops=_accepted_delta_ops,
+        implementation_landed_edit=_implementation_landed_edit,
+        no_candidate_reason=_no_candidate_reason,
+    )
+    return run_threaded_executor(
+        request,
+        kernel=kernel,
+        host_ports=ports,
+        executor_id=new_profile_id("executor"),
+        client_id=client_id,
+        classify_only=classify_only,
+        additive=additive,
+    )
 
 
 __all__ = ["run_executor"]

@@ -117,15 +117,19 @@ def _make_set_mode_dict(
     }
 
 
-def _make_set_title_dict(
-    uid: str = "9",
-    title: str = "TestNode",
-    scope_path: str = "",
+def _make_subgraph_interface_dict(
+    *,
+    action: str = "add",
+    name: str = "Nested Graph",
+    subgraph_id: str = "sg-1",
 ) -> dict[str, Any]:
     return {
-        "op": "set_title",
-        "target": [scope_path, uid],
-        "title": title,
+        "op": "subgraph_interface",
+        "action": action,
+        "name": name,
+        "id": subgraph_id,
+        "inputs": [["image", "IMAGE"]],
+        "outputs": [["image", "IMAGE"]],
     }
 
 
@@ -688,7 +692,6 @@ class TestPreviewApplyParity:
         ops = [
             _make_set_node_field_dict("3", "seed", 42),
             _make_set_mode_dict("9", 4),
-            _make_set_title_dict("9", "TestNode"),
             _make_add_node_dict(
                 uid="n1", node_id="node_1", class_type="SaveImage",
                 inputs={"images": ["", "8", "IMAGE"]},
@@ -696,6 +699,7 @@ class TestPreviewApplyParity:
             _make_upsert_link_dict("n1", "IMAGE", "9", "images"),
             _make_remove_node_dict("9"),
             _make_remove_link_dict(42),
+            _make_subgraph_interface_dict(),
         ]
         envelope = _make_canonical_envelope(ops)
         result = normalize_delta_envelope(envelope)

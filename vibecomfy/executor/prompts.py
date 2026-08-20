@@ -479,6 +479,13 @@ _REPLY_SYSTEM = (
     "external evidence (research_attempt=never/empty), answer directly from "
     "the attached workflow graph and general knowledge — the reply must "
     "NEVER say that no supported conclusion was produced.\n"
+    "- When a research memo includes durable trace fields, interpret them "
+    "literally: research_status=exhausted means the agent stopped before a "
+    "synthesis; research_status=failed means it failed for research_error. "
+    "Only say tools found nothing when tool_calls_executed is positive and "
+    "evidence_artifacts is zero. Empty citations alone do not mean empty "
+    "research. If evidence_preview is present, name the concrete gathered "
+    "sources it contains before explaining that synthesis did not finish.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -717,17 +724,40 @@ def build_reply_messages(
 
 # ── response parsers ─────────────────────────────────────────────────────────
 
-# Matches a JSON object that starts with { and ends with } across lines.
-# More permissive than the top-level json.loads so we can extract from
-# model output that may have stray whitespace or a trailing period.
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _first_json_object_span(text: str) -> tuple[int, int] | None:
+    """Return the first balanced JSON-object span, respecting JSON strings."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    return None
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
     """Extract the first JSON object from potentially noisy model output.
 
     Strips markdown fences, trims surrounding whitespace, and falls back to
-    regex extraction before handing off to ``json.loads``.
+    balanced-brace extraction before handing off to ``json.loads``.
     """
     stripped = text.strip()
     # Strip outermost ``` fences (with or without ``json`` language tag).
@@ -744,11 +774,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Fall back to regex extraction: find the first { ... } span.
-    match = _JSON_OBJECT_RE.search(stripped)
-    if match:
+    # Fall back to the first balanced object. A greedy regex incorrectly
+    # absorbs braces from explanatory prose after otherwise-valid JSON.
+    span = _first_json_object_span(stripped)
+    if span is not None:
+        start, end = span
         try:
-            parsed = json.loads(match.group(0))
+            parsed = json.loads(stripped[start:end])
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
