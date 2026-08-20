@@ -49,3 +49,38 @@ The goal attachment names laptop launcher paths under `/Users/peteromalley/.code
 - **Changed files:** wrapper, validator, focused tests, G0 manifest/shards/log, and bootstrap receipt; the base-to-head receipt enumerates the earlier T0.1 changes as inherited diff.
 - **Residual risks:** no live model calls beyond this bootstrap; later cards must populate the manifest and run G0 review.
 - **Next unblocked card:** `T0.2` — first wrapper-routed Grok XHARD-REVIEW.
+
+## G0 / T0.4 — Operator-directed 50-scenario finale amendment (2026-08-20)
+
+- **Disposition:** in progress; plan/goal/log amendment plus new final50
+  manifest only. This entry records the operator override and the bounded
+  T0.4 change; it does **not** claim implementation review, live completion,
+  G7, merge, or promotion.
+- **Operator directive (2026-08-20):** authoritative G7 finale is 50
+  scenarios × 2 modes (staged + threaded) = 100 concurrent live legs;
+  concurrency 10 = 10 waves; tag `final-50x2`; one authoritative G7.2 run.
+  Authoritative G7 manifest:
+  `tests/live_agentic_harness/threaded_comparison_manifest_final50.json`.
+  Locked final5 remains the r5-comparable core (final50 entries 1–5) and is
+  independently unchanged. Canonical six-entry manifest unchanged. No merge
+  to `main`, no live promotion.
+- **Prerequisite XHARD pre-code review:**
+  `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-review-receipt.json`;
+  wrapper exit `0`; result digest
+  `d26b080e2e3a46f6127c9908bf71b05bb3f5469b53e463a81ebf639a62b1da91`;
+  base SHA `1c2eb90cf4c319eea0439a693dc53a2850c952ab`; model route
+  `grok-4.6`. Wrapper recorded no `STOP:` token. The implementer proceeds
+  under the required pre-code `continue` gate for this card.
+- **Changed-file scope (allowance):**
+  `docs/plans/workflow-execution-spine-consolidation-plan-2026-08-20.md`,
+  `docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md`,
+  `docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md`,
+  `tests/live_agentic_harness/threaded_comparison_manifest_final50.json`.
+  Forbidden and byte-unchanged: `threaded_comparison_manifest_final5.json`,
+  `threaded_comparison_manifest.json`, and the evidence directory.
+- **Stop-rule carve-out:** only the old “final-five inputs contradictory”
+  *count* contradiction is waived for this operator-authorized amendment.
+  All other stop rules remain active.
+- **Next unblocked card:** post-commit Grok `[XHARD-REVIEW]` of the complete
+  T0.4 diff; then evidence/log integration. T7.1/T7.2/T7.3 briefs must
+  reference final50. No live run on this card.
