@@ -1,0 +1,12 @@
+{
+  "id": "video-video-generation-from-resized-image",
+  "query": "The motion looks unnatural and flickers \u2014 the temporal smoothing seems off.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/6c1e9f2b110470fa.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "area"
+}

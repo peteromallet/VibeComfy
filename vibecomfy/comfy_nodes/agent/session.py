@@ -998,9 +998,11 @@ def iter_turn_records(
         else:
             outcome = lifecycle or "?"
 
+        from vibecomfy.ingest.normalize import door_get_nodes
+
         candidate_graph = response.get("graph")
         candidate_nodes = (
-            len(candidate_graph.get("nodes", []))
+            len(door_get_nodes(candidate_graph, []))
             if isinstance(candidate_graph, dict)
             else None
         )
@@ -1840,10 +1842,15 @@ def _load_authoritative_candidate_transaction(
         return None, "malformed_candidate_transaction"
     if hashes.get("authority_receipt_hash") != receipt_digest:
         return None, "authority_receipt_hash_mismatch"
-    envelope = plan.get("delta_ops_envelope")
-    if not isinstance(envelope, Mapping):
+    accepted = plan.get("accepted_batch")
+    if not isinstance(accepted, list):
         return None, "missing_persisted_delta_plan"
-    if authority.cumulative_delta_envelope != dict(envelope):
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
+    plan_envelope = derived_accepted_delta_envelope({"accepted_batch": accepted})
+    plan_digest = payload_hash(plan_envelope)
+    receipt_digest = authority.accepted_batch_digest or authority.cumulative_delta_hash
+    if plan_digest != receipt_digest:
         return None, "authority_delta_mismatch"
     if plan.get("delta_hash") != authority.cumulative_delta_hash:
         return None, "authority_delta_hash_mismatch"
@@ -1855,7 +1862,8 @@ def _load_authoritative_candidate_transaction(
     )
     if not isinstance(response, Mapping):
         return None, "missing_turn_response"
-    if response.get("delta_ops_envelope") != envelope:
+    response_envelope = derived_accepted_delta_envelope(response)
+    if response_envelope != plan_envelope:
         return None, "response_delta_mismatch"
     response_transaction = response.get("candidate_transaction")
     if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
@@ -2227,7 +2235,6 @@ def prepare_turn_transaction(
             "baseline_advanced": False,
             "generation_cas_enforced": generation_cas_enforced,
             "candidate_transaction": projected_transaction,
-            "delta_ops_envelope": projected_transaction["plan"]["delta_ops_envelope"],
             "receipt": event,
         }
 
@@ -3238,33 +3245,30 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
     if explicit is not None and explicit not in {"v1", "v2_delta"}:
         raise ValueError(f"Unsupported agent_edit_protocol {explicit!r}.")
 
-    delta_envelope = response.get("delta_ops_envelope")
-    flat_delta_ops = response.get("delta_ops")
-    canonical_ops: list[dict[str, Any]] | None = None
-    if isinstance(delta_envelope, Mapping):
-        from vibecomfy.porting.edit.ops import ensure_root_scoped_delta_envelope
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
 
-        canonical = ensure_root_scoped_delta_envelope(delta_envelope, strict=True)
-        canonical_payload = canonical.to_dict()
-        raw_ops = canonical_payload.get("ops")
-        canonical_ops = list(raw_ops) if isinstance(raw_ops, list) else []
+    accepted = response.get("accepted_batch")
+    accepted_ops = list(_ops_from_accepted_batch(response))
+    has_accepted_batch = isinstance(accepted, list)
+    canonical_ops: list[dict[str, Any]] | None = accepted_ops if has_accepted_batch else None
+    derived_envelope = {
+        "schema_version": "2.0.0",
+        "ops": accepted_ops,
+    }
 
     if explicit == "v1":
-        if canonical_ops is not None or isinstance(flat_delta_ops, list):
+        if has_accepted_batch and accepted_ops:
             raise ValueError("agent_edit_protocol 'v1' cannot carry V2 delta evidence.")
         if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
             raise ValueError("agent_edit_protocol 'v1' candidate authority is historical and read-only.")
         return "v1"
 
     if explicit == "v2_delta":
-        if canonical_ops is None:
-            raise ValueError(
-                "agent_edit_protocol 'v2_delta' requires delta_ops_envelope."
-            )
-        if isinstance(flat_delta_ops, list) and flat_delta_ops != canonical_ops:
-            raise ValueError(
-                "delta_ops compatibility view does not match delta_ops_envelope."
-            )
+        # Missing accepted_batch is an empty Δ (identity / no landed edits).
+        if not has_accepted_batch:
+            accepted_ops = []
+            has_accepted_batch = True
+            derived_envelope = {"schema_version": "2.0.0", "ops": []}
         candidate = response.get("candidate")
         eligibility = response.get("eligibility")
         if not isinstance(eligibility, Mapping):
@@ -3308,7 +3312,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
                     "match the candidate graph."
                 )
             expected_plan_hash = v2_mutation_plan_hash(
-                delta_ops_envelope=delta_envelope,
+                delta_ops_envelope=derived_envelope,
                 structural_hash_before=candidate.get("structural_hash_before"),
                 structural_hash_after=candidate.get("structural_hash_after"),
             )
@@ -3320,9 +3324,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         return "v2_delta"
 
     if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
-        if isinstance(flat_delta_ops, list):
-            # Legacy flat-delta_ops candidate without a v2_delta envelope is
-            # still rejected: the strict path requires a canonical envelope.
+        if has_accepted_batch and accepted_ops and explicit != "v2_delta":
             raise ValueError("New candidate authority requires explicit v2_delta evidence.")
         # Non-delta contracts (e.g. the default ``batch_repl``/canvas contract)
         # produce a legitimate applyable candidate but carry no delta evidence.
@@ -3332,10 +3334,10 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         # above (explicit protocol / envelope / plan-hash) are preserved.
         _LOGGER.warning(
             "Candidate authority without explicit v2_delta evidence recorded "
-            "as v1 audit artifact; delta_ops_envelope absent on this response."
+            "as v1 audit artifact; accepted_batch absent on this response."
         )
         return "v1"
-    if canonical_ops is not None or isinstance(flat_delta_ops, list):
+    if has_accepted_batch:
         return "v2_delta"
     # Answer-only/no-candidate records remain readable audit artifacts.
     return "v1"
@@ -3947,8 +3949,9 @@ def record_idempotent_response(
     stamped_response = response
     authority_receipt: Any = None
     request_payload: Mapping[str, Any] | None = None
-    requested_v2 = response.get("agent_edit_protocol") == "v2_delta" or isinstance(
-        response.get("delta_ops_envelope"), Mapping
+    requested_v2 = (
+        response.get("agent_edit_protocol") == "v2_delta"
+        or isinstance(response.get("accepted_batch"), list)
     )
     if scope == "edit" and turn_id is not None:
         try:
@@ -3967,12 +3970,15 @@ def record_idempotent_response(
                         raise ValueError("V2 candidate issuance requires the persisted submit graph.")
                     from .authority_receipts import build_and_persist_authority_receipt
 
+                    from vibecomfy.comfy_nodes.agent._frag_state import (
+                        derived_accepted_delta_envelope,
+                    )
+
                     schema_version = ""
-                    delta_envelope = response.get("delta_ops_envelope")
-                    if isinstance(delta_envelope, Mapping):
-                        raw_schema_version = delta_envelope.get("schema_version")
-                        if isinstance(raw_schema_version, str):
-                            schema_version = raw_schema_version
+                    delta_envelope = derived_accepted_delta_envelope(response)
+                    raw_schema_version = delta_envelope.get("schema_version")
+                    if isinstance(raw_schema_version, str):
+                        schema_version = raw_schema_version
                     authority_receipt, stamped_response = build_and_persist_authority_receipt(
                         turn_dir=turn_dir,
                         session_id=session_id,
@@ -4022,7 +4028,7 @@ def record_idempotent_response(
             and authority_receipt is not None
             and isinstance(candidate_plan_hash, str)
             and isinstance(candidate_structural_graph_hash, str)
-            and isinstance(authority_receipt.cumulative_delta_envelope, Mapping)
+            and isinstance(authority_receipt.accepted_batch_digest or authority_receipt.cumulative_delta_hash, str)
             and isinstance(authority_receipt.cumulative_delta_hash, str)
             and isinstance(authority_receipt.schema_witness, Mapping)
         )
@@ -4065,6 +4071,12 @@ def record_idempotent_response(
             layout_operation_envelope = build_layout_operation_envelope(
                 submit_graph, candidate_graph
             )
+        from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+        accepted_batch = stamped_response.get("accepted_batch")
+        if not isinstance(accepted_batch, list):
+            accepted_batch = []
+        accepted_ops = list(_ops_from_accepted_batch(stamped_response))
         transaction = build_candidate_transaction(
             workflow_id=workflow_id,
             session_id=session_id,
@@ -4072,7 +4084,7 @@ def record_idempotent_response(
             plan_hash=candidate_plan_hash,
             submit_graph=submit_graph,
             candidate_graph=candidate_graph,
-            delta_ops_envelope=authority_receipt.cumulative_delta_envelope,
+            accepted_batch=accepted_batch,
             delta_hash=authority_receipt.cumulative_delta_hash,
             submit_graph_hash=authority_receipt.submit_graph_hash,
             submit_structural_graph_hash=(
@@ -4093,12 +4105,10 @@ def record_idempotent_response(
             applyable=applyable,
             state="candidate_ready" if applyable else "recoverable_error",
             mutation_materialization_envelope=(
-                build_mutation_materialization_v1(
-                    authority_receipt.cumulative_delta_envelope.get("ops", [])
-                )
+                build_mutation_materialization_v1(accepted_ops)
                 if any(
                     isinstance(op, Mapping) and op.get("op") == "add_node"
-                    for op in authority_receipt.cumulative_delta_envelope.get("ops", [])
+                    for op in accepted_ops
                 )
                 else None
             ),

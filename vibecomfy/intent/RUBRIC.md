@@ -22,6 +22,12 @@ Setting `denoise=1.0` when asked for "sharper" output fails this criterion
 because `denoise` does not control sharpness; setting `cfg=0` when asked for
 "more faithful" fails because cfg=0 disables guidance entirely.
 
+An explicit terminal numeric target tied to the targeted field is authoritative:
+when the request says `to N`, `= N`, or `set <field> ... N` and the landed new
+value for that field is exactly `N`, this criterion passes even if an accompanying
+`increase`/`decrease` verb conflicts with the pre-image direction. Unrelated
+numbers and descriptive schedule or handoff phrasing do not qualify.
+
 ### C4 — no_orphaned_wiring
 The edit leaves the graph in a structurally connected state. No output that was
 previously consumed is left unconnected, and no new node is inserted without

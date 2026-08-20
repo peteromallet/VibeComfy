@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 # Shared canonical-hash identity lives in the zero-dependency leaf
 # ``_canonical_contract_primitives``.  These symbols are relocated *verbatim*
 # (no logic change) and re-exported here with identical identity so every
@@ -131,7 +132,7 @@ def _graph_link_identities(graph: Mapping[str, Any], nodes: list[Any]) -> list[d
         if isinstance(node, Mapping) and node.get("id") is not None
     }
     result: list[dict[str, Any]] = []
-    for link in graph.get("links", []) if isinstance(graph.get("links"), list) else []:
+    for link in door_get_links(graph, []) if isinstance(door_get_links(graph), list) else []:
         if isinstance(link, Mapping) and isinstance(link.get("from"), Mapping) and isinstance(link.get("to"), Mapping):
             result.append(_link_identity(link))
             continue
@@ -162,7 +163,7 @@ def assert_forward_projection_v1(name: Any) -> Mapping[str, Any]:
     return spec
 
 def _widgets(node: Mapping[str, Any]) -> Any:
-    raw = node.get("widgets_values", {})
+    raw = door_get_widgets_values(node, {})
     if isinstance(raw, list):
         values = [
             value for index, value in enumerate(raw)
@@ -178,8 +179,10 @@ def _widgets(node: Mapping[str, Any]) -> Any:
 def _sort(values: list[Any]) -> list[Any]: return sorted(values, key=canonical_json)
 
 def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
+    # Historical v1 candidate projection.  Not product graph authority and
+    # not a Law-5 door; V2 authority is candidate_transaction_v2.
     assert_forward_projection_v1(projection); graph = assert_root_graph_v1(graph)
-    nodes = graph.get("nodes", [])
+    nodes = door_get_nodes(graph, [])
     if not isinstance(nodes, list): raise ContractError("nodes must be a list", "malformed_graph")
     if projection == "structural_v1":
         result_nodes = []
@@ -188,7 +191,7 @@ def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
             result = {"uid": node_identity_v1(node), "type": node.get("type") if isinstance(node.get("type"), str) else None, "mode": node.get("mode", 0) if node.get("mode") is not None else 0, "fields": node.get("fields") if node.get("fields") is not None else {}, "widgets_values": _widgets(node)}
             if node.get("extensions") is not None: result["extensions"] = node["extensions"]
             result_nodes.append(result)
-        links = graph.get("links", [])
+        links = door_get_links(graph, [])
         if not isinstance(links, list): raise ContractError("links must be a list", "malformed_graph")
         return {"projection": projection, "nodes": _sort(result_nodes), "links": _sort(_graph_link_identities(graph, nodes))}
     groups = graph.get("groups", [])
@@ -270,7 +273,7 @@ def _legacy_normalize_structural_widget_value(value: Any) -> Any:
 
 
 def _legacy_normalize_node_widget_values(node: Mapping[str, Any]) -> Any:
-    values = node.get("widgets_values", [])
+    values = door_get_widgets_values(node, [])
     if node.get("type") == "LoadImage" and isinstance(values, list):
         return [
             _legacy_normalize_structural_widget_value(entry)
@@ -299,7 +302,7 @@ def _legacy_normalize_node_widget_values(node: Mapping[str, Any]) -> Any:
 def build_structural_graph_projection(graph: Any) -> dict[str, Any]:
     if not isinstance(graph, Mapping):
         return {"nodes": [], "links": []}
-    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    raw_nodes = door_get_nodes(graph) if isinstance(door_get_nodes(graph), list) else []
     input_names: dict[Any, list[Any]] = {}
     output_names: dict[Any, list[Any]] = {}
     for node in raw_nodes:
@@ -332,7 +335,7 @@ def build_structural_graph_projection(graph: Any) -> dict[str, Any]:
             "outputs": sorted(
                 str(item.get("name"))
                 for item in (node.get("outputs") if isinstance(node.get("outputs"), list) else [])
-                if isinstance(item, Mapping) and item.get("links") and item.get("name") is not None
+                if isinstance(item, Mapping) and door_get_links(item) and item.get("name") is not None
             ),
             "widgets_values": _legacy_normalize_node_widget_values(node),
         })
@@ -344,7 +347,7 @@ def build_structural_graph_projection(graph: Any) -> dict[str, Any]:
         return slot
 
     links: list[dict[str, Any]] = []
-    for link in (graph.get("links") if isinstance(graph.get("links"), list) else []):
+    for link in (door_get_links(graph) if isinstance(door_get_links(graph), list) else []):
         if isinstance(link, list) and len(link) >= 6:
             origin_id, origin_slot, target_id, target_slot, link_type = link[1:6]
         elif isinstance(link, Mapping):
@@ -413,7 +416,7 @@ def build_layout_graph_projection(graph: Any) -> dict[str, Any]:
     issues = browser_layout_scope_issues_v1(graph)
     if issues:
         raise ValueError(f"unsupported_nested_layout_scope:{issues!r}")
-    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    raw_nodes = door_get_nodes(graph) if isinstance(door_get_nodes(graph), list) else []
     nodes = [
         {
             "id": node.get("id"),
@@ -947,7 +950,13 @@ def _frozen(value: Any) -> Any:
     if isinstance(value, list): return tuple(_frozen(v) for v in value)
     return value
 
-def _validate_candidate_authority_common(raw: Any) -> Any:
+def _forward_ops_from_accepted_batch(accepted_batch: Any) -> list[Any]:
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+    return list(_ops_from_accepted_batch({"accepted_batch": accepted_batch or []}))
+
+
+def _validate_candidate_authority_common(raw: Any, *, accepted_batch: Any = None) -> Any:
     if not isinstance(raw, Mapping) or raw.get("contract_version") not in {CANDIDATE_AUTHORITY_V1, PREPARED_AUTHORITY_V1}: raise ContractError("Unsupported authority version", "unknown_authority_version")
     for key in ("transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash"): issued_identity_v1(raw.get(key), key)
     if raw.get("authority_receipt_contract_version") != AUTHORITY_RECEIPT_CONTRACT_VERSION:
@@ -958,8 +967,22 @@ def _validate_candidate_authority_common(raw: Any) -> Any:
         raise ContractError("Authority receipt digest must be exact lowercase SHA-256", "invalid_authority_receipt_digest")
     workflow_identity_v1(raw.get("workflow_id")); assert_root_scope_v1(raw.get("scope"))
     operation = raw.get("operation")
-    if not isinstance(operation, Mapping) or operation.get("delta_contract") != DELTA_V1 or operation.get("wire_version") != DELTA_WIRE_VERSION or not isinstance(operation.get("ops"), list): raise ContractError("Operation must explicitly bind delta_v1 to wire 2.0.0", "invalid_delta_contract")
-    _strict_delta(operation["ops"])
+    if not isinstance(operation, Mapping) or operation.get("delta_contract") != DELTA_V1 or operation.get("wire_version") != DELTA_WIRE_VERSION:
+        raise ContractError("Operation must explicitly bind delta_v1 to wire 2.0.0", "invalid_delta_contract")
+    if "ops" in operation:
+        raise ContractError("operation must not persist ops; accepted_batch is the durable Δ", "durable_delta_ops_copy")
+    digest = operation.get("accepted_batch_digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ContractError("Operation must reference accepted_batch by digest", "invalid_delta_contract")
+    forward_ops = _forward_ops_from_accepted_batch(accepted_batch)
+    if accepted_batch is not None:
+        from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+        from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+
+        expected = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        if digest != expected:
+            raise ContractError("accepted_batch_digest does not match plan.accepted_batch", "accepted_batch_digest_mismatch")
+        _strict_delta(forward_ops)
     family = raw.get("operation_family")
     if family not in {"structural", "layout"}: raise ContractError("Unknown operation family", "unknown_operation_family")
     expected = "layout_v1" if family == "layout" else "structural_v1"
@@ -968,8 +991,8 @@ def _validate_candidate_authority_common(raw: Any) -> Any:
     if family == "layout":
         witness = assert_projection_reference_v1(raw.get("structural_witness"), "structural_v1")
         if witness.get("precondition_digest") != witness.get("postcondition_digest"): raise ContractError("Layout requires structural no-op witness", "layout_structural_witness_mismatch")
-    _bind_family_contracts(raw, family)
-    _restoration(raw.get("restoration_strategy"), family=family, forward_ops=operation["ops"])
+    _bind_family_contracts(raw, family, forward_ops=forward_ops)
+    _restoration(raw.get("restoration_strategy"), family=family, forward_ops=forward_ops)
     # Prepare-owned optional compensation slot: validated only on prepared
     # authority (candidate presence is rejected by validate_candidate_authority_v1).
     if "restoration_strategy_compensation" in raw and raw.get("contract_version") == PREPARED_AUTHORITY_V1:
@@ -977,12 +1000,12 @@ def _validate_candidate_authority_common(raw: Any) -> Any:
     return raw
 
 
-def _bind_family_contracts(raw: Mapping[str, Any], family: str) -> None:
+def _bind_family_contracts(raw: Mapping[str, Any], family: str, *, forward_ops: list[Any] | None = None) -> None:
     """Bind layout_operation / mutation_materialization per §1.5 / §2.5."""
     operation = raw.get("operation")
-    ops = operation.get("ops") if isinstance(operation, Mapping) else None
+    ops = list(forward_ops or [])
     if family == "layout":
-        if operation.get("ops"):
+        if ops:
             raise ContractError("Layout family requires empty structural ops", "layout_family_requires_empty_structural_ops")
         layout = operation.get("layout_operation")
         if layout is None:
@@ -1007,16 +1030,16 @@ def _bind_family_contracts(raw: Mapping[str, Any], family: str) -> None:
             if operation.get("mutation_materialization_digest") != mat.get("digest"):
                 raise ContractError("mutation_materialization_digest mismatch", "mutation_materialization_digest_mismatch")
 
-def validate_candidate_authority_v1(raw: Any, *, freeze: bool = False) -> Any:
-    _validate_candidate_authority_common(raw)
+def validate_candidate_authority_v1(raw: Any, *, freeze: bool = False, accepted_batch: Any = None) -> Any:
+    _validate_candidate_authority_common(raw, accepted_batch=accepted_batch)
     if raw.get("contract_version") != CANDIDATE_AUTHORITY_V1: raise ContractError("Unsupported candidate authority version", "unknown_authority_version")
     if "generation" in raw or "lease_nonce" in raw: raise ContractError("Candidate authority cannot infer prepare-time identity", "unexpected_prepare_identity")
     if "restoration_strategy_compensation" in raw: raise ContractError("Candidate authority may not carry restoration_strategy_compensation", "candidate_compensation_forbidden")
     clean = json.loads(json.dumps(raw))
     return _frozen(clean) if freeze else clean
 
-def validate_prepared_authority_v1(raw: Any, *, freeze: bool = False) -> Any:
-    _validate_candidate_authority_common(raw)
+def validate_prepared_authority_v1(raw: Any, *, freeze: bool = False, accepted_batch: Any = None) -> Any:
+    _validate_candidate_authority_common(raw, accepted_batch=accepted_batch)
     if raw.get("contract_version") != PREPARED_AUTHORITY_V1: raise ContractError("Unsupported prepared authority version", "unknown_authority_version")
     issued_identity_v1(raw.get("lease_nonce"), "lease_nonce")
     if not isinstance(raw.get("generation"), int) or raw["generation"] <= 0: raise ContractError("generation must be positive", "invalid_generation")
@@ -1036,12 +1059,14 @@ def validate_candidate_transaction_v2(value: Any) -> Any:
     candidate = value.get("candidate_authority")
     if candidate is None:
         raise ContractError("candidate_transaction_v2 requires candidate_authority_v1", "missing_candidate_authority")
-    candidate = validate_candidate_authority_v1(candidate)
+    plan = value.get("plan")
+    accepted_batch = plan.get("accepted_batch") if isinstance(plan, Mapping) else None
+    candidate = validate_candidate_authority_v1(candidate, accepted_batch=accepted_batch)
     prepared = value.get("prepared_authority")
     if state in {"candidate_ready", "recoverable_error"}:
         if prepared is not None: raise ContractError("Candidate-ready authority cannot carry prepare identity", "unexpected_prepared_authority")
     elif state in {"prepared", "canvas_verified", "finalized", "rollback_complete", "superseded"}:
-        prepared = validate_prepared_authority_v1(prepared)
+        prepared = validate_prepared_authority_v1(prepared, accepted_batch=accepted_batch)
         for key in ("transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash", "workflow_id", "scope", "operation", "operation_family", "precondition", "postcondition", "rollback_projection", "restoration_strategy", "authority_receipt_contract_version", "authority_receipt_delta_schema", "authority_receipt_digest"):
             if prepared.get(key) != candidate.get(key): raise ContractError("Prepared authority changed candidate-time authority", "prepared_authority_transition_mismatch")
         # restoration_strategy_compensation: sole prepare-owned additive key.

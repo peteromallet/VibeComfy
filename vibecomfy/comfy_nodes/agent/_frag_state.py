@@ -372,26 +372,135 @@ def _duration_ms(start: float) -> int:
     return max(0, int((time.monotonic() - start) * 1000))
 
 
+def _ops_from_accepted_batch(payload: Mapping[str, Any] | None) -> tuple[dict[str, Any], ...]:
+    """Durable Δ ops: landed ``accepted_batch[*].op`` only."""
+    if not isinstance(payload, Mapping):
+        return ()
+    accepted = payload.get("accepted_batch")
+    if not isinstance(accepted, list):
+        return ()
+    ops: list[dict[str, Any]] = []
+    for statement in accepted:
+        if not isinstance(statement, Mapping):
+            continue
+        op = statement.get("op")
+        if isinstance(op, Mapping):
+            ops.append(dict(op))
+    return tuple(ops)
+
+
+def derived_accepted_delta_envelope(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Apply-binding envelope derived from the sole durable Δ (accepted_batch)."""
+    return {
+        "schema_version": "2.0.0",
+        "ops": list(_ops_from_accepted_batch(payload)),
+    }
+
+
 def _total_landed_edit_count(state: AgentEditState) -> int:
     # FieldChange captures field, mode, and link mutations, but node creation
     # and deletion have no FieldChange representation. Count those from the
-    # effective canonical delta evidence so add-only and mixed edits remain
-    # visible without resurrecting lint-dropped or same-value operations.
+    # accepted-batch ops so add-only and mixed edits remain visible.
     from ._frag_humanize import _net_field_changes  # T-038 late import: sibling cycle broken; resolved at call time
     total = len(_net_field_changes(tuple(state.batch_field_changes or ())))
-    for turn in state.batch_turns:
-        envelope = turn.get("delta_ops_envelope")
-        if isinstance(envelope, Mapping) and isinstance(envelope.get("ops"), list):
-            delta_ops = envelope["ops"]
-        else:
-            flat_delta_ops = turn.get("delta_ops")
-            delta_ops = flat_delta_ops if isinstance(flat_delta_ops, list) else ()
-        total += sum(
-            1
-            for op in delta_ops
-            if isinstance(op, Mapping) and op.get("op") in {"add_node", "remove_node"}
-        )
+    total += sum(
+        1
+        for op in _accepted_batch_delta_ops(state)
+        if op.get("op") in {"add_node", "remove_node"}
+    )
     return total
+
+
+def _accepted_batch_statements(state: AgentEditState) -> tuple[dict[str, Any], ...]:
+    """Return the accepted Δ: the batch statements that succeeded, in turn order.
+
+    A statement is accepted iff it landed (``ok`` and ``landed`` both true).
+    Rejected statements are excluded so every consumer (reply, report,
+    humanize, judge) is grounded in the same single source of truth and can
+    never claim an edit that did not land.  Each accepted edit statement
+    additionally carries its landed ``op`` (the typed op the grammar yielded,
+    matched from the turn's Δ ops in landed order), so the accepted batch IS
+    the canonical Δ (Law 3) — no parallel envelope is needed.
+    """
+    accepted: list[dict[str, Any]] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or []:
+            if not isinstance(statement, Mapping):
+                continue
+            if statement.get("ok") is not True or statement.get("landed") is not True:
+                continue
+            entry = {
+                "statement_index": statement.get("statement_index"),
+                "source": statement.get("source"),
+                "op_kind": statement.get("op_kind"),
+                "touched_uids": list(statement.get("touched_uids") or ()),
+                "status": statement.get("status"),
+                "reason": statement.get("reason"),
+            }
+            op = statement.get("op")
+            if not isinstance(op, Mapping):
+                detail = statement.get("detail")
+                if isinstance(detail, Mapping) and isinstance(detail.get("edit_op"), Mapping):
+                    op = detail["edit_op"]
+            if isinstance(op, Mapping):
+                entry["op"] = op
+            accepted.append(entry)
+    return tuple(accepted)
+
+
+def _accepted_batch_field_changes(state: AgentEditState) -> tuple[FieldChange, ...]:
+    """Return the field-change projection of the accepted Δ (landed/ok only).
+
+    A per-turn ``field_changes`` item is included ONLY when the turn has an
+    accepted (``ok`` and ``landed`` both true) statement touching that uid —
+    a rejected statement can never contribute a change.  Turns with no
+    accepted statements contribute nothing.  Falls back to
+    ``state.batch_field_changes`` (the loop-maintained accumulation of
+    landed changes only) when no turn carries a field-change payload
+    (synthetic/pre-batch states with no batch evidence).
+    """
+    changes: list[FieldChange] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, Mapping):
+            continue
+        payload = turn.get("field_changes")
+        if not isinstance(payload, list):
+            continue
+        accepted_uids: set[str] = set()
+        for statement in turn.get("statements") or []:
+            if not isinstance(statement, Mapping):
+                continue
+            if statement.get("ok") is True and statement.get("landed") is True:
+                accepted_uids.update(str(uid) for uid in statement.get("touched_uids") or ())
+        if not accepted_uids:
+            continue
+        for item in payload:
+            if not isinstance(item, Mapping):
+                continue
+            if str(item.get("uid")) not in accepted_uids:
+                continue
+            changes.append(
+                FieldChange(
+                    uid=item.get("uid"),
+                    field_path=item.get("field_path"),
+                    old=item.get("old"),
+                    new=item.get("new"),
+                )
+            )
+    if changes or state.batch_turns:
+        return tuple(changes)
+    return tuple(state.batch_field_changes or ())
+
+
+def _accepted_batch_delta_ops(state: AgentEditState) -> tuple[dict[str, Any], ...]:
+    """Return the cumulative Δ ops of the accepted batch, in turn order.
+
+    Derived only from landed ``statement.op`` values — no envelope/flat
+    compatibility view.
+    """
+    return _ops_from_accepted_batch({"accepted_batch": list(_accepted_batch_statements(state))})
 
 
 def _read_only_discovery_turn_count(state: AgentEditState) -> int:
@@ -538,13 +647,15 @@ __all__ = (
      "collect_graph_facts", "collect_readiness_evidence", "collect_topology_evidence",
      "compute_scoped_diff", "dataclass", "dataclasses", "datetime",
      "derive_apply_eligibility", "derive_gates", "difflib",
-     "ensure_agent_edit_response_contract", "ensure_sentence_message",
-     "evaluate_execution_plan_for_state", "failure_envelope", "field",
-     "format_compact_plan_feedback", "format_compact_plan_status",
-     "hydrate_execution_plan_from_protocol_notes", "initialize_gates",
+     "ensure_agent_edit_response_contract",
+     "ensure_sentence_message", "evaluate_execution_plan_for_state",
+     "failure_envelope", "field", "format_compact_plan_feedback",
+     "format_compact_plan_status", "hydrate_execution_plan_from_protocol_notes",
+     "initialize_gates",
      "is_actionable_adaptation_plan", "json", "load_candidate_transaction",
      "load_candidate_transaction_with_migration", "logging", "lower_stage_result",
-     "normalize_agent_edit_v2_metadata", "normalize_session_id", "os", "payload_hash",
+     "normalize_agent_edit_v2_metadata",
+     "normalize_session_id", "os", "payload_hash",
      "product_failure_envelope_fields", "project_transaction_state",
      "public_outcome_from_turn_outcome", "queue_stage_result", "re", "read_state",
      "record_idempotent_response", "repair_field_changes", "run_agent_turn",
@@ -554,4 +665,8 @@ __all__ = (
      "update_state_match_gate", "uuid", "v2_mutation_plan_hash",
      "validation_errors_payload", "write_allocation_failure_audit", "write_audit",
      "write_json_artifact",
+     "_accepted_batch_delta_ops", "_accepted_batch_field_changes",
+     "_ops_from_accepted_batch",
+     "derived_accepted_delta_envelope",
+     "_accepted_batch_statements",
 )

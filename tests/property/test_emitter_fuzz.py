@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from vibecomfy.ingest.normalize import _schema_input_names
+from vibecomfy.ingest.normalize import _schema_input_names, from_ui
 from vibecomfy.porting.parity import compile_equivalent
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider
@@ -387,6 +387,39 @@ def test_fuzz_determinism() -> None:
     )
 
     print(f"\n[T21] Determinism: same seed reproduces byte-identical output.")
+
+
+def test_ir_door_fuzz_preserves_wire_only_top_level_payloads() -> None:
+    """Law 1: an untouched ingested graph round-trips byte-identically, even
+    when the wire-only top-level fields (id/version/counters/extra) were
+    mutated before ingest — the door reproduces the captured bytes exactly."""
+    rng = random.Random(20260816)
+    for run in range(5):
+        workflow = _generate_random_workflow_with_rng(5, rng)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            canonical = emit_ui_json(workflow)
+        canonical["id"] = f"phase0-spike-{run}"
+        canonical["version"] = 0.4
+        canonical["last_node_id"] = int(canonical.get("last_node_id", 0)) + 101
+        canonical["last_link_id"] = int(canonical.get("last_link_id", 0)) + 211
+        canonical["extra"] = {
+            "phase0": {"run": run, "nonce": rng.randrange(1_000_000)}
+        }
+
+        ingested = from_ui(canonical, use_comfy_converter=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            replayed = emit_ui_json(ingested)
+        assert json.dumps(
+            replayed,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ) == json.dumps(
+            canonical,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
 
 # ---------------------------------------------------------------------------

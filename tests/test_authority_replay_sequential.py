@@ -1,16 +1,8 @@
-"""Regression: authority replay must match the executor's sequential application.
+"""Regression: authority replay must match sequential interpret+emit.
 
-The batch-REPL executor builds the candidate it returns to the user by applying
-ops **one at a time, in program order** (``_parse_execute`` calls
-``apply_delta(working_ui, (op,))`` per statement). ``apply_delta(submit,
-all_ops)`` resolves every ``add_node`` against the *pre-mutation* graph (before
-removes land), so on a multi-add edit its layout placement can diverge from the
-executor's strict order. That divergence is only in non-semantic ``pos``
-coordinates, but the authority byte-hash tripped on it and rejected a valid
-candidate (the "switch to sdxl" symptom: candidate passed every gate incl.
-``ui_fidelity_ok`` yet ``candidate_matches`` was false; the identical retry
-passed). ``recompute_apply`` now applies ops sequentially, mirroring the
-executor, so the authority verifies the graph the user actually receives.
+``recompute_apply`` applies ops one at a time through interpret+emit, mirroring
+the batch-REPL executor. These tests lock that contract without the deleted
+all-at-once apply_delta path.
 """
 from __future__ import annotations
 
@@ -22,8 +14,10 @@ from vibecomfy.comfy_nodes.agent.authority_receipts import (
     verify_replay,
 )
 from vibecomfy.comfy_nodes.agent.session import payload_hash
-from vibecomfy.porting.edit.apply_core import apply_delta
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.ops import normalize_delta_ops
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
 FIXTURE = (
@@ -62,26 +56,24 @@ def _envelope(ops: list) -> dict:
     return {"schema_version": "2.0.0", "ops": ops}
 
 
-def _sequential_candidate(submit: dict, ops: tuple, schema_provider) -> dict:
-    """Apply ops one at a time, in order — exactly how the executor builds it."""
-    working = submit
+def _sequential_candidate(submit: dict, envelope: dict, schema_provider) -> dict:
+    """Apply ops one at a time via interpret+emit — the live sequential path."""
+    ops = normalize_delta_ops(envelope)
+    workflow = from_ui(dict(submit), schema_provider=schema_provider, use_comfy_converter=False)
     for op in ops:
-        step = apply_delta(working, (op,), schema_provider=schema_provider)
-        assert step.ok and step.candidate is not None, step.diagnostics
-        working = step.candidate
-    return working
+        step = interpret(workflow, (op,), schema_provider=schema_provider)
+        assert step.ok, step.diagnostics
+        workflow = step.workflow
+    return emit_ui_json(
+        workflow,
+        schema_provider=schema_provider,
+        include_virtual_wires=True,
+        prior_ui_payload=submit,
+    )
 
 
 def test_replay_matches_executor_candidate_on_multi_add_with_remove() -> None:
-    """The authority must accept the candidate the executor actually produces.
-
-    Delta: remove the two prompt encoders that sit to the right of the
-    checkpoint, then add two CLIPTextEncode nodes anchored to the right of the
-    checkpoint. Sequential application removes them first, so the adds land in
-    the freed region; all-at-once places the adds before the removes land, so
-    collision avoidance nudges them elsewhere. The executor is sequential, so
-    the authority must be too.
-    """
+    """The authority must accept the candidate sequential interpret produces."""
     schema_provider = _ClipSchemaProvider()
     submit = _submit_graph()
     envelope = _envelope(
@@ -110,30 +102,17 @@ def test_replay_matches_executor_candidate_on_multi_add_with_remove() -> None:
             },
         ]
     )
-    ops = normalize_delta_ops(envelope)
 
-    candidate_seq = _sequential_candidate(submit, ops, schema_provider)
-    candidate_all = apply_delta(
-        submit, ops, schema_provider=schema_provider
-    ).candidate
-
-    # The bug condition: the two application strategies genuinely diverge. If
-    # this ever stops diverging, placement changed and this guard should be
-    # revisited — but the invariant test below still holds regardless.
-    assert payload_hash(candidate_seq) != payload_hash(candidate_all), (
-        "expected sequential vs all-at-once to diverge on this multi-add delta; "
-        "the regression fixture no longer exercises the bug condition"
-    )
-
-    receipt = verify_replay(submit, envelope, candidate_seq, schema_provider=schema_provider)
+    candidate = _sequential_candidate(submit, envelope, schema_provider)
+    receipt = verify_replay(submit, envelope, candidate, schema_provider=schema_provider)
     assert receipt.replay_ok is True
     assert receipt.candidate_matches is True, (
-        f"authority rejected the executor's own sequential candidate: {receipt.error}"
+        f"authority rejected the sequential interpret candidate: {receipt.error}"
     )
 
 
 def test_recompute_apply_is_sequential_invariant() -> None:
-    """For any delta, recompute_apply must equal one-at-a-time application."""
+    """For any delta, recompute_apply must equal one-at-a-time interpret+emit."""
     schema_provider = _ClipSchemaProvider()
     submit = _submit_graph()
     envelope = _envelope(
@@ -152,13 +131,12 @@ def test_recompute_apply_is_sequential_invariant() -> None:
             },
         ]
     )
-    ops = normalize_delta_ops(envelope)
 
     ok, recomputed, error, _ = recompute_apply(submit, envelope, schema_provider=schema_provider)
     assert ok is True, error
     assert error is None
 
-    expected = _sequential_candidate(submit, ops, schema_provider)
+    expected = _sequential_candidate(submit, envelope, schema_provider)
     assert payload_hash(recomputed) == payload_hash(expected), (
-        "recompute_apply drifted from sequential application"
+        "recompute_apply drifted from sequential interpret+emit"
     )

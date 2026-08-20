@@ -11,12 +11,12 @@ Coverage:
 - add_node class_type / scope validation
 - upsert_link uid resolution
 - remove_link link-id and target-based validation
-- reorder uid resolution
 """
 
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
 
@@ -35,10 +35,8 @@ from vibecomfy.porting.edit.ops import (
     NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
-    ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
     UpsertLinkOp,
 )
 
@@ -85,18 +83,16 @@ def test_canonical_uid_remove_node_passes_through() -> None:
     assert result.surviving[0] is op
 
 
-def test_canonical_uid_reorder_passes_through() -> None:
-    """A reorder op referencing a valid canonical uid passes unchanged."""
+def test_legacy_reorder_and_set_title_rejected_as_unknown_op() -> None:
+    """reorder/set_title are not part of the grammar; lint rejects them."""
     idx = _index()
-    target = NodeTarget(scope_path="", uid="5")
-    op = ReorderOp(op="reorder", target=target, axis="widgets", order=("a", "b"))
-    result = lint_delta([op], idx)
+    for op in (SimpleNamespace(op="reorder"), SimpleNamespace(op="set_title")):
+        result = lint_delta([op], idx)
 
-    assert result.passed_count == 1
-    assert result.dropped_count == 0
-    assert result.rejected_count == 0
-    assert len(result.surviving) == 1
-    assert result.surviving[0] is op
+        assert result.passed_count == 0
+        assert result.rejected_count == 1
+        assert len(result.surviving) == 0
+        assert result.issues[0].code == "unknown_op"
 
 
 def test_canonical_uid_set_mode_passes_through() -> None:
@@ -316,72 +312,6 @@ def test_mode_change_passes() -> None:
     assert result.passed_count == 1
     assert result.dropped_count == 0
     assert result.rejected_count == 0
-
-
-# ── title no-op ─────────────────────────────────────────────────────────────
-
-def test_canonical_uid_set_title_passes_through() -> None:
-    """A set_title op referencing a valid canonical uid passes unchanged."""
-    idx = _index()
-    target = NodeTarget(scope_path="", uid="1")
-    # Node 1 has no title (None) in flat.json, so renaming it is a real change.
-    op = SetTitleOp(op="set_title", target=target, title="TestNode")
-    result = lint_delta([op], idx)
-
-    assert result.passed_count == 1
-    assert result.dropped_count == 0
-    assert result.rejected_count == 0
-    assert len(result.surviving) == 1
-    assert result.surviving[0] is op  # identity preserved when no rewrite needed
-
-
-def test_title_noop_dropped() -> None:
-    """Setting the title to the current title is a no-op and dropped."""
-    raw = {
-        "nodes": [
-            {"id": 1, "type": "Test", "title": "TestNode", "properties": {},
-             "mode": 0, "inputs": [], "outputs": [], "widgets_values": []},
-        ],
-        "links": [],
-    }
-    idx = LintIndex.build(raw)
-    target = NodeTarget(scope_path="", uid="1")
-    op = SetTitleOp(op="set_title", target=target, title="TestNode")
-    result = lint_delta([op], idx)
-
-    assert result.passed_count == 0
-    assert result.dropped_count == 1
-    assert result.rejected_count == 0
-    assert len(result.surviving) == 0
-    assert len(result.issues) == 1
-    assert result.issues[0].code == "noop_title"
-    assert result.issues[0].severity == "info"
-
-
-def test_title_change_passes() -> None:
-    """Setting a different title passes."""
-    idx = _index()
-    target = NodeTarget(scope_path="", uid="1")
-    op = SetTitleOp(op="set_title", target=target, title="TestNode")
-    result = lint_delta([op], idx)
-
-    assert result.passed_count == 1
-    assert result.dropped_count == 0
-    assert result.rejected_count == 0
-
-
-def test_empty_title_rejected() -> None:
-    """A whitespace-only title is rejected before target resolution."""
-    idx = _index()
-    target = NodeTarget(scope_path="", uid="1")
-    op = SetTitleOp(op="set_title", target=target, title="   ")
-    result = lint_delta([op], idx)
-
-    assert result.passed_count == 0
-    assert result.rejected_count == 1
-    assert result.dropped_count == 0
-    assert len(result.issues) == 1
-    assert result.issues[0].code == "empty_title"
 
 
 # ── absent field ────────────────────────────────────────────────────────────
@@ -739,40 +669,6 @@ def test_remove_link_by_target_unknown_node_rejected() -> None:
 
     assert result.rejected_count == 1
 
-
-# ── reorder validation ──────────────────────────────────────────────────────
-
-def test_reorder_unknown_target_rejected() -> None:
-    """reorder with unknown target is rejected."""
-    idx = _index()
-    target = NodeTarget(scope_path="", uid="nonexistent")
-    op = ReorderOp(op="reorder", target=target, axis="widgets", order=("a",))
-    result = lint_delta([op], idx)
-
-    assert result.rejected_count == 1
-    assert result.issues[0].code == "unknown_target"
-
-
-def test_reorder_lg_id_rewrite() -> None:
-    """reorder rewrites lg_id to canonical uid."""
-    raw = {
-        "nodes": [
-            {"id": 7, "type": "Z", "properties": {"vibecomfy_uid": "zeta"}, "mode": 0,
-             "inputs": [], "outputs": []},
-        ],
-        "links": [],
-    }
-    idx = LintIndex.build(raw)
-
-    target = NodeTarget(scope_path="", uid="7")
-    op = ReorderOp(op="reorder", target=target, axis="slots", order=("x", "y"))
-    result = lint_delta([op], idx)
-
-    assert result.passed_count == 1
-    surviving = result.surviving[0]
-    assert isinstance(surviving, ReorderOp)
-    assert surviving.target.uid == "zeta"
-    assert surviving.axis == "slots"
 
 
 # ── upsert_link no-op detection ──────────────────────────────────────────────

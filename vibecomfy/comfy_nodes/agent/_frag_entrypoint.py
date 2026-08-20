@@ -56,7 +56,7 @@ def handle_agent_edit(
     client_id: str | None = None,
     idempotency_request_hash: str | None = None,
 ) -> dict[str, Any]:
-    from vibecomfy.comfy_nodes.agent.edit import (AgentEditState, FailureKind, PROMPT_MEMORY_MESSAGES, StageResult, _SESSION_ROOT, _StageBlocked, _agent_edit_contract, _build_batch_repl_response, _build_dev_success_response, _canonical_agent_edit_route, _conversation_with_candidate_reference, _default_runtime_schema_provider, _failure_response, _hydrate_execution_plan_from_protocol_notes, _product_failure_response, _record, _run_batch_repl_product_path, _run_delta_dev_path, _run_full_dev_path, _safe_session_id, _stage_audit, _validated_agent_edit_response, _write_turn_chat_artifact, _write_unknown_transition_audits, allocate_turn, classify_failure, failure_envelope, initialize_gates, read_session_chat, record_idempotent_response, write_allocation_failure_audit)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (AgentEditState, FailureKind, PROMPT_MEMORY_MESSAGES, StageResult, _SESSION_ROOT, _StageBlocked, _agent_edit_contract, _build_batch_repl_response, _canonical_agent_edit_route, _conversation_with_candidate_reference, _default_runtime_schema_provider, _failure_response, _hydrate_execution_plan_from_protocol_notes, _product_failure_response, _record, _run_batch_repl_product_path, _safe_session_id, _stage_audit, _validated_agent_edit_response, _write_turn_chat_artifact, _write_unknown_transition_audits, allocate_turn, classify_failure, failure_envelope, initialize_gates, read_session_chat, record_idempotent_response, write_allocation_failure_audit)  # T-039 late import: host namespace lookup; resolved at call time
     """Convert current UI JSON to Python, ask the agent to edit it, emit UI JSON."""
     from vibecomfy.schema import get_schema_provider
 
@@ -99,10 +99,14 @@ def handle_agent_edit(
     # collection is a mapping.  Normalize before allocation so request.json,
     # baseline hashes, batch editing/queue validation, and V2 transaction
     # preconditions all consume the same canonical list-nodes UI graph.
-    from .graph_normalization import normalize_agent_edit_graph
-
+    # Batch 3 (one retained ingest authority): the door's conversion runs ONCE
+    # here, and the ``VibeWorkflow`` it constructs is retained on
+    # ``AgentEditState.workflow`` at allocation.  No downstream stage re-derives
+    # the IR from raw JSON.
     try:
-        normalized_graph = normalize_agent_edit_graph(
+        from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+
+        retained_workflow, canonical_graph = ingest_workflow_and_ui(
             graph,
             schema_provider=schema_provider,
         )
@@ -111,17 +115,17 @@ def handle_agent_edit(
             FailureKind.VALIDATION_ERROR,
             "ingest",
             agent_failure_context={
-                "explanation": f"Agent edit graph normalization failed: {exc}"
+                "explanation": f"Agent edit graph ingest failed: {exc}"
             },
         )
         return _validated_agent_edit_response(
             _product_failure_response(failure),
             stage="ingest",
         )
-    if normalized_graph is not graph:
+    if canonical_graph is not graph:
         payload = dict(payload)
-        payload["graph"] = normalized_graph
-        graph = normalized_graph
+        payload["graph"] = canonical_graph
+        graph = canonical_graph
     root = session_root or _SESSION_ROOT
     session_id = _safe_session_id(payload.get("session_id"))
     allocation = allocate_turn(
@@ -202,6 +206,10 @@ def handle_agent_edit(
     state = AgentEditState(
         task=task,
         graph=graph,
+        # Batch 3: the retained ingest IR (built exactly once by the named
+        # door above) is authoritative at allocation; ingest stages reuse it
+        # instead of re-deriving from raw JSON.
+        workflow=retained_workflow,
         request_payload=payload,
         schema_provider=schema_provider,
         baseline_graph_hash=baseline_graph_hash,
@@ -340,35 +348,16 @@ def handle_agent_edit(
             conversation_messages = None
 
     try:
-        if contract == "batch_repl":
-            state = _run_batch_repl_product_path(
-                state,
-                context,
-                deepseek_client=deepseek_client,
-                route=provider_route,
-                model=model,
-                effort=effort,
-                client_id=client_id,
-                conversation_messages=conversation_messages,
-            )
-        elif contract == "delta":
-            state = _run_delta_dev_path(
-                state,
-                context,
-                deepseek_client=deepseek_client,
-                route=provider_route,
-                model=model,
-                effort=effort,
-            )
-        else:
-            state = _run_full_dev_path(
-                state,
-                context,
-                deepseek_client=deepseek_client,
-                route=provider_route,
-                model=model,
-                effort=effort,
-            )
+        state = _run_batch_repl_product_path(
+            state,
+            context,
+            deepseek_client=deepseek_client,
+            route=provider_route,
+            model=model,
+            effort=effort,
+            client_id=client_id,
+            conversation_messages=conversation_messages,
+        )
     except _StageBlocked as blocked:
         stage_name = (
             blocked.failure.stage

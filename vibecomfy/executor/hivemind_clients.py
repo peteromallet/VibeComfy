@@ -158,11 +158,13 @@ _HIVEMIND_SEMANTIC_TASK_TERMS: dict[str, tuple[str, ...]] = {
 # REC-A: Postgres statement-timeout (SQLSTATE 57014) surfaces as HTTP 500 with
 # a body like ``{"code":"57014",...,"message":"canceling statement due to
 # statement timeout"}``.  These queries are valid — the backend just hit its
-# per-statement time budget — so retry ONCE with a short backoff before typing
-# the failure as a soft miss.  A persistent 57014 is still a soft miss
+# per-statement time budget — so retry ONCE with a short backoff, then RC1
+# tries one degraded query before typing the failure as a soft miss.  A
+# persistent 57014 is still a soft miss
 # (UNAVAILABLE / ``hivemind_statement_timeout``), never a hard error.
 _HIVEMIND_STATEMENT_TIMEOUT_RETRIES = 1
 _HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS = 0.5
+_HIVEMIND_DEGRADED_LIMIT = 20
 
 # REC-A: off-family demotion vocabulary for relevance ranking.  Beyond the
 # semantic family terms above, recognize the model families that actually
@@ -248,12 +250,17 @@ def _hivemind_get_table(
     params: Mapping[str, str],
     *,
     timeout: float,
+    deadline: float | None = None,
+    statement_timeout_retries: int = _HIVEMIND_STATEMENT_TIMEOUT_RETRIES,
 ) -> Any:
     """GET {REST_ROOT}/{table}?{urlencode(params)} with the publishable anon key.
 
     ``table`` is one of: external_resources, unified_feed, message_feed.
     Raises :class:`HivemindError` on HTTP / timeout / invalid JSON. Never
     logs the key.
+
+    ``timeout`` is the total operation wall-clock budget when ``deadline`` is
+    omitted.  Search passes one shared deadline across every scope and retry.
 
     REC-A resilience: a Postgres statement-timeout (HTTP 500 + SQLSTATE
     57014) is retried ONCE with a short backoff — the query is valid, the
@@ -271,18 +278,35 @@ def _hivemind_get_table(
         },
         method="GET",
     )
-    attempts = 1 + _HIVEMIND_STATEMENT_TIMEOUT_RETRIES
+    operation_deadline = (
+        time.monotonic() + timeout if deadline is None else float(deadline)
+    )
+    attempts = 1 + max(0, int(statement_timeout_retries))
     for attempt in range(attempts):
+        remaining = operation_deadline - time.monotonic()
+        if remaining <= 0:
+            raise HivemindError(
+                f"Hivemind operation timed out after {timeout}s",
+                reason="timeout",
+            )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=min(timeout, remaining)) as resp:
                 body = resp.read().decode("utf-8")
                 return _parse_json_response(body)
         except urllib.error.HTTPError as exc:
             body = exc.read(800).decode("utf-8", errors="replace")
             retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
             statement_timeout = _is_statement_timeout(body, exc.code)
-            if statement_timeout and attempt < _HIVEMIND_STATEMENT_TIMEOUT_RETRIES:
-                time.sleep(_HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS)
+            if statement_timeout and attempt < statement_timeout_retries:
+                remaining = operation_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise HivemindError(
+                        f"Hivemind operation timed out after {timeout}s",
+                        reason="timeout",
+                    ) from exc
+                time.sleep(
+                    min(_HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS, remaining)
+                )
                 continue
             raise HivemindError(
                 f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})",
@@ -400,22 +424,30 @@ def _hivemind_single_or_phrase_ilike(query: str) -> str | None:
         return None
     q = " ".join(tokens)
     return f"(title.ilike.*{q}*,body.ilike.*{q}*)"
-    patterns: list[str] = []
-    seen: set[str] = set()
-    for term in search_terms:
-        for raw in term.split():
-            token = re.sub(r"[^a-zA-Z0-9_-]", "", raw)
-            if not token:
-                continue
-            key = token.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            patterns.append(f"title.ilike.*{token}*")
-            patterns.append(f"body.ilike.*{token}*")
-    if not patterns:
+
+
+def _hivemind_degraded_ilike(query: str) -> str | None:
+    """Phrase-first ilike with no leading wildcard (RC1 57014 degrade).
+
+    Distinctive tokens only, trailing ``*`` so the planner can use a prefix
+    rather than a full-scan ``*phrase*`` on ``unified_feed``.
+    """
+    tokens = _distinctive_tokens(query)
+    if not tokens:
         return None
-    return "(" + ",".join(patterns[:16]) + ")"
+    sanitized: list[str] = []
+    for token in tokens:
+        cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", token)
+        if cleaned:
+            sanitized.append(cleaned)
+    if not sanitized:
+        return None
+    phrase = " ".join(sanitized[:3])
+    patterns = [f"title.ilike.{phrase}*", f"body.ilike.{phrase}*"]
+    if len(sanitized) > 1:
+        first = sanitized[0]
+        patterns.extend((f"title.ilike.{first}*", f"body.ilike.{first}*"))
+    return "(" + ",".join(patterns) + ")"
 
 
 def _first_text(item: dict[str, Any], *keys: str) -> str:
@@ -749,6 +781,7 @@ def _hivemind_scope_params(
     date_to: str | None,
     has_workflow: bool | None,
     limit: int,
+    degraded: bool = False,
 ) -> dict[str, str] | None:
     """Translate one ``(table, kind)`` scope into PostgREST query params.
 
@@ -758,7 +791,7 @@ def _hivemind_scope_params(
     """
     params: dict[str, str] = {
         "select": "*",
-        "limit": str(limit),
+        "limit": str(_HIVEMIND_DEGRADED_LIMIT if degraded else limit),
         "order": "created_at.desc",
     }
 
@@ -768,16 +801,20 @@ def _hivemind_scope_params(
             # is skipped rather than guessed at.
             return None
         params["kind"] = f"eq.{kind}"
-        text_or = _hivemind_ilike_query(_hivemind_search_terms(query))
+        text_or = (
+            _hivemind_degraded_ilike(query)
+            if degraded
+            else _hivemind_ilike_query(_hivemind_search_terms(query))
+        )
         if text_or:
             params["or"] = text_or
         containment: dict[str, Any] = {}
         semantics: dict[str, Any] = {}
-        if model_family:
+        if model_family and not degraded:
             semantics["model_families"] = [model_family]
-        if capability:
+        if capability and not degraded:
             semantics["task_type"] = capability
-        if node_class:
+        if node_class and not degraded:
             semantics["node_types"] = [node_class]
         if semantics:
             containment["workflow_semantics"] = semantics
@@ -787,25 +824,29 @@ def _hivemind_scope_params(
             params["metadata"] = _json_containment(containment)
     elif table == "unified_feed":
         params["kind"] = f"eq.{kind}"
-        text_or = _hivemind_single_or_phrase_ilike(query)
+        text_or = (
+            _hivemind_degraded_ilike(query)
+            if degraded
+            else _hivemind_single_or_phrase_ilike(query)
+        )
         or_groups: list[str] = []
         if text_or:
             or_groups.append(text_or)
-        if model_family:
+        if model_family and not degraded:
             aliases = _HIVEMIND_SEMANTIC_FAMILY_TERMS.get(
                 model_family.casefold(), (model_family,)
             )
             family_or = _hivemind_ilike_query(list(aliases))
             if family_or:
                 or_groups.append(family_or)
-        if capability:
+        if capability and not degraded:
             aliases = _HIVEMIND_SEMANTIC_TASK_TERMS.get(
                 capability.casefold(), (capability,)
             )
             capability_or = _hivemind_ilike_query(list(aliases))
             if capability_or:
                 or_groups.append(capability_or)
-        if node_class:
+        if node_class and not degraded:
             node_or = _hivemind_ilike_query([node_class])
             if node_or:
                 or_groups.append(node_or)
@@ -977,11 +1018,22 @@ def _hivemind_search_transport(
     :class:`HivemindError` is re-raised so the tool can type it.
     """
     scopes = _SOURCE_TYPE_SCOPES.get(source_type, ())
+    deadline = time.monotonic() + timeout
     rows: list[dict[str, Any]] = []
     diagnostics: list[dict[str, str]] = []
     first_error: HivemindError | None = None
 
     for table, kind in scopes:
+        if time.monotonic() >= deadline:
+            exhausted = HivemindError(
+                f"Hivemind operation timed out after {timeout}s",
+                reason="timeout",
+            )
+            first_error = first_error or exhausted
+            diagnostics.append(
+                {"scope": f"{table}:{kind}", "message": str(exhausted)}
+            )
+            break
         params = _hivemind_scope_params(
             table=table,
             kind=kind,
@@ -999,22 +1051,65 @@ def _hivemind_search_transport(
         if params is None:
             continue
         try:
-            parsed = _hivemind_get_table(table, params, timeout=timeout)
-            for row in parsed if isinstance(parsed, list) else []:
-                if not isinstance(row, dict):
-                    continue
-                # REC-A: rows without their natural id column are unfetchable
-                # via hivemind_get — never surface them as evidence.
-                if _evidence_id(table, row) is None:
-                    continue
-                stamped = dict(row)
-                stamped["_hivemind_table"] = table
-                rows.append(stamped)
-        except HivemindError as exc:
-            first_error = first_error or exc
-            diagnostics.append(
-                {"scope": f"{table}:{kind}", "message": str(exc)}
+            parsed = _hivemind_get_table(
+                table, params, timeout=timeout, deadline=deadline
             )
+        except HivemindError as exc:
+            parsed = None
+            last_error = exc
+            if exc.statement_timeout:
+                degraded_params = _hivemind_scope_params(
+                    table=table,
+                    kind=kind,
+                    query=query,
+                    model_family=model_family,
+                    capability=capability,
+                    node_class=node_class,
+                    channel=channel,
+                    author=author,
+                    date_from=date_from,
+                    date_to=date_to,
+                    has_workflow=has_workflow,
+                    limit=_HIVEMIND_DEGRADED_LIMIT,
+                    degraded=True,
+                )
+                if degraded_params is not None and time.monotonic() < deadline:
+                    try:
+                        # Literal degrade-then-stop: one degraded HTTP attempt,
+                        # without re-entering the generic 57014 retry loop.
+                        parsed = _hivemind_get_table(
+                            table,
+                            degraded_params,
+                            timeout=timeout,
+                            deadline=deadline,
+                            statement_timeout_retries=0,
+                        )
+                        diagnostics.append(
+                            {
+                                "scope": f"{table}:{kind}",
+                                "message": "hivemind_query_degraded_after_57014",
+                            }
+                        )
+                    except HivemindError as retry_exc:
+                        last_error = retry_exc
+            if parsed is None:
+                first_error = first_error or last_error
+                diagnostics.append(
+                    {"scope": f"{table}:{kind}", "message": str(last_error)}
+                )
+                if last_error.reason == "timeout" or time.monotonic() >= deadline:
+                    break
+                continue
+        for row in parsed if isinstance(parsed, list) else []:
+            if not isinstance(row, dict):
+                continue
+            # REC-A: rows without their natural id column are unfetchable
+            # via hivemind_get — never surface them as evidence.
+            if _evidence_id(table, row) is None:
+                continue
+            stamped = dict(row)
+            stamped["_hivemind_table"] = table
+            rows.append(stamped)
 
     if not rows:
         if first_error is not None:
@@ -1050,7 +1145,12 @@ def _hivemind_get_row(
     """Fetch one full Hivemind row by its natural id column; None when absent."""
     column = _HIVEMIND_TABLE_ID_COLUMNS[table]
     params = {"select": "*", column: f"eq.{row_id}", "limit": "1"}
-    parsed = _hivemind_get_table(table, params, timeout=timeout)
+    parsed = _hivemind_get_table(
+        table,
+        params,
+        timeout=timeout,
+        deadline=time.monotonic() + timeout,
+    )
     for row in parsed if isinstance(parsed, list) else []:
         if isinstance(row, dict):
             return row

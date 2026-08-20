@@ -1,0 +1,40 @@
+{
+  "id": "multi-deforum-stable-diffusion-animation-with-ip-ada-78afac",
+  "query": "Replace the IP\u2011Adapter conditioning with a ControlNet depth estimator, keeping the same Deforum animation schedule. Use the ControlNet output to drive the conditioning blend instead of the IP\u2011Adapter\u2019s image prompt.",
+  "workflow_path": "external_workflows/corpus/78afac42baf0a381.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The animation is conditioned solely on depth maps extracted from a reference image or the previous frame, providing rigid geometric continuity.",
+    "quality": "The IP\u2011Adapter node is removed or bypassed; a ControlNet loader and apply node are correctly inserted and wired into the conditioning blend. The video output remains properly animated with frame warping intact.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "deforum",
+      "animation",
+      "video-generation",
+      "ip-adapter",
+      "image-to-video",
+      "stable-diffusion",
+      "frame-warping",
+      "conditioning-blend"
+    ],
+    "source_workflow_id": "78afac42baf0a381",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Swapping a major conditioning component is a high\u2011level architectural change that tests whether the agent can handle model replacement and conditioning signal rerouting in a non\u2011trivial animation graph."
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
+  "query": "The high-noise LoRA variant produces outputs that look identical to the low-noise variant \u2014 no difference in motion or texture. Also, the video appears to have incorrect brightness/contrast, as if the latent scaling is off.",
+  "workflow_path": "external_workflows/corpus/374aa988d0a133be.json",
+  "network": true,
+  "timeout": 320,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "diagnose",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "text_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-generation",
+      "image-to-video",
+      "wan2.2",
+      "lora",
+      "noise-mask",
+      "latent",
+      "gguf",
+      "vae"
+    ],
+    "source_workflow_id": "374aa988d0a133be",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "Points to LoRA loading/selection and latent scaling, two distinct issues that require diagnosis."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/374aa988d0a133be.json",
+    "required_node_evidence": [
+      "UnetLoaderGGUF",
+      "LoraLoaderModelOnly",
+      "KSamplerAdvanced",
+      "Frames Concat Latent",
+      "LatentLoaderAdvanced",
+      "SetLatentNoiseMask",
+      "VAEDecode"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Verify whether the high/low LoRA branches actually reach distinct model/sampling paths and diagnose brightness through latent concat/load/noise-mask/decode scaling, with tests for bypassed or identical inputs.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

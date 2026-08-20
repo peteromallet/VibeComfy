@@ -2051,9 +2051,5 @@ def test_convert_to_vibe_format_is_not_a_public_ingest_export() -> None:
 def test_agent_edit_ingest_uses_nodes_is_list_not_shape_sniff() -> None:
     """edit_ingest successor: list-nodes pass through; no detect_workflow_shape."""
     frag = Path("vibecomfy/comfy_nodes/agent/_frag_ingest.py").read_text(encoding="utf-8")
-    norm = Path("vibecomfy/comfy_nodes/agent/graph_normalization.py").read_text(
-        encoding="utf-8"
-    )
     assert "detect_workflow_shape" not in frag
-    assert "detect_workflow_shape" not in norm
-    assert 'isinstance(graph.get("nodes"), list)' in norm
+    assert 'isinstance(graph.get("nodes"), list)' in frag

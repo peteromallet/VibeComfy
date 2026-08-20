@@ -1,0 +1,12 @@
+{
+  "id": "image-two-stage-qwen-image-generation",
+  "query": "The image gets distorted and the faces look wrong after the upscale/refinement stage.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "area"
+}

@@ -19,11 +19,17 @@ assert "vibecomfy.comfy_nodes.agent.routes" not in sys.modules
 assert "vibecomfy.executor.core" not in sys.modules
 """
 
+    env = dict(__import__("os").environ)
+    # Headless mode keeps the comfy_nodes package from registering ComfyUI
+    # server routes at import time; the assertion targets what
+    # executor_response itself pulls in.
+    env["VIBECOMFY_HEADLESS"] = "1"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -61,6 +67,25 @@ def test_serialize_executor_result_shapes_clarify_response_without_apply_fields(
         "clarification_required": True,
         "clarification_message": "Which model should I use?",
     }
+
+
+def test_serialize_clarify_preserves_class_absence_proof_and_options() -> None:
+    payload = {
+        "ok": True,
+        "route": "clarify",
+        "reply": "AudioLDM2 is absent. Choose (a) current audio or (b) another class?",
+        "outcome": {
+            "kind": "clarify",
+            "missing_classes": ["AudioLDM2"],
+            "options": ["current audio", "another class"],
+        },
+    }
+
+    serialized = serialize_executor_result(payload)
+
+    assert serialized["outcome"]["kind"] == "clarify"
+    assert serialized["outcome"]["missing_classes"] == ["AudioLDM2"]
+    assert serialized["outcome"]["options"] == ["current audio", "another class"]
 
 
 def test_serialize_executor_result_strips_non_applyable_response_fields() -> None:
@@ -215,3 +240,101 @@ def test_non_durable_respond_result_never_synthesizes_authority_fields() -> None
     assert not leaked, (
         f"Non-durable respond result leaked authority fields: {sorted(leaked)}"
     )
+
+
+# ── Batch 10: response carries Δ references; claims ⊆ accepted Δ ────────────
+
+
+def test_serialize_executor_result_preserves_delta_references() -> None:
+    """The response carries the canonical Δ references: the envelope and the
+    derived ops view survive serialization unchanged."""
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "sampler", "steps"],
+                "value": 30,
+            }
+        ],
+    }
+    payload: dict = {
+        "ok": True,
+        "route": "edit",
+        "reply": "Changed sampler.steps from 20 to 30.",
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+                "op": envelope["ops"][0],
+            }
+        ],
+    }
+
+    serialized = serialize_executor_result(payload)
+
+    assert "delta_ops_envelope" not in serialized
+    assert "delta_ops" not in serialized
+    assert serialized["accepted_batch"][0]["statement_index"] == 1
+    assert serialized["accepted_batch"][0]["op"] == envelope["ops"][0]
+
+
+def test_reply_change_claims_must_reference_accepted_delta() -> None:
+    """The reply-must-match-diff law: a claim about a non-landed statement is
+    invalid; claims within the accepted Δ pass.  The canonical Δ source is
+    ``accepted_batch`` only (batch 10) — legacy delta_ops_envelope views are
+    never consulted."""
+    from vibecomfy.executor.contracts import validate_reply_change_claims
+
+    op = {
+        "op": "set_node_field",
+        "target": ["", "sampler", "steps"],
+        "value": 30,
+    }
+    valid_response: dict = {
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+                "op": op,
+            }
+        ],
+        "change_details": {
+            "operations": [
+                {
+                    "uid": "sampler",
+                    "field_path": "steps",
+                    "summary": "Changed sampler.steps from 20 to 30.",
+                }
+            ]
+        },
+    }
+    assert validate_reply_change_claims(valid_response) == []
+
+    invalid_response: dict = {
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+                "op": op,
+            }
+        ],
+        "change_details": {
+            "operations": [
+                {
+                    "uid": "sampler",
+                    "field_path": "seed",
+                    "summary": "Changed sampler.seed from 42 to 99.",
+                }
+            ]
+        },
+    }
+    violations = validate_reply_change_claims(invalid_response)
+    assert len(violations) == 1
+    assert "not in the accepted Δ" in violations[0]

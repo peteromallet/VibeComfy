@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .contracts import ArtifactRef, DiagnosticRecord, FailureEnvelope, StageResult, TurnContext
 
+from vibecomfy.ingest.normalize import door_get_nodes
 INLINE_LIMIT_BYTES = 4096
 PREVIEW_LIMIT_CHARS = 512
 REDACTED = "<REDACTED>"
@@ -260,27 +261,13 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
                 if isinstance(change, Mapping)
             ]
 
-    # ── canonical envelope + audit split (with legacy bridge support) ─────
-    delta_envelope = payload.get("delta_ops_envelope")
-    legacy_delta_ops = payload.get("delta_ops")
-    legacy_delta_ops_mapping = dict(legacy_delta_ops) if isinstance(legacy_delta_ops, Mapping) else {}
-    audit_payload = payload.get("delta_audit")
-    delta_audit_mapping = dict(audit_payload) if isinstance(audit_payload, Mapping) else legacy_delta_ops_mapping
+    # ── accepted_batch is the sole durable Δ ─
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
 
-    normalized_delta_envelope: dict[str, Any] | None = None
-    if isinstance(delta_envelope, Mapping):
-        raw_ops = delta_envelope.get("ops")
-        normalized_delta_envelope = {
-            "schema_version": str(delta_envelope.get("schema_version") or "2.0.0"),
-            "ops": list(raw_ops) if isinstance(raw_ops, list) else [],
-        }
-    else:
-        raw_ops = legacy_delta_ops_mapping.get("ops")
-        if isinstance(raw_ops, list):
-            normalized_delta_envelope = {
-                "schema_version": "2.0.0",
-                "ops": list(raw_ops),
-            }
+    accepted_batch = payload.get("accepted_batch")
+    has_accepted_batch = isinstance(accepted_batch, list)
+    audit_payload = payload.get("delta_audit")
+    delta_audit_mapping = dict(audit_payload) if isinstance(audit_payload, Mapping) else {}
 
     diagnostics = delta_audit_mapping.get("diagnostics")
     automatic_link_removals = delta_audit_mapping.get("automatic_link_removals")
@@ -306,22 +293,23 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
     }
     op_count = payload.get("op_count")
     if not isinstance(op_count, int):
-        op_count = len(normalized_delta_envelope["ops"]) if normalized_delta_envelope is not None else 0
+        op_count = len(_ops_from_accepted_batch(payload)) if has_accepted_batch else 0
 
     result: dict[str, Any] = {
         "enabled": bool(payload.get("enabled")),
         "op_count": op_count,
-        "delta_ops_envelope": normalized_delta_envelope,
         "delta_audit": normalized_delta_audit,
     }
+    if has_accepted_batch:
+        result["accepted_batch"] = list(accepted_batch)
 
     # ── surface typed outcome.changes when present ────────────────────────
     if outcome_changes:
         result["outcome_changes"] = outcome_changes
 
     # ── skip cleanly when delta data is absent ────────────────────────────
-    if normalized_delta_envelope is None and not outcome_changes:
-        result.pop("delta_ops_envelope", None)
+    if not has_accepted_batch and not outcome_changes:
+        result.pop("accepted_batch", None)
         result.pop("delta_audit", None)
         result.pop("op_count", None)
 
@@ -407,7 +395,7 @@ def write_audit(
     if not isinstance(graph, Mapping):
         candidate = response_dict.get("candidate")
         graph = candidate.get("graph") if isinstance(candidate, Mapping) else None
-    nodes = graph.get("nodes") if isinstance(graph, Mapping) else None
+    nodes = door_get_nodes(graph) if isinstance(graph, Mapping) else None
     outcome = response_dict.get("outcome")
     diagnostic = DiagnosticRecord(
         session_id=audit_payload["session_id"] or "",

@@ -89,3 +89,60 @@ def test_parse_phrase_without_usage_evidence_stays_product_fail() -> None:
     assert summary.get("retryable_infra") is not True
     assert summary.get("failure_class") is None
     assert _is_retryable_infra_summary(summary) is False
+
+
+def test_timeout_failure_type_classifies_retryable_infra() -> None:
+    """RC3: failure_type=timeout is retryable infra (capped at one retry)."""
+    summary = {
+        "scenario_id": "timeout-failure",
+        "status": "error",
+        "ok": False,
+        "output_dir": "out/agentic/tag/timeout-failure",
+        "model_attempts": [
+            {
+                "phase": "implement",
+                "attempt": 1,
+                "outcome": "failure",
+                "failure_type": "timeout",
+                "token_usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 0,
+                    "total_tokens": 100,
+                },
+            }
+        ],
+        "guard": {
+            "live_agentic_success": False,
+            "score_class": "product_fail",
+            "assessment": {"passed": False, "issues": []},
+        },
+    }
+    classified = _classify_retryable_infra_summary(summary)
+    assert classified is summary
+    assert summary["retryable_infra"] is True
+    assert summary["failure_class"] == "infra_timeout"
+    assert _is_retryable_infra_summary(summary) is True
+
+
+def test_malformed_json_is_not_retryable_infra() -> None:
+    summary = {
+        "scenario_id": "malformed",
+        "status": "error",
+        "ok": False,
+        "model_attempts": [
+            {
+                "phase": "classify",
+                "attempt": 1,
+                "outcome": "failure",
+                "failure_type": "malformed_json",
+                "token_usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 40,
+                    "total_tokens": 50,
+                },
+            }
+        ],
+        "guard": {"live_agentic_success": False, "score_class": "product_fail"},
+    }
+    assert _is_retryable_infra_summary(summary) is False
+    assert summary.get("retryable_infra") is not True

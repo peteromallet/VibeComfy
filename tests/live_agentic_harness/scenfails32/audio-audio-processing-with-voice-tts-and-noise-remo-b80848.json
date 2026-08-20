@@ -1,0 +1,38 @@
+{
+  "id": "audio-audio-processing-with-voice-tts-and-noise-remo-b80848",
+  "query": "The processed audio has a faint robotic buzz after TTS. Can you make it cleaner?",
+  "workflow_path": "external_workflows/corpus/b808486c05ad607c.json",
+  "network": true,
+  "timeout": 320,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The processed audio no longer has the faint robotic buzz; the voice is clear and natural.",
+    "quality": "The agent edits only the relevant node (likely TTS sampling or UVR5 settings) while preserving the overall processing pipeline; all connections remain intact and the original function (TTS + noise removal + save) is preserved.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "audio",
+    "query_type": "edit",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "audio",
+      "voice-tts",
+      "noise-removal",
+      "uvr5",
+      "audio-processing",
+      "save-audio"
+    ],
+    "source_workflow_id": "b808486c05ad607c",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "It forces diagnostic reasoning to find and adjust the correct parameter, balancing symptom-fixing with targeted edit scope."
+  }
+}

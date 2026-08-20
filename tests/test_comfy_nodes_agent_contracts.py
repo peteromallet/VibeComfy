@@ -2677,3 +2677,186 @@ def test_repair_field_changes_keeps_tuple_when_nothing_changes() -> None:
     }
     changes = (FieldChange(uid="n1", field_path="seed", old=42, new=43),)
     assert repair_field_changes(graph, changes) is changes
+
+
+# ── Batch 10: every consumer uses the canonical Δ (the accepted batch) ──────
+
+
+def _delta_state(**overrides: object) -> "object":
+    from pathlib import Path
+
+    from vibecomfy.comfy_nodes.agent.edit import AgentEditState
+
+    defaults: dict[str, object] = {
+        "task": "delta consumers",
+        "graph": {},
+        "request_payload": {},
+        "schema_provider": None,
+        "baseline_graph_hash": None,
+        "submit_graph_hash": None,
+        "submit_structural_graph_hash": None,
+        "submitted_client_graph_hash": None,
+        "submitted_client_structural_graph_hash": None,
+        "session_dir": Path("/tmp/delta_consumers_session"),
+        "turn_dir": Path("/tmp/delta_consumers_session/turn_001"),
+        "request_path": Path("/tmp/delta_consumers_session/request.json"),
+        "original_ui_path": Path("/tmp/delta_consumers_session/original.json"),
+        "before_py_path": Path("/tmp/delta_consumers_session/before.py"),
+        "after_py_path": Path("/tmp/delta_consumers_session/after.py"),
+        "projection_path": Path("/tmp/delta_consumers_session/projection.json"),
+        "model_request_path": Path("/tmp/delta_consumers_session/model_request.json"),
+        "model_response_path": Path("/tmp/delta_consumers_session/model_response.json"),
+        "candidate_ui_path": Path("/tmp/delta_consumers_session/candidate.json"),
+        "messages_path": Path("/tmp/delta_consumers_session/messages.json"),
+        "batch_turns": [],
+        "batch_field_changes": (),
+    }
+    defaults.update(overrides)
+    return AgentEditState(**defaults)
+
+
+def test_accepted_batch_statements_exclude_rejected_statements() -> None:
+    """The accepted Δ is the batch statements that succeeded; rejected
+    statements are never part of Δ."""
+    from vibecomfy.comfy_nodes.agent.edit import _accepted_batch_statements
+
+    state = _delta_state(
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "statement_index": 1,
+                        "source": 'set_field(uid="sampler", field="steps", value=30)',
+                        "ok": True,
+                        "landed": True,
+                        "op_kind": "edit",
+                        "touched_uids": ["sampler"],
+                    },
+                    {
+                        "statement_index": 2,
+                        "source": 'set_field(uid="sampler", field="seed", value=99)',
+                        "ok": False,
+                        "landed": False,
+                        "op_kind": "edit",
+                        "touched_uids": ["sampler"],
+                    },
+                ]
+            }
+        ]
+    )
+
+    accepted = _accepted_batch_statements(state)
+
+    assert [item["statement_index"] for item in accepted] == [1]
+    assert accepted[0]["op_kind"] == "edit"
+
+
+def test_humanized_edit_message_derived_from_accepted_delta() -> None:
+    """A batch with a rejected statement does not claim it: the summary is
+    derived from the accepted Δ only."""
+    from vibecomfy.comfy_nodes.agent.edit import _humanized_edit_message
+
+    state = _delta_state(
+        graph={
+            "nodes": [
+                {
+                    "id": "sampler",
+                    "type": "KSampler",
+                    "properties": {"vibecomfy_uid": "sampler"},
+                }
+            ]
+        },
+        ui_payload={
+            "nodes": [
+                {
+                    "id": "sampler",
+                    "type": "KSampler",
+                    "properties": {"vibecomfy_uid": "sampler"},
+                }
+            ]
+        },
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "statement_index": 1,
+                        "source": 'set_field(uid="sampler", field="steps", value=30)',
+                        "ok": True,
+                        "landed": True,
+                        "op_kind": "edit",
+                        "touched_uids": ["sampler"],
+                    },
+                    {
+                        "statement_index": 2,
+                        "source": 'set_field(uid="sampler", field="seed", value=99)',
+                        "ok": False,
+                        "landed": False,
+                        "op_kind": "edit",
+                        "touched_uids": ["sampler"],
+                    },
+                ],
+                "field_changes": [
+                    {"uid": "sampler", "field_path": "steps", "old": 20, "new": 30},
+                ],
+                "delta_ops_envelope": {
+                    "schema_version": "2.0.0",
+                    "ops": [
+                        {
+                            "op": "set_node_field",
+                            "target": ["", "sampler", "steps"],
+                            "value": 30,
+                        }
+                    ],
+                },
+            }
+        ],
+    )
+
+    message = _humanized_edit_message(state)
+
+    assert "steps" in message
+    assert "seed" not in message
+
+
+def test_change_details_operations_derive_from_accepted_delta() -> None:
+    """Response change claims are the Δ's field changes; a rejected
+    statement's field never appears in change_details.operations."""
+    from vibecomfy.comfy_nodes.agent.edit import (
+        TurnContext,
+        _change_details_payload,
+    )
+
+    state = _delta_state(
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "statement_index": 1,
+                        "source": 'set_field(uid="a", field="x", value=1)',
+                        "ok": True,
+                        "landed": True,
+                        "op_kind": "edit",
+                        "touched_uids": ["a"],
+                    },
+                    {
+                        "statement_index": 2,
+                        "source": 'set_field(uid="b", field="y", value=2)',
+                        "ok": False,
+                        "landed": False,
+                        "op_kind": "edit",
+                        "touched_uids": ["b"],
+                    },
+                ],
+                "field_changes": [
+                    {"uid": "a", "field_path": "x", "old": None, "new": 1},
+                ],
+            }
+        ]
+    )
+    context = TurnContext()
+
+    payload = _change_details_payload(state, context)
+
+    operations = payload["operations"]
+    assert [op["uid"] for op in operations] == ["a"]
+    assert all(op["field_path"] == "x" for op in operations)

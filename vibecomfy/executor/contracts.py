@@ -984,6 +984,9 @@ class ExecutorRequest:
     # ``apply``: that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Explicit assessment contract from headless/live-agentic callers.  When
+    # True, classify must choose an applyable edit route.
+    expect_graph_changed: bool | None = None
     # Batch-REPL per-request turn budget (PR-D).  Integer 1..MAX_BATCHES_LIMIT;
     # None = default (DEFAULT_MAX_BATCHES).  Forwarded into the implement
     # payload as ``max_batches`` and enforced again at the edit entrypoint.
@@ -999,6 +1002,12 @@ class ExecutorRequest:
                 self,
                 "max_batches",
                 coerce_max_batches(self.max_batches, field_name="max_batches"),
+            )
+        if self.expect_graph_changed is not None and not isinstance(
+            self.expect_graph_changed, bool
+        ):
+            raise ValueError(
+                "ExecutorRequest `expect_graph_changed` must be a boolean or null."
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1025,6 +1034,8 @@ class ExecutorRequest:
             payload["on_demand_schemas"] = self.on_demand_schemas
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.expect_graph_changed is not None:
+            payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
         return payload
@@ -1098,6 +1109,11 @@ class ExecutorRequest:
             raise ValueError(
                 "ExecutorRequest `interaction_mode` must be a string or null."
             )
+        expect_graph_changed = payload.get("expect_graph_changed")
+        if expect_graph_changed is not None and not isinstance(expect_graph_changed, bool):
+            raise ValueError(
+                "ExecutorRequest `expect_graph_changed` must be a boolean or null."
+            )
         max_batches = coerce_max_batches(payload.get("max_batches"), field_name="max_batches")
         if expected_baseline_graph_hash is not None and not isinstance(
             expected_baseline_graph_hash, str
@@ -1119,6 +1135,7 @@ class ExecutorRequest:
             expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
             on_demand_schemas=on_demand_schemas,
             interaction_mode=interaction_mode,
+            expect_graph_changed=expect_graph_changed,
             max_batches=max_batches,
         )
 
@@ -1403,7 +1420,12 @@ class TopologyFindings:
 
     @property
     def has_blockers(self) -> bool:
-        """True when any topology problem was found."""
+        """True when any topology problem was found.
+
+        This is an unfiltered inventory predicate.  Post-edit eligibility must
+        compare candidate findings with the original graph and block only new
+        findings; a pre-existing unknown class is not itself a new edit defect.
+        """
         return bool(
             self.missing_graph
             or self.dangling_links
@@ -2239,6 +2261,190 @@ class ExecutorResult:
         )
 
 
+def _delta_op_claim_keys(delta_ops: Any) -> set[tuple[str, str]]:
+    """Return the ``(uid, field_path)`` claims made by canonical Δ ops.
+
+    Only the accepted batch's landed ops may be claimed: ``set_node_field``
+    claims its target field, ``add_node`` claims every field it set, and
+    ``remove_node`` claims the whole node (``"*"``).  Unrecognised op shapes
+    make no claims.
+    """
+    claims: set[tuple[str, str]] = set()
+    if not isinstance(delta_ops, (list, tuple)):
+        return claims
+    for op in delta_ops:
+        if not isinstance(op, Mapping):
+            continue
+        kind = op.get("op")
+        if kind == "set_node_field":
+            target = op.get("target")
+            if isinstance(target, (list, tuple)) and len(target) >= 3:
+                claims.add((str(target[1]), str(target[2])))
+        elif kind == "add_node":
+            uid = op.get("uid")
+            fields = op.get("fields")
+            if uid is not None and isinstance(fields, Mapping):
+                for field_path in fields:
+                    claims.add((str(uid), str(field_path)))
+        elif kind == "remove_node":
+            target = op.get("target")
+            if isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None:
+                claims.add((str(target[1]), "*"))
+    return claims
+
+
+def validate_reply_change_claims(response: Any) -> list[str]:
+    """Return violations when the response's change claims exceed the accepted Δ.
+
+    The reply-must-match-diff law: every change claim in the response
+    (``change_details.operations`` and ``outcome.changes``) must reference a
+    statement that landed — i.e. its ``(uid, field_path)`` must appear among
+    the accepted Δ ops carried by ``accepted_batch`` statements (each accepted
+    statement carries its landed ``op``).  A claim about a non-landed
+    statement is invalid and is reported as a violation; an empty list means
+    all claims are within Δ.  ``accepted_batch`` is the ONE canonical source
+    of the Δ (batch 10); legacy ``delta_ops_envelope`` / ``delta_ops`` views
+    are never consulted.  Responses without an ``accepted_batch`` make no
+    claims checkable and report no violations.
+    """
+    if not isinstance(response, Mapping):
+        return ["response must be a mapping"]
+    accepted_batch = response.get("accepted_batch")
+    if not isinstance(accepted_batch, list):
+        return []
+    delta_ops = [
+        item.get("op")
+        for item in accepted_batch
+        if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
+    ]
+    claim_keys = _delta_op_claim_keys(delta_ops)
+    if not claim_keys:
+        return []
+    violations: list[str] = []
+    for source, operations in (
+        ("change_details.operations", _claim_operations(response.get("change_details"))),
+        ("outcome.changes", _claim_operations(response.get("outcome"))),
+        ("internal_outcome.changes", _claim_operations(response.get("internal_outcome"))),
+    ):
+        for operation in operations:
+            if not isinstance(operation, Mapping):
+                continue
+            uid = operation.get("uid")
+            field_path = operation.get("field_path")
+            if uid is None or field_path is None:
+                continue
+            key = (str(uid), str(field_path))
+            if key in claim_keys or (str(uid), "*") in claim_keys:
+                continue
+            violations.append(
+                f"change claim ({uid}, {field_path}) in {source} is not in the "
+                "accepted Δ; a claim about a non-landed statement is invalid"
+            )
+    return violations
+
+
+def _claim_operations(payload: Any) -> list[Any]:
+    """Collect ``(uid, field_path)`` claim items from a payload mapping."""
+    if not isinstance(payload, Mapping):
+        return []
+    operations = payload.get("operations")
+    if isinstance(operations, list):
+        return operations
+    changes = payload.get("changes")
+    if isinstance(changes, list):
+        return changes
+    return []
+
+
+# ── Hivemind record views (batch 13: IR-shaped research records) ─────────────
+#
+# Typed classification of fetched Hivemind rows served to the research agent.
+# A workflow record (a workflow JSON from the corpus) is normalized through
+# the named ingest doors (from_ui / from_api / from_envelope per detected
+# shape) and served as the IR surface lens; a non-workflow record (a message,
+# a text post, a non-workflow JSON) is served as typed non-workflow evidence
+# with its actual content; a workflow-shaped record that fails the named-door
+# normalization is served as a typed malformed-record result with the error.
+# The raw source row never rides in the view — it is retained only in the
+# evidence artifact body (the raw body), never in model-facing content.
+
+RECORD_TYPE_WORKFLOW = "workflow"
+RECORD_TYPE_NON_WORKFLOW = "non_workflow"
+RECORD_TYPE_MALFORMED = "malformed_record"
+_RECORD_TYPES = frozenset(
+    {RECORD_TYPE_WORKFLOW, RECORD_TYPE_NON_WORKFLOW, RECORD_TYPE_MALFORMED}
+)
+
+
+@dataclass(frozen=True)
+class HivemindRecordView:
+    """The typed, model-facing view of one fetched Hivemind record.
+
+    Exactly one content field is populated per ``record_type``:
+
+    * ``workflow`` — ``surface_lens`` carries ``render(wf, "surface")`` (the
+      Python view) of the record normalized through the named ingest door;
+      ``shape`` records the detected door shape (``ui`` / ``api`` / ``vibe``).
+    * ``non_workflow`` — ``content`` carries the record's actual text/body.
+    * ``malformed_record`` — ``error`` carries the normalization failure.
+
+    The view is an immutable source pattern for the research agent: it is
+    read and cited (by ``evidence_id``), never merged into the user's graph.
+    """
+
+    record_type: str
+    evidence_id: str
+    source_type: str = "hivemind"
+    surface_lens: str | None = None
+    content: str | None = None
+    error: str | None = None
+    shape: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.record_type not in _RECORD_TYPES:
+            raise ValueError(
+                "`record_type` must be one of: "
+                + ", ".join(sorted(_RECORD_TYPES))
+                + f"; got {self.record_type!r}."
+            )
+        if not isinstance(self.evidence_id, str) or not self.evidence_id.strip():
+            raise ValueError("`evidence_id` must be a non-empty string.")
+        object.__setattr__(self, "evidence_id", self.evidence_id.strip())
+        if not isinstance(self.source_type, str) or not self.source_type.strip():
+            raise ValueError("`source_type` must be a non-empty string.")
+        object.__setattr__(self, "source_type", self.source_type.strip())
+        for name in ("surface_lens", "content", "error", "shape"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"`{name}` must be a string or null.")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "record_type": self.record_type,
+            "evidence_id": self.evidence_id,
+            "source_type": self.source_type,
+        }
+        for name in ("surface_lens", "content", "error", "shape"):
+            value = getattr(self, name)
+            if value is not None:
+                payload[name] = value
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "HivemindRecordView":
+        if not isinstance(payload, Mapping):
+            raise ValueError("HivemindRecordView must be an object.")
+        return cls(
+            record_type=payload.get("record_type", ""),
+            evidence_id=payload.get("evidence_id", ""),
+            source_type=payload.get("source_type", "hivemind"),
+            surface_lens=payload.get("surface_lens"),
+            content=payload.get("content"),
+            error=payload.get("error"),
+            shape=payload.get("shape"),
+        )
+
+
 __all__ = [
     "AgentEvidence",
     "AgentTurnResult",
@@ -2246,8 +2452,12 @@ __all__ = [
     "ExecutorRequest",
     "ExecutorResult",
     "GraphFacts",
+    "HivemindRecordView",
     "ImplementationResult",
     "ReadinessReport",
+    "RECORD_TYPE_MALFORMED",
+    "RECORD_TYPE_NON_WORKFLOW",
+    "RECORD_TYPE_WORKFLOW",
     "Report",
     "RevisionEvidence",
     "ScopedDiff",
@@ -2267,5 +2477,6 @@ __all__ = [
     "is_actionable_adaptation_plan",
     "normalize_model_endpoint",
     "redact_model_preview",
+    "validate_reply_change_claims",
     "warning_detail_from_exception",
 ]

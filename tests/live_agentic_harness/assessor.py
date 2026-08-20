@@ -194,10 +194,16 @@ def _walk_hard_diagnostic_scope(obj: Any, *, skip_failed_batch_turns: bool) -> A
         yield obj
 
 
-def _collect_hard_diagnostics(response: Mapping[str, Any]) -> list[str]:
+def _collect_hard_diagnostics(
+    response: Mapping[str, Any],
+    *,
+    accepted_safe_refusal: bool = False,
+) -> list[str]:
     """Return messages from any object with severity error/fatal."""
     issues: list[str] = []
-    skip_failed_batch_turns = _has_successful_candidate(response)
+    skip_failed_batch_turns = (
+        _has_successful_candidate(response) or accepted_safe_refusal
+    )
     for node in _walk_hard_diagnostic_scope(
         response,
         skip_failed_batch_turns=skip_failed_batch_turns,
@@ -328,20 +334,62 @@ def _expected_outcome_kinds(scenario: Mapping[str, Any] | None) -> set[str]:
     return set()
 
 
-def _allowed_safe_refusal_outcome_kinds(scenario: Mapping[str, Any] | None) -> set[str]:
-    """Return no-edit outcome kinds accepted as safe refusals for edit scenarios."""
+_SAFE_REFUSAL_DEFAULT_KINDS = frozenset({"clarify", "requires_custom_nodes"})
+
+
+def _scenario_requires_custom_nodes(scenario: Mapping[str, Any] | None) -> bool:
+    if not isinstance(scenario, Mapping):
+        return False
+    tags = scenario.get("_tags")
+    return isinstance(tags, Mapping) and tags.get("requires_custom_nodes") is True
+
+
+def _response_proves_class_absence(response: Mapping[str, Any] | None) -> bool:
+    """True when the run proved a named class is absent from schema/runtime."""
+    if not isinstance(response, Mapping):
+        return False
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        missing = outcome.get("missing_classes")
+        if isinstance(missing, (list, tuple)) and any(missing):
+            return True
+    report = response.get("report")
+    if isinstance(report, Mapping):
+        blocker = report.get("authoring_blocker")
+        if isinstance(blocker, Mapping):
+            missing = blocker.get("missing_runtime_classes")
+            if isinstance(missing, (list, tuple)) and any(missing):
+                return True
+    return False
+
+
+def _allowed_safe_refusal_outcome_kinds(
+    scenario: Mapping[str, Any] | None,
+    response: Mapping[str, Any] | None = None,
+) -> set[str]:
+    """Return no-edit outcome kinds accepted as safe refusals for edit scenarios.
+
+    An explicit scenario allowlist always wins (including an empty list).
+    Otherwise default ``clarify`` / ``requires_custom_nodes`` only when the
+    scenario is tagged ``requires_custom_nodes`` or the run proved a named
+    class is absent. Not a blanket default on every edit scenario.
+    """
     if scenario is None:
         return set()
     assessment = scenario.get("assessment")
-    if not isinstance(assessment, Mapping):
-        return set()
-    raw = assessment.get("allow_safe_refusal_outcome_kinds")
-    if raw is None:
-        raw = assessment.get("allow_safe_refusal_outcome_kind")
+    raw = None
+    if isinstance(assessment, Mapping):
+        raw = assessment.get("allow_safe_refusal_outcome_kinds")
+        if raw is None:
+            raw = assessment.get("allow_safe_refusal_outcome_kind")
     if isinstance(raw, str):
         return {raw}
     if isinstance(raw, list):
         return {item for item in raw if isinstance(item, str)}
+    if _scenario_requires_custom_nodes(scenario) or _response_proves_class_absence(
+        response
+    ):
+        return set(_SAFE_REFUSAL_DEFAULT_KINDS)
     return set()
 
 
@@ -663,7 +711,9 @@ def assess_live_output_dir(
     judge_results: list[dict[str, Any]] = []
     expect_graph_changed = _expects_graph_changed(scenario, response)
     expected_outcome_kinds = _expected_outcome_kinds(scenario)
-    allowed_safe_refusal_outcome_kinds = _allowed_safe_refusal_outcome_kinds(scenario)
+    allowed_safe_refusal_outcome_kinds = _allowed_safe_refusal_outcome_kinds(
+        scenario, response=response
+    )
     assessment_cfg = _assessment_config(scenario)
     skip_intent_judge = bool(assessment_cfg.get("skip_intent_judge"))
     skip_semantic_judge = bool(assessment_cfg.get("skip_semantic_judge"))
@@ -892,7 +942,10 @@ def assess_live_output_dir(
             )
 
         # Any hard diagnostic anywhere in the response envelope.
-        for msg in _collect_hard_diagnostics(response):
+        for msg in _collect_hard_diagnostics(
+            response,
+            accepted_safe_refusal=safe_refusal_accepted,
+        ):
             issues.append(
                 {
                     "check": "hard_diagnostic",
@@ -907,10 +960,13 @@ def assess_live_output_dir(
         # cross-checks (graph_changed, outcome_kind, gates, landed counts,
         # effective edits) above remain fully authoritative.
 
-        # Critical upstream failures (Hivemind 500, etc.). When a successful
-        # candidate exists, a recovered research-side upstream error should stay
-        # visible but not invalidate an otherwise valid edit.
-        upstream_severity = "warning" if _has_successful_candidate(response) else "error"
+        # Critical upstream failures (Hivemind 500, etc.). Infra is not a
+        # product fail: semantic_product rows and successful candidates keep
+        # these as warnings (RC9 / B6 S7).
+        if _scenario_kind(scenario) == "semantic_product" or _has_successful_candidate(response):
+            upstream_severity = "warning"
+        else:
+            upstream_severity = "error"
         for msg in _collect_pattern_matches(response, _UPSTREAM_FAILURE_PATTERNS):
             issues.append(
                 {

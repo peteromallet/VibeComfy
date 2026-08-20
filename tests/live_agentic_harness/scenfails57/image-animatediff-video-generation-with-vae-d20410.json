@@ -1,0 +1,37 @@
+{
+  "id": "image-animatediff-video-generation-with-vae-d20410",
+  "query": "Reduce the number of frames from 16 to 8 for quicker test renders.",
+  "workflow_path": "external_workflows/corpus/d20410227419c47a.json",
+  "network": true,
+  "timeout": 160,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The AnimateDiff video is half as long but renders noticeably faster, still producing a smooth looping preview.",
+    "quality": "The frame count parameter is updated, VAE decoding and image\u2011sequence saving still work, and no other settings are altered.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "image_to_video",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "animate-diff",
+      "video-generation",
+      "vae",
+      "text-to-video",
+      "image-sequence"
+    ],
+    "source_workflow_id": "d20410227419c47a",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "A concrete, unambiguous edit that is typical for AnimateDiff users during iterative experimentation."
+  }
+}

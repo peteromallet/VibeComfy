@@ -392,7 +392,7 @@ def _read_ui_payload(path: str | Path) -> dict[str, Any] | None:
         candidate = json.loads(Path(path).read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, TypeError):
         return None
-    if isinstance(candidate, dict) and isinstance(candidate.get("nodes"), list):
+    if isinstance(candidate, dict):
         return candidate
     return None
 
@@ -455,7 +455,7 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 try:
                     _prior_text = Path(prior_path_str).read_text(encoding="utf-8")
                     _candidate = json.loads(_prior_text)
-                    if isinstance(_candidate, dict) and isinstance(_candidate.get("nodes"), list):
+                    if isinstance(_candidate, dict):
                         guard_original_ui = _candidate
                 except Exception:
                     guard_original_ui = None

@@ -106,56 +106,42 @@ test("DeltaDiagnosticError defaults code to malformed_delta and detail to empty"
 
 // ── classifyDeltaShape ──────────────────────────────────────────────────────
 
-test("classifyDeltaShape: canonical envelope → canonical", () => {
+test("classifyDeltaShape: accepted_batch → accepted_batch", () => {
   const shape = classifyDeltaShape({
-    delta_ops_envelope: {
-      schema_version: "2.0.0",
-      ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
-    },
+    accepted_batch: [{ op: { op: "set_node_field", target: ["", "n", "w"], value: 1 } }],
   });
-  assert.equal(shape.shape, "canonical");
-  assert.equal(shape.code, "canonical_delta_ops");
-  assert.equal(shape.detail.schema_version, "2.0.0");
+  assert.equal(shape.shape, "accepted_batch");
+  assert.equal(shape.code, "accepted_batch");
+  assert.equal(shape.detail.count, 1);
 });
 
-test("classifyDeltaShape: canonical envelope with null schema_version yields null in detail", () => {
-  const shape = classifyDeltaShape({
-    delta_ops_envelope: {
-      schema_version: null,
-      ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
-    },
-  });
-  assert.equal(shape.shape, "canonical");
-  assert.equal(shape.detail.schema_version, null);
+test("classifyDeltaShape: empty accepted_batch reports count 0", () => {
+  const shape = classifyDeltaShape({ accepted_batch: [] });
+  assert.equal(shape.shape, "accepted_batch");
+  assert.equal(shape.code, "accepted_batch");
+  assert.equal(shape.detail.count, 0);
 });
 
-test("classifyDeltaShape: canonical envelope with non-array ops (malformed) → canonical_envelope_malformed_ops", () => {
-  const shape = classifyDeltaShape({
-    delta_ops_envelope: {
-      schema_version: "2.0.0",
-      ops: "not-an-array",
-    },
-  });
-  assert.equal(shape.shape, "canonical");
-  assert.equal(shape.code, "canonical_envelope_malformed_ops");
-  assert.equal(shape.detail.ops_type, "string");
+test("classifyDeltaShape: non-array accepted_batch → missing", () => {
+  const shape = classifyDeltaShape({ accepted_batch: "not-an-array" });
+  assert.equal(shape.shape, "missing");
+  assert.equal(shape.code, "missing_delta_ops");
 });
 
-test("classifyDeltaShape: legacy flat delta_ops array → legacy_flat", () => {
+test("classifyDeltaShape: archived flat delta_ops → missing", () => {
   const shape = classifyDeltaShape({
     delta_ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
   });
-  assert.equal(shape.shape, "legacy_flat");
-  assert.equal(shape.code, "legacy_delta_ops_flat");
+  assert.equal(shape.shape, "missing");
+  assert.equal(shape.code, "missing_delta_ops");
 });
 
-test("classifyDeltaShape: legacy wrapped delta_ops object → legacy_wrapped", () => {
+test("classifyDeltaShape: archived wrapped delta_ops → missing", () => {
   const shape = classifyDeltaShape({
     delta_ops: { ops: [], diagnostics: [] },
   });
-  assert.equal(shape.shape, "legacy_wrapped");
-  assert.equal(shape.code, DELTA_DIAGNOSTIC_LEGACY_SHAPE);
-  assert.deepEqual(shape.detail.keys, ["diagnostics", "ops"]);
+  assert.equal(shape.shape, "missing");
+  assert.equal(shape.code, "missing_delta_ops");
 });
 
 test("classifyDeltaShape: null payload → missing", () => {
@@ -170,7 +156,7 @@ test("classifyDeltaShape: non-object payload → missing", () => {
   assert.equal(shape.code, "missing_turn_response");
 });
 
-test("classifyDeltaShape: empty object (no delta_ops) → missing", () => {
+test("classifyDeltaShape: empty object (no accepted_batch) → missing", () => {
   const shape = classifyDeltaShape({ ok: true });
   assert.equal(shape.shape, "missing");
   assert.equal(shape.code, "missing_delta_ops");
@@ -543,12 +529,9 @@ test("normalizeDeltaEnvelope rejects non-object non-array input", () => {
 
 // ── normalizeDeltaOpsFromSubmitPayload ──────────────────────────────────────
 
-test("normalizeDeltaOpsFromSubmitPayload extracts ops from canonical delta_ops_envelope", () => {
+test("normalizeDeltaOpsFromSubmitPayload extracts ops from accepted_batch", () => {
   const payload = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
-    },
+    accepted_batch: [{ op: { op: "set_node_field", target: ["", "n", "w"], value: 1 } }],
   };
   const ops = normalizeDeltaOpsFromSubmitPayload(payload);
   assert.ok(Array.isArray(ops));
@@ -557,39 +540,39 @@ test("normalizeDeltaOpsFromSubmitPayload extracts ops from canonical delta_ops_e
   assert.equal(ops[0].value, 1);
 });
 
-test("normalizeDeltaOpsFromSubmitPayload falls back to legacy flat delta_ops", () => {
-  const payload = {
-    delta_ops: [
-      { op: "set_node_field", target: ["", "n", "w"], value: 2 },
-    ],
-  };
-  const ops = normalizeDeltaOpsFromSubmitPayload(payload);
-  assert.ok(Array.isArray(ops));
-  assert.equal(ops.length, 1);
-  assert.equal(ops[0].value, 2);
+test("normalizeDeltaOpsFromSubmitPayload rejects archived flat delta_ops", () => {
+  assert.throws(
+    () => normalizeDeltaOpsFromSubmitPayload({
+      delta_ops: [
+        { op: "set_node_field", target: ["", "n", "w"], value: 2 },
+      ],
+    }),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      assert.equal(err.code, "missing_delta_ops");
+      return true;
+    },
+  );
 });
 
-test("normalizeDeltaOpsFromSubmitPayload prefers delta_ops_envelope over delta_ops", () => {
+test("normalizeDeltaOpsFromSubmitPayload reads accepted_batch and ignores archived delta_ops", () => {
   const payload = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [{ op: "set_mode", target: ["", "m"], mode: 4 }],
-    },
+    accepted_batch: [{ op: { op: "set_mode", target: ["", "m"], mode: 4 } }],
     delta_ops: [
       { op: "set_node_field", target: ["", "n", "w"], value: 999 },
     ],
   };
   const ops = normalizeDeltaOpsFromSubmitPayload(payload);
   assert.equal(ops.length, 1);
-  assert.equal(ops[0].op, "set_mode"); // canonical takes priority
+  assert.equal(ops[0].op, "set_mode");
 });
 
-test("normalizeDeltaOpsFromSubmitPayload rejects legacy wrapped delta_ops", () => {
+test("normalizeDeltaOpsFromSubmitPayload rejects archived wrapped delta_ops", () => {
   assert.throws(
     () => normalizeDeltaOpsFromSubmitPayload({ delta_ops: { ops: [] } }),
     (err) => {
       assert.ok(err instanceof DeltaDiagnosticError);
-      assert.equal(err.code, DELTA_DIAGNOSTIC_LEGACY_SHAPE);
+      assert.equal(err.code, "missing_delta_ops");
       return true;
     },
   );
@@ -910,16 +893,13 @@ test("normalizeDeltaEnvelope rejects null ops", () => {
 
 // ── Cumulative delta envelope across batch turns ────────────────────────
 
-test("readDeltaEnvelope extracts cumulative delta from multi-turn fixture", () => {
+test("readDeltaEnvelope extracts cumulative delta from accepted_batch", () => {
   const fixture = {
-    delta_ops_envelope: {
-      schema_version: "2.0.0",
-      ops: [
-        { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 },
-        { op: "add_node", scope_path: "", uid: "u1", node_id: "10", class_type: "KSampler", fields: {}, inputs: {} },
-        { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "u1", "images"] },
-      ],
-    },
+    accepted_batch: [
+      { op: { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 } },
+      { op: { op: "add_node", scope_path: "", uid: "u1", node_id: "10", class_type: "KSampler", fields: {}, inputs: {} } },
+      { op: { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "u1", "images"] } },
+    ],
   };
 
   const envelope = readDeltaEnvelope(fixture);
@@ -931,8 +911,9 @@ test("readDeltaEnvelope extracts cumulative delta from multi-turn fixture", () =
   assert.equal(envelope.ops[2].op, "upsert_link");
 });
 
-test("readDeltaEnvelope returns null for absent delta_ops_envelope", () => {
+test("readDeltaEnvelope returns null for absent accepted_batch", () => {
   assert.equal(readDeltaEnvelope({ ok: true, outcome: { kind: "noop" } }), null);
+  assert.equal(readDeltaEnvelope({ accepted_batch: null }), null);
   assert.equal(readDeltaEnvelope({ delta_ops_envelope: null }), null);
 });
 

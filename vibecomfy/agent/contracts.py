@@ -105,6 +105,8 @@ class HeadlessAgentRequest:
     # ``apply`` — that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Scenario assessment contract forwarded into ExecutorRequest/classify.
+    expect_graph_changed: bool | None = None
     # Batch-REPL per-request turn budget (PR-D).  Integer 1..250; None =
     # default 50.  Forwarded through to_executor_request → implement payload.
     max_batches: int | None = None
@@ -149,6 +151,12 @@ class HeadlessAgentRequest:
             raise ValueError(
                 "HeadlessAgentRequest `interaction_mode` must be a string or null."
             )
+        if self.expect_graph_changed is not None and not isinstance(
+            self.expect_graph_changed, bool
+        ):
+            raise ValueError(
+                "HeadlessAgentRequest `expect_graph_changed` must be a boolean or null."
+            )
         if self.max_batches is not None:
             from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
 
@@ -182,6 +190,7 @@ class HeadlessAgentRequest:
             profile=self.profile,
             idempotency_key=self.idempotency_key,
             interaction_mode=self.interaction_mode,
+            expect_graph_changed=self.expect_graph_changed,
             max_batches=self.max_batches,
         )
 
@@ -221,6 +230,8 @@ class HeadlessAgentRequest:
             payload["timeout"] = self.timeout
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.expect_graph_changed is not None:
+            payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
         if self.extra:
@@ -278,6 +289,11 @@ class HeadlessAgentRequest:
                 payload.get("interaction_mode"),
                 field_name="interaction_mode",
             ),
+            expect_graph_changed=_parse_bool(
+                payload.get("expect_graph_changed"),
+                field_name="expect_graph_changed",
+                default=False,
+            ) if "expect_graph_changed" in payload else None,
             max_batches=coerce_max_batches(
                 payload.get("max_batches"),
                 field_name="max_batches",

@@ -128,17 +128,48 @@ def _fake_search(query: str, limit: int = 5, **kwargs: Any) -> ToolResult:
 
 
 def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
-    """Deterministic Hivemind get returning the full record for a hit id."""
+    """Deterministic Hivemind get returning the full record for a hit id.
+
+    The workflow record carries a real workflow JSON (UI shape) in
+    ``payload.workflow_json`` so the stage serves its IR surface lens (batch
+    13) — the raw ``body`` below stays in the evidence artifact only.
+    """
     row_id = evidence_id.rsplit(":", 1)[-1]
-    # Deliberately longer than the digest's record-preview limit so tests can
-    # prove the digest carries a BOUNDED preview of the fetched body (head
-    # present, tail absent) — never the full raw body.
+    # The served surface lens is deliberately longer than the digest's
+    # record-preview limit (the long widget value below) so tests can prove
+    # the digest carries a BOUNDED preview of the served lens (head present,
+    # marker absent) — never the full lens and never the raw source body.
+    lens_tail = "END-OF-SURFACE-LENS"
     body = (
         "expanded record body with wiring detail — the exact socket/terminal "
         "pattern and preserved settings for the audio-conditioned Wan chain. "
         + ("x" * 400)
         + " END-OF-EXPANDED-RECORD"
     )
+    workflow_json = {
+        "last_node_id": 2,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadAudio",
+                "pos": [0, 0],
+                "size": [300, 100],
+                "widgets_values": [("a" * 400) + lens_tail],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "links": [2]}],
+            },
+            {
+                "id": 2,
+                "type": "ConditioningCombine",
+                "pos": [400, 0],
+                "size": [300, 100],
+                "widgets_values": [],
+                "inputs": [{"name": "conditioning_1", "type": "CONDITIONING", "link": 2}],
+                "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": None}],
+            },
+        ],
+        "links": [[2, 1, 0, 2, 0, "AUDIO"]],
+        "groups": [],
+    }
     return ToolResult(
         tool_name="hivemind_get",
         status=ToolStatus.OK,
@@ -151,6 +182,7 @@ def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
                 "title": f"full record {row_id}",
                 "body": body,
                 "kind": "workflow",
+                "payload": {"workflow_json": workflow_json},
             },
         },
         evidence_ids=(evidence_id,),
@@ -261,11 +293,14 @@ class TestTraceRecordsQuestionAndJudgment:
         # Tool results were captured as evidence artifacts.
         assert "hivemind:workflows:111" in pack.artifacts
         assert "hivemind_get:workflows:111" in pack.artifacts
-        # P1-b: the fetch digest previews the FETCHED ROW body (bounded) so
-        # the agent synthesizes from content, not a title — while the full
-        # raw body never enters the digest (head present, tail truncated).
+        # Batch 13: the fetch digest serves the IR surface lens of the
+        # workflow record (the Python view), bounded — head present, tail
+        # absent — while the raw source body stays in the evidence artifact
+        # only and never enters the digest.
         get_digest = judge_log[-1]["digest"]
-        assert "expanded record body" in get_digest
+        assert "loadaudio = LoadAudio(" in get_digest
+        assert "END-OF-SURFACE-LENS" not in get_digest
+        assert "expanded record body" not in get_digest
         assert "END-OF-EXPANDED-RECORD" not in get_digest
 
     def test_budget_exhaustion_terminates_with_refine_verdict(
@@ -841,6 +876,40 @@ class TestFinishPrematureGuard:
         ]
         assert synth == []
         assert trace.citations == ()
+
+    def test_adapt_zero_tool_loop_executes_fallback_search(self, profile_dir: Path) -> None:
+        """RC2: adapt with zero agent tool calls still executes one search."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        searches: list[str] = []
+
+        def always_finish(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            del digest, messages
+            return {
+                "action": "finish",
+                "conclusion": "no tool calls",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        def search_fn(query: str, **kwargs: Any) -> Any:
+            searches.append(str(query))
+            return _fake_search(query, **kwargs)
+
+        trace, pack = stage.run_agent_research_stage(
+            route="adapt",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=search_fn,
+            get_fn=_fake_get,
+            judge_fn=always_finish,
+            max_turns=2,
+        )
+        assert searches == [_EXPLICIT_QUESTION]
+        assert any(
+            entry.decision == stage.DECISION_SEARCH for entry in pack.ledger.entries
+        )
+        assert trace.attempt in {stage.RESEARCH_ATTEMPT_THIN, stage.RESEARCH_ATTEMPT_EMPTY}
+        assert any("fallback hivemind_search" in warning for warning in trace.warnings)
 
 
 class TestModelFamilyBriefNudge:

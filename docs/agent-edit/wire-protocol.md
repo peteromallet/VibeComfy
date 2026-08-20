@@ -310,7 +310,7 @@ The JSON variant (`_format_batch_report_json`) produces a deterministic dict:
 | `statement_index` | `BatchResult.statement_index` | 0-based position in batch |
 | `source` | `BatchResult.source` | Source text (truncated at 72 chars in text report) |
 | `ok` | `BatchResult.ok` | Whether the statement succeeded |
-| `landed` | `BatchResult.landed` | Whether the op was applied to working_ui |
+| `landed` | `BatchResult.landed` | Whether the op landed on the retained IR |
 | `op_kind` | `BatchResult.op_kind` | e.g. `upsert_link`, `set_node_field`, `done` |
 | `touched_uids` | `BatchResult.touched_uids` | UIDs affected by this statement |
 | `dependency_cause` | `BatchResult.dependency_cause` | Why a dependent statement was skipped |

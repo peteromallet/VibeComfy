@@ -55,6 +55,7 @@ from vibecomfy.porting.widgets.settings_contract import node_settings_for
 
 from .tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
 
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 # Same parameter-term set the legacy tweak ranking keys on.
 PARAMETER_TWEAK_TARGET_TERMS = (
     "detail",
@@ -329,7 +330,7 @@ _SEED_INDEX: tuple[tuple[str, tuple[_SeedEntry, ...]], ...] = (
 def _graph_node_count(graph: Any) -> int:
     if not isinstance(graph, Mapping):
         return 0
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if isinstance(nodes, Mapping):
         return len(nodes)
     if isinstance(nodes, list):
@@ -340,7 +341,7 @@ def _graph_node_count(graph: Any) -> int:
 def _iter_node_items(graph: Mapping[str, Any]):
     """Yield ``(node_id, node)`` pairs exactly like the legacy ranking source."""
 
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if isinstance(nodes, Mapping):
         for node_id, node in nodes.items():
             if isinstance(node, Mapping):
@@ -420,7 +421,7 @@ def _widget_fallback_fields(node: Mapping[str, Any]) -> tuple[list[str], int | N
             for index, widget in enumerate(widgets)
             if isinstance(widget, Mapping)
         ]
-    widget_values = node.get("widgets_values")
+    widget_values = door_get_widgets_values(node)
     if not widget_fields and isinstance(widget_values, list):
         widget_fields = [f"widget_{index}" for index in range(min(len(widget_values), 4))]
     if isinstance(raw_widgets, Mapping):

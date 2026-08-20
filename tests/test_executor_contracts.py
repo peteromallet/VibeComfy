@@ -1108,13 +1108,13 @@ class TestBuildClassifyMessages:
         )
         assert 'route="revise"' in system
 
-    def test_system_prompt_teaches_node_titles_are_editable(self) -> None:
-        """Rename requests are concrete graph edits (set_title), not clarifications."""
+    def test_system_prompt_no_longer_advertises_set_title_edit_op(self) -> None:
+        """set_title is not part of the grammar; the classifier must not teach it."""
         msgs = build_classify_messages("rename a node", has_graph=True)
         system = msgs[0]["content"]
-        assert "ComfyUI node titles are editable via the set_title edit op" in system
-        assert "route to route=\"revise\"" in system
-        assert "rather than guessing a mutation route" in system
+        assert "ComfyUI node titles are editable via the set_title edit op" not in system
+        assert "set_title" not in system
+        assert 'route="revise"' in system
 
     def test_system_prompt_pins_outside_patterns_to_adapt_and_local_edits_elsewhere(self) -> None:
         msgs = build_classify_messages("borrow the VACE identity travel pattern", has_graph=True)
@@ -1133,11 +1133,45 @@ class TestBuildClassifyMessages:
         assert "Generic edits to the current graph" in system
         assert "stay route=\"revise\" when concrete" in system
         assert "route=\"clarify\" when ambiguous" in system
+        assert (
+            "Widget, edge, and single-node-swap intents are route=\"revise\""
+            in system
+        )
+        assert "Do not send these down route=\"adapt\"" in system
 
-    def test_session_context_renders_text_messages_options_and_reference_map(self) -> None:
+    def test_implement_prompt_acts_on_graph_local_evidence_when_research_fails(self) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
+
+        messages = build_batch_messages(task="set steps to 30", python_source="ksampler.steps = 20")
+        system = messages[0]["content"]
+        assert "If research is thin, empty, never, UNAVAILABLE, or exhausted" in system
+        assert "graph-local edit that is fully justified by the attached IR" in system
+        assert "Refuse only architectural invention" in system
+        assert "Never use positional widget indices" in system
+
+    def test_implement_prompt_requires_anchor_for_add_node_relation(self) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
+
+        messages = build_batch_messages(task="add an image loader", python_source="save = SaveImage()")
+        system = messages[0]["content"]
+        assert (
+            "Every add-node statement that uses `relation=` MUST also include "
+            "`near=...` or `group=...`"
+        ) in system
+        assert "`relation=` alone is rejected" in system
+
+    def test_session_context_renders_text_messages_options_and_census_reference_map(self) -> None:
         msgs = build_classify_messages(
             "option 2",
             has_graph=True,
+            graph_summary=(
+                "## Census\n"
+                "2 node(s), 0 edge(s)\n"
+                "class list: CheckpointLoaderSimple (1), KSampler (1)\n"
+                "reference map:\n"
+                "  1: CheckpointLoaderSimple\n"
+                "  2: KSampler"
+            ),
             session_context={
                 "recent_messages": [
                     {"role": "user", "text": "Change the sampler"},
@@ -1164,7 +1198,6 @@ class TestBuildClassifyMessages:
                     },
                 },
             },
-            graph_reference_map={"2": "KSampler", "1": "CheckpointLoaderSimple"},
         )
         content = msgs[1]["content"]
         assert "Recent conversation (for reference resolution):" in content
@@ -1174,8 +1207,11 @@ class TestBuildClassifyMessages:
         assert "Latest candidate reference" in content
         assert "turn=0003" in content
         assert "changed KSampler steps" in content
-        assert "id=1: CheckpointLoaderSimple" in content
-        assert "id=2: KSampler" in content
+        # The node reference map comes from the renderer's census lens (the
+        # graph summary) — no raw-JSON ref-map sidecar (batch 12 fix).
+        assert "reference map:" in content
+        assert "1: CheckpointLoaderSimple" in content
+        assert "2: KSampler" in content
 
 
 class TestBuildReplyMessages:
@@ -1379,6 +1415,11 @@ class TestBuildReplyMessages:
         assert "Never invent parameters, modes, or settings that are " in system
         assert "absent from the IR" in system
         assert "say it is not present rather than guessing" in system
+        assert "marks a widget `unlabeled`" in system
+        assert "do not name it" in system
+        assert "Do not infer codec families, bit depths, or compositing" in system
+        assert "string `auto`" in system
+        assert "`switch` widget" in system
 
     def test_reply_prompt_forbids_unknowable_refusals_with_ir_evidence(self) -> None:
         """'Semantics unknowable' refusals are forbidden when the workflow IR
@@ -1430,6 +1471,79 @@ class TestParseClassifyResponse:
         assert d.research is True
         assert d.implement is True
         assert d.effort == "medium"
+
+    def test_revise_attempt_with_string_missing_information_reaches_implement(self) -> None:
+        raw = json.dumps(
+            {
+                "research": False,
+                "implement": True,
+                "reply": True,
+                "intent": "edit",
+                "route": "revise",
+                "task": "edit_graph",
+                "plan_summary": "Set the frame count.",
+                "needs_input": {
+                    "decision": "assumed",
+                    "question": "Which frame count?",
+                    "missing_information": "target frame count",
+                    "options": ["49", "81"],
+                    "bounded_assumption": "Use 49 frames.",
+                    "extra_classifier_key": True,
+                },
+            }
+        )
+
+        decision = parse_classify_response(raw)
+
+        assert decision.effective_route == "revise"
+        assert decision.implement is True
+        assert decision.needs_input is not None
+        assert decision.needs_input.missing_information == ("target frame count",)
+
+    def test_valid_revise_drops_malformed_needs_input_sidecar(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw = json.dumps(
+            {
+                "research": False,
+                "implement": True,
+                "reply": True,
+                "intent": "edit",
+                "route": "revise",
+                "task": "edit_graph",
+                "needs_input": {
+                    "question": "Which frame count?",
+                    "options": 49,
+                },
+            }
+        )
+
+        with caplog.at_level("WARNING", logger="vibecomfy.executor.prompts"):
+            decision = parse_classify_response(raw)
+
+        assert decision.effective_route == "revise"
+        assert decision.implement is True
+        assert getattr(decision, "needs_input", None) is None
+        assert "Dropping malformed needs_input sidecar" in caplog.text
+
+    def test_clarify_with_coerced_missing_information_and_assumption_still_raises(self) -> None:
+        raw = json.dumps(
+            {
+                "research": False,
+                "implement": False,
+                "reply": True,
+                "intent": "respond",
+                "route": "clarify",
+                "needs_input": {
+                    "question": "Which frame count?",
+                    "missing_information": "target frame count",
+                    "bounded_assumption": "Use 49 frames.",
+                },
+            }
+        )
+
+        with pytest.raises(ValueError, match="clarify decision"):
+            parse_classify_response(raw)
 
     def test_missing_keys_default(self) -> None:
         raw = '{"reply": false}'
@@ -1997,1485 +2111,3 @@ class TestClassifyRoundtrip:
         # effective properties still work
         assert parsed.effective_route == "revise"
         assert parsed.effective_task == "edit_graph"
-
-
-
-# ── Route classification scenario fixtures (10 documented classes) ──────────
-
-# These 10 scenarios are sourced from docs/plans/workflow-precedent-scenario-coverage.md.
-# Each fixture asserts the normalized route, legacy booleans, intent, effort,
-# task, and key metadata for a documented user-task class without making any
-# live model call.
-
-_SCENARIO_FIXTURES = [
-    # ── 1. seed/prefix widget update ──────────────────────────────────────
-    pytest.param(
-        "seed/prefix widget update",
-        dict(
-            research=False, implement=True, reply=True, effort="low",
-            plan_summary="update seed/prefix widget parameter",
-            intent="edit", route="revise", task="edit_graph",
-        ),
-        "revise",  # expected effective_route
-        False,          # expected research
-        True,           # expected implement
-        "edit",         # expected intent
-        "low",          # expected effort
-        "edit_graph",   # expected effective_task
-        id="sc01_seed_prefix_widget",
-    ),
-    # ── 2. PreviewImage tap ──────────────────────────────────────────────
-    pytest.param(
-        "PreviewImage tap",
-        dict(
-            research=False, implement=False, reply=True, effort="low",
-            plan_summary="preview intermediate PreviewImage node output",
-            intent="explain_graph", route="clarify", task="preview_subgraph",
-        ),
-        "clarify",
-        False,
-        False,
-        "explain_graph",
-        "low",
-        "preview_subgraph",
-        id="sc02_preview_image_tap",
-    ),
-    # ── 3. explain current graph ─────────────────────────────────────────
-    pytest.param(
-        "explain current graph",
-        dict(
-            research=False, implement=False, reply=True, effort="medium",
-            plan_summary="explain current graph structure and connections",
-            intent="explain_graph", route="inspect", task="inspect_graph",
-        ),
-        "inspect",
-        False,
-        False,
-        "explain_graph",
-        "medium",
-        "inspect_graph",
-        id="sc03_explain_graph",
-    ),
-    # ── 4. LTX user audio path (external workflow precedent) ─────────────
-    pytest.param(
-        "LTX user audio path",
-        dict(
-            research=True, implement=True, reply=True, effort="high",
-            plan_summary="add LTX audio pipeline from external workflow precedent",
-            intent="edit", route="adapt", task="research_precedent",
-        ),
-        "adapt",
-        True,
-        True,
-        "edit",
-        "high",
-        "research_precedent",
-        id="sc04_ltx_audio_path",
-    ),
-    # ── 5. ambiguous audio ───────────────────────────────────────────────
-    pytest.param(
-        "ambiguous audio request",
-        dict(
-            research=False, implement=False, reply=True, effort="low",
-            plan_summary="clarify ambiguous audio request before routing",
-            intent="respond", route="clarify", task="respond",
-        ),
-        "clarify",
-        False,
-        False,
-        "respond",
-        "low",
-        "respond",
-        id="sc05_ambiguous_audio",
-    ),
-    # ── 6. asset swap ────────────────────────────────────────────────────
-    pytest.param(
-        "model/asset config swap",
-        dict(
-            research=False, implement=True, reply=True, effort="medium",
-            plan_summary="swap model/asset configuration using registry",
-            intent="edit", route="revise", task="find_assets",
-        ),
-        "revise",
-        False,
-        True,
-        "edit",
-        "medium",
-        "find_assets",
-        id="sc06_asset_swap",
-    ),
-    # ── 7. dangling audio repair ─────────────────────────────────────────
-    pytest.param(
-        "dangling audio node repair",
-        dict(
-            research=True, implement=True, reply=True, effort="high",
-            plan_summary="diagnose and repair dangling audio connections",
-            intent="edit", route="adapt", task="diagnose",
-        ),
-        "adapt",
-        True,
-        True,
-        "edit",
-        "high",
-        "diagnose",
-        id="sc07_dangling_audio_repair",
-    ),
-    # ── 8. runtime preview ───────────────────────────────────────────────
-    pytest.param(
-        "runtime subgraph preview",
-        dict(
-            research=False, implement=False, reply=True, effort="low",
-            plan_summary="evaluate subgraph at runtime without mutating canvas",
-            intent="explain_graph", route="clarify", task="preview_subgraph",
-        ),
-        "clarify",
-        False,
-        False,
-        "explain_graph",
-        "low",
-        "preview_subgraph",
-        id="sc08_runtime_preview",
-    ),
-    # ── 9. composite / decompose ─────────────────────────────────────────
-    pytest.param(
-        "composite multi-pattern edit",
-        dict(
-            research=True, implement=True, reply=True, effort="high",
-            plan_summary="decompose composite edit into per-subgoal precedent research",
-            intent="edit", route="adapt", task="research_precedent",
-        ),
-        "adapt",
-        True,
-        True,
-        "edit",
-        "high",
-        "research_precedent",
-        id="sc09_composite_decompose",
-    ),
-    # ── 10. respond-only ──────────────────────────────────────────────────
-    pytest.param(
-        "respond-only informational turn",
-        dict(
-            research=False, implement=False, reply=True, effort="low",
-            plan_summary="informational response only, no research or edit",
-            intent="respond", route="clarify", task="respond",
-        ),
-        "clarify",
-        False,
-        False,
-        "respond",
-        "low",
-        "respond",
-        id="sc10_respond_only",
-    ),
-]
-
-
-class TestRouteScenarioFixtures:
-    """Focused route-classification fixtures for the 10 documented scenario classes.
-
-    Each test constructs a ClassifyDecision for one scenario and asserts the
-    normalized effective_route, legacy research/implement booleans, intent,
-    effort, and effective_task  without making any live model call.
-    """
-
-    @pytest.mark.parametrize(
-        "scenario_name,kwargs,expected_route,expected_research,expected_implement,"
-        "expected_intent,expected_effort,expected_task",
-        _SCENARIO_FIXTURES,
-    )
-    def test_scenario_fixture_normalized_route_and_metadata(
-        self,
-        scenario_name: str,
-        kwargs: dict,
-        expected_route: str,
-        expected_research: bool,
-        expected_implement: bool,
-        expected_intent: str,
-        expected_effort: str,
-        expected_task: str,
-    ) -> None:
-        """Each documented scenario class maps to the correct route + metadata."""
-        decision = ClassifyDecision(**kwargs)
-
-        # Effective route is the authoritative phase gate.
-        assert decision.effective_route == expected_route, (
-            f"{scenario_name}: expected effective_route={expected_route}, "
-            f"got {decision.effective_route}"
-        )
-
-        # Legacy booleans remain correct.
-        assert decision.research == expected_research, (
-            f"{scenario_name}: research mismatch"
-        )
-        assert decision.implement == expected_implement, (
-            f"{scenario_name}: implement mismatch"
-        )
-
-        # Intent.
-        assert decision.intent == expected_intent, (
-            f"{scenario_name}: intent mismatch"
-        )
-
-        # Effort hint.
-        assert decision.effort == expected_effort, (
-            f"{scenario_name}: effort mismatch"
-        )
-
-        # Normalized task.
-        assert decision.effective_task == expected_task, (
-            f"{scenario_name}: expected effective_task={expected_task}, "
-            f"got {decision.effective_task}"
-        )
-
-        # Reply is always True for these scenarios (executor should produce a reply).
-        assert decision.reply is True, (
-            f"{scenario_name}: reply should be True"
-        )
-
-    @pytest.mark.parametrize(
-        "scenario_name,kwargs,expected_route,expected_research,expected_implement,"
-        "expected_intent,expected_effort,expected_task",
-        _SCENARIO_FIXTURES,
-    )
-    def test_scenario_fixture_roundtrip_through_parser(
-        self,
-        scenario_name: str,
-        kwargs: dict,
-        expected_route: str,
-        expected_research: bool,
-        expected_implement: bool,
-        expected_intent: str,
-        expected_effort: str,
-        expected_task: str,
-    ) -> None:
-        """Each scenario fixture survives a JSON serialize -> parse round-trip."""
-        decision = ClassifyDecision(**kwargs)
-        raw = json.dumps(decision.to_dict())
-        parsed = parse_classify_response(raw)
-
-        assert parsed == decision, (
-            f"{scenario_name}: round-trip mismatch"
-        )
-
-        # Re-assert key fields on the parsed instance.
-        assert parsed.effective_route == expected_route
-        assert parsed.research == expected_research
-        assert parsed.implement == expected_implement
-        assert parsed.intent == expected_intent
-        assert parsed.effort == expected_effort
-        assert parsed.effective_task == expected_task
-
-    @pytest.mark.parametrize(
-        "scenario_name,kwargs,expected_route,expected_research,expected_implement,"
-        "expected_intent,expected_effort,expected_task",
-        _SCENARIO_FIXTURES,
-    )
-    def test_scenario_fixture_to_dict_includes_route_and_task(
-        self,
-        scenario_name: str,
-        kwargs: dict,
-        expected_route: str,
-        expected_research: bool,
-        expected_implement: bool,
-        expected_intent: str,
-        expected_effort: str,
-        expected_task: str,
-    ) -> None:
-        """to_dict() emits route and task when non-empty."""
-        decision = ClassifyDecision(**kwargs)
-        d = decision.to_dict()
-
-        assert d["route"] == expected_route, (
-            f"{scenario_name}: route not emitted correctly"
-        )
-        assert d["task"] == expected_task, (
-            f"{scenario_name}: task not emitted correctly"
-        )
-
-    def test_all_10_scenarios_accounted_for(self) -> None:
-        """Smoke check: the fixture list has exactly 10 entries."""
-        assert len(_SCENARIO_FIXTURES) == 10, (
-            f"Expected 10 scenario fixtures, got {len(_SCENARIO_FIXTURES)}"
-        )
-
-
-class TestExecutorResultRoundtrip:
-    def test_full_success_roundtrip(self) -> None:
-        plan = ClassifyDecision(research=True, implement=True, reply=True, effort="medium", plan_summary="edit graph")
-        research = _agent_research_result(summary="found 2 templates")
-        impl = ImplementationResult(graph={"nodes": [1]}, message="added node", delta=({"op": "add"},))
-        report = Report(plan=plan, research=research, implementation=impl)
-        result = ExecutorResult.success(report=report, graph={"nodes": [1]}, reply="Graph edited successfully.")
-
-        d = result.to_dict()
-        assert d["ok"] is True
-        assert d["reply"] == "Graph edited successfully."
-        assert d["graph"] == {"nodes": [1]}
-        assert d["report"]["executor"]["plan"]["research"] is True
-        # Research serializes as the compact agent-owned package: mode + ledger
-        # references (evidence IDs), never full source blobs.
-        research_payload = d["report"]["executor"]["research"]
-        assert research_payload["mode"] == "agent_owned"
-        assert research_payload["route"] == "research"
-        assert research_payload["ledger"]["entries"][0]["conclusion"] == "found 2 templates"
-        assert d["report"]["executor"]["implementation"]["message"] == "added node"
-        assert d["report"]["executor"]["implementation"]["delta"] == [{"op": "add"}]
-
-    def test_failure_roundtrip(self) -> None:
-        plan = ClassifyDecision.respond_only()
-        report = Report(plan=plan)
-        result = ExecutorResult.failure(kind="ProviderError", stage="classify", message="timeout", report=report)
-
-        d = result.to_dict()
-        assert d["ok"] is False
-        assert d["failure_kind"] == "ProviderError"
-        assert d["failure_stage"] == "classify"
-        assert d["failure_message"] == "timeout"
-        assert d["report"]["executor"]["plan"]["reply"] is True
-
-# ── TopologyManifest contract tests (W-02) ────────────────────────────────────
-
-
-class TestTopologyManifest:
-    """Complete-or-reject, size bounds, anti-gaming, and legacy compatibility."""
-
-    # ── helpers ──────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _valid_node(symbol: str = "n1") -> ManifestNode:
-        return ManifestNode(
-            symbol=symbol,
-            canonical_class_type="LoraLoaderModelOnly",
-            resolver_status="resolved",
-            evidence_ref="abc123",
-            confidence=0.95,
-        )
-
-    @staticmethod
-    def _valid_edge(from_sym: str = "n1", to_sym: str = "n2") -> ManifestInternalEdge:
-        return ManifestInternalEdge(
-            from_symbol=from_sym,
-            output_socket="model",
-            to_symbol=to_sym,
-            input_socket="model",
-            evidence_ref="def456",
-            confidence=0.9,
-        )
-
-    @staticmethod
-    def _valid_anchor(symbol: str = "n1") -> ManifestBoundaryAnchor:
-        return ManifestBoundaryAnchor(
-            direction="inbound",
-            symbol=symbol,
-            symbol_socket="model",
-            target_role="model_provider",
-            target_class_type="WanVideoSampler",
-            target_socket="image_embeds",
-            source_anchor_ref="ghi789",
-            confidence=0.87,
-        )
-
-    @staticmethod
-    def _valid_coverage() -> ManifestInquiryCoverage:
-        return ManifestInquiryCoverage(
-            required_roles=("sampler", "model_provider"),
-            covered_roles=("model_provider",),
-        )
-
-    @staticmethod
-    def _valid_validation() -> ManifestValidation:
-        return ManifestValidation(
-            verdict="pass",
-            class_resolution="all_classes_recognized",
-            socket_checks="all_sockets_match",
-            cut_edge_coverage="full",
-            anchor_binding="bound",
-            reasons=(),
-        )
-
-    def _valid_manifest(self) -> TopologyManifest:
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:deadbeef",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(self._valid_node("n1"), self._valid_node("n2")),
-            internal_edges=(self._valid_edge("n1", "n2"),),
-            boundary_anchors=(self._valid_anchor("n1"),),
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="sha256:cafebabe",
-            confidence=0.92,
-        )
-        assert result is not None
-        return result
-
-    # ── basic round-trip and anti-gaming ──────────────────────────────────
-
-    def test_valid_manifest_serializes_and_round_trips(self) -> None:
-        m = self._valid_manifest()
-        d = m.to_dict()
-        assert d["manifest_id"] == "m-001"
-        assert d["source_content_hash"] == "sha256:deadbeef"
-        assert len(d["nodes"]) == 2
-        assert len(d["internal_edges"]) == 1
-        assert len(d["boundary_anchors"]) == 1
-        assert d["inquiry_coverage"]["required_roles"] == ["sampler", "model_provider"]
-        assert d["validation"]["verdict"] == "pass"
-
-    def test_valid_manifest_passes_anti_gaming(self) -> None:
-        m = self._valid_manifest()
-        assert_no_forbidden_fields(m, context="TopologyManifest")
-        d = m.to_dict()
-        assert_no_forbidden_fields(d, context="TopologyManifest.to_dict")
-
-    # ── complete-or-reject: missing required fields ──────────────────────
-
-    def test_missing_manifest_id_returns_none(self) -> None:
-        result = build_topology_manifest(
-            manifest_id="",
-            source_content_hash="sha256:abc",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="sha256:abc",
-            confidence=1.0,
-        )
-        assert result is None
-
-    def test_missing_source_content_hash_returns_none(self) -> None:
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="sha256:abc",
-            confidence=1.0,
-        )
-        assert result is None
-
-    def test_missing_evidence_hash_returns_none(self) -> None:
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:abc",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="",
-            confidence=1.0,
-        )
-        assert result is None
-
-    def test_missing_source_tier_returns_none(self) -> None:
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:abc",
-            source_retrieval_rank=0,
-            source_tier="",
-            nodes=(),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="sha256:abc",
-            confidence=1.0,
-        )
-        assert result is None
-
-    def test_none_inquiry_coverage_returns_none(self) -> None:
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:abc",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=None,  # type: ignore[arg-type]
-            validation=self._valid_validation(),
-            evidence_hash="sha256:abc",
-            confidence=1.0,
-        )
-        assert result is None
-
-    def test_none_validation_returns_none(self) -> None:
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:abc",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=self._valid_coverage(),
-            validation=None,  # type: ignore[arg-type]
-            evidence_hash="sha256:abc",
-            confidence=1.0,
-        )
-        assert result is None
-
-    # ── size bounds: reject oversized, never truncate ────────────────────
-
-    def test_oversized_nodes_raises(self) -> None:
-        nodes = tuple(self._valid_node(f"n{i}") for i in range(65))
-        with pytest.raises(ManifestOversized, match="nodes count"):
-            build_topology_manifest(
-                manifest_id="m-001",
-                source_content_hash="sha256:abc",
-                source_retrieval_rank=0,
-                source_tier="local",
-                nodes=nodes,
-                internal_edges=(),
-                boundary_anchors=(),
-                inquiry_coverage=self._valid_coverage(),
-                validation=self._valid_validation(),
-                evidence_hash="sha256:abc",
-                confidence=1.0,
-            )
-
-    def test_oversized_edges_raises(self) -> None:
-        edges = tuple(
-            self._valid_edge(f"n{i}", f"n{i+1}") for i in range(129)
-        )
-        with pytest.raises(ManifestOversized, match="internal_edges count"):
-            build_topology_manifest(
-                manifest_id="m-001",
-                source_content_hash="sha256:abc",
-                source_retrieval_rank=0,
-                source_tier="local",
-                nodes=(),
-                internal_edges=edges,
-                boundary_anchors=(),
-                inquiry_coverage=self._valid_coverage(),
-                validation=self._valid_validation(),
-                evidence_hash="sha256:abc",
-                confidence=1.0,
-            )
-
-    def test_oversized_anchors_raises(self) -> None:
-        anchors = tuple(self._valid_anchor(f"n{i}") for i in range(17))
-        with pytest.raises(ManifestOversized, match="boundary_anchors count"):
-            build_topology_manifest(
-                manifest_id="m-001",
-                source_content_hash="sha256:abc",
-                source_retrieval_rank=0,
-                source_tier="local",
-                nodes=(),
-                internal_edges=(),
-                boundary_anchors=anchors,
-                inquiry_coverage=self._valid_coverage(),
-                validation=self._valid_validation(),
-                evidence_hash="sha256:abc",
-                confidence=1.0,
-            )
-
-    def test_at_bounds_succeeds(self) -> None:
-        """64 nodes, 128 edges, 16 anchors — exactly at bounds should succeed."""
-        nodes = tuple(self._valid_node(f"n{i}") for i in range(64))
-        edges = tuple(
-            self._valid_edge(f"n{i}", f"n{(i+1) % 64}") for i in range(128)
-        )
-        anchors = tuple(self._valid_anchor(f"n{i}") for i in range(16))
-        result = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:abc",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=nodes,
-            internal_edges=edges,
-            boundary_anchors=anchors,
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="sha256:abc",
-            confidence=1.0,
-        )
-        assert result is not None
-        assert len(result.nodes) == 64
-        assert len(result.internal_edges) == 128
-        assert len(result.boundary_anchors) == 16
-
-    # ── anti-gaming: forbidden tokens FAIL the scanner ───────────────────
-
-    def test_forbidden_token_in_hash_fails_scan(self) -> None:
-        """source_content_hash containing 'prior_path' must fail anti-gaming."""
-        m = build_topology_manifest(
-            manifest_id="m-001",
-            source_content_hash="sha256:prior_path_deadbeef",
-            source_retrieval_rank=0,
-            source_tier="local",
-            nodes=(self._valid_node("n1"),),
-            internal_edges=(),
-            boundary_anchors=(),
-            inquiry_coverage=self._valid_coverage(),
-            validation=self._valid_validation(),
-            evidence_hash="sha256:cafebabe",
-            confidence=1.0,
-        )
-        assert m is not None
-        with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
-            assert_no_forbidden_fields(m, context="gaming-attempt")
-        # Also verify the dict form fails
-        d = m.to_dict()
-        with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
-            assert_no_forbidden_fields(d, context="gaming-attempt-dict")
-
-    def test_forbidden_class_type_in_anchor_fails_scan(self) -> None:
-        """target_class_type 'depth_controlnet' must fail anti-gaming."""
-        anchor = ManifestBoundaryAnchor(
-            direction="inbound",
-            symbol="n1",
-            symbol_socket="model",
-            target_role="model_provider",
-            target_class_type="depth_controlnet",
-            target_socket="image_embeds",
-            source_anchor_ref="ghi789",
-            confidence=0.87,
-        )
-        with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
-            assert_no_forbidden_fields(anchor, context="forbidden-class-anchor")
-
-    # ── manifest serialization ───────────────────────────────────────────
-
-    def test_manifest_serialization_is_stable_and_self_contained(self) -> None:
-        """TopologyManifest.to_dict() round-trips without the removed
-        PrecedentAdaptationPlan carrier (D02): the manifest is the atomic
-        serializable unit."""
-        m = self._valid_manifest()
-        d = m.to_dict()
-        assert d["manifest_id"] == "m-001"
-        assert d["nodes"][0]["symbol"] == "n1"
-        assert d["internal_edges"][0]["from_symbol"] == "n1"
-        assert d["boundary_anchors"][0]["symbol"] == "n1"
-        assert d["validation"]["verdict"] == "pass"
-        assert d["evidence_hash"]
-
-    def test_topology_manifest_is_frozen(self) -> None:
-        """TopologyManifest is immutable."""
-        m = self._valid_manifest()
-        with pytest.raises(Exception):
-            m.manifest_id = "changed"  # type: ignore[misc]
-
-
-# ── Canonical route vocabulary ───────────────────────────────────────────────
-
-
-class TestCanonicalRouteVocabulary:
-    """Public route taxonomy is exactly the eight canonical labels plus the
-    internal empty-string sentinel."""
-
-    def test_allowed_routes_are_eight_public_plus_empty_sentinel(self) -> None:
-        assert _ALLOWED_ROUTES == {
-            "",
-            "clarify",
-            "respond",
-            "inspect",
-            "research",
-            "revise",
-            "adapt",
-            "reorganise",
-            "requires_custom_nodes",
-        }
-
-    def test_route_options_prompt_lists_all_public_routes(self) -> None:
-        options = format_route_options_for_prompt()
-        for route in (
-            "clarify",
-            "respond",
-            "inspect",
-            "research",
-            "revise",
-            "adapt",
-            "reorganise",
-            "requires_custom_nodes",
-        ):
-            assert f'"{route}"' in options, f"route {route!r} missing from prompt"
-        assert '""' in options or "empty string" in options.lower()
-
-
-# ── T7: Classifier decision table and prompt contract tests ──────────────────
-
-
-class TestClassifierDecisionTable:
-    """Verify the locked primary-route decision table is fully present in the
-    classify system prompt."""
-
-    def test_system_prompt_contains_all_primary_route_entries(self) -> None:
-        msgs = build_classify_messages("test query")
-        system = msgs[0]["content"]
-        # Every primary classifier route must appear with its decision-table entry.
-        route_entries = {
-            "respond": 'route="respond"',
-            "research": 'route="research"',
-            "inspect": 'route="inspect"',
-            "revise": 'route="revise"',
-            "adapt": 'route="adapt"',
-            "reorganise": 'route="reorganise"',
-            "clarify": 'route="clarify"',
-        }
-        for route, marker in route_entries.items():
-            assert marker in system, f"Decision-table entry for {route!r} missing from classify prompt"
-        assert 'route="requires_custom_nodes"' not in system
-
-    def test_system_prompt_routes_organisational_requests_to_reorganise(self) -> None:
-        msgs = build_classify_messages("make this readable")
-        system = msgs[0]["content"]
-
-        for example in (
-            "/reorganise_comfy_workflow",
-            "organise this workflow",
-            "clean up the canvas",
-            "make this readable",
-        ):
-            assert example in system
-        assert 'route="reorganise"' in system
-        assert 'task="layout_reorganise"' in system
-        assert 'Do not choose route="reorganise" just because the canvas is messy' in system
-        assert "only when the user explicitly asks" in system
-
-    def test_system_prompt_routes_named_external_edit_to_adapt(self) -> None:
-        msgs = build_classify_messages("Switch to generating 16 frames with Hotshot")
-        system = msgs[0]["content"]
-
-        assert "names an external model, node family" in system
-        assert "route=\"adapt\"" in system
-        assert "Switch to generating 16 frames with Hotshot" in system
-        assert "Do not clarify just because a named external technology has variants" in system
-
-    def test_search_directions_are_tentative_retrieval_hints(self) -> None:
-        msgs = build_classify_messages("Switch to generating 16 frames with Hotshot")
-        system = msgs[0]["content"]
-
-        assert "tentative retrieval hints" in system
-        assert "not findings, implementation instructions, validation tasks" in system
-        assert "workflow patterns, concrete node combinations" in system
-        assert "Do not include installation, provider-pack, registry, or local-addability directions" in system
-        assert "unless the user explicitly asks how to install" in system
-        assert "model families, node packs, workflow patterns" not in system
-
-    def test_decision_table_maps_research_route_to_research_true_implement_false(self) -> None:
-        msgs = build_classify_messages("look up LTX audio workflows")
-        system = msgs[0]["content"]
-        # The decision table entry for research: "research=true, implement=false, reply=true"
-        assert "research=true" in system
-        assert "implement=false" in system
-
-    def test_decision_table_maps_respond_route_to_research_false_implement_false(self) -> None:
-        msgs = build_classify_messages("hello")
-        system = msgs[0]["content"]
-        assert "research=false" in system
-        assert "implement=false" in system
-
-    def test_decision_table_maps_adapt_route_to_research_true_implement_true(self) -> None:
-        msgs = build_classify_messages("adapt a VACE workflow")
-        system = msgs[0]["content"]
-        assert "research=true" in system
-        assert "implement=true" in system
-
-
-class TestNegativeRules:
-    """Verify the required negative rules are present in the classify prompt."""
-
-    def test_no_discretionary_clarification_rule(self) -> None:
-        msgs = build_classify_messages("pick some please")
-        system = msgs[0]["content"]
-        assert "No discretionary clarification" in system
-        assert "do not clarify merely because" in system
-
-    def test_no_outside_research_through_inspect_rule(self) -> None:
-        msgs = build_classify_messages("look up workflows without editing")
-        system = msgs[0]["content"]
-        assert 'No outside research through route="inspect"' in system
-
-    def test_no_no_edit_research_through_adapt_rule(self) -> None:
-        msgs = build_classify_messages("research a pattern without editing")
-        system = msgs[0]["content"]
-        assert 'No no-edit research through route="adapt"' in system
-
-    def test_no_implement_true_for_non_applyable_routes_rule(self) -> None:
-        msgs = build_classify_messages("explain this")
-        system = msgs[0]["content"]
-        assert "No implement=true for non-applyable routes" in system
-        assert "clarify, respond, inspect, and research" in system
-
-    def test_no_research_true_for_respond_inspect_revise_rule(self) -> None:
-        msgs = build_classify_messages("change the seed")
-        system = msgs[0]["content"]
-        assert "No research=true for respond, inspect, or revise" in system
-
-    def test_clarify_only_for_load_bearing_missing_info_rule(self) -> None:
-        msgs = build_classify_messages("change that thing")
-        system = msgs[0]["content"]
-        assert 'Use route="clarify" only when the missing information is load-bearing' in system
-
-    def test_delegation_no_clarify_rule(self) -> None:
-        msgs = build_classify_messages("you decide for me")
-        system = msgs[0]["content"]
-        assert "do not clarify merely because options exist" in system
-        assert "Continue with the most reasonable route" in system
-
-    def test_generic_edits_stay_revise_or_clarify_rule(self) -> None:
-        msgs = build_classify_messages("set sampler steps to 20")
-        system = msgs[0]["content"]
-        assert 'stay route="revise" when concrete' in system
-        assert 'route="clarify" when ambiguous' in system
-
-    def test_adapt_only_for_outside_pattern_borrowing_rule(self) -> None:
-        msgs = build_classify_messages("borrow the VACE identity travel pattern")
-        system = msgs[0]["content"]
-        assert 'Only use route="adapt" when the user explicitly asks to borrow' in system
-
-
-class TestRepresentativeExamples:
-    """Verify the required representative examples are present in the classify
-    prompt."""
-
-    def test_what_is_this_workflow_example(self) -> None:
-        msgs = build_classify_messages("What is this workflow doing?", has_graph=True)
-        system = msgs[0]["content"]
-        assert 'route="inspect"' in system
-
-    def test_ltx_audio_research_example(self) -> None:
-        msgs = build_classify_messages("What are people using for LTX audio?")
-        system = msgs[0]["content"]
-        assert 'route="research"' in system
-
-    def test_find_comfy_node_research_example(self) -> None:
-        msgs = build_classify_messages("Find a Comfy node for PIL image processing")
-        system = msgs[0]["content"]
-        assert 'route="research"' in system
-
-    def test_add_pil_node_revise_example(self) -> None:
-        msgs = build_classify_messages("Add a PIL transform code node after decode")
-        system = msgs[0]["content"]
-        assert 'route="revise"' in system
-
-    def test_research_then_add_adapt_example(self) -> None:
-        msgs = build_classify_messages("Research how people add PIL nodes, then add one")
-        system = msgs[0]["content"]
-        assert 'route="adapt"' in system
-
-    def test_explain_previous_failure_example(self) -> None:
-        msgs = build_classify_messages("Can you explain the previous failure?")
-        system = msgs[0]["content"]
-        assert 'route="respond"' in system
-        assert 'route="inspect"' in system
-
-    def test_pick_some_please_delegation_example(self) -> None:
-        msgs = build_classify_messages("Pick some please")
-        system = msgs[0]["content"]
-        assert "Pick some please" in system
-        assert "do not clarify again" in system
-
-
-class TestRouteAwareReplyConstraints:
-    """Verify the reply system prompt has per-route instructions for canonical
-    routes, forbids internal gate names, and forbids apply/review language for
-    non-applyable routes."""
-
-    @pytest.mark.parametrize("route,marker", [
-        ("clarify", 'route="clarify"'),
-        ("respond", 'route="respond"'),
-        ("inspect", 'route="inspect"'),
-        ("research", 'route="research"'),
-        ("revise", 'route="revise"'),
-        ("adapt", 'route="adapt"'),
-        ("reorganise", 'route="reorganise"'),
-    ])
-    def test_reply_prompt_has_per_route_instruction(self, route: str, marker: str) -> None:
-        from vibecomfy.executor.prompts import _REPLY_SYSTEM
-        assert marker in _REPLY_SYSTEM, (
-            f"Reply system prompt missing per-route instruction for {route!r}"
-        )
-
-    def test_reply_prompt_forbids_internal_gate_names(self) -> None:
-        from vibecomfy.executor.prompts import _REPLY_SYSTEM
-        assert "Do NOT mention internal gate names" in _REPLY_SYSTEM
-        assert "phase gates" in _REPLY_SYSTEM
-        assert "candidate engines" in _REPLY_SYSTEM
-
-    def test_reply_prompt_forbids_apply_language_for_non_applyable_routes(self) -> None:
-        from vibecomfy.executor.prompts import _REPLY_SYSTEM
-        assert "For non-applyable routes" in _REPLY_SYSTEM
-        assert "clarify, respond, inspect, research" in _REPLY_SYSTEM
-        assert "do not use apply/review/rebaseline language" in _REPLY_SYSTEM
-        assert "do not say a candidate is ready" in _REPLY_SYSTEM
-        assert "do not ask the user to approve an edit" in _REPLY_SYSTEM
-
-
-class TestBooleanToRouteDerivation:
-    """Verify _derive_route maps all boolean/intent combinations to the
-    correct six-route vocabulary."""
-
-    def test_derive_research_true_implement_false_yields_research(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        assert _derive_route(research=True, implement=False, intent="research") == "research"
-        assert _derive_route(research=True, implement=False, intent="edit") == "research"
-
-    def test_derive_research_false_implement_true_yields_revise(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        assert _derive_route(research=False, implement=True, intent="edit") == "revise"
-
-    def test_derive_research_true_implement_true_yields_adapt(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        assert _derive_route(research=True, implement=True, intent="edit") == "adapt"
-
-    def test_derive_research_false_implement_false_respond_intent_yields_respond(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        assert _derive_route(research=False, implement=False, intent="respond") == "respond"
-
-    def test_derive_research_false_implement_false_explain_graph_yields_inspect(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        assert _derive_route(research=False, implement=False, intent="explain_graph") == "inspect"
-
-    def test_derive_research_false_implement_false_no_clear_intent_yields_clarify(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        assert _derive_route(research=False, implement=False, intent="edit") == "clarify"
-
-    def test_derive_covers_all_six_routes(self) -> None:
-        from vibecomfy.executor.contracts import _derive_route
-        routes_seen: set[str] = set()
-        routes_seen.add(_derive_route(research=True, implement=True, intent="edit"))
-        routes_seen.add(_derive_route(research=False, implement=True, intent="edit"))
-        routes_seen.add(_derive_route(research=True, implement=False, intent="research"))
-        routes_seen.add(_derive_route(research=False, implement=False, intent="respond"))
-        routes_seen.add(_derive_route(research=False, implement=False, intent="explain_graph"))
-        routes_seen.add(_derive_route(research=False, implement=False, intent="edit"))
-        assert routes_seen == {"clarify", "respond", "inspect", "research", "revise", "adapt"}
-
-
-class TestContradictoryRouteCanonicalization:
-    """Verify that contradictory explicit route + boolean payloads are
-    canonicalized rather than rejected, with the route taking authority."""
-
-    def test_route_research_overrides_stale_implement_true(self) -> None:
-        """Explicit route=research forces implement=false even when stale implement=true."""
-        d = ClassifyDecision(
-            research=False,
-            implement=True,  # stale
-            reply=True,
-            intent="research",
-            route="research",
-            task="research_nodes",
-        )
-        assert d.route == "research"
-        assert d.implement is False
-        assert d.research is True  # forced by route_booleans
-        assert d.effective_route == "research"
-
-    def test_route_respond_overrides_stale_research_true(self) -> None:
-        """Explicit route=respond forces research=false even when stale research=true."""
-        d = ClassifyDecision(
-            research=True,  # stale
-            implement=True,  # stale
-            reply=True,
-            intent="respond",
-            route="respond",
-            task="respond",
-        )
-        assert d.route == "respond"
-        assert d.research is False
-        assert d.implement is False
-        assert d.effective_route == "respond"
-
-    def test_route_clarify_overrides_stale_booleans(self) -> None:
-        """Explicit route=clarify forces research=false, implement=false."""
-        d = ClassifyDecision(
-            research=True,  # stale
-            implement=True,  # stale
-            reply=True,
-            intent="edit",
-            route="clarify",
-            task="respond",
-        )
-        assert d.route == "clarify"
-        assert d.research is False
-        assert d.implement is False
-
-    def test_route_adapt_overrides_stale_research_false(self) -> None:
-        """Explicit route=adapt forces research=true when stale research=false."""
-        d = ClassifyDecision(
-            research=False,  # stale
-            implement=True,
-            reply=True,
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-        )
-        assert d.route == "adapt"
-        assert d.research is True
-        assert d.implement is True
-
-    def test_route_revise_overrides_stale_research_true(self) -> None:
-        """Explicit route=revise forces research=false when stale research=true."""
-        d = ClassifyDecision(
-            research=True,  # stale
-            implement=True,
-            reply=True,
-            intent="edit",
-            route="revise",
-            task="edit_graph",
-        )
-        assert d.route == "revise"
-        assert d.research is False
-        assert d.implement is True
-
-    def test_legacy_alias_normalize_preserves_boolean_canonicalization(self) -> None:
-        """Legacy aliases normalize AND force boolean consistency."""
-        for legacy, expected_route, force_research in [
-            ("precedent_research", "adapt", True),
-            ("direct_edit", "revise", False),
-            ("diagnose_repair", "revise", False),
-        ]:
-            d = ClassifyDecision(
-                research=(not force_research),  # stale opposite
-                implement=True,
-                reply=True,
-                intent="edit",
-                route=legacy,
-                task="research_precedent",
-            )
-            assert d.route == expected_route, f"{legacy} → {expected_route}"
-            assert d.research == force_research, f"{legacy}: research should be {force_research}"
-
-
-class TestReplyPromptWarningsAndEvidence:
-    """Verify build_reply_messages includes research warnings and structured
-    evidence when provided (T5 contract)."""
-
-    def test_research_warnings_rendered_in_user_prompt(self) -> None:
-        msgs = build_reply_messages(
-            "research something",
-            effective_route="research",
-            research_warnings=("hivemind timeout", "web search: no results"),
-        )
-        content = msgs[1]["content"]
-        assert "Research warnings (non-fatal):" in content
-        assert "hivemind timeout" in content
-        assert "web search: no results" in content
-
-    def test_research_precedent_slices_rendered_in_user_prompt(self) -> None:
-        msgs = build_reply_messages(
-            "research LTX audio",
-            effective_route="research",
-            research_precedent_slices=(
-                {"source_class_type": "LTXAudioLipsync", "node_ids": ["10", "11"]},
-                {"source_class_type": "KSampler", "node_ids": ["1"]},
-            ),
-        )
-        content = msgs[1]["content"]
-        assert "Research structured evidence (precedent slices):" in content
-        assert "LTXAudioLipsync" in content
-        assert "KSampler" in content
-
-    def test_research_warnings_omitted_when_none(self) -> None:
-        msgs = build_reply_messages("hello", effective_route="respond")
-        content = msgs[1]["content"]
-        assert "Research warnings" not in content
-        assert "Research structured evidence" not in content
-
-    def test_research_precedent_slices_omitted_when_none(self) -> None:
-        msgs = build_reply_messages("hello", effective_route="respond")
-        content = msgs[1]["content"]
-        assert "Research structured evidence" not in content
-
-    def test_research_warnings_truncated_at_six(self) -> None:
-        msgs = build_reply_messages(
-            "research",
-            effective_route="research",
-            research_warnings=tuple(f"warning {i}" for i in range(10)),
-        )
-        content = msgs[1]["content"]
-        # Only first 6 warnings should appear
-        assert "warning 0" in content
-        assert "warning 5" in content
-        assert "warning 6" not in content
-        assert "warning 9" not in content
-
-    def test_research_precedent_slices_truncated_at_five(self) -> None:
-        msgs = build_reply_messages(
-            "research",
-            effective_route="research",
-            research_precedent_slices=tuple(
-                {"source_class_type": f"Node{i}", "node_ids": [str(i)]}
-                for i in range(8)
-            ),
-        )
-        content = msgs[1]["content"]
-        assert "Node0" in content
-        assert "Node4" in content
-        assert "Node5" not in content
-        assert "Node7" not in content
-
-
-# ── GraphFacts contract tests (T2) ───────────────────────────────────────────
-
-
-class TestGraphFacts:
-    """Contract tests for GraphFacts serialization, from_collectors
-    classmethod, has_blockers property, and forbidden-key absence."""
-
-    def test_defaults(self) -> None:
-        gf = GraphFacts()
-        assert gf.current_output_node_types == ()
-        assert gf.terminal_output_socket_types == ()
-        assert gf.socket_type_mismatches == ()
-        assert gf.missing_required_inputs == ()
-        assert gf.unknown_class_types == ()
-        assert gf.missing_models == ()
-        assert gf.missing_node_packs == ()
-        assert gf.readiness_blockers == ()
-        assert gf.has_dangling_inputs is False
-        assert gf.has_dangling_outputs is False
-        assert gf.no_gpu_detected is False
-        assert gf.summary == ""
-
-    def test_to_dict_defaults(self) -> None:
-        gf = GraphFacts()
-        d = gf.to_dict()
-        assert d["current_output_node_types"] == []
-        assert d["terminal_output_socket_types"] == []
-        assert d["socket_type_mismatches"] == []
-        assert d["missing_required_inputs"] == []
-        assert d["unknown_class_types"] == []
-        assert d["missing_models"] == []
-        assert d["missing_node_packs"] == []
-        assert d["readiness_blockers"] == []
-        assert d["has_dangling_inputs"] is False
-        assert d["has_dangling_outputs"] is False
-        assert d["no_gpu_detected"] is False
-        assert d["summary"] == ""
-        assert d["has_blockers"] is False
-        _assert_no_forbidden_keys(d, "GraphFacts defaults")
-
-    def test_to_dict_with_data(self) -> None:
-        gf = GraphFacts(
-            current_output_node_types=("IMAGE", "LATENT"),
-            terminal_output_socket_types=("IMAGE",),
-            socket_type_mismatches=(
-                {"node": "1", "expected": "IMAGE", "got": "LATENT"},
-            ),
-            missing_required_inputs=(
-                {"node": "2", "missing_input": "model"},
-            ),
-            unknown_class_types=("BogusNode",),
-            missing_models=("sd_xl_base_1.0.safetensors",),
-            missing_node_packs=("custom_nodes/missing_pack",),
-            readiness_blockers=("no GPU detected",),
-            has_dangling_inputs=True,
-            has_dangling_outputs=False,
-            no_gpu_detected=True,
-            summary="Graph has multiple topology and readiness issues",
-        )
-        d = gf.to_dict()
-        assert d["current_output_node_types"] == ["IMAGE", "LATENT"]
-        assert d["terminal_output_socket_types"] == ["IMAGE"]
-        assert len(d["socket_type_mismatches"]) == 1
-        assert d["socket_type_mismatches"][0]["node"] == "1"
-        assert len(d["missing_required_inputs"]) == 1
-        assert d["missing_required_inputs"][0]["missing_input"] == "model"
-        assert d["unknown_class_types"] == ["BogusNode"]
-        assert d["missing_models"] == ["sd_xl_base_1.0.safetensors"]
-        assert d["missing_node_packs"] == ["custom_nodes/missing_pack"]
-        assert d["readiness_blockers"] == ["no GPU detected"]
-        assert d["has_dangling_inputs"] is True
-        assert d["has_dangling_outputs"] is False
-        assert d["no_gpu_detected"] is True
-        assert d["summary"] == "Graph has multiple topology and readiness issues"
-        assert d["has_blockers"] is True
-        _assert_no_forbidden_keys(d, "GraphFacts with data")
-
-    def test_has_blockers_false_when_empty(self) -> None:
-        gf = GraphFacts()
-        assert gf.has_blockers is False
-
-    def test_has_blockers_true_with_socket_type_mismatches(self) -> None:
-        gf = GraphFacts(socket_type_mismatches=({"node": "1"},))
-        assert gf.has_blockers is True
-
-    def test_has_blockers_true_with_missing_required_inputs(self) -> None:
-        gf = GraphFacts(missing_required_inputs=({"node": "1", "missing": "model"},))
-        assert gf.has_blockers is True
-
-    def test_has_blockers_true_with_unknown_class_types(self) -> None:
-        gf = GraphFacts(unknown_class_types=("UnknownNode",))
-        assert gf.has_blockers is True
-
-    def test_has_blockers_true_with_missing_models(self) -> None:
-        gf = GraphFacts(missing_models=("model.safetensors",))
-        assert gf.has_blockers is True
-
-    def test_has_blockers_true_with_missing_node_packs(self) -> None:
-        gf = GraphFacts(missing_node_packs=("missing_pack",))
-        assert gf.has_blockers is True
-
-    def test_has_blockers_true_with_readiness_blockers(self) -> None:
-        gf = GraphFacts(readiness_blockers=("no GPU",))
-        assert gf.has_blockers is True
-
-    def test_has_blockers_true_with_no_gpu(self) -> None:
-        gf = GraphFacts(no_gpu_detected=True)
-        assert gf.has_blockers is True
-
-    def test_from_collectors_defaults_when_none(self) -> None:
-        """from_collectors with None args returns default-empty GraphFacts."""
-        gf = GraphFacts.from_collectors()
-        assert gf.current_output_node_types == ()
-        assert gf.socket_type_mismatches == ()
-        assert gf.missing_models == ()
-        assert gf.has_blockers is False
-
-    def test_from_collectors_with_topology_only(self) -> None:
-        topo = TopologyFindings(
-            socket_type_mismatches=(
-                {"node": "3", "expected": "MODEL", "got": "CLIP"},
-            ),
-            missing_required_inputs=(
-                {"node": "4", "missing_input": "clip"},
-            ),
-            unknown_class_types=("CustomNode",),
-        )
-        gf = GraphFacts.from_collectors(topology=topo)
-        assert len(gf.socket_type_mismatches) == 1
-        assert gf.socket_type_mismatches[0]["node"] == "3"
-        assert len(gf.missing_required_inputs) == 1
-        assert gf.unknown_class_types == ("CustomNode",)
-        assert gf.missing_models == ()
-        assert gf.missing_node_packs == ()
-        assert gf.has_blockers is True
-
-    def test_from_collectors_with_readiness_only(self) -> None:
-        readiness = ReadinessReport(
-            missing_models=("sd_xl.safetensors",),
-            missing_node_packs=("efficiency",),
-            readiness_blockers=("missing model",),
-            no_gpu_detected=True,
-        )
-        gf = GraphFacts.from_collectors(readiness=readiness)
-        assert gf.missing_models == ("sd_xl.safetensors",)
-        assert gf.missing_node_packs == ("efficiency",)
-        assert gf.readiness_blockers == ("missing model",)
-        assert gf.no_gpu_detected is True
-        assert gf.socket_type_mismatches == ()
-        assert gf.has_blockers is True
-
-    def test_from_collectors_with_both(self) -> None:
-        topo = TopologyFindings(
-            socket_type_mismatches=(),
-            missing_required_inputs=(),
-            unknown_class_types=(),
-            dangling_links=("1->3",),
-            absent_endpoint_nodes=("99",),
-        )
-        readiness = ReadinessReport(
-            missing_models=(),
-            missing_node_packs=(),
-            readiness_blockers=(),
-            no_gpu_detected=False,
-        )
-        gf = GraphFacts.from_collectors(topology=topo, readiness=readiness)
-        # Even though topology has dangling_links and absent_endpoint_nodes,
-        # GraphFacts.from_collectors() only projects the subset of fields
-        # that GraphFacts carries (socket_type_mismatches, missing_required_inputs,
-        # unknown_class_types from topology; missing_models, missing_node_packs,
-        # readiness_blockers, no_gpu_detected from readiness).
-        assert gf.socket_type_mismatches == ()
-        assert gf.missing_required_inputs == ()
-        assert gf.unknown_class_types == ()
-        assert gf.missing_models == ()
-        assert gf.has_blockers is False
-
-    def test_forbidden_keys_absent(self) -> None:
-        gf = GraphFacts(
-            socket_type_mismatches=({"node": "1", "expected": "A", "got": "B"},),
-            summary="test",
-        )
-        d = gf.to_dict()
-        _assert_no_forbidden_keys(d, "GraphFacts")
-
-    def test_tuples_coerced(self) -> None:
-        gf = GraphFacts(
-            current_output_node_types=["IMAGE"],
-            missing_models=["model.safetensors"],
-        )
-        assert isinstance(gf.current_output_node_types, tuple)
-        assert isinstance(gf.missing_models, tuple)
-
-    def test_immutable(self) -> None:
-        gf = GraphFacts(summary="test")
-        with pytest.raises(Exception):
-            gf.summary = "modified"  # type: ignore[misc]
-
-
-# ── Executor export access tests (T2) ────────────────────────────────────────
-
-
-_FORBIDDEN_PUBLIC_KEYS = frozenset({
-    "winner", "best", "selected", "score", "rank", "primary",
-    "preferred", "chosen", "pick", "choice", "top", "recommended",
-})
-
-
-def _assert_no_forbidden_keys(payload: dict, label: str) -> None:
-    """Fail if any forbidden public-key name appears in the payload."""
-    found = _FORBIDDEN_PUBLIC_KEYS & set(payload)
-    assert not found, f"{label} contains forbidden keys: {sorted(found)}"
-
-
-class TestAdaptationPlanActionabilityHelpers:
-    """Live dict-based adaptation-plan actionability (agent-edit durable plans).
-
-    The legacy PrecedentAdaptationPlan dataclass was removed (D02); the
-    actionability helpers now operate on the serialized dict shape produced by
-    the durable agent-edit pipeline.
-    """
-
-    def test_empty_plan_is_explicitly_non_actionable(self) -> None:
-        d = {
-            "selected_slice": {"source_class_type": ""},
-            "structural_validation": "not_evaluated",
-            "semantic_validation": "not_evaluated",
-        }
-        assert adaptation_plan_actionability(d) == ("non_actionable", "no_concrete_adaptation_edits")
-        payload = adaptation_plan_actionability_payload(d)
-        assert payload["actionability"] == "non_actionable"
-        assert payload["non_actionable_reason"] == "no_concrete_adaptation_edits"
-        assert payload["allowed_followups"] == [
-            "apply_bound_current_graph_edit_if_schema_sufficient",
-            "build_execution_plan_with_required_nodes_and_rewires",
-            "typed_refusal_or_clarification_if_authoring_surface_missing",
-        ]
-        assert not any("search" in item or "retry" in item for item in payload["allowed_followups"])
-
-    def test_structural_fail_with_concrete_edit_ops_remains_actionable(self) -> None:
-        d = {
-            "structural_validation": "fail",
-            "semantic_validation": "not_evaluated",
-            "edit_ops": [{"op": "set_field", "target": "node_1.seed", "value": 42}],
-        }
-        assert adaptation_plan_actionability(d) == ("actionable", "")
-        payload = adaptation_plan_actionability_payload(d)
-        assert payload["actionability"] == "actionable"
-        assert "non_actionable_reason" not in payload
-
-    def test_structural_fail_without_edits_is_non_actionable(self) -> None:
-        d = {"structural_validation": "fail", "semantic_validation": "fail"}
-        assert adaptation_plan_actionability(d) == (
-            "non_actionable",
-            "structural_validation_failed_without_concrete_edits",
-        )
-
-    def test_helpers_accept_duck_typed_objects(self) -> None:
-        """The helpers also accept attribute-style (non-dict) plan carriers."""
-        class _Plan:
-            structural_validation = "pass"
-            semantic_validation = "advisory"
-            edit_ops = ({"op": "add_node"},)
-        assert adaptation_plan_actionability(_Plan()) == ("actionable", "")
-
-
-class TestExecutorExportAccess:
-    """Verify live executor contracts are importable from vibecomfy.executor
-    via lazy exports, and that removed legacy names raise AttributeError."""
-
-    def test_graph_facts_importable(self) -> None:
-        from vibecomfy.executor import GraphFacts as GF
-        assert GF is GraphFacts
-
-    def test_legacy_research_result_export_removed(self) -> None:
-        from vibecomfy import executor as executor_pkg
-        with pytest.raises(AttributeError):
-            executor_pkg.ResearchResult
-
-    def test_legacy_precedent_packet_export_removed(self) -> None:
-        from vibecomfy import executor as executor_pkg
-        with pytest.raises(AttributeError):
-            executor_pkg.PrecedentPacket
-
-
-# ── Truthful classification failure (G0/B01) ─────────────────────────────────
-
-
-def test_classification_failure_is_nullable_and_truthful(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A classify exception yields classification_status=failed and NO fabricated
-    decision, intent, or route — the plan stays None and the serialized report
-    carries no invented respond_only placeholder."""
-    from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
-    from vibecomfy.executor.core import run_executor
-
-    exc = MalformedModelJSON(
-        "Agent response was not valid JSON with keys `python` and `message`.",
-        raw_response="{not json",
-        parse_reason="malformed_json",
-    )
-    exc.completion_tokens = 0
-    exc.completion_tokens_zero = True
-    exc.finish_reason = "stop"
-    exc.adapter = "hermes"
-    exc.provider = "openrouter"
-    exc.endpoint = "https://api.deepseek.com/v1"
-    exc.raw_response_preview = "{not json"
-    # B01 canonical attempt evidence (the report only serializes model_attempts;
-    # loose fields on the exception are not captured).
-    exc.model_attempts = (
-        {
-            "phase": "classify",
-            "attempt": 1,
-            "failure_type": "malformed_json",
-            "token_usage": {"completion_tokens": 0, "total_tokens": 1},
-            "finish_reason": "stop",
-            "adapter": "hermes",
-            "provider": "openrouter",
-            "endpoint": "https://api.deepseek.com/v1",
-            "raw_response_preview": "{not json",
-        },
-    )
-
-    def _raise(*args, **kwargs):
-        raise exc
-
-    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", _raise)
-
-    result = run_executor(ExecutorRequest(query="do something"))
-
-    assert result.ok is False
-    assert result.failure_stage == "classify"
-    assert result.failure_kind == "MalformedModelJSON"
-    # Typed phase failure: status=failed, plan is None (nullable decision).
-    assert result.report.classification_status == "failed"
-    assert result.report.plan is None
-    inner = result.to_dict()["report"]["executor"]
-    assert inner["classification_status"] == "failed"
-    assert "plan" not in inner, "failed classification must not carry a plan"
-    # No fabricated intent or route in the serialized envelope.
-    turn_payload = result.turn.to_dict()
-    assert turn_payload["route"] == ""
-    assert turn_payload["evidence"]["classification"] == {}
-    # The typed parse evidence survives into the report artifact (B01:
-    # canonical model_attempts; legacy model_response is derived, not serialized).
-    attempts = inner["model_attempts"]
-    assert attempts, "expected at least one canonical model attempt"
-    error = attempts[0]
-    # B01 canonical shape: failure_type + token_usage (no parse_reason key).
-    assert error["failure_type"] == "malformed_json"
-    assert error["token_usage"]["completion_tokens"] == 0
-    assert error["phase"] == "classify"
-    assert error["adapter"] == "hermes"
-    assert error["provider"] == "openrouter"
-    assert error["endpoint"] == "https://api.deepseek.com/v1"
-    assert "api_key" not in json.dumps(inner)

@@ -8,6 +8,7 @@ locus, or expected repair) so nothing leaks to the fixer model.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -461,7 +462,7 @@ def _evaluate(case: Case, candidate: dict[str, Any]) -> Case:
         str(node.get("type"))
         for graph in (case.golden, case.broken)
         if isinstance(graph, dict)
-        for node in graph.get("nodes", [])
+        for node in door_get_nodes(graph, [])
         if isinstance(node, dict) and str(node.get("type") or "").strip()
     }
     structural = structural_check_graph(
@@ -849,10 +850,10 @@ def _author_additive_inquiry(
     Names the exact node type to re-add (so the headless fixer resolves a
     comfy-core class instead of asking back) plus a user-observable symptom.
     """
-    golden_ids = {str(n.get("id")) for n in golden.get("nodes", [])}
-    broken_ids = {str(n.get("id")) for n in broken.get("nodes", [])}
+    golden_ids = {str(n.get("id")) for n in door_get_nodes(golden, [])}
+    broken_ids = {str(n.get("id")) for n in door_get_nodes(broken, [])}
     removed = [
-        n for n in golden.get("nodes", [])
+        n for n in door_get_nodes(golden, [])
         if str(n.get("id")) in (golden_ids - broken_ids)
     ]
     # Prefer the feature's primary node type (the proposal's target if known).

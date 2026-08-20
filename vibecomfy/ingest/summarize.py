@@ -211,7 +211,28 @@ def _build_compact_repr(workflow: Any) -> dict[str, Any]:
 
     Accepts both ``VibeWorkflow`` objects and plain dicts (corpus JSON shape).
     """
-    # VibeWorkflow object.
+    if isinstance(workflow, dict):
+        from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui
+
+        try:
+            try:
+                workflow = from_envelope(workflow)
+            except (TypeError, ValueError):
+                try:
+                    workflow = from_ui(workflow, use_comfy_converter=False)
+                except (TypeError, ValueError):
+                    workflow = from_api(workflow)
+        except (TypeError, ValueError):
+            return {
+                "node_classes": {},
+                "node_count": 0,
+                "edge_count": 0,
+                "outputs": [],
+                "models": [],
+                "custom_nodes_req": [],
+            }
+
+    # VibeWorkflow (or any IR object ingested through the named doors).
     if hasattr(workflow, "nodes") and hasattr(workflow, "outputs"):
         node_classes: dict[str, int] = {}
         for node in workflow.nodes.values():
@@ -229,38 +250,6 @@ def _build_compact_repr(workflow: Any) -> dict[str, Any]:
             "node_classes": node_classes,
             "node_count": len(workflow.nodes),
             "edge_count": len(workflow.edges),
-            "outputs": output_types[:20],
-            "models": models[:10],
-            "custom_nodes_req": custom_nodes_req[:20],
-        }
-
-    # Dict (corpus JSON shape).
-    if isinstance(workflow, dict):
-        nodes = workflow.get("nodes", {})
-        node_classes: dict[str, int] = {}
-        if isinstance(nodes, dict):
-            for _nid, nd in nodes.items():
-                if isinstance(nd, dict):
-                    ct = nd.get("class_type", "?")
-                    node_classes[ct] = node_classes.get(ct, 0) + 1
-
-        outputs = workflow.get("outputs", [])
-        output_types: list[str] = []
-        if isinstance(outputs, list):
-            for o in outputs:
-                if isinstance(o, dict):
-                    ot = o.get("output_type")
-                    if ot:
-                        output_types.append(str(ot))
-
-        req = workflow.get("requirements", {})
-        models = req.get("models", []) if isinstance(req, dict) else []
-        custom_nodes_req = req.get("custom_nodes", []) if isinstance(req, dict) else []
-
-        return {
-            "node_classes": node_classes,
-            "node_count": len(nodes) if isinstance(nodes, dict) else len(nodes) if isinstance(nodes, list) else 0,
-            "edge_count": len(workflow.get("edges", [])),
             "outputs": output_types[:20],
             "models": models[:10],
             "custom_nodes_req": custom_nodes_req[:20],

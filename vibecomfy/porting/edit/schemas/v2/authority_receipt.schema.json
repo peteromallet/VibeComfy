@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.vibecomfy.local/porting/edit/v2/authority_receipt.schema.json",
   "title": "VibeComfy Authority Receipt V2",
-  "description": "Schema for the immutable authority receipt persisted under the per-turn authority/ namespace. Records submit graph bytes, cumulative delta envelope, candidate hash, schema version, replay verification result, and response metadata hashes.",
+  "description": "Schema for the immutable authority receipt persisted under the per-turn authority/ namespace. Records submit graph bytes, an accepted_batch digest (not a copy of ops), candidate hash, schema version, replay verification result, and response metadata hashes.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,7 @@
     "turn_id",
     "submit_graph_hash",
     "submit_graph_bytes_sha256",
-    "cumulative_delta_envelope",
+    "accepted_batch_digest",
     "cumulative_delta_hash",
     "candidate_hash",
     "schema_witness",
@@ -46,17 +46,14 @@
       "type": ["string", "null"],
       "description": "SHA-256 of the canonical submit graph bytes."
     },
-    "cumulative_delta_envelope": {
-      "type": ["object", "null"],
-      "description": "The normalized cumulative V2 delta envelope ({schema_version, ops}).",
-      "properties": {
-        "schema_version": { "const": "2.0.0" },
-        "ops": { "type": "array" }
-      }
+    "accepted_batch_digest": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Hash of the sole durable Δ (accepted_batch). Receipts store this reference, not a copy of ops."
     },
     "cumulative_delta_hash": {
       "type": ["string", "null"],
-      "description": "Canonical JSON hash of the cumulative delta envelope."
+      "description": "Same digest as accepted_batch_digest; reference to accepted_batch, not an ops copy."
     },
     "candidate_hash": {
       "type": ["string", "null"],

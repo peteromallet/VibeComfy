@@ -1,0 +1,46 @@
+{
+  "id": "live-graph-explanation-smoke",
+  "brief": "briefs/live-graph-explanation-smoke.md",
+  "query": "Explain what this graph does. If anything important is missing, ask one clarifying question; otherwise inspect the workflow and answer directly.",
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd15.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "a quiet studio portrait"
+      }
+    },
+    "3": {
+      "class_type": "KSampler",
+      "inputs": {
+        "cfg": 7.0,
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "2",
+          0
+        ],
+        "steps": 20
+      }
+    }
+  },
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "classification": {
+    "kind": "health_control",
+    "excluded_from_semantic_product_rates": true,
+    "purpose": "Smoke-test that an inline graph can be inspected and answered without requiring a product-quality semantic score."
+  }
+}

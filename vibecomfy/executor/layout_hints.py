@@ -18,6 +18,7 @@ its reason and requested anchors recorded in the result.
 
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 import hashlib
 import json
 from dataclasses import dataclass
@@ -368,7 +369,7 @@ def _extract_nodes(graph: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list
     has both ``pos`` and ``size`` furniture.
     """
 
-    raw = graph.get("nodes")
+    raw = door_get_nodes(graph)
     if not isinstance(raw, list):
         return [], [None]
     records: list[dict[str, Any]] = []
@@ -472,7 +473,7 @@ def _geometry_signals(
     graph: Mapping[str, Any],
     records: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], ToolDiagnostic | None]:
-    links = graph.get("links")
+    links = door_get_links(graph)
     edge_count = len(links) if isinstance(links, list) else 0
     raw_groups = graph.get("groups")
     group_count = len(raw_groups) if isinstance(raw_groups, list) else 0
@@ -668,7 +669,7 @@ def _free_output_keys(
     graph: Mapping[str, Any],
 ) -> list[str]:
     """Node keys that are never a link source (free output sockets)."""
-    links = graph.get("links")
+    links = door_get_links(graph)
     source_keys: set[str] = set()
     if isinstance(links, list):
         uid_by_id = _uid_by_id(records)
@@ -710,7 +711,7 @@ def _component_bboxes(
         if root_a != root_b:
             parent[root_b] = root_a
 
-    links = graph.get("links")
+    links = door_get_links(graph)
     if isinstance(links, list):
         uid_by_id = _uid_by_id(records)
         for link in links:
@@ -760,7 +761,7 @@ def _link_midpoint_candidates(
     if not rect_by_key:
         return []
     uid_by_id = _uid_by_id(records)
-    links = graph.get("links")
+    links = door_get_links(graph)
     if not isinstance(links, list):
         return []
     candidates: list[LayoutCandidate] = []

@@ -1,0 +1,37 @@
+{
+  "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
+  "query": "Swap the Rodin3D generation model from Rodin Large to Rodin Fusion and ensure all downstream nodes (detailing, smoothing, preview) remain connected and functional.",
+  "workflow_path": "external_workflows/corpus/cc0df70583f28c98.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The generation backbone is replaced and the modified pipeline still produces a previewable 3D model.",
+    "quality": "The workflow has no disconnected or missing nodes, all original stages (detailing, smoothing, preview) function with the new model.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "3d",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d-modeling",
+      "image-to-3d",
+      "rodin3d",
+      "preview",
+      "image-batch"
+    ],
+    "source_workflow_id": "cc0df70583f28c98",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This demands understanding the pipeline's structure and modifying a core component without breaking the rest, a genuine big adjustment."
+  }
+}

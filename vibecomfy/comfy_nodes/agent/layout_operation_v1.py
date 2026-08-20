@@ -38,6 +38,7 @@ authority validator.  No second hash owner, no second canonicaliser.
 
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes
 from collections.abc import Mapping
 from typing import Any
 
@@ -376,11 +377,11 @@ def build_layout_operation_envelope(
     preimage, matching the JS mirror.
     """
     submit_nodes: dict[str, Mapping[str, Any]] = {}
-    for node in submit_ui.get("nodes", ()) if isinstance(submit_ui, Mapping) else ():
+    for node in door_get_nodes(submit_ui, ()) if isinstance(submit_ui, Mapping) else ():
         if isinstance(node, Mapping):
             submit_nodes[_layout_node_uid(node)] = node
     candidate_nodes: dict[str, Mapping[str, Any]] = {}
-    for node in candidate_ui.get("nodes", ()) if isinstance(candidate_ui, Mapping) else ():
+    for node in door_get_nodes(candidate_ui, ()) if isinstance(candidate_ui, Mapping) else ():
         if isinstance(node, Mapping):
             candidate_nodes[_layout_node_uid(node)] = node
     submit_groups: dict[str, Mapping[str, Any]] = {}

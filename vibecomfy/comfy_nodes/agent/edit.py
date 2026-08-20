@@ -1,65 +1,515 @@
+"""IR-native agent-edit product entry.
+
+The mutation authority is ``interpret``.  This module is the public product
+entry used by the executor and routes (``handle_agent_edit``,
+``run_agent_turn_batch``).  Implementation lives in the owning ``_frag_*``
+modules and is re-exported here by name — there is no ``import *`` assembler
+and no raw-JSON apply path.
+"""
 from __future__ import annotations
 
 from importlib import import_module
 
-# I01 (agent tool surface): the ten Wave-A named tool calls
-# (hivemind_search/hivemind_get/registry_lookup/node_schema/ready_template_list/
-# ready_template_load/rank_edit_targets/suggest_seed_nodes/layout_hints/
-# web_search) are admitted to the batch protocol in
-# vibecomfy/porting/edit/_parse.py and resolved with typed ToolResults, effort
-# budgets (3 searches / 6 fetches / 1 registry batch / ~90s), and F01
-# EvidenceLedger entries in vibecomfy/porting/edit/_resolve.py
-# (_AgentToolSurface).  Cross-turn context is ledger-only: _frag_batch_memory
-# renders compact ledger entries + evidence IDs into _batch_research_memory_summary,
-# and provider.build_batch_messages documents the tools and renders the
-# evidence_ledger block.  legacy research() stays callable, flagged shadow-only
-# for H01 comparison.
-# T-037: the batch REPL loop now lives as real functions in edit_batch_repl.py,
-# reached through the thin _stage_agent_batch_repl delegate defined below.
-# Resolved here via import_module (never through a normal from-import) so there
-# is no import cycle: edit_batch_repl imports only stdlib and builds its
-# EditBatchReplDeps at call time from this assembled façade namespace
-# (globals()).
+# The batch REPL loop lives in edit_batch_repl.py.  Imported via
+# import_module to avoid a cycle: the REPL builds EditBatchReplDeps from
+# this product-entry namespace at call time.
 _edit_batch_repl = import_module(f"{__package__ or 'vibecomfy.comfy_nodes.agent'}.edit_batch_repl")
 
-# T-038/T-039: the foundation fragments (state/humanize/memory/reports/chat/
-# session_bundle/ingest/research) and the orchestration fragments (revision,
-# revision_stages, batch_loop, transform_stages, narrator, response_contract,
-# orchestration, entrypoint) live as real modules imported here in dependency
-# order. Each module's __all__ is exactly the name set its fragment contributed
-# to this namespace under the old exec assembly, so `import *` reproduces the
-# identical top-level attributes.
-# T-040: these imports are now the ONLY source of façade names. The exec
-# assembler and the fragment SOURCE strings are gone from the live path;
-# __all__ below pins the frozen name surface (G0-T2 removed the 10
-# deterministic-prose-gating names: the _NARRATIVE_* pattern constants,
-# _validate_narrative_message, _guard_narrative_message, and
-# _narrator_fast_path_applies).
-from ._frag_state import *  # noqa: F401,F403
-from ._frag_humanize import *  # noqa: F401,F403
-from ._frag_batch_memory import *  # noqa: F401,F403
-from ._frag_batch_reports import *  # noqa: F401,F403
-from ._frag_chat import *  # noqa: F401,F403
-from ._frag_session_bundle import *  # noqa: F401,F403
-from ._frag_ingest import *  # noqa: F401,F403
-from ._frag_research import *  # noqa: F401,F403
-from ._frag_revision import *  # noqa: F401,F403
-from ._frag_revision_stages import *  # noqa: F401,F403
-from ._frag_batch_loop import *  # noqa: F401,F403
-from ._frag_transform_stages import *  # noqa: F401,F403
-from ._frag_narrator import *  # noqa: F401,F403
-from ._frag_response_contract import *  # noqa: F401,F403
-from ._frag_orchestration import *  # noqa: F401,F403
-from ._frag_entrypoint import *  # noqa: F401,F403
+from ._frag_state import (
+    AgentEditState,
+    AgentError,
+    AgentTurnResult,
+    Any,
+    ApplyCandidate,
+    ApplyEligibility,
+    ArtifactRef,
+    BatchTurnResult,
+    Callable,
+    DEFAULT_CHAT_DISPLAY_MESSAGES,
+    DeepSeekClient,
+    ExecutionPlan,
+    FailureEnvelope,
+    FailureKind,
+    FieldChange,
+    LOGGER,
+    MalformedModelJSON,
+    Mapping,
+    MissingRequiredField,
+    PLAN_STATE_NOT_REQUIRED,
+    PROMPT_MEMORY_MESSAGES,
+    Path,
+    PlanEvaluation,
+    ProviderError,
+    REVIEWABLE_CANDIDATE_STATES,
+    ReadinessReport,
+    RevisionEvidence,
+    StageResult,
+    StageSnapshot,
+    TYPE_CHECKING,
+    TopologyFindings,
+    TurnContext,
+    TurnIdentity,
+    TurnOutcome,
+    ValidationIssue,
+    _ABSENT_FIELD_OLD,
+    _DISCOVERY_CONSTRUCTION_NUDGE,
+    _DISCOVERY_CONSTRUCTION_NUDGE_THRESHOLD,
+    _MISSING_FIELD_CHANGE_OLD,
+    _SESSION_ROOT,
+    _StageBlocked,
+    _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS,
+    _WARNED_LEGACY_CONTRACTS,
+    __annotations__,
+    __builtins__,
+    _artifact,
+    _build_lowering_audit_entries,
+    _build_lowering_change_entries,
+    _build_lowering_recovery_entries,
+    _consecutive_discovery_only_turn_count,
+    _discovery_construction_nudge,
+    _discovery_stop_message,
+    _duration_ms,
+    _format_research_brief_for_prompt,
+    _hydrate_execution_plan_from_protocol_notes,
+    _inject_lowering_provenance,
+    _iter_ui_graph_nodes,
+    _latest_clarification_context,
+    _read_only_discovery_turn_count,
+    _repair_field_changes_from_original_ui,
+    _safe_session_id,
+    _total_landed_edit_count,
+    _transaction_receipts_for_turn,
+    _turn_is_discovery_only_no_edit,
+    _ui_node_uid,
+    _ui_node_uid_aliases,
+    _ui_widget_value_for_field,
+    allocate_turn,
+    annotations,
+    apply_stage_gate_updates,
+    artifact_ref_for_path,
+    ast,
+    base64,
+    build_batch_messages,
+    build_delta_messages,
+    build_legacy_agent_edit_v1,
+    build_messages,
+    classify_failure,
+    classify_legacy_migration_v1,
+    collect_graph_facts,
+    collect_readiness_evidence,
+    collect_topology_evidence,
+    compute_scoped_diff,
+    dataclass,
+    dataclasses,
+    datetime,
+    derive_apply_eligibility,
+    derive_gates,
+    difflib,
+    ensure_agent_edit_response_contract,
+    ensure_sentence_message,
+    evaluate_execution_plan_for_state,
+    failure_envelope,
+    field,
+    format_compact_plan_feedback,
+    format_compact_plan_status,
+    hydrate_execution_plan_from_protocol_notes,
+    initialize_gates,
+    is_actionable_adaptation_plan,
+    json,
+    load_candidate_transaction,
+    load_candidate_transaction_with_migration,
+    logging,
+    lower_stage_result,
+    normalize_agent_edit_v2_metadata,
+    normalize_session_id,
+    os,
+    payload_hash,
+    product_failure_envelope_fields,
+    project_transaction_state,
+    public_outcome_from_turn_outcome,
+    queue_stage_result,
+    re,
+    read_state,
+    record_idempotent_response,
+    repair_field_changes,
+    run_agent_turn,
+    run_agent_turn_batch,
+    run_agent_turn_delta,
+    run_model_turn,
+    session_dir_for,
+    structural_graph_hash,
+    success_envelope,
+    time,
+    timezone,
+    turn_dir_for,
+    turn_envelope,
+    update_plan_validate_gate,
+    update_state_match_gate,
+    uuid,
+    v2_mutation_plan_hash,
+    validation_errors_payload,
+    write_allocation_failure_audit,
+    write_audit,
+    write_json_artifact,
+    _accepted_batch_delta_ops,
+    _accepted_batch_field_changes,
+    _accepted_batch_statements
+)
 
-# T-039 required_post_split contract: the frozen manifest names
-# load_agent_generated_scratchpad as a top-level edit-module attr post-split
-# (pre-split it exists only as a guarded local import inside
-# _frag_transform_stages._stage_load_python). The lazy facade lives in the
-# fragment module; it is re-exported here by name and kept OUT of __all__ so
-# the frozen 472-name surface set stays byte-identical (the manifest records
-# this name under required_post_split, not __all__).
-from ._frag_transform_stages import load_agent_generated_scratchpad
+from ._frag_humanize import (
+    _NARRATOR_RESPONSE_REQUIRED_FIELD,
+    _append_post_edit_reorganisation_advice,
+    _article_for,
+    _batch_candidate_graph_changed,
+    _batch_warning_sentence,
+    _change_details_payload,
+    _change_subject,
+    _compact_change_details_payload,
+    _delta_structural_uids,
+    _display_value,
+    _fallback_narrative_message,
+    _field_change_is_noop,
+    _first_link_source_label,
+    _human_change_phrase,
+    _humanized_edit_message,
+    _humanized_noop_message,
+    _is_link_endpoint,
+    _join_human_list,
+    _landed_edit_lead,
+    _link_endpoint_parts,
+    _looks_internal_uid,
+    _narrative_artifact_path,
+    _narrative_context_payload,
+    _narrative_issue_payloads,
+    _narrative_issue_summary,
+    _narrative_research_payload,
+    _narrative_revision_payload,
+    _narrative_stage_payload,
+    _narrator_message_from_response,
+    _narrator_system_message,
+    _narrator_user_message,
+    _net_field_changes,
+    _node_class_label,
+    _node_key_values,
+    _node_label_by_uid,
+    _node_phrase,
+    _noop_field_changes,
+    _operation_detail_payload,
+    _post_edit_reorganisation_advice_sentence,
+    _real_field_changes,
+    _resolve_endpoint_label,
+    _resolve_output_slot_name,
+    _revision_candidate_retry_hint,
+    _revision_rejected_candidate_message,
+    _sentence_case,
+    _structural_change_phrases,
+    _synthesize_batch_repl_message,
+    _synthesize_post_validation_narrative,
+    _terminal_answer_message,
+    _ui_display_widget_value_for_field,
+    _ui_node_by_uid,
+    _validation_summary_payload
+)
+
+from ._frag_batch_memory import (
+    _PARAMETER_TWEAK_TARGET_TERMS,
+    _batch_research_memory_summary,
+    _class_names_from_text,
+    _edit_noop_requires_graph_evidence_feedback,
+    _existing_parameter_tweak_targets_from_graph,
+    _format_available_node_names,
+    _format_node_variable_index,
+    _format_query_output,
+    _format_statement_source,
+    _iter_ui_nodes,
+    _normalize_test_client_batch_response,
+    _normalize_test_client_response,
+    _premature_missing_custom_node_clarify_feedback,
+    _present_class_types,
+    _render_batch_diff,
+    _resolver_candidate_is_authoring_capability,
+    _selected_precedent_unknown_class_feedback,
+    _workflow_schema_classes_from_context,
+    node_settings_for
+)
+
+from ._frag_batch_reports import (
+    TerminalClarifySplit,
+    _BATCH_EXIT_BUDGET,
+    _BATCH_EXIT_DONE,
+    _BATCH_EXIT_EDIT_CLARIFY,
+    _BATCH_EXIT_NOOP,
+    _BATCH_EXIT_PURE_CLARIFY,
+    _BATCH_EXIT_STUCK,
+    _BATCH_UNREPRESENTABLE_DIAGNOSTIC_CODES,
+    _CLARIFY_CALL_RE,
+    _DETAIL_ALIAS_CAP,
+    _DETAIL_LIST_CAP,
+    _DIAGNOSTIC_DETAIL_KEYS,
+    _SEARCH_CALL_RE,
+    _SEARCH_KW_RE,
+    _batch_budget_artifixer_report,
+    _batch_budget_failure_kind,
+    _batch_has_landed_edits,
+    _batch_turn_diagnostics,
+    _cap_diagnostic_detail,
+    _compact_diag_with_capped_detail,
+    _contains_clarify_call,
+    _decode_clarify_literal,
+    _duplicate_search_cycle_feedback,
+    _extract_clarify_message,
+    _extract_search_signatures,
+    _format_batch_report,
+    _format_batch_report_json,
+    _format_diagnostic_detail_text,
+    _is_done_expr,
+    _is_terminal_clarify_expr,
+    _lint_diag_with_capped_detail,
+    _offset_from_ast_position,
+    _re,
+    _split_terminal_clarify_line_regex,
+    split_terminal_clarify
+)
+
+from ._frag_chat import (
+    _BUNDLE_MAX_FILE_BYTES,
+    _BUNDLE_MAX_TOTAL_BYTES,
+    _BUNDLE_TEXT_SUFFIXES,
+    _CHAT_REASONING_MAX_DIAGS,
+    _CHAT_REASONING_MAX_OPERATIONS,
+    _CHAT_REASONING_MAX_STEPS,
+    _compact_chat_change_details,
+    _conversation_with_candidate_reference,
+    _field_changes_payload,
+    _json_safe,
+    _latest_session_candidate_payload,
+    _latest_turn_lifecycle_payload,
+    _read_turn_response_payload,
+    _stamped_message_outcome,
+    _stamped_turn_response_outcome,
+    _trim_chat_text,
+    _write_turn_chat_artifact,
+    read_session_chat
+)
+
+from ._frag_session_bundle import (
+    _agent_edit_batch_repl_enabled,
+    _agent_edit_contract,
+    _compact_diag_to_dict,
+    _edit_lint_enabled,
+    _port_issue_to_dict,
+    _warn_ignored_public_protocol_envs_once,
+    _warn_legacy_contract_once,
+    read_session_bundle,
+    read_session_json
+)
+
+from ._frag_ingest import (
+    _CODE_NODE_TRIGGER_TERMS,
+    _GRAPH_EXPLAIN_TRIGGER_TERMS,
+    _RESEARCH_TRIGGER_TERMS,
+    _is_research_intent,
+    _record,
+    _stage_agent,
+    _stage_agent_delta,
+    _stage_convert,
+    _stage_ingest,
+    _stage_ingest_v2,
+    _stage_project_v2,
+    _stale_rebaseline_recovery_issue,
+    _stamp_identity_on_original,
+    _task_mentions_any
+)
+
+from ._frag_research import (
+    _adaptation_slice_domain_mismatch_diagnostic,
+    _build_graph_report,
+    _build_precedent_semantic_check_entries,
+    _candidate_dict,
+    _canonical_agent_edit_route,
+    _effective_implementation_task,
+    _executor_classification_text,
+    _graph_class_types,
+    _graph_class_types_missing_from_schema,
+    _hydrate_current_graph_unknown_node_schemas,
+    _hydrate_research_precedent_node_schemas,
+    _is_code_node_intent,
+    _is_graph_explain_intent,
+    _iter_research_precedent_sources,
+    _prefetch_research_summary,
+    _resolver_candidate_supports_class,
+    _revision_no_candidate_reason,
+    _route_blocks_apply,
+    _route_change_focus_label,
+    _schema_provider_available,
+    _schema_provider_has_class,
+    _semantic_validation_description,
+    _structural_validation_description,
+    _workflow_class_types_from_research_context,
+    _workflow_schema_candidates_from_research_context
+)
+
+from ._frag_revision import (
+    _extract_readiness_diagnostics,
+    _extract_ready_metadata,
+    _focus_types_from_research_brief,
+    _focus_types_from_research_sources,
+    _localized_additive_scoped_evidence,
+    _request_no_gpu_detected,
+    _revision_evidence_artifact_payload,
+    _revision_target_node_ids,
+    _runtime_execution_requested,
+    _session_reference_map_for_evidence,
+    _stable_blocker_key,
+    _subtract_existing_blockers,
+    _write_revision_evidence_artifact
+)
+
+from ._frag_revision_stages import (
+    _finalize_revision_evidence_with_candidate,
+    _revision_evidence_prompt_json,
+    _revision_readonly_message,
+    _stage_readonly_diagnostic_report,
+    _stage_revision_evidence,
+    _stage_revision_readonly_report
+)
+
+from ._frag_batch_loop import (
+    _BATCH_PROTOCOL_RETRY_PROMPT,
+    _MANIFEST_COMPACTOR_MAX_ANCHORS,
+    _MANIFEST_COMPACTOR_MAX_EDGES,
+    _MANIFEST_COMPACTOR_MAX_NODES,
+    _MAX_EXECUTION_PROTOCOL_LIST_ITEMS,
+    _MAX_EXECUTION_PROTOCOL_SOURCES,
+    _MAX_EXECUTION_PROTOCOL_STRING,
+    _actionable_plan_dependency_status,
+    _actionable_plan_required_new_classes,
+    _actionable_plan_ui_only_classes,
+    _active_manifest_from_plan,
+    _batch_protocol_parse_reason,
+    _batch_protocol_retry_messages,
+    _compact_execution_protocol_notes_for_prompt,
+    _compact_protocol_jsonish,
+    _compact_protocol_list,
+    _compact_protocol_string,
+    _compact_research_source_for_prompt,
+    _copy_compact_protocol_fields,
+    _dependency_graph_class_types,
+    _evaluate_execution_plan_after_candidate_update,
+    _execution_plan_done_refusal_hint,
+    _execution_plan_status_for_prompt,
+    _hydrate_actionable_registry_dependencies,
+    _is_ui_only_annotation_class_type,
+    _malformed_model_json_detail,
+    _manifest_compact_payload,
+    _manifest_is_complete,
+    _manifest_required_new_classes,
+    _retry_after_dependency_preflight_failure
+)
+
+from ._frag_transform_stages import (
+    _ensure_canonical_delta_ops,
+    _queue_recovery_report_for_candidate,
+    _recovery_report_from_ui_payload,
+    _stage_audit,
+    _stage_emit,
+    _stage_load_python,
+    _stage_lower,
+    _stage_summarize,
+    _stage_summarize_v2,
+    _stage_validate,
+    _write_unknown_transition_audits,
+    load_agent_generated_scratchpad
+)
+
+from ._frag_narrator import (
+    NarrativeContext,
+    _NARRATOR_DEFAULT_MODEL,
+    _NARRATOR_DEFAULT_ROUTE,
+    _NARRATOR_SYSTEM_PROMPT,
+    _assemble_narrative_context,
+    _build_narrator_messages,
+    _call_narrator_llm,
+    _deterministic_narrative_fallback,
+    _narrate_final_message,
+    _narrator_model,
+    _narrator_route,
+    _write_narrative_artifacts
+)
+
+from ._frag_response_contract import (
+    LOGGER,
+    _CLARIFY_FORBIDDEN_RESPONSE_KEYS,
+    _build_batch_repl_failure_response,
+    _build_batch_repl_response,
+    _build_candidate_payload,
+    _build_compatibility_response_fields,
+    _build_cumulative_batch_repl_delta_envelope,
+    _build_dev_failure_response,
+    _build_dev_success_response,
+    _candidate_full_ui_payload_changed,
+    _candidate_stable_key,
+    _canonical_delta_ops_envelope_payload,
+    _clarification_payload,
+    _enrich_schema_provider_from_resolver_candidates,
+    _execution_plan_artifact_refs,
+    _execution_plan_debug_fields,
+    _execution_plan_response_fields,
+    _execution_plan_task_satisfaction_entries,
+    _ensure_specific_clarify_action,
+    _failure_response,
+    _format_clarify_markdown_message,
+    _has_enough_grounded_facts_for_dev_narrative,
+    _layout_only_reorganise_evidence_changed,
+    _legacy_failure_response,
+    _legacy_narrative_debug_status,
+    _narrative_artifact_refs,
+    _narrative_debug_fields,
+    _plan_validation_allows_candidate,
+    _post_edit_reorganisation_public_advisory,
+    _prepare_narrative_artifact_paths,
+    _product_failure_response,
+    _record_narrative_artifacts,
+    _record_post_edit_reorganisation_advisory,
+    _resolver_candidates_from_batch_result,
+    _resolver_candidates_from_batch_turns,
+    _response_apply_eligibility,
+    _response_artifacts_with_execution_plan,
+    _response_contract_candidate_present,
+    _sanitize_pure_clarify_response,
+    _session_artifact_response_fields,
+    _stage_snapshot_payloads,
+    _strip_clarify_forbidden_response_fields,
+    _sync_narrated_clarify_outcome,
+    _v2_candidate_mutation_plan_fields,
+    _validate_delta_evidence_for_apply,
+    _validated_agent_edit_response,
+    _workflow_schema_candidates_from_batch_result
+)
+
+from ._frag_orchestration import (
+    _RUNTIME_OBJECT_INFO_PATH,
+    _batch_repl_candidate_needs_queue_validate,
+    _build_object_info_in_process,
+    _classify_stage_failure,
+    _default_runtime_schema_provider,
+    _is_provider_exception,
+    _run_batch_repl_product_path,
+    _run_batch_repl_queue_validate_if_needed,
+    _run_stage,
+    _stage_batch_repl_queue_validate
+)
+
+from ._frag_entrypoint import (
+    _agent_edit_turn_event_payload,
+    _brief_batch_statements,
+    _emit_agent_edit_turn_event,
+    _ws_send,
+    begin_turn_event_buffer,
+    commit_turn_event_buffer,
+    discard_turn_event_buffer,
+    handle_agent_edit
+)
 
 
 def _stage_agent_batch_repl(
@@ -191,7 +641,7 @@ __all__ = frozenset(
         "_agent_edit_batch_repl_enabled",
         "_agent_edit_contract",
         "_agent_edit_turn_event_payload",
-        "_agent_edit_v2_enabled",
+        # "_agent_edit_v2_enabled" removed — product protocol is batch_repl only
         "_append_post_edit_reorganisation_advice",
         "_article_for",
         "_artifact",
@@ -397,8 +847,7 @@ __all__ = frozenset(
         "_route_change_focus_label",
         "_run_batch_repl_product_path",
         "_run_batch_repl_queue_validate_if_needed",
-        "_run_delta_dev_path",
-        "_run_full_dev_path",
+        # "_run_delta_dev_path" / "_run_full_dev_path" removed — interpreter path only
         "_run_stage",
         "_runtime_execution_requested",
         "_safe_session_id",
@@ -415,7 +864,6 @@ __all__ = frozenset(
         "_stage_agent",
         "_stage_agent_batch_repl",
         "_stage_agent_delta",
-        "_stage_apply_delta",
         "_stage_audit",
         "_stage_batch_repl_queue_validate",
         "_stage_convert",

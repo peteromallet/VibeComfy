@@ -5,6 +5,7 @@ the repaired predicate describes an additive witness.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 import json
 from dataclasses import dataclass, field
 from enum import Enum
@@ -394,11 +395,11 @@ def _reachable_and_terminal_nodes(
     """Return forward-reachable ids and the reachable graph terminals."""
     node_ids = {
         str(node.get("id"))
-        for node in graph.get("nodes", [])
+        for node in door_get_nodes(graph, [])
         if isinstance(node, dict) and node.get("id") is not None
     }
     outgoing: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
-    for link in graph.get("links", []):
+    for link in door_get_links(graph, []):
         if not isinstance(link, list) or len(link) < 6:
             continue
         source, target = str(link[1]), str(link[3])

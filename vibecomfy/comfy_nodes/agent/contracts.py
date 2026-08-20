@@ -5,11 +5,12 @@ import re
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 DEFAULT_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
     "lower_ok",
@@ -138,6 +139,36 @@ INTERNAL_TO_PUBLIC_OUTCOME: Mapping[str, str] = MappingProxyType({
     "failure": "error",
 })
 
+
+def missing_runtime_classes_from_report(report: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Return class names proven absent from a batch ``report`` payload."""
+    if not isinstance(report, Mapping):
+        return ()
+    blocker = report.get("authoring_blocker")
+    if not isinstance(blocker, Mapping):
+        return ()
+    raw = blocker.get("missing_runtime_classes")
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    return tuple(str(item) for item in raw if item)
+
+
+def promote_requires_custom_nodes_outcome(
+    public_outcome: Mapping[str, Any],
+    *,
+    missing_classes: Sequence[str] = (),
+    unresolved_schema_terminal: bool = False,
+) -> dict[str, Any]:
+    """Rewrite a no-edit public outcome to ``requires_custom_nodes`` on proven absence."""
+    payload = dict(public_outcome)
+    names = tuple(str(item) for item in missing_classes if item)
+    if not names and not unresolved_schema_terminal:
+        return payload
+    payload["kind"] = "requires_custom_nodes"
+    if names:
+        payload["missing_classes"] = list(names)
+    return payload
+
 # Well-known keys that, when present on a response object, signal a failure.
 FAILURE_HINT_KEYS: tuple[str, ...] = (
     "agent_failure_context",
@@ -201,8 +232,7 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "structural_hash_after",
     "monotonic_generation",
     "lease_nonce",
-    "delta_ops_envelope",
-    "delta_ops",
+    "accepted_batch",
     "apply_eligibility",
     "eligibility",
     "canvas_apply_allowed",
@@ -1042,7 +1072,7 @@ def _default_gate_results() -> dict[str, GateResult]:
 
 @dataclass
 class TurnContext:
-    session_id: str
+    session_id: str = ""
     turn_id: str | None = None
     baseline_turn_id: str | None = None
     client_graph_hash: str | None = None
@@ -2493,7 +2523,7 @@ def _ui_node_uid_aliases(node: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _iter_ui_graph_nodes(graph: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if not isinstance(nodes, list):
         return ()
     return tuple(node for node in nodes if isinstance(node, Mapping))
@@ -2514,7 +2544,7 @@ def _ui_widget_value_for_field(node: Mapping[str, Any], field_path: str) -> Any:
     # ``session.py`` for ``DiagnosticRecord``) that must not pull in ComfyUI/torch.
     from vibecomfy.porting.widgets.aliases import widget_names_for_class
 
-    widgets_values = node.get("widgets_values")
+    widgets_values = door_get_widgets_values(node)
     explicit_index = _widget_index_from_field_path(field_path)
     if explicit_index is not None:
         if isinstance(widgets_values, list) and 0 <= explicit_index < len(widgets_values):
@@ -2649,6 +2679,8 @@ __all__ = [
     "public_compact_diagnostic",
     "public_latest_candidate",
     "public_latest_turn_lifecycle",
+    "missing_runtime_classes_from_report",
+    "promote_requires_custom_nodes_outcome",
     "public_outcome_from_turn_outcome",
     "public_response_details",
     "public_session_json_payload",

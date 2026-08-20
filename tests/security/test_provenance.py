@@ -206,8 +206,112 @@ def test_agent_generated_node_tagged_after_confirm_stays_agent_generated():
 def test_provenance_literal_includes_agent_generated():
     """The agent_generated literal is in the Provenance type's valid set."""
     from vibecomfy.security.provenance import Provenance
-    from typing import get_args
 
-    valid = set(get_args(Provenance))
+    valid = set(Provenance)
     assert "agent_generated" in valid
     assert "agent_generated" in provenance._VALID
+
+
+# --- Law 5 (batch 5): closed typed set + monotone lattice -------------------
+
+
+def test_provenance_is_a_closed_typed_enum():
+    """Provenance is a closed typed set (str enum), not an open string."""
+    import enum
+
+    assert issubclass(provenance.Provenance, str)
+    assert issubclass(provenance.Provenance, enum.Enum)
+    assert set(provenance.Provenance) == {
+        provenance.Provenance.UNTRUSTED_SOURCE,
+        provenance.Provenance.AGENT_AUTHORED,
+        provenance.Provenance.AGENT_GENERATED,
+        provenance.Provenance.USER_CONFIRMED,
+    }
+    # The closed set is exactly the taxonomy — nothing else is valid.
+    for bogus in ("fully_trusted", "template", "user_edited", ""):
+        assert provenance.coerce(bogus) == provenance.Provenance.UNTRUSTED_SOURCE
+
+
+def test_coerce_fails_closed_on_none_and_bogus():
+    assert provenance.coerce(None) == provenance.Provenance.UNTRUSTED_SOURCE
+    assert provenance.coerce("bogus") == provenance.Provenance.UNTRUSTED_SOURCE
+    assert provenance.coerce(42) == provenance.Provenance.UNTRUSTED_SOURCE
+    # Known plain strings normalize to the typed member.
+    assert provenance.coerce("untrusted_source") is provenance.Provenance.UNTRUSTED_SOURCE
+    assert provenance.coerce("agent_generated") is provenance.Provenance.AGENT_GENERATED
+
+
+def test_ordering_is_reflexive_antisymmetric_and_transitive():
+    """The taint ordering is a partial order (here a total order)."""
+    members = list(provenance.Provenance)
+    # Reflexive.
+    for member in members:
+        assert provenance.dominates(member, member)
+    # Antisymmetric: dominates(a, b) and dominates(b, a) implies a == b.
+    for a in members:
+        for b in members:
+            if provenance.dominates(a, b) and provenance.dominates(b, a):
+                assert a == b
+    # Transitive: dominates(a, b) and dominates(b, c) implies dominates(a, c).
+    for a in members:
+        for b in members:
+            for c in members:
+                if provenance.dominates(a, b) and provenance.dominates(b, c):
+                    assert provenance.dominates(a, c)
+
+
+def test_ordering_has_untrusted_source_at_max_taint():
+    """untrusted_source dominates every other provenance (fail-closed top)."""
+    for member in provenance.Provenance:
+        assert provenance.dominates("untrusted_source", member)
+        if member is not provenance.Provenance.UNTRUSTED_SOURCE:
+            assert not provenance.dominates(member, "untrusted_source")
+    # The trust ladder matches the existing confirm() promotion table.
+    assert provenance.dominates(
+        provenance.Provenance.AGENT_GENERATED, provenance.Provenance.USER_CONFIRMED
+    )
+
+
+def test_join_is_idempotent_commutative_and_associative():
+    """join is a semilattice: idempotent, commutative, associative."""
+    members = list(provenance.Provenance)
+    for a in members:
+        # Idempotent.
+        assert provenance.join(a, a) == a
+        for b in members:
+            # Commutative.
+            assert provenance.join(a, b) == provenance.join(b, a)
+            for c in members:
+                # Associative.
+                left = provenance.join(provenance.join(a, b), c)
+                right = provenance.join(a, provenance.join(b, c))
+                assert left == right
+
+
+def test_join_is_max_taint_and_never_downgrades():
+    """join returns the max-taint operand and dominates both operands."""
+    members = list(provenance.Provenance)
+    for a in members:
+        for b in members:
+            joined = provenance.join(a, b)
+            assert joined == provenance.join(b, a)
+            # Never downgraded: the result dominates each operand.
+            assert provenance.dominates(joined, a)
+            assert provenance.dominates(joined, b)
+            # Max-taint: the result is one of the operands, and it is the
+            # operand with the higher taint rank.
+            assert joined in (a, b)
+    # The canonical examples: untrusted input poisons the join; an agent edit
+    # on an untrusted node keeps it untrusted (no laundering).
+    assert provenance.join("untrusted_source", "user_confirmed") == "untrusted_source"
+    assert provenance.join("untrusted_source", "agent_generated") == "untrusted_source"
+    assert provenance.join("user_confirmed", "agent_generated") == "agent_generated"
+
+
+def test_join_accepts_mixed_strings_and_members_and_empty_join_fails_closed():
+    assert provenance.join("user_confirmed", provenance.Provenance.AGENT_GENERATED) == (
+        provenance.Provenance.AGENT_GENERATED
+    )
+    assert provenance.join() == provenance.Provenance.UNTRUSTED_SOURCE
+    # Invalid operands coerce fail-closed to untrusted and poison the join.
+    assert provenance.join("bogus", "user_confirmed") == "untrusted_source"

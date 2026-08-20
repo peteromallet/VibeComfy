@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("runpod_lifecycle", reason="requires sibling runpod-lifecycle package")
+
 from scripts import runpod_acceptance
 
 

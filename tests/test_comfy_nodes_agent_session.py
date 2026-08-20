@@ -896,10 +896,11 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
             {"op": "set_mode", "target": ["", "sampler-1"], "mode": 4}
         ],
     }
+    accepted_batch = [{"op": op} for op in delta_envelope["ops"]]
     response = {
         "agent_edit_protocol": "v2_delta",
         "graph": candidate_graph,
-        "delta_ops_envelope": delta_envelope,
+        "accepted_batch": accepted_batch,
         "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
     }
     receipt = build_authority_receipt(
@@ -920,7 +921,7 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         plan_hash=plan_hash,
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
-        delta_ops_envelope=delta_envelope,
+        accepted_batch=accepted_batch,
         delta_hash=receipt.cumulative_delta_hash,
         submit_graph_hash=receipt.submit_graph_hash,
         submit_structural_graph_hash=S.structural_graph_hash(submit_graph),

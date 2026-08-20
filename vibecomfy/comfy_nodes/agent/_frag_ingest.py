@@ -16,6 +16,7 @@ from vibecomfy.comfy_nodes.agent.gates import apply_stage_gate_updates, update_s
 from vibecomfy.comfy_nodes.agent.provider import build_delta_messages, build_messages
 from ._frag_state import AgentEditState, DeepSeekClient, _artifact, _duration_ms
 
+from vibecomfy.ingest.normalize import door_get_nodes
 def _record(context: TurnContext, result: StageResult) -> StageResult:
     context.stage_results[result.stage] = result
     apply_stage_gate_updates(context, result)
@@ -36,7 +37,7 @@ def _stamp_identity_on_original(graph: dict[str, Any], workflow: Any) -> int:
     """
     by_id = {str(nid): node for nid, node in getattr(workflow, "nodes", {}).items()}
     stamped = 0
-    for ui_node in graph.get("nodes") or []:
+    for ui_node in door_get_nodes(graph) or []:
         if not isinstance(ui_node, dict):
             continue
         ir = by_id.get(str(ui_node.get("id")))
@@ -77,19 +78,38 @@ def _stale_rebaseline_recovery_issue(
     }
 
 
+def _ensure_ingest_workflow(state: AgentEditState) -> Any:
+    """Return the retained ingest IR, building it exactly once if absent.
+
+    The public entrypoint retains the IR in ``AgentEditState.workflow`` at
+    allocation (batch 3), so the normal path never re-ingests.  Direct stage
+    callers and recovered states fall through here, which performs the SINGLE
+    named-door conversion (``ingest_workflow_and_ui`` — the only shape
+    dispatcher) and stores both the canonical graph and the retained
+    ``VibeWorkflow`` on state.
+    """
+    if state.workflow is None:
+        from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+
+        workflow, graph = ingest_workflow_and_ui(
+            state.graph,
+            schema_provider=state.schema_provider,
+        )
+        state.graph = graph
+        state.workflow = workflow
+    return state.workflow
+
+
 def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
-    from vibecomfy.ingest.normalize import _is_vibe_envelope, from_api, from_envelope, from_ui
     from vibecomfy.porting.layout_store import store_from_ui_json
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
     original_ui_ref = write_json_artifact(state.original_ui_path, state.graph)
-    if isinstance(state.graph.get("nodes"), list):
-        state.workflow = from_ui(state.graph, schema_provider=state.schema_provider)
-    elif _is_vibe_envelope(state.graph):
-        state.workflow = from_envelope(state.graph)
-    else:
-        state.workflow = from_api(state.graph, schema_provider=state.schema_provider)
+    # Batch 3: the ingest IR was retained at allocation (AgentEditState.workflow);
+    # direct stage callers / recovered states build it exactly once here via the
+    # named door.  No stage re-derives the IR from raw JSON.
+    _ensure_ingest_workflow(state)
     state.prior_store = store_from_ui_json(state.graph)
     # Phase 1 (concrete-tree migration, docs/agent-edit/concrete-tree.md): give the
     # user's original graph stable identity so the delta-scope guard (guard_emit)
@@ -141,20 +161,15 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
 
 
 def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult:
-    from vibecomfy.porting.edit.ledger import EditLedger
+    from copy import deepcopy
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
-    # Public Agent Edit calls normalize before allocation. Keep the same adapter
-    # here as a defensive fallback for direct stage callers and recovered states.
-    from .graph_normalization import normalize_agent_edit_graph
-
-    state.graph = normalize_agent_edit_graph(
-        state.graph,
-        schema_provider=state.schema_provider,
-    )
-    ledger = EditLedger.ingest(state.graph)
-    state.guard_original_ui = ledger.stamped_copy()
+    # The door dispatched the shape exactly once at allocation and its
+    # VibeWorkflow is retained in state.workflow. This stage consumes the
+    # retained IR — never re-ingests from raw JSON.
+    _ensure_ingest_workflow(state)
+    state.guard_original_ui = deepcopy(state.graph)
     original_ui_ref = write_json_artifact(state.original_ui_path, state.guard_original_ui)
     # Auto-rebaseline on submit: the live canvas the user submitted is always
     # authoritative for an edit, so submit does NOT enforce a pinned baseline
@@ -185,11 +200,9 @@ def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult
         blocking=False,
         duration_ms=_duration_ms(start),
         artifacts=(request_ref, original_ui_ref),
-        issues=tuple(issue.to_dict() for issue in ledger.diagnostics),
         value={
-            "mode": "agent_edit_v2_delta",
-            "node_count": len(ledger.node_index),
-            "scope_count": len(ledger.scopes),
+            "mode": "batch_repl",
+            "node_count": len((getattr(state.workflow, "nodes", None) or {})),
         },
     )
 
@@ -225,25 +238,13 @@ def _stage_convert(state: AgentEditState, _context: TurnContext) -> StageResult:
 
 
 def _stage_project_v2(state: AgentEditState, _context: TurnContext) -> StageResult:
-    from vibecomfy.porting.edit.projection import ProjectionOptions, render_edit_projection
+    from vibecomfy.porting.render import LENS_SURFACE, render
 
     start = time.monotonic()
-    # The 8000-token default forces sparse mode on every real ComfyUI graph (140-200+
-    # nodes), collapsing all nodes to summaries and starving the model of the field
-    # names / slot types it needs to target edits and wire links correctly. Modern
-    # models have 64K+ context, so render real graphs in FULL detail. Env-overridable.
-    try:
-        _proj_budget = int(os.getenv("VIBECOMFY_EDIT_PROJECTION_MAX_TOKENS", "256000"))
-    except (TypeError, ValueError):
-        _proj_budget = 256000
-    projection = render_edit_projection(
-        state.guard_original_ui or state.graph,
-        task=state.task,
-        schema_provider=state.schema_provider,
-        options=ProjectionOptions(max_tokens=_proj_budget),
-    )
-    state.projection_text = projection.text
-    state.projection_path.write_text(projection.text, encoding="utf-8")
+    _ensure_ingest_workflow(state)
+    projection_text = str(render(state.workflow, LENS_SURFACE) or "")
+    state.projection_text = projection_text
+    state.projection_path.write_text(projection_text, encoding="utf-8")
     return StageResult(
         stage="project",
         ok=True,
@@ -251,10 +252,7 @@ def _stage_project_v2(state: AgentEditState, _context: TurnContext) -> StageResu
         duration_ms=_duration_ms(start),
         artifacts=(_artifact(state.projection_path),),
         value={
-            "token_estimate": projection.token_estimate,
-            "node_count": projection.node_count,
-            "detailed_node_count": projection.detailed_node_count,
-            "truncated": projection.truncated,
+            "node_count": len(getattr(state.workflow, "nodes", {}) or {}),
         },
     )
 
@@ -394,8 +392,7 @@ def _stage_agent_delta(
     model_response_ref = write_json_artifact(
         state.model_response_path,
         {
-            "delta": list(delta_payload["ops"]),
-            "delta_ops_envelope": delta_payload,
+            "accepted_batch": [{"op": op} for op in delta_payload["ops"]],
             "message": agent_result.message,
             "route": agent_result.route,
             "model": agent_result.model,

@@ -5,7 +5,6 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-from vibecomfy.comfy_nodes.agent import graph_normalization
 from vibecomfy.comfy_nodes.agent.executor_durable import maybe_write_executor_only_durable_turn
 
 
@@ -108,86 +107,6 @@ def test_non_applyable_executor_response_writes_request_response_and_chat(tmp_pa
     final_ui = json.loads((turn_dir / "final.ui.json").read_text(encoding="utf-8"))
     assert original_ui == request.graph
     assert final_ui == original_ui
-
-
-def test_executor_durable_normalizes_before_allocation(tmp_path, monkeypatch) -> None:
-    """A mapping-nodes (serialized Vibe) request graph must be normalized to
-    the canonical list-nodes shape BEFORE allocation: the raw graph must never
-    be hashed for allocation nor persisted to request.json."""
-    raw_graph = {
-        "nodes": {"1": {"type": "LoadImage"}, "2": {"type": "PreviewImage"}},
-        "compiled_api": {
-            "1": {"id": "1", "type": "LoadImage"},
-            "2": {"id": "2", "type": "PreviewImage"},
-        },
-    }
-    canonical_graph = {
-        "nodes": [
-            {"id": 1, "type": "LoadImage"},
-            {"id": 2, "type": "PreviewImage"},
-        ],
-        "links": [],
-    }
-
-    normalized_graphs: list[dict] = []
-    allocation_calls: list[dict] = []
-
-    def fake_normalize_agent_edit_graph(graph, *, schema_provider=None):
-        normalized_graphs.append(graph)
-        assert schema_provider is None
-        return canonical_graph
-
-    monkeypatch.setattr(
-        graph_normalization, "normalize_agent_edit_graph", fake_normalize_agent_edit_graph
-    )
-
-    def fake_allocate_turn(**kwargs):
-        allocation_calls.append(kwargs)
-        return SimpleNamespace(
-            replay=None,
-            conflict=None,
-            context=SimpleNamespace(
-                session_id="norm-sess", turn_id="0001", baseline_turn_id=None
-            ),
-            turn_dir=tmp_path / "norm-sess" / "turns" / "0001",
-            state={"baseline_graph_hash": "norm-hash"},
-            request_hash="norm-req-hash",
-        )
-
-    response = {
-        "ok": True,
-        "route": "inspect",
-        "reply": "Inspection result.",
-        "message": "Inspection result.",
-        "outcome": {"kind": "noop"},
-    }
-    request = SimpleNamespace(query="inspect this", graph=raw_graph)
-
-    maybe_write_executor_only_durable_turn(
-        response=response,
-        result=None,
-        payload={"query": "inspect this", "graph": raw_graph, "session_id": "norm-sess"},
-        request=request,
-        session_root=tmp_path,
-        allocate_turn_func=fake_allocate_turn,
-    )
-
-    # Normalizer ran exactly once, on the raw dict graph.
-    assert len(normalized_graphs) == 1
-    assert normalized_graphs[0] is raw_graph
-
-    # Allocation saw the canonical list-nodes graph — the raw graph was not
-    # hashed: the request payload carries only the normalized value.
-    assert len(allocation_calls) == 1
-    allocation_graph = allocation_calls[0]["request_payload"]["graph"]
-    assert allocation_graph == canonical_graph
-    assert allocation_graph != raw_graph
-
-    # request.json holds the canonical graph, not the raw mapping-nodes graph.
-    turn_dir = tmp_path / "norm-sess" / "turns" / "0001"
-    request_payload = json.loads((turn_dir / "request.json").read_text(encoding="utf-8"))
-    assert request_payload["graph"] == canonical_graph
-    assert request_payload["graph"] != raw_graph
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,64 @@
+{
+  "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
+  "query": "The inpainted region looks sharp-edged and doesn't blend smoothly with the rest of the video, and the colors in that region are completely off (grayish). What's going wrong?",
+  "workflow_path": "external_workflows/corpus/b3ba8a025a649a3b.json",
+  "network": true,
+  "timeout": 320,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "diagnose",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "inpainting",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "ltx",
+      "video-generation",
+      "audio-conditioning",
+      "inpainting",
+      "image-to-video",
+      "masking",
+      "latent"
+    ],
+    "source_workflow_id": "b3ba8a025a649a3b",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "Targets a common inpainting failure mode that requires checking mask wiring, blending nodes, and latent handling."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/b3ba8a025a649a3b.json",
+    "required_node_evidence": [
+      "ImageToMask",
+      "GrowMaskWithBlur",
+      "InvertMask",
+      "LatentInpaintTTM",
+      "LTXVImgToVideoInplace",
+      "ImageBlend",
+      "VAEDecodeTiled"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Connect sharp edges to the mask grow/blur/invert route and gray color to latent/encode/decode/blend compatibility, then give checks that separately isolate mask geometry and color-space/latent issues.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

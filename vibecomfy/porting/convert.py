@@ -283,7 +283,7 @@ def port_convert_workflow(
         if _definitions is not None:
             workflow.metadata["definitions"] = copy.deepcopy(_definitions)
 
-        from vibecomfy.porting.subgraph_resolve import resolve_subgraph_helpers
+        from vibecomfy.ingest.normalize import resolve_subgraph_helpers
         resolve_subgraph_helpers(
             raw_workflow,
             workflow.nodes,

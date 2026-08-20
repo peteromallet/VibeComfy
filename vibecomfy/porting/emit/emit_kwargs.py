@@ -35,14 +35,9 @@ __all__ = [
     # variable-name helpers
     "_UUID_RE",
     "_safe_var",
-    "_connection_role_name",
-    "_empty_text_role",
     "_id_sort_key",
     "_topological_node_order",
     "_compute_variable_names",
-    "_locked_variable_uid_map",
-    "_apply_locked_variable_names",
-    "_is_valid_locked_variable_alias",
     # output-variable-name helpers
     "_compute_output_variable_names",
     "_SHADOWING_OUTPUT_NAMES",
@@ -85,10 +80,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Model file suffixes (used by _format_value for path normalization)
 # ---------------------------------------------------------------------------
-
-_MODEL_FILE_SUFFIXES: tuple[str, ...] = (
-    ".safetensors", ".ckpt", ".pt", ".bin", ".pth", ".gguf", ".onnx",
-)
 
 # ---------------------------------------------------------------------------
 # Shadowing output-variable name constants
@@ -174,35 +165,6 @@ def _safe_var(class_type: str) -> str:
     return name
 
 
-def _connection_role_name(workflow_nodes: dict[str, Any], edges_out: dict[str, list[tuple[str, str]]]) -> dict[str, str]:
-    roles: dict[str, str] = {}
-    for src_node_id, node in workflow_nodes.items():
-        if node.class_type != "CLIPTextEncode":
-            continue
-        for to_node, to_input in edges_out.get(src_node_id, []):
-            target = workflow_nodes.get(to_node)
-            if target is None:
-                continue
-            if target.class_type == "KSampler" and to_input in ("positive", "negative"):
-                roles[src_node_id] = to_input
-                break
-            if target.class_type in ("CFGGuider", "MultimodalGuider") and to_input in ("positive", "negative"):
-                roles[src_node_id] = to_input
-                break
-    return roles
-
-
-def _empty_text_role(workflow_nodes: dict[str, Any]) -> dict[str, str]:
-    roles: dict[str, str] = {}
-    for nid, node in workflow_nodes.items():
-        if node.class_type != "CLIPTextEncode":
-            continue
-        text_value = node.inputs.get("text", node.widgets.get("text", node.widgets.get("widget_0")))
-        if isinstance(text_value, str) and text_value.strip() == "":
-            roles.setdefault(nid, "negative")
-    return roles
-
-
 def _id_sort_key(nid: str) -> tuple[Any, ...]:
     parts = str(nid).split(":")
     if all(part.isdigit() for part in parts):
@@ -236,159 +198,29 @@ def _topological_node_order(nodes: dict[str, Any], edges_in: dict[str, list[Any]
 
 
 def _compute_variable_names(workflow_nodes: dict[str, Any], edges: list[Any]) -> dict[str, str]:
-    edges_out: dict[str, list[tuple[str, str]]] = {}
-    for edge in edges:
-        edges_out.setdefault(edge.from_node, []).append((edge.to_node, edge.to_input))
+    # Deterministic order: uid first (Law 5 — binding names are a pure
+    # function of (class_type, uid-order), stable across node-id remaps,
+    # turns and stages), with the node id as a deterministic tie-break for
+    # the rare uid-less node.  No session state, no stored binding, and no
+    # connection-role preference participates: the emitted name for a node
+    # is derived ONLY from class_type + uid order (with deterministic
+    # collision suffixes: two VHS_LoadVideo nodes emit vhs_loadvideo and
+    # vhs_loadvideo_2).
+    def _uid_order_key(nid: str) -> tuple[Any, ...]:
+        node = workflow_nodes[nid]
+        uid = str(getattr(node, "uid", "") or "")
+        return (uid or str(nid), _id_sort_key(nid))
 
-    role_conn = _connection_role_name(workflow_nodes, edges_out)
-    role_empty = _empty_text_role(workflow_nodes)
-    sorted_ids = sorted(workflow_nodes.keys(), key=_id_sort_key)
+    sorted_ids = sorted(workflow_nodes.keys(), key=_uid_order_key)
 
     used: dict[str, int] = {}
     var_names: dict[str, str] = {}
     for nid in sorted_ids:
         node = workflow_nodes[nid]
-        base = role_conn.get(nid) or role_empty.get(nid) or _safe_var(node.class_type)
+        base = _safe_var(node.class_type)
         used[base] = used.get(base, 0) + 1
         var_names[nid] = base if used[base] == 1 else f"{base}_{used[base]}"
     return var_names
-
-
-def _locked_variable_uid_map(
-    workflow_nodes: Mapping[str, Any],
-    *,
-    scope_path: str = "",
-    diagnostics: "list[Any] | None" = None,
-) -> dict[str, str]:
-    from vibecomfy.identity.uid import make_uid
-    # Import EmissionDiagnostic and warning constants lazily to avoid circular
-    # import (emitter.py imports from emit_kwargs.py at module level).
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
-        EmissionDiagnostic,
-        READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
-    )
-
-    uid_to_nid: dict[str, str] = {}
-    for nid, node in workflow_nodes.items():
-        candidates: list[str] = []
-        node_uid = str(getattr(node, "uid", "") or "")
-        if node_uid:
-            candidates.append(node_uid)
-        raw_ui = getattr(node, "metadata", {}).get("_ui") if hasattr(node, "metadata") else None
-        properties = raw_ui.get("properties") if isinstance(raw_ui, Mapping) else None
-        ui_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
-        if ui_uid is not None:
-            ui_uid_str = str(ui_uid)
-            candidates.append(ui_uid_str)
-            if scope_path:
-                candidates.append(make_uid(scope_path, ui_uid_str))
-        if scope_path and node_uid and "#" not in node_uid:
-            candidates.append(make_uid(scope_path, node_uid))
-
-        for uid in dict.fromkeys(candidates):
-            previous = uid_to_nid.get(uid)
-            if previous is not None and previous != str(nid):
-                if diagnostics is not None:
-                    diagnostics.append(
-                        EmissionDiagnostic(
-                            code=READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
-                            message=(
-                                f"Locked variable uid {uid!r} maps to multiple node ids "
-                                f"({previous!r}, {str(nid)!r}); ignoring the later binding."
-                            ),
-                            severity="error",
-                            node_id=str(nid),
-                            class_type=str(getattr(node, "class_type", "")),
-                            detail={"uid": uid, "existing_node_id": previous, "colliding_node_id": str(nid)},
-                        )
-                    )
-                continue
-            uid_to_nid[uid] = str(nid)
-    return uid_to_nid
-
-
-def _is_valid_locked_variable_alias(alias: str) -> bool:
-    return alias.isidentifier() and not keyword.iskeyword(alias)
-
-
-def _apply_locked_variable_names(
-    workflow_nodes: Mapping[str, Any],
-    var_names: dict[str, str],
-    *,
-    variable_name_locks: Mapping[str, str] | None,
-    strict: bool,
-    diagnostics: "list[Any] | None",
-    scope_path: str = "",
-) -> None:
-    if not variable_name_locks:
-        return
-
-    # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
-        EmissionDiagnostic,
-        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
-        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
-        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
-    )
-
-    uid_to_nid = _locked_variable_uid_map(workflow_nodes, scope_path=scope_path, diagnostics=diagnostics)
-    locked_by_nid: dict[str, tuple[str, str]] = {}
-    for uid, alias in sorted((str(key), str(value)) for key, value in variable_name_locks.items()):
-        nid = uid_to_nid.get(uid)
-        if nid is None:
-            if strict and diagnostics is not None:
-                diagnostics.append(
-                    EmissionDiagnostic(
-                        code=READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
-                        message=f"Locked variable uid {uid!r} was not present in emitted scope {scope_path!r}.",
-                        severity="error",
-                        detail={"uid": uid, "alias": alias, "scope_path": scope_path},
-                    )
-                )
-            continue
-        if not _is_valid_locked_variable_alias(alias):
-            if diagnostics is not None:
-                diagnostics.append(
-                    EmissionDiagnostic(
-                        code=READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
-                        message=f"Locked variable alias {alias!r} for uid {uid!r} is not a valid Python variable name.",
-                        severity="error",
-                        node_id=nid,
-                        class_type=str(getattr(workflow_nodes.get(nid), "class_type", "")),
-                        detail={"uid": uid, "alias": alias, "scope_path": scope_path},
-                    )
-                )
-            continue
-        locked_by_nid[nid] = (uid, alias)
-
-    aliases_to_nids: dict[str, list[str]] = {}
-    for nid, (_uid, alias) in locked_by_nid.items():
-        aliases_to_nids.setdefault(alias, []).append(nid)
-    colliding_locked_aliases = {alias for alias, nids in aliases_to_nids.items() if len(nids) > 1}
-
-    generated_unlocked = {alias: nid for nid, alias in var_names.items() if nid not in locked_by_nid}
-    for nid, (uid, alias) in locked_by_nid.items():
-        collision_node = generated_unlocked.get(alias)
-        if alias in colliding_locked_aliases or collision_node is not None:
-            if diagnostics is not None:
-                diagnostics.append(
-                    EmissionDiagnostic(
-                        code=READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
-                        message=f"Locked variable alias {alias!r} for uid {uid!r} collides with another emitted variable.",
-                        severity="error",
-                        node_id=nid,
-                        class_type=str(getattr(workflow_nodes.get(nid), "class_type", "")),
-                        detail={
-                            "uid": uid,
-                            "alias": alias,
-                            "scope_path": scope_path,
-                            "colliding_node_id": collision_node,
-                            "locked_collision": alias in colliding_locked_aliases,
-                        },
-                    )
-                )
-            continue
-        var_names[nid] = alias
 
 
 # ---------------------------------------------------------------------------
@@ -668,14 +500,6 @@ def _first_output_var(output_vars: dict[int, str] | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _format_value(value: Any, *, elide_strings_over: int | None = None) -> str:
-    # Normalize Windows-style backslash separators to forward slashes in model
-    # file paths (e.g. 'LTXVideo\\v2\\file.safetensors' → 'LTXVideo/v2/file.safetensors').
-    # ComfyUI model loaders accept either separator.
-    if isinstance(value, str) and "\\" in value:
-        if value.endswith(_MODEL_FILE_SUFFIXES) or any(
-            f"\\{ext[1:]}" in value for ext in _MODEL_FILE_SUFFIXES
-        ):
-            value = value.replace("\\", "/")
     if elide_strings_over is not None and isinstance(value, str) and len(value) > elide_strings_over:
         head = repr(value[:240])
         tail = repr(value[-80:])

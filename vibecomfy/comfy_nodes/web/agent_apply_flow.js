@@ -285,7 +285,13 @@ export function createApplyFlow(deps) {
         && transactionAllows(candidateTransaction, "rollback"),
       );
       const v2DeltaOps = candidateTransaction
-        ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+        ? clonePlainData(
+          (Array.isArray(candidateTransaction.plan.accepted_batch)
+            ? candidateTransaction.plan.accepted_batch
+            : [])
+            .filter((statement) => statement && typeof statement === "object" && statement.op && typeof statement.op === "object")
+            .map((statement) => statement.op),
+        )
         : null;
       const graphCapabilities = createIntentGraphAdapter(app).capabilities();
       const v2DeltaCapability = graphCapabilities.ok
@@ -301,7 +307,7 @@ export function createApplyFlow(deps) {
         missingTransactionFields.push("apply_authorization");
       }
       if (!v2DeltaOps) {
-        missingTransactionFields.push("delta_ops");
+        missingTransactionFields.push("accepted_batch");
       }
       if (!layoutTransaction && (!v2DeltaCapability.available || v2DeltaCapability.strategy !== "live-litegraph-mutate")) {
         missingTransactionFields.push("scoped_delta_apply_capability");

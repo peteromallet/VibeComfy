@@ -279,6 +279,8 @@ def _widget_alias_suggestions(
     if not unresolved:
         return []
 
+    from vibecomfy.ingest.normalize import door_nodes
+
     raw_ui_nodes = _raw_ui_nodes_by_id(raw_workflow)
     groups: dict[str, dict[str, Any]] = {}
     for alias in unresolved:
@@ -298,7 +300,7 @@ def _widget_alias_suggestions(
             },
         )
         group["observed_widget_count"] = max(group["observed_widget_count"], observed_count)
-        node_entry = group["nodes"].setdefault(
+        node_entry = door_nodes(group).setdefault(
             node_id,
             {
                 "node_id": node_id,
@@ -317,7 +319,7 @@ def _widget_alias_suggestions(
                 suggested.extend([None] * (group["observed_widget_count"] - len(suggested)))
             group["suggested_schema_entry"] = suggested
             group["python"] = _format_widget_schema_entry(class_type, suggested)
-        group["nodes"] = [group["nodes"][node_id] for node_id in sorted(group["nodes"], key=_sort_key)]
+        group["nodes"] = [door_nodes(group)[node_id] for node_id in sorted(door_nodes(group), key=_sort_key)]
 
     return [groups[class_type] for class_type in sorted(groups)]
 
@@ -345,8 +347,10 @@ def _schema_entry_for_class(class_type: str, schema_provider: Any | None) -> tup
 def _raw_ui_nodes_by_id(raw_workflow: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not isinstance(raw_workflow, dict):
         return {}
+    from vibecomfy.ingest.normalize import door_get_nodes
+
     raw = raw_workflow.get("prompt") if isinstance(raw_workflow.get("prompt"), dict) else raw_workflow
-    nodes = raw.get("nodes") if isinstance(raw, dict) else None
+    nodes = door_get_nodes(raw) if isinstance(raw, dict) else None
     if not isinstance(nodes, list):
         return {}
     return {str(node["id"]): node for node in nodes if isinstance(node, dict) and "id" in node}
@@ -356,8 +360,10 @@ def _widget_values_for_node(node_id: str, api_node: Any, raw_ui_nodes: dict[str,
     raw_ui = raw_ui_nodes.get(node_id)
     if raw_ui is None and isinstance(api_node, dict) and isinstance(api_node.get("_ui"), dict):
         raw_ui = api_node["_ui"]
-    if isinstance(raw_ui, dict) and isinstance(raw_ui.get("widgets_values"), list):
-        return list(raw_ui["widgets_values"])
+    from vibecomfy.ingest.normalize import door_get_widgets_values, door_widgets_values
+
+    if isinstance(raw_ui, dict) and isinstance(door_get_widgets_values(raw_ui), list):
+        return list(door_widgets_values(raw_ui))
     if not isinstance(api_node, dict) or not isinstance(api_node.get("inputs"), dict):
         return []
     values: list[Any] = []

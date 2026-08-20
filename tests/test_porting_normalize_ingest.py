@@ -16,8 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui, normalize_to_api
+from vibecomfy.ingest.normalize import (
+    from_api,
+    from_envelope,
+    from_ui,
+    ingest_workflow_and_ui,
+    normalize_to_api,
+)
 from vibecomfy.porting.emit.ui import emit_ui_json
 
 
@@ -758,7 +763,7 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
         assert node.widgets == rich["widgets"]
 
     # Canonical UI carries every rich node with the same id/class/mode/uid projection.
-    normalized = normalize_agent_edit_graph(raw)
+    _, normalized = ingest_workflow_and_ui(raw)
     assert len(normalized["nodes"]) == 15
     assert len(normalized["links"]) == 10
     by_id = {str(node["id"]): node for node in normalized["nodes"]}
@@ -812,7 +817,7 @@ def test_vibe_rich_ingest_is_idempotent() -> None:
     """rich->UI and UI->IR->UI produce identical projections (nodes, edges, widgets, groups)."""
     raw = _load_90a1d5()
 
-    ui1 = normalize_agent_edit_graph(raw)  # rich -> UI
+    _, ui1 = ingest_workflow_and_ui(raw)  # rich -> UI
     assert len(ui1["nodes"]) == 15 and len(ui1["links"]) == 10
 
     # UI -> IR via the deterministic offline normalizer (the comfy converter
@@ -1007,7 +1012,11 @@ def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
     written = wf.to_envelope()
     assert "compiled_api" not in written
     assert written["nodes"]["1"]["uid"] == "uid-loader"
-    assert written["nodes"]["2"]["mode"] == 4
+    # Law 1 door: an UNTOUCHED old-style envelope round-trips byte-identically
+    # (wire form preserved — mode stays in the legacy metadata location rather
+    # than being re-rendered as a first-class field).
+    assert written == envelope
+    assert written["nodes"]["2"]["metadata"]["mode"] == 4
     assert written["nodes"]["2"]["metadata"]["_ui"]["mode"] == 4
 
 
@@ -1127,19 +1136,165 @@ def test_from_api_matches_api_fixture_invariants() -> None:
     assert all(node.class_type for node in wf.nodes.values())
 
 
-def test_normalize_agent_edit_graph_accepts_api_prompt_dict() -> None:
-    """Agent Edit must accept a ComfyUI API-format prompt dict (node id -> node).
-
-    Regression guard for the Batch B migration: normalize_agent_edit_graph
-    previously hard-routed every non-list graph to ``from_envelope``, which
-    fail-closed on API-shaped payloads (no top-level ``nodes`` key) with
-    "serialized vibe envelope 'nodes' must be a mapping of node objects".
-    """
+def test_ingest_workflow_and_ui_accepts_api_prompt_dict() -> None:
+    """Agent Edit must accept a ComfyUI API-format prompt dict (node id -> node)."""
     api_prompt = {
         "107": {"class_type": "SaveImage", "inputs": {"images": ["108", 0]}},
         "108": {"class_type": "VAEDecode", "inputs": {}},
     }
-    normalized = normalize_agent_edit_graph(api_prompt)
+    _, normalized = ingest_workflow_and_ui(api_prompt)
     node_ids = {node["id"] for node in normalized["nodes"]}
     assert node_ids == {107, 108}, node_ids
     assert normalized["links"], "API edges must become canonical UI links"
+
+
+def test_ir_door_ingest_retains_subgraph_fixture_wire_payloads() -> None:
+    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
+    raw = json.loads(path.read_bytes())
+    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+
+    retained_roots = (workflow.id, workflow.metadata)
+
+    def retained(expected: object, value: object) -> bool:
+        if value == expected:
+            return True
+        if isinstance(value, dict):
+            return any(retained(expected, item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(retained(expected, item) for item in value)
+        return False
+
+    for key in (
+        "id",
+        "version",
+        "last_node_id",
+        "last_link_id",
+        "links",
+        "extra",
+        "definitions",
+    ):
+        assert retained(raw[key], retained_roots), f"UI door dropped top-level {key!r}"
+
+
+def test_ir_door_exact_json_equality_across_the_spike_corpus() -> None:
+    """Law 1: exact ``json.dumps`` equality for the three spike corpus files."""
+    import warnings as _warnings
+
+    from vibecomfy.porting.emit.ui import emit_ui_json as _emit
+
+    corpus = [
+        (
+            Path(__file__).parent / "fixtures/b02_corpus_mini/90a1d5ff9044902e.json",
+            "envelope",
+        ),
+        (
+            Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json",
+            "ui",
+        ),
+        (
+            Path(__file__).parent
+            / ".."
+            / "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json",
+            "ui",
+        ),
+    ]
+    for path, kind in corpus:
+        raw = json.loads(path.read_bytes())
+        if kind == "envelope":
+            emitted = from_envelope(raw).to_envelope()
+        else:
+            workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore")
+                emitted = _emit(workflow)
+        assert json.dumps(emitted, ensure_ascii=False, separators=(",", ":")) == json.dumps(
+            raw, ensure_ascii=False, separators=(",", ":")
+        ), path
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Batch 3 — one retained ingest authority
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _batch3_agent_state(tmp_path, graph, *, workflow=None):
+    from vibecomfy.comfy_nodes.agent._frag_state import AgentEditState
+
+    return AgentEditState(
+        task="batch 3 acceptance",
+        graph=graph,
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+        workflow=workflow,
+    )
+
+
+def test_batch3_same_workflow_object_crosses_ingest_into_state_and_session(
+    tmp_path,
+) -> None:
+    """One IR across ingest: the door's VibeWorkflow object is retained on
+    AgentEditState.workflow at allocation and reused (identity, not a copy) by
+    the ingest stage and the EditSession — never rebuilt from raw JSON."""
+    from vibecomfy.comfy_nodes.agent._frag_ingest import _stage_ingest_v2
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
+    from vibecomfy.porting.edit.session import EditSession
+
+    raw = deepcopy(_MINIMAL_UI_RAW)
+    workflow, ui = ingest_workflow_and_ui(raw)
+    assert ui is raw, "UI input dict identity preserved by the door"
+    assert workflow is not None
+
+    state = _batch3_agent_state(tmp_path, raw, workflow=workflow)
+    _stage_ingest_v2(state, TurnContext(session_id="b3-a", turn_id="t1"))
+    assert state.workflow is workflow, (
+        "ingest stage must reuse the retained IR, not rebuild it"
+    )
+
+    session = EditSession(raw, initial_workflow=workflow)
+    assert session.workflow is workflow, (
+        "EditSession must hold the retained IR object, not re-derive it"
+    )
+
+
+def test_batch3_agent_edit_state_workflow_allocated_exactly_once_and_reused(
+    tmp_path,
+) -> None:
+    """AgentEditState.workflow is allocated exactly once (through the single
+    named door) and reused across stages — a second stage call never rebuilds
+    it and never re-runs the shape dispatch."""
+    from vibecomfy.comfy_nodes.agent._frag_ingest import _stage_ingest, _stage_ingest_v2
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
+
+    raw = deepcopy(_MINIMAL_UI_RAW)
+    state = _batch3_agent_state(tmp_path, raw)  # no workflow yet
+    context = TurnContext(session_id="b3-b", turn_id="t1")
+
+    result = _stage_ingest_v2(state, context)
+    assert result.ok
+    allocated = state.workflow
+    assert allocated is not None
+
+    # Second stage (and a different ingest stage) reuse the same object.
+    result2 = _stage_ingest_v2(state, TurnContext(session_id="b3-b", turn_id="t2"))
+    assert result2.ok
+    assert state.workflow is allocated, "workflow must be allocated exactly once"
+
+    state2 = _batch3_agent_state(tmp_path, deepcopy(raw), workflow=allocated)
+    _stage_ingest(state2, TurnContext(session_id="b3-b", turn_id="t3"))
+    assert state2.workflow is allocated, "workflow must be reused across stages"

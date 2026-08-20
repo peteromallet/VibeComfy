@@ -1,0 +1,38 @@
+{
+  "id": "3d-3d-model-generation-and-rigging-from-image-352066",
+  "query": "The generated model's rig has the knees bending backward. Correct the joint orientation so the legs bend forward naturally.",
+  "workflow_path": "external_workflows/corpus/352066ccef9dbe37.json",
+  "network": true,
+  "timeout": 320,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The character's knees bend forward correctly when animated, avoiding unnatural inversion.",
+    "quality": "All leg bones are correctly oriented, the animation plays without flipped joint angles, and original rig functionality is preserved.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "3d",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d-modeling",
+      "texturing",
+      "rigging",
+      "retargeting",
+      "image-to-3d",
+      "preview-3d"
+    ],
+    "source_workflow_id": "352066ccef9dbe37",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This query is specific, plausible for a 3D rigging workflow, forces reasoning about bone orientation, and is an edit of appropriate complexity for the low-bucket workflow."
+  }
+}

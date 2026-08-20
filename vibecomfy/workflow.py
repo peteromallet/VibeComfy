@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 from dataclasses import dataclass, field, replace
+from enum import Enum
 import math
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -115,6 +116,64 @@ class RawWidgetPayload:
     length: int
 
 
+# ---------------------------------------------------------------------------
+# Node mode (Law 5, batch 4): the IR stores the semantic NodeMode enum; the
+# LiteGraph integer (0/2/4) is only an emit-time derivation.  Defined before
+# VibeNode so the dataclass default can reference the enum directly.
+# ---------------------------------------------------------------------------
+
+_MODE_MUTED: int = 2   # ComfyUI node.mode == 2 → muted (never executes)
+_MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rewired)
+
+
+class NodeMode(str, Enum):
+    """Semantic node mode carried by the IR (Law 5, batch 4).
+
+    ``VibeNode.mode`` stores the semantic value; the LiteGraph integer
+    (0/2/4) is only an emit-time derivation via :func:`mode_to_litegraph`.
+    """
+
+    ENABLED = "enabled"
+    MUTED = "muted"
+    BYPASSED = "bypassed"
+
+
+def mode_to_litegraph(mode: Any) -> int:
+    """Derive the LiteGraph mode integer (0/2/4) from the IR semantic value."""
+    if isinstance(mode, NodeMode):
+        if mode is NodeMode.MUTED:
+            return _MODE_MUTED
+        if mode is NodeMode.BYPASSED:
+            return _MODE_BYPASS
+        return 0
+    if isinstance(mode, str):
+        if mode == "muted":
+            return _MODE_MUTED
+        if mode == "bypassed":
+            return _MODE_BYPASS
+        return 0
+    if isinstance(mode, int):
+        # Legacy/hand-built nodes may still carry the raw integer.
+        return mode if mode in (0, _MODE_MUTED, _MODE_BYPASS) else 0
+    return 0
+
+
+def litegraph_to_mode(mode: Any) -> NodeMode:
+    """Convert a LiteGraph mode integer (or already-semantic value) to NodeMode."""
+    if isinstance(mode, NodeMode):
+        return mode
+    if isinstance(mode, str):
+        try:
+            return NodeMode(mode)
+        except ValueError:
+            return NodeMode.ENABLED
+    if mode == _MODE_MUTED:
+        return NodeMode.MUTED
+    if mode == _MODE_BYPASS:
+        return NodeMode.BYPASSED
+    return NodeMode.ENABLED
+
+
 @dataclass(slots=True)
 class VibeNode:
     id: str
@@ -125,7 +184,7 @@ class VibeNode:
     metadata: dict[str, Any] = field(default_factory=dict)
     uid: str = ""
     raw_widgets: RawWidgetPayload | None = None
-    mode: int = 0
+    mode: "NodeMode" = NodeMode.ENABLED
     pos: list[float] | None = None
     size: list[float] | None = None
 
@@ -290,9 +349,18 @@ class VibeWorkflow:
         """Serialize this IR as the stored vibe envelope.
 
         Public dataclass fields plus ``vibecomfy_format_version``. No
-        ``compiled_api`` — ``compile("api")`` is a function, not stored data.
+        ``compiled_api`` — ``compile(\\\"api\\\")`` is a function, not stored data.
         Transport stamps such as ``workflow_id`` are applied by callers after
         this, not here.
+
+        Law 1 (lossless door): when this IR was decoded from a serialized Vibe
+        envelope by :func:`from_envelope` and is UNTOUCHED since ingest, the
+        raw envelope bytes are reproduced verbatim (``to_envelope(from_envelope(J))
+        == J``) — the door-owned wire fields (raw node geometry presence,
+        opaque keys, key order) are preserved exactly.  The untouched-graph
+        restore decision is door-owned: this serializer delegates the
+        fingerprint comparison and raw-byte restore to the ingest door and
+        only renders the IR (plus the format stamp) for edited graphs.
         """
         _raise_embedded_api_links(self, surface="envelope serialization")
         invalid_geometry = _invalid_geometry_details(self)
@@ -301,8 +369,19 @@ class VibeWorkflow:
             raise ValueError(
                 f"node {detail['node_id']!r}: {detail['field']} {detail['reason']}"
             )
+        from vibecomfy.ingest.normalize import (  # noqa: PLC0415
+            _restore_untouched_envelope,
+        )
+
+        restored = _restore_untouched_envelope(self)
+        if restored is not None:
+            return restored
         plain = _to_plain(self)
         plain["vibecomfy_format_version"] = FORMAT_VERSION
+        # The door blob is door-owned wire data, never stored envelope content.
+        metadata_plain = plain.get("metadata")
+        if isinstance(metadata_plain, dict):
+            metadata_plain.pop("_ui_door", None)
         return plain
 
     @classmethod
@@ -1302,21 +1381,20 @@ def _compile_intent_runtime_inputs(node: VibeNode) -> dict[str, Any]:
     return compiled
 
 
-_MODE_MUTED: int = 2   # ComfyUI node.mode == 2 → muted (never executes)
-_MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rewired)
-
-
 def _get_node_mode(node: VibeNode) -> int:
     """Read the litegraph mode (0/2/4); ``node.mode`` is the authority.
 
-    Legacy fallback: hand-built nodes that predate the field signal mode via
-    ``metadata["_ui"]["mode"]``; it is consulted only when the field is unset
-    (0).  Ingest and envelope decode always populate the field, so production
-    graphs read the field.
+    ``node.mode`` holds the semantic :class:`NodeMode`; the integer is
+    derived here at emit/compile time.  Batch 4 (Law 5): ENABLED is a REAL
+    value — ``mode=ENABLED`` + ``_ui.mode=4`` compiles as enabled because
+    the IR field is authoritative and the legacy ``_ui`` fallback is only
+    consulted when the field is genuinely unset (``None``).  Ingest and
+    envelope decode always populate the field, so production graphs read
+    the field.
     """
-    mode = node.mode
-    if isinstance(mode, int) and mode:
-        return mode
+    mode = getattr(node, "mode", None)
+    if mode is not None:
+        return mode_to_litegraph(mode)
     ui = node.metadata.get("_ui")
     if not isinstance(ui, dict):
         return 0

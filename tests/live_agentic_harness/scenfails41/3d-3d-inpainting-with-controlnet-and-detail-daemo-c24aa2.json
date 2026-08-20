@@ -1,0 +1,39 @@
+{
+  "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
+  "query": "Instead of using the back-projection inpainting method, I want to use the SDXL inpainting model directly on the masked areas, but I also want the ControlNet to guide the inpainting after the fact rather than condition it initially. Can you restructure the workflow to do that?",
+  "workflow_path": "external_workflows/corpus/c24aa2ac329006f2.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "A working workflow where the inpainting is performed by the SDXL model directly on masked input, with ControlNet applied as a post-inpainting refinement guide, preserving the original upscaling and detail enhancement stages.",
+    "quality": "All connections are fully wired: the mask and image correctly feed the inpainting model, ControlNet receives the inpainted result (or appropriate intermediate), and the output routes to upscaling and Detail Daemon without dangling nodes.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "3d",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "inpainting",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d-inpainting",
+      "controlnet",
+      "upscaling",
+      "detail-enhancement",
+      "sdxl",
+      "inpainting",
+      "render"
+    ],
+    "source_workflow_id": "c24aa2ac329006f2",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This query forces the agent to re-architect the core inpainting approach and ControlNet conditioning flow, testing deep understanding of the workflow's structure and the interaction between back-projection vs. direct inpainting."
+  }
+}

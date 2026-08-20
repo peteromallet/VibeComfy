@@ -29,7 +29,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from vibecomfy.agent.deepseek_usage import (
     add_deepseek_usage,
@@ -53,6 +53,7 @@ DEFAULT_MAX_WORKERS = 6
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
+_RETRYABLE_INFRA_CLASSES = frozenset({"infra_empty_response", "infra_timeout"})
 _SCENARIO_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
 REPO = Path(__file__).resolve().parents[2]
 
@@ -158,6 +159,7 @@ def _run_scenario_subprocess(
     timeout: float,
     stdout_path: str,
     stderr_path: str,
+    before_terminate: Callable[[], None] | None = None,
 ) -> tuple[int, str, str]:
     """Run *command* in its own process group; return (returncode, stdout, stderr).
 
@@ -183,6 +185,11 @@ def _run_scenario_subprocess(
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            if before_terminate is not None:
+                try:
+                    before_terminate()
+                except Exception:  # noqa: BLE001 - timeout termination must proceed
+                    pass
             _terminate_scenario_group(proc.pid)
             try:
                 proc.wait(timeout=5.0)  # bounded reap after SIGKILL
@@ -275,8 +282,10 @@ def _failure_summary(
     stdout_tail: str | None = None,
     stderr_tail: str | None = None,
     elapsed_s: float | None = None,
+    killed_before_first_attempt: bool = False,
+    pre_attempt_reason: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    summary = {
         "scenario_id": scenario_id,
         "status": "error",
         "ok": False,
@@ -295,10 +304,16 @@ def _failure_summary(
         "elapsed_s": elapsed_s,
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
+        "model_attempts": [],
         "deepseek_usage": {},
         "deepseek_est_cost_usd": 0.0,
         "deepseek_cost_basis": "not_available",
     }
+    if killed_before_first_attempt:
+        summary["killed_before_first_attempt"] = True
+    if pre_attempt_reason is not None:
+        summary["pre_attempt_reason"] = pre_attempt_reason
+    return summary
 
 
 def _persist_scenario_summary(summary: dict[str, Any], output_base: Any, tag: str) -> None:
@@ -339,6 +354,8 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "elapsed_s": summary.get("elapsed_s"),
         "live_agentic_success": (summary.get("guard") or {}).get("live_agentic_success"),
         "model_attempts": summary.get("model_attempts", []),
+        "killed_before_first_attempt": summary.get("killed_before_first_attempt") is True,
+        "pre_attempt_reason": summary.get("pre_attempt_reason"),
     }
 
 
@@ -388,7 +405,7 @@ def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
 def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
     summary["failure_class"] = failure_class
     summary["score_class"] = "infra_blocked"
-    summary["retryable_infra"] = failure_class == "infra_empty_response"
+    summary["retryable_infra"] = failure_class in _RETRYABLE_INFRA_CLASSES
     guard = summary.get("guard")
     if isinstance(guard, dict):
         guard["failure_class"] = failure_class
@@ -446,6 +463,9 @@ def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]
     if summary.get("guard", {}).get("live_agentic_success") is True:
         _clear_stale_retryable_infra_markers(summary)
         return summary
+    if _is_outer_timeout_before_first_attempt(summary):
+        _mark_summary_as_infra(summary, "infra_timeout")
+        return summary
     failure_class = _provider_infra_failure_class(summary)
     if failure_class is not None:
         _mark_summary_as_infra(summary, failure_class)
@@ -454,18 +474,106 @@ def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]
     return summary
 
 
+def _is_outer_timeout_before_first_attempt(summary: Mapping[str, Any]) -> bool:
+    """True only for the runner's typed outer kill with no model attempt."""
+    attempts = summary.get("model_attempts")
+    return (
+        summary.get("failure_class") == "infra_timeout"
+        and summary.get("killed_before_first_attempt") is True
+        and isinstance(attempts, (list, tuple))
+        and not attempts
+    )
+
+
 def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
     """Decide retryability from the CANONICAL typed evidence on every call.
 
     The decision is the latest failed ``model_attempts`` entry's failure type
-    plus the observed completion tokens — never the inherited
+    plus the observed completion tokens, or the runner's explicit outer-kill
+    marker with an empty attempt list — never the inherited
     ``failure_class``/``retryable_infra`` flags, which can be stale from an
     earlier attempt. A succeeded scenario is never retried.
     """
     _classify_retryable_infra_summary(summary)
     if summary.get("guard", {}).get("live_agentic_success") is True:
         return False
-    return _provider_infra_failure_class(summary) == "infra_empty_response"
+    return (
+        _is_outer_timeout_before_first_attempt(summary)
+        or _provider_infra_failure_class(summary) in _RETRYABLE_INFRA_CLASSES
+    )
+
+
+# Pre-attempt kill reasons (I-B).  A zero-attempt outer kill is classified from
+# the killed child's typed stderr/stdout tail: only exact research-path markers
+# (GitHub code search / registry / Hivemind / research stage) classify as
+# ``research_hang`` — the v5-batch-3 #1/#7 mechanism where api.github.com/
+# search/code ate the whole 1200s wall before a first model attempt.  Any other
+# tail leaves the reason None, so the retry keeps its plain full-budget shape.
+_RESEARCH_HANG_MARKERS = (
+    "api.github.com/search/code",
+    "api.comfy.org",
+    "registry sub-budget",
+    "hivemind",
+    "research stage",
+)
+_IMPLEMENT_STAGE_MARKERS = (
+    "backend_phase=batch",
+    "backend_phase=implement",
+    "phase=implement",
+    'phase="implement"',
+)
+
+
+def _infer_pre_attempt_reason(
+    stderr_text: str | None,
+    stdout_text: str | None = None,
+) -> str | None:
+    """Classify a zero-attempt outer kill's likely pre-attempt stall.
+
+    Only the bounded current tails from the killed child are considered.  A
+    current implement-stage marker wins over an older research marker, so
+    historical GitHub/registry text cannot misclassify a later implement
+    timeout as a research hang.
+    """
+    current = "\n".join(
+        part for part in (_trim(stderr_text or ""), _trim(stdout_text or "")) if part
+    ).lower()
+    if not current:
+        return None
+    if any(marker in current for marker in _IMPLEMENT_STAGE_MARKERS):
+        return None
+    if any(marker in current for marker in _RESEARCH_HANG_MARKERS):
+        return "research_hang"
+    return None
+
+
+def _research_hang_kill_summary(summary: Mapping[str, Any] | None) -> bool:
+    """True for a zero-attempt outer kill whose reason was a research hang.
+
+    This is the I-B retry lever: the retry must NOT be a second 1200s black
+    hole, so the child research path is hard-bounded below.
+    """
+    return bool(
+        summary is not None
+        and _is_outer_timeout_before_first_attempt(summary)
+        and summary.get("pre_attempt_reason") == "research_hang"
+    )
+
+
+def _bound_research_child_env(child_env: dict[str, str]) -> dict[str, str]:
+    """Hard-bounded research env for the retry of a research-hang kill.
+
+    The research phase itself is skipped on this one retry.  GitHub and the
+    registry are also bounded defensively in case an older child entrypoint
+    does not understand the phase-skip switch.  The retry still runs classify,
+    implement, reply, and every product gate; only the already-proven hanging
+    infrastructure phase is omitted.
+    """
+    env = dict(child_env)
+    env["VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"] = "1"
+    env["VIBECOMFY_REGISTRY_SKIP_GITHUB"] = "1"
+    env["VIBECOMFY_REGISTRY_SUB_BUDGET"] = "8"
+    return env
 
 
 def _build_run_summary(
@@ -613,6 +721,17 @@ def _run_failure_analysis_from_summary(
     return result
 
 
+def _guard_scenario_output(
+    output_dir: str | Path,
+    *,
+    scenario: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Load the heavyweight assessment stack only after agent execution."""
+    from .guard import guard_output_dir
+
+    return guard_output_dir(output_dir, scenario=scenario)
+
+
 def run_single(
     scenario_path: str,
     tag: str,
@@ -628,7 +747,6 @@ def run_single(
     """
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
     from .adapter import run_headless_scenario
-    from .guard import guard_output_dir
 
     path = Path(scenario_path)
     scenario = _load_scenario(path)
@@ -637,7 +755,10 @@ def run_single(
         scenario, output_base=output_base, tag=tag, transport=transport
     )
     summary.setdefault("transport", transport)
-    summary["guard"] = guard_output_dir(summary["output_dir"], scenario=scenario)
+    summary["guard"] = _guard_scenario_output(
+        summary["output_dir"],
+        scenario=scenario,
+    )
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
     if out_file is not None:
@@ -675,6 +796,17 @@ def run_tag(
         scenarios_dir = Path(__file__).with_name("scenarios")
     paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
     results: list[dict[str, Any] | None] = [None] * len(paths)
+    # Persist liveness before any child can block in imports, research, or a
+    # model call.  Previously the first partial summary appeared only after a
+    # scenario completed, making a healthy long-running dispatch look wedged.
+    _persist_run_summary(
+        tag,
+        results,
+        output_base,
+        total_scenarios=len(paths),
+        complete=False,
+        transport=transport,
+    )
     sem = threading.Semaphore(max(1, max_workers))
     lock = threading.Lock()
     tmpdir = Path(tempfile.mkdtemp(prefix="vibecomfy-runner-"))
@@ -729,7 +861,58 @@ def run_tag(
                     if transport is not None:
                         cmd += ["--transport", transport]
                     child_env = _pinned_child_env(transport)
+                    # I-B: the retry of a zero-attempt research-hang kill must
+                    # NOT be a second 1200s black hole — the research path is
+                    # hard-bounded (GitHub tier off, tiny registry sub-budget).
+                    if attempt > 1 and _research_hang_kill_summary(final_summary):
+                        child_env = _bound_research_child_env(child_env)
+                    # Reserve the durable attempt path before Popen.  The
+                    # headless artifact writer creates it only after executor
+                    # completion, which left no on-disk proof that dispatch
+                    # had happened during a long child startup/model phase.
+                    _output_dir_for(output_base, attempt_run_tag, sid).mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
                     started = time.monotonic()
+
+                    def persist_outer_timeout_marker() -> None:
+                        # Best-effort: read whatever stderr the child flushed so
+                        # the persisted marker can carry a pre_attempt_reason.
+                        stderr_tail = ""
+                        stdout_tail = ""
+                        try:
+                            stderr_tail = Path(stderr_path).read_text(
+                                encoding="utf-8", errors="replace"
+                            )
+                        except OSError:
+                            pass
+                        try:
+                            stdout_tail = Path(stdout_path).read_text(
+                                encoding="utf-8", errors="replace"
+                            )
+                        except OSError:
+                            pass
+                        partial = _failure_summary(
+                            sid,
+                            output_base,
+                            attempt_run_tag,
+                            f"scenario exceeded {per_scenario_timeout}s; terminating",
+                            failure_class="infra_timeout",
+                            attempt=attempt,
+                            expect_graph_changed=expect_graph_changed,
+                            elapsed_s=time.monotonic() - started,
+                            killed_before_first_attempt=True,
+                            pre_attempt_reason=_infer_pre_attempt_reason(
+                                stderr_tail, stdout_tail
+                            ),
+                        )
+                        _persist_scenario_summary(
+                            partial,
+                            output_base,
+                            attempt_run_tag,
+                        )
+
                     try:
                         returncode, stdout_text, stderr_text = _run_scenario_subprocess(
                             cmd,
@@ -738,6 +921,7 @@ def run_tag(
                             timeout=per_scenario_timeout,
                             stdout_path=str(stdout_path),
                             stderr_path=str(stderr_path),
+                            before_terminate=persist_outer_timeout_marker,
                         )
                         elapsed_s = time.monotonic() - started
                         recovered = _load_valid_summary(out_file)
@@ -779,6 +963,8 @@ def run_tag(
                                     "failure_class", "post_flow_exit_cleanup"
                                 )
                         else:
+                            stderr_tail = _timeout_tail(exc, "stderr")
+                            stdout_tail = _timeout_tail(exc, "output")
                             final_summary = _failure_summary(
                                 sid,
                                 output_base,
@@ -787,9 +973,13 @@ def run_tag(
                                 failure_class="infra_timeout",
                                 attempt=attempt,
                                 expect_graph_changed=expect_graph_changed,
-                                stdout_tail=_trim(_timeout_tail(exc, "output")),
-                                stderr_tail=_trim(_timeout_tail(exc, "stderr")),
+                                stdout_tail=_trim(stdout_tail),
+                                stderr_tail=_trim(stderr_tail),
                                 elapsed_s=elapsed_s,
+                                killed_before_first_attempt=True,
+                                pre_attempt_reason=_infer_pre_attempt_reason(
+                                    stderr_tail, stdout_tail
+                                ),
                             )
                     except Exception as exc:  # noqa: BLE001 — isolate one failure
                         elapsed_s = time.monotonic() - started

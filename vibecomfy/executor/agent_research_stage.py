@@ -14,6 +14,9 @@ Contract:
       research-phase tool catalog, and a compact bounded digest of tool
       statuses / evidence IDs / previews — never the full research result
       object and never a workflow/graph schema dump.
+    * Python does not choose searches except the RC2 adapt fallback: when
+      the loop ends with zero executed tool calls on ``route="adapt"``, one
+      ``hivemind_search`` is executed from the research question.
     * Tool calls outside the research-phase allowlist
       (``hivemind_search``/``hivemind_get``/``registry_lookup``) are typed
       refusals, never executed, never silently rewritten.
@@ -46,7 +49,16 @@ from .evidence_pack import (
     EvidenceLedgerEntry,
     EvidencePack,
 )
-from .hivemind_tools import HIVE_MIND_GET_TOOL, HIVE_MIND_SEARCH_TOOL
+from .contracts import (
+    RECORD_TYPE_MALFORMED,
+    RECORD_TYPE_NON_WORKFLOW,
+    RECORD_TYPE_WORKFLOW,
+)
+from .hivemind_tools import (
+    HIVE_MIND_GET_TOOL,
+    HIVE_MIND_SEARCH_TOOL,
+    serve_hivemind_record,
+)
 from .tool_contracts import ToolResult, ToolStatus
 from .tool_specs import (
     PHASE_RESEARCH,
@@ -96,6 +108,123 @@ DECISION_ENOUGH_REFINE = "enough_refine"
 # ungrounded finish (or auto-failing the stage).
 DECISION_FINISH_PREMATURE = "finish_premature"
 
+# Batch 14: ResearchAttempt — the plan's attempt semantics, derived in Python
+# from the research tool ledger (never model judgment).  The four states are
+# ordered weakest → strongest:
+#   never    — zero executed evidence tool calls (only the research_question
+#              entry).
+#   empty    — tool calls ran but produced zero artifacts/results.
+#   thin     — artifacts exist but zero hivemind_get/registry_lookup citations
+#              (search hits only).
+#   grounded — at least one fetched citation (hivemind_get/registry result).
+RESEARCH_ATTEMPT_NEVER = "never"
+RESEARCH_ATTEMPT_EMPTY = "empty"
+RESEARCH_ATTEMPT_THIN = "thin"
+RESEARCH_ATTEMPT_GROUNDED = "grounded"
+RESEARCH_ATTEMPTS: tuple[str, ...] = (
+    RESEARCH_ATTEMPT_NEVER,
+    RESEARCH_ATTEMPT_EMPTY,
+    RESEARCH_ATTEMPT_THIN,
+    RESEARCH_ATTEMPT_GROUNDED,
+)
+
+# Ledger decisions that denote evidence tool calls.  Refusals share the same
+# decision strings, so executed calls are distinguished by their entry shape
+# (see ``_entry_is_executed_tool_call``).
+_RESEARCH_TOOL_DECISIONS: frozenset[str] = frozenset({
+    DECISION_SEARCH,
+    DECISION_GET,
+    DECISION_REGISTRY,
+})
+# Executed-but-failed tool calls are recorded with a status-prefixed
+# conclusion (``_status_ledger_entry`` in tool_specs.py: "timeout: ...",
+# "no_results: ..."); refusals carry a free-form stage-authored message.
+_EXECUTED_STATUS_TOKENS: frozenset[str] = frozenset({
+    "no_results",
+    "rate_limited",
+    "timeout",
+    "unavailable",
+    "invalid_request",
+})
+
+
+def _entry_is_executed_tool_call(entry: EvidenceLedgerEntry) -> bool:
+    """True when a ledger entry records an EXECUTED evidence tool call.
+
+    Refusals (budget exhausted / out-of-allowlist) are recorded under the
+    same decision strings, so an executed call is identified by its shape:
+    cited evidence ids, an empty uncertainty (OK call), or a
+    status-prefixed conclusion (executed-but-failed call such as a timeout
+    or a zero-hit search).
+    """
+    if entry.decision not in _RESEARCH_TOOL_DECISIONS:
+        return False
+    if entry.evidence_ids:
+        return True
+    if entry.uncertainty == "":
+        return True
+    token = entry.conclusion.split(" ", 1)[0].rstrip(":").casefold()
+    return token in _EXECUTED_STATUS_TOKENS
+
+
+def _is_fetched_citation(evidence_id: str) -> bool:
+    """True when a cited evidence id denotes fetched (not search-hit) content.
+
+    Fetched citations are the namespaced ``hivemind_get:<id>`` artifact ids
+    recorded by the stage for every successful record fetch, and the
+    registry's ``tool:registry_lookup-<class>`` evidence ids.  Search-hit ids
+    (``hivemind:<table>:<id>``) are leads, not fetched content.
+    """
+    return str(evidence_id).startswith("hivemind_get:") or str(
+        evidence_id
+    ).startswith("tool:registry_lookup")
+
+
+def derive_research_attempt(
+    *,
+    ledger: EvidenceLedger | None,
+    artifacts: Mapping[str, EvidenceArtifact] | None = None,
+) -> str:
+    """Derive the typed ``ResearchAttempt`` from the research tool ledger.
+
+    The attempt is a Python-side statement about what the research phase
+    actually did — it is NEVER model judgment:
+
+    * ``never`` — zero executed evidence tool calls (only the
+      ``research_question`` entry).
+    * ``empty`` — tool calls ran but produced zero artifacts/results.
+    * ``thin`` — artifacts exist but zero ``hivemind_get``/``registry_lookup``
+      citations (search hits only).
+    * ``grounded`` — at least one fetched citation (a ``hivemind_get`` or
+      registry result is cited by a ``synthesize`` ledger entry).
+
+    ``artifacts`` is the research evidence-pack artifact map (the
+    ``research_question`` marker artifact never counts as a result).
+    """
+    entries = tuple(ledger.entries) if isinstance(ledger, EvidenceLedger) else ()
+    artifacts_map = dict(artifacts or {})
+    tool_calls_made = sum(
+        1 for entry in entries if _entry_is_executed_tool_call(entry)
+    )
+    if tool_calls_made == 0:
+        return RESEARCH_ATTEMPT_NEVER
+    result_artifacts = {
+        evidence_id: artifact
+        for evidence_id, artifact in artifacts_map.items()
+        if evidence_id != _QUESTION_ARTIFACT_ID
+    }
+    if not result_artifacts:
+        return RESEARCH_ATTEMPT_EMPTY
+    cited = (
+        evidence_id
+        for entry in entries
+        if entry.decision == DECISION_SYNTHESIZE
+        for evidence_id in entry.evidence_ids
+    )
+    if any(_is_fetched_citation(evidence_id) for evidence_id in cited):
+        return RESEARCH_ATTEMPT_GROUNDED
+    return RESEARCH_ATTEMPT_THIN
+
 # Research-phase tool allowlist (C01): the agent may only call these tools.
 # web_search is intentionally absent — it is disabled by default (A06) and the
 # executor research phase is Hivemind-first.
@@ -114,6 +243,28 @@ def _bounded(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def _served_record_preview(view: Any, body: Mapping[str, Any]) -> str:
+    """Model-facing preview of a fetched Hivemind record (batch 13).
+
+    The served record view is the ONLY model-facing content of a fetched
+    record: the surface lens for workflow records, the typed content for
+    non-workflow records, or the typed error for malformed records.  The raw
+    source row stays in the evidence artifact body (the raw body) and never
+    enters the digest — the fallback below (the row's own text fields) is
+    reachable only when a record was recorded without a served view.
+    """
+    if isinstance(view, Mapping):
+        record_type = str(view.get("record_type") or "")
+        if record_type == RECORD_TYPE_WORKFLOW:
+            return str(view.get("surface_lens") or "")
+        if record_type == RECORD_TYPE_NON_WORKFLOW:
+            content = str(view.get("content") or "")
+            return f"[non_workflow] {content}" if content else "[non_workflow]"
+        if record_type == RECORD_TYPE_MALFORMED:
+            return f"[malformed_record] {str(view.get('error') or '')}"
+    return str(body.get("body") or body.get("description") or body.get("content") or "")
 
 
 # ── C1 step 1-2: form the explicit research question ─────────────────────────
@@ -501,11 +652,16 @@ def build_evidence_digest(
             kind = str(artifact.kind or "")
             preview = ""
             if kind == "hivemind_record":
-                # A fetched record is synthesis-grade evidence: preview its
-                # content (bounded) so the agent can reason from the fetched
-                # body — not a title (P1-b).
+                # Batch 13: a fetched record is served through its typed
+                # record view — the surface lens for workflow records (the
+                # Python view), typed non-workflow content, or a typed
+                # malformed error.  The raw source row never enters the
+                # digest; it is retained only in the evidence artifact body.
                 preview = _bounded(
-                    str(body.get("body") or body.get("description") or body.get("content") or ""),
+                    _served_record_preview(
+                        body.get("_served_view") if isinstance(body, Mapping) else None,
+                        body,
+                    ),
                     _MAX_RECORD_PREVIEW_CHARS,
                 )
             elif kind != "hivemind_search_hit":
@@ -609,7 +765,12 @@ class AgentResearchIteration:
 
 @dataclass(frozen=True)
 class AgentResearchTrace:
-    """Full trace of one agent-owned research run (question + decisions)."""
+    """Full trace of one agent-owned research run (question + decisions).
+
+    ``attempt`` carries the batch-14 :data:`derive_research_attempt` typing
+    (never/empty/thin/grounded) — a Python-side statement derived from the
+    research tool ledger, never model judgment.
+    """
 
     route: str
     question: str
@@ -620,6 +781,7 @@ class AgentResearchTrace:
     uncertainty: str
     status: str  # "ok" | "exhausted" | "failed" | "skipped"
     elapsed_seconds: float
+    attempt: str = RESEARCH_ATTEMPT_NEVER
     warnings: tuple[str, ...] = ()
     error: str | None = None
 
@@ -634,6 +796,7 @@ class AgentResearchTrace:
             "uncertainty": self.uncertainty,
             "status": self.status,
             "elapsed_seconds": round(self.elapsed_seconds, 6),
+            "attempt": self.attempt,
         }
         if self.warnings:
             payload["warnings"] = list(self.warnings)
@@ -723,6 +886,30 @@ def _default_tool_fn(
     return invoke_tool(spec, session, args, None)
 
 
+def _deadline_bounded_hivemind_args(
+    tool: str,
+    args: Mapping[str, Any],
+    *,
+    seconds_remaining: float,
+) -> dict[str, Any]:
+    """Clamp a valid Hivemind timeout to the research-stage time remaining.
+
+    Malformed declared values pass through unchanged so the tool registry
+    continues to return its typed ``invalid_request`` diagnostic.
+    """
+    effective = dict(args)
+    if tool not in {HIVE_MIND_SEARCH_TOOL, HIVE_MIND_GET_TOOL}:
+        return effective
+    declared = effective.get("timeout", 5.0)
+    if (
+        not isinstance(declared, bool)
+        and isinstance(declared, (int, float))
+        and declared > 0
+    ):
+        effective["timeout"] = min(declared, seconds_remaining)
+    return effective
+
+
 def run_agent_research_stage(
     *,
     route: str,
@@ -744,6 +931,10 @@ def run_agent_research_stage(
     executes the chosen calls, records typed evidence, and enforces the
     research-phase allowlist plus I01 budgets (3 searches / 6 fetches /
     1 registry lookup / wall-clock ``deadline_seconds`` / ``max_turns``).
+    RC2 exception: on ``route="adapt"``, if the agent still made zero
+    evidence tool calls when the loop ends, Python executes one
+    ``hivemind_search`` from the research question so ``research_attempt``
+    is not stuck at ``never``.
 
     Per turn the agent returns one decision (via ``judge_fn``):
     ``{"action": "call", "tool", "args"}`` to gather more evidence or
@@ -1084,6 +1275,18 @@ def run_agent_research_stage(
                     continue
                 registry_left -= 1
 
+            seconds_remaining = deadline - now()
+            if seconds_remaining <= 0:
+                warnings.append(
+                    "research stage phase deadline exhausted immediately before "
+                    "the tool call; stopped early"
+                )
+                break
+            args = _deadline_bounded_hivemind_args(
+                tool,
+                args,
+                seconds_remaining=seconds_remaining,
+            )
             result = tool_fn(tool, args)
             # Evidence projection is the registry's job: artifacts (full hit /
             # fetched-row bodies, correctly extracted from frozen results),
@@ -1118,14 +1321,36 @@ def run_agent_research_stage(
                 # evidence id; the stage re-keys it to the namespaced
                 # ``hivemind_get:...`` id so search-hit ids never collide and
                 # the digest ids / citations always agree with the artifacts.
+                # Batch 13: the artifact body also carries the typed served
+                # view (surface lens / non-workflow / malformed) under a
+                # private key — the raw source row stays in the artifact (the
+                # raw body); the digest serves only the view.
+                served_view: Mapping[str, Any] | None = None
+                if result.status is ToolStatus.OK and isinstance(result.result, Mapping):
+                    candidate = result.result.get("record_view")
+                    if isinstance(candidate, Mapping):
+                        served_view = candidate
                 get_artifacts: list[EvidenceArtifact] = []
                 if get_evidence_id is not None:
                     for artifact in artifacts_map.values():
+                        body = artifact.body
+                        if isinstance(body, Mapping) and "_served_view" not in body:
+                            view = served_view
+                            if view is None:
+                                # Robustness for injected fakes that return a
+                                # raw row without a record_view: serve from the
+                                # row itself (same typed classification).
+                                view = serve_hivemind_record(
+                                    dict(body), evidence_id=get_evidence_id
+                                ).to_dict()
+                            enriched = dict(body)
+                            enriched["_served_view"] = view
+                            body = enriched
                         get_artifacts.append(
                             EvidenceArtifact(
                                 evidence_id=get_evidence_id,
                                 kind=artifact.kind,
-                                body=artifact.body,
+                                body=body,
                                 source=artifact.source,
                             )
                         )
@@ -1158,6 +1383,54 @@ def run_agent_research_stage(
                 )
                 break
 
+        if (
+            route == "adapt"
+            and tool_calls_made == 0
+            and searches_left > 0
+            and now() <= deadline
+        ):
+            # RC2: classifier set research=true but the agent never executed
+            # a tool. One deterministic hivemind_search so the attempt is
+            # empty/thin instead of never.
+            searches_left -= 1
+            fallback_seconds_remaining = deadline - now()
+            if fallback_seconds_remaining <= 0:
+                warnings.append(
+                    "research stage skipped fallback hivemind_search because "
+                    "the phase deadline was exhausted"
+                )
+            else:
+                fallback_args = _deadline_bounded_hivemind_args(
+                    HIVE_MIND_SEARCH_TOOL,
+                    {"query": current_question, "limit": 20},
+                    seconds_remaining=fallback_seconds_remaining,
+                )
+                fallback_result = tool_fn(HIVE_MIND_SEARCH_TOOL, fallback_args)
+                spec = TOOL_SPEC_BY_NAME[HIVE_MIND_SEARCH_TOOL]
+                artifacts_map, entry, _ = project_tool_evidence(
+                    spec,
+                    fallback_args,
+                    fallback_result,
+                    _StageToolSession(
+                        search_fn=search_fn,
+                        get_fn=get_fn,
+                        cache_root=cache_root,
+                    ),
+                )
+                _record_call(
+                    tool=HIVE_MIND_SEARCH_TOOL,
+                    result=fallback_result,
+                    query=current_question,
+                    decision=DECISION_SEARCH,
+                    conclusion=entry["conclusion"],
+                    artifacts_to_add=tuple(artifacts_map.values()),
+                    evidence_ids=tuple(entry["evidence_ids"]),
+                )
+                warnings.append(
+                    "research stage executed a fallback hivemind_search because "
+                    "the agent finished with zero evidence tool calls"
+                )
+
         if not agent_finished:
             # P1-a: the loop stopped WITHOUT an agent finish — deadline
             # exceeded, max_turns exhausted, or a malformed decision.  Never
@@ -1185,6 +1458,10 @@ def run_agent_research_stage(
         uncertainty=final_uncertainty,
         status=status,
         elapsed_seconds=now() - started,
+        attempt=derive_research_attempt(
+            ledger=EvidenceLedger(entries=tuple(ledger_entries)),
+            artifacts=artifacts,
+        ),
         warnings=tuple(warnings),
         error=error,
     )
@@ -1203,12 +1480,18 @@ __all__ = [
     "DECISION_SEARCH",
     "DECISION_SYNTHESIZE",
     "RESEARCH_ALLOWED_TOOLS",
+    "RESEARCH_ATTEMPT_EMPTY",
+    "RESEARCH_ATTEMPT_GROUNDED",
+    "RESEARCH_ATTEMPT_NEVER",
+    "RESEARCH_ATTEMPT_THIN",
+    "RESEARCH_ATTEMPTS",
     "TOOL_FETCH_BUDGET",
     "TOOL_PHASE_DEADLINE_SECONDS",
     "TOOL_SEARCH_BUDGET",
     "build_agent_research_messages",
     "build_evidence_digest",
     "build_research_brief",
+    "derive_research_attempt",
     "form_research_question",
     "parse_agent_research_decision",
     "run_agent_research_stage",

@@ -1,0 +1,62 @@
+{
+  "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
+  "query": "The generated video has severe flickering and jittery motion, with frames occasionally going black. What in the workflow could be causing this?",
+  "workflow_path": "external_workflows/corpus/99e2a967a579197f.json",
+  "network": true,
+  "timeout": 360,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "diagnose",
+    "abstraction": "med",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "animation",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-video",
+      "stable-video-diffusion",
+      "animation",
+      "svd",
+      "video-generation",
+      "conditioning",
+      "mtb"
+    ],
+    "source_workflow_id": "99e2a967a579197f",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "Specific symptom related to SVD video stability requires analyzing frame conditioning and noise settings, fitting the diagnose type."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/99e2a967a579197f.json",
+    "required_node_evidence": [
+      "SVD_img2vid_Conditioning",
+      "KSampler",
+      "Animation Builder (mtb)",
+      "Get Batch From History (mtb)",
+      "Export With Ffmpeg (mtb)"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Rank workflow-specific causes for flicker, jitter, and black frames across conditioning, sampling, batch-history selection, animation assembly, and export, with a test that isolates each leading cause.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

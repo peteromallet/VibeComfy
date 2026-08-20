@@ -185,7 +185,9 @@ export function createRebaselineUndoFlow(deps) {
         const layoutTransaction = isLayoutAuthorityTransaction(transaction);
         const inverseDeltaOps = buildInverseDeltaOps(
           snapshot.graph,
-          transaction.plan.delta_ops_envelope.ops,
+          (Array.isArray(transaction.plan.accepted_batch) ? transaction.plan.accepted_batch : [])
+            .filter((statement) => statement && typeof statement === "object" && statement.op && typeof statement.op === "object")
+            .map((statement) => statement.op),
         );
         canvasRestore.scoped_inverse = {
           attempted: true,

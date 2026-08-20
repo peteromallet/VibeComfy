@@ -1,0 +1,12 @@
+{
+  "id": "audio-tts-narration-using-indextts-2",
+  "query": "The narration sounds flat and monotone \u2014 can you make it more engaging?",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

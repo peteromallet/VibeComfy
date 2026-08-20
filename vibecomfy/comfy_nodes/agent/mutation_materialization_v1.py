@@ -45,6 +45,7 @@ Hashing identity is the shared leaf (``_canonical_contract_primitives``).
 
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_widgets_values
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -139,7 +140,7 @@ def _normalize_entry(raw: Any) -> dict[str, Any]:
         )
     result: dict[str, Any] = {"source_op_index": raw["source_op_index"], "kind": "add_node"}
     if "widgets_values" in raw:
-        wv = raw["widgets_values"]
+        wv = door_widgets_values(raw)
         if wv is None:
             raise _fail(
                 "widgets_values may not be null (absent or a value)",
@@ -152,7 +153,7 @@ def _normalize_entry(raw: Any) -> dict[str, Any]:
                 "malformed_materialization_entry",
                 field="widgets_values",
             )
-        result["widgets_values"] = _clone_jsonish(wv)
+        result = {**result, "widgets_values": _clone_jsonish(wv)}
     if "pos" in raw and raw.get("pos") is not None:
         result["pos"] = _geo_vector(raw.get("pos"), 2, "pos")
     if "size" in raw and raw.get("size") is not None:
@@ -374,7 +375,7 @@ def assert_mutation_materialization_envelope(
             )
         if "widgets_values" in entry:
             class_type = op.get("class_type")
-            wv = entry["widgets_values"]
+            wv = door_widgets_values(entry)
             if class_type == "vibecomfy.exec":
                 if not isinstance(wv, (list, dict)):
                     raise _fail(

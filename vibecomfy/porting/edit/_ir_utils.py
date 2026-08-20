@@ -10,19 +10,87 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
 from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
+    compact_widget_names_for_node,
     missing_widget_value_sentinel,
+    widget_index_for_field,
     widget_value_for_field,
 )
 from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
+
+
+def _is_primitive_widget_alias_class(class_type: str) -> bool:
+    """Return whether ``value`` and compact widget zero are one field."""
+    return class_type in {"Float", "Int"} or class_type.startswith("Primitive")
+
+
+def _apply_primitive_widget_alias_write(
+    node: Any,
+    field: str,
+    value: Any,
+    *,
+    schema_provider: Any,
+) -> bool:
+    """Write every retained carrier for a primitive serialized widget.
+
+    Primitive nodes commonly retain the same value as a named schema input,
+    a positional widget, and a raw ``widgets_values`` row.  They are aliases,
+    not independent fields, so an edit to either surface must update all of
+    them atomically.
+    """
+    if not _is_primitive_widget_alias_class(str(node.class_type)):
+        return False
+    index = widget_index_for_field(node, field, schema_provider=schema_provider)
+    if index is None and field == "value":
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        has_widget_zero = (
+            "widget_0" in node.inputs
+            or "widget_0" in node.widgets
+            or (isinstance(raw_values, list) and bool(raw_values))
+        )
+        if has_widget_zero:
+            index = 0
+    if index is None:
+        return False
+    resolution = compact_widget_names_for_node(
+        node,
+        schema_provider=schema_provider,
+    )
+    named_field = resolution.names[index] if index < len(resolution.names) else None
+    widget_field = f"widget_{index}"
+    carrier_names = {widget_field, "value"}
+    if isinstance(named_field, str) and not named_field.startswith("widget_"):
+        carrier_names.add(named_field)
+
+    wrote_carrier = False
+    for carrier_name in carrier_names:
+        if carrier_name in node.inputs:
+            node.inputs[carrier_name] = value
+            wrote_carrier = True
+        if carrier_name in node.widgets:
+            node.widgets[carrier_name] = value
+            wrote_carrier = True
+
+    raw_widgets = getattr(node, "raw_widgets", None)
+    raw_values = getattr(raw_widgets, "values", None)
+    if isinstance(raw_values, list) and 0 <= index < len(raw_values):
+        raw_values[index] = value
+        wrote_carrier = True
+    metadata = getattr(node, "metadata", None)
+    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    ui_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
+    if isinstance(ui_values, list) and 0 <= index < len(ui_values):
+        ui_values[index] = value
+        wrote_carrier = True
+    return wrote_carrier
 
 
 def _resolve_class_type_from_alias(
@@ -149,27 +217,19 @@ def _canonical_input_name_for_class(
     schema_inputs: Mapping[str, Any],
     class_type: str,
     field_name: str,
+    *,
+    schema_provider: Any = None,
 ) -> str:
     canonical = _canonical_schema_input_name(schema_inputs, field_name)
     if canonical != field_name:
         return canonical
-    try:
-        from vibecomfy.porting.object_info.consume import get_class  # noqa: PLC0415
-
-        entry = get_class(class_type)
-    except Exception:
-        entry = None
-    if not isinstance(entry, Mapping):
+    if schema_provider is None:
         return field_name
-    object_info_inputs: dict[str, str] = {}
-    raw_inputs = entry.get("inputs")
-    if isinstance(raw_inputs, Mapping):
-        for group in raw_inputs.values():
-            if not isinstance(group, Mapping):
-                continue
-            for name in group:
-                object_info_inputs[str(name)] = str(name)
-    return _canonical_schema_input_name(object_info_inputs, field_name)
+    schema = schema_for(schema_provider, class_type)
+    extra = getattr(schema, "inputs", None) or {}
+    if not isinstance(extra, Mapping) or extra is schema_inputs:
+        return field_name
+    return _canonical_schema_input_name(extra, field_name)
 
 
 def _input_spec_for_field(schema_inputs: Mapping[str, Any], field_name: str) -> Any:
@@ -184,8 +244,14 @@ def _known_core_input_socket_type(class_type: str, field_name: str) -> str | Non
     return _KNOWN_CORE_INPUT_SOCKET_TYPES.get((class_type, field_name))
 
 
-def _widget_value_for_field(node: Mapping[str, Any], class_type: str, field_name: str) -> Any:
-    return widget_value_for_field(node, field_name)
+def _widget_value_for_field(
+    node: Mapping[str, Any],
+    class_type: str,
+    field_name: str,
+    *,
+    schema_provider: Any = None,
+) -> Any:
+    return widget_value_for_field(node, field_name, schema_provider=schema_provider)
 
 
 def _socket_type_from_widget_value(value: Any) -> str | None:
@@ -265,8 +331,6 @@ def _uids_for_op(op: EditOp) -> tuple[tuple[str, str], ...]:
         return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, SetModeOp):
         return ((op.target.scope_path, op.target.uid),)
-    if isinstance(op, SetTitleOp):
-        return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, RemoveNodeOp):
         return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, RemoveLinkOp):
@@ -278,6 +342,16 @@ def _uids_for_op(op: EditOp) -> tuple[tuple[str, str], ...]:
             (op.source.scope_path, op.source.uid),
             (op.target.scope_path, op.target.uid),
         )
+    if isinstance(op, AddNodeOp):
+        pairs: list[tuple[str, str]] = []
+        if op.uid:
+            pairs.append((op.scope_path, str(op.uid)))
+        pairs.extend(
+            (source.scope_path, source.uid) for source in op.inputs.values()
+        )
+        return tuple(pairs)
+    if isinstance(op, SubgraphInterfaceOp) and op.id:
+        return (("", str(op.id)),)
     return ()
 
 
@@ -286,7 +360,6 @@ def _done_gate_b_uids_for_ops(ops: tuple[EditOp, ...]) -> tuple[tuple[str, str],
     for op in ops:
         pairs.extend(_uids_for_op(op))
         if isinstance(op, AddNodeOp):
-            pairs.extend((source.scope_path, source.uid) for source in op.inputs.values())
             if op.anchor is not None:
                 if op.anchor.near is not None:
                     pairs.append((op.anchor.near.scope_path, op.anchor.near.uid))
@@ -365,3 +438,528 @@ def _node_id_sort_key(node_id: str) -> tuple[int, int | str]:
         return (0, int(text))
     except ValueError:
         return (1, text)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Law 5 (batch 5): copy-on-write edits + provenance composition (max-taint).
+#
+# These helpers are the ONE production edit path: the edit session rebuilds
+# its retained IR through ``apply_edits_cow`` after every committed batch
+# (``_parse_execute.apply_batch``), and ``interpret(pre, batch)`` (batch 7)
+# builds on the same engine:
+#
+# * ``apply_edit_cow`` / ``apply_edits_cow`` NEVER mutate the input workflow;
+#   they return a NEW workflow (a deep copy), so the post-state shares no
+#   mutable node dicts with the pre-state.
+# * Every edit composes provenance through the monotone lattice join
+#   (max-taint): an edited node is re-tagged ``join(existing, agent_generated,
+#   *source provenances)`` and can never be silently downgraded — an agent
+#   edit on an untrusted-source node keeps it untrusted.  Untouched nodes are
+#   deep-copied with their provenance intact (the ingest door — from_ui /
+#   from_api — is only the external-JSON boundary and is never re-run for a
+#   session rebuild).
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _cow_workflow_copy(workflow: "VibeWorkflow") -> "VibeWorkflow":
+    """Deep copy of a workflow for copy-on-write edits.
+
+    Mirrors ``VibeWorkflow.copy()``: the live ``contextvars.Token`` cannot be
+    deep-copied, so the memo maps it to ``None`` — every clone is unbound.
+    The deep copy guarantees the post-state shares NO mutable dicts (node
+    inputs/widgets/metadata, groups, source provenance) with the pre-state.
+    """
+    from copy import deepcopy as _deepcopy
+
+    memo = {id(getattr(workflow, "_workflow_context_token", None)): None}
+    return _deepcopy(workflow, memo=memo)
+
+
+def _root_node_for_uid(
+    workflow: "VibeWorkflow",
+    scope_path: str,
+    uid: str,
+) -> tuple[str | None, Any | None]:
+    """Resolve a ``(scope_path, uid)`` target to ``(node_id, VibeNode)``.
+
+    The IR is flat: subgraph-internal nodes live in ``metadata.definitions``,
+    not in ``workflow.nodes``, so non-root scopes are not resolvable at IR
+    level (batch 7's ``interpret`` will bridge the subgraph substrate).
+    """
+    if scope_path:
+        raise NotImplementedError(
+            f"subgraph-scope target {scope_path!r} is not supported by the "
+            "IR-level copy-on-write edit helpers yet"
+        )
+    for node_id, node in workflow.nodes.items():
+        if str(getattr(node, "uid", "") or "") == str(uid):
+            return str(node_id), node
+    return None, None
+
+
+def _mint_ir_node_id(workflow: "VibeWorkflow") -> str:
+    """Mint the next numeric node id (max existing numeric id + 1)."""
+    highest = 0
+    for node_id in workflow.nodes:
+        text = str(node_id)
+        if text.isdigit():
+            highest = max(highest, int(text))
+    return str(highest + 1)
+
+
+def _mint_ir_uid(workflow: "VibeWorkflow") -> str:
+    """Mint the next deterministic ``n<k>`` uid (max ``n<k>`` suffix + 1)."""
+    highest = 0
+    for node in workflow.nodes.values():
+        uid = str(getattr(node, "uid", "") or "")
+        if uid.startswith("n") and uid[1:].isdigit():
+            highest = max(highest, int(uid[1:]))
+    return f"n{highest + 1}"
+
+
+def _ir_output_slot_name(node: Any, output_slot: str | int) -> str:
+    """Map an op output slot (name or index) to the IR's named edge port."""
+    if isinstance(output_slot, str):
+        return output_slot
+    metadata = getattr(node, "metadata", None)
+    names = metadata.get("output_names") if isinstance(metadata, dict) else None
+    if (
+        isinstance(names, (list, tuple))
+        and 0 <= int(output_slot) < len(names)
+        and names[int(output_slot)]
+    ):
+        return str(names[int(output_slot)])
+    return str(output_slot)
+
+
+def _ir_output_slot_index(node: Any, output_slot: str | int) -> str:
+    """Map an IR edge output port back to a numeric slot index (as str).
+
+    The compile oracle requires numeric output slots on runtime nodes, while
+    interpret-written edges carry named ports (type-token aliases such as
+    ``CONDITIONING_0`` or raw output names).  This resolves a named port to
+    its positional index via the node's live metadata (``output_names``
+    first, then the captured ``_ui`` outputs, then the ``output_types`` /
+    ``_ui`` output ``type`` tokens for typed aliases whose trailing integer
+    is the positional index).  Numeric ports pass through unchanged;
+    unresolvable names stay as-is so the compile error is reported honestly.
+    """
+    if not isinstance(output_slot, str):
+        return str(output_slot)
+    if output_slot.isdigit():
+        return output_slot
+    metadata = getattr(node, "metadata", None)
+    names: tuple | list = ()
+    outputs: tuple | list = ()
+    output_types: tuple | list = ()
+    if isinstance(metadata, Mapping):
+        raw_names = metadata.get("output_names")
+        if isinstance(raw_names, (list, tuple)):
+            names = raw_names
+        raw_types = metadata.get("output_types")
+        if isinstance(raw_types, (list, tuple)):
+            output_types = raw_types
+        ui = metadata.get("_ui")
+        ui_outputs = ui.get("outputs") if isinstance(ui, Mapping) else None
+        if isinstance(ui_outputs, (list, tuple)):
+            outputs = ui_outputs
+
+    def _find(name: str, *, casefold: bool = False) -> str | None:
+        for index, candidate in enumerate(names):
+            if str(candidate) == name or (
+                casefold and str(candidate).casefold() == name.casefold()
+            ):
+                return str(index)
+        for index, output in enumerate(outputs):
+            if isinstance(output, Mapping):
+                candidate = str(output.get("name", ""))
+                if candidate == name or (
+                    casefold and candidate.casefold() == name.casefold()
+                ):
+                    return str(index)
+        return None
+
+    found = _find(output_slot)
+    if found is not None:
+        return found
+    import re as _re
+
+    typed = _re.fullmatch(r"^([A-Za-z_][A-Za-z0-9_]*)_(\d+)$", output_slot)
+    if typed is not None:
+        base = typed.group(1)
+        index = int(typed.group(2))
+        # Type-token aliases are generated as ``f"{TYPE}_{position}"`` (see
+        # interpret._agent_edit_output_ports), so the trailing integer IS the
+        # positional output index.  Verify it against the live metadata so a
+        # raw name that merely looks typed is not misread.
+        if 0 <= index < len(output_types) and str(output_types[index]).casefold() == base.casefold():
+            return str(index)
+        if 0 <= index < len(outputs):
+            output = outputs[index]
+            if isinstance(output, Mapping) and str(output.get("type", "")).casefold() == base.casefold():
+                return str(index)
+        found = _find(base, casefold=True)
+        if found is not None:
+            return found
+    return output_slot
+
+
+def _compile_ready_workflow_copy(workflow: "VibeWorkflow") -> "VibeWorkflow":
+    """Return a COW copy whose edges carry numeric output slots for compile.
+
+    The retained IR is the authority and keeps named edge ports; the compile
+    oracle (``VibeWorkflow.compile("api")``) requires numeric output slots on
+    runtime nodes.  This projection rewrites only the edge ports on a copy so
+    Gate B can compile the retained IR without mutating it.
+    """
+    from vibecomfy.workflow import VibeEdge
+
+    post = _cow_workflow_copy(workflow)
+    new_edges: list[Any] = []
+    for edge in post.edges:
+        source = post.nodes.get(str(getattr(edge, "from_node", "")))
+        output = edge.from_output
+        if source is not None:
+            output = _ir_output_slot_index(source, output)
+        new_edges.append(
+            VibeEdge(edge.from_node, output, edge.to_node, edge.to_input)
+        )
+    post.edges = new_edges
+    return post
+
+
+def _split_add_fields(
+    class_type: str,
+    fields: Mapping[str, Any],
+    *,
+    schema_provider: Any = None,
+    widget_field_names: Sequence[str] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split an add_node field map into (widgets, inputs).
+
+    Widgets are schema-classified literal widget fields (or positional
+    ``widget_N`` names).  ``widget_field_names`` (set by ``diff`` from the
+    post node's instance widgets channel) takes precedence so unknown-schema
+    widget fields survive the diff→interpret round-trip: the batch carries
+    the channel classification the instance hydration (batch 6) yields, and
+    this restores exactly those names to the widget channel.
+    """
+    from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+    from vibecomfy.schema import schema_for
+
+    explicit_widget_names = (
+        frozenset(str(name) for name in widget_field_names)
+        if widget_field_names
+        else frozenset()
+    )
+    widget_names: set[str] = set(explicit_widget_names)
+    if schema_provider is not None:
+        schema = schema_for(schema_provider, class_type)
+        schema_inputs = getattr(schema, "inputs", None) or {}
+        widget_names.update(
+            str(name)
+            for name, spec in schema_inputs.items()
+            if input_spec_is_literal_widget(spec)
+        )
+    widgets: dict[str, Any] = {}
+    inputs: dict[str, Any] = {}
+    for name, value in fields.items():
+        if name in widget_names or str(name).startswith("widget_"):
+            widgets[name] = value
+        else:
+            inputs[name] = value
+    return widgets, inputs
+
+
+def _tag_agent_edit_provenance(node: Any, *source_nodes: Any) -> None:
+    """Tag ``node`` with ``join(existing, agent_generated, *sources)``.
+
+    Max-taint composition: an untrusted source keeps the node untrusted (an
+    agent edit can never launder taint); a trusted node edited by an agent is
+    re-tainted ``agent_generated``; never downgraded below its prior taint.
+    """
+    from vibecomfy.security import provenance as _prov
+
+    merged = _prov.join(
+        _prov.read(node),
+        _prov.Provenance.AGENT_GENERATED,
+        *(_prov.read(source) for source in source_nodes),
+    )
+    _prov.tag(node, merged)
+
+
+def _tag_fresh_node_provenance(node: Any, *source_nodes: Any) -> None:
+    """Tag a newly added node with ``join(agent_generated, *sources)``.
+
+    The fresh node's own read is fail-closed ``untrusted_source`` and must
+    NOT participate — otherwise every added node would be poisoned untrusted
+    even when all its sources are trusted. Max-taint still propagates: any
+    untrusted source keeps the added node untrusted.
+    """
+    from vibecomfy.security import provenance as _prov
+
+    merged = _prov.join(
+        _prov.Provenance.AGENT_GENERATED,
+        *(_prov.read(source) for source in source_nodes),
+    )
+    _prov.tag(node, merged)
+
+
+def apply_edit_cow(
+    workflow: "VibeWorkflow",
+    op: EditOp,
+    *,
+    schema_provider: Any = None,
+) -> "VibeWorkflow":
+    """Apply one edit op copy-on-write, returning a NEW workflow.
+
+    The input ``workflow`` is never mutated: the result is a deep copy with
+    the changed nodes replaced, so the pre-state IR is byte-identical after
+    the edit and the post-state shares no mutable node dicts with it.
+    Provenance composes via the monotone lattice join (max-taint) — see
+    :func:`_tag_agent_edit_provenance`.
+    """
+    from vibecomfy.workflow import VibeEdge, VibeNode, litegraph_to_mode
+
+    post = _cow_workflow_copy(workflow)
+
+    if isinstance(op, SetNodeFieldOp):
+        node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        field = op.target.field_path
+        if _apply_primitive_widget_alias_write(
+            node,
+            field,
+            op.value,
+            schema_provider=schema_provider,
+        ):
+            pass
+        elif field in node.widgets:
+            node.widgets[field] = op.value
+        elif field in node.inputs:
+            node.inputs[field] = op.value
+        else:
+            # Unknown channel: the IR's canonical value channel is inputs.
+            node.inputs[field] = op.value
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, SetModeOp):
+        _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"set_mode: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        node.mode = litegraph_to_mode(op.mode)
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, RemoveLinkOp):
+        if op.target is None:
+            raise ValueError(
+                "remove_link requires a target at IR level (link ids are LiteGraph-only)"
+            )
+        node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"remove_link: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        post.edges = [
+            edge
+            for edge in post.edges
+            if not (edge.to_node == node_id and edge.to_input == op.target.input_field)
+        ]
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, UpsertLinkOp):
+        source_id, source_node = _root_node_for_uid(
+            post, op.source.scope_path, op.source.uid
+        )
+        target_id, target_node = _root_node_for_uid(
+            post, op.target.scope_path, op.target.uid
+        )
+        if source_node is None or target_node is None:
+            raise KeyError(
+                f"upsert_link: unresolvable endpoint uid "
+                f"{op.source.uid!r}/{op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        post.edges = [
+            edge
+            for edge in post.edges
+            if not (edge.to_node == target_id and edge.to_input == op.target.input_field)
+        ]
+        post.edges.append(
+            VibeEdge(
+                from_node=source_id,
+                from_output=_ir_output_slot_name(source_node, op.source.output_slot),
+                to_node=target_id,
+                to_input=op.target.input_field,
+            )
+        )
+        # The target's input now combines the source's provenance: max-taint.
+        _tag_agent_edit_provenance(source_node)
+        _tag_agent_edit_provenance(target_node, source_node)
+        return post
+
+    if isinstance(op, RemoveNodeOp):
+        node_id, _node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node_id is None:
+            raise KeyError(
+                f"remove_node: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        post.nodes.pop(node_id, None)
+        post.edges = [
+            edge
+            for edge in post.edges
+            if edge.from_node != node_id and edge.to_node != node_id
+        ]
+        post.inputs = {
+            name: entry
+            for name, entry in post.inputs.items()
+            if getattr(entry, "node_id", None) != node_id
+        }
+        post.outputs = [
+            output for output in post.outputs if getattr(output, "node_id", None) != node_id
+        ]
+        return post
+
+    if isinstance(op, SubgraphInterfaceOp):
+        definitions = post.metadata.get("definitions")
+        if not isinstance(definitions, dict):
+            definitions = {}
+            post.metadata["definitions"] = definitions
+        subgraphs = definitions.get("subgraphs")
+        if not isinstance(subgraphs, list):
+            subgraphs = []
+            definitions["subgraphs"] = subgraphs
+        subgraph_id = str(op.id) if op.id else op.name
+
+        def _entry_key(entry: Any) -> str:
+            if isinstance(entry, Mapping):
+                return str(entry.get("id") or entry.get("name") or "")
+            return str(entry)
+
+        if op.action == "remove":
+            definitions["subgraphs"] = [
+                entry for entry in subgraphs if _entry_key(entry) != subgraph_id
+            ]
+            return post
+        signature = {
+            "id": subgraph_id,
+            "name": op.name,
+            "inputs": [
+                {
+                    "name": str(port[0]),
+                    "type": port[1] if len(port) > 1 else None,
+                    "label": str(port[0]),
+                }
+                for port in op.inputs
+                if isinstance(port, (list, tuple)) and port
+            ],
+            "outputs": [
+                {
+                    "name": str(port[0]),
+                    "type": port[1] if len(port) > 1 else None,
+                }
+                for port in op.outputs
+                if isinstance(port, (list, tuple)) and port
+            ],
+        }
+        if op.action == "change":
+            replaced = False
+            updated: list[Any] = []
+            for existing in subgraphs:
+                if _entry_key(existing) == subgraph_id:
+                    merged = dict(existing) if isinstance(existing, Mapping) else {}
+                    merged.update(signature)
+                    updated.append(merged)
+                    replaced = True
+                else:
+                    updated.append(existing)
+            if not replaced:
+                updated.append({**signature, "nodes": [], "links": []})
+            definitions["subgraphs"] = updated
+        else:  # add
+            definitions["subgraphs"] = [
+                *subgraphs,
+                {**signature, "nodes": [], "links": []},
+            ]
+        return post
+
+    if isinstance(op, AddNodeOp):
+        if op.scope_path:
+            raise NotImplementedError(
+                f"subgraph-scope add_node {op.scope_path!r} is not supported by the "
+                "IR-level copy-on-write edit helpers yet"
+            )
+        new_id = str(op.node_id) if op.node_id else _mint_ir_node_id(post)
+        if new_id in post.nodes:
+            raise ValueError(
+                f"add_node: node id {new_id!r} already exists in workflow {workflow.id!r}"
+            )
+        uid = str(op.uid) if op.uid else _mint_ir_uid(post)
+        widgets, inputs = _split_add_fields(
+            op.class_type,
+            op.fields,
+            schema_provider=schema_provider,
+            widget_field_names=op.widget_field_names,
+        )
+        node = VibeNode(
+            id=new_id,
+            class_type=op.class_type,
+            inputs=inputs,
+            widgets=widgets,
+            uid=uid,
+        )
+        source_nodes: list[Any] = []
+        for input_name, source_ref in op.inputs.items():
+            source_id, source_node = _root_node_for_uid(
+                post, source_ref.scope_path, source_ref.uid
+            )
+            if source_node is None:
+                raise KeyError(
+                    f"add_node: source uid {source_ref.uid!r} for input "
+                    f"{input_name!r} is missing from workflow {workflow.id!r}"
+                )
+            source_nodes.append(source_node)
+            post.edges.append(
+                VibeEdge(
+                    from_node=source_id,
+                    from_output=_ir_output_slot_name(source_node, source_ref.output_slot),
+                    to_node=new_id,
+                    to_input=input_name,
+                )
+            )
+        # New node's provenance = join(agent_generated, *source provenances).
+        _tag_fresh_node_provenance(node, *source_nodes)
+        post.nodes[new_id] = node
+        return post
+
+    # NOTE: reorder / set_title are not part of the designed grammar and are
+    # rejected at parse time; they have no branches here.
+
+    raise TypeError(f"unsupported edit op {type(op).__name__}")
+
+
+def apply_edits_cow(
+    workflow: "VibeWorkflow",
+    ops: tuple[EditOp, ...] | list[EditOp],
+    *,
+    schema_provider: Any = None,
+) -> "VibeWorkflow":
+    """Apply a sequence of edit ops copy-on-write, sequentially.
+
+    Every intermediate result is a fresh workflow, so no later op can alias a
+    node mutated by an earlier one, and the input ``workflow`` is never
+    touched. An empty sequence still returns a distinct copy.
+    """
+    post = workflow
+    for op in ops:
+        post = apply_edit_cow(post, op, schema_provider=schema_provider)
+    if post is workflow:
+        return _cow_workflow_copy(workflow)
+    return post

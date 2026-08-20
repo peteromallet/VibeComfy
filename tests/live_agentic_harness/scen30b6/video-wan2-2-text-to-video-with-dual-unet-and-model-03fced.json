@@ -1,0 +1,39 @@
+{
+  "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
+  "query": "Change the number of sampling steps for both UNETs to 25 each.",
+  "workflow_path": "external_workflows/corpus/03fcedf997c13003.json",
+  "network": true,
+  "timeout": 280,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "Both high-noise and low-noise UNET sampling steps set to 25.",
+    "quality": "All other parameters and connections remain intact; workflow still produces a valid video output.",
+    "alternatives_ok": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "text_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "text-to-video",
+      "wan2.2",
+      "hunyuan",
+      "video-generation",
+      "dual-unet",
+      "model-sampling",
+      "fp8"
+    ],
+    "source_workflow_id": "03fcedf997c13003",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Specific parameter edit forcing the agent to locate two distinct sampling configurations in the dual-UNET pipeline."
+  }
+}

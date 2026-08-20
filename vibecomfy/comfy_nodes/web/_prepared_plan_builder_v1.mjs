@@ -37,6 +37,7 @@ import {
   validatePreparedAuthorityV1,
   digest as _revalidateRestoration,
   digestCompensation as _revalidateCompensation,
+  forwardOpsFromAcceptedBatch,
 } from "./prepared_authority_v1.js";
 import {
   assertLayoutOperationEnvelope,
@@ -126,8 +127,8 @@ function _endpoint(ref) {
   return { node_uid: ref[1] ?? null, port: ref[2] ?? null };
 }
 
-function _structuralIntendedPrimitives(operation) {
-  const ops = Array.isArray(operation.ops) ? operation.ops : [];
+function _structuralIntendedPrimitives(operation, forwardOps) {
+  const ops = Array.isArray(forwardOps) ? forwardOps : [];
   const materialization = operation.mutation_materialization;
   const entriesByIndex = new Map();
   if (_isPlainObject(materialization) && Array.isArray(materialization.entries)) {
@@ -251,9 +252,19 @@ export function buildPreparedPlan(preparedAuthority) {
   //    asserters, the restoration `digest()` — including the §3.2 inverse
   //    relation check — and the compensation validator).  This enforces every
   //    §4 fail-closed row relevant to C1 before any plan is built.
+  //
+  // C1 remains prepared-authority-only. The sole durable Δ is
+  // plan.accepted_batch; callers that historically put ops on operation now
+  // attach the same batch as a sibling adapter field (`accepted_batch`).
+  const accepted_batch = Array.isArray(preparedAuthority?.accepted_batch)
+    ? preparedAuthority.accepted_batch
+    : undefined;
+  const authorityForValidation = { ...preparedAuthority };
+  delete authorityForValidation.accepted_batch;
+  const forwardOps = forwardOpsFromAcceptedBatch(accepted_batch);
   let validated;
   try {
-    validated = validatePreparedAuthorityV1(preparedAuthority);
+    validated = validatePreparedAuthorityV1(authorityForValidation, { accepted_batch });
   } catch (error) {
     return _fail(error && error.code, error && error.detail);
   }
@@ -273,12 +284,11 @@ export function buildPreparedPlan(preparedAuthority) {
     if (operationFamily === "layout") {
       layoutEnvelope = assertLayoutOperationEnvelope(operation.layout_operation);
     } else if (operationFamily === "structural") {
-      const ops = Array.isArray(operation.ops) ? operation.ops : [];
-      const hasAddNode = ops.some((op) => _isPlainObject(op) && op.op === "add_node");
+      const hasAddNode = forwardOps.some((op) => _isPlainObject(op) && op.op === "add_node");
       if (hasAddNode) {
         materializationEnvelope = assertMutationMaterializationEnvelope(
           operation.mutation_materialization,
-          { accompanyingOps: ops },
+          { accompanyingOps: forwardOps },
         );
       }
     }
@@ -288,7 +298,7 @@ export function buildPreparedPlan(preparedAuthority) {
     //    `digest()` (re-validation, NOT generation from live state).
     _revalidateRestoration(validated.restoration_strategy, {
       family: operationFamily,
-      forwardOps: operation.ops,
+      forwardOps,
     });
     const recomputedRestorationDigest = _recomputeRestorationDigest(
       validated.restoration_strategy,
@@ -331,7 +341,7 @@ export function buildPreparedPlan(preparedAuthority) {
     if (operationFamily === "layout") {
       intendedPrimitives = _layoutIntendedPrimitives(layoutEnvelope);
     } else {
-      intendedPrimitives = _structuralIntendedPrimitives(operation);
+      intendedPrimitives = _structuralIntendedPrimitives(operation, forwardOps);
     }
 
     const plan = {

@@ -10,6 +10,7 @@ from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 from vibecomfy._compile._widgets import WIDGET_SCHEMA, WIDGET_SEMANTIC_NAMES
 
 
+from vibecomfy.ingest.normalize import door_get_widgets_values
 @dataclass(frozen=True, slots=True)
 class WidgetNameResolution:
     names: tuple[str | None, ...]
@@ -20,6 +21,9 @@ class WidgetNameResolution:
 
 
 _WIDGET_KEY_RE = re.compile(r"widget_(\d+)")
+# Law 5 (batch 4): positional widget_N/slot_N aliases are never emitted and
+# carry no resolver — an unnameable widget is addressed by its named field
+# or fails loudly as widget_unknown, never by a positional shim.
 _MISSING_WIDGET_VALUE = object()
 _CONTROL_AFTER_GENERATE_VALUES = {"fixed", "randomize", "increment", "decrement"}
 _PRIMITIVE_CONTROL_WIDGET_CLASSES = {"PrimitiveBoolean", "PrimitiveFloat", "PrimitiveInt"}
@@ -288,7 +292,7 @@ def _metadata(node: Mapping[str, Any] | Any) -> Mapping[str, Any]:
 
 def _compact_values(node: Mapping[str, Any] | Any) -> Any:
     if isinstance(node, Mapping):
-        values = node.get("widgets_values")
+        values = door_get_widgets_values(node)
         if isinstance(values, (list, Mapping)):
             return values
         widgets = node.get("widgets")
@@ -320,7 +324,7 @@ def _compact_values(node: Mapping[str, Any] | Any) -> Any:
     if isinstance(metadata, Mapping):
         ui = metadata.get("_ui")
         if isinstance(ui, Mapping):
-            values = ui.get("widgets_values")
+            values = door_get_widgets_values(ui)
             if isinstance(values, list):
                 return values
     return None

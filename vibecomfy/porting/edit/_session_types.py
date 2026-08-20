@@ -47,6 +47,8 @@ class StatementResult:
     touched_uids: tuple[str, ...] = ()
     dependency_cause: str | None = None
     teaching_hint: str | None = None
+    status: str | None = None
+    reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -56,6 +58,7 @@ class BatchResult:
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed_ops: tuple[Any, ...] = ()
     field_changes: tuple[FieldChange, ...] = ()
+    apply_eligible: bool = False
 
     def render_diff(self) -> str:
         """Produce a compact diff view of the batch results.
@@ -94,7 +97,6 @@ class BatchResult:
                 AddNodeOp,
                 RemoveLinkOp,
                 RemoveNodeOp,
-                ReorderOp,
                 SetModeOp,
                 SetNodeFieldOp,
                 UpsertLinkOp,
@@ -126,7 +128,7 @@ class _ResolvedGraphName:
     name: str
     uid: str
     scope_path: str
-    node: Mapping[str, Any]
+    node: Any
     class_type: str
 
 
@@ -183,7 +185,7 @@ class NodeDescriptor:
     """Structured read-only description of one graph node.
 
     Returned by ``EditSession.describe(name)``.  Does not count as a landed
-    operation and never mutates ``working_ui``.
+    operation and never mutates the retained IR or the emit-side snapshot.
     """
 
     name: str

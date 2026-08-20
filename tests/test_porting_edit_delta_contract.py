@@ -384,9 +384,9 @@ def test_add_node_roundtrip_through_non_strict_then_strict_after_populate() -> N
     assert strict_envelope.to_dict()["ops"] == [canonical]
 
 
-def test_agent_delta_turn_result_produces_envelope_and_flat_bridge_never_legacy_wrapped() -> None:
-    """``AgentDeltaTurnResult.to_dict()`` emits ``delta_ops_envelope`` (canonical)
-    and ``delta_ops`` (derived flat legacy bridge), never a legacy wrapped mapping."""
+def test_agent_delta_turn_result_produces_accepted_batch_only() -> None:
+    """``AgentDeltaTurnResult.to_dict()`` emits ``accepted_batch`` as the
+    sole durable Δ — no parallel envelope or flat ``delta`` view."""
     from vibecomfy.porting.edit.ops import AgentDeltaTurnResult, AddNodeOp
 
     result = AgentDeltaTurnResult(
@@ -408,22 +408,12 @@ def test_agent_delta_turn_result_produces_envelope_and_flat_bridge_never_legacy_
     )
     payload = result.to_dict()
 
-    # Canonical envelope present
-    assert "delta_ops_envelope" in payload
-    envelope = payload["delta_ops_envelope"]
-    assert envelope["schema_version"] == DELTA_SCHEMA_VERSION
-    assert len(envelope["ops"]) == 1
-    assert envelope["ops"][0]["uid"] == "uid-1"
-    assert envelope["ops"][0]["node_id"] == "99"
-
-    # Flat bridge mirrors the envelope ops (key is ``delta`` in to_dict())
-    assert "delta" in payload
-    assert payload["delta"] == envelope["ops"]
-
-    # Never a legacy wrapped mapping
-    assert "delta_ops" not in envelope  # envelope itself is clean
-    assert "diagnostics" not in envelope
-    assert "automatic_link_removals" not in envelope
+    assert "delta_ops_envelope" not in payload
+    assert "delta" not in payload
+    assert "delta_ops" not in payload
+    assert len(payload["accepted_batch"]) == 1
+    assert payload["accepted_batch"][0]["op"]["uid"] == "uid-1"
+    assert payload["accepted_batch"][0]["op"]["node_id"] == "99"
 
 
 def test_non_strict_normalize_never_emits_legacy_wrapped_shape() -> None:
@@ -440,3 +430,279 @@ def test_non_strict_normalize_never_emits_legacy_wrapped_shape() -> None:
     assert set(payload.keys()) == {"schema_version", "ops"}
     assert "delta_ops" not in payload
     assert "diagnostics" not in payload
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch 9 (Law 3): canonical Δ is the batch value.
+#
+# ``diff(pre, post)`` returns the minimal deterministic batch (the same six-op
+# grammar ``interpret`` accepts) that reconstructs ``post``'s π_edit from
+# ``pre``.  No parallel prose/JSON delta representation exists: the Δ IS the
+# batch.  The session's accepted batch is the recorded Δ; ``diff`` is the
+# generalizer for judge/replay use.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _law3_tiny_workflow():
+    from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("delta-contract", WorkflowSource("delta-contract"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "LawNode",
+        inputs={"prompt": "before"},
+        widgets={"seed": 7, "widget_0": 11},
+        uid="law-a",
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2", "LawNode", inputs={"strength": 0.5}, uid="law-b"
+    )
+    workflow.edges.append(VibeEdge("1", "IMAGE", "2", "image"))
+    return workflow
+
+
+def _pi_edit(workflow):
+    from tests.test_ir_laws import pi_edit
+
+    return pi_edit(workflow)
+
+
+def test_diff_returns_a_valid_batch_that_interpret_accepts() -> None:
+    """diff(pre, post) is expressed in the SAME grammar interpret accepts and
+    replays to post's π_edit — no parallel diff representation."""
+    from vibecomfy.porting.edit import diff, interpret
+    from vibecomfy.porting.edit.ops import CANONICAL_DELTA_OP_NAMES
+
+    pre = _law3_tiny_workflow()
+    post = pre.copy()
+    post.nodes["1"].inputs["prompt"] = "after"
+    delta = diff(pre, post)
+    assert delta
+    assert all(op.op in CANONICAL_DELTA_OP_NAMES for op in delta)
+    # Same grammar: interpret accepts the typed ops directly.
+    result = interpret(pre, delta)
+    assert result.ok
+    assert _pi_edit(result.workflow) == _pi_edit(post)
+
+
+def test_diff_inverse_over_field_mode_link_and_node_edits() -> None:
+    """interpret(pre, diff(pre, post)) == post over π_edit for every op kind."""
+    from vibecomfy.porting.edit import diff, interpret
+    from vibecomfy.workflow import NodeMode, VibeEdge, VibeNode
+
+    def remove_link(post):
+        post.edges = [
+            e for e in post.edges if not (e.to_node == "2" and e.to_input == "image")
+        ]
+
+    def remove_node(post):
+        post.nodes.pop("2")
+        post.edges = [
+            e for e in post.edges if e.from_node != "2" and e.to_node != "2"
+        ]
+
+    cases = {
+        "set_node_field": lambda p: p.nodes["1"].widgets.__setitem__("seed", 99),
+        "set_mode": lambda p: setattr(p.nodes["1"], "mode", NodeMode.MUTED),
+        "remove_link": remove_link,
+        "upsert_link": lambda p: p.edges.__setitem__(
+            0, VibeEdge("2", "IMAGE", "1", "prompt")
+        ),
+        "add_node": lambda p: p.nodes.__setitem__(
+            "3",
+            VibeNode("3", "PreviewImage", inputs={}, widgets={}, uid="delta-new"),
+        ),
+        "remove_node": remove_node,
+    }
+    for label, mutate in cases.items():
+        pre = _law3_tiny_workflow()
+        post = pre.copy()
+        mutate(post)
+        delta = diff(pre, post)
+        assert delta, label
+        result = interpret(pre, delta)
+        assert result.ok, label
+        assert _pi_edit(result.workflow) == _pi_edit(post), label
+
+
+def test_diff_is_minimal_deterministic_and_zero_for_identity() -> None:
+    """Same (pre, post) → same Δ; every op is individually necessary;
+    identical IRs produce the empty batch."""
+    from vibecomfy.porting.edit import diff, interpret
+
+    pre = _law3_tiny_workflow()
+    post = pre.copy()
+    post.nodes["1"].inputs["prompt"] = "after"
+    post.nodes["2"].inputs["strength"] = 0.75
+    delta = diff(pre, post)
+    assert delta == diff(pre, post)
+    # Undo round-trip over the quotient: diff(post, pre) replays back to pre.
+    undo = interpret(post, diff(post, pre))
+    assert undo.ok
+    assert _pi_edit(undo.workflow) == _pi_edit(pre)
+    assert diff(post, post) == ()
+    assert diff(pre, pre) == ()
+    for index in range(len(delta)):
+        reduced = delta[:index] + delta[index + 1 :]
+        assert _pi_edit(interpret(pre, reduced).workflow) != _pi_edit(post)
+
+
+def test_diff_generalizes_interpret_accepted_batch() -> None:
+    """diff(pre, interpret(pre, batch)) produces the Δ equivalent to the
+    accepted statements (minimal and deterministic)."""
+    from vibecomfy.porting.edit import diff, interpret
+
+    pre = _law3_tiny_workflow()
+    batch = (
+        'lawnode.prompt = "after"\n'
+        "lawnode.seed = 42\n"
+        "lawnode.mode = 4\n"
+    )
+    interpreted = interpret(pre, batch)
+    assert interpreted.ok
+    delta = diff(pre, interpreted.workflow)
+    assert len(delta) == 3  # one op per landed edit statement
+    assert {op.op for op in delta} == {"set_node_field", "set_mode"}
+    assert _pi_edit(interpret(pre, delta).workflow) == _pi_edit(interpreted.workflow)
+    assert delta == diff(pre, interpreted.workflow)
+
+
+def test_diff_cumulative_replay_and_undo_roundtrip() -> None:
+    """Cumulative replay: interpret(pre, Δ1 + Δ2) == wf_2.  Undo: diff walks
+    the same chain backwards over the quotient."""
+    from vibecomfy.porting.edit import diff, interpret
+    from vibecomfy.workflow import VibeEdge, VibeNode
+
+    wf0 = _law3_tiny_workflow()
+    post1 = wf0.copy()
+    post1.nodes["3"] = VibeNode(
+        "3", "PreviewImage", inputs={}, widgets={}, uid="delta-new"
+    )
+    post1.edges.append(VibeEdge("1", "IMAGE", "3", "images"))
+    d1 = diff(wf0, post1)
+    wf1 = interpret(wf0, d1).workflow
+    assert _pi_edit(wf1) == _pi_edit(post1)
+
+    post2 = wf1.copy()
+    post2.nodes["1"].inputs["prompt"] = "final"
+    d2 = diff(wf1, post2)
+    wf2 = interpret(wf1, d2).workflow
+    assert _pi_edit(wf2) == _pi_edit(post2)
+
+    # Cumulative replay: concatenated deltas reach the same quotient.
+    combined = interpret(wf0, d1 + d2)
+    assert combined.ok
+    assert _pi_edit(combined.workflow) == _pi_edit(wf2)
+
+    # Undo: diff(wf2, wf1) then diff(wf1, wf0) walks back to the start.
+    back1 = interpret(wf2, diff(wf2, wf1))
+    assert _pi_edit(back1.workflow) == _pi_edit(wf1)
+    back0 = interpret(back1.workflow, diff(back1.workflow, wf0))
+    assert _pi_edit(back0.workflow) == _pi_edit(wf0)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch 9 fix — Law 3 hard cases (oracle issues 1-3).
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _law3_roundtrip(pre, post, label: str) -> None:
+    """Law 3 on a concrete (pre, post) pair: deterministic, replayable,
+    minimal, and zero for identity."""
+    from vibecomfy.porting.edit import diff, interpret
+
+    delta = diff(pre, post)
+    assert delta == diff(pre, post), label
+    result = interpret(pre, delta)
+    assert result.ok, label
+    assert _pi_edit(result.workflow) == _pi_edit(post), label
+    assert diff(post, post) == (), label
+    undo = interpret(post, diff(post, pre))
+    assert undo.ok, label
+    assert _pi_edit(undo.workflow) == _pi_edit(pre), label
+    for index in range(len(delta)):
+        reduced = delta[:index] + delta[index + 1 :]
+        assert _pi_edit(interpret(pre, reduced).workflow) != _pi_edit(post), (
+            f"{label}: op {index} is not individually necessary"
+        )
+
+
+def test_diff_preserves_unknown_schema_widgets_through_rebuild() -> None:
+    """Law 3 on a widget-set rebuild of an unknown-schema node: the named
+    widget fields must survive the diff→interpret round-trip in the WIDGET
+    channel (oracle issue 1)."""
+    from vibecomfy.porting.edit import diff
+    from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+    pre = VibeWorkflow("delta-hard", WorkflowSource("delta-contract"))
+    pre.nodes["1"] = VibeNode(
+        "1",
+        "TotallyUnknownClassABC",
+        inputs={"model": "x"},
+        widgets={"my_widget": 5, "widget_0": 9},
+        uid="law-a",
+    )
+    post = pre.copy()
+    post.nodes["1"].class_type = "TotallyUnknownClassXYZ"  # forces rebuild
+    _law3_roundtrip(pre, post, "unknown-schema widget rebuild")
+    # The widget channel is preserved by the batch itself (not schema luck).
+    add = [op for op in diff(pre, post) if op.op == "add_node"][0]
+    assert "my_widget" in add.widget_field_names
+
+
+def test_diff_add_node_mixed_schema_and_unknown_widgets() -> None:
+    """Law 3 for a fresh add-node carrying known-schema widgets, a positional
+    widget, and an unknown-schema named widget (oracle issue 1/3)."""
+    from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+    pre = VibeWorkflow("delta-hard", WorkflowSource("delta-contract"))
+    pre.nodes["1"] = VibeNode("1", "PreviewImage", inputs={}, widgets={}, uid="law-a")
+    post = pre.copy()
+    post.nodes["2"] = VibeNode(
+        "2",
+        "TotallyUnknownMixin",
+        inputs={"schema_input": "z"},
+        widgets={"known_widget": 3, "widget_0": 11, "mystery_widget": "v"},
+        uid="law-b",
+    )
+    _law3_roundtrip(pre, post, "mixed schema/unknown add-node")
+
+
+def test_diff_reconstructs_subgraph_interface_deltas() -> None:
+    """Law 3 on subgraph signatures: add/change/remove of
+    ``metadata["definitions"]`` subgraphs must be carried by the batch
+    (oracle issue 2) on the subgraphed_wan specimen."""
+    from vibecomfy.porting.edit import diff, interpret
+    from tests.test_ir_laws import SPIKE_CORPUS, _load_specimen
+
+    _, pre = _load_specimen(SPIKE_CORPUS[1][1])
+    assert (pre.metadata.get("definitions") or {}).get("subgraphs")
+
+    def mutate(mutation: str):
+        post = pre.copy()
+        subs = post.metadata.setdefault("definitions", {}).setdefault("subgraphs", [])
+        if mutation == "change":
+            subs[0]["inputs"] = [{"name": "edited_in", "type": "IMAGE", "label": "edited_in"}]
+            subs[0]["outputs"] = [{"name": "edited_out", "type": "IMAGE"}]
+        elif mutation == "remove":
+            subs.pop(0)
+        elif mutation == "add":
+            subs.append(
+                {
+                    "id": "sg-extra",
+                    "name": "Extra Subgraph",
+                    "inputs": [{"name": "in_a", "type": "LATENT", "label": "in_a"}],
+                    "outputs": [{"name": "out_a", "type": "LATENT"}],
+                    "nodes": [],
+                    "links": [],
+                }
+            )
+        return post
+
+    for mutation in ("change", "remove", "add"):
+        post = mutate(mutation)
+        _law3_roundtrip(pre, post, f"subgraph {mutation}")
+        delta = diff(pre, post)
+        assert any(op.op == "subgraph_interface" for op in delta), mutation
+        # The ops are a valid batch source: interpret applies them.
+        assert interpret(pre, delta).ok, mutation

@@ -449,6 +449,10 @@ def build_batch_messages(
             f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n"
         )
     else:
+        # Single prompt grammar: the generated surface doc (grammar.py) is the
+        # only description of the edit surface — no hand-maintained copy.
+        from vibecomfy.porting.edit.grammar import render_prompt_doc
+
         system = (
         mission +
         "Each node is a variable; wiring uses `.OUTPUT` from other variables.\n\n"
@@ -465,9 +469,7 @@ def build_batch_messages(
         "- `python()` — view current workflow Python\n"
         "- `done()` — commit landed edits\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
-        "Known limits:\n"
-        "- `attr = None` disconnects a wire\n"
-        "- No list sockets/reorder/group/cross-subgraph edits\n\n"
+        f"{render_prompt_doc()}\n"
         f"{effective_surface_rule}"
         "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, answer from it and `done()` — ground every claim in the visible render's node ids, link ids, and widget keys/values; never invent parameters or connections.\n\n"
         "Undo abandoned edits before done().\n\n"
@@ -495,6 +497,12 @@ def build_batch_messages(
         "`search(...)` is factual current authoring-schema lookup, not workflow/web research, and never justifies substituting a merely similar node for the user's named target. "
         "A local miss is not a product-level failure: use workflow precedent and visible graph evidence to choose the smallest defensible edit, then let the edit/apply path validate whether it is authorable. "
         "Do not tell the user to install nodes.\n\n"
+        "Representable-edit preflight (mandatory before clarify/refusal): inspect the rendered node inventory and exact node-variable reference map first. "
+        "For each requested change, name the concrete existing field/socket or visible positional widget that could carry it. "
+        "If the target is absent, search by compatible output/input type or an exact class name already present in evidence; use an available concrete substitute when it satisfies the requested behavior. "
+        "If any graph-local requested edit is authorable, perform that edit instead of refusing the whole request or proposing an external pack. "
+        "Use `clarify()` only when this preflight finds no defensible authorable edit or when a real user choice changes the result. "
+        "For schema-less/provisional nodes, a visible `widget_N` is authorable when its current value and the requested replacement make the mapping self-evident (for example a visible model id, preset, angle, or mode); name the exact class, node variable, and `widget_N` in your prose.\n\n"
         "For generic save/export/view/output requests, start from the graph's actual terminal output type. "
         "If the graph ends in `IMAGE`, search local consumers with `search(compatible_output_type=\"IMAGE\")`; "
         "if you need an mp4-style video sink, search both the image-to-video step and video sink, e.g. "
@@ -502,6 +510,14 @@ def build_batch_messages(
         "Do this before guessing branded output-node class names. Use exact `focus_types` only after a class name appears in those compatibility results or other evidence. "
         "For seed-variation grids, contact sheets, preview montages, format/export changes, or other graph-local output/composition edits, preserve the existing generation/custom-node core and add or rewire only deterministic local consumer/composition nodes after the visible terminal outputs. "
         "Prefer the exact visible sink/compositor schema over workflow precedent; do not replace a working custom model stack just to make a layout/export edit.\n\n"
+        "If research is thin, empty, never, UNAVAILABLE, or exhausted, apply a "
+        "graph-local edit that is fully justified by the attached IR: a named "
+        "widget change (including a self-evident visible positional widget on a schema-less node), a missing required input edge when both endpoints already "
+        "exist, an fps/frame-count mismatch on existing nodes, or a same-class "
+        "model/ckpt string already in the inventory. Refuse only architectural "
+        "invention (new node classes, ControlNet/IPAdapter chains, multi-link "
+        "rewires, slot-name invention, architecture swaps). Prefer schema field names "
+        "(lossless, steps, seed) over positional widgets whenever a schema name exists.\n\n"
         "Authoring strategy (bounded guidance): for edit-by-precedent, the "
         "research phase already gathered workflow and community evidence and "
         "handed it to you as compact ledger entries + evidence IDs — the "
@@ -531,7 +547,9 @@ def build_batch_messages(
         "workflow value; do not translate positional widgets into guessed friendly field names. "
         "Opaque `widget_N` needs a corroborating `search()`/schema hit or a self-evident current "
         "value, else `clarify()`.\n\n"
-        "Placement: `near=anchor, relation='left_of|right_of|below'`; upstream left, downstream right; no coords.\n\n"
+        "Placement: `near=anchor, relation='left_of|right_of|below'`; upstream left, downstream right; no coords. "
+        "Every add-node statement that uses `relation=` MUST also include `near=...` or `group=...`; "
+        "`relation=` alone is rejected.\n\n"
         "Envelope: start with one user-facing prose sentence, then exactly one ```batch fence. "
         "Never respond with only a fenced block. `clarify(\"...\")` is terminal and creates no candidate. "
         "Use it only when no defensible edit is possible after graph context, precedent research, and authoring-signature checks. "

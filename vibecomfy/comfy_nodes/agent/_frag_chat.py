@@ -15,7 +15,7 @@ from vibecomfy.comfy_nodes.agent.candidate_transaction import classify_legacy_mi
 from vibecomfy.comfy_nodes.agent.contracts import TurnContext, ensure_agent_edit_response_contract
 from vibecomfy.comfy_nodes.agent.session import REVIEWABLE_CANDIDATE_STATES, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, project_transaction_state, read_state, session_dir_for
 from vibecomfy.porting.edit.types import FieldChange
-from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _safe_session_id
+from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _ops_from_accepted_batch, _safe_session_id
 
 def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
@@ -55,9 +55,9 @@ def _write_turn_chat_artifact(
         if changes is None and state.batch_field_changes:
             changes = _field_changes_payload(state.batch_field_changes)
     elif contract == "delta":
-        delta_ops = response.get("delta_ops")
-        if isinstance(delta_ops, list):
-            changes = _json_safe(delta_ops)
+        accepted_ops = list(_ops_from_accepted_batch(response))
+        if accepted_ops:
+            changes = _json_safe(accepted_ops)
 
     agent_msg: dict[str, Any] = {
         "role": "agent",
@@ -228,8 +228,9 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
                     "state": turn_state.get("state"),
                 }
             )
-        delta_ops_envelope = response.get("delta_ops_envelope")
-        delta_ops = response.get("delta_ops")
+        accepted_batch = response.get("accepted_batch")
+        if not isinstance(accepted_batch, list):
+            accepted_batch = None
         prepared_baseline = None
         if turn_state.get("state") in {"prepared", "apply_prepared"}:
             original_path = turn_dir / "original.ui.json"
@@ -279,15 +280,9 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "lease_nonce": (
                 aggregate.get("lease_nonce") if isinstance(aggregate, Mapping) else None
             ),
-            "delta_ops_envelope": (
-                _json_safe(delta_ops_envelope)
-                if isinstance(delta_ops_envelope, Mapping)
-                else None
+            "accepted_batch": (
+                _json_safe(accepted_batch) if accepted_batch is not None else None
             ),
-            # Keep absence distinct from an intentionally empty V2 delta.  The
-            # browser uses an array as protocol evidence; emitting [] for a V1
-            # response would incorrectly upgrade it to v2_delta on rehydrate.
-            "delta_ops": _json_safe(delta_ops) if isinstance(delta_ops, list) else None,
             "apply_eligibility": (
                 {
                     "applyable": False,

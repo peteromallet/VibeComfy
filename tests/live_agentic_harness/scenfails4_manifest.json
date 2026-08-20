@@ -1,0 +1,59 @@
+{
+ "schema_version": 1,
+ "scenario_root": "tests/live_agentic_harness/scenfails4",
+ "scenario_count": 4,
+ "entries": [
+  {
+   "id": "image-animatediff-video-generation-with-vae-d20410",
+   "path": "tests/live_agentic_harness/scenfails4/image-animatediff-video-generation-with-vae-d20410.json",
+   "descriptor_sha256": "e18c6090e4b86904a4bbbbfe85bdbf6a46c0595f11f464306cea7c46ac8d2a5c",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "edit",
+   "source_workflow": {
+    "id": "d20410227419c47a",
+    "path": "external_workflows/corpus/d20410227419c47a.json",
+    "sha256": "6bfafa1aa997bad786f7080669ebc7aac1d53ea8578a7a4bb18ff4f5d0f87f31"
+   }
+  },
+  {
+   "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
+   "path": "tests/live_agentic_harness/scenfails4/image-kolors-image-generation-with-segs-detailer-and-d813fe.json",
+   "descriptor_sha256": "ef8986a84b013095867c780445bb5bead578be31973f398e7c0245396c79a790",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "edit",
+   "source_workflow": {
+    "id": "d813fedaabea87b7",
+    "path": "external_workflows/corpus/d813fedaabea87b7.json",
+    "sha256": "501fe619c5f4f686d93053390843ade4100e8c8b8b20556e68c35451a4afccc0"
+   }
+  },
+  {
+   "id": "multi-crops-face-previews-it-sets",
+   "path": "tests/live_agentic_harness/scenfails4/multi-crops-face-previews-it-sets.json",
+   "descriptor_sha256": "a6a7002d7be035bd14f35adcb6baa5e7d17547caf78e5e30a5c0ff6b0138e1e7",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "edit",
+   "source_workflow": {
+    "id": "d7363d65465708f5",
+    "path": "tests/fixtures/live_agentic_corpus/d7363d65465708f5.json",
+    "sha256": "7730940ab01727f13901b82d57ac190c937aed3bdf4f768714beab76fa97fc97"
+   }
+  },
+  {
+   "id": "video-svd-image-to-video-generation-fc240f",
+   "path": "tests/live_agentic_harness/scenfails4/video-svd-image-to-video-generation-fc240f.json",
+   "descriptor_sha256": "9db971822b1d3773a0c8957b2dfdc4b90ed4b00a326ea367179caee972564711",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "edit",
+   "source_workflow": {
+    "id": "fc240f1c4331a5e5",
+    "path": "external_workflows/corpus/fc240f1c4331a5e5.json",
+    "sha256": "bdf02f9705e5efdbf75feceb5ccf4c84b7914dd0796573433aa18835b9f62d01"
+   }
+  }
+ ]
+}

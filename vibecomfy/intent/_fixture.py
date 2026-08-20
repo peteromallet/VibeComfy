@@ -6,11 +6,23 @@ changed the right place but the edit does not actually achieve the nl_intent.
 
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from vibecomfy.intent._ledger import (  # noqa: F401 — one ledger, re-exported
+    CLASS_D_HARD_FLOOR_IDS,
+    EXIT_FAILURE_LEDGER,
+    FailureLedgerRow,
+    LEDGER_ID_COUNT,
+    LEDGER_RECONSTRUCTION_SOURCE,
+    LEDGER_UNRECOVERABLE_COUNT,
+    assert_ledger_integrity,
+    ledger_scenario_ids,
+)
 
 
 @dataclass
@@ -68,12 +80,12 @@ def _apply_op(wf: Any, op: dict) -> None:
     new_val = op["new"]
     old_val = op.get("old")
 
-    if isinstance(wf, dict) and isinstance(wf.get("nodes"), list):
+    if isinstance(wf, dict) and isinstance(door_get_nodes(wf), list):
         # UI-format: search top-level nodes and subgraph definitions
         node = _find_ui_node(wf, node_id)
         if node is None:
             raise KeyError(f"Node {node_id!r} not found in UI workflow")
-        wv = node.get("widgets_values")
+        wv = door_get_widgets_values(node)
         if wv is not None and len(wv) > 0:
             # Find widget slot by exact old value first
             if old_val is not None and old_val in wv:
@@ -94,12 +106,10 @@ def _apply_op(wf: Any, op: dict) -> None:
             inputs = node.get("inputs", [])
             widget_inputs = [i for i in inputs if i.get("widget") and i.get("link") is None]
             target = next((i for i in widget_inputs if i.get("name") == field), None)
-            if target is not None:
-                if wv is None:
-                    node["widgets_values"] = [new_val]
-                else:
-                    wv.append(new_val)
-            # If not found at all, skip silently (ALLOW by no-change)
+            if target is not None and isinstance(wv, list):
+                wv.append(new_val)
+            # Missing widgets_values is left unchanged: assigning that graph
+            # key belongs in the ingest/emit doors, not the fixture loader.
     else:
         # API-format: keys are node IDs
         if node_id in wf:
@@ -127,13 +137,13 @@ def _find_ui_node(wf: dict, node_id: str) -> dict | None:
         pass
 
     # Search top-level nodes
-    for n in wf.get("nodes", []):
+    for n in door_get_nodes(wf, []):
         if str(n.get("id")) == node_id or n.get("id") == int_id:
             return n
 
     # Search inside subgraph definitions (ComfyUI UI format with definitions.subgraphs)
     for sg in wf.get("definitions", {}).get("subgraphs", []):
-        for n in sg.get("nodes", []):
+        for n in door_get_nodes(sg, []):
             if str(n.get("id")) == node_id or n.get("id") == int_id:
                 return n
 

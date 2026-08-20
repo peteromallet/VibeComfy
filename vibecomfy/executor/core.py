@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -47,16 +48,22 @@ from vibecomfy.executor.profiler import (
     profiler_span,
     short_text,
 )
+from vibecomfy.ingest.normalize import door_get_nodes
 
 from .agent_backend import run_classify_turn, run_reply_turn
 from .agent_research_stage import (
-    DECISION_SYNTHESIZE,
+    RESEARCH_ATTEMPT_EMPTY,
+    RESEARCH_ATTEMPT_GROUNDED,
+    RESEARCH_ATTEMPT_NEVER,
+    RESEARCH_ATTEMPT_THIN,
     AgentResearchTrace,
     build_research_brief,
+    derive_research_attempt,
     form_research_question,
     run_agent_research_stage,
 )
 from .evidence_pack import EvidenceLedger, EvidenceLedgerEntry, EvidencePack
+from .graph_inspection import inspect_graph, render_inspect_markdown
 from .stage_contracts import StageDiagnostic, StagePackage
 from .tool_contracts import ToolStatus
 from .prompts import build_classify_messages
@@ -70,7 +77,6 @@ from .contracts import (
     coerce_model_attempts,
     warning_detail_from_exception,
 )
-from .graph_inspection import _graph_inspection
 from .profiles import (
     AgentSpecShape,
     load_profile,
@@ -81,6 +87,7 @@ LOGGER = logging.getLogger(__name__)
 # Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
 # events emitted while the implement phase is running.
 _IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+_RESEARCH_HANG_RETRY_SKIP_ENV = "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"
 
 
 def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
@@ -285,83 +292,86 @@ def _should_implement(plan: ClassifyDecision) -> bool:
     return _route_behavior(plan).needs_implement
 
 
-# ── graph summary helpers ────────────────────────────────────────────────────
+# ── stage lens sets (Law 4, batch 12) ────────────────────────────────────────
+#
+# Every stage consumes the composable renderer
+# (``vibecomfy.porting.render``) with exactly the lens set it is allowed to
+# see:
+#   * classify → census (compact node/class census + reference map)
+#   * reply (inspect / respond with a graph) → surface + diff(Δ) + topology
+#     (the complete Python view, what changed, full computed topology)
+#   * judge → a STRICT SUBSET of the reply's lens set, enforced at the
+#     render boundary via ``ceiling=`` (the reply's set is the ceiling).
+# The reply lens set is the model's graph window — nothing is truncated.
+
+_REPLY_LENSES: tuple[str, ...] = ("surface", "diff", "topology")
+_CLASSIFY_LENSES: tuple[str, ...] = ("census",)
 
 
-def _graph_summary(graph: dict[str, Any] | None) -> str | None:
-    """Build a compact (≤ 200 char) graph summary for the classify prompt."""
+def _render_graph_text(
+    graph: dict[str, Any] | None,
+    *,
+    delta: Any = (),
+    lenses: tuple[str, ...] = _REPLY_LENSES,
+) -> str | None:
+    """Render the model-facing graph text via the composable renderer.
+
+    Batch 12 (Law 4): the reply/inspect stage consumes ``render_text(wf,
+    ("surface", "diff", "topology"))`` — the complete Python-surface view,
+    the accepted Δ (what changed — canonical batch only), and the COMPLETE
+    computed topology (no 5-widget / 6-input / 20-edge caps).  A stage
+    requests exactly the lens set it is allowed to see (the implement
+    stage, which has no accepted Δ yet, requests surface+topology).  The
+    graph is converted through the ingest door inside the renderer;
+    ``None`` when no graph is attached.
+    """
     if not graph:
         return None
-    if isinstance(graph.get("nodes"), list) and not graph["nodes"]:
-        return "Empty graph (0 nodes)."
-    nodes = list(_iter_graph_nodes(graph))
-    if not nodes:
-        return None
-    n = len(nodes)
-    # Collect a few class_type hints.
-    types: list[str] = []
-    for _node_id, node in nodes[:8]:
-        ct = node.get("class_type") or node.get("type")
-        if isinstance(ct, str) and ct.strip():
-            types.append(ct.strip())
-    type_list = ", ".join(types[:5]) if types else "unknown"
-    suffix = f", and {n - 5} more" if n > 5 else ""
-    return f"{n} node(s): {type_list}{suffix}"
+    from vibecomfy.porting.render import render_text
+
+    return render_text(graph, lenses=lenses, delta=delta)
 
 
-def _iter_graph_nodes(graph: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
-    """Return graph nodes from UI-style lists or API-style id mappings."""
-    if not isinstance(graph, dict):
-        return []
-    nodes = graph.get("nodes")
-    if isinstance(nodes, list):
-        result: list[tuple[str, dict[str, Any]]] = []
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                continue
-            nid = node.get("id")
-            result.append((str(nid) if nid is not None else str(index), node))
-        return result
-    if isinstance(nodes, dict):
-        result = []
-        for node_id, node in nodes.items():
-            if isinstance(node, dict) and (
-                "class_type" in node or "type" in node or "inputs" in node
-            ):
-                result.append((str(node_id), node))
-        return result
-    result = []
-    for node_id, node in graph.items():
-        if isinstance(node, dict) and (
-            "class_type" in node or "type" in node or "inputs" in node
-        ):
-            result.append((str(node_id), node))
-    return result
+def _render_census_text(graph: dict[str, Any] | None) -> str | None:
+    """Render classify's lens: the compact node/class census (+ reference map).
 
-
-def _build_graph_reference_map(graph: dict[str, Any] | None) -> dict[str, str]:
-    """Build a compact ``{node_id: label}`` reference map from *graph*.
-
-    Returns an empty dict when *graph* is None or has no nodes.
-    Labels use ``title`` when available, falling back to ``class_type``/``type``.
+    Batch 12 (Law 4): classify sees ONLY the census — node count, class
+    list, and the reference map.  No widgets, no edges, no topology.
     """
-    ref_map: dict[str, str] = {}
-    for nid_str, node in _iter_graph_nodes(graph):
-        # Prefer title, then class_type/type.
-        title = node.get("title")
-        if isinstance(title, str) and title.strip():
-            ct = node.get("class_type") or node.get("type")
-            if isinstance(ct, str) and ct.strip():
-                ref_map[nid_str] = f"{title.strip()} ({ct.strip()})"
-            else:
-                ref_map[nid_str] = title.strip()
-        else:
-            ct = node.get("class_type") or node.get("type")
-            if isinstance(ct, str) and ct.strip():
-                ref_map[nid_str] = ct.strip()
-            else:
-                ref_map[nid_str] = f"node {nid_str}"
-    return ref_map
+    if not graph:
+        return None
+    from vibecomfy.porting.render import render_text
+
+    return render_text(graph, lenses=_CLASSIFY_LENSES)
+
+
+def _accepted_delta_ops(
+    implementation_result: ImplementationResult | None,
+) -> tuple[dict[str, Any], ...]:
+    """Return the accepted Δ ops from the implement phase's durable response.
+
+    The canonical Δ is ``accepted_batch`` (batch 10): the accepted edit
+    statements that landed, each carrying its typed ``op``.  No other
+    representation (``batch_turns[].delta_ops_envelope`` / ``delta_ops``,
+    the top-level ``delta_ops_envelope`` / ``delta_ops``) is consulted —
+    one source.  Pure structured extraction — prose is never used.
+    """
+    if implementation_result is None:
+        return ()
+    durable = implementation_result.durable_response
+    if not isinstance(durable, Mapping):
+        return ()
+    accepted = durable.get("accepted_batch")
+    # ImplementationResult freezes JSON arrays to tuples.  Accept both the
+    # pre-freeze list and the durable frozen tuple; rejecting the tuple made
+    # the canonical accepted delta disappear precisely at the reply boundary.
+    if not isinstance(accepted, (list, tuple)):
+        return ()
+    ops = [
+        dict(item["op"]) for item in accepted
+        if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
+    ]
+    return tuple(ops)
 
 
 def _build_session_context(request: ExecutorRequest) -> dict[str, Any] | None:
@@ -668,52 +678,177 @@ def _resolve_spec(
 # ── classify phase ───────────────────────────────────────────────────────────
 
 
+def _classify_stage_message(message: str) -> str:
+    """Classify-stage failures are not workflow-validation errors (RC7)."""
+    if "edited workflow has validation errors" in (message or ""):
+        return (
+            "Classification failed: the classifier reply was missing required "
+            "fields or was not valid JSON. The graph is unchanged."
+        )
+    return message
+
+
+_CLASSIFY_JSON_NUDGE = (
+    "Your previous reply was missing required fields or was not valid JSON. "
+    "Return the exact JSON object required by the classify schema and nothing else."
+)
+
+
+_CLASSIFY_EDIT_ROUTING_NUDGE = (
+    "This interaction expects a graph change (expect_graph_changed=true). "
+    "Classify route MUST be an edit route (\"revise\", \"adapt\", "
+    "or \"reorganise\"). Non-applyable routes such as \"inspect\" and "
+    "\"respond\" will be rejected; choose the concrete edit route the request supports."
+)
+
+
+def _satisfies_expected_graph_change(plan: ClassifyDecision) -> bool:
+    """True only for routes that can actually return an edited graph."""
+    return plan.effective_route in {"revise", "adapt", "reorganise"}
+
+
+def _classify_parse_is_retryable(exc: BaseException) -> bool:
+    """True for classify malformed_json / missing_required_fields only."""
+    if isinstance(exc, (MalformedModelJSON, MissingRequiredField)):
+        return True
+    from vibecomfy.executor.agent_backend import _downstream_failure_type
+
+    raw = getattr(exc, "raw_response_preview", None)
+    return _downstream_failure_type(raw if isinstance(raw, str) else None) in {
+        "malformed_json",
+        "missing_required_fields",
+    }
+
+
+def _reroute_expected_edit(
+    request: ExecutorRequest,
+    kwargs: dict[str, Any],
+) -> ClassifyDecision:
+    """Re-ask a classify turn that chose a non-applyable expected-edit route.
+
+    RC14: when ``expect_graph_changed`` is true, ``respond`` and ``inspect``
+    are both no-ops for the apply gate. Re-ask once with an edit-routing nudge;
+    if the model still chooses a non-applyable route, fail loudly.
+    """
+    base_messages = kwargs.get("messages")
+    if not isinstance(base_messages, list):
+        base_messages = build_classify_messages(
+            request.query,
+            has_graph=request.graph is not None,
+            graph_summary=_render_census_text(request.graph),
+            expect_graph_changed=True,
+        )
+    reroute_kwargs = dict(kwargs)
+    reroute_kwargs["messages"] = [
+        *base_messages,
+        {"role": "user", "content": _CLASSIFY_EDIT_ROUTING_NUDGE},
+    ]
+    plan = run_classify_turn(request.query, **reroute_kwargs)
+    if not _satisfies_expected_graph_change(plan):
+        raise _ExecutorPhaseError(
+            stage="classify",
+            failure_kind=FailureKind.MISSING_REQUIRED_FIELD.value,
+            message=(
+                "Classification failed: the scenario expects a graph change "
+                "(expect_graph_changed=true), but classify still routed to "
+                f"{plan.effective_route}. The classify route must be an "
+                "applyable edit route (revise, adapt, or reorganise), so the "
+                "request was rejected instead of proceeding as a no-op."
+            ),
+        )
+    return plan
+
+
 def _run_classify(
     request: ExecutorRequest,
     spec: AgentSpecShape,
     *,
     session_context: dict[str, Any] | None = None,
-    graph_reference_map: dict[str, str] | None = None,
+    expect_graph_changed: bool | None = None,
 ) -> ClassifyDecision:
     """Run the classify model turn.
 
     Always calls the model (SD1).  Converts provider exceptions through
     ``classify_failure`` so raw exceptions never leak.
+
+    *expect_graph_changed* declares the interaction's edit contract (RC14).
+    When True, a non-applyable plan is never returned: the first attempt is
+    re-asked once, and a malformed-JSON / missing-fields retry is re-asked
+    once, then rejected if the model still does not choose an edit route.
     """
     try:
         # Build enriched messages when session context carries actual data
         # for reference resolution (M3).  Otherwise, let run_classify_turn
         # build them from the default parameters.
-        graph_summary = _graph_summary(request.graph)
+        # Batch 12 (Law 4): classify sees ONLY the census lens — the compact
+        # node/class census + reference map (derived from the IR via the
+        # renderer).  No widgets, no edges, no raw-JSON sidecar.
+        graph_summary = _render_census_text(request.graph)
         classify_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
             "effort": spec.effort,
             "has_graph": request.graph is not None,
             "graph_summary": graph_summary,
+            "expect_graph_changed": expect_graph_changed,
         }
-        # Pre-build messages whenever we have context beyond the bare query.
-        # First-turn graph edits need the node reference map just as much as
-        # follow-ups do; otherwise the classifier sees "a graph is attached"
-        # without the custom class names required for revise/adapt routing.
-        if graph_reference_map or (
-            isinstance(session_context, dict)
-            and (
-                session_context.get("recent_messages")
-                or session_context.get("prior_clarification")
-                or session_context.get("latest_candidate")
-                or session_context.get("prior_route")
-            )
+        # Pre-build messages whenever we have session context beyond the
+        # bare query.  The census lens already carries the node reference
+        # map, so no separate raw-JSON walk is needed for reference
+        # resolution on first-turn or follow-up graph edits.
+        if isinstance(session_context, dict) and (
+            session_context.get("recent_messages")
+            or session_context.get("prior_clarification")
+            or session_context.get("latest_candidate")
+            or session_context.get("prior_route")
         ):
             classify_kwargs["messages"] = build_classify_messages(
                 request.query,
                 has_graph=request.graph is not None,
                 graph_summary=graph_summary,
                 session_context=session_context,
-                graph_reference_map=graph_reference_map,
+                expect_graph_changed=expect_graph_changed,
             )
 
-        return run_classify_turn(request.query, **classify_kwargs)
+        try:
+            plan = run_classify_turn(request.query, **classify_kwargs)
+        except (ProviderError, AuthError, TimeoutError) as first_exc:
+            if not _classify_parse_is_retryable(first_exc):
+                raise
+        except Exception as first_exc:
+            if isinstance(first_exc, _ExecutorPhaseError) or not _classify_parse_is_retryable(
+                first_exc
+            ):
+                raise
+        else:
+            if expect_graph_changed is True and not _satisfies_expected_graph_change(plan):
+                # Hard rule: an expected-edit interaction never proceeds via a
+                # non-applyable route (RC14). Re-ask once, then fail loudly.
+                plan = _reroute_expected_edit(request, classify_kwargs)
+            return plan
+        retry_kwargs = dict(classify_kwargs)
+        base_messages = retry_kwargs.get("messages")
+        if not isinstance(base_messages, list):
+            base_messages = build_classify_messages(
+                request.query,
+                has_graph=request.graph is not None,
+                graph_summary=graph_summary,
+                session_context=session_context if isinstance(session_context, dict) else None,
+                expect_graph_changed=expect_graph_changed,
+            )
+        retry_content = _CLASSIFY_JSON_NUDGE
+        if expect_graph_changed is True:
+            retry_content = f"{retry_content}\n\n{_CLASSIFY_EDIT_ROUTING_NUDGE}"
+        retry_kwargs["messages"] = [
+            *base_messages,
+            {"role": "user", "content": retry_content},
+        ]
+        plan = run_classify_turn(request.query, **retry_kwargs)
+        if expect_graph_changed is True and not _satisfies_expected_graph_change(plan):
+            # The retry corrected the JSON but chose a non-applyable route —
+            # re-ask once, then reject instead of returning a no-op (RC14).
+            plan = _reroute_expected_edit(request, retry_kwargs)
+        return plan
     except _ExecutorPhaseError:
         raise
     except (ProviderError, AuthError, MalformedModelJSON,
@@ -724,7 +859,7 @@ def _run_classify(
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
+            message=_classify_stage_message(failure.user_facing_message),
             failure_envelope=failure,
             model_attempts=_failure_model_attempts(failure),
         ) from exc
@@ -734,7 +869,7 @@ def _run_classify(
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
+            message=_classify_stage_message(failure.user_facing_message),
             failure_envelope=failure,
             model_attempts=_failure_model_attempts(failure),
         ) from exc
@@ -797,6 +932,20 @@ class AgentResearchResult:
         return self.trace.summary
 
     @property
+    def research_attempt(self) -> str:
+        """Typed attempt (never/empty/thin/grounded) derived from the ledger.
+
+        Batch 14: the attempt is derived in Python from the research tool
+        ledger + artifacts — never from model judgment — so it is correct
+        even for manually-constructed results whose trace lacks an ``attempt``
+        field.
+        """
+        return derive_research_attempt(
+            ledger=self.ledger,
+            artifacts=self.evidence_pack.artifacts,
+        )
+
+    @property
     def warnings(self) -> tuple[str, ...]:
         return tuple(self.trace.warnings) + tuple(
             str(item.get("message") or "")
@@ -810,6 +959,7 @@ class AgentResearchResult:
             "route": self.route,
             "status": self.trace.status,
             "verdict": self.trace.final_verdict,
+            "research_attempt": self.research_attempt,
             "diagnostics": [dict(item) for item in self.policy_diagnostics],
         }
         if self.decision_memo is not None:
@@ -856,6 +1006,7 @@ def _research_decision_memo(
     trace: AgentResearchTrace,
     *,
     diagnostics: tuple[dict[str, Any], ...],
+    attempt: str,
 ) -> dict[str, Any]:
     inspected = [
         evidence_id
@@ -868,15 +1019,46 @@ def _research_decision_memo(
         for item in diagnostics
         if str(item.get("message") or "").strip()
     )
+    # Batch 14: the memo NEVER refuses because research was thin.  The memo is
+    # attempt-typed: on never/empty the conclusion states the attempt's own
+    # fact (no evidence tools were called / no evidence was gathered) — never
+    # a fake synthesis pulled from a blank trace.summary — so the reply model
+    # answers from the attached graph and its own knowledge.  "No supported
+    # conclusion was produced" is gone.
+    if attempt == RESEARCH_ATTEMPT_NEVER:
+        conclusion = (
+            "No evidence tools were called; no external evidence was gathered. "
+            "Answer from the attached workflow graph and general knowledge."
+        )
+    elif attempt == RESEARCH_ATTEMPT_EMPTY:
+        conclusion = (
+            "Evidence tools were called but returned no evidence; no external "
+            "evidence was gathered. Answer from the attached workflow graph "
+            "and general knowledge."
+        )
+    else:
+        conclusion = trace.summary or (
+            "No external evidence was gathered by the research stage; "
+            "answer from the attached workflow graph and general knowledge."
+        )
     return {
         "question": trace.question,
-        "conclusion": trace.summary or "No supported conclusion was produced.",
+        "conclusion": conclusion,
         "citations": inspected[:6],
         "uncertainty": " ".join(uncertainty_parts),
+        "research_attempt": attempt,
         "next_action": (
             "Use this conclusion for the requested next step."
-            if trace.final_verdict == "enough"
-            else "Refine the unresolved research question before acting on this conclusion."
+            if trace.final_verdict == "enough" and attempt in {
+                RESEARCH_ATTEMPT_THIN,
+                RESEARCH_ATTEMPT_GROUNDED,
+            }
+            else (
+                "Answer from the attached graph and general knowledge; "
+                "no external evidence was gathered."
+                if attempt in {RESEARCH_ATTEMPT_NEVER, RESEARCH_ATTEMPT_EMPTY}
+                else "Refine the unresolved research question before acting on this conclusion."
+            )
         ),
     }
 
@@ -887,6 +1069,7 @@ def _research_stage_package(
     trace: AgentResearchTrace,
     pack: EvidencePack,
     policy_diagnostics: tuple[dict[str, Any], ...],
+    research_attempt: str = RESEARCH_ATTEMPT_NEVER,
 ) -> StagePackage:
     """Build the F01 research :class:`StagePackage` handed to implement.
 
@@ -894,7 +1077,8 @@ def _research_stage_package(
     and typed diagnostics (policy warnings, trace failures) — the only
     research content the implement phase may consume.  ``StageRequest`` is
     not part of this seam: the classify decision (goal/route) is authoritative
-    and the package references are explicit on the wire.
+    and the package references are explicit on the wire.  ``research_attempt``
+    is the batch-14 typed attempt derived from the research tool ledger.
     """
     diagnostics: list[StageDiagnostic] = [
         StageDiagnostic(
@@ -924,9 +1108,15 @@ def _research_stage_package(
                 severity="error",
             )
         )
+    has_result_artifacts = any(
+        str(evidence_id) != "research_question" for evidence_id in pack.artifacts
+    )
+    # RC1: a single 57014 must not fail the whole package when any search
+    # hit or fetched artifact already exists.  Exhausted/failed with only
+    # the question marker stays UNAVAILABLE.
     status = (
         ToolStatus.OK
-        if trace.status == "ok"
+        if trace.status == "ok" or has_result_artifacts
         else ToolStatus.UNAVAILABLE
     )
     return StagePackage(
@@ -939,6 +1129,7 @@ def _research_stage_package(
         status=status,
         next_stage_hints=("implement",) if route == "adapt" else (),
         ledger=pack.ledger,
+        research_attempt=research_attempt,
     )
 
 
@@ -963,7 +1154,16 @@ def _run_agent_owned_research(
             artifacts=pack.artifacts,
             ledger=EvidenceLedger(entries=pack.ledger.entries + policy_entries),
         )
-    memo = _research_decision_memo(trace, diagnostics=diagnostics) if route == "research" else None
+    attempt = derive_research_attempt(ledger=pack.ledger, artifacts=pack.artifacts)
+    memo = (
+        _research_decision_memo(
+            trace,
+            diagnostics=diagnostics,
+            attempt=attempt,
+        )
+        if route == "research"
+        else None
+    )
     return AgentResearchResult(
         route=route,
         trace=trace,
@@ -973,57 +1173,51 @@ def _run_agent_owned_research(
             trace=trace,
             pack=pack,
             policy_diagnostics=diagnostics,
+            research_attempt=attempt,
         ),
         policy_diagnostics=diagnostics,
         decision_memo=memo,
     )
 
 
-def _research_recorded_synthesis(research_result: AgentResearchResult | None) -> bool:
-    """True when the research ledger records a usable partial synthesis.
+def _research_package_is_usable(
+    research_result: AgentResearchResult | None,
+    *,
+    route: str | None = None,
+    has_graph: bool = False,
+) -> bool:
+    """Attempt-typed gate for the research→implement handoff (RC2).
 
-    A usable synthesis is a ``synthesize`` ledger entry that cites at least
-    one evidence ID: the research agent concluded a direction grounded in
-    evidence, even if it also recorded uncertainty or an unresolved refine
-    question.  A synthesize entry with no citations, or no synthesize entry
-    at all, means there is nothing evidence-backed to implement from.
-    """
-    ledger = getattr(research_result, "ledger", None)
-    if ledger is None:
-        return False
-    for entry in ledger.entries:
-        if entry.decision == DECISION_SYNTHESIZE and entry.evidence_ids:
-            return True
-    return False
+    Implement proceeds when any of:
 
+    * attempt is ``thin`` or ``grounded`` and status is ``OK`` or
+      ``UNAVAILABLE`` (thin+UNAVAILABLE still has graph-local evidence)
+    * route is ``adapt``, a graph is attached, and the attempt is
+      ``never`` / ``empty`` or the package is ``UNAVAILABLE`` /
+      exhausted-from-timeout — the attached IR is the evidence
 
-def _research_package_is_usable(research_result: AgentResearchResult | None) -> bool:
-    """Fail-closed gate for the research→implement handoff.
-
-    The gate stays strict about research-RESULT validity: an adapt
-    implementation may proceed only when the C1 research package is a typed
-    ``StagePackage`` with ``status=OK`` (failed / exhausted / untyped results
-    are never implementable).  The ``enough`` verdict requirement is relaxed:
-    a verdict of ``refine`` (or any non-``enough`` verdict on an OK package)
-    still hands a usable direction to implement when the research agent
-    recorded a partial synthesis — a ``synthesize`` ledger entry citing
-    evidence.  The only research that skips implement is one that produced NO
-    synthesis whatsoever: an unavailable package, or an OK package whose
-    ledger records no evidence-backed synthesize entry.
+    Architectural invention is refused later by the implement prompt and
+    the RC6 apply-gate; this gate no longer skips a one-line graph-local
+    edit just because Hivemind timed out.
     """
     if research_result is None:
         return False
     package = getattr(research_result, "package", None)
     if not isinstance(package, StagePackage):
         return False
-    if package.status is not ToolStatus.OK:
-        return False
-    trace = getattr(research_result, "trace", None)
-    if trace is not None and getattr(trace, "final_verdict", None) in (None, "enough"):
+    attempt = research_result.research_attempt
+    status = package.status
+    if attempt in {RESEARCH_ATTEMPT_THIN, RESEARCH_ATTEMPT_GROUNDED}:
+        return status in {ToolStatus.OK, ToolStatus.UNAVAILABLE}
+    adapt_with_graph = route == "adapt" and has_graph
+    if adapt_with_graph and attempt in {
+        RESEARCH_ATTEMPT_NEVER,
+        RESEARCH_ATTEMPT_EMPTY,
+    }:
         return True
-    # Refine (or otherwise non-enough) verdict: proceed iff the research agent
-    # recorded a usable partial synthesis; skip only when there is none.
-    return _research_recorded_synthesis(research_result)
+    if adapt_with_graph and status is ToolStatus.UNAVAILABLE:
+        return True
+    return False
 
 
 def _run_implement(
@@ -1046,33 +1240,24 @@ def _run_implement(
     the edit engine are surfaced as :class:`_ExecutorPhaseError`.
     """
     executor_route = _canonical_route_for_plan(plan)
-    # P0-b: consume the research package status fail-closed.  An adapt
-    # implementation must not run — and must not report success — when the
-    # C1 research stage failed, exhausted its loop without an agent finish,
-    # or concluded with a refine verdict: there is no usable synthesis to
-    # implement from.
+    # RC2: adapt still implements when research is never/empty/UNAVAILABLE
+    # as long as a graph is attached — the IR is the evidence.  Architectural
+    # invention is refused by the implement prompt and the RC6 apply-gate.
     if (
         executor_route == "adapt"
         and research_result is not None
-        and not _research_package_is_usable(research_result)
-    ):
-        trace = research_result.trace
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
-            "research",
-            agent_failure_context={
-                "explanation": (
-                    "C1 research produced no usable synthesis "
-                    f"(status={trace.status}, verdict={trace.final_verdict}); "
-                    "implement was skipped so no edit is made from unsupported conclusions."
-                )
-            },
+        and not _research_package_is_usable(
+            research_result,
+            route=executor_route,
+            has_graph=request.graph is not None,
         )
-        raise _ExecutorPhaseError(
-            stage="research",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
+    ):
+        return ImplementationResult(
+            message=(
+                "No graph edit was made: research produced no "
+                "evidence-backed direction to implement "
+                f"(research_attempt={research_result.research_attempt})."
+            ),
         )
     if request.graph is None and executor_route != "research":
         return ImplementationResult(
@@ -1097,7 +1282,15 @@ def _run_implement(
         "additive": bool(additive),
         "max_batches": request.max_batches,
     }
-    graph_inspection = _graph_inspection(request.graph)
+    # Batch 11/12 (Law 4): the implement stage's model-facing graph text is
+    # the composable renderer's surface+topology view (COMPLETE — no
+    # 5-widget/6-input/20-edge caps).  The implement stage has no accepted Δ
+    # yet (the batch is its output), so it requests exactly that lens set;
+    # the truncated text summary is no longer the authority.
+    graph_inspection = _render_graph_text(
+        request.graph,
+        lenses=("surface", "topology"),
+    )
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         payload["graph_inspection"] = graph_inspection
     research_package = getattr(research_result, "package", None)
@@ -1347,6 +1540,342 @@ def _research_brief_from_plan(
     return brief
 
 
+# ── reply grounding (fidelity + node-id guards) ─────────────────────────────
+#
+# The reply is the user-facing claim about what the executor did.  Two
+# v5 failures were narrative defects, not graph defects:
+#   * v5-batch-3 #3 — graph_unchanged=true / no_candidate_reason="no_changes"
+#     while the reply asserted "the edit landed and validation passed"
+#     (false success: the claim contradicted the accepted Δ).
+#   * v5-batch-4 #1 — the reply cited HyVideoEncode node ID 120 although the
+#     final graph wires node 43 (node-id hallucination).
+# The guards below are deterministic, post-hoc, and applied to every reply
+# before it is returned: the reply's claims must be consistent with the
+# accepted Δ / landed operations, and every cited node id/uid must exist in
+# the graph.  They run after the model turn, so a model that ignores the
+# prompt-level grounding facts still cannot emit a false-success reply.
+
+_LANDED_EDIT_VERBS = (
+    "adjusted|added|applied|bumped|changed|converted|decreased|edited|"
+    "increased|lowered|modified|moved|raised|reconnected|removed|replaced|"
+    "rewired|switched|updated"
+)
+
+# First-person edit claims + declarative success claims.  Only consulted when
+# no edit actually landed, so over-matching is safe: when the graph is
+# unchanged, any of these phrases is a false-success claim that must be
+# corrected.  Negated forms ("No changes were applied", "No edit landed")
+# are excluded via the ``no``/``not`` lookbehinds — those are the truthful
+# statements the guard itself emits.
+_LANDED_CLAIM_RE = re.compile(
+    r"(?ix)"
+    r"(?<!no\s)(?<!not\s)\b(?:the\s+)?edit\s+landed\b"
+    r"|(?<!no\s)(?<!not\s)\b(?:the\s+)?edit\s+was\s+(?:successfully\s+)?applied\b"
+    r"|(?<!no\s)(?<!not\s)\b(?:the\s+)?change\s+(?:has|was)\s+been\s+(?:successfully\s+)?applied\b"
+    r"|(?<!no\s)(?<!not\s)\bchanges?\s+were\s+(?:successfully\s+)?applied\b"
+    r"|\bvalidation\s+passed\b"
+    rf"|\bI\s+(?:have\s+)?(?:{_LANDED_EDIT_VERBS})\b"
+    rf"|\bI've\s+(?:{_LANDED_EDIT_VERBS})\b"
+    r"|\bI\s+set\b(?!\s+up\b)"
+    r"|\bI've\s+set\b(?!\s+up\b)"
+    r"|\bI\s+(?:have\s+)?made\s+(?:the\s+|these\s+|those\s+|this\s+)?changes?\b"
+)
+
+_NO_LANDED_EDIT_CLAIM_RE = re.compile(
+    r"(?ix)"
+    r"\b(?:the\s+)?(?:workflow|graph)\s+(?:is|was|remains?)\s+(?:exactly\s+)?unchanged\b"
+    r"|\bno\s+(?:workflow\s+)?changes?\s+(?:were|was|have\s+been)\s+(?:successfully\s+)?(?:applied|made)\b"
+    r"|\bno\s+edit\s+(?:was\s+)?(?:applied|landed)\b"
+    r"|\b(?:the\s+)?edit\s+(?:did\s+not|didn't|could\s+not|couldn't)\s+(?:apply|land)\b"
+    r"|\bvalidation\s+(?:failed|did\s+not\s+pass)\b"
+)
+
+# Cue-anchored node id/uid mentions ("node 43", "node ID 120", "uid 742",
+# "node_id 218").  Link ids are a separate namespace and are excluded via the
+# fixed-width lookbehind on ``id``.
+_NODE_CITE_RE = re.compile(
+    r"(?ix)"
+    r"\bnode\s+ids?\b\s*[#:]?\s*(\d{1,6})"
+    r"|\bnode_id\b\s*[#:]?\s*(\d{1,6})"
+    r"|\bnodes?\b\s*[#:]?\s*(\d{1,6})"
+    r"|\buids?\b\s*[#:]?\s*(\d{1,6})"
+    r"|(?<!\blink\s)\bid\b\s*[#:]?\s*(\d{1,6})"
+)
+
+# Identifiers that are never legitimate node cites ("120 fps" style values
+# are not cue-anchored, so this set only filters prose like "step 5").  The
+# guard additionally requires a surrounding cue word, so bare numbers in the
+# reply are never treated as cites.
+
+
+def _reply_claims_landed_edit(reply: str) -> bool:
+    """Return True when *reply* asserts that a graph edit landed/applied.
+
+    Detects first-person edit claims (``I changed ...``, ``I've updated ...``)
+    and declarative success claims (``the edit landed``, ``validation
+    passed``, ``the change was applied``).  Meaningful only as a guard when
+    no edit actually landed: with ``landed=False`` any such phrase is a
+    false-success claim.
+    """
+    if not reply:
+        return False
+    return _LANDED_CLAIM_RE.search(reply) is not None
+
+
+def _no_change_reply(reason: str | None = None) -> str:
+    """Deterministic truthful reply for the no-edit-landed case.
+
+    Replaces narratives that falsely claimed an edit landed (the fidelity
+    guard).  Cite-free by construction, so it also satisfies the node-id
+    guard.
+    """
+    parts = [
+        "No changes were applied to the workflow: the graph is unchanged and "
+        "no edit landed."
+    ]
+    if reason:
+        parts.append(f"The edit phase reported: {reason}.")
+    parts.append(
+        "If you'd like, I can explain what an edit would require, but I did "
+        "not modify the workflow."
+    )
+    return "\n\n".join(parts)
+
+
+def _accepted_delta_reply(delta_ops: tuple[dict[str, Any], ...]) -> str:
+    """Truthful fallback when narration contradicts the accepted delta."""
+    from vibecomfy.porting.render import render
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+    empty = VibeWorkflow(
+        id="reply-grounding",
+        source=WorkflowSource(id="reply-grounding"),
+    )
+    rendered = str(render(empty, lens="diff", delta=delta_ops))
+    detail = rendered.split("\n", 1)[1] if "\n" in rendered else rendered
+    return (
+        "The workflow edit landed. The accepted change set is:\n\n"
+        f"{detail}\n\n"
+        "This summary is generated from the accepted delta, which is the "
+        "authoritative record of what changed."
+    )
+
+
+def _implementation_landed_edit(result: ImplementationResult | None) -> bool:
+    """Return True when the implement phase actually landed graph edits.
+
+    The durable response's accepted Δ (``accepted_batch``) is the canonical
+    "what landed" statement (batch 10 — one source, prose never consulted);
+    a returned graph or a candidate outcome also implies a landed edit.
+    Terminal no-candidate responses (``no_changes``, ``clarify``, ``noop``,
+    ...) are by definition not landed.
+    """
+    if result is None:
+        return False
+    if _accepted_delta_ops(result):
+        return True
+    durable = result.durable_response
+    if isinstance(durable, Mapping):
+        if _implementation_response_is_terminal_no_candidate(dict(durable)):
+            return False
+        outcome = durable.get("outcome")
+        if isinstance(outcome, Mapping) and outcome.get("kind") == "candidate":
+            return True
+    return result.graph is not None
+
+
+def _no_candidate_reason(result: ImplementationResult | None) -> str | None:
+    """Return the durable no-candidate reason, if any."""
+    if result is None:
+        return None
+    durable = result.durable_response
+    if not isinstance(durable, Mapping):
+        return None
+    reason = durable.get("no_candidate_reason")
+    return str(reason) if isinstance(reason, str) and reason.strip() else None
+
+
+def _collect_node_identifiers(ids: set[str], node: Any) -> None:
+    """Collect a node dict's ``id`` / ``uid`` / ``properties.vibecomfy_uid``."""
+    if not isinstance(node, Mapping):
+        return
+    for field in ("id", "uid"):
+        value = node.get(field)
+        if value is not None and str(value).strip():
+            ids.add(str(value))
+    properties = node.get("properties")
+    if isinstance(properties, Mapping):
+        value = properties.get("vibecomfy_uid")
+        if value is not None and str(value).strip():
+            ids.add(str(value))
+
+
+def _graph_node_ids(graph: dict[str, Any] | None) -> frozenset[str]:
+    """All node identifiers (ids + uids) that exist in the final graph.
+
+    Understands the canonical UI JSON shape (``nodes`` list with per-node
+    ``id`` / ``properties.vibecomfy_uid``) and mapping-style IR graphs
+    (``nodes`` keyed by node id, with optional per-node ``id``/``uid``).
+    """
+    if not isinstance(graph, Mapping):
+        return frozenset()
+    ids: set[str] = set()
+    nodes = door_get_nodes(graph)
+    if isinstance(nodes, Mapping):
+        for key, node in nodes.items():
+            ids.add(str(key))
+            _collect_node_identifiers(ids, node)
+    elif isinstance(nodes, list):
+        for node in nodes:
+            _collect_node_identifiers(ids, node)
+    return frozenset(ids)
+
+
+def _collect_node_class(classes: dict[str, list[str]], node_id: str, node: Any) -> None:
+    if not isinstance(node, Mapping):
+        return
+    class_type = node.get("class_type") or node.get("type")
+    if not isinstance(class_type, str) or not class_type.strip():
+        return
+    key = class_type.strip().casefold()
+    if node_id:
+        classes.setdefault(key, []).append(node_id)
+
+
+def _graph_node_classes(graph: dict[str, Any] | None) -> dict[str, tuple[str, ...]]:
+    """casefolded class_type → real node ids (for class-based ID correction)."""
+    if not isinstance(graph, Mapping):
+        return {}
+    classes: dict[str, list[str]] = {}
+    nodes = door_get_nodes(graph)
+    if isinstance(nodes, Mapping):
+        for key, node in nodes.items():
+            _collect_node_class(classes, str(key), node)
+    elif isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            node_id = node.get("id")
+            if node_id is None:
+                node_id = node.get("uid")
+            _collect_node_class(classes, "" if node_id is None else str(node_id), node)
+    return {name: tuple(ids) for name, ids in classes.items()}
+
+
+def _ground_cited_id(
+    sentence: str,
+    classes: Mapping[str, tuple[str, ...]],
+) -> str | None:
+    """Return a real node id when *sentence* uniquely names a node class.
+
+    ``None`` when the sentence names no class, names several nodes of one
+    class, or names nothing resolvable — the caller then strips the cite.
+    """
+    sentence_l = sentence.casefold()
+    for class_name, node_ids in classes.items():
+        if len(node_ids) != 1 or len(class_name) < 4:
+            continue
+        if re.search(
+            rf"(?<![a-z0-9]){re.escape(class_name)}(?![a-z0-9])",
+            sentence_l,
+        ):
+            return node_ids[0]
+    return None
+
+
+def _strip_cited_id(matched: str) -> str:
+    """Remove a hallucinated numeric cite while keeping the prose readable.
+
+    ``node 120`` → ``node``; ``node ID 120`` → ``node``; ``ID 120`` /
+    ``uid 120`` → ``""`` (a bare id cite without a number is meaningless).
+    """
+    lowered = matched.casefold()
+    if lowered.startswith(("node id", "node ids", "node_id")):
+        return "node"
+    if lowered.startswith("nodes "):
+        return "nodes"
+    if lowered.startswith("node "):
+        return "node"
+    return ""
+
+
+def _ground_reply_node_ids(reply: str, graph: dict[str, Any] | None) -> str:
+    """Correct or strip node ids cited in *reply* that do not exist in *graph*.
+
+    Every cue-anchored node id/uid mention (``node 43``, ``node ID 120``,
+    ``uid 742``, ...) must reference a real node identifier in the final
+    graph.  Hallucinated ids are replaced with the real id when the
+    surrounding sentence uniquely names the node class (e.g. the reply says
+    ``HyVideoEncode`` and the graph has exactly one such node); otherwise the
+    bogus cite is stripped.  Real cites are left untouched.
+    """
+    if graph is None or not reply:
+        return reply
+    real = _graph_node_ids(graph)
+    classes = _graph_node_classes(graph)
+    spans: dict[tuple[int, int], str] = {}
+    for match in _NODE_CITE_RE.finditer(reply):
+        cited = next(
+            (group for group in match.groups() if group is not None),
+            None,
+        )
+        if cited is None or cited in real:
+            continue
+        start, end = match.span()
+        s_start = reply.rfind(".", 0, start)
+        s_start = 0 if s_start == -1 else s_start + 1
+        s_end = reply.find(".", end)
+        if s_end == -1:
+            s_end = len(reply)
+        sentence = reply[s_start:s_end]
+        grounded = _ground_cited_id(sentence, classes)
+        if grounded is not None:
+            spans[(start, end)] = match.group(0).replace(cited, grounded)
+        else:
+            spans[(start, end)] = _strip_cited_id(match.group(0))
+    if not spans:
+        return reply
+    out: list[str] = []
+    pos = 0
+    for span in sorted(spans):
+        out.append(reply[pos:span[0]])
+        out.append(spans[span])
+        pos = span[1]
+    out.append(reply[pos:])
+    return "".join(out)
+
+
+def _enforce_reply_grounding(
+    reply: str,
+    *,
+    landed: bool,
+    graph: dict[str, Any] | None,
+    reason: str | None = None,
+    delta_ops: tuple[dict[str, Any], ...] = (),
+) -> str:
+    """Enforce the reply fidelity + node-id grounding guards.
+
+    1. Fidelity: when *landed* is False (no accepted Δ / graph unchanged), a
+       reply that claims an edit landed is a false success and is replaced
+       with a deterministic no-change reply — it never passes through.
+    2. Inverse fidelity: when an accepted delta exists, narration that says
+       the graph stayed unchanged is replaced by that canonical delta.
+    3. Node ids: when *graph* is present, every node id/uid cited by the
+       reply must exist in the graph; hallucinated ids are corrected to the
+       real id of a uniquely named node class or stripped.
+
+    The reply's claims therefore always agree with the accepted Δ / landed
+    operations (v5-batch-3 #3, v5-batch-4 #1).
+    """
+    if not landed and _reply_claims_landed_edit(reply):
+        return _no_change_reply(reason=reason)
+    if landed and delta_ops and _NO_LANDED_EDIT_CLAIM_RE.search(reply or ""):
+        reply = _accepted_delta_reply(delta_ops)
+    if graph is not None:
+        reply = _ground_reply_node_ids(reply, graph)
+    return reply
+
+
 # ── reply phase ──────────────────────────────────────────────────────────────
 
 
@@ -1371,16 +1900,17 @@ def _run_reply(
     implementation_message: str | None = (
         implementation_result.message if implementation_result else None
     )
-    graph_summary = _graph_summary(effective_graph)
-
-    # For inspect-only, replace the compact graph summary with the detailed
-    # inspection evidence so the reply model can describe the workflow
-    # step-by-step without suggesting edits.
-    effective_graph_context: str | None = graph_summary
-    if graph_inspection:
-        effective_graph_context = graph_inspection
-
     route_behavior = _route_behavior(plan)
+    # Edit/research replies use the authoring surface + diff + topology.
+    # Inspect-only replies use the separate named/unlabeled evidence lens so
+    # positional widget_N authoring aliases cannot become semantic claims.
+    delta_ops = _accepted_delta_ops(implementation_result)
+    graph_summary = (
+        None
+        if route_behavior.reply_uses_graph_inspection
+        else _render_graph_text(effective_graph, delta=delta_ops)
+    )
+
     effective_route = _canonical_route_for_plan(plan)
     effective_task = plan.effective_task
     candidate_present = (
@@ -1400,8 +1930,15 @@ def _run_reply(
         if research_result is not None and effective_route == "adapt"
         else None
     )
+    research_attempt = (
+        research_result.research_attempt
+        if research_result is not None and effective_route in {"research", "adapt"}
+        else None
+    )
 
     try:
+        landed_edit = _implementation_landed_edit(implementation_result)
+        real_node_ids = _graph_node_ids(effective_graph)
         reply_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
@@ -1409,19 +1946,24 @@ def _run_reply(
             "plan": plan,
             "research_memo": research_memo,
             "research_ledger": research_ledger,
+            "research_attempt": research_attempt,
             "implementation_message": implementation_message,
-            "graph_summary": effective_graph_context,
+            "graph_summary": graph_summary,
+            "graph_inspection": graph_inspection,
             "effective_route": effective_route,
             "effective_task": effective_task,
             "candidate_present": candidate_present,
             "interaction_mode": request.interaction_mode,
+            "landed_edit": landed_edit,
+            "real_node_ids": tuple(sorted(real_node_ids)) if real_node_ids else None,
         }
         # Gracefully degrade if the configured reply provider does not accept
         # newer keyword arguments.
         optional_reply_kwargs = (
-            "graph_summary", "research_memo", "research_ledger",
+            "graph_summary", "graph_inspection", "research_memo", "research_ledger",
             "effective_route", "effective_task",
-            "candidate_present", "interaction_mode",
+            "candidate_present", "interaction_mode", "research_attempt",
+            "landed_edit", "real_node_ids",
         )
         while True:
             try:
@@ -1441,24 +1983,51 @@ def _run_reply(
                     raise
                 reply_kwargs.pop(rejected_key, None)
         if isinstance(result, str):
-            return result
-        if isinstance(result, dict):
+            reply = result
+        elif isinstance(result, dict):
+            reply = ""
             for key in ("reply", "message", "text"):
                 value = result.get(key)
                 if isinstance(value, str) and value.strip():
-                    return value
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
-            "reply",
-            agent_failure_context={
-                "explanation": "Reply phase returned a response without reply text."
-            },
-        )
-        raise _ExecutorPhaseError(
-            stage="reply",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
+                    reply = value
+                    break
+            if not reply:
+                failure = failure_envelope(
+                    FailureKind.VALIDATION_ERROR,
+                    "reply",
+                    agent_failure_context={
+                        "explanation": "Reply phase returned a response without reply text."
+                    },
+                )
+                raise _ExecutorPhaseError(
+                    stage="reply",
+                    failure_kind=failure.kind.value,
+                    message=failure.user_facing_message,
+                    failure_envelope=failure,
+                )
+        else:
+            failure = failure_envelope(
+                FailureKind.VALIDATION_ERROR,
+                "reply",
+                agent_failure_context={
+                    "explanation": "Reply phase returned a response without reply text."
+                },
+            )
+            raise _ExecutorPhaseError(
+                stage="reply",
+                failure_kind=failure.kind.value,
+                message=failure.user_facing_message,
+                failure_envelope=failure,
+            )
+        # Fidelity + node-id grounding: the reply's claims must match the
+        # accepted Δ / landed operations, and cited node ids must exist in
+        # the graph (v5-batch-3 #3, v5-batch-4 #1).
+        return _enforce_reply_grounding(
+            reply,
+            landed=landed_edit,
+            graph=effective_graph,
+            reason=_no_candidate_reason(implementation_result),
+            delta_ops=delta_ops,
         )
     except (ProviderError, AuthError, MalformedModelJSON,
             MissingRequiredField, TimeoutError) as exc:
@@ -1673,11 +2242,10 @@ def run_executor(
         classify=_spec_fields(classify_spec),
     )
 
-    # ── Build session context and graph reference map (M3) ────────────────
+    # ── Build session context (M3) ──────────────────────────────────────
     session_context: dict[str, Any] | None = None
     if request.session_id:
         session_context = _build_session_context(request)
-    graph_reference_map = _build_graph_reference_map(request.graph)
 
     # ── Phase 1: classify (always via model) ─────────────────────────────
     try:
@@ -1699,7 +2267,7 @@ def run_executor(
                 request,
                 classify_spec,
                 session_context=session_context,
-                graph_reference_map=graph_reference_map,
+                expect_graph_changed=request.expect_graph_changed,
             )
             span.update(
                 plan_research=plan.research,
@@ -1806,7 +2374,11 @@ def run_executor(
         )
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
-    if _canonical_route_for_plan(plan) in {"research", "adapt"}:
+    retry_skips_research = bool(os.environ.get(_RESEARCH_HANG_RETRY_SKIP_ENV))
+    if (
+        _canonical_route_for_plan(plan) in {"research", "adapt"}
+        and not retry_skips_research
+    ):
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
@@ -1856,7 +2428,11 @@ def run_executor(
             "executor.phase.skipped",
             **request_fields,
             phase="research",
-            reason="plan_disabled",
+            reason=(
+                "research_hang_retry"
+                if retry_skips_research
+                else "plan_disabled"
+            ),
         )
 
     # ── Phase 3: implement (optional) ────────────────────────────────────
@@ -1976,7 +2552,16 @@ def run_executor(
                 research=research_result,
                 implementation=implementation_result,
             )
-            reply_text = implementation_result.message
+            # Fidelity guard (v5-batch-3 #3): the terminal no-candidate path
+            # passes the implement message straight through as the reply, so
+            # a message that claims a landed edit while graph_unchanged=true
+            # would be a false success.  Enforce grounding here as well.
+            reply_text = _enforce_reply_grounding(
+                implementation_result.message,
+                landed=_implementation_landed_edit(implementation_result),
+                graph=effective_graph,
+                reason=_no_candidate_reason(implementation_result),
+            )
             profiler_log(
                 LOGGER,
                 "executor.result",
@@ -2047,7 +2632,7 @@ def run_executor(
                 effective_graph=effective_graph,
                 research_result=research_result,
                 implementation_result=implementation_result,
-                graph_inspection=_graph_inspection(effective_graph)
+                graph_inspection=render_inspect_markdown(inspect_graph(effective_graph))
                 if route_behavior.reply_uses_graph_inspection
                 else None,
             )
@@ -2078,6 +2663,13 @@ def run_executor(
             fallback_reply = (
                 implementation_result.message
                 or "Edit completed. The candidate is ready to review."
+            )
+            fallback_reply = _enforce_reply_grounding(
+                fallback_reply,
+                landed=_implementation_landed_edit(implementation_result),
+                graph=result_graph,
+                reason=_no_candidate_reason(implementation_result),
+                delta_ops=_accepted_delta_ops(implementation_result),
             )
             return _finish(ExecutorResult.success(
                 report=report,

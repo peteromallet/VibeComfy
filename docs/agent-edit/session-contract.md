@@ -19,13 +19,13 @@ result  = session.apply_batch(code) # interpret code, lower to typed ops
 final   = session.done()            # run proof gates A/B/C
 ```
 
-- `render()` must be called at least once before `apply_batch`. The first
-  `render()` seeds the write-once `name_by_uid` ↔ `uid_by_name` lock tables.
-- Later `render()` calls **enforce** those locks strictly; a re-render that
-  changes a locked name or uid produces an error diagnostic.
-- `apply_batch` may be called zero or more times after the first render.
-- `done()` must be called exactly once at the end; it replays all landed ops
-  through the deterministic apply path and runs the proof gates.
+- `render()` emits the retained IR through the agent-edit door. Bindings are
+  a pure function of `(class_type, uid-order)`; there is no lock table.
+- `apply_batch` may be called zero or more times. Mutation authority is
+  `interpret(pre, batch)` over the retained IR.
+- `done()` replays interpret history from `wf_0` and runs the proof gates
+  against emit-door snapshots of the IR. The session does not store or
+  mutate a parallel UI graph.
 
 ---
 
@@ -47,7 +47,7 @@ EditSession(
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `raw_ui_json` | (required) | The user's verbatim ComfyUI graph — the **substrate**. Stored as `original_ui`. |
+| `raw_ui_json` | (required) | Door input only. Ingested once into the retained IR; not a mutation store. |
 | `schema_provider` | `get_schema_provider("auto")` | Schema source for node lookups and compatibility checks. |
 | `caps` | `()` | Capability flags (reserved for M2+). |
 | `render_budget_ms` | `None` | Emit a warning diagnostic if `render()` exceeds this budget. |
@@ -56,9 +56,14 @@ EditSession(
 | `max_expanded_statements` | 500 | Statement cap after `for`-loop expansion. |
 | `max_for_iterations` | 100 | Maximum iterations for any single `for i in range(N)` loop. |
 
-The constructor deep-copies `raw_ui_json` into both `original_ui` (never mutated
-after construction) and `working_ui` (mutated by landed edit ops). It ingests
-both into `EditLedger` instances (`original_ledger` and `ledger`).
+The constructor ingests `raw_ui_json` once through `from_ui` and retains that
+IR (`self.workflow` / `self._wf0`). The ingest snapshot is **deep-frozen**
+(immutable dict/list wrappers) and is emit `prior_ui` furniture only.
+`original_ui` exposes that frozen mapping; mutating it cannot change
+`working_ui` or the proof baselines. Proofs emit the retained IR through the
+emit door (`emit(wf_0)` / `emit(current)`), they do not re-read a writable UI
+twin. There is no `working_ui` mutation store, no lock table, no
+`EditLedger`, and no `apply_delta` / `ledger.resolve_node` path.
 
 ---
 
@@ -70,22 +75,18 @@ source_string = session.render()
 
 **Internal pipeline:**
 
-1. Re-ingest `working_ui` into `self.ledger`.
-2. Convert `working_ui` → `normalize_to_api(…, use_comfy_converter=False)` → `from_api(…)`.
-3. Call `emit_agent_edit_python(workflow, …, variable_name_locks=name_by_uid, strict_variable_name_locks=…)`.
-4. Parse `# uid:` comments from the emitted source to extract `(uid, name)` pairs.
-5. Seed (first call) or validate (later calls) the lock tables.
-6. If `render_budget_ms` is set and elapsed time exceeds it, emit a
+1. Copy the retained IR (`self.workflow`). Render never re-ingests UI JSON.
+2. Call `emit_agent_edit_python(workflow)` — bindings are a pure function of
+   `(class_type, uid-order)`. No product emitter accepts lock kwargs.
+3. Parse `# uid:` comments from the emitted source to extract `(uid, name)` pairs.
+4. If `render_budget_ms` is set and elapsed time exceeds it, emit a
    `render_budget_exceeded` warning diagnostic.
 
 **Identity invariants:**
 
-- First render: every `uid`↔`name` pair seeds `name_by_uid` and `uid_by_name`.
-  These are write-once — an existing mapping is never silently overwritten.
-- Later renders: strict lock enforcement. A re-render that changes a locked name
-  produces `render_name_lock_mismatch`; a re-render that maps a locked name to a
-  different uid produces `render_uid_lock_mismatch`; a previously-locked uid
-  absent from the render produces `render_locked_uid_missing`.
+- Bindings are derived, never stored. A re-render of the same IR always
+  produces the same names. There is no lock table and no lock-mismatch
+  diagnostic on the agent-edit surface.
 - The source always passes `ast.parse` before being returned (a `SyntaxError`
   raises `RuntimeError` at the emitter level).
 
@@ -142,11 +143,11 @@ result = session.apply_batch(code)
 
 Statements are executed **sequentially** in source order. Each statement:
 
-1. **Resolves** against the current `uid_by_name` / `name_by_uid` lock tables.
+1. **Resolves** names from the retained IR (`(class_type, uid-order)`).
 2. **Lowers** to a typed edit op (`SetNodeFieldOp`, `UpsertLinkOp`, …).
-3. **Applies** through the existing `apply_delta(working_ui, (op,), …)` path
-   (unchanged from the existing edit infrastructure).
-4. **Records** the op in `self.landed_ops` and updates `self.ledger`.
+3. **Applies** through `interpret(pre_ir, batch)` — the immutable interpreter
+   is the only mutation authority.
+4. **Records** `(wf_i, accepted_batch, landed_ops)` on session history.
 
 **Partial success:** if one statement fails, later *independent* statements still
 land. Only statements that directly name an unbound variable (from a
@@ -164,8 +165,8 @@ class StatementResult:
     diagnostics: tuple[CompactDiagnostic, ...]
     landed: bool                # was an edit op applied?
     op_kind: str | None         # "set_node_field", "upsert_link", "remove_link",
-                                # "remove_node", "set_mode", "node_call",
-                                # "done", "query"
+                                # "remove_node", "set_mode", "subgraph_interface",
+                                # "node_call", "done", "query"
     detail: dict[str, Any]      # resolved target/endpoint/call info
     touched_uids: tuple[str, ...]  # uids affected by this op (empty if not landed)
     dependency_cause: str | None   # if failed due to a dependency
@@ -255,7 +256,7 @@ var = ClassType(
   placement inference step (§9).
 - Raw coordinate kwargs (`pos`, `position`, `coords`, `x`, `y`) are rejected.
 - `vibecomfy.*` intent-class construction is rejected.
-- If the add fails (e.g., `apply_delta` rejects it), the name is marked
+- If the add fails (e.g., `interpret` rejects it), the name is marked
   **unbound** and dependent later statements fail with `unbound_graph_name`.
 
 ### 5.7 Read-only queries (never land ops)
@@ -264,7 +265,7 @@ var = ClassType(
 describe('node_name')
 ```
 
-- Side-effect-free. Does not mutate `working_ui` or record a landed op.
+- Side-effect-free. Does not mutate the retained IR or record a landed op.
 - Returns a `NodeDescriptor` via `session.describe(name)` (Python API only).
 
 ### 5.8 Bounded `for` loops
@@ -317,7 +318,7 @@ lowered:
 | Dunder names (`__something__`) | `dunder_name_not_allowed` |
 | Dunder attributes (`obj.__attr`) | `dunder_attribute_not_allowed` |
 | Nested calls (`f(g())`) | `nested_call_not_allowed` |
-| `**kwargs` unpacking | `kwargs_unpack_not_allowed` |
+| `**kwargs` unpacking (except the field-roster side channel) | `kwargs_unpack_not_allowed` |
 | Positional args in node calls | `positional_args_not_allowed` |
 | Non-`range` for-loop iterators | `for_iter_not_range` |
 | `for`/`else` | `for_else_not_allowed` |
@@ -339,13 +340,13 @@ lowered:
   local_uid)`.
 - UIDs are stable across renders and batches.
 
-### 8.2 Lock tables
+### 8.2 Derived bindings
 
-- `name_by_uid: dict[str, str]` — maps `uid` → `variable_name`.
-- `uid_by_name: dict[str, str]` — maps `variable_name` → `uid`.
-- Both are **write-once**: an existing mapping is never silently overwritten.
-- Seeded on first `render()` from `# uid:` comments in the emitted source.
-- Enforced strictly on later `render()` calls.
+- `name_by_uid` / `uid_by_name` are **read-only properties** derived from
+  the retained IR via `(class_type, uid-order)`.
+- There is no lock table, no write-once map, no seeding/enforcement across
+  renders, and no `ledger.resolve_node`. A re-render of the same IR always
+  produces the same names.
 
 ### 8.3 Unbound names
 
@@ -357,9 +358,9 @@ lowered:
 
 ### 8.4 Name resolution in apply_batch
 
-- `uid_by_name[name]` → stale check against `ledger.resolve_node` → passes or
-  fails with `stale_graph_name`.
-- If not in `uid_by_name`, fails with `unknown_graph_name`.
+- Names resolve from the retained IR (`(class_type, uid-order)`) plus the
+  transient within-batch index for nodes minted earlier in the same batch.
+- Unknown names fail with `unknown_graph_name`.
 - Dunder names are rejected at validation time.
 
 ---
@@ -379,14 +380,15 @@ Before `AddNodeOp` construction, a **pre-pass** over the parsed batch:
 4. **Explicit placement hints** (`near=…`, `relation=…`, `group=…`) take
    priority over inferred placement.
 
-The existing `vibecomfy/porting/edit/apply.py` semantics and the raw-coordinate surface are
-**unchanged**.
+Raw coordinate kwargs (`pos`, `x`, `y`, …) stay rejected. Placement is
+hints-only (`near=` / `relation=` / `group=`); mutation authority is
+`interpret`.
 
 ---
 
 ## 10. Slot codec
 
-`vibecomfy/porting/slot_codec.py` provides deterministic, reversible
+`vibecomfy/identity/codec.py` provides deterministic, reversible
 conversion between raw slot names and valid Python identifiers.
 
 ### 10.1 Public API
@@ -430,7 +432,7 @@ Original substrate virtual nodes (`GetNode`, `SetNode`, `Reroute`) are
 - Cannot be deleted (`del node` rejected).
 - Attempted mutation/deletion produces `original_virtual_node_immutable`.
 
-The check compares nodes against `original_ledger`, so it is
+The check compares nodes against the ingest IR (`wf_0`), so it is
 **independent of any mutations applied during the session**.
 
 Session-created virtual nodes (added via `AddNodeOp` in the same session) remain
@@ -445,20 +447,22 @@ when all three pass.
 
 ### 12.1 Gate A — Byte-faithfulness replay
 
-1. Replay every landed op over `original_ui` through `apply_delta(…, ops)`.
-2. If `apply_delta` fails (or `guard_full_ui` fails), `done()` fails with
-   per-issue diagnostics.
-3. Assert `recomputed_candidate == working_ui` (deep equality).
-4. If zero ops were landed, assert `working_ui == original_ui`.
+1. Replay interpret over `(wf_0, Δ_i)` from session history.
+2. Emit the replayed IR and the current retained IR through the emit door.
+3. Assert those two emit snapshots are equal.
+4. Run `guard_exit_ui(emit(wf_0), emit(replayed), landed_ops)`. Interface
+   ops attribute definition-scope furniture the same way node/link ops
+   attribute node fields.
+5. If zero ops were landed, assert `emit(current) == emit(wf_0)`.
 
 ### 12.2 Gate B — Touched-region compile isomorphism
 
-1. Compile `original_ui`, `working_ui`, and `candidate_ui` through
-   `normalize_to_api` → `VibeWorkflow` → `compile("api")`.
+1. Compile `wf_0`, the current retained IR, and the replayed IR through
+   `compile("api")`.
 2. Derive the **touched region** (set of API node ids):
    - All nodes explicitly touched by landed ops (via uid → node_id mappings).
-   - Added nodes (in working/candidate but not original).
-   - Removed nodes (in original but not working/candidate).
+   - Added nodes (in the current/replayed IR but not `wf_0`).
+   - Removed nodes (in `wf_0` but not the current/replayed IR).
    - One-hop neighbors of every node in the region.
    - All endpoints of changed edges.
 3. Subset working and candidate API graphs to the touched region.
@@ -477,6 +481,7 @@ Generates a human-readable summary sentence for each landed op:
 | `UpsertLinkOp` | "Connected *src.slot* (TYPE) → *dst.field*." or "Rewired *dst.field* (TYPE) from *prev.src* → *new.src*." |
 | `RemoveLinkOp` | "Disconnected *name.field* from *prev.src*." |
 | `SetModeOp` | "Changed *name* mode from *old_label* to *new_label*." |
+| `SubgraphInterfaceOp` | "Added/changed/removed subgraph interface *id*." |
 
 ### 12.4 DoneResult
 
@@ -516,7 +521,7 @@ codes (`unbound_graph_name`, `unknown_graph_name`, `stale_graph_name`,
 ### 14.1 `describe(name)` → `NodeDescriptor`
 
 Returns a structured, side-effect-free description of a graph node. Does **not**
-count as a landed operation and never mutates `working_ui`.
+count as a landed operation and never mutates the retained IR.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -540,7 +545,7 @@ class NodeDescriptor:
 ### 14.2 `search(…)` → `list[NodeSignatureRow] | str`
 
 Queries available node signatures from the session's schema provider.
-Side-effect-free; never mutates `working_ui`.
+Side-effect-free; never mutates the retained IR.
 
 ```python
 session.search(
@@ -566,7 +571,7 @@ This is the foundational safety rule of the edit surface:
 
 - All batch code is parsed with `ast.parse`.
 - All values are obtained via the safe constant folder (`_fold_constant`).
-- Statements are mapped to typed edit ops and applied through `apply_delta`.
+- Statements are mapped to typed edit ops and applied through `interpret`.
 - **At no point is `exec`, `eval`, `compile`, `__import__`, or any similar
   mechanism invoked on user/authored code.**
 - The code is a **declarative description** of edits, not executable Python.
@@ -590,13 +595,11 @@ block. The following are explicitly **out of scope** for M1:
 
 **Existing paths preserved:**
 
-- `emit_scratchpad_python(…)` is **untouched** and continues to serve the
-  existing agent-edit pipeline.
-- `emit_agent_edit_python(…)` is the **new parallel entry point** used by
-  `EditSession.render()`.
-- The existing typed edit-op infrastructure (`vibecomfy/porting/edit/ops.py`,
-  `vibecomfy/porting/edit/apply.py`, `vibecomfy/porting/edit/ledger.py`) is **unchanged** — `EditSession` lowers its interpreted
-  statements to the same op types.
+- `emit_scratchpad_python(…)` remains the package scratchpad emitter. It does
+  not accept binding locks.
+- `emit_agent_edit_python(…)` is the session render / interpret inverse.
+- Typed ops live in `vibecomfy/porting/edit/ops.py`. The only mutation
+  authority is `interpret` — there is no `apply.py` or `EditLedger`.
 
 ---
 

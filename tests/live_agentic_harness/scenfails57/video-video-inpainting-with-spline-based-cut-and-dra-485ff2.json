@@ -1,0 +1,40 @@
+{
+  "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
+  "query": "Set the INPAINT_InpaintWithModel seed to 42 and keep seed control fixed. Do not alter the spline, cut-and-drag, or video-combine stages.",
+  "workflow_path": "external_workflows/corpus/485ff2fa6dcc1917.json",
+  "network": true,
+  "timeout": 280,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The inpainting stage uses deterministic seed 42 while the surrounding spline-driven composite remains unchanged.",
+    "quality": "INPAINT_InpaintWithModel is updated from seed 534667941392889 to 42 with fixed seed control; spline editing, cut-and-drag, and video combine remain connected and functional.",
+    "alternatives_ok": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "inpainting",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-inpainting",
+      "spline-editing",
+      "cut-and-drag",
+      "image-inpainting",
+      "video-combine"
+    ],
+    "source_workflow_id": "485ff2fa6dcc1917",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This targets a specific technique in the spline-cut-and-drag pipeline (inpainting blend) and tests whether the agent can distinguish it from generic model settings."
+  },
+  "classification": {
+    "kind": "edit"
+  }
+}

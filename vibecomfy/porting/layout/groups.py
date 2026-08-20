@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 
 from vibecomfy.porting.emit.ui import _canonicalize_coord
 
+from vibecomfy.ingest.normalize import door_get_nodes
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ def build_subgraph_groups(
         title = str(subgraph.get("name") or subgraph.get("id") or f"subgraph_{i}")
 
         # ── Gather inner nodes and their vibecomfy_uid ───────────────
-        inner_nodes = subgraph.get("nodes")
+        inner_nodes = door_get_nodes(subgraph)
         if not isinstance(inner_nodes, list):
             logger.debug(
                 "build_subgraph_groups: subgraph %r has no nodes list; skipping",

@@ -5,6 +5,7 @@ import json
 import sys
 import types
 import warnings
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -3358,33 +3359,26 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
     the node must be re-slotted or the candidate fails projection with
     "Missing stable link to port" (the sdxl scenario failure).
     """
-    import uuid
+    from copy import deepcopy
 
-    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-    from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.porting.emit.ui import _remap_preserved_inbound_links
 
     raw = _corpus("tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json")
-    ui = normalize_agent_edit_graph(raw)
+    _, ui = ingest_workflow_and_ui(raw)
     node16 = next(n for n in ui["nodes"] if str(n.get("id")) == "16")
-    uid = node16["properties"]["vibecomfy_uid"]
-    delta = {
-        "delta_contract": "delta_v1",
-        "wire_version": "2.0.0",
-        "scope": {"kind": "root", "path": ""},
-        "ops": [
-            {
-                "op": "set_node_field",
-                "target": ["", uid, "text_g"],
-                "value": "rich fabric texture, natural cotton weave, detailed",
-            }
-        ],
-    }
-    result = apply_delta_v1_python(
-        workflow_id=str(uuid.uuid4()),
-        graph=ui,
-        delta=delta,
+    candidate = deepcopy(ui)
+    emitted16 = next(n for n in candidate["nodes"] if str(n.get("id")) == "16")
+    emitted16["inputs"] = [
+        slot for slot in emitted16["inputs"] if slot.get("name") != "text_g"
+    ]
+    candidate["links"] = _remap_preserved_inbound_links(
+        ui,
+        candidate,
+        ui["links"],
+        changed_target_ids={"16"},
+        materialized_input_names={"16": {"text_g"}},
     )
-    candidate = result["graph"]
     by_id = {str(n["id"]): n for n in candidate["nodes"]}
     assert not [
         link
@@ -3399,14 +3393,100 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
     assert text_l_link[4] == 1
 
 
+def test_rc7_live_acn_widget_collapse_preserves_all_named_inbound_links() -> None:
+    """The live Advanced ControlNet node has five canonical links spread over
+    physical slots 0-3 and 9.  Materializing ``strength`` collapses the input
+    array; every preserved link must follow its canonical input name.
+    """
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        _graph_link_identities,
+        project_graph_v1,
+    )
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+
+    raw = _corpus("external_workflows/corpus/19d221f074b42462.json")
+    _, ui = ingest_workflow_and_ui(raw)
+    original60 = next(n for n in ui["nodes"] if str(n.get("id")) == "60")
+    uid = original60["properties"]["vibecomfy_uid"]
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", uid, "strength"],
+                "value": 0.5,
+            }
+        ],
+    }
+    ok, candidate, error, _ = recompute_apply(ui, envelope)
+    assert ok is True, error
+    assert candidate is not None
+    by_id = {str(n["id"]): n for n in candidate["nodes"]}
+    emitted60 = by_id["60"]
+    assert emitted60["widgets_values"][0] == 0.5
+    assert [slot["name"] for slot in emitted60["inputs"]] == [
+        "control_net",
+        "image",
+        "negative",
+        "positive",
+        "vae_optional",
+    ]
+    expected_by_source = {
+        "61": "control_net",
+        "62": "image",
+        "10": "negative",
+        "54": "positive",
+        "7": "vae_optional",
+    }
+    inbound = [link for link in candidate["links"] if str(link[3]) == "60"]
+    assert len(inbound) == len(expected_by_source)
+    for link in inbound:
+        assert 0 <= link[4] < len(emitted60["inputs"])
+        assert emitted60["inputs"][link[4]]["name"] == expected_by_source[str(link[1])]
+    assert len(_graph_link_identities(candidate, candidate["nodes"])) == len(candidate["links"])
+    assert len(project_graph_v1(candidate, "structural_v1")["links"]) == len(candidate["links"])
+
+
+def test_rc7_live_acn_phantom_source_refuses_instead_of_guessing() -> None:
+    """A phantom output on an unrelated source is never repaired by target
+    remapping; emission fails closed with the existing endpoint evidence.
+    """
+    from vibecomfy.workflow import VibeWorkflow
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    raw = _corpus("external_workflows/corpus/19d221f074b42462.json")
+    wf = VibeWorkflow.from_envelope(raw)
+    edge = next(
+        edge
+        for edge in wf.edges
+        if edge.from_node == "7"
+        and edge.to_node == "60"
+        and edge.to_input == "vae_optional"
+    )
+    edge.from_output = "9"
+    with pytest.raises(RefusedEmit) as exc_info:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            emit_ui_json(wf, schema_provider=get_authoring_schema_provider())
+    entry = exc_info.value.diff["links"]["7.9 -> 60.vae_optional"]
+    _assert_refusal_evidence(entry)
+    assert entry["missing"] == "source_socket"
+    assert entry["source"]["requested_output"] == "9"
+    assert entry["source"]["requested_slot"] == 9
+    assert entry["source"]["emitted_sockets"]
+    assert entry["source"]["attempted_remaps"]
+    assert entry["target"]["requested_input"] == "vae_optional"
+    assert entry["target"]["emitted_sockets"]
+
+
 def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
     """API-only nodes must deterministically materialize widget shape from their
     named ``widget_N`` carriers plus schema so the widget fence never refuses an
     API-declared widget shape as unmaterialized overflow (the multi-image
     scenario's ``LTXVLoader`` refusal).
     """
-    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-    from vibecomfy.ingest.normalize import from_api
+    from vibecomfy.ingest.normalize import from_api, ingest_workflow_and_ui
     from vibecomfy.schema import get_authoring_schema_provider
 
     cand = _corpus("tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json")
@@ -3417,8 +3497,8 @@ def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
     assert ltx.raw_widgets.length == 2
     assert ltx.raw_widgets.values == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]
 
-    # The full product normalization path (ingest -> emit) no longer refuses.
-    ui = normalize_agent_edit_graph(
+    # The full product ingest+emit path no longer refuses.
+    _, ui = ingest_workflow_and_ui(
         cand,
         schema_provider=get_authoring_schema_provider(),
     )
@@ -3526,7 +3606,8 @@ def _assert_refusal_evidence(entry: dict[str, Any]) -> None:
     if entry["missing"] in {"target_socket", "source_and_target_socket"}:
         assert "requested_input" in target
         strategies = {s["strategy"]: s for s in target["attempted_remaps"]}
-        assert set(strategies) == {"in_range_slot", "canonical_name_scan", "slot_index_scan"}
+        assert set(strategies) == {"canonical_input_name_scan"}
+        assert strategies["canonical_input_name_scan"]["requires_unique_match"] is True
 
 
 def test_s02_dangling_source_endpoint_refuses_with_full_evidence() -> None:
@@ -3589,11 +3670,8 @@ def test_s02_dangling_target_endpoint_refuses_with_full_evidence() -> None:
     assert target["requested_slot"] == 3
     assert target["emitted_sockets"] == [{"slot": 0, "name": "in_0", "slot_index": None}]
     strategies = {s["strategy"]: s for s in target["attempted_remaps"]}
-    assert strategies["in_range_slot"]["out_of_range"] is True
-    assert strategies["canonical_name_scan"]["sought_name"] == "in_3"
-    assert strategies["canonical_name_scan"]["found_at"] == []
-    assert strategies["slot_index_scan"]["sought_slot"] == 3
-    assert strategies["slot_index_scan"]["found_at"] == []
+    assert strategies["canonical_input_name_scan"]["sought_name"] == "in_3"
+    assert strategies["canonical_input_name_scan"]["found_at"] == []
 
     # Source endpoint evidence is included too.
     source = entry["source"]
@@ -3617,12 +3695,16 @@ def test_s02_both_endpoints_dangling_refuses_once_with_aggregated_evidence() -> 
     _assert_refusal_evidence(entry)
     assert entry["missing"] == "source_and_target_socket"
     assert "1 dangling link" in exc_info.value.reason
-    # Both sides ran the full remap attempt set.
-    for side in ("source", "target"):
-        strategies = {s["strategy"]: s for s in entry[side]["attempted_remaps"]}
-        assert strategies["in_range_slot"]["out_of_range"] is True
-        assert strategies["canonical_name_scan"]["found_at"] == []
-        assert strategies["slot_index_scan"]["found_at"] == []
+    source_strategies = {
+        s["strategy"]: s for s in entry["source"]["attempted_remaps"]
+    }
+    assert source_strategies["in_range_slot"]["out_of_range"] is True
+    assert source_strategies["canonical_name_scan"]["found_at"] == []
+    assert source_strategies["slot_index_scan"]["found_at"] == []
+    target_strategies = {
+        s["strategy"]: s for s in entry["target"]["attempted_remaps"]
+    }
+    assert target_strategies["canonical_input_name_scan"]["found_at"] == []
 
 
 def test_s02_phantom_slot_remap_by_canonical_name_still_emits() -> None:
@@ -3734,3 +3816,78 @@ def test_s02_property_corpus_workflows_emit_every_edge_or_refuse() -> None:
             assert 0 <= link[4] < len(by_id[str(link[3])].get("inputs", [])), (
                 f"{path}: link {link[0]} target slot outside emitted inputs"
             )
+
+
+def test_ir_door_emitter_restores_subgraph_fixture_byte_canonically() -> None:
+    from vibecomfy.ingest.normalize import from_ui
+
+    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
+    raw = json.loads(path.read_bytes())
+    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emitted = emit_ui_json(workflow)
+    assert emitted["definitions"] == raw["definitions"]
+    assert emitted["extra"] == raw["extra"]
+    assert json.dumps(emitted, ensure_ascii=False, separators=(",", ":")) == json.dumps(
+        raw,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def test_ir_door_property_untouched_corpus_round_trips_byte_identically() -> None:
+    """Law 1 property: every untouched corpus specimen (UI + envelope) re-emits
+    byte-identically, while a semantic edit keeps the emit deterministic."""
+    import glob
+
+    from vibecomfy.ingest.normalize import from_envelope as _from_envelope
+    from vibecomfy.ingest.normalize import from_ui as _from_ui
+
+    paths = sorted(glob.glob("ready_templates/sources/official/**/*.json", recursive=True))
+    paths.append(str(Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"))
+    paths.append(
+        str(
+            Path(__file__).parent
+            / ".."
+            / "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json"
+        )
+    )
+    checked = 0
+    for path in paths:
+        with open(path) as handle:
+            raw = json.load(handle)
+        if not isinstance(raw.get("nodes"), list):
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wf = _from_ui(raw, source_path=path, use_comfy_converter=False)
+            first = emit_ui_json(wf)
+            second = emit_ui_json(wf)
+        assert json.dumps(first, ensure_ascii=False, separators=(",", ":")) == json.dumps(
+            raw, ensure_ascii=False, separators=(",", ":")
+        ), f"{path}: untouched graph did not round-trip byte-identically"
+        # Determinism holds for the untouched graph as well.
+        assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+        # A semantic edit keeps the emit deterministic (Law 1 wire preference).
+        edited = wf.copy()
+        first_node_id = next(iter(edited.nodes))
+        node = edited.nodes[first_node_id]
+        if node.inputs:
+            key = next(iter(node.inputs))
+            node.inputs[key] = "door-edit"
+        elif node.widgets:
+            key = next(iter(node.widgets))
+            node.widgets[key] = "door-edit"
+        else:
+            node.inputs["door_edit_probe"] = 1
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            e1 = emit_ui_json(edited)
+            e2 = emit_ui_json(edited)
+        assert json.dumps(e1, sort_keys=True) == json.dumps(e2, sort_keys=True), (
+            f"{path}: edited graph emit is not deterministic"
+        )
+        checked += 1
+    assert checked > 0

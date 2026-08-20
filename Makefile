@@ -20,8 +20,6 @@ FAST_PYTEST := \
 	tests/test_comfy_nodes_agent_backend_spine.py \
 	tests/test_porting_edit_apply.py \
 	tests/test_porting_edit_ops.py \
-	tests/test_porting_edit_projection.py \
-	tests/test_porting_edit_ledger.py \
 	tests/test_porting_edit_corpus.py \
 	tests/test_porting_ui_materialize.py
 
@@ -107,11 +105,11 @@ ROOT_BANNED := \
 
 B02_MINI_CORPUS := tests/fixtures/b02_corpus_mini
 
-.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast full-pytest snapshots oracle b02-corpus-mini b02-corpus-full browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate clean clean-artifacts
+.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast full-pytest snapshots oracle b02-corpus-mini b02-corpus-full browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate ir-boundary clean clean-artifacts
 
 all: check
 
-check: root-clean docs template-index templates strict-ready fast snapshots oracle b02-corpus-mini browser-smoke parity post-root-clean
+check: root-clean docs template-index templates strict-ready fast snapshots oracle b02-corpus-mini browser-smoke parity ir-boundary post-root-clean
 
 ci: check
 
@@ -179,6 +177,9 @@ snapshots:
 oracle:
 	VIBECOMFY_COMFY_SMOKE=1 $(PYTEST) -q --tb=short \
 		tests/test_porting_ui_emitter.py::test_layer3_corpus_wide_convert_ui_to_api_gate
+
+ir-boundary:
+	PYTHONPATH="$(CURDIR)" $(PYTHON) scripts/check_ir_boundary.py
 
 b02-corpus-mini:
 	PYTHONPATH="$(CURDIR)" $(PYTHON) scripts/check_b02_rich_preservation.py \

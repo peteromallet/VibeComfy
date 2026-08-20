@@ -494,6 +494,113 @@ def test_desired_edit_accepts_grounded_safe_refusal(
     )
 
 
+def test_grounded_safe_refusal_ignores_rolled_back_attempt_diagnostics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """cc0df7: a failed scratch batch is not a defect in an accepted refusal."""
+    output_dir = tmp_path / "grounded-refusal-after-rollback"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir, kind="clarify")
+    response_path = output_dir / "response.json"
+    response = json.loads(response_path.read_text(encoding="utf-8"))
+    response["change_details"] = {
+        "batch_turns": [
+            {
+                "batch_ok": False,
+                "landed_op_count": 0,
+                "raw_landed_op_count": 0,
+                "diagnostics": [
+                    {
+                        "code": "socket_type_mismatch",
+                        "severity": "error",
+                        "message": "Cannot wire STRING into FILE_3D on Preview3D.model_file.",
+                    },
+                    {
+                        "code": "batch_transaction_rolled_back",
+                        "severity": "error",
+                        "message": "A later edit statement failed, so all edits were rolled back.",
+                    },
+                ],
+            }
+        ]
+    }
+    response_path.write_text(json.dumps(response), encoding="utf-8")
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "The graph is unchanged."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario(
+            "grounded-refusal-after-rollback",
+            kind="clarify",
+        ),
+    )
+
+    assert verdict["live_agentic_success"] is True
+    assert not any(
+        issue["check"] == "hard_diagnostic"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
+def test_applied_corrupt_candidate_keeps_hard_diagnostics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """Crops/wan-vace guard: applied candidate diagnostics still fail closed."""
+    output_dir = tmp_path / "applied-corrupt-candidate"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_successful_candidate(
+        output_dir,
+        change_details={
+            "landed_operation_count": 1,
+            "batch_turns": [
+                {
+                    "batch_ok": True,
+                    "landed_op_count": 1,
+                    "raw_landed_op_count": 1,
+                    "diagnostics": [
+                        {
+                            "code": "widget_shape_mismatch",
+                            "severity": "error",
+                            "message": "Applied candidate changed an opaque widget shape.",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "Candidate applied."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_edit_intent",
+        lambda *args, **kwargs: {"pass_": True, "criteria": {}, "rationale": "ok"},
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "applied-corrupt-candidate",
+            "query": "crop the image",
+            "assessment": {"expect_graph_changed": True},
+            "desired": {"outcome": "image is cropped"},
+        },
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert any(
+        issue["check"] == "hard_diagnostic" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
 def test_desired_edit_refusal_label_with_graph_change_fails_closed_without_verdict(
     tmp_path: Path,
     monkeypatch,

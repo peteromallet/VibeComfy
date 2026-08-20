@@ -348,20 +348,16 @@ def _fold_literal_into_consumer(node: Any, field: str, literal: Any) -> None:
 
 
 def _update_raw_widget_value(node: Any, field: str, literal: Any) -> None:
-    """Keep captured UI widget defaults aligned after folding linked widgets.
+    """Keep IR widget defaults aligned after folding linked widgets.
 
     ComfyUI represents widget-as-link fields in ``inputs`` but still carries the
-    widget's positional default in ``widgets_values``.  Once a Primitive* helper
-    is folded into a literal, downstream emitters may rebuild UI JSON from the
-    captured widget payload, so update that slot when we can identify it.
+    widget's positional default.  Folded Primitive* literals are stored on the
+    IR (``node.inputs`` / ``raw_widgets``).  The emit door rebuilds
+    ``widgets_values`` from that IR state — this is not an emit-path write.
     """
     index = _widget_index_for_field(node, field)
     if index is None:
         return
-    raw_ui = getattr(node, "metadata", {}).get("_ui")
-    raw_values = raw_ui.get("widgets_values") if isinstance(raw_ui, dict) else None
-    if isinstance(raw_values, list) and index < len(raw_values):
-        raw_values[index] = literal
     raw_widgets = getattr(node, "raw_widgets", None)
     values = getattr(raw_widgets, "values", None)
     if isinstance(values, list) and index < len(values):

@@ -95,7 +95,7 @@ These fields are mutated exclusively through the lifecycle store. No ad-hoc
 | `lastSubmitFieldChanges` | `array\|null` | Normalized field changes from submit response |
 | `changeDetails` | `object\|null` | Change detail metadata for preview overlay |
 | `candidateTransaction` | `object\|null` | Canonical durable aggregate; sole action and plan authority |
-| `deltaOps` | `array\|null` | Derived compatibility projection of `candidateTransaction.plan.delta_ops_envelope.ops`; never independent authority |
+| `deltaOps` | `array\|null` | Transient ops derived from `accepted_batch[*].op` (or `candidateTransaction.plan.accepted_batch`); never independent authority |
 | `chatRehydrateEpoch` | `number` | Monotonic counter for stale rehydrate gating |
 | `syntheticAgentMessage` | `object\|null` | Locally generated agent chat message |
 

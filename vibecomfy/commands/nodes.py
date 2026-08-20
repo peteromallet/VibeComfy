@@ -26,6 +26,7 @@ from vibecomfy.porting.wrappers import codegen as _wrapper_codegen
 from vibecomfy.porting.wrappers import discovery as _wrapper_discovery
 
 
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 def _cmd_nodes_list(args: argparse.Namespace) -> int:
     path = Path("node_index.json")
     if not path.exists():
@@ -182,7 +183,7 @@ def _cmd_nodes_spec_subgraph(args: argparse.Namespace) -> int:
             if not isinstance(subgraph, dict) or str(subgraph.get("id")) != args.class_type:
                 continue
             class_counts: dict[str, int] = {}
-            for node in subgraph.get("nodes") or ():
+            for node in door_get_nodes(subgraph) or ():
                 if isinstance(node, dict):
                     class_type = str(node.get("type") or node.get("class_type") or "Unknown")
                     class_counts[class_type] = class_counts.get(class_type, 0) + 1
@@ -191,9 +192,9 @@ def _cmd_nodes_spec_subgraph(args: argparse.Namespace) -> int:
                 "name": subgraph.get("name"),
                 "inputs": subgraph.get("inputs") or [],
                 "outputs": subgraph.get("outputs") or [],
-                "inner_node_count": len(subgraph.get("nodes") or []),
+                "inner_node_count": len(door_get_nodes(subgraph) or []),
                 "inner_node_class_types": dict(sorted(class_counts.items())),
-                "inner_graph": {"edges": subgraph.get("links") or []},
+                "inner_graph": {"edges": door_get_links(subgraph) or []},
                 "source": str(path),
             }
             return emit(payload, json=getattr(args, "json", False), text_renderer=lambda data: data["name"] or data["uuid"])
