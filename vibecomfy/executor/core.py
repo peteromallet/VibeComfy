@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import threading
-import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -69,13 +68,14 @@ from .tool_contracts import ToolStatus
 from .prompts import build_classify_messages
 from .contracts import (
     ClassifyDecision,
+    ExecutorHostPorts,
     ExecutorRequest,
     ExecutorResult,
     ImplementationResult,
     Report,
     _ALLOWED_ROUTES,
     coerce_model_attempts,
-    warning_detail_from_exception,
+    resolve_orchestration_mode,
 )
 from .profiles import (
     AgentSpecShape,
@@ -88,6 +88,39 @@ LOGGER = logging.getLogger(__name__)
 # events emitted while the implement phase is running.
 _IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _RESEARCH_HANG_RETRY_SKIP_ENV = "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"
+
+
+def _payload_hash(payload: Mapping[str, Any]) -> str:
+    from vibecomfy.comfy_nodes.agent.session import payload_hash
+
+    return payload_hash(payload)
+
+
+def _legacy_host_ports() -> ExecutorHostPorts:
+    """Adapt the existing ComfyUI-owned globals to the narrow host protocol.
+
+    This remains lazy at call time so existing tests that monkeypatch the core
+    compatibility names continue to observe their patches.
+    """
+    return ExecutorHostPorts(
+        handle_agent_edit=handle_agent_edit,
+        payload_hash=_payload_hash,
+        classify_failure=classify_failure,
+        failure_envelope=failure_envelope,
+        begin_deepseek_usage_capture=begin_deepseek_usage_capture,
+        snapshot_deepseek_usage_capture=snapshot_deepseek_usage_capture,
+        end_deepseek_usage_capture=end_deepseek_usage_capture,
+        begin_model_attempt_capture=begin_model_attempt_capture,
+        snapshot_model_attempt_capture=snapshot_model_attempt_capture,
+        end_model_attempt_capture=end_model_attempt_capture,
+        provider_error_types=(
+            AuthError,
+            MalformedModelJSON,
+            MissingRequiredField,
+            ProviderError,
+            TimeoutError,
+        ),
+    )
 
 
 def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
@@ -1228,6 +1261,7 @@ def _run_implement(
     research_result: AgentResearchResult | None = None,
     client_id: str | None = None,
     additive: bool = False,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> ImplementationResult:
     """Run the implement phase via ``handle_agent_edit``.
 
@@ -1329,18 +1363,17 @@ def _run_implement(
     if request.on_demand_schemas is not None:
         payload["on_demand_schemas"] = request.on_demand_schemas
 
+    ports = host_ports or _legacy_host_ports()
     try:
-        from vibecomfy.comfy_nodes.agent.session import payload_hash  # noqa: PLC0415
-
-        result = handle_agent_edit(
+        result = ports.handle_agent_edit(
             payload,
             client_id=client_id,
             # Classifier/research output is server-derived and may vary across
             # retries. Bind deduplication to the stable public submit instead.
-            idempotency_request_hash=payload_hash(request.to_dict()),
+            idempotency_request_hash=ports.payload_hash(request.to_dict()),
         )
     except Exception as exc:
-        failure = classify_failure("implement", exc)
+        failure = ports.classify_failure("implement", exc)
         raise _ExecutorPhaseError(
             stage="implement",
             failure_kind=failure.kind.value,
@@ -1349,7 +1382,7 @@ def _run_implement(
         ) from exc
 
     if not isinstance(result, dict):
-        failure = failure_envelope(
+        failure = ports.failure_envelope(
             FailureKind.VALIDATION_ERROR,
             "implement",
             agent_failure_context={
@@ -1383,7 +1416,7 @@ def _run_implement(
             value = result.get(key)
             if value is not None:
                 failure_payload[key] = value
-        failure = failure_envelope(
+        failure = ports.failure_envelope(
             FailureKind(fk) if isinstance(fk, str) and fk in {k.value for k in FailureKind} else FailureKind.VALIDATION_ERROR,
             "implement",
             agent_failure_context={
@@ -2143,12 +2176,13 @@ def _classification_plan_summary(plan: ClassifyDecision) -> str:
     return _route_behavior(plan).plan_summary
 
 
-def run_executor(
+def _run_staged_executor(
     request: ExecutorRequest,
     *,
     client_id: str | None = None,
     classify_only: bool = False,
     additive: bool = False,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> ExecutorResult:
     """Execute the full classify → research → implement → reply pipeline.
 
@@ -2174,6 +2208,7 @@ def run_executor(
         Always returns a result — failures are captured in the result
         shape, never raised as raw exceptions.
     """
+    ports = host_ports or _legacy_host_ports()
     plan: ClassifyDecision | None = None
     research_result: AgentResearchResult | None = None
     implementation_result: ImplementationResult | None = None
@@ -2189,8 +2224,8 @@ def run_executor(
     }
 
     profiler_log(LOGGER, "executor.request", **request_fields)
-    usage_token = begin_deepseek_usage_capture()
-    attempt_token = begin_model_attempt_capture()
+    usage_token = ports.begin_deepseek_usage_capture()
+    attempt_token = ports.begin_model_attempt_capture()
 
     def _build_report(
         *,
@@ -2200,8 +2235,8 @@ def run_executor(
         classification_status: str = "",
         fallback_model_attempts: tuple[dict[str, Any], ...] = (),
     ) -> Report:
-        usage, cache_breakout_complete = snapshot_deepseek_usage_capture()
-        model_attempts = snapshot_model_attempt_capture()
+        usage, cache_breakout_complete = ports.snapshot_deepseek_usage_capture()
+        model_attempts = ports.snapshot_model_attempt_capture()
         if not model_attempts:
             model_attempts = coerce_model_attempts(fallback_model_attempts)
         est_cost_usd, cost_basis = estimate_deepseek_cost_usd(
@@ -2220,8 +2255,8 @@ def run_executor(
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
-        end_deepseek_usage_capture(usage_token)
-        end_model_attempt_capture(attempt_token)
+        ports.end_deepseek_usage_capture(usage_token)
+        ports.end_model_attempt_capture(attempt_token)
         return result
 
     # ── Resolve profile specs ────────────────────────────────────────────
@@ -2494,6 +2529,7 @@ def run_executor(
                         research_result=research_result,
                         client_id=client_id,
                         additive=additive,
+                        host_ports=ports,
                     )
                 finally:
                     heartbeat_stop.set()
@@ -2721,6 +2757,63 @@ def _implementation_result_is_terminal_no_candidate(result: ImplementationResult
     if durable is None:
         return False
     return _implementation_response_is_terminal_no_candidate(dict(durable))
+
+
+def run_executor(
+    request: ExecutorRequest,
+    *,
+    client_id: str | None = None,
+    classify_only: bool = False,
+    additive: bool = False,
+    host_ports: ExecutorHostPorts | None = None,
+) -> ExecutorResult:
+    """Dispatch once between staged and threaded deliberation drivers.
+
+    ``staged`` remains the default and enters the original function without
+    altering its events or serialized result. ``threaded`` is imported lazily
+    to keep the shared kernel free of mode branches below this seam.
+    """
+    ports = host_ports or _legacy_host_ports()
+    try:
+        mode = resolve_orchestration_mode(request)
+    except Exception as exc:
+        failure = ports.classify_failure("configuration", exc)
+        kind = getattr(getattr(failure, "kind", None), "value", "ValidationError")
+        return ExecutorResult.failure(
+            kind=str(kind),
+            stage="configuration",
+            message=str(getattr(failure, "user_facing_message", exc)),
+        )
+
+    if mode == "staged":
+        return _run_staged_executor(
+            request,
+            client_id=client_id,
+            classify_only=classify_only,
+            additive=additive,
+            host_ports=ports,
+        )
+
+    from .threaded import ThreadedKernel, run_threaded_executor
+
+    kernel = ThreadedKernel(
+        resolve_spec=_resolve_spec,
+        run_implement=_run_implement,
+        emit_phase=_emit_executor_phase_event,
+        enforce_reply_grounding=_enforce_reply_grounding,
+        accepted_delta_ops=_accepted_delta_ops,
+        implementation_landed_edit=_implementation_landed_edit,
+        no_candidate_reason=_no_candidate_reason,
+    )
+    return run_threaded_executor(
+        request,
+        kernel=kernel,
+        host_ports=ports,
+        executor_id=new_profile_id("executor"),
+        client_id=client_id,
+        classify_only=classify_only,
+        additive=additive,
+    )
 
 
 __all__ = ["run_executor"]
