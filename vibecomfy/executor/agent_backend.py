@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import json
+from contextvars import ContextVar
 from typing import Any
 
 from vibecomfy.executor.profiler import new_profile_id, profiler_span, short_text
@@ -42,6 +43,27 @@ _CLASSIFY_PARSE_RETRY_PROMPT = (
     '"intent": "edit"|"research"|"explain_graph"|"respond"}.'
 )
 _CLASSIFY_MAX_PARSE_ATTEMPTS = 2
+
+_LAST_REPLY_REQUEST: ContextVar[dict[str, Any] | None] = ContextVar(
+    "vibecomfy_executor_last_reply_request",
+    default=None,
+)
+
+
+def clear_reply_request_capture() -> None:
+    """Clear reply-request evidence at the beginning of an executor turn."""
+    _LAST_REPLY_REQUEST.set(None)
+
+
+def snapshot_reply_request_capture() -> dict[str, Any] | None:
+    """Return the exact messages most recently sent to the reply provider."""
+    payload = _LAST_REPLY_REQUEST.get()
+    if not isinstance(payload, dict):
+        return None
+    return {
+        **payload,
+        "messages": [dict(item) for item in payload.get("messages", ())],
+    }
 
 
 def _extract_content(result: dict[str, Any]) -> str:
@@ -397,6 +419,14 @@ def run_reply_turn(
         messages[-1]["content"] = (
             messages[-1]["content"] + "\n\n" + "\n".join(grounding_parts)
         )
+    _LAST_REPLY_REQUEST.set({
+        "query": query,
+        "messages": [dict(message) for message in messages],
+        "route": route,
+        "model": model,
+        "effort": effort,
+        "response_contract": "text",
+    })
     model_turn_id = new_profile_id("model")
     with profiler_span(
         LOGGER,
@@ -442,4 +472,9 @@ def run_reply_turn(
         return reply
 
 
-__all__ = ["run_classify_turn", "run_reply_turn"]
+__all__ = [
+    "clear_reply_request_capture",
+    "run_classify_turn",
+    "run_reply_turn",
+    "snapshot_reply_request_capture",
+]

@@ -1878,7 +1878,11 @@ def test_reply_phase_grounds_hallucinated_node_ids(monkeypatch) -> None:
 
 def test_reply_grounding_facts_are_injected_into_the_prompt(monkeypatch) -> None:
     """agent_backend appends the grounding facts to the reply user message."""
-    from vibecomfy.executor.agent_backend import run_reply_turn
+    from vibecomfy.executor.agent_backend import (
+        clear_reply_request_capture,
+        run_reply_turn,
+        snapshot_reply_request_capture,
+    )
     from vibecomfy.executor.contracts import ClassifyDecision
 
     captured: dict[str, object] = {}
@@ -1891,6 +1895,7 @@ def test_reply_grounding_facts_are_injected_into_the_prompt(monkeypatch) -> None
         "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
         fake_run_model_turn,
     )
+    clear_reply_request_capture()
     reply = run_reply_turn(
         "why is the output gray?",
         route="openrouter",
@@ -1905,6 +1910,11 @@ def test_reply_grounding_facts_are_injected_into_the_prompt(monkeypatch) -> None
     assert "43" in content
     assert "90" in content
     assert "Never cite a node id/uid outside this set" in content
+    persisted = snapshot_reply_request_capture()
+    assert persisted is not None
+    assert persisted["messages"] == captured["messages"]
+    assert persisted["response_contract"] == "text"
+    assert "NO edit was applied" in persisted["messages"][1]["content"]
 
 
 def test_reply_phase_replaces_stale_no_change_answer_with_accepted_delta(monkeypatch) -> None:

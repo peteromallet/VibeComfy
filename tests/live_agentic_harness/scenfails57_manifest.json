@@ -305,7 +305,7 @@
     {
       "id": "live-graph-explanation-smoke",
       "path": "tests/live_agentic_harness/scenfails57/live-graph-explanation-smoke.json",
-      "descriptor_sha256": "86ae51f985d1e24e7478e8d4e1b5c0c18886fb4a04219588085994068bde900e",
+      "descriptor_sha256": "07d69897b6b1e7610e8d3f3eef163d72b815b44c2aae544e03bf1fbb2755ad00",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "health_control",

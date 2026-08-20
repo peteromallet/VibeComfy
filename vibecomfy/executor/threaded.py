@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 
+from .agent_backend import clear_reply_request_capture, snapshot_reply_request_capture
 from .contracts import (
     ClassifyDecision,
     ExecutorHostPorts,
@@ -25,6 +26,7 @@ from .contracts import (
     validate_reply_change_claims,
 )
 from .profiles import AgentSpecShape
+from .request_purpose import deterministic_request_purpose
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,17 +71,21 @@ class ThreadedKernel:
     accepted_delta_ops: Callable[[ImplementationResult | None], tuple[dict[str, Any], ...]]
     implementation_landed_edit: Callable[[ImplementationResult | None], bool]
     no_candidate_reason: Callable[[ImplementationResult | None], str | None]
+    run_inspect_reply: Callable[..., str] | None = None
 
 
 def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
     """Return host policy for the classifier-free agent conversation.
 
     ``adapt`` exposes the existing combined research/edit conversation and its
-    shared tool registry. ``answer_only`` is forced onto the non-edit research
-    route. The model decides what work is useful inside that hard capability
-    envelope; no classifier provider call precedes it.
+    shared tool registry.  Purposes forced by the public request shape use the
+    same deterministic helper as staged execution: no graph means research;
+    ``answer_only`` with a graph means inspection.  The model decides what
+    work is useful inside that hard capability envelope; no classifier
+    provider call precedes it.
     """
-    if request.interaction_mode == "answer_only":
+    purpose = deterministic_request_purpose(request)
+    if purpose == "research":
         return ClassifyDecision(
             research=True,
             implement=False,
@@ -87,8 +93,23 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
             route="research",
             task="research_nodes",
             intent="research",
-            plan_summary="Threaded answer-only conversation; editing is disabled.",
+            plan_summary=(
+                "Threaded research conversation; no graph is attached and "
+                "editing is disabled."
+            ),
             research_goal=request.query,
+        )
+    if purpose == "inspect":
+        return ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            route="inspect",
+            task="inspect_graph",
+            intent="explain_graph",
+            plan_summary=(
+                "Threaded graph inspection; answer directly without editing."
+            ),
         )
     return ClassifyDecision(
         research=True,
@@ -163,6 +184,7 @@ def run_threaded_executor(
     the host's closed durable checkpoint. Its accepted batch is therefore the
     sole delta used for graph output and narration grounding.
     """
+    clear_reply_request_capture()
     plan = _threaded_plan(request)
     if classify_only:
         return ExecutorResult.success(
@@ -189,6 +211,7 @@ def run_threaded_executor(
             deepseek_est_cost_usd=est_cost,
             deepseek_cost_basis=cost_basis,
             model_attempts=attempts,
+            reply_request=snapshot_reply_request_capture(),
             orchestration_mode="threaded",
         )
 
@@ -197,8 +220,10 @@ def run_threaded_executor(
         host_ports.end_model_attempt_capture(attempt_token)
         return result
 
+    inspect_only = plan.effective_route == "inspect"
+    phase = "reply" if inspect_only else "execute"
     try:
-        spec = kernel.resolve_spec(request.profile, "execute")
+        spec = kernel.resolve_spec(request.profile, phase)
     except Exception as exc:
         failure = host_ports.classify_failure("profile", exc)
         return finish(ExecutorResult.failure(
@@ -212,10 +237,54 @@ def run_threaded_executor(
     kernel.emit_phase(
         bounded_request,
         executor_id=executor_id,
-        phase="execute",
+        phase=phase,
         status="start",
         client_id=client_id,
     )
+    if inspect_only:
+        if kernel.run_inspect_reply is None:
+            return finish(ExecutorResult.failure(
+                kind="ValidationError",
+                stage="reply",
+                message="Threaded inspect reply kernel is unavailable.",
+                report=build_report(),
+            ))
+        try:
+            reply = kernel.run_inspect_reply(
+                bounded_request,
+                spec,
+                plan=plan,
+                host_ports=host_ports,
+            )
+        except Exception as exc:
+            kernel.emit_phase(
+                bounded_request,
+                executor_id=executor_id,
+                phase=phase,
+                status="error",
+                client_id=client_id,
+            )
+            failure_kind = str(getattr(exc, "failure_kind", "ValidationError"))
+            stage = str(getattr(exc, "stage", "reply"))
+            return finish(ExecutorResult.failure(
+                kind=failure_kind,
+                stage=stage,
+                message=str(exc),
+                report=build_report(),
+            ))
+        kernel.emit_phase(
+            bounded_request,
+            executor_id=executor_id,
+            phase=phase,
+            status="done",
+            client_id=client_id,
+        )
+        return finish(ExecutorResult.success(
+            report=build_report(),
+            graph=None,
+            reply=reply,
+        ))
+
     try:
         implementation = kernel.run_implement(
             bounded_request,
@@ -230,7 +299,7 @@ def run_threaded_executor(
         kernel.emit_phase(
             bounded_request,
             executor_id=executor_id,
-            phase="execute",
+            phase=phase,
             status="error",
             client_id=client_id,
         )
@@ -293,7 +362,7 @@ def run_threaded_executor(
     kernel.emit_phase(
         bounded_request,
         executor_id=executor_id,
-        phase="execute",
+        phase=phase,
         status="done",
         client_id=client_id,
     )

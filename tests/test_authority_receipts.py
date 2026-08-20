@@ -354,6 +354,24 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
     }
     provider = _Provider(
         {
+            "VAEDecode": NodeSchema(
+                class_type="VAEDecode",
+                pack=None,
+                inputs={},
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+            ),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={"images": InputSpec(type="IMAGE", required=True)},
+                outputs=[],
+            ),
+            "ADE_AnimateDiffCombine": NodeSchema(
+                class_type="ADE_AnimateDiffCombine",
+                pack="ComfyUI-AnimateDiff-Evolved",
+                inputs={"images": InputSpec(type="IMAGE", required=True)},
+                outputs=[],
+            ),
             "ImageScale": NodeSchema(
                 class_type="ImageScale",
                 pack=None,

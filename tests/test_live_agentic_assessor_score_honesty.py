@@ -500,3 +500,119 @@ def test_equivalent_effect_different_paths_score_equally(tmp_path: Path) -> None
     assert linked["passed"] is True, linked["issues"]
     assert direct["issues"] == linked["issues"]
     assert direct["error_count"] == linked["error_count"] == 0
+
+
+def test_research_health_control_cannot_pass_with_zero_calls_or_evidence(
+    tmp_path: Path,
+) -> None:
+    response = {
+        "ok": True,
+        "route": "research",
+        "graph_unchanged": True,
+        "reply": "No graph attached; implementation skipped.",
+        "evidence": {"research": {}},
+        "report": {
+            "executor": {
+                "deepseek_usage": {"n_calls": 0},
+                "model_attempts": [],
+            }
+        },
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={
+            "assessment": {
+                "expect_graph_changed": False,
+                "require_executed_research": True,
+            },
+            "classification": {"kind": "health_control"},
+        },
+    )
+
+    assert assessment["passed"] is False
+    assert {
+        issue["check"] for issue in assessment["issues"]
+    } >= {
+        "research_model_call",
+        "research_tool_execution",
+        "research_evidence_present",
+    }
+
+
+def test_research_health_control_accepts_executed_grounded_evidence(
+    tmp_path: Path,
+) -> None:
+    response = {
+        "ok": True,
+        "route": "research",
+        "graph_unchanged": True,
+        "reply": "The retrieved precedent supports a lower-step option.",
+        "evidence": {
+            "research": {
+                "research_attempt": "grounded",
+                "tool_calls_executed": 2,
+                "evidence_artifacts": 1,
+                "citations": ["hivemind:1"],
+            }
+        },
+        "report": {
+            "executor": {
+                "deepseek_usage": {"n_calls": 2},
+                "model_attempts": [{"phase": "research", "outcome": "success"}],
+            }
+        },
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={
+            "assessment": {
+                "expect_graph_changed": False,
+                "require_executed_research": True,
+            },
+            "classification": {"kind": "health_control"},
+        },
+    )
+
+    assert assessment["passed"] is True, assessment["issues"]
+
+
+def test_inspect_health_control_rejects_reply_that_contradicts_locked_census(
+    tmp_path: Path,
+) -> None:
+    graph = {
+        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "2": {"class_type": "KSampler", "inputs": {"model": ["1", 0]}},
+    }
+    response = {
+        "ok": True,
+        "route": "inspect",
+        "graph_unchanged": True,
+        "reply": (
+            "Based on the workflow inspection, the graph is currently empty — "
+            "it contains 0 nodes and no links."
+        ),
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={
+            "graph": graph,
+            "assessment": {
+                "expect_graph_changed": False,
+                "require_graph_census_consistency": True,
+            },
+            "classification": {"kind": "health_control"},
+        },
+    )
+
+    assert assessment["passed"] is False
+    census = [
+        issue for issue in assessment["issues"]
+        if issue["check"] == "graph_census_consistency"
+    ]
+    assert census and "2 nodes and 1 edges" in census[0]["detail"]

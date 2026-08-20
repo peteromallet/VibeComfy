@@ -66,6 +66,130 @@ def _agent_research_result(
     return AgentResearchResult(route="adapt", trace=trace, evidence_pack=pack)
 
 
+def test_headless_artifacts_persist_exact_reply_request(tmp_path: Path) -> None:
+    output_dir = tmp_path / "reply-request"
+    messages = [
+        {"role": "system", "content": "Inspect only."},
+        {"role": "user", "content": "Graph census: 3 nodes, 3 edges."},
+    ]
+    result = ExecutorResult.success(
+        report=Report(
+            plan=ClassifyDecision(route="inspect", task="inspect_graph"),
+            reply_request={
+                "query": "explain this graph",
+                "messages": messages,
+                "route": "openrouter",
+                "model": "example/model",
+                "response_contract": "text",
+            },
+        ),
+        reply="Grounded answer.",
+    )
+
+    manifest = synthesize_headless_artifacts(
+        request={"query": "explain this graph", "graph": {"nodes": []}},
+        result=result,
+        response={"ok": True, "route": "inspect", "reply": "Grounded answer."},
+        output_dir=output_dir,
+        status="success",
+        readiness={"ready": True},
+        entrypoint="test",
+    )
+
+    assert "reply_request.json" in manifest["manifest"]
+    persisted = _read_json(output_dir / "reply_request.json")
+    assert persisted["messages"] == messages
+    assert persisted["response_contract"] == "text"
+
+
+def test_threaded_research_evidence_survives_public_artifact_projection(
+    tmp_path: Path,
+) -> None:
+    implementation = ImplementationResult(
+        message="Grounded research answer.",
+        durable_response={
+            "graph_unchanged": True,
+            "research_findings": {
+                "sources": [{"title": "Fetched distilled workflow"}],
+                "summary": "Fetched a lower-step workflow precedent.",
+                "community_summary": "Fetched a lower-step workflow precedent.",
+                "warnings": [],
+                # Narrative/findings metadata is not execution proof. These
+                # counterfeit counters must lose to the typed tool ledger.
+                "research_attempt": "never",
+                "tool_calls_executed": 99,
+                "evidence_artifacts": 99,
+            },
+            "batch_turns": [{
+                "turn_number": 0,
+                "statements": [{
+                    "detail": {
+                        "tool_call": "hivemind_get",
+                        "tool_status": "ok",
+                        "ledger_entry": {
+                            "decision": "hivemind_get",
+                            "conclusion": "Fetched distilled workflow.",
+                            # Production batch hivemind_get keeps the fetched
+                            # record's canonical id; grounding comes from the
+                            # typed tool_call, not an id naming convention.
+                            "evidence_ids": ["hivemind:workflows:7"],
+                        },
+                    },
+                }],
+            }],
+        },
+    )
+    result = ExecutorResult.success(
+        report=Report(
+            plan=ClassifyDecision(
+                research=True,
+                implement=False,
+                route="research",
+                task="research_nodes",
+            ),
+            implementation=implementation,
+            deepseek_usage={"n_calls": 1},
+            orchestration_mode="threaded",
+        ),
+        reply="Grounded research answer.",
+    )
+    response = result.to_dict()
+    output_dir = tmp_path / "threaded-research"
+
+    synthesize_headless_artifacts(
+        request={"query": "find a distilled workflow"},
+        result=result,
+        response=response,
+        output_dir=output_dir,
+        status="success",
+        readiness={"ready": True},
+        entrypoint="test",
+    )
+
+    persisted = _read_json(output_dir / "response.json")
+    research = persisted["evidence"]["research"]
+    assert research["research_attempt"] == "grounded"
+    assert research["tool_calls_executed"] == 1
+    assert research["evidence_artifacts"] == 1
+    assert research["citations"] == ["hivemind:workflows:7"]
+
+    # The same persisted artifact is what the live assessor adjudicates.
+    # This proves threaded research is not merely executed and then discarded.
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    assessment = assess_live_output_dir(
+        output_dir,
+        scenario={
+            "assessment": {
+                "expect_graph_changed": False,
+                "require_executed_research": True,
+            },
+            "classification": {"kind": "health_control"},
+        },
+    )
+    assert assessment["passed"] is True, assessment["issues"]
+
+
 def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     request = {
@@ -232,6 +356,7 @@ def test_headless_artifacts_copy_only_real_durable_turn_files(tmp_path: Path) ->
         "model_attempts.json": False,
         "model_request.json": False,
         "model_response.json": False,
+        "reply_request.json": False,
     }
     assert not (output_dir / "messages.jsonl").exists()
     assert not (output_dir / "model_request.json").exists()
@@ -267,6 +392,7 @@ def test_headless_artifacts_copy_model_files_when_turn_produced_them(tmp_path: P
         "model_attempts.json": False,
         "model_request.json": True,
         "model_response.json": True,
+        "reply_request.json": False,
     }
     assert (output_dir / "messages.jsonl").read_text(encoding="utf-8") == '{"role": "user"}\n'
     assert (output_dir / "model_request.json").is_file()

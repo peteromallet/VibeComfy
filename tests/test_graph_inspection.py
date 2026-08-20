@@ -284,6 +284,53 @@ class TestInspectGraphBasic:
         assert evidence.node_count == 0
         assert evidence.nodes == ()
 
+    def test_flat_api_shape_preserves_nonempty_census(self) -> None:
+        graph = {
+            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+            "2": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": "portrait"},
+            },
+            "3": {
+                "class_type": "KSampler",
+                "inputs": {"model": ["1", 0], "positive": ["2", 0]},
+            },
+        }
+
+        evidence = inspect_graph(graph)
+
+        assert evidence.node_count == 3
+        assert len(evidence.edges) == 3
+        assert {node.class_type for node in evidence.nodes} == {
+            "CheckpointLoaderSimple",
+            "CLIPTextEncode",
+            "KSampler",
+        }
+
+    def test_prompt_wrapped_api_shape_preserves_inner_graph_census(self) -> None:
+        graph = {
+            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+            "2": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": "portrait"},
+            },
+            "3": {
+                "class_type": "KSampler",
+                "inputs": {"model": ["1", 0], "positive": ["2", 0]},
+            },
+        }
+
+        evidence = inspect_graph({"prompt": graph, "client_id": "test-client"})
+
+        assert evidence.node_count == 3
+        assert len(evidence.edges) == 3
+        assert {node.class_type for node in evidence.nodes} == {
+            "CheckpointLoaderSimple",
+            "CLIPTextEncode",
+            "KSampler",
+        }
+        assert all(node.class_type != "Unknown" for node in evidence.nodes)
+
     def test_nodes_not_a_list_returns_empty(self) -> None:
         evidence = inspect_graph({"nodes": "not_a_list"})
         assert evidence.node_count == 0

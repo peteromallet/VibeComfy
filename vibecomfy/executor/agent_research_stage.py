@@ -5,8 +5,8 @@ agent-driven tool-calling loop: the MODEL chooses every evidence tool call
 (``hivemind_search``, ``hivemind_get``, ``registry_lookup``) and decides when
 the evidence answers the question (``finish``).  Deterministic Python never
 auto-chooses a search or fetch — it only executes the agent's chosen calls,
-records typed evidence, and enforces the phase allowlist + the wall-clock
-deadline (calls and turns are unbounded — minimal-budget plan).
+records typed evidence, and enforces the phase allowlist, deterministic
+decision/tool-call limits, and the wall-clock deadline.
 The stage returns ``(trace, evidence_pack)``; the F01 :class:`EvidencePack`
 is the only handoff into the implement phase.
 
@@ -23,9 +23,9 @@ Contract:
       stopped without an agent finish) so the executor pipeline is
       unaffected and can fail closed.
 
-The production loop is bounded only by its wall-clock deadline. The model is
-shown an honest remaining-time estimate each turn; test callers may provide a
-finite turn clamp.
+The production loop has deterministic turn/call bounds and a consecutive
+Hivemind-timeout circuit breaker. The 450-second wall deadline remains a
+backstop for slow in-flight provider/tool calls.
 """
 
 from __future__ import annotations
@@ -72,13 +72,20 @@ from .tool_specs import (
 LOGGER = logging.getLogger(__name__)
 
 # ── I01 effort budgets (mirrors vibecomfy/executor/tool_specs.py) ────────────
-# The research loop is bounded by wall clock, not arbitrary call quotas. A
-# 450-second window gives adapt routes roughly half of the executor's
-# 15-minute outer deadline while leaving enough time for implementation.
+# Eight decision turns cover the normal search -> fetch -> synthesize shape
+# with room for refinement. Twelve evidence calls is an independent safety
+# ceiling for future multi-call decisions. Today one decision carries one
+# call, so the turn ceiling normally wins. Three consecutive timeout-shaped
+# Hivemind results open the circuit before repeated 5-second failures amplify.
+MAX_RESEARCH_DECISION_TURNS = 8
+MAX_RESEARCH_TOOL_CALLS = 12
+HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD = 3
+
+# The 450-second window remains a backstop for slow in-flight work, not the
+# production loop's primary termination mechanism.
 TOOL_PHASE_DEADLINE_SECONDS = 450.0
 
-# Production is deadline-bounded. Tests may pass a finite clamp.
-_MAX_TURNS: int | None = None
+_MAX_TURNS = MAX_RESEARCH_DECISION_TURNS
 # The digest is built before the decision call. Reserve a typical model-turn
 # latency so the model sees an honest amount of time available for tool work.
 _DECISION_TURN_LATENCY_RESERVE_SECONDS = 30.0
@@ -106,6 +113,8 @@ DECISION_ENOUGH_REFINE = "enough_refine"
 # the loop feeds it back as a refinement turn instead of accepting the
 # ungrounded finish (or auto-failing the stage).
 DECISION_FINISH_PREMATURE = "finish_premature"
+DECISION_TOOL_LIMIT_EXHAUSTED = "research_tool_limit_exhausted"
+DECISION_HIVEMIND_CIRCUIT_OPEN = "hivemind_timeout_circuit_open"
 
 # Batch 14: ResearchAttempt — the plan's attempt semantics, derived in Python
 # from the research tool ledger (never model judgment).  The four states are
@@ -146,6 +155,28 @@ _EXECUTED_STATUS_TOKENS: frozenset[str] = frozenset({
     "invalid_request",
     "projection_failed",
 })
+
+_HIVEMIND_TIMEOUT_DIAGNOSTIC_CODES: frozenset[str] = frozenset({
+    "hivemind_timeout",
+    "hivemind_statement_timeout",
+})
+
+
+def _is_hivemind_timeout_result(tool: str, result: ToolResult) -> bool:
+    """Return whether one Hivemind call ended in a timeout-shaped state.
+
+    Persistent Postgres 57014 responses are intentionally surfaced by the
+    client as ``unavailable`` after its one degraded query, so the diagnostic
+    code participates alongside the ordinary typed ``timeout`` status.
+    """
+    if tool not in {HIVE_MIND_SEARCH_TOOL, HIVE_MIND_GET_TOOL}:
+        return False
+    if result.status is ToolStatus.TIMEOUT:
+        return True
+    return any(
+        diagnostic.code in _HIVEMIND_TIMEOUT_DIAGNOSTIC_CODES
+        for diagnostic in result.diagnostics
+    )
 
 
 def _entry_is_executed_tool_call(entry: EvidenceLedgerEntry) -> bool:
@@ -866,13 +897,25 @@ def build_evidence_digest(
     """Return a bounded, evidence-first digest for the next model turn.
 
     Fetched records are synthesis-grade evidence and are shown newest first.
-    Search hits remain compact leads.  The deprecated counter arguments stay
-    accepted for callers compiled against the older helper, but the research
-    stage is deadline-bounded and displays only honest remaining time.
+    Search hits remain compact leads. The digest exposes the two production
+    ceilings as well as the wall-clock backstop so the agent can spend its
+    final turn synthesizing instead of requesting work Python will refuse.
     """
     lines: list[str] = []
     if seconds_left is not None:
         lines.append(f"Time left: ~{max(0, int(seconds_left))}s.")
+    if turns_left is not None:
+        lines.append(f"Decision turns left: {max(0, int(turns_left))}.")
+    call_limits = [
+        value
+        for value in (searches_left, fetches_left, registry_left)
+        if value is not None
+    ]
+    if call_limits:
+        lines.append(
+            "Evidence tool calls left: "
+            f"{max(0, min(int(value) for value in call_limits))}."
+        )
     record_lines: list[str] = []
     status_lines: list[str] = []
     search_lines: list[str] = []
@@ -1082,12 +1125,6 @@ class AgentResearchTrace:
     evidence_artifact_count: int = 0
     warnings: tuple[str, ...] = ()
     error: str | None = None
-    # R4 honesty counters: how many agent-chosen tool calls actually executed
-    # and how many evidence artifacts were recorded.  Consumers (the reply
-    # memo) use these to distinguish "searched and found nothing" from
-    # "research never ran a tool".
-    executed_tool_calls: int = 0
-    evidence_artifact_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1204,6 +1241,8 @@ def run_agent_research_stage(
     now_fn: Callable[[], float] | None = None,
     deadline_seconds: float = TOOL_PHASE_DEADLINE_SECONDS,
     max_turns: int | None = _MAX_TURNS,
+    max_tool_calls: int | None = MAX_RESEARCH_TOOL_CALLS,
+    hivemind_timeout_threshold: int = HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD,
     cache_root: Any = None,
     research_brief: str = "",
 ) -> tuple[AgentResearchTrace, EvidencePack]:
@@ -1211,9 +1250,9 @@ def run_agent_research_stage(
 
     The AGENT chooses every tool call and decides when to finish; Python
     executes the chosen calls, records typed evidence, and enforces the
-    research-phase allowlist plus the wall-clock ``deadline_seconds``.
-    Calls and production decision turns are unbounded; ``max_turns`` is an
-    optional deterministic test clamp.
+    research-phase allowlist, finite decision/tool-call ceilings, and the
+    wall-clock ``deadline_seconds`` backstop. ``None`` for either ceiling uses
+    the production default rather than disabling the bound.
 
     Per turn the agent returns one decision (via ``judge_fn``):
     ``{"action": "call", "tool", "args"}`` to gather more evidence or
@@ -1246,6 +1285,17 @@ def run_agent_research_stage(
         judge_fn = _default_judge_fn(spec)
     started = now()
     deadline = started + max(0.0, float(deadline_seconds))
+    turn_limit = (
+        MAX_RESEARCH_DECISION_TURNS
+        if max_turns is None
+        else max(0, int(max_turns))
+    )
+    tool_call_limit = (
+        MAX_RESEARCH_TOOL_CALLS
+        if max_tool_calls is None
+        else max(0, int(max_tool_calls))
+    )
+    timeout_threshold = max(1, int(hivemind_timeout_threshold))
 
     artifacts: dict[str, EvidenceArtifact] = {}
     ledger_entries: list[EvidenceLedgerEntry] = []
@@ -1255,7 +1305,9 @@ def run_agent_research_stage(
     # P1-c: count EXECUTED agent-chosen tool calls (not refusal/premature
     # digest entries) so a finish with zero research activity is detectable.
     tool_calls_made = 0
+    consecutive_hivemind_timeouts = 0
     fetched_requested_ids: set[str] = set()
+    stop_reason = ""
 
     final_verdict = "refine"
     final_summary = ""
@@ -1378,6 +1430,18 @@ def run_agent_research_stage(
             )
         )
 
+    def _record_exhaustion(decision: str, message: str) -> None:
+        """Record a typed, compact terminal marker without inventing evidence."""
+        _add_entry(
+            EvidenceLedgerEntry(
+                decision=decision,
+                conclusion=message,
+                evidence_ids=(),
+                uncertainty=message,
+            )
+        )
+        warnings.append(message)
+
     current_question = question
 
     try:
@@ -1400,9 +1464,10 @@ def run_agent_research_stage(
 
         turns_taken = 0
         agent_finished = False
-        while max_turns is None or turns_taken < int(max_turns):
+        while turns_taken < turn_limit:
             if now() > deadline:
                 warnings.append("research stage phase deadline exceeded; stopped early")
+                stop_reason = "deadline"
                 break
 
             decision_reserve = min(
@@ -1413,6 +1478,10 @@ def run_agent_research_stage(
                 question=current_question,
                 tool_calls=tool_call_digests,
                 artifacts=artifacts,
+                searches_left=max(0, tool_call_limit - tool_calls_made),
+                fetches_left=max(0, tool_call_limit - tool_calls_made),
+                registry_left=max(0, tool_call_limit - tool_calls_made),
+                turns_left=max(0, turn_limit - turns_taken),
                 seconds_left=max(0.0, deadline - now() - decision_reserve),
             )
             messages = build_agent_research_messages(
@@ -1573,6 +1642,25 @@ def run_agent_research_stage(
                     ),
                 )
                 continue
+            if tool_calls_made >= tool_call_limit:
+                stop_reason = "tool_call_limit"
+                _refusal_call(
+                    tool,
+                    _bounded(str(args), 120),
+                    (
+                        "research_tool_limit_exhausted: no evidence tool call "
+                        f"executed because the finite limit of {tool_call_limit} "
+                        "was reached"
+                    ),
+                )
+                _record_exhaustion(
+                    DECISION_TOOL_LIMIT_EXHAUSTED,
+                    (
+                        "research stage exhausted its finite evidence tool-call "
+                        f"limit ({tool_call_limit}); retained prior evidence"
+                    ),
+                )
+                break
             skip_network = False
             if tool == "hivemind_search":
                 result = tool_fn(tool, args)
@@ -1624,6 +1712,11 @@ def run_agent_research_stage(
                 # Count the actual call before projection: malformed evidence
                 # must not turn an executed search into attempt=never.
                 tool_calls_made += 1
+                if tool in {HIVE_MIND_SEARCH_TOOL, HIVE_MIND_GET_TOOL}:
+                    if _is_hivemind_timeout_result(tool, result):
+                        consecutive_hivemind_timeouts += 1
+                    else:
+                        consecutive_hivemind_timeouts = 0
             # Evidence projection is the registry's job: artifacts (full hit /
             # fetched-row bodies, correctly extracted from frozen results),
             # the compact ledger entry, and the current-turn digest all come
@@ -1717,11 +1810,25 @@ def run_agent_research_stage(
                     f"call executed but its evidence was not recorded: {detail}",
                 )
 
+            if consecutive_hivemind_timeouts >= timeout_threshold:
+                stop_reason = "hivemind_timeout_circuit"
+                _record_exhaustion(
+                    DECISION_HIVEMIND_CIRCUIT_OPEN,
+                    (
+                        "hivemind timeout circuit opened after "
+                        f"{consecutive_hivemind_timeouts} consecutive "
+                        "timeout-shaped calls; retained typed empty/thin "
+                        "evidence for downstream graph-local handling"
+                    ),
+                )
+                break
+
             if now() > deadline:
                 warnings.append(
                     "research stage phase deadline exceeded after the tool "
                     "call; stopped early (the call's evidence is preserved)"
                 )
+                stop_reason = "deadline"
                 break
 
         if not agent_finished:
@@ -1731,9 +1838,11 @@ def run_agent_research_stage(
             # distinguishable from a successful research run so the executor
             # can fail closed instead of implementing from nothing.
             status = "exhausted"
+            if not stop_reason:
+                stop_reason = "decision_turn_limit"
             warnings.append(
                 "research stage stopped without an agent finish "
-                "(deadline or max-turn exhaustion); status=exhausted"
+                f"(reason={stop_reason}); status=exhausted"
             )
     except Exception as exc:  # noqa: BLE001 - research failures are typed, never raised
         status = "failed"
@@ -1775,10 +1884,15 @@ __all__ = [
     "DECISION_ENOUGH_REFINE",
     "DECISION_FINISH_PREMATURE",
     "DECISION_GET",
+    "DECISION_HIVEMIND_CIRCUIT_OPEN",
     "DECISION_QUESTION",
     "DECISION_REGISTRY",
     "DECISION_SEARCH",
     "DECISION_SYNTHESIZE",
+    "DECISION_TOOL_LIMIT_EXHAUSTED",
+    "HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD",
+    "MAX_RESEARCH_DECISION_TURNS",
+    "MAX_RESEARCH_TOOL_CALLS",
     "RESEARCH_ALLOWED_TOOLS",
     "RESEARCH_ATTEMPT_EMPTY",
     "RESEARCH_ATTEMPT_GROUNDED",

@@ -177,6 +177,18 @@ def _known_output(node: Any, slot: str | int, provider: Any) -> bool:
 def _known_input(node: Any, field: str, provider: Any) -> bool:
     if field in (getattr(node, "inputs", None) or {}):
         return True
+    # Connected sockets live in the retained edge set rather than the literal
+    # ``node.inputs`` mapping.  Preserve the submit graph's named UI socket as
+    # valid replay evidence, symmetric with ``_known_output`` above.
+    metadata = getattr(node, "metadata", None) or {}
+    ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    inputs_ui = ui.get("inputs") if isinstance(ui, Mapping) else None
+    if isinstance(inputs_ui, (list, tuple)):
+        for item in inputs_ui:
+            if isinstance(item, Mapping) and str(item.get("name", "")) == field:
+                return True
+            if isinstance(item, str) and item == field:
+                return True
     schema = _schema_for(node, provider)
     inputs = getattr(schema, "inputs", None) or {}
     return isinstance(inputs, Mapping) and field in inputs

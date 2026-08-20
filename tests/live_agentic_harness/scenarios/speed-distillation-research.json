@@ -2,7 +2,8 @@
   "id": "speed-distillation-research",
   "query": "This video workflow is too slow. Is there a distilled or faster way to run it without changing the creative intent?",
   "assessment": {
-    "expect_graph_changed": false
+    "expect_graph_changed": false,
+    "require_executed_research": true
   },
   "classification": {
     "kind": "health_control",

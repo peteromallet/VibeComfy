@@ -25,9 +25,9 @@
     },
     {
       "id": "live-graph-explanation-smoke",
-      "descriptor_sha256": "86ae51f985d1e24e7478e8d4e1b5c0c18886fb4a04219588085994068bde900e",
+      "descriptor_sha256": "07d69897b6b1e7610e8d3f3eef163d72b815b44c2aae544e03bf1fbb2755ad00",
       "source_workflow_sha256": null,
-      "locked_input_sha256": "3eec08ce304a0bf9643f7501fd89345a3974da668a8e7ef6389436c631108408"
+      "locked_input_sha256": "d93e79a71bd0bf6c496744ba81a1f9af9ee7672467a83d6100ffe638c3cd538c"
     },
     {
       "id": "multi-video-based-character-replacement-using",
@@ -37,7 +37,7 @@
     },
     {
       "id": "speed-distillation-research",
-      "descriptor_sha256": "5cd0755b3e83818619ba7e8dd40d360a2e419254b6f5394fd50eaca0de4dca80",
+      "descriptor_sha256": "c19b6c215834c9e974876f6aaf3d15273a3da02d4940560f8211fc80eee2ed7e",
       "source_workflow_sha256": null,
       "locked_input_sha256": "52b36af605acb7728c5809ac0961e901c5bc2fecc1f91f167911428a5d2efa7a"
     }

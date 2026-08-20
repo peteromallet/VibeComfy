@@ -604,7 +604,7 @@
     {
       "id": "live-graph-explanation-smoke",
       "path": "tests/live_agentic_harness/scenarios/live-graph-explanation-smoke.json",
-      "descriptor_sha256": "86ae51f985d1e24e7478e8d4e1b5c0c18886fb4a04219588085994068bde900e",
+      "descriptor_sha256": "07d69897b6b1e7610e8d3f3eef163d72b815b44c2aae544e03bf1fbb2755ad00",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "health_control",
@@ -925,7 +925,7 @@
     {
       "id": "speed-distillation-research",
       "path": "tests/live_agentic_harness/scenarios/speed-distillation-research.json",
-      "descriptor_sha256": "5cd0755b3e83818619ba7e8dd40d360a2e419254b6f5394fd50eaca0de4dca80",
+      "descriptor_sha256": "c19b6c215834c9e974876f6aaf3d15273a3da02d4940560f8211fc80eee2ed7e",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "health_control",

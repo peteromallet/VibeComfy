@@ -2156,6 +2156,34 @@ def test_health_controls_are_structurally_scored_not_semantically_judged(
         output_dir = tmp_path / scenario_id
         _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
         _write_non_edit_response(output_dir, reply="ok")
+        if scenario_id == "speed-distillation-research":
+            (output_dir / "response.json").write_text(
+                json.dumps({
+                    "ok": True,
+                    "route": "research",
+                    "graph_unchanged": True,
+                    "reply": "Grounded faster-workflow precedent.",
+                    "message": "Grounded faster-workflow precedent.",
+                    "outcome": {"kind": "noop"},
+                    "evidence": {
+                        "research": {
+                            "research_attempt": "grounded",
+                            "tool_calls_executed": 1,
+                            "evidence_artifacts": 1,
+                            "citations": ["hivemind:1"],
+                        }
+                    },
+                    "report": {
+                        "executor": {
+                            "deepseek_usage": {"n_calls": 1},
+                            "model_attempts": [
+                                {"phase": "research", "outcome": "success"}
+                            ],
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
         scenario_path = (
             Path(__file__).parent / "live_agentic_harness" / "scenarios" / f"{scenario_id}.json"
         )

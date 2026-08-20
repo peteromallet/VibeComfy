@@ -896,6 +896,21 @@ class _InterpretRunner:
         field_name: str,
         rhs: ast.expr,
     ) -> StatementOutcome:
+        # Positional widget aliases are an ingest carrier, never a durable edit
+        # vocabulary.  ``_canonical_field`` resolves one only when the node's
+        # frozen/instance schema proves the compact slot's render-visible name.
+        # If it could not do so, reject rather than sealing a ``widget_N`` op
+        # that authoritative replay is required to reject later.
+        if is_positional_alias(field_name):
+            return self._reject(
+                item,
+                "widget_unknown",
+                "set_node_field",
+                (
+                    f"{node.class_type}.{field_name} has no schema-proven "
+                    "render-visible field name."
+                ),
+            )
         surface = editable_surface_for(
             node, schema_provider=self.schema_provider, edges=self.workflow.edges
         )
@@ -1188,6 +1203,7 @@ class _InterpretRunner:
 
     def _canonical_field(self, node: Any, raw: str) -> str:
         from vibecomfy.porting.edit.widget_slots import _canonical_ui_only_widget_field
+        from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 
         mapping: dict[str, Any] = {"type": node.class_type, "class_type": node.class_type}
         metadata = getattr(node, "metadata", None)
@@ -1202,6 +1218,26 @@ class _InterpretRunner:
         )
         if alias is not None:
             return alias[0]
+        if is_positional_alias(raw) and raw.startswith("widget_"):
+            index = int(raw.removeprefix("widget_"))
+            resolution = compact_widget_names_for_node(
+                node,
+                schema_provider=self.schema_provider,
+            )
+            if 0 <= index < len(resolution.names):
+                named = resolution.names[index]
+                if isinstance(named, str) and named and not is_positional_alias(named):
+                    # Apply the same schema/Python-identifier decoding used by
+                    # an originally named assignment.  The landed op therefore
+                    # contains only the canonical render-visible name.
+                    schema = schema_for(self.schema_provider, node.class_type)
+                    schema_inputs = getattr(schema, "inputs", {}) or {}
+                    return _surface_field_name(
+                        schema_inputs,
+                        str(node.class_type),
+                        named,
+                        schema_provider=self.schema_provider,
+                    )
         if str(node.class_type) == _EXEC_CLASS_TYPE:
             io_value = None
             if isinstance(getattr(node, "inputs", None), Mapping):

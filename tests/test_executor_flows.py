@@ -825,7 +825,7 @@ class TestAnswerOnlyInteraction:
             legacy_prefetch_called = legacy_research.called
         return result, legacy_prefetch_called, captured_reply, edit_called
 
-    def test_answer_only_edit_classification_is_downgraded_to_research(
+    def test_answer_only_graph_is_downgraded_to_inspection(
         self, profile_dir: Path
     ) -> None:
         """An edit-classified query on an answer_only interaction must not edit."""
@@ -852,14 +852,15 @@ class TestAnswerOnlyInteraction:
         )
 
         assert result.ok is True
-        # The answer-only contract downgraded the edit route to research.
-        assert result.report.plan.effective_route == "research"
+        # An attached answer-only graph uses the deterministic inspect surface.
+        assert result.report.plan.effective_route == "inspect"
         assert result.report.plan.implement is False
-        assert result.to_dict()["route"] == "research"
+        assert result.report.plan.research is False
+        assert result.to_dict()["route"] == "inspect"
         assert result.graph is None
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
-        # Legacy prefetch never ran; the agent-owned stage and reply ran.
+        # Neither research nor edit ran; only graph inspection + reply ran.
         assert legacy_prefetch_called is False
         assert reply_capture["interaction_mode"] == "answer_only"
         assert edit_called is False
@@ -5575,3 +5576,67 @@ def test_research_profiler_span_uses_trace_status(
     assert result.ok is True
     assert ("research", "exhausted") in finished
     assert ("research", "ok") not in finished
+
+
+def test_reply_grounding_replaces_nonempty_graph_census_contradiction() -> None:
+    graph = {
+        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "2": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["1", 1], "text": "portrait"},
+        },
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {"model": ["1", 0], "positive": ["2", 0]},
+        },
+    }
+
+    reply = executor_core._enforce_reply_grounding(
+        (
+            "Based on the workflow inspection, the graph is currently empty — "
+            "it contains 0 nodes and no links, so there is no actual behavior "
+            "to walk through yet."
+        ),
+        landed=False,
+        graph=graph,
+    )
+
+    assert "contains 3 nodes and 3 edges" in reply
+    assert "CheckpointLoaderSimple" in reply
+    assert "graph is empty" not in reply.casefold()
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "There are no nodes in the attached workflow.",
+        "No nodes or edges are present in the current graph.",
+        "The attached workflow contains zero nodes.",
+        "The provided workflow appears to be empty.",
+        "There are no nodes or edges in the graph.",
+    ],
+)
+def test_empty_graph_claim_detector_covers_common_workflow_phrasings(
+    claim: str,
+) -> None:
+    assert executor_core._reply_claims_empty_graph(claim) is True
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        "The Empty Latent node creates the initial latent input.",
+        "The graph has no negative prompt connected to the sampler.",
+        "No empty latent is attached to the KSampler.",
+    ],
+)
+def test_reply_grounding_does_not_confuse_local_absence_with_empty_graph(
+    original: str,
+) -> None:
+    graph = {"1": {"class_type": "EmptyLatentImage", "inputs": {}}}
+
+    assert executor_core._enforce_reply_grounding(
+        original,
+        landed=False,
+        graph=graph,
+    ) == original

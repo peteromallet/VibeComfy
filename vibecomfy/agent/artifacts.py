@@ -33,6 +33,7 @@ _MODEL_ARTIFACT_NAMES = frozenset({
     "model_attempts.json",
     "model_request.json",
     "model_response.json",
+    "reply_request.json",
 })
 _SENSITIVE_URL_QUERY_PARTS = frozenset({
     "api_key",
@@ -455,6 +456,7 @@ def synthesize_headless_artifacts(
         _append_manifest(manifest, "model_attempts.json")
     classification = report.get("plan")
     model_response = report.get("model_response")
+    reply_request = report.get("reply_request")
     if isinstance(classification, Mapping):
         classification_payload = _redact(classification)
         _safe_write(output_dir / "classification.json", classification_payload)
@@ -500,6 +502,9 @@ def synthesize_headless_artifacts(
     if model_response is not None:
         _safe_write(output_dir / "model_response.json", _redact(model_response))
         _append_manifest(manifest, "model_response.json")
+    if isinstance(reply_request, Mapping):
+        _safe_write(output_dir / "reply_request.json", _redact(reply_request))
+        _append_manifest(manifest, "reply_request.json")
 
     turn_dir = _turn_dir_from_response(response)
     copied: list[str] = []

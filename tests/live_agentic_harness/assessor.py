@@ -434,6 +434,127 @@ def _answer_rubric(scenario: Mapping[str, Any] | None) -> Mapping[str, Any] | No
     return rubric if isinstance(rubric, Mapping) else None
 
 
+def _research_payloads(
+    output_dir: Path,
+    response: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    """Return every structured research payload captured for this turn."""
+    payloads: list[Mapping[str, Any]] = []
+    evidence = response.get("evidence")
+    if isinstance(evidence, Mapping) and isinstance(evidence.get("research"), Mapping):
+        payloads.append(evidence["research"])
+    report = response.get("report")
+    executor = report.get("executor") if isinstance(report, Mapping) else None
+    if isinstance(executor, Mapping) and isinstance(executor.get("research"), Mapping):
+        payloads.append(executor["research"])
+    artifact = _load_json(output_dir / "research.json")
+    if isinstance(artifact, Mapping):
+        payloads.append(artifact)
+    return payloads
+
+
+def _assess_executed_research(
+    output_dir: Path,
+    response: Mapping[str, Any],
+    scenario: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Require model, tool, and evidence activity for research controls."""
+    config = _assessment_config(scenario)
+    if config.get("require_executed_research") is not True:
+        return []
+
+    report = response.get("report")
+    executor = report.get("executor") if isinstance(report, Mapping) else None
+    usage = executor.get("deepseek_usage") if isinstance(executor, Mapping) else None
+    n_calls = usage.get("n_calls") if isinstance(usage, Mapping) else None
+    attempts = executor.get("model_attempts") if isinstance(executor, Mapping) else None
+    has_model_call = (
+        isinstance(n_calls, int)
+        and not isinstance(n_calls, bool)
+        and n_calls > 0
+    ) or (isinstance(attempts, list) and len(attempts) > 0)
+
+    payloads = _research_payloads(output_dir, response)
+    tool_calls = max(
+        (
+            int(payload.get("tool_calls_executed", 0))
+            for payload in payloads
+            if isinstance(payload.get("tool_calls_executed", 0), int)
+            and not isinstance(payload.get("tool_calls_executed", 0), bool)
+        ),
+        default=0,
+    )
+    attempts_seen = {
+        str(payload.get("research_attempt", "")).strip().casefold()
+        for payload in payloads
+    }
+    has_evidence = any(
+        (
+            isinstance(payload.get("evidence_artifacts"), int)
+            and not isinstance(payload.get("evidence_artifacts"), bool)
+            and payload["evidence_artifacts"] > 0
+        )
+        or bool(payload.get("citations"))
+        or bool(payload.get("evidence_pack"))
+        for payload in payloads
+    )
+
+    issues: list[dict[str, Any]] = []
+    if not has_model_call:
+        issues.append({
+            "check": "research_model_call",
+            "severity": "error",
+            "detail": "Research-purpose scenario executed no model call (n_calls=0).",
+        })
+    if tool_calls <= 0:
+        issues.append({
+            "check": "research_tool_execution",
+            "severity": "error",
+            "detail": "Research-purpose scenario executed no research tool call.",
+        })
+    if not payloads or attempts_seen <= {"", "never"} or not has_evidence:
+        issues.append({
+            "check": "research_evidence_present",
+            "severity": "error",
+            "detail": (
+                "Research-purpose scenario captured no executed research evidence "
+                "(missing/never attempt or empty evidence ledger)."
+            ),
+        })
+    return issues
+
+
+def _assess_graph_census_consistency(
+    response: Mapping[str, Any],
+    scenario: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Reject explicit empty-graph prose against a non-empty locked graph."""
+    if _assessment_config(scenario).get("require_graph_census_consistency") is not True:
+        return []
+    graph = scenario.get("graph") if isinstance(scenario, Mapping) else None
+    if not isinstance(graph, dict):
+        return []
+    from vibecomfy.executor.core import _reply_claims_empty_graph
+    from vibecomfy.executor.graph_inspection import inspect_graph
+
+    evidence = inspect_graph(graph)
+    reply = response.get("reply") or response.get("message") or ""
+    if (
+        evidence.node_count > 0
+        and isinstance(reply, str)
+        and _reply_claims_empty_graph(reply)
+    ):
+        return [{
+            "check": "graph_census_consistency",
+            "severity": "error",
+            "detail": (
+                f"Reply claimed an empty/zero graph, but deterministic inspection "
+                f"found {evidence.node_count} nodes and {len(evidence.edges)} edges."
+            ),
+        }]
+    return []
+
+
 def _tri_state_from_judge(verdict: Mapping[str, Any]) -> str:
     """Map a judge return value to pass|fail|undetermined.
 
@@ -992,6 +1113,8 @@ def assess_live_output_dir(
         # evidence IDs, no-local-search research path, and evidence-pack
         # capture.  All are structured-evidence checks — prose never gates.
         issues.extend(assess_research_evidence(response, scenario))
+        issues.extend(_assess_executed_research(output_dir, response, scenario))
+        issues.extend(_assess_graph_census_consistency(response, scenario))
 
     # Semantic-answer judge runs for every D13 rubric scenario regardless
     # of edit expectation or response presence. Health controls are

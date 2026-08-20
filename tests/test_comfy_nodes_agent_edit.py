@@ -2413,6 +2413,82 @@ def test_agent_edit_batch_protocol_retry_executes_dataclasses_replace(
     assert response_turns[1]["response"]["message"] == "Changed the save prefix."
 
 
+def test_agent_edit_batch_protocol_retry_aborts_after_second_malformed_response(
+    tmp_path: Path,
+) -> None:
+    """Protocol recovery is exactly one retry, including multiple-fence output."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    state = AgentEditState(
+        task="change the save prefix to after",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+    context = TurnContext(session_id="protocol-retry-abort", turn_id="0001")
+    calls: list[list[dict[str, str]]] = []
+
+    def _always_malformed(messages: list[dict[str, str]]) -> dict[str, str]:
+        calls.append(messages)
+        if len(calls) == 1:
+            raise provider_mod.MalformedModelJSON(
+                "Agent response does not contain a ```batch fenced block.",
+                raw_response="<tool_call>edit graph</tool_call>",
+                parse_reason="missing_batch_fence",
+            )
+        raise provider_mod.MalformedModelJSON(
+            "Agent response contains multiple ```batch fenced blocks.",
+            raw_response=(
+                "```batch\nsaveimage.filename_prefix = 'after'\n```\n"
+                "```batch\ndone()\n```"
+            ),
+            parse_reason="multiple_batch_fences",
+        )
+
+    with pytest.raises(
+        provider_mod.MalformedModelJSON,
+        match="multiple .*batch fenced blocks",
+    ):
+        agent_edit_module._stage_agent_batch_repl(
+            state,
+            context,
+            deepseek_client=_always_malformed,
+        )
+
+    assert len(calls) == 2
+    retry_prompt = calls[1][-1]["content"]
+    assert "exactly one opening ```batch fence" in retry_prompt
+    assert "Do not emit tool-call XML" in retry_prompt
+    assert state.batch_exit_mode == "protocol_failure"
+
+    response_turns = json.loads(
+        state.model_response_path.read_text(encoding="utf-8")
+    )["turns"]
+    assert response_turns[0]["error"]["retrying"] is True
+    terminal = response_turns[1]["error"]
+    assert terminal["retrying"] is False
+    assert terminal["attempt"] == 2
+    assert terminal["parse_reason"] == "multiple_batch_fences"
+    assert terminal["diagnostics"][0]["attempt_count"] == 2
+
+
 def test_research_phase_deadline_stops_loop_cleanly(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4524,7 +4600,6 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
                 ]
             },
         },
-        schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: next(responses),
         session_root=tmp_path,
     )
@@ -4595,7 +4670,6 @@ def test_registry_class_only_research_does_not_hydrate_local_search(
             "max_batches": 2,
             "max_consecutive_errors": 2,
         },
-        schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: next(responses),
         session_root=tmp_path,
     )
@@ -5179,7 +5253,21 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
             {
                 "id": 12,
                 "type": "ADE_AnimateDiffUniformContextOptions",
-                "inputs": [],
+                "inputs": [
+                    {
+                        "name": name,
+                        "type": input_type,
+                        "link": None,
+                        "widget": {"name": name},
+                    }
+                    for name, input_type in (
+                        ("context_length", "INT"),
+                        ("context_stride", "INT"),
+                        ("context_overlap", "INT"),
+                        ("context_schedule", "STRING"),
+                        ("closed_loop", "BOOLEAN"),
+                    )
+                ],
                 "outputs": [
                     {
                         "name": "CONTEXT_OPTIONS",
@@ -5212,11 +5300,11 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
                             "input": {
                                 "required": {},
                                 "optional": {
-                                    "widget_0": {"type": "INT", "default": 8},
-                                    "widget_1": {"type": "INT", "default": 1},
-                                    "widget_2": {"type": "INT", "default": 3},
-                                    "widget_3": {"type": "STRING", "default": "uniform"},
-                                    "widget_4": {"type": "BOOLEAN", "default": False},
+                                    "context_length": {"type": "INT", "default": 8},
+                                    "context_stride": {"type": "INT", "default": 1},
+                                    "context_overlap": {"type": "INT", "default": 3},
+                                    "context_schedule": {"type": "STRING", "default": "uniform"},
+                                    "closed_loop": {"type": "BOOLEAN", "default": False},
                                 },
                             },
                             "output": ["CONTEXT_OPTIONS"],
@@ -5234,46 +5322,119 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
         fake_resolve_missing_nodes,
     )
 
-    responses = iter(
-        [
+    def run_turn(session_id: str, *, warm_schema_lookup: bool) -> dict:
+        provider = _Provider({})
+        if warm_schema_lookup:
+            # Exercise the provider's cached miss path before hydration.  The
+            # registry candidate must still become the per-turn authority
+            # witness; no outcome may depend on lookup order.
+            assert provider.get_schema("ADE_AnimateDiffUniformContextOptions") is None
+            assert provider.schemas() == {}
+        responses = iter(
+            [
+                {
+                    "batch": "ade_animatediffuniformcontextoptions.context_length = 16\ndone()",
+                    "message": "Changed the existing Hotshot context frame count to 16.",
+                }
+            ]
+        )
+        return handle_agent_edit(
             {
-                "batch": "ade_animatediffuniformcontextoptions.widget_0 = 16\ndone()",
-                "message": "Changed the existing Hotshot context frame count to 16.",
-            }
-        ]
-    )
-
-    result = handle_agent_edit(
-        {
-            "graph": graph,
-            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
-            "task": "can you make that actually generate 16 frames?",
-            "session_id": "revise-existing-registry-hydrated-node",
-            "route": "revise",
-            "executor_classification": {
+                "graph": _json_clone(graph),
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+                "task": "can you make that actually generate 16 frames?",
+                "session_id": session_id,
                 "route": "revise",
-                "task": "edit_graph",
-                "implement": True,
-                "research": False,
+                "executor_classification": {
+                    "route": "revise",
+                    "task": "edit_graph",
+                    "implement": True,
+                    "research": False,
+                },
+                "max_batches": 2,
+                "max_consecutive_errors": 1,
             },
-            "max_batches": 2,
-            "max_consecutive_errors": 1,
-        },
-        schema_provider=_Provider({}),
-        deepseek_client=lambda _messages: next(responses),
-        session_root=tmp_path,
-    )
+            schema_provider=provider,
+            deepseek_client=lambda _messages: next(responses),
+            session_root=tmp_path,
+        )
 
-    assert result["ok"] is True
-    assert result["outcome"]["kind"] in {"candidate", "edit"}
-    node = result["graph"]["nodes"][0]
-    assert node["type"] == "ADE_AnimateDiffUniformContextOptions"
-    assert node["widgets_values"] == [16, 1, 3, "uniform", False]
-    evidence_path = tmp_path / "revise-existing-registry-hydrated-node" / "turns" / "0001" / "revision_evidence.json"
-    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))["revision_evidence"]
-    assert evidence["safe_candidate_possible"] is True
-    assert evidence["topology"]["unknown_class_types"] == []
-    assert evidence["readiness"]["missing_node_packs"] == []
+    # Run cold and warm conditions through the real candidate/authority path.
+    # A named provisional registry schema is valid authority evidence:
+    # it is frozen into the receipt and replayed without ambient provider state.
+    results = (
+        run_turn("revise-existing-registry-hydrated-node-cold", warm_schema_lookup=False),
+        run_turn("revise-existing-registry-hydrated-node-warm", warm_schema_lookup=True),
+    )
+    for result in results:
+        assert result["ok"] is True
+        assert result["outcome"]["kind"] == "candidate"
+        assert result["graph_unchanged"] is False
+        assert result["accepted_batch"][0]["op"]["target"] == [
+            "",
+            "n12",
+            "context_length",
+        ]
+        node = result["graph"]["nodes"][0]
+        assert node["type"] == "ADE_AnimateDiffUniformContextOptions"
+        assert node["widgets_values"] == [16, 1, 3, "uniform", False]
+        assert node["properties"]["_vibecomfy_schema_provider"] == "comfy_registry_provisional"
+        evidence_path = (
+            tmp_path
+            / result["session_id"]
+            / "turns"
+            / "0001"
+            / "revision_evidence.json"
+        )
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))["revision_evidence"]
+        assert evidence["safe_candidate_possible"] is True
+        assert evidence["topology"]["unknown_class_types"] == []
+        assert evidence["readiness"]["missing_node_packs"] == []
+        authority_path = (
+            tmp_path
+            / result["session_id"]
+            / "turns"
+            / "0001"
+            / "authority"
+            / "receipt.json"
+        )
+        authority = json.loads(authority_path.read_text(encoding="utf-8"))
+        assert authority["replay"]["replay_ok"] is True
+        assert authority["replay"]["candidate_matches"] is True
+        witness = authority["schema_witness"]
+        schema = witness["schemas"]["ADE_AnimateDiffUniformContextOptions"]
+        assert witness["missing_class_types"] == []
+        assert schema["provenance"]["source_provider"] == "comfy_registry_provisional"
+        assert schema["input_order"] == [
+            "context_length",
+            "context_stride",
+            "context_overlap",
+            "context_schedule",
+            "closed_loop",
+        ]
+
+    assert (
+        json.loads(
+            (
+                tmp_path
+                / results[0]["session_id"]
+                / "turns"
+                / "0001"
+                / "authority"
+                / "receipt.json"
+            ).read_text(encoding="utf-8")
+        )["schema_witness"]["witness_hash"]
+        == json.loads(
+            (
+                tmp_path
+                / results[1]["session_id"]
+                / "turns"
+                / "0001"
+                / "authority"
+                / "receipt.json"
+            ).read_text(encoding="utf-8")
+        )["schema_witness"]["witness_hash"]
+    )
 
 
 def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
@@ -7667,11 +7828,11 @@ def test_live_batch_queue_warnings_do_not_revert_successful_queue_gate(
     assert result["queue_allowed"] is True
 
 
-def test_live_batch_schema_less_existing_widget_values_warn_and_keep_queue_open(
+def test_live_batch_schema_less_positional_widgets_fail_before_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """multi-crops live path: exact existing widget values are editable by uid."""
+    """Unnameable positional widgets never become an accepted durable delta."""
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     graph = {
         "last_node_id": 528,
@@ -7727,28 +7888,19 @@ def test_live_batch_schema_less_existing_widget_values_warn_and_keep_queue_open(
         session_root=tmp_path,
     )
 
-    queue_stage = next(
-        stage
-        for stage in result["debug"]["stage_snapshots"]
-        if stage["stage"] == "queue_validate"
-    )
-    assert result["report"]["change"]["content_edits"]["edited"] == ["528"]
-    assert queue_stage["ok"] is True
-    warning = next(issue for issue in queue_stage["issues"] if issue["detail"]["node_id"] == "528")
-    assert warning["severity"] == "warning"
-    assert (
-        warning["detail"]["schema_less_safety"]
-        == "preexisting_schema_less_widget_values_changed"
-    )
-    assert result["gates"]["queue_validate_ok"] is True
-    assert result["queue_allowed"] is True
+    assert result["ok"] is False
+    assert result["kind"] in {"SchemaGap", "ValidationError"}
+    assert result["graph_unchanged"] is True
+    assert result["candidate"] is None
+    assert result["canvas_apply_allowed"] is False
+    assert result["queue_allowed"] is False
 
 
-def test_live_batch_representable_edit_preflight_acts_on_visible_rodin_widget(
+def test_live_batch_named_positional_resolution_still_requires_frozen_schema(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """cc0df7 live path: visible Rodin widget_0 is an action, not a refusal."""
+    """A discovered name does not authorize replay without a frozen schema."""
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     graph = {
         "last_node_id": 91,
@@ -7791,11 +7943,19 @@ def test_live_batch_representable_edit_preflight_acts_on_visible_rodin_widget(
         session_root=tmp_path,
     )
 
-    assert "Representable-edit preflight (mandatory before clarify/refusal)" in seen_system[0]
+    assert seen_system
     assert result["ok"] is True
-    assert result["report"]["change"]["content_edits"]["edited"] == ["91"]
     assert len(result["accepted_batch"]) == 1
-    assert result["outcome"]["kind"] == "candidate"
+    assert result["accepted_batch"][0]["op"]["target"] == ["", "91", "Seed"]
+    assert result["outcome"]["kind"] == "clarify"
+    assert result["graph_unchanged"] is True
+    assert result["no_candidate_reason"] == "authority_replay_mismatch"
+    assert result["schema_witness_error"] == {
+        "code": "missing_touched_schema",
+        "class_types": ["Rodin3D_Regular"],
+    }
+    assert result["canvas_apply_allowed"] is False
+    assert result["queue_allowed"] is False
 
 
 def test_handle_agent_edit_research_route_writes_batch_artifacts_but_no_candidate(
@@ -9693,6 +9853,7 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        schema_provider=_batch_repl_provider(),
     )
 
     # Any accept attempt on a legacy candidate fails closed with the same
@@ -9846,6 +10007,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        schema_provider=_batch_repl_provider(),
     )
     submit_hash = payload_hash(graph)
     candidate_hash = payload_hash(candidate_graph)
@@ -10608,6 +10770,7 @@ def test_route_reject_idempotency_replays_same_request_body(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        schema_provider=_batch_repl_provider(),
     )
     submit_graph_hash = payload_hash(graph)
     payload = {
@@ -10715,6 +10878,7 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        schema_provider=_batch_repl_provider(),
     )
     submit_graph_hash = payload_hash(graph)
     first_payload = {

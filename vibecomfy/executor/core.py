@@ -29,7 +29,12 @@ from vibecomfy.executor.profiler import (
 )
 from vibecomfy.ingest.normalize import door_get_nodes
 
-from .agent_backend import run_classify_turn, run_reply_turn
+from .agent_backend import (
+    clear_reply_request_capture,
+    run_classify_turn,
+    run_reply_turn,
+    snapshot_reply_request_capture,
+)
 from .agent_research_stage import (
     RESEARCH_ATTEMPT_EMPTY,
     RESEARCH_ATTEMPT_GROUNDED,
@@ -62,6 +67,7 @@ from .profiles import (
     AgentSpecShape,
     load_profile,
 )
+from .request_purpose import deterministic_request_purpose
 
 LOGGER = logging.getLogger(__name__)
 
@@ -311,25 +317,41 @@ def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
     return _ROUTE_BEHAVIORS[_canonical_route_for_plan(plan)]
 
 
-_ANSWER_ONLY_ROUTES = frozenset(
-    {"clarify", "respond", "inspect", "research", "requires_custom_nodes"}
-)
+def _request_purpose_plan(
+    request: ExecutorRequest,
+    plan: ClassifyDecision,
+) -> ClassifyDecision:
+    """Apply request-shape purpose floors after staged classification.
 
-
-def _answer_only_plan(plan: ClassifyDecision) -> ClassifyDecision:
-    """Enforce ``interaction_mode="answer_only"`` on a classify decision.
-
-    Answer-only interactions (diagnosis/advice) must never run the edit gate:
-    the request/scenario explicitly declares that editing is not allowed.  This
-    is deliberately NOT inferred from ``apply=false`` — that flag only says
-    whether a candidate is applied, not whether editing is permitted.
-    Non-edit routes keep their semantics; edit-capable routes are downgraded
-    to the deterministic research + semantic reply path so the user still
-    receives a grounded answer.
+    The classifier may refine ordinary requests, but it cannot override an
+    explicit ``answer_only`` capability: with a graph the turn is
+    inspection-only; without one it is research-only. Threaded mode uses the
+    same :func:`deterministic_request_purpose` helper without adding a
+    classifier and therefore treats every no-graph turn as research.
     """
-    route = _canonical_route_for_plan(plan)
-    if route in _ANSWER_ONLY_ROUTES:
-        return replace(plan, implement=False)
+    purpose = deterministic_request_purpose(request)
+    if purpose == "adapt":
+        return plan
+    if purpose == "inspect":
+        return replace(
+            plan,
+            research=False,
+            implement=False,
+            reply=True,
+            route="inspect",
+            task="inspect_graph",
+            intent="explain_graph",
+            plan_summary=(
+                "Answer-only interaction: inspect the attached graph and "
+                "answer without editing."
+            ),
+        )
+    # Staged mode already has a classifier and preserves its explicit
+    # respond/clarify/research choice for ordinary no-graph requests.  Only an
+    # explicit answer-only capability needs the no-edit research floor here;
+    # threaded mode has no classifier and therefore uses ``research`` directly.
+    if request.interaction_mode != "answer_only":
+        return plan
     return replace(
         plan,
         research=True,
@@ -337,10 +359,11 @@ def _answer_only_plan(plan: ClassifyDecision) -> ClassifyDecision:
         reply=True,
         route="research",
         task="research_nodes",
-        research_goal=plan.research_goal or plan.change_goal or "",
+        intent="research",
+        research_goal=plan.research_goal or plan.change_goal or request.query,
         plan_summary=(
-            "Answer-only interaction: research the inquiry and answer "
-            "without editing."
+            "No graph is attached: research the inquiry and answer without "
+            "editing."
         ),
     )
 
@@ -1832,6 +1855,59 @@ _NODE_CITE_RE = re.compile(
     r"|(?<!\blink\s)\bid\b\s*[#:]?\s*(\d{1,6})"
 )
 
+# Narrow graph-census contradictions.  These deliberately require an explicit
+# graph/workflow subject (or an explicit "in the graph" suffix), so phrases
+# such as "empty latent" and "no negative prompt" are not intercepted.
+_EMPTY_GRAPH_CLAIM_RES = (
+    re.compile(
+        r"(?ix)\b(?:(?:the|this|that)\s+)?(?:attached|current)?\s*"
+        r"(?:provided\s+)?(?:(?:workflow\s+)?graph|workflow)\s+"
+        r"(?:is|looks|appears|seems)\s+"
+        r"(?:to\s+be\s+)?"
+        r"(?:(?:currently|presently|entirely|completely|totally)\s+)*empty\b"
+    ),
+    re.compile(
+        r"(?ix)\b(?:(?:the|this|that)\s+)?(?:attached|current)?\s*"
+        r"(?:(?:workflow\s+)?graph|workflow)\s+(?:has|contains)\s+"
+        r"(?:no|0|zero)\s+(?:nodes?|links?|edges?)\b"
+    ),
+    re.compile(
+        r"(?ix)\b(?:there\s+(?:are|is)|there's)\s+(?:no|0|zero)\s+"
+        r"(?:nodes?|links?|edges?)"
+        r"(?:\s+(?:or|and)\s+(?:nodes?|links?|edges?))?\s+(?:in|on)\s+"
+        r"(?:(?:the|this|that)\s+)?(?:attached|current)?\s*"
+        r"(?:(?:workflow\s+)?graph|workflow)\b"
+    ),
+    re.compile(
+        r"(?ix)\b(?:no|0|zero)\s+(?:nodes?|links?|edges?)"
+        r"(?:\s+(?:or|and)\s+(?:nodes?|links?|edges?))?\s+"
+        r"(?:are|is)\s+(?:present|shown|attached)\s+(?:in|on)\s+"
+        r"(?:(?:the|this|that)\s+)?(?:attached|current)?\s*"
+        r"(?:(?:workflow\s+)?graph|workflow)\b"
+    ),
+)
+
+
+def _reply_claims_empty_graph(reply: str) -> bool:
+    """Return true only for explicit empty/zero workflow-graph claims."""
+    return any(pattern.search(reply or "") for pattern in _EMPTY_GRAPH_CLAIM_RES)
+
+
+def _grounded_graph_census_reply(graph: dict[str, Any]) -> str:
+    """Build a deterministic non-empty census fallback from graph evidence."""
+    evidence = inspect_graph(graph)
+    edge_count = len(evidence.edges)
+    node_labels = ", ".join(
+        f"{node.node_id}: {node.class_type}" for node in evidence.nodes
+    )
+    details = f" Nodes: {node_labels}." if node_labels else ""
+    return (
+        f"The attached workflow contains {evidence.node_count} nodes and "
+        f"{edge_count} edges; it is not empty.{details} "
+        "I could not safely use the model's contradictory graph description, "
+        "so this reply is limited to the inspected graph census."
+    )
+
 # Identifiers that are never legitimate node cites ("120 fps" style values
 # are not cue-anchored, so this set only filters prose like "step 5").  The
 # guard additionally requires a surrounding cue word, so bare numbers in the
@@ -2093,6 +2169,9 @@ def _enforce_reply_grounding(
     3. Node ids: when *graph* is present, every node id/uid cited by the
        reply must exist in the graph; hallucinated ids are corrected to the
        real id of a uniquely named node class or stripped.
+    4. Census: a reply may not call a graph empty or claim zero nodes/edges
+       when deterministic inspection proves a non-empty census. Contradictory
+       prose is replaced by a bounded deterministic census fallback.
 
     The reply's claims therefore always agree with the accepted Δ / landed
     operations (v5-batch-3 #3, v5-batch-4 #1).
@@ -2102,6 +2181,9 @@ def _enforce_reply_grounding(
     if landed and delta_ops and _NO_LANDED_EDIT_CLAIM_RE.search(reply or ""):
         reply = _accepted_delta_reply(delta_ops)
     if graph is not None:
+        evidence = inspect_graph(graph)
+        if evidence.node_count > 0 and _reply_claims_empty_graph(reply):
+            return _grounded_graph_census_reply(graph)
         reply = _ground_reply_node_ids(reply, graph)
     return reply
 
@@ -2292,6 +2374,25 @@ def _run_reply(
         ) from exc
 
 
+def _run_inspect_reply(
+    request: ExecutorRequest,
+    spec: AgentSpecShape,
+    *,
+    plan: ClassifyDecision,
+    host_ports: ExecutorHostPorts | None = None,
+) -> str:
+    """Run the shared graph-inspection reply surface for either driver."""
+    evidence = inspect_graph(request.graph)
+    return _run_reply(
+        request,
+        spec,
+        plan=plan,
+        effective_graph=request.graph,
+        graph_inspection=render_inspect_markdown(evidence),
+        host_ports=host_ports,
+    )
+
+
 # ── internal error wrapper ───────────────────────────────────────────────────
 
 
@@ -2418,6 +2519,7 @@ def _run_staged_executor(
         Always returns a result — failures are captured in the result
         shape, never raised as raw exceptions.
     """
+    clear_reply_request_capture()
     ports = host_ports or _legacy_host_ports()
     plan: ClassifyDecision | None = None
     research_result: AgentResearchResult | None = None
@@ -2462,6 +2564,7 @@ def _run_staged_executor(
             deepseek_cost_basis=cost_basis,
             classification_status=classification_status,
             model_attempts=model_attempts,
+            reply_request=snapshot_reply_request_capture(),
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
@@ -2604,17 +2707,14 @@ def _run_staged_executor(
             reply="\n".join(parts),
         ))
 
-    # ── Answer-only interaction enforcement (PR-B) ────────────────────────
-    # interaction_mode="answer_only" is the explicit request/scenario contract
-    # for diagnosis/advice turns: no graph edit may be produced, whatever the
-    # classifier decided.  It is never inferred from apply=false — that flag
-    # only declares whether a candidate is applied, not whether editing is
-    # permitted.  Edit-capable routes are downgraded to agent-owned research
-    # + semantic reply so the user still gets a grounded answer.
-    if request.interaction_mode == "answer_only":
-        plan = _answer_only_plan(plan)
+    # ── Deterministic request-purpose enforcement (RC-2/RC-3) ─────────────
+    # Request-shape capabilities are shared with the classifier-free threaded
+    # driver.  Classifier output still governs ordinary attached-graph turns.
+    resolved_plan = _request_purpose_plan(request, plan)
+    if resolved_plan != plan:
+        plan = resolved_plan
         LOGGER.info(
-            "executor: answer_only interaction → route=%s task=%s implement=%s",
+            "executor: deterministic request purpose → route=%s task=%s implement=%s",
             plan.effective_route,
             plan.effective_task,
             plan.implement,
@@ -3041,6 +3141,7 @@ def run_executor(
         accepted_delta_ops=_accepted_delta_ops,
         implementation_landed_edit=_implementation_landed_edit,
         no_candidate_reason=_no_candidate_reason,
+        run_inspect_reply=_run_inspect_reply,
     )
     return run_threaded_executor(
         request,

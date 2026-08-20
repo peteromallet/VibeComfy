@@ -997,17 +997,29 @@ def inspect_workflow(wf: VibeWorkflow) -> GraphEvidence:
 
 def _ingest_raw_graph(graph: dict[str, Any]) -> VibeWorkflow:
     """Enter a raw dict through the named ingest doors."""
-    from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui
+    from vibecomfy.ingest.normalize import (
+        detect_workflow_shape,
+        from_api,
+        from_envelope,
+        from_ui,
+    )
 
-    try:
-        return from_envelope(graph)
-    except (TypeError, ValueError):
-        pass
-    try:
+    # Dispatch by the named shape detector.  Trial-calling ``from_ui`` first
+    # is unsafe because a flat API graph can be accepted as an empty UI graph,
+    # silently turning a populated census into zero nodes.
+    shape = detect_workflow_shape(graph)
+    if shape == "api":
+        # Standard ComfyUI queue/request envelopes wrap the actual API graph
+        # under ``prompt``. The shape detector intentionally sees through
+        # that wrapper, so the matching ingest door must do the same; passing
+        # the outer envelope to ``from_api`` creates a single ``Unknown`` node.
+        prompt = graph.get("prompt")
+        return from_api(dict(prompt) if isinstance(prompt, dict) else graph)
+    if shape == "ui":
         return from_ui(graph, use_comfy_converter=False)
-    except (TypeError, ValueError):
-        pass
-    return from_api(graph)
+    if shape == "vibe":
+        return from_envelope(graph)
+    raise ValueError(f"unsupported workflow shape for inspection: {shape}")
 
 
 def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:

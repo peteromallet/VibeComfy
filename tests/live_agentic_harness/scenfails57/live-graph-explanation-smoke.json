@@ -2,6 +2,7 @@
   "id": "live-graph-explanation-smoke",
   "brief": "briefs/live-graph-explanation-smoke.md",
   "query": "Explain what this graph does. If anything important is missing, ask one clarifying question; otherwise inspect the workflow and answer directly.",
+  "interaction_mode": "answer_only",
   "graph": {
     "1": {
       "class_type": "CheckpointLoaderSimple",
@@ -36,7 +37,8 @@
     }
   },
   "assessment": {
-    "expect_graph_changed": false
+    "expect_graph_changed": false,
+    "require_graph_census_consistency": true
   },
   "classification": {
     "kind": "health_control",

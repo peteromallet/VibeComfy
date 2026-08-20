@@ -988,7 +988,8 @@ class TestR2AgentTrustPromptSurface:
         # Consumer contract: the implement agent consumes the synthesis.
         assert "IMPLEMENT agent turns your synthesis" in all_text
         assert "fetch every Hivemind record" in all_text
-        # Minimal-budget prompt: unbounded calls, wall-clock bound only.
+        # The prompt still forbids payload dumps; budget telemetry is supplied
+        # dynamically by the evidence digest rather than hard-coded here.
         assert "Never request or dump workflow JSON payloads" in all_text
         assert "16 decision turns" not in all_text
         assert "~240s" not in all_text
@@ -996,9 +997,11 @@ class TestR2AgentTrustPromptSurface:
     def test_research_stage_budgets_are_honest(self) -> None:
         from vibecomfy.executor import agent_research_stage as stage
 
-        # Minimal-budget plan: 7.5-minute wall clock, NO production turn cap.
+        # Production has deterministic caps; 450s is only a slow-call backstop.
         assert stage.TOOL_PHASE_DEADLINE_SECONDS == 450.0
-        assert stage._MAX_TURNS is None
+        assert stage._MAX_TURNS == stage.MAX_RESEARCH_DECISION_TURNS == 8
+        assert stage.MAX_RESEARCH_TOOL_CALLS == 12
+        assert stage.HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD == 3
 
     def test_research_deadline_enforced_after_provider_call(self) -> None:
         """A slow provider decision turn cannot silently overrun the budget —

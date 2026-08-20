@@ -7,11 +7,13 @@ import pytest
 
 from vibecomfy.executor import core
 from vibecomfy.executor.contracts import (
+    ClassifyDecision,
     ExecutorHostPorts,
     ExecutorRequest,
     ExecutorResult,
     ImplementationResult,
     OrchestrationModeConfigurationError,
+    Report,
     coerce_orchestration_mode,
     resolve_orchestration_mode,
     validate_reply_change_claims,
@@ -314,3 +316,148 @@ def test_threaded_replaces_prose_when_frozen_sidecar_claim_exceeds_delta() -> No
         "The workflow edit landed; see the accepted change set in the candidate.",
     ]
     assert result.reply == grounded[-1]
+
+
+def test_threaded_no_graph_runs_research_conversation_instead_of_skipping() -> None:
+    seen: dict[str, Any] = {}
+
+    def run_implement(
+        request: ExecutorRequest,
+        spec: AgentSpecShape,
+        **kwargs: Any,
+    ) -> ImplementationResult:
+        del request, spec
+        seen["plan"] = kwargs["plan"]
+        return ImplementationResult(
+            message="Evidence-backed faster workflow options.",
+            durable_response={
+                "graph_unchanged": True,
+                "research_findings": {
+                    "sources": [{"title": "Distilled video precedent"}],
+                    "summary": "A fetched workflow supports the faster path.",
+                    "community_summary": "A fetched workflow supports the faster path.",
+                    "warnings": [],
+                },
+                "batch_turns": [{
+                    "turn_number": 0,
+                    "statements": [{
+                        "detail": {
+                            "tool_call": "hivemind_get",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": "hivemind_get",
+                                "conclusion": "Fetched workflow precedent.",
+                                "evidence_ids": ["hivemind:workflows:1"],
+                            },
+                        },
+                    }],
+                }],
+            },
+        )
+
+    kernel = ThreadedKernel(
+        resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
+        run_implement=run_implement,
+        emit_phase=lambda *args, **kwargs: None,
+        enforce_reply_grounding=lambda reply, **kwargs: reply,
+        accepted_delta_ops=lambda implementation: (),
+        implementation_landed_edit=lambda implementation: False,
+        no_candidate_reason=lambda implementation: "route_not_applyable",
+    )
+    result = run_threaded_executor(
+        ExecutorRequest(query="find a faster distilled video workflow"),
+        kernel=kernel,
+        host_ports=_ports(),
+        executor_id="executor-research",
+    )
+
+    assert result.ok is True
+    assert result.reply == "Evidence-backed faster workflow options."
+    assert seen["plan"].effective_route == "research"
+    assert seen["plan"].implement is False
+    research = result.to_dict()["evidence"]["research"]
+    assert research["research_attempt"] == "grounded"
+    assert research["tool_calls_executed"] == 1
+    assert research["evidence_artifacts"] == 1
+    assert research["citations"] == ["hivemind:workflows:1"]
+
+
+def test_threaded_research_refusal_is_not_projected_as_tool_execution() -> None:
+    result = ExecutorResult.success(
+        report=Report(
+            plan=ClassifyDecision(route="research", task="research_nodes"),
+            implementation=ImplementationResult(
+                message="Research was unavailable.",
+                durable_response={
+                    "research_findings": {
+                        "sources": [{"title": "Unproven narrative source"}],
+                        "summary": "Claimed research without execution.",
+                        "tool_calls_executed": 12,
+                        "research_attempt": "grounded",
+                    },
+                    "batch_turns": [{
+                        "statements": [{
+                            "detail": {
+                                "tool_call": "hivemind_search",
+                                "tool_status": "refused",
+                                "ledger_entry": None,
+                            },
+                        }],
+                    }],
+                },
+            ),
+            orchestration_mode="threaded",
+        ),
+        reply="Research was unavailable.",
+    )
+
+    research = result.to_dict()["evidence"]["research"]
+    assert research["research_attempt"] == "never"
+    assert research["tool_calls_executed"] == 0
+    assert research["evidence_artifacts"] == 0
+    assert research["citations"] == []
+
+
+def test_threaded_answer_only_graph_uses_inspect_reply_and_never_implements() -> None:
+    graph = {
+        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "2": {"class_type": "KSampler", "inputs": {"model": ["1", 0]}},
+    }
+    seen: dict[str, Any] = {}
+
+    def inspect_reply(
+        request: ExecutorRequest,
+        spec: AgentSpecShape,
+        **kwargs: Any,
+    ) -> str:
+        del spec
+        seen["request"] = request
+        seen["plan"] = kwargs["plan"]
+        return "The checkpoint feeds the sampler."
+
+    kernel = ThreadedKernel(
+        resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
+        run_implement=lambda *args, **kwargs: pytest.fail("inspect must not implement"),
+        emit_phase=lambda *args, **kwargs: None,
+        enforce_reply_grounding=lambda reply, **kwargs: reply,
+        accepted_delta_ops=lambda implementation: (),
+        implementation_landed_edit=lambda implementation: False,
+        no_candidate_reason=lambda implementation: None,
+        run_inspect_reply=inspect_reply,
+    )
+    result = run_threaded_executor(
+        ExecutorRequest(
+            query="explain this graph",
+            graph=graph,
+            interaction_mode="answer_only",
+        ),
+        kernel=kernel,
+        host_ports=_ports(),
+        executor_id="executor-inspect",
+    )
+
+    assert result.ok is True
+    assert result.graph is None
+    assert result.reply == "The checkpoint feeds the sampler."
+    assert seen["plan"].effective_route == "inspect"
+    assert seen["plan"].research is False

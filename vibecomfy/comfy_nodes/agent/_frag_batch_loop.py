@@ -24,7 +24,8 @@ One short sentence for the user.
 ```
 
 If you cannot safely edit the graph, still use the same format and put your question or blocker inside `clarify("...")` in the batch block.
-Do not include markdown other than the single batch block."""
+The entire reply must contain exactly one opening ```batch fence and exactly one closing ``` fence. Never split statements across multiple batch blocks.
+Do not emit tool-call XML, tags such as <tool_call>, JSON tool envelopes, or markdown other than the single batch block."""
 
 
 def _malformed_model_json_detail(exc: BaseException) -> dict[str, str]:

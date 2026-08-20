@@ -11,9 +11,9 @@ Covers the active research-phase contract:
 3. No full research result or workflow schema dump is injected into the model
    request (behavioral capture + source grep); the digest carries only compact
    tool statuses, evidence IDs, and previews.
-4. Research calls and decision turns are UNBOUNDED (minimal-budget plan); the
-   wall-clock deadline terminates the loop deterministically (tests inject
-   small ``deadline_seconds`` / ``max_turns`` clamps).
+4. Production research is deterministically bounded by decision turns,
+   evidence-tool calls, and a repeated-Hivemind-timeout circuit breaker; the
+   wall-clock deadline remains a slow-call backstop.
 
 All model calls and Hivemind tools are faked and deterministic — no network,
 no ComfyUI boot, no Arnold imports.
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from unittest import mock
 
 import pytest
@@ -34,7 +34,7 @@ from vibecomfy.executor.contracts import (
     ExecutorRequest,
 )
 from vibecomfy.executor.profiles import AgentSpecShape, set_profile_override_dir
-from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
+from vibecomfy.executor.tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
 
 # ── Profile fixture (research/adapt routes need a resolved research spec) ────
 
@@ -361,6 +361,163 @@ class TestTraceRecordsQuestionAndJudgment:
         assert not refused
         assert len(trace.iterations) == 5
         assert "budget exhausted" not in " ".join(trace.warnings)
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_production_default_has_finite_decision_turn_cap(
+        self, profile_dir: Path
+    ) -> None:
+        """A non-cooperative model cannot rely on the 450s wall as its only cap."""
+        judge_digests: list[str] = []
+
+        def always_premature(
+            _question: str,
+            digest: str,
+            _messages: list[dict[str, Any]] | None = None,
+        ) -> dict[str, Any]:
+            judge_digests.append(digest)
+            return {
+                "action": "finish",
+                "conclusion": "I already know",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=always_premature,
+        )
+
+        assert trace.status == "exhausted"
+        assert len(judge_digests) == stage.MAX_RESEARCH_DECISION_TURNS == 8
+        assert len(trace.iterations) == stage.MAX_RESEARCH_DECISION_TURNS
+        assert "Decision turns left: 8" in judge_digests[0]
+        assert "Evidence tool calls left: 12" in judge_digests[0]
+        assert "reason=decision_turn_limit" in " ".join(trace.warnings)
+
+    def test_evidence_tool_call_cap_refuses_call_after_limit(
+        self, profile_dir: Path
+    ) -> None:
+        judge_calls = 0
+        executed_calls = 0
+
+        def always_search(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            nonlocal judge_calls
+            judge_calls += 1
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": f"query-{judge_calls}"},
+            }
+
+        def search_tool(_tool: str, _args: Mapping[str, Any]) -> ToolResult:
+            nonlocal executed_calls
+            executed_calls += 1
+            return _fake_search(f"query-{executed_calls}")
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=always_search,
+            tool_fn=search_tool,
+            max_turns=10,
+            max_tool_calls=3,
+        )
+
+        assert trace.status == "exhausted"
+        assert trace.executed_tool_calls == executed_calls == 3
+        assert judge_calls == 4  # final choice is typed-refused, never executed
+        assert any(
+            entry.decision == stage.DECISION_TOOL_LIMIT_EXHAUSTED
+            for entry in pack.ledger.entries
+        )
+        assert "reason=tool_call_limit" in " ".join(trace.warnings)
+
+    def test_three_hivemind_timeouts_open_circuit_with_typed_empty_attempt(
+        self, profile_dir: Path
+    ) -> None:
+        executed_calls = 0
+
+        def always_search(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": "same slow query"},
+            }
+
+        def timeout_tool(_tool: str, _args: Mapping[str, Any]) -> ToolResult:
+            nonlocal executed_calls
+            executed_calls += 1
+            return ToolResult(
+                tool_name="hivemind_search",
+                status=ToolStatus.TIMEOUT,
+                diagnostics=(
+                    ToolDiagnostic(
+                        code="hivemind_timeout",
+                        message="request timed out",
+                    ),
+                ),
+            )
+
+        trace, pack = stage.run_agent_research_stage(
+            route="adapt",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=always_search,
+            tool_fn=timeout_tool,
+        )
+
+        assert executed_calls == stage.HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD == 3
+        assert trace.status == "exhausted"
+        assert trace.attempt == stage.RESEARCH_ATTEMPT_EMPTY
+        assert trace.executed_tool_calls == 3
+        assert trace.evidence_artifact_count == 0
+        assert any(
+            entry.decision == stage.DECISION_HIVEMIND_CIRCUIT_OPEN
+            for entry in pack.ledger.entries
+        )
+        assert "reason=hivemind_timeout_circuit" in " ".join(trace.warnings)
+
+    def test_timeout_circuit_retains_prior_thin_evidence(
+        self, profile_dir: Path
+    ) -> None:
+        executed_calls = 0
+
+        def always_search(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": "precedent"},
+            }
+
+        def one_hit_then_timeouts(
+            _tool: str, _args: Mapping[str, Any]
+        ) -> ToolResult:
+            nonlocal executed_calls
+            executed_calls += 1
+            if executed_calls == 1:
+                return _fake_search("precedent")
+            return ToolResult(
+                tool_name="hivemind_search",
+                status=ToolStatus.UNAVAILABLE,
+                diagnostics=(
+                    ToolDiagnostic(
+                        code="hivemind_statement_timeout",
+                        message="persistent 57014 after degraded query",
+                    ),
+                ),
+            )
+
+        trace, pack = stage.run_agent_research_stage(
+            route="adapt",
+            question=_EXPLICIT_QUESTION,
+            judge_fn=always_search,
+            tool_fn=one_hit_then_timeouts,
+        )
+
+        assert executed_calls == 4
+        assert trace.status == "exhausted"
+        assert trace.attempt == stage.RESEARCH_ATTEMPT_THIN
+        assert "hivemind:workflows:111" in pack.artifacts
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
     def test_deadline_exhaustion_is_exhausted_not_ok(self, profile_dir: Path) -> None:

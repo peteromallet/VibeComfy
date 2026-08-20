@@ -1993,6 +1993,9 @@ class Report:
     # Canonical per-call evidence for every successful and failed model attempt
     # observed across classify, implement/batch, and reply.
     model_attempts: tuple[dict[str, Any], ...] = ()
+    # Exact, redacted-at-artifact-boundary provider request for the reply turn.
+    # This is diagnostic evidence, not part of the public narration contract.
+    reply_request: Mapping[str, Any] | None = None
     # Additive only for non-default orchestration. Omitting it for staged mode
     # preserves the existing staged wire bytes exactly.
     orchestration_mode: OrchestrationMode | None = None
@@ -2018,6 +2021,12 @@ class Report:
             "model_attempts",
             tuple(_freeze_jsonish(item) for item in coerce_model_attempts(self.model_attempts)),
         )
+        if self.reply_request is not None:
+            object.__setattr__(
+                self,
+                "reply_request",
+                _freeze_jsonish(dict(self.reply_request)),
+            )
 
     @property
     def model_response(self) -> dict[str, Any] | None:
@@ -2053,6 +2062,8 @@ class Report:
         inner["model_attempts"] = [
             _thaw_jsonish(item) for item in self.model_attempts
         ]
+        if self.reply_request is not None:
+            inner["reply_request"] = _thaw_jsonish(self.reply_request)
         if self.orchestration_mode is not None:
             inner["orchestration_mode"] = self.orchestration_mode
         return {"executor": inner}
@@ -2111,6 +2122,110 @@ class AgentEvidence:
         if extra_keys:
             raise ValueError(f"Unexpected evidence keys: {sorted(extra_keys)}")
         return payload
+
+
+def _durable_research_evidence(
+    implementation: ImplementationResult | None,
+) -> dict[str, Any]:
+    """Project bounded batch-host research evidence into the public contract.
+
+    Threaded research runs inside the durable batch host rather than the staged
+    :class:`AgentResearchResult` phase.  The host already persists its bounded
+    ``research_findings`` packet and typed tool ledger in ``batch_turns``.
+    Project only those whitelisted fields; never expose the arbitrary durable
+    response, model transcript, raw tool bodies, or edit diagnostics.
+    """
+    durable = implementation.durable_response if implementation is not None else None
+    if not isinstance(durable, Mapping):
+        return {}
+    findings = durable.get("research_findings")
+    if not isinstance(findings, Mapping):
+        return {}
+
+    executed_calls = 0
+    evidence_ids: list[str] = []
+    seen_evidence_ids: set[str] = set()
+    grounded_evidence_seen = False
+    executed_statuses = frozenset({
+        "ok",
+        "no_results",
+        "rate_limited",
+        "timeout",
+        "unavailable",
+    })
+    batch_turns = durable.get("batch_turns")
+    if isinstance(batch_turns, (list, tuple)):
+        for turn in batch_turns:
+            if not isinstance(turn, Mapping):
+                continue
+            statements = turn.get("statements")
+            if not isinstance(statements, (list, tuple)):
+                continue
+            for statement in statements:
+                if not isinstance(statement, Mapping):
+                    continue
+                detail = statement.get("detail")
+                if not isinstance(detail, Mapping) or not detail.get("tool_call"):
+                    continue
+                tool_call = str(detail.get("tool_call") or "").strip()
+                # Typed attempts that reached a tool count as execution,
+                # including no-results and transport failure. Policy refusal
+                # and invalid-request states never reached the evidence tool.
+                status = str(detail.get("tool_status") or "").strip().casefold()
+                if status in executed_statuses:
+                    executed_calls += 1
+                ledger_entry = detail.get("ledger_entry")
+                if not isinstance(ledger_entry, Mapping):
+                    continue
+                raw_ids = ledger_entry.get("evidence_ids")
+                if not isinstance(raw_ids, (list, tuple)):
+                    continue
+                if raw_ids and tool_call in {"hivemind_get", "registry_lookup"}:
+                    grounded_evidence_seen = True
+                for raw_id in raw_ids:
+                    evidence_id = str(raw_id).strip()
+                    if not evidence_id or evidence_id in seen_evidence_ids:
+                        continue
+                    seen_evidence_ids.add(evidence_id)
+                    evidence_ids.append(evidence_id)
+
+    raw_sources = findings.get("sources")
+    sources = [
+        _thaw_jsonish(source)
+        for source in raw_sources
+        if isinstance(source, Mapping)
+    ][:12] if isinstance(raw_sources, (list, tuple)) else []
+    # Counts and attempt typing come only from the typed batch/tool ledger.
+    # ``research_findings.sources`` is presentation prose/data and cannot
+    # prove that a tool executed or an evidence artifact was captured.
+    evidence_artifacts = len(evidence_ids)
+    if executed_calls == 0:
+        research_attempt = "never"
+    elif evidence_artifacts == 0:
+        research_attempt = "empty"
+    elif grounded_evidence_seen:
+        research_attempt = "grounded"
+    else:
+        research_attempt = "thin"
+
+    summary = str(findings.get("summary") or "").strip()
+    community_summary = str(findings.get("community_summary") or "").strip()
+    raw_warnings = findings.get("warnings")
+    warnings = [
+        str(item) for item in raw_warnings if str(item).strip()
+    ] if isinstance(raw_warnings, (list, tuple)) else []
+    return {
+        "mode": "agent_owned",
+        "route": "research",
+        "research_attempt": research_attempt,
+        "tool_calls_executed": executed_calls,
+        "evidence_artifacts": evidence_artifacts,
+        "citations": evidence_ids[:12],
+        "summary": summary,
+        "community_summary": community_summary or summary,
+        "sources": sources,
+        "warnings": warnings,
+    }
 
 
 @dataclass(frozen=True)
@@ -2199,6 +2314,11 @@ class AgentTurnResult:
         if result.report.research is not None:
             research = result.report.research.to_dict()
             warnings.extend(result.report.research.warnings)
+        elif route == "research":
+            research = _durable_research_evidence(result.report.implementation)
+            raw_warnings = research.get("warnings")
+            if isinstance(raw_warnings, list):
+                warnings.extend(str(item) for item in raw_warnings)
 
         implementation: dict[str, Any] = {}
         if result.report.implementation is not None:

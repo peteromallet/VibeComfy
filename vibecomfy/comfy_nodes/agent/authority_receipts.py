@@ -31,6 +31,7 @@ from typing import Any, Mapping
 
 from .candidate_transaction import (
     build_schema_witness,
+    missing_touched_class_types,
     schema_provider_from_witness,
     validate_schema_witness,
 )
@@ -379,7 +380,7 @@ def verify_replay(
         )
 
     recomputed_hash = structural_graph_hash(recomputed)
-    matches = persisted_hash is not None
+    matches = persisted_hash is not None and recomputed_hash == persisted_hash
     return ReplayReceipt(
         replay_ok=True,
         candidate_matches=matches,
@@ -526,18 +527,44 @@ def build_authority_receipt(
         delta_envelope=cumulative_delta_envelope,
     )
     persisted_schema_provider = schema_provider_from_witness(schema_witness)
-    replay = verify_layout_candidate(
-        submit_graph,
-        cumulative_delta_envelope,
-        candidate,
-        response,
-        schema_provider=persisted_schema_provider,
-    ) or verify_replay(
-        submit_graph,
-        cumulative_delta_envelope,
-        candidate,
-        schema_provider=persisted_schema_provider,
+    missing_touched = missing_touched_class_types(
+        schema_witness=schema_witness,
+        submit_graph=submit_graph,
+        candidate_payload=candidate,
+        delta_envelope=cumulative_delta_envelope,
     )
+    if missing_touched:
+        raw_ops = (
+            cumulative_delta_envelope.get("ops")
+            if isinstance(cumulative_delta_envelope, Mapping)
+            else None
+        )
+        replay = ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash=(
+                structural_graph_hash(candidate)
+                if isinstance(candidate, Mapping)
+                else None
+            ),
+            error="missing_touched_schema:" + ",".join(missing_touched),
+            op_count=len(raw_ops) if isinstance(raw_ops, list) else 0,
+            verification_kind="delta_replay",
+        )
+    else:
+        replay = verify_layout_candidate(
+            submit_graph,
+            cumulative_delta_envelope,
+            candidate,
+            response,
+            schema_provider=persisted_schema_provider,
+        ) or verify_replay(
+            submit_graph,
+            cumulative_delta_envelope,
+            candidate,
+            schema_provider=persisted_schema_provider,
+        )
 
     submit_graph_hash = payload_hash(submit_graph) if submit_graph is not None else None
     submit_bytes = canonical_json_bytes(submit_graph) if submit_graph is not None else None
@@ -640,12 +667,10 @@ _APPLYABILITY_FIELDS = (
 def _response_claims_applyable(response: Mapping[str, Any]) -> bool:
     """Return ``True`` when the response is asserting applyability.
 
-    Only responses that *claim* to be applyable are subject to fail-closed
-    stamping.  Responses that are already non-applyable (executor-only
-    routes, minimal candidate-only setups) receive only the receipt
-    reference — their non-applyable status is already correct and their
-    candidate graph must be preserved for downstream consumers (accept
-    path, audit).
+    This recognizes every public compatibility spelling, including both
+    nested eligibility objects.  Receipt failure stamping is unconditional;
+    this helper remains the canonical detector for callers that need to
+    classify the response's original claim.
     """
     if response.get("apply_eligible") is True:
         return True
@@ -655,9 +680,10 @@ def _response_claims_applyable(response: Mapping[str, Any]) -> bool:
         return True
     if response.get("queue_allowed") is True:
         return True
-    eligibility = response.get("eligibility")
-    if isinstance(eligibility, Mapping) and eligibility.get("applyable") is True:
-        return True
+    for eligibility_field in ("eligibility", "apply_eligibility"):
+        eligibility = response.get(eligibility_field)
+        if isinstance(eligibility, Mapping) and eligibility.get("applyable") is True:
+            return True
     return False
 
 
@@ -670,11 +696,11 @@ def stamp_response_with_authority(
     The ``authority_receipt`` summary is always added so that every durable
     edit turn carries an immutable receipt reference.
 
-    Fail-closed stamping (forcing applyability to ``False``) is applied **only**
-    when the response was claiming applyability *and* the receipt is not
-    applyable (replay failed or candidate mismatch).  The candidate graph is
-    preserved — downstream consumers (accept path, audit) may still need to
-    inspect it; the applyability fields are the authority gate.
+    Every non-applyable receipt projects one truthful failure envelope.  This
+    is deliberately independent of the response's original applyability
+    claims: a failed replay must not retain success narration or a candidate
+    outcome merely because one compatibility gate was omitted.  The rejected
+    candidate graph and accepted batch remain available as audit evidence.
     """
     stamped = dict(response)
     stamped["authority_receipt"] = {
@@ -693,7 +719,17 @@ def stamp_response_with_authority(
         "created_at": receipt.created_at,
     }
 
-    if not receipt.is_applyable and _response_claims_applyable(response):
+    replay_error = str(receipt.replay.error or "")
+    missing_touched = (
+        tuple(
+            item
+            for item in replay_error.removeprefix("missing_touched_schema:").split(",")
+            if item
+        )
+        if replay_error.startswith("missing_touched_schema:")
+        else ()
+    )
+    if not receipt.is_applyable:
         # Fail closed: force applyability fields to False.
         stamped["canvas_apply_allowed"] = False
         stamped["queue_allowed"] = False
@@ -701,15 +737,55 @@ def stamp_response_with_authority(
         stamped["apply_eligible"] = False
         stamped["graph_unchanged"] = True
         stamped["no_candidate_reason"] = "authority_replay_mismatch"
-        eligibility = stamped.get("eligibility")
-        if isinstance(eligibility, dict):
-            eligibility = dict(eligibility)
+        for eligibility_field in ("eligibility", "apply_eligibility"):
+            eligibility = stamped.get(eligibility_field)
+            eligibility = dict(eligibility) if isinstance(eligibility, Mapping) else {}
             eligibility["applyable"] = False
             eligibility["reason"] = "authority_replay_mismatch"
             eligibility["message"] = (
                 "Server replay verification failed; candidate is not authoritative."
             )
-            stamped["eligibility"] = eligibility
+            stamped[eligibility_field] = eligibility
+        if missing_touched:
+            classes = ", ".join(missing_touched)
+            message = (
+                "I couldn't safely prepare this edit because authoritative node "
+                f"schema evidence is unavailable for: {classes}. The graph is unchanged."
+            )
+            # The candidate and accepted batch remain available as rejected
+            # audit evidence, but no success narration may be published.
+            stamped["message"] = message
+            stamped["schema_witness_error"] = {
+                "code": "missing_touched_schema",
+                "class_types": list(missing_touched),
+            }
+            stamped["outcome"] = {
+                "kind": "clarify",
+                "question": message,
+                "clarification": {"message": message},
+            }
+            stamped["internal_outcome"] = {
+                "kind": "clarify",
+                "question": message,
+            }
+        else:
+            message = (
+                "I couldn't safely prepare this edit because server replay "
+                "verification failed. The graph is unchanged."
+            )
+            # Never publish the model's success narration for a candidate
+            # that failed the immutable replay receipt.  The rejected graph
+            # and accepted batch below remain intact for diagnostics/audit.
+            stamped["message"] = message
+            stamped["outcome"] = {
+                "kind": "clarify",
+                "question": message,
+                "clarification": {"message": message},
+            }
+            stamped["internal_outcome"] = {
+                "kind": "clarify",
+                "question": message,
+            }
         # Mark the candidate as rejected but do NOT remove the graph.
         # Downstream consumers (accept path, audit) may still need to
         # inspect the candidate; the applyability fields prevent Apply.

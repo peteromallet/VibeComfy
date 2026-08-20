@@ -5259,6 +5259,10 @@ def test_batch_protocol_retry_nudge_includes_clarify_escape_hatch() -> None:
 
     retry_prompt = retry_messages[-1]["content"]
     assert 'clarify("...")' in retry_prompt
+    assert "exactly one opening ```batch fence" in retry_prompt
+    assert "Never split statements across multiple batch blocks" in retry_prompt
+    assert "Do not emit tool-call XML" in retry_prompt
+    assert "<tool_call>" in retry_prompt
     assert "Previous response preview" in retry_prompt
     assert "HotShotXL schema" in retry_prompt
 
@@ -12222,9 +12226,25 @@ def _setup_v2_session_with_candidate(
             }
         ],
     }
+    schema_provider = _Provider(
+        {
+            "SaveImage": _schema_with_inputs(
+                "SaveImage",
+                filename_prefix=InputSpec(
+                    type="STRING",
+                    required=True,
+                    default="ComfyUI",
+                ),
+            )
+        }
+    )
     from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
 
-    ok, candidate_graph, error, _ = recompute_apply(request["graph"], envelope)
+    ok, candidate_graph, error, _ = recompute_apply(
+        request["graph"],
+        envelope,
+        schema_provider=schema_provider,
+    )
     assert ok and candidate_graph is not None, error
     candidate_graph_hash = payload_hash(candidate_graph)
     structural_hash = structural_graph_hash(candidate_graph)
@@ -12258,6 +12278,7 @@ def _setup_v2_session_with_candidate(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        schema_provider=schema_provider,
     )
     persisted_response = json.loads(
         (allocation.turn_dir / "response.json").read_text(encoding="utf-8")

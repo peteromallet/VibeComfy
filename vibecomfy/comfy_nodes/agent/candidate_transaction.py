@@ -146,6 +146,18 @@ def _graph_class_types(graph: Mapping[str, Any] | None) -> set[str]:
             for definition in definitions.values():
                 if isinstance(definition, Mapping):
                     visit(definition)
+        prompt = scope.get("prompt")
+        if isinstance(prompt, Mapping):
+            visit(prompt)
+        if not isinstance(nodes, list):
+            # API-format graphs (including the standard ``{prompt: api}``
+            # wrapper) are keyed directly by node id.
+            for node in scope.values():
+                if not isinstance(node, Mapping):
+                    continue
+                class_type = node.get("type") or node.get("class_type")
+                if isinstance(class_type, str) and class_type:
+                    result.add(class_type)
 
     if isinstance(graph, Mapping):
         visit(graph)
@@ -162,6 +174,132 @@ def _delta_class_types(delta_envelope: Mapping[str, Any] | None) -> set[str]:
         if isinstance(class_type, str) and class_type:
             result.add(class_type)
     return result
+
+
+def _graph_node_class_by_identity(
+    graph: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Index serialized nodes by every stable identity available on the wire."""
+    result: dict[str, str] = {}
+
+    def add(node: Mapping[str, Any], *, fallback_id: Any = None) -> None:
+        class_type = node.get("type") or node.get("class_type")
+        if not isinstance(class_type, str) or not class_type:
+            return
+        identities: list[Any] = [fallback_id, node.get("id"), node.get("uid")]
+        properties = node.get("properties")
+        if isinstance(properties, Mapping):
+            identities.append(properties.get("vibecomfy_uid"))
+        for identity in identities:
+            if identity is not None and str(identity):
+                result[str(identity)] = class_type
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            nodes = door_get_nodes(value)
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if isinstance(node, Mapping):
+                        add(node)
+            elif nodes is None:
+                # API-format root/definition: node id -> {class_type, inputs}.
+                for node_id, node in value.items():
+                    if isinstance(node, Mapping) and isinstance(
+                        node.get("type") or node.get("class_type"), str
+                    ):
+                        add(node, fallback_id=node_id)
+            definitions = value.get("definitions")
+            if isinstance(definitions, (Mapping, list)):
+                visit(definitions)
+            subgraphs = value.get("subgraphs")
+            if isinstance(subgraphs, (Mapping, list)):
+                visit(subgraphs)
+            prompt = value.get("prompt")
+            if isinstance(prompt, Mapping):
+                visit(prompt)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, (Mapping, list)):
+                    visit(item)
+
+    if isinstance(graph, Mapping):
+        visit(graph)
+    return result
+
+
+def _delta_touched_node_identities(
+    delta_envelope: Mapping[str, Any] | None,
+) -> set[str]:
+    """Return node uids referenced by canonical delta operations."""
+    touched: set[str] = set()
+    ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
+    for op in ops if isinstance(ops, list) else ():
+        if not isinstance(op, Mapping):
+            continue
+        op_name = op.get("op")
+
+        def add_ref(ref: Any) -> None:
+            if (
+                isinstance(ref, Sequence)
+                and not isinstance(ref, (str, bytes))
+                and len(ref) >= 2
+                and ref[1] is not None
+            ):
+                touched.add(str(ref[1]))
+
+        if op_name in {"set_node_field", "set_mode", "remove_node"}:
+            add_ref(op.get("target"))
+        elif op_name == "upsert_link":
+            add_ref(op.get("from"))
+            add_ref(op.get("to"))
+        elif op_name == "remove_link":
+            add_ref(op.get("to"))
+        elif op_name == "add_node":
+            inputs = op.get("inputs")
+            if isinstance(inputs, Mapping):
+                for source in inputs.values():
+                    add_ref(source)
+            anchor = op.get("anchor")
+            if isinstance(anchor, Mapping):
+                add_ref(anchor.get("near"))
+                between = anchor.get("between")
+                if isinstance(between, Sequence) and not isinstance(between, (str, bytes)):
+                    for ref in between:
+                        add_ref(ref)
+    return touched
+
+
+def missing_touched_class_types(
+    *,
+    schema_witness: Mapping[str, Any],
+    submit_graph: Mapping[str, Any] | None,
+    candidate_payload: Mapping[str, Any] | None,
+    delta_envelope: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    """Return touched classes for which replay has no frozen schema.
+
+    Untouched unknown classes may remain in a graph because byte-preserving
+    ingest/emit can carry them through.  A delta that addresses one of those
+    classes cannot be authoritative without its schema, so it must fail before
+    publication rather than falling back to positional widget semantics.
+    """
+    raw_missing = schema_witness.get("missing_class_types")
+    missing = {
+        str(class_type)
+        for class_type in raw_missing if isinstance(class_type, str) and class_type
+    } if isinstance(raw_missing, list) else set()
+    if not missing:
+        return ()
+
+    by_identity = _graph_node_class_by_identity(submit_graph)
+    by_identity.update(_graph_node_class_by_identity(candidate_payload))
+    touched = {
+        by_identity[identity]
+        for identity in _delta_touched_node_identities(delta_envelope)
+        if identity in by_identity
+    }
+    touched.update(_delta_class_types(delta_envelope))
+    return tuple(sorted(touched & missing))
 
 
 def _json_safe(value: Any) -> Any:
@@ -773,6 +911,7 @@ __all__ = [
     "build_schema_witness",
     "canonical_transaction_state",
     "content_hash",
+    "missing_touched_class_types",
     "project_transaction_state",
     "schema_provenance_summary",
     "schema_provider_from_witness",

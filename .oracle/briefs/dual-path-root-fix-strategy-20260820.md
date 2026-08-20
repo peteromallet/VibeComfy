@@ -1,0 +1,3 @@
+# Strategy request: staged/threaded root fixes
+
+Read `.oracle/findings/dual-path-20260820-batch-1.md` and `.oracle/agent_philosophy.md` if present. Produce a concise implementation strategy for the four root-cause groups. Prioritize shared contracts/tools between staged and threaded. For each repair give exact likely files/functions, regression tests, risks, and an integration order. Preserve fail-closed authority semantics. Do not suggest bypassing replay or weakening guards. The target is that the same five locked scenario identities are meaningfully exercised through both modes after a clean committed rerun.
