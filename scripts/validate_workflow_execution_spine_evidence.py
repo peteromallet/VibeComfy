@@ -19,7 +19,7 @@ FINAL_FIVE = {
     "speed-distillation-research": "52b36af605acb7728c5809ac0961e901c5bc2fecc1f91f167911428a5d2efa7a",
 }
 CARD_ORDER = [
-    "T0.0", "T0.1", "T0.3", "T0.2", "G0",
+    "T0.0", "T0.1", "T0.3", "T0.2", "T0.4", "G0",
     "T1.1", "T1.2", "G1", "T2.1", "T2.2", "T2.3", "G2",
     "T3.1", "T3.2", "G3", "T4.1", "T4.2", "T4.3", "G4",
     "T5.1", "T5.2", "T5.3", "T5.4", "T5.5", "G5",
@@ -27,7 +27,7 @@ CARD_ORDER = [
 ]
 CARD_ONLY = [item for item in CARD_ORDER if item.startswith("T")]
 GATE_CARDS = {
-    "G0": ["T0.0", "T0.1", "T0.3", "T0.2"],
+    "G0": ["T0.0", "T0.1", "T0.3", "T0.2", "T0.4"],
     "G1": ["T1.1", "T1.2"], "G2": ["T2.1", "T2.2", "T2.3"],
     "G3": ["T3.1", "T3.2"], "G4": ["T4.1", "T4.2", "T4.3"],
     "G5": ["T5.1", "T5.2", "T5.3", "T5.4", "T5.5"],
@@ -283,8 +283,8 @@ def check_live_run(manifest: dict[str, Any]) -> None:
     for run in authoritative:
         if run.get("task_id") not in {None, "T7.2"} and run.get("card") not in {None, "T7.2"}:
             _fail("LIVE_RUN_SINGLETON", "authoritative live_run is not G7.2")
-        if run.get("concurrency") != 10 or run.get("mode") != "5x2":
-            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must be concurrency 10 and mode 5x2")
+        if run.get("concurrency") != 10 or run.get("mode") != "50x2":
+            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must be concurrency 10 and mode 50x2")
         receipts = _leg_receipts(run)
         keys = []
         for receipt in receipts:
@@ -292,8 +292,8 @@ def check_live_run(manifest: dict[str, Any]) -> None:
                 keys.append(receipt.get("leg_id", receipt.get("receipt_id")))
             else:
                 keys.append(receipt)
-        if len(receipts) != 10 or any(key is None for key in keys) or len(set(keys)) != 10:
-            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must contain exactly ten unique leg_receipts")
+        if len(receipts) != 100 or any(key is None for key in keys) or len(set(keys)) != 100:
+            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must contain exactly 100 unique leg_receipts")
 
 
 def _walk_assessments(value: Any) -> Iterable[dict[str, Any]]:

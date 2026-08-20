@@ -67,17 +67,68 @@ def test_final_five_identity_is_locked() -> None:
     _error(manifest, "FINAL_FIVE_INTEGRITY")
 
 
-def test_live_run_requires_one_authoritative_ten_leg_record() -> None:
+def _authoritative_run(count: int = 100, mode: str = "50x2", *, duplicate: bool = False, keyless: bool = False) -> dict:
+    receipts: list[dict] = []
+    for i in range(count):
+        if keyless:
+            receipts.append({})
+        elif duplicate:
+            receipts.append({"leg_id": "0"})
+        else:
+            receipts.append({"leg_id": str(i)})
+    return {"task_id": "T7.2", "authoritative": True, "concurrency": 10, "mode": mode, "leg_receipts": receipts}
+
+
+def test_live_run_accepts_one_authoritative_100_leg_record() -> None:
     manifest = _manifest()
-    manifest["live_runs"] = [{"task_id": "T7.2", "authoritative": True, "concurrency": 10, "mode": "5x2", "leg_receipts": [{"leg_id": str(i)} for i in range(9)]}]
-    _error(manifest, "LIVE_RUN_SINGLETON")
+    manifest["live_runs"] = [_authoritative_run()]
+    validator.validate_manifest(manifest, ROOT / "manifest.json")
+
+
+def test_live_run_rejects_99_or_101_duplicate_or_keyless_receipts() -> None:
+    for count in (99, 101):
+        _error({**_manifest(), "live_runs": [_authoritative_run(count)]}, "LIVE_RUN_SINGLETON")
+    _error({**_manifest(), "live_runs": [_authoritative_run(duplicate=True)]}, "LIVE_RUN_SINGLETON")
+    _error({**_manifest(), "live_runs": [_authoritative_run(keyless=True)]}, "LIVE_RUN_SINGLETON")
+
+
+def test_live_run_rejects_stale_5x2_ten_leg_contract() -> None:
+    detail = _error({**_manifest(), "live_runs": [_authoritative_run(10, "5x2")]}, "LIVE_RUN_SINGLETON")
+    assert "50x2" in detail
 
 
 def test_live_run_rejects_two_authoritative_invocations() -> None:
+    run = _authoritative_run()
+    _error({**_manifest(), "live_runs": [run, copy.deepcopy(run)]}, "LIVE_RUN_SINGLETON")
+
+
+def test_card_order_places_t04_after_t02_before_g0() -> None:
+    order = validator.CARD_ORDER
+    assert order.index("T0.2") < order.index("T0.4") < order.index("G0")
+    g0 = validator.GATE_CARDS["G0"]
+    assert g0[-2:] == ["T0.2", "T0.4"]
+    assert g0 == ["T0.0", "T0.1", "T0.3", "T0.2", "T0.4"]
+    relative = [card for card in order if card != "T0.4"]
+    assert relative == [
+        "T0.0", "T0.1", "T0.3", "T0.2", "G0",
+        "T1.1", "T1.2", "G1", "T2.1", "T2.2", "T2.3", "G2",
+        "T3.1", "T3.2", "G3", "T4.1", "T4.2", "T4.3", "G4",
+        "T5.1", "T5.2", "T5.3", "T5.4", "T5.5", "G5",
+        "T6.1", "T6.2", "T6.3", "G6", "T7.1", "T7.2", "T7.3", "G7",
+    ]
+
+
+def test_dependency_order_accepts_t04_and_rejects_unknown_cards() -> None:
     manifest = _manifest()
-    run = {"task_id": "T7.2", "authoritative": True, "concurrency": 10, "mode": "5x2", "leg_receipts": [{"leg_id": str(i)} for i in range(10)]}
-    manifest["live_runs"] = [run, copy.deepcopy(run)]
-    _error(manifest, "LIVE_RUN_SINGLETON")
+    manifest["tasks"] = [
+        *manifest["tasks"],
+        {"task_id": "T0.2", "label": "T0.2 [XHARD-REVIEW] contract", "model_route": "grok-4.6"},
+        {"task_id": "T0.4", "label": "T0.4 [XHARD] plan amendment 50", "model_route": "grok-4.6"},
+    ]
+    validator.validate_manifest(manifest, ROOT / "manifest.json")
+    unknown = _manifest()
+    unknown["tasks"].append({"task_id": "T9.9", "label": "T9.9 [HARD] unknown", "model_route": "codex:gpt-5.6-luna"})
+    _error(unknown, "DEPENDENCY_ORDER")
 
 
 def test_broad_suite_is_a_singleton() -> None:
