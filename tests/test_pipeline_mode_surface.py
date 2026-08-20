@@ -154,6 +154,36 @@ def test_chat_recovery_returns_latest_canonical_mode(tmp_path: Path) -> None:
     assert public["pipeline_mode"] == "staged"
 
 
+def test_chat_recovery_ignores_partial_newer_turn_mode(tmp_path: Path) -> None:
+    from vibecomfy.comfy_nodes.agent._frag_chat import read_session_chat
+
+    session_id = "partial-mode-session"
+    complete_turn = tmp_path / session_id / "turns" / "0000"
+    complete_turn.mkdir(parents=True)
+    (complete_turn / "request.json").write_text(
+        json.dumps({"task": "edit", "pipeline_mode": "threaded"}),
+        encoding="utf-8",
+    )
+    (complete_turn / "response.json").write_text(
+        json.dumps({"ok": True, "message": "done", "graph_unchanged": True}),
+        encoding="utf-8",
+    )
+
+    # Allocation may persist request.json before the response/chat artifacts
+    # are closed. This incomplete turn must not change recovery mode.
+    partial_turn = tmp_path / session_id / "turns" / "0001"
+    partial_turn.mkdir(parents=True)
+    (partial_turn / "request.json").write_text(
+        json.dumps({"task": "edit"}),
+        encoding="utf-8",
+    )
+
+    raw = read_session_chat(tmp_path, session_id)
+
+    assert raw["latest_turn_id"] == "0000"
+    assert raw["pipeline_mode"] == "threaded"
+
+
 def test_executor_only_durable_request_persists_canonical_mode(tmp_path: Path) -> None:
     from vibecomfy.comfy_nodes.agent.executor_durable import (
         maybe_write_executor_only_durable_turn,

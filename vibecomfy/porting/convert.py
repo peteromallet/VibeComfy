@@ -245,13 +245,12 @@ def port_convert_workflow(
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
 ) -> PortConvertResult:
-    # Capture the virtual-wire display/diagnostic sidecar on the caller-owned
-    # graph before cloning.  This is the one intentional caller-visible
-    # metadata update: conversion must not mutate caller topology or nodes,
-    # while downstream layout consumers require the captured furniture there.
+    # Capture the virtual-wire display/diagnostic sidecar before cloning, but
+    # publish it to the caller only after conversion reaches its successful
+    # return. Conversion must not mutate caller topology, nodes, or metadata
+    # when a resolver/emitter/parity step raises.
+    caller_workflow = workflow
     _virtual_wires = _capture_virtual_wires(workflow)
-    if _virtual_wires:
-        workflow.metadata["virtual_wires"] = copy.deepcopy(_virtual_wires)
 
     # Conversion resolves helpers and annotates metadata in place. Work on a
     # private snapshot so callers can safely reuse the ingested IR (and raw UI
@@ -502,6 +501,8 @@ def port_convert_workflow(
                 if result.validation.error is None:
                     result.validation.error = f"parity check failed: {parity_error}"
 
+    if _virtual_wires:
+        caller_workflow.metadata["virtual_wires"] = copy.deepcopy(_virtual_wires)
     return result
 
 

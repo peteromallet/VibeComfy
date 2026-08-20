@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from vibecomfy.porting import convert as convert_module
 from vibecomfy.porting.convert import _capture_virtual_wires, port_convert_workflow
 from vibecomfy.porting.layout_store import read_store, write_layout
 from vibecomfy.porting.emit.ui import emit_ui_json
@@ -251,6 +252,20 @@ def test_default_convert_round_trip(tmp_path: Path):
 
     # Save for path B comparison
     ref_flat = emit_ui_json(wf_reloaded, include_virtual_wires=False, prior_store=store)
+
+
+def test_failed_convert_does_not_publish_virtual_wire_sidecar(monkeypatch: pytest.MonkeyPatch) -> None:
+    wf = _make_roundtrip_wf()
+
+    def fail_resolve(*args, **kwargs):
+        raise RuntimeError("resolver failed")
+
+    monkeypatch.setattr(convert_module, "resolve_helpers", fail_resolve)
+
+    with pytest.raises(RuntimeError, match="resolver failed"):
+        port_convert_workflow(wf, keep_virtual_wires=False, validate=False)
+
+    assert "virtual_wires" not in wf.metadata
 
 
 # ---------------------------------------------------------------------------

@@ -699,28 +699,14 @@ def read_session_chat(
         response = _read_turn_response_payload(turn_dir)
         fallback_agent_outcome = _stamped_turn_response_outcome(response, stage="submit")
         request_path = turn_dir / "request.json"
+        request_metadata: dict[str, Any] | None = None
         if request_path.is_file():
             try:
-                request_metadata = json.loads(request_path.read_text(encoding="utf-8"))
+                parsed_request_metadata = json.loads(request_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                request_metadata = None
-            if isinstance(request_metadata, dict):
-                raw_pipeline_mode = request_metadata.get("pipeline_mode")
-                try:
-                    from vibecomfy.executor.contracts import coerce_orchestration_mode
-
-                    # An omitted mode is the legacy staged default. Reset on
-                    # every valid request artifact so a newer legacy turn does
-                    # not inherit a prior threaded turn during recovery.
-                    latest_pipeline_mode = (
-                        coerce_orchestration_mode(raw_pipeline_mode)
-                        if raw_pipeline_mode is not None
-                        else "staged"
-                    )
-                except ValueError:
-                    # Invalid persisted values fail closed at the public
-                    # boundary, just like an invalid current request.
-                    latest_pipeline_mode = "staged"
+                parsed_request_metadata = None
+            if isinstance(parsed_request_metadata, dict):
+                request_metadata = parsed_request_metadata
 
         # Try chat.json first.
         if chat_path.is_file():
@@ -768,6 +754,26 @@ def read_session_chat(
 
         if chat_record is None:
             continue
+
+        # Only an accepted, displayable turn may advance the recovered mode.
+        # A partially allocated newer turn can have request.json without a
+        # response/chat artifact; it must not override the last completed turn
+        # while the panel is rehydrating.
+        raw_pipeline_mode = (
+            request_metadata.get("pipeline_mode") if request_metadata is not None else None
+        )
+        try:
+            from vibecomfy.executor.contracts import coerce_orchestration_mode
+
+            # An omitted mode is the legacy staged default. Invalid persisted
+            # values fail closed at the public boundary.
+            latest_pipeline_mode = (
+                coerce_orchestration_mode(raw_pipeline_mode)
+                if raw_pipeline_mode is not None
+                else "staged"
+            )
+        except ValueError:
+            latest_pipeline_mode = "staged"
 
         # Best-effort wall-clock for this turn, used by the panel to show a
         # relative timestamp ("5 minutes ago") below each chat bubble. Turn
