@@ -228,20 +228,71 @@ def _registry_release(evidence_dir: Path, task_id: str, lock_handle: Any) -> Non
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
         lock_handle.close()
 
-
 def _git(project_dir: Path, args: list[str]) -> str:
     result = subprocess.run(["git", *args], cwd=project_dir, text=True, capture_output=True, check=False)
     return result.stdout.strip()
 
+def _git_bytes(project_dir: Path, args: list[str]) -> bytes:
+    result = subprocess.run(["git", *args], cwd=project_dir, capture_output=True, check=False)
+    return result.stdout
 
-def _changed_files(project_dir: Path, base_sha: str) -> list[str]:
-    names: set[str] = set()
-    if base_sha:
-        names.update(line for line in _git(project_dir, ["diff", "--name-only", f"{base_sha}..HEAD"]).splitlines() if line)
-    names.update(line for line in _git(project_dir, ["diff", "--name-only"]).splitlines() if line)
-    names.update(line for line in _git(project_dir, ["ls-files", "--others", "--exclude-standard"]).splitlines() if line)
-    return sorted(names)
 
+def _git_paths(project_dir: Path, args: list[str]) -> set[str]:
+    return {
+        os.fsdecode(raw)
+        for raw in _git_bytes(project_dir, args).split(b"\0")
+        if raw
+    }
+
+
+def _snapshot_path_is_evidence(project_dir: Path, evidence_dir: Path, relative: str) -> bool:
+    path = Path(os.path.abspath(project_dir / relative))
+    try:
+        path.relative_to(Path(os.path.abspath(evidence_dir)))
+        return True
+    except ValueError:
+        return False
+
+
+def _path_state(path: Path) -> tuple[str, int, str] | None:
+    try:
+        stat = path.lstat()
+    except FileNotFoundError:
+        return None
+    mode = stat.st_mode & 0o7777
+    if path.is_symlink():
+        return "symlink", mode, sha256_bytes(os.fsencode(os.readlink(path)))
+    if path.is_file():
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except FileNotFoundError:
+            return None
+        return "file", mode, digest.hexdigest()
+    if path.is_dir():
+        return "directory", mode, ""
+    return "other", mode, ""
+
+
+def _repo_snapshot(project_dir: Path, evidence_dir: Path) -> dict[str, tuple[str, int, str]]:
+    names = _git_paths(project_dir, ["ls-files", "-z", "--cached"])
+    names.update(_git_paths(project_dir, ["ls-files", "-z", "--others", "--exclude-standard"]))
+    snapshot: dict[str, tuple[str, int, str]] = {}
+    for name in sorted(names):
+        if name == ".git" or name.startswith(".git/"):
+            continue
+        if _snapshot_path_is_evidence(project_dir, evidence_dir, name):
+            continue
+        state = _path_state(project_dir / name)
+        if state is not None:
+            snapshot[Path(name).as_posix()] = state
+    return snapshot
+
+
+def _changed_files(before: dict[str, tuple[str, int, str]], after: dict[str, tuple[str, int, str]]) -> list[str]:
+    return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
 
 def _git_commits(project_dir: Path, base_sha: str) -> list[str]:
     spec = f"{base_sha}..HEAD" if base_sha else "HEAD"
@@ -330,6 +381,7 @@ def run(args: argparse.Namespace) -> int:
             f"--project-dir={project_dir}",
             f"--timeout={args.timeout}",
         ]
+        before_snapshot = _repo_snapshot(project_dir, evidence_dir)
         child = subprocess.Popen(command, cwd=project_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         child_pid = child.pid
         try:
@@ -355,7 +407,7 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.flush()
         end_ts = utc_now()
         result_text = stdout_bytes.decode("utf-8", errors="replace")
-        changed = _changed_files(project_dir, base_sha)
+        changed = _changed_files(before_snapshot, _repo_snapshot(project_dir, evidence_dir))
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
         receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
         resolved_match = re.search(r"(?:^|\s)resolved=([^\s]+)", stderr_bytes.decode("utf-8", errors="replace"), re.MULTILINE)
