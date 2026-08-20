@@ -414,12 +414,21 @@ def _narrate_final_message(
                 raw_executor_message=raw_executor_message,
                 fallback_message=fallback_message,
             )
-            llm_message, llm_response = _call_narrator_llm(
-                narrative_context,
-                llm_request,
-                route=route,
-                model=model,
-            )
+            failure_kind = getattr(failure, "kind", None) if failure is not None else None
+            failure_kind = getattr(failure_kind, "value", failure_kind)
+            if failure_kind == "stale_state_mismatch":
+                # Stale-canvas recovery is deterministic and must remain
+                # available when no provider credential/runtime is present.
+                # The narrative fallback already contains the rebaseline
+                # action; do not launch a second worker just to rephrase it.
+                fallback_reason = "stale_state_recovery"
+            else:
+                llm_message, llm_response = _call_narrator_llm(
+                    narrative_context,
+                    llm_request,
+                    route=route,
+                    model=model,
+                )
         except ProviderError as exc:
             LOGGER.warning("Narrator provider error (%s), falling back: %s", type(exc).__name__, exc)
             fallback_reason = "provider_failure"

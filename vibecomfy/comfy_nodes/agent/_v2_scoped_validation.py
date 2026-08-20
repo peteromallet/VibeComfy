@@ -230,10 +230,10 @@ def _load_turn_delta_ops_diagnostic(
             "detail": {},
         }
 
-    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
-
     accepted = response.get("accepted_batch")
     if isinstance(accepted, list):
+        from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
         ops = list(_ops_from_accepted_batch(response))
         if ops:
             try:
@@ -253,9 +253,31 @@ def _load_turn_delta_ops_diagnostic(
             "detail": {"op_count": len(ops)},
         }
 
+    envelope = response.get("delta_ops_envelope")
+    if isinstance(envelope, Mapping) and isinstance(envelope.get("ops"), list):
+        return {
+            "shape": "canonical",
+            "code": "canonical_delta_ops",
+            "detail": {"op_count": len(envelope["ops"])},
+        }
+
+    flat = response.get("delta_ops")
+    if isinstance(flat, list):
+        return {
+            "shape": "legacy_flat",
+            "code": "legacy_delta_ops_flat",
+            "detail": {"op_count": len(flat)},
+        }
+    if isinstance(flat, Mapping):
+        return {
+            "shape": "legacy_wrapped",
+            "code": "legacy_delta_shape",
+            "detail": {"keys": sorted(str(key) for key in flat)},
+        }
+
     return {
         "shape": "missing",
-        "code": "missing_accepted_batch",
+        "code": "missing_delta_ops",
         "detail": {},
     }
 
@@ -437,6 +459,18 @@ def _read_field_value_from_node(
     return _SENTINEL_NO_VALUE
 
 
+def _read_widget_order(node: Mapping[str, Any]) -> tuple[str, ...] | _ScopedValueSentinel:
+    widgets = node.get("widgets")
+    if not isinstance(widgets, list):
+        return _SENTINEL_NO_VALUE
+    names = tuple(
+        str(item.get("name"))
+        for item in widgets
+        if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+    )
+    return names if names else _SENTINEL_NO_VALUE
+
+
 def _normalize_link_endpoint(node_alias: Any, output_slot: Any) -> Any:
     if not isinstance(node_alias, (int, str)) or output_slot is None:
         return _SENTINEL_NO_VALUE
@@ -524,6 +558,21 @@ def _resolve_candidate_value_for_op(
         if node is None:
             return (_SENTINEL_NODE_ABSENT, None)
         return (_read_field_value_from_node(node, "mode"), None)
+    if op_kind == "reorder":
+        target = op.get("target")
+        uid = _normalize_target_uid(target)
+        axis = op.get("axis")
+        if axis != "widgets" or uid is None:
+            return (_SENTINEL_NO_VALUE, "Could not resolve candidate widget order.")
+        order = op.get("order")
+        if isinstance(order, list) and all(isinstance(item, str) for item in order):
+            return (tuple(order), None)
+        if candidate_index is None:
+            return (_SENTINEL_NO_VALUE, "Could not resolve candidate widget order.")
+        node = _find_node_in_index(candidate_index, uid)
+        if node is None:
+            return (_SENTINEL_NODE_ABSENT, None)
+        return (_read_widget_order(node), None)
     if op_kind == "upsert_link":
         source = op.get("from")
         if isinstance(source, list) and len(source) >= 3:
@@ -763,6 +812,15 @@ def _resolve_submit_value_for_op(
         return _resolve_submit_value_for_set_node_field(submit_graph, op)
     if op_kind == "set_mode":
         return _resolve_submit_value_for_set_mode(submit_graph, op)
+    if op_kind == "reorder":
+        target = op.get("target")
+        uid = _normalize_target_uid(target)
+        if op.get("axis") != "widgets" or uid is None:
+            return (_SENTINEL_NO_VALUE, "Could not resolve widget reorder target.")
+        node = _find_node_in_graph(submit_graph, uid)
+        if node is None:
+            return (_SENTINEL_NODE_ABSENT, None)
+        return (_read_widget_order(node), None)
     if op_kind == "upsert_link":
         return _resolve_submit_value_for_upsert_link(submit_graph, op)
     if op_kind == "remove_link":
@@ -805,10 +863,14 @@ def _status_for_scoped_validation_entry(
 
 def _scoped_validation_diagnostic_code(entry: Mapping[str, Any]) -> str:
     error = entry.get("error")
-    if isinstance(error, str) and (
-        "Unsupported delta op kind" in error or "Missing or invalid op kind" in error
-    ):
+    if isinstance(error, str) and "Missing or invalid op kind" in error:
         return "unsupported_delta_op"
+    if isinstance(error, str) and "Unsupported delta op kind" in error:
+        if entry.get("op") not in {
+            "set_node_field", "set_mode", "reorder", "upsert_link",
+            "remove_link", "add_node", "remove_node",
+        }:
+            return "unsupported_delta_op"
     return "unscopable_delta_op"
 
 

@@ -3515,6 +3515,18 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         return "v2_delta"
 
     if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
+        # Archived v2 callers used the flat ``delta_ops`` bridge before
+        # ``accepted_batch`` became the sole durable representation.  Treat a
+        # flat list as explicit v2 evidence for compatibility, but never let a
+        # client-live-canvas transaction promote that legacy shape to new
+        # authority without the explicit protocol marker.
+        legacy_delta = isinstance(response.get("delta_ops"), list) or isinstance(
+            response.get("delta_ops_envelope"), Mapping
+        )
+        if legacy_delta and response.get("client_live_canvas_token"):
+            raise ValueError("New candidate authority requires explicit v2_delta evidence.")
+        if legacy_delta:
+            return "v2_delta"
         if has_accepted_batch and accepted_ops and explicit != "v2_delta":
             raise ValueError("New candidate authority requires explicit v2_delta evidence.")
         # Non-delta contracts (e.g. the default ``batch_repl``/canvas contract)
@@ -3529,6 +3541,10 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         )
         return "v1"
     if has_accepted_batch:
+        return "v2_delta"
+    if isinstance(response.get("delta_ops"), list) or isinstance(
+        response.get("delta_ops_envelope"), Mapping
+    ):
         return "v2_delta"
     # Answer-only/no-candidate records remain readable audit artifacts.
     return "v1"
@@ -4192,7 +4208,14 @@ def record_idempotent_response(
         if isinstance(stamped_response, Mapping)
         else None
     )
-    agent_edit_protocol = _validated_agent_edit_protocol(stamped_response)
+    protocol_response = dict(stamped_response)
+    # The live-canvas token is request-scoped authority evidence. Preserve it
+    # for validation even though providers do not echo it in their response.
+    if request_payload is not None and "client_live_canvas_token" not in protocol_response:
+        token = request_payload.get("client_live_canvas_token")
+        if token is not None:
+            protocol_response["client_live_canvas_token"] = token
+    agent_edit_protocol = _validated_agent_edit_protocol(protocol_response)
     candidate_payload = (
         stamped_response.get("candidate")
         if isinstance(stamped_response.get("candidate"), Mapping)

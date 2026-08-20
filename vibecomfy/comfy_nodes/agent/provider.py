@@ -364,6 +364,68 @@ def extract_batch_fence(text: str) -> tuple[str, str]:
     return batch_code, prose
 
 
+def _compact_batch_system_prompt(
+    *,
+    active_tool_phase: str,
+    code_signature_available: bool,
+    budget_remaining: int,
+    max_batches: int,
+) -> str:
+    """Bound the implement prompt while retaining the shared tool/grammar contract.
+
+    The full authoring guidance is useful as source material but can exceed the
+    provider's stable context budget after the threaded tool catalog is added.
+    This compact form is the same single grammar and tool registry, with the
+    repeated policy prose removed; it is used for both staged and threaded
+    implement turns so the two hosts cannot drift.
+    """
+    from vibecomfy.porting.edit.grammar import render_prompt_doc
+
+    code_rule = (
+        "Use the included `vibecomfy.exec` signature; do not search for it."
+        if code_signature_available
+        else "If its signature is absent, search `search(focus_types=[\"vibecomfy.exec\"])` first."
+    )
+    tool_heading = (
+        "Agent tool calls (no edit lands) — threaded research+implement surface:\n"
+        if active_tool_phase == PHASE_THREADED
+        else "Agent tool calls (no edit lands) — implement phase only:\n"
+    )
+    return (
+        "You edit a ComfyUI canvas as live Python objects. Each node is a variable; "
+        "wiring uses `.OUTPUT` from other variables.\n\n"
+        "Two moves:\n"
+        "- Add: `x = NodeType(field=val, input=other.OUTPUT)`\n"
+        "- Change: `obj.attr = value`\n\n"
+        "Privileged calls:\n"
+        "- `del x`\n"
+        "- `node.mode = \"bypassed\" | \"muted\" | \"enabled\"` "
+        "(bypass does NOT pass input through)\n"
+        "- `search(focus_types=[\"ClassName\"])` for exact authoring schemas; "
+        "existing nodes are shown above, so do NOT search for them\n"
+        f"{tool_heading}{tool_catalog_docs(active_tool_phase)}\n"
+        "- `python()` — view the current workflow Python\n"
+        "- `done()` — commit landed edits\n"
+        "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
+        f"{render_prompt_doc()}\n\n"
+        "Known limits: use only visible fields/sockets or exact schema results; "
+        "preserve terminal continuity and required inputs; do not invent node classes.\n"
+        "Effective surface rule: edit the value that controls output. If a target is "
+        "linked, edit its effective source or clarify when no defensible local edit exists.\n\n"
+        "Code node rule: for code-node, Python, PIL, or custom image-processing requests, "
+        "use exactly `vibecomfy.exec` — never `vibecomfy.code`, `ImageCode`, `PythonCode`, "
+        f"or a guessed class. {code_rule} The `io` JSON widget declares typed inputs "
+        "and outputs; use physical `in_0`/`out_0` slots and wire named outputs. PIL is "
+        "supported through the typed `vibecomfy.exec` surface.\n\n"
+        "Envelope: start with one user-facing prose sentence, then exactly one ```batch "
+        "fence. Never respond with only a fenced block; include `done()` or a typed "
+        "`clarify(\"...\")`.\n\n"
+        f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n\n"
+        "Worked example (syntax only):\n"
+        "```batch\nprev = PreviewImage(images=decode.IMAGE)\ndone()\n```"
+    )
+
+
 def build_batch_messages(
     *,
     task: str,
@@ -604,6 +666,14 @@ def build_batch_messages(
         "done()\n"
         "```"
     )
+    if not research_only and len(system) >= 9200:
+        system = _compact_batch_system_prompt(
+            active_tool_phase=active_tool_phase,
+            code_signature_available=code_signature_available,
+            budget_remaining=budget_remaining,
+            max_batches=max_batches,
+        )
+
     if turn_number == 0:
         # ── Recent conversation (injected only on turn 0) ──────────────
         conversation_block = ""

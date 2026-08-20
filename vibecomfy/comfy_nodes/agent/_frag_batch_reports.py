@@ -180,11 +180,14 @@ def _format_batch_report(
         marker = "✓" if statement.ok else "✗"
         status = getattr(statement, "status", None)
         reason = getattr(statement, "reason", None)
-        if status:
+        op_kind = statement.op_kind or "statement"
+        # Query/control statements are intentionally non-editing.  Keep the
+        # stable teaching wording used by the batch protocol even though the
+        # typed interpreter records them internally as ``skipped``.
+        if status and op_kind not in {"query", "done"}:
             status = f"{status}" + (f" ({reason})" if reason else "")
         else:
             status = "landed" if statement.landed else "not landed"
-        op_kind = statement.op_kind or "statement"
         source_text = _format_statement_source(statement.source)
         line = (
             f"{marker} Statement {statement.statement_index}: "

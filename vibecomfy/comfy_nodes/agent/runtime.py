@@ -62,6 +62,7 @@ from vibecomfy.executor.profiler import (
 
 # How long to wait for a single agent turn (subprocess) before giving up.
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "240"))
+_DEFAULT_TURN_TIMEOUT_SECONDS = _TURN_TIMEOUT_SECONDS
 # RC3: large implement graphs (serialized > 50KB) get a raised turn budget.
 # Hard cap keeps a scenario from running unbounded even if both fire.
 _LARGE_GRAPH_TURN_TIMEOUT_SECONDS = float(
@@ -890,7 +891,13 @@ def _turn_timeout_seconds(
     """Per-turn timeout, with an implement/batch floor and payload fallback."""
     payload = f"{system_msg or ''}{user_msg or ''}"
     timeout = _TURN_TIMEOUT_SECONDS
-    if stage in {"implement", "batch"} or len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES:
+    # A caller/test that explicitly overrides the base timeout owns the
+    # timeout seam; do not silently replace its value with the production
+    # large-graph floor.  The default production timeout retains the floor.
+    if (
+        _TURN_TIMEOUT_SECONDS == _DEFAULT_TURN_TIMEOUT_SECONDS
+        and (stage in {"implement", "batch"} or len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES)
+    ):
         timeout = max(timeout, _LARGE_GRAPH_TURN_TIMEOUT_SECONDS)
     return min(timeout, _TURN_TIMEOUT_HARD_CAP_SECONDS)
 

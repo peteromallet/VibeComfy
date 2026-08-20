@@ -266,6 +266,8 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
 
     accepted_batch = payload.get("accepted_batch")
     has_accepted_batch = isinstance(accepted_batch, list)
+    legacy_envelope = payload.get("delta_ops_envelope")
+    has_legacy_envelope = isinstance(legacy_envelope, Mapping)
     audit_payload = payload.get("delta_audit")
     delta_audit_mapping = dict(audit_payload) if isinstance(audit_payload, Mapping) else {}
 
@@ -293,7 +295,12 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
     }
     op_count = payload.get("op_count")
     if not isinstance(op_count, int):
-        op_count = len(_ops_from_accepted_batch(payload)) if has_accepted_batch else 0
+        if has_accepted_batch:
+            op_count = len(_ops_from_accepted_batch(payload))
+        elif has_legacy_envelope and isinstance(legacy_envelope.get("ops"), list):
+            op_count = len(legacy_envelope["ops"])
+        else:
+            op_count = 0
 
     result: dict[str, Any] = {
         "enabled": bool(payload.get("enabled")),
@@ -302,13 +309,17 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
     }
     if has_accepted_batch:
         result["accepted_batch"] = list(accepted_batch)
+    elif has_legacy_envelope:
+        # Keep the archived envelope visible to compatibility/audit readers;
+        # canonical writes still use accepted_batch exclusively.
+        result["delta_ops_envelope"] = dict(legacy_envelope)
 
     # ── surface typed outcome.changes when present ────────────────────────
     if outcome_changes:
         result["outcome_changes"] = outcome_changes
 
     # ── skip cleanly when delta data is absent ────────────────────────────
-    if not has_accepted_batch and not outcome_changes:
+    if not has_accepted_batch and not outcome_changes and not isinstance(audit_payload, Mapping):
         result.pop("accepted_batch", None)
         result.pop("delta_audit", None)
         result.pop("op_count", None)
