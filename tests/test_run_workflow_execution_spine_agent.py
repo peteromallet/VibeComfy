@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DISPOSABLE_ROOT = Path("/workspace/vibecomfy-exec-spine-20260820/artifacts/t03-revision-fixtures")
+DISPOSABLE_ROOT = Path("/workspace/vibecomfy-exec-spine-20260820/artifacts/t03-revision2-fixtures")
 
 WRAPPER = ROOT / "scripts" / "run_workflow_execution_spine_agent.py"
 
@@ -45,6 +45,11 @@ def _setup(_tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
         "mode = os.environ.get('VCSPINE_FAKE_WRITE')\n"
         "if mode == 'forbidden': (project / 'forbidden.txt').write_text('bad')\n"
         "elif mode == 'dirty': (project / 'seed.txt').write_text('child update')\n"
+        "elif mode == 'hidden':\n"
+        "    (project / '.gitignore').write_text('hidden-created/\\n')\n"
+        "    hidden = project / 'hidden-created'\n"
+        "    hidden.mkdir()\n"
+        "    (hidden / 'secret.txt').write_text('hidden')\n"
         "else: (project / 'allowed.txt').write_text('ok')\n"
         "print('fake result')\n"
         "print('resolved=fake-model', file=sys.stderr)\n"
@@ -59,6 +64,7 @@ def _invoke(project: Path, evidence: Path, brief: Path, allowance: Path, fake: P
     env["VCSPINE_FAKE_WRITE"] = (
         "forbidden" if "--write=forbidden" in extra
         else "dirty" if "--write=dirty" in extra
+        else "hidden" if "--write=hidden" in extra
         else ""
     )
     return subprocess.run(
@@ -128,6 +134,22 @@ def test_child_change_to_pre_dirty_path_is_reported_and_rejected(tmp_path: Path)
     violation = json.loads((evidence / "T9.1-violation.json").read_text())
     assert violation["changed_files"] == ["seed.txt"]
     assert violation["violations"] == ["seed.txt"]
+    assert not json.loads((evidence / "active-allowances.json").read_text())
+
+def test_hidden_child_create_under_new_ignore_rule_is_reported_and_rejected(tmp_path: Path) -> None:
+    project, evidence, brief, allowance, fake = _setup(tmp_path)
+    allowance.write_text(json.dumps({"allowed": ["*"], "forbidden": ["hidden-created/**"]}))
+
+    result = _invoke(project, evidence, brief, allowance, fake, "--write=hidden")
+
+    assert result.returncode == 2
+    assert "ALLOWANCE_VIOLATION" in result.stderr
+    receipt = json.loads((evidence / "T9.1-receipt.json").read_text())
+    violation = json.loads((evidence / "T9.1-violation.json").read_text())
+    assert "hidden-created/secret.txt" in receipt["changed_files"]
+    assert "hidden-created/secret.txt" in violation["violations"]
+    assert receipt["changed_files"] == sorted(receipt["changed_files"])
+    assert receipt["evidence"]
     assert not json.loads((evidence / "active-allowances.json").read_text())
 
 

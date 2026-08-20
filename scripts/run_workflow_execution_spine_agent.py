@@ -19,7 +19,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterable
 
 HERMES_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py"
 GROK_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_omp_agent.py"
@@ -232,17 +231,6 @@ def _git(project_dir: Path, args: list[str]) -> str:
     result = subprocess.run(["git", *args], cwd=project_dir, text=True, capture_output=True, check=False)
     return result.stdout.strip()
 
-def _git_bytes(project_dir: Path, args: list[str]) -> bytes:
-    result = subprocess.run(["git", *args], cwd=project_dir, capture_output=True, check=False)
-    return result.stdout
-
-
-def _git_paths(project_dir: Path, args: list[str]) -> set[str]:
-    return {
-        os.fsdecode(raw)
-        for raw in _git_bytes(project_dir, args).split(b"\0")
-        if raw
-    }
 
 
 def _snapshot_path_is_evidence(project_dir: Path, evidence_dir: Path, relative: str) -> bool:
@@ -276,30 +264,27 @@ def _path_state(path: Path) -> tuple[str, int, str] | None:
     return "other", mode, ""
 
 
-def _repo_snapshot(
-    project_dir: Path,
-    evidence_dir: Path,
-    known_names: Iterable[str] = (),
-) -> dict[str, tuple[str, int, str]]:
-    # Keep launch-time paths in the post-launch candidate set. This prevents a
-    # child change to ignore rules from making an untouched pre-existing
-    # untracked path look deleted.
-    names = set(known_names)
-    names.update(_git_paths(project_dir, ["ls-files", "-z", "--cached", "--full-name"]))
-    names.update(_git_paths(
-        project_dir,
-        ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"],
-    ))
+def _repo_snapshot(project_dir: Path, evidence_dir: Path) -> dict[str, tuple[str, int, str]]:
+    """Capture every worktree path while excluding repository internals/evidence."""
+    root = project_dir.resolve()
     snapshot: dict[str, tuple[str, int, str]] = {}
-    for name in sorted(names):
-        if name == ".git" or name.startswith(".git/"):
-            continue
-        normalized = Path(name).as_posix()
-        if _snapshot_path_is_evidence(project_dir, evidence_dir, normalized):
-            continue
-        state = _path_state(project_dir / normalized)
-        if state is not None:
-            snapshot[normalized] = state
+    for directory, directories, files in os.walk(root, topdown=True, followlinks=False):
+        directories[:] = sorted(directories)
+        files = sorted(files)
+        for name in directories + files:
+            path = Path(directory) / name
+            relative = path.relative_to(root).as_posix()
+            if relative == ".git" or relative.startswith(".git/"):
+                if name in directories:
+                    directories.remove(name)
+                continue
+            if _snapshot_path_is_evidence(root, evidence_dir, relative):
+                if name in directories:
+                    directories.remove(name)
+                continue
+            state = _path_state(path)
+            if state is not None:
+                snapshot[relative] = state
     return snapshot
 
 
@@ -421,7 +406,7 @@ def run(args: argparse.Namespace) -> int:
         result_text = stdout_bytes.decode("utf-8", errors="replace")
         changed = _changed_files(
             before_snapshot,
-            _repo_snapshot(project_dir, evidence_dir, before_snapshot),
+            _repo_snapshot(project_dir, evidence_dir),
         )
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
         receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
