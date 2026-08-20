@@ -1362,6 +1362,10 @@ def _run_implement(
         payload["expected_baseline_graph_hash"] = request.expected_baseline_graph_hash
     if request.on_demand_schemas is not None:
         payload["on_demand_schemas"] = request.on_demand_schemas
+    if request.pipeline_mode is not None:
+        # Persist the canonical driver choice with the durable edit request so
+        # browser/headless recovery continues the same conversation mode.
+        payload["pipeline_mode"] = request.pipeline_mode
 
     ports = host_ports or _legacy_host_ports()
     try:
@@ -2784,6 +2788,12 @@ def run_executor(
             stage="configuration",
             message=str(getattr(failure, "user_facing_message", exc)),
         )
+
+    # Environment selection is an ingress boundary too. Materialize only the
+    # non-default value so threaded sessions persist their canonical mode while
+    # legacy staged requests retain byte-compatible omission.
+    if request.pipeline_mode is None and mode == "threaded":
+        request = replace(request, pipeline_mode=mode)
 
     if mode == "staged":
         return _run_staged_executor(

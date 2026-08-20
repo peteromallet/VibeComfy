@@ -85,6 +85,9 @@ def maybe_write_executor_only_durable_turn(
             "task": query_text,
             "session_id": session_id,
         }
+        pipeline_mode = getattr(request, "pipeline_mode", None)
+        if pipeline_mode is not None:
+            request_artifact_payload["pipeline_mode"] = pipeline_mode
         if request_graph is not None:
             request_artifact_payload["graph"] = (
                 dict(request_graph) if isinstance(request_graph, dict) else request_graph
