@@ -1,0 +1,85 @@
+{
+  "schema_version": "1",
+  "final_five": {
+    "audio-tts-narration-using-indextts-2": "c099f40b9208579ce320a0e5bcd9c579b78265f3639f828059efee41c26fb28d",
+    "image-image-editing-with-qwen-image": "dc1062c6fd00ef18395d403ce725964c1d68e354ba9ac6ed56278b835fae20f3",
+    "live-graph-explanation-smoke": "d93e79a71bd0bf6c496744ba81a1f9af9ee7672467a83d6100ffe638c3cd538c",
+    "multi-video-based-character-replacement-using": "625ed91eacf070e1d531a806b69b8221bf7a02f1e5c2a42b98502b0ae48ac63d",
+    "speed-distillation-research": "52b36af605acb7728c5809ac0961e901c5bc2fecc1f91f167911428a5d2efa7a"
+  },
+  "gates": [],
+  "tasks": [
+    {
+      "task_id": "T0.0",
+      "gate": "G0",
+      "role": "implementer",
+      "label": "T0.0 [HARD] Source custody and baseline (agentbox)",
+      "model_route": "codex:gpt-5.6-luna",
+      "exit": 0,
+      "base_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+      "bootstrap": true,
+      "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json",
+      "artifacts": [
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json",
+          "sha256": "4da22c397e92276d230ec0ad33fbefe7d7f11b28268ebca4b85aff78d81534c0"
+        }
+      ],
+      "changed_files": [],
+      "commits": []
+    },
+    {
+      "task_id": "T0.1",
+      "gate": "G0",
+      "role": "implementer",
+      "label": "T0.1 [HARD] Freeze r5 regressions and final-five identity",
+      "model_route": "codex:gpt-5.6-luna",
+      "exit": 0,
+      "base_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+      "bootstrap": true,
+      "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/artifacts/t01-receipt.json",
+      "artifacts": [
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/artifacts/t01-receipt.json",
+          "sha256": "9edc6bb3e8fc6087fa1ee560eba24541629d5a0cf0b0e5583be829a76ca45834"
+        }
+      ],
+      "changed_files": [
+        "tests/live_agentic_harness/threaded_comparison_manifest_final5.json",
+        "tests/fixtures/workflow_execution_spine_r5"
+      ],
+      "commits": ["80e60329322b349448d194c73f0bcd02016befb8"]
+    }
+    ,
+    {
+      "task_id": "T0.3",
+      "gate": "G0",
+      "role": "implementer",
+      "label": "T0.3 [HARD] Receipt wrapper and evidence validator",
+      "model_route": "codex:gpt-5.6-luna",
+      "exit": 0,
+      "base_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+      "bootstrap": true,
+      "receipt_path": "receipts/t0-3-bootstrap-receipt.json",
+      "artifacts": [
+        {
+          "path": "receipts/t0-3-bootstrap-receipt.json",
+          "sha256": "b7040eccd04bd0b49af039dccfcb8b78853e610896d9895b6773d62949309ad7"
+        }
+      ],
+      "changed_files": [
+        "scripts/run_workflow_execution_spine_agent.py",
+        "scripts/validate_workflow_execution_spine_evidence.py",
+        "tests/test_run_workflow_execution_spine_agent.py",
+        "tests/test_workflow_execution_spine_evidence.py",
+        "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
+        "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json",
+        "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md"
+      ],
+      "commits": ["24bf3384b1f85e6ca31e4538d04daa2a506ec737"]
+    }
+  ],
+  "shards": [],
+  "live_runs": [],
+  "findings": []
+}
