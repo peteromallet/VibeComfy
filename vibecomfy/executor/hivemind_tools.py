@@ -440,7 +440,122 @@ def serve_hivemind_record(
     )
 
 
-# ── Tools ───────────────────────────────────────────────────────────────────
+# ── Tools ────────────────────────────────────────────────────────────────────
+
+
+def _hivemind_repo_search_payload(
+    *,
+    query: str,
+    source_type: str | None,
+    channel: str | None,
+    author: str | None,
+    date_from: str | None,
+    limit: int,
+    offset: int,
+    timeout: float,
+) -> dict[str, Any] | None:
+    """Run the editable-installed hivemind repo search executor (canonical search).
+
+    The repo executor (`python -m hivemind.executors.search.run`) searches the
+    raw corpus tables with per-token ILIKE predicates and client-side ranking —
+    the shape that does not blow the anon role's statement budget the way a
+    multi-word phrase over ``unified_feed`` does.  Returns the parsed result
+    envelope (``{"results": [...], "total": N, "has_more": bool}``), or None
+    when the ``hivemind`` package is not installed (callers fall back to the
+    legacy transport).  On executor failure returns ``{"error": "..."}``.
+    ``date_to`` / ``sort`` / ``model_family`` / ``capability`` / ``node_class``
+    / ``has_workflow`` are not exposed by the repo CLI (it ranks relevance
+    client-side and has no upper date bound); those filters are dropped.
+    """
+    import importlib.util
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    if importlib.util.find_spec("hivemind.executors.search.run") is None:
+        return None
+
+    argv = [sys.executable, "-m", "hivemind.executors.search.run", "--query", query]
+    if source_type == "discord":
+        argv += ["--kinds", "message"]
+    elif source_type == "distillation":
+        argv += ["--kinds", "distillation"]
+    elif source_type == "workflow":
+        argv += ["--kinds", "workflow"]
+    if channel:
+        argv += ["--channel", channel]
+    if author:
+        argv += ["--author", author]
+    if date_from:
+        argv += ["--since", date_from]
+    argv += ["--limit", str(limit)]
+    if offset:
+        argv += ["--offset", str(offset)]
+
+    out_path = tempfile.mktemp(suffix=".json")
+    argv += ["--out", out_path]
+    wall = max(15.0, float(timeout) + 10.0)
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=wall)
+    except subprocess.TimeoutExpired:
+        return {"error": f"hivemind repo search timed out after {wall:.0f}s"}
+    except Exception as exc:  # noqa: BLE001 - typed fallback for any spawn failure
+        return {"error": f"hivemind repo search failed to start: {exc}"}
+    try:
+        if Path(out_path).exists():
+            payload = json.loads(Path(out_path).read_text(encoding="utf-8"))
+        else:
+            payload = json.loads(proc.stdout or "{}")
+    except (ValueError, OSError) as exc:
+        return {"error": f"hivemind repo search returned unparseable output: {exc}"}
+    finally:
+        try:
+            Path(out_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+    if not isinstance(payload, dict):
+        return {"error": "hivemind repo search returned a non-object envelope."}
+    return payload
+
+
+def _repo_rows_to_hits(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Map the hivemind repo executor's normalized rows to the tool hit shape."""
+    hits: list[dict[str, Any]] = []
+    for row in payload.get("results") or ():
+        if not isinstance(row, Mapping):
+            continue
+        item_id = row.get("item_id")
+        if item_id is None:
+            continue
+        kind = str(row.get("kind") or "")
+        if kind == "message":
+            table = "unified_feed"
+            source_type = "discord"
+        elif kind == "distillation":
+            table = "unified_feed"
+            source_type = "distillation"
+        else:
+            table = "external_resources"
+            source_type = "workflow"
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), Mapping) else {}
+        hits.append(
+            {
+                "evidence_id": f"hivemind:{table}:{item_id}",
+                "source_type": source_type,
+                "table": table,
+                "title": row.get("title") or "",
+                "body": row.get("body") or "",
+                "url": row.get("url") or "",
+                "author": row.get("author") or "",
+                "channel": row.get("context") or "",
+                "created_at": row.get("created_at"),
+                "score": 0,
+                "status": metadata.get("status"),
+                "confidence": metadata.get("confidence"),
+            }
+        )
+    return hits
 
 
 def hivemind_search(
@@ -547,6 +662,54 @@ def hivemind_search(
     root = cache_root or DEFAULT_CACHE_ROOT
     if _cooldown_active(root, _HIVEMIND_COOLDOWN_ENDPOINT):
         return _cooldown_result(HIVE_MIND_SEARCH_TOOL, root)
+
+    # Canonical search path: the editable-installed hivemind repo executor
+    # (per-token raw-table search).  Falls back to the legacy transport only
+    # when the hivemind package is not installed (e.g. test environments).
+    repo_payload = _hivemind_repo_search_payload(
+        query=query,
+        source_type=source_type,
+        channel=channel,
+        author=author,
+        date_from=date_from,
+        limit=limit,
+        offset=offset,
+        timeout=timeout,
+    )
+    if repo_payload is not None:
+        if "error" in repo_payload:
+            return ToolResult(
+                tool_name=HIVE_MIND_SEARCH_TOOL,
+                status=ToolStatus.UNAVAILABLE,
+                result={"query": query, "error": repo_payload["error"]},
+                diagnostics=(
+                    ToolDiagnostic(
+                        code="hivemind_repo_search_failed",
+                        message=str(repo_payload["error"]),
+                    ),
+                ),
+            )
+        hits = _repo_rows_to_hits(repo_payload)
+        has_more = bool(repo_payload.get("has_more"))
+        if not hits:
+            return ToolResult(
+                tool_name=HIVE_MIND_SEARCH_TOOL,
+                status=ToolStatus.NO_RESULTS,
+                result={"query": query, "count": 0, "hits": [], "has_more": False},
+            )
+        return ToolResult(
+            tool_name=HIVE_MIND_SEARCH_TOOL,
+            status=ToolStatus.OK,
+            result={
+                "query": query,
+                "count": len(hits),
+                "hits": hits,
+                "next_cursor": _encode_cursor(offset + limit) if has_more else None,
+                "has_more": has_more,
+                "total": int(repo_payload.get("total") or len(hits)),
+            },
+            evidence_ids=tuple(hit["evidence_id"] for hit in hits),
+        )
 
     try:
         transport = _hivemind_search_transport(

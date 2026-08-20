@@ -2945,6 +2945,30 @@ def grounding_violations(
     return tuple(violations)
 
 
+def _resolve_ledger_evidence_id(
+    candidate: str,
+    ledger: set[str],
+) -> str | None:
+    """Resolve a cited evidence id against the accumulated tool ledger.
+
+    Exact match wins.  Otherwise, when *candidate* uniquely prefixes exactly
+    one ledger id and its numeric suffix is substantive (>= 8 digits — an LLM
+    dropping trailing digits of a 19-digit Discord snowflake), that id is
+    returned — the reference stays grounded in a genuinely accumulated tool
+    result, so forged or cross-session ids still fail.  Ambiguous, too-short,
+    or no match returns None (fail closed).
+    """
+    if candidate in ledger:
+        return candidate
+    suffix = candidate.rpartition(":")[2]
+    if len(suffix) < 8 or not suffix.isdigit():
+        return None
+    matches = [eid for eid in ledger if eid.startswith(candidate)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
 def validate_two_step_final(
     final: TwoStepFinal | Mapping[str, Any],
     *,
@@ -3001,7 +3025,7 @@ def validate_two_step_final(
                 f"lens fact id {fact_id!r} is not in the current reply-lens facts"
             )
     for evidence_id in refs.evidence_ids:
-        if evidence_id not in evidence:
+        if _resolve_ledger_evidence_id(evidence_id, evidence) is None:
             violations.append(
                 f"evidence id {evidence_id!r} is not in the accumulated tool ledger"
             )

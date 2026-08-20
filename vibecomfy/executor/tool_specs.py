@@ -760,7 +760,14 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         phase=PHASE_RESEARCH,
         description=(
             "search the Hivemind corpus (Discord community, external resources, "
-            "curated distillations) for workflow precedents and community knowledge"
+            "curated distillations) for workflow precedents and community knowledge. "
+            "Matching is per-token: a bare multi-word query can flood the pool with "
+            "rows matching only common tokens, so when the top hits are generic or "
+            "off-topic, refine the query with distinctive terms (model family + "
+            "version, exact node names, complaint/praise phrases) and re-search, and "
+            "scope topic-dense channels with filters={'source_type': 'discord', "
+            "'channel': '<channel>'} (e.g. minimax_h3_chatter, wan_chatter, "
+            "ltx_chatter, comfyui, *_resources). Repeat until hits are on-topic."
         ),
         positional_names=("query",),
         keywords=("query", "filters", "cursor", "limit", "timeout"),

@@ -43,6 +43,7 @@ from vibecomfy.executor.contracts import (
     ExecutorResult,
     PipelineMode,
     Report,
+    _resolve_ledger_evidence_id,
 )
 from vibecomfy.executor.profiler import (
     ProfilerSpan,
@@ -1517,13 +1518,33 @@ def _two_step_tool_executor(
         project_tool_evidence,
     )
 
+    # Accumulated evidence ids from every tool result this turn.  hivemind_get
+    # resolves truncated ids (an LLM dropping digits of a 19-digit snowflake)
+    # against this set before hitting the API; the final validator applies the
+    # same unique-prefix rule, so a get and a final citation stay grounded in
+    # genuinely accumulated tool results.
+    seen_evidence: set[str] = set()
+
+    def _ledger_aware_get(evidence_id: str, *, timeout: float = 5.0) -> Any:
+        resolved = _resolve_ledger_evidence_id(str(evidence_id), seen_evidence)
+        if resolved is not None:
+            evidence_id = resolved
+        from vibecomfy.executor.hivemind_tools import hivemind_get  # noqa: PLC0415
+
+        return hivemind_get(evidence_id, timeout=timeout)
+
     def executor(tool: str, args: dict[str, Any]) -> Any:
         spec = TOOL_SPEC_BY_NAME.get(tool)
         if spec is None:
             return None
         session = _TwoStepToolSession(edit_session, web_search_enabled=web_search_enabled)
+        session.get_fn = _ledger_aware_get
         result = invoke_tool(spec, session, args, None)
-        return project_tool_evidence(spec, args, result, session)
+        projected = project_tool_evidence(spec, args, result, session)
+        artifacts = projected[0] if isinstance(projected, tuple) and projected else {}
+        if isinstance(artifacts, Mapping):
+            seen_evidence.update(str(key) for key in artifacts)
+        return projected
 
     return executor
 
