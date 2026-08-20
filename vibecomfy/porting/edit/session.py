@@ -98,6 +98,7 @@ if TYPE_CHECKING:
 
 
 from vibecomfy.porting.edit._session_types import (
+    ApplyOpsResult,
     BatchResult,
     CompactDiagnostic,
     DoneResult,
@@ -235,7 +236,12 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self._wf0: VibeWorkflow | None = (
             _cow_workflow_copy(self.workflow) if self.workflow is not None else None
         )
-        self.history: list[tuple[VibeWorkflow, str, tuple[Any, ...]]] = []
+        self.history: list[
+            tuple[VibeWorkflow, str | tuple[Any, ...], tuple[Any, ...]]
+        ] = []
+        # Monotonic compare-and-swap token. Unlike ``len(history)`` it cannot
+        # suffer an ABA after rollback.
+        self._revision = 0
 
     # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
     # name_by_uid / uid_by_name are READ-ONLY derivations from the IR (the
@@ -322,7 +328,13 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self._transient_name_index = {}
         self._transient_uid_index = {}
         self.unbound_names = set()
+        self._revision += 1
         return True
+
+    @property
+    def revision(self) -> int:
+        """Monotonic revision used by every authoring frontend for CAS."""
+        return self._revision
 
     def verify_delta_history(self, equality: Any | None = None) -> VibeWorkflow:
         """Replay ``wf_0 → wf_1 → …`` via ``interpret`` with the recorded Δ
@@ -456,8 +468,144 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
     def _projection_op(self, op: Any) -> Any:
         return op
 
+    def apply_ops(
+        self,
+        ops: Any,
+        *,
+        expected_revision: int | None = None,
+    ) -> ApplyOpsResult:
+        """Atomically validate, canonicalize, replay-prove, and commit typed ops.
+
+        Typed tools are only an input adapter. This method remains the sole
+        mutation gateway and records the generalized canonical delta produced
+        by the existing IR ``diff`` engine, so equivalent Python and tool
+        edits share replay and persistence semantics.
+        """
+        from vibecomfy.porting.edit._diff import diff
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+        from vibecomfy.porting.edit._op_validate import ApplyOpsError, validate_typed_ops
+        from vibecomfy.porting.edit.apply_gate import verify_apply
+        from vibecomfy.porting.emit.ui import guard_exit_ui
+
+        batch = tuple(ops or ())
+        if expected_revision is not None and expected_revision != self._revision:
+            return ApplyOpsResult(
+                ok=False,
+                reason="stale_revision",
+                diagnostics=(
+                    _diag(
+                        "stale_revision",
+                        f"expected revision {expected_revision}, current revision is {self._revision}.",
+                        severity="error",
+                        detail={"expected": expected_revision, "current": self._revision},
+                    ),
+                ),
+                revision=self._revision,
+                retryable=False,
+            )
+        if not batch:
+            return ApplyOpsResult(
+                ok=False,
+                reason="invalid_arguments",
+                diagnostics=(_diag("invalid_arguments", "no typed ops to apply", severity="error"),),
+                revision=self._revision,
+            )
+        if self.workflow is None:
+            return ApplyOpsResult(
+                ok=False,
+                reason="no_edit_session",
+                diagnostics=(_diag("no_edit_session", "the session has no retained IR.", severity="error"),),
+                revision=self._revision,
+                retryable=False,
+            )
+
+        snapshot = self._snapshot_mutable_state()
+        try:
+            pre = _cow_workflow_copy(self.workflow)
+            try:
+                post = validate_typed_ops(
+                    pre, batch, schema_provider=self.schema_provider
+                )
+            except ApplyOpsError as exc:
+                return ApplyOpsResult(
+                    ok=False,
+                    reason=exc.code,
+                    diagnostics=(_diag(exc.code, exc.message, severity="error"),),
+                    revision=self._revision,
+                    retryable=exc.retryable,
+                )
+
+            # The accepted batch is the generalized IR delta, never the
+            # frontend's possibly non-canonical request representation.
+            canonical_ops = tuple(diff(pre, post, schema_provider=self.schema_provider))
+            gate = verify_apply(
+                pre,
+                post,
+                landed_ops=canonical_ops,
+                schema_provider=self.schema_provider,
+            )
+            if not gate.ok or not gate.apply_eligible:
+                specific = gate.reason or "verification_failed"
+                return ApplyOpsResult(
+                    ok=False,
+                    reason="verification_failed",
+                    diagnostics=(
+                        _diag(
+                            "verification_failed",
+                            f"apply gate rejected the delta: {specific}",
+                            severity="error",
+                        ),
+                        *gate.diagnostics,
+                    ),
+                    revision=self._revision,
+                )
+
+            baseline_ui = self._emit_working_snapshot(pre, ops=())
+            candidate_ui = self._emit_working_snapshot(post, ops=canonical_ops)
+            exit_guard = guard_exit_ui(baseline_ui, candidate_ui, canonical_ops)
+            if not exit_guard.ok:
+                diagnostics = tuple(
+                    _diag(
+                        getattr(issue, "code", "exit_guard"),
+                        getattr(issue, "message", str(issue)),
+                        severity=getattr(issue, "severity", "error") or "error",
+                    )
+                    for issue in exit_guard.diagnostics
+                )
+                return ApplyOpsResult(
+                    ok=False,
+                    reason="verification_failed",
+                    diagnostics=diagnostics,
+                    revision=self._revision,
+                )
+
+            self.workflow = post
+            self.history.append((pre, canonical_ops, canonical_ops))
+            self.landed_ops.extend(canonical_ops)
+            self.resolved_ops = []
+            for op in canonical_ops:
+                touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
+                self.touched_uids.update(touched_uids)
+                self.touched_node_ids.update(touched_node_ids)
+            self._revision += 1
+            from vibecomfy.porting.edit.checkpoint import accepted_delta_id
+
+            return ApplyOpsResult(
+                ok=True,
+                reason="accepted",
+                workflow=post,
+                graph=candidate_ui,
+                landed_ops=canonical_ops,
+                delta_id=accepted_delta_id(canonical_ops),
+                revision=self._revision,
+            )
+        except Exception:
+            self._restore_snapshot(snapshot)
+            raise
+
 
 __all__ = [
+    "ApplyOpsResult",
     "BatchResult",
     "CompactDiagnostic",
     "DoneResult",
