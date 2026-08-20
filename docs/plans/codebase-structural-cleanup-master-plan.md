@@ -1937,15 +1937,15 @@ Warnings:
 
 ### 15.7 Execution readiness
 
-This master plan is **roadmap-ready** and can guide the full cleanup one package at a time. It is not yet legal to dispatch mutation agents in the current checkout because §3.4 and `[XHARD] P00A` are STOP conditions. The integration reconciliation itself also requires an independent `[XHARD-REVIEW] CR-0A` before Wave 0 inventories can be accepted.
+This master plan is **roadmap-ready** and can guide the full cleanup one package at a time. `[XHARD] P00A` and its independent `[XHARD-REVIEW] CR-0A` are accepted, including the latest-PR-head provenance recheck. It is still not legal to dispatch mutation agents because §3.4 and `P00` remain the ownership/clean-worktree STOP condition.
 
 Readiness has three levels:
 
 | Level | Meaning | Current state |
 |---|---|---|
 | Roadmap-ready | target architecture, package order, risks, and gates are defined | Ready |
-| Wave-ready | ownership, decisions, baselines, and suffix package cards for one wave are complete | Wave 0 can be prepared only after P00A and CR-0A; mutation waves are conditional |
-| Dispatch-ready | one suffix package has exact files, tests, rollback, reviewer, and a clean worktree | Not until `P00`/P00A, `P01`–`P03`, and their review gates clear |
+| Wave-ready | ownership, decisions, baselines, and suffix package cards for one wave are complete | P00 ownership reconciliation can proceed; P01–P03 require completed P00 plus the already accepted P00A/CR-0A; mutation waves remain conditional |
+| Dispatch-ready | one suffix package has exact files, tests, rollback, reviewer, and a clean worktree | Not until `P00`, `P01`–`P03`, and their review gates clear |
 
 The program manager may prepare packages just in time. It does not need to pre-author every suffix card before Wave 0, but it may not dispatch an implementer from a parent epic description alone.
 
