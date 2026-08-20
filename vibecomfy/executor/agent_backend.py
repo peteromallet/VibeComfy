@@ -33,6 +33,16 @@ from .contracts import (
 
 LOGGER = logging.getLogger(__name__)
 
+_CLASSIFY_PARSE_RETRY_PROMPT = (
+    "Your previous reply was empty or not valid JSON for the workflow intent "
+    "classifier. Reply with exactly one JSON object and no other markdown or "
+    "prose, using the classify contract: "
+    '{"research": true|false, "implement": true|false, "reply": true|false, '
+    '"effort": "low"|"medium"|"high", "plan_summary": "...", '
+    '"intent": "edit"|"research"|"explain_graph"|"respond"}.'
+)
+_CLASSIFY_MAX_PARSE_ATTEMPTS = 2
+
 
 def _extract_content(result: dict[str, Any]) -> str:
     """Extract the raw model output text from a provider result."""
@@ -108,6 +118,22 @@ def _downstream_failure_type(raw: str | None) -> str:
     return "missing_required_fields" if isinstance(parsed, dict) else "non_json_content"
 
 
+def _classify_retry_messages(
+    messages: list[dict[str, Any]],
+    exc: BaseException,
+) -> list[dict[str, Any]]:
+    """Append a corrective classify nudge with a redacted response preview."""
+    prompt = _CLASSIFY_PARSE_RETRY_PROMPT
+    raw_preview = getattr(exc, "raw_response_preview", None)
+    if isinstance(raw_preview, str) and raw_preview.strip():
+        prompt = (
+            f"{prompt}\n\n"
+            "Previous response preview, for correction only:\n"
+            f"{raw_preview.strip()}"
+        )
+    return [*messages, {"role": "system", "content": prompt}]
+
+
 def _record_result_attempts(result: dict[str, Any]) -> None:
     from vibecomfy.comfy_nodes.agent.runtime import record_model_attempts
 
@@ -144,6 +170,7 @@ def run_classify_turn(
     graph_summary: str | None = None,
     messages: list[dict[str, str]] | None = None,
     expect_graph_changed: bool | None = None,
+    max_parse_attempts: int = _CLASSIFY_MAX_PARSE_ATTEMPTS,
 ) -> ClassifyDecision:
     """Run a single classify model turn through the provider seam.
 
@@ -179,6 +206,10 @@ def run_classify_turn(
     expect_graph_changed:
         Optional edit-contract declaration forwarded to
         :func:`build_classify_messages` when messages are built here.
+    max_parse_attempts:
+        Bounded number of model calls allowed for parse repair.  The direct
+        backend defaults to one corrective retry; the executor core passes
+        ``1`` because it owns its newer route-aware retry policy.
     """
     if messages is None:
         messages = build_classify_messages(
@@ -202,41 +233,51 @@ def run_classify_turn(
     ) as span:
         from vibecomfy.comfy_nodes.agent.provider import run_model_turn
 
-        result = run_model_turn(
-            query,
-            messages,
-            route=route,
-            model=model,
-            effort=effort,
-            response_contract="json",
-            profiling_context={"backend_phase": "classify"},
-        )
-        raw: str | None = None
-        try:
-            raw = _extract_content(result)
-            decision = parse_classify_response(raw)
-        except Exception as exc:  # noqa: BLE001 - attach evidence, then re-raise
-            _mark_last_attempt_failed(
-                result,
-                raw=raw,
-                failure_type=_downstream_failure_type(raw),
-            )
-            _attach_model_turn_evidence(
-                exc,
-                result,
+        attempts = max(1, min(_CLASSIFY_MAX_PARSE_ATTEMPTS, int(max_parse_attempts)))
+        current_messages: list[dict[str, Any]] = list(messages)
+        last_exc: ValueError | None = None
+        for attempt_index in range(attempts):
+            if attempt_index > 0 and last_exc is not None:
+                current_messages = _classify_retry_messages(messages, last_exc)
+            result = run_model_turn(
+                query,
+                current_messages,
+                route=route,
                 model=model,
-                phase="classify",
-                raw=raw,
+                effort=effort,
+                response_contract="json",
+                profiling_context={"backend_phase": "classify"},
             )
-            raise
-        _record_result_attempts(result)
-        span.update(
-            content_length=len(raw),
-            plan_research=decision.research,
-            plan_implement=decision.implement,
-            plan_reply=decision.reply,
-        )
-        return decision
+            raw: str | None = None
+            try:
+                raw = _extract_content(result)
+                decision = parse_classify_response(raw)
+            except ValueError as exc:
+                last_exc = exc
+                _mark_last_attempt_failed(
+                    result,
+                    raw=raw,
+                    failure_type=_downstream_failure_type(raw),
+                )
+                _attach_model_turn_evidence(
+                    exc,
+                    result,
+                    model=model,
+                    phase="classify",
+                    raw=raw,
+                )
+                if attempt_index >= attempts - 1:
+                    raise
+                continue
+            _record_result_attempts(result)
+            span.update(
+                content_length=len(raw),
+                plan_research=decision.research,
+                plan_implement=decision.implement,
+                plan_reply=decision.reply,
+            )
+            return decision
+        raise last_exc  # pragma: no cover - loop always returns or raises
 
 
 def run_reply_turn(

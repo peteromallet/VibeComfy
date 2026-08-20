@@ -172,12 +172,12 @@ def test_packaged_openrouter_profile_preserves_explicit_provider_route() -> None
 
     assert profile["classify"] == AgentSpecShape(
         agent="openrouter",
-        model="openrouter:deepseek/deepseek-v4-flash",
+        model="openrouter:deepseek/deepseek-v4-flash-0731",
         effort="low",
     )
     assert profile["implement"] == AgentSpecShape(
         agent="openrouter",
-        model="openrouter:deepseek/deepseek-v4-pro",
+        model="openrouter:deepseek/deepseek-v4-flash-0731",
         effort="low",
     )
 

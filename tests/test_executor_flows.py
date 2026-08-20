@@ -18,6 +18,7 @@ import json
 import tempfile
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Generator
 from unittest import mock
 
@@ -25,6 +26,7 @@ import pytest
 
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
+    ExecutorHostPorts,
     ExecutorRequest,
 )
 from vibecomfy.executor import core as executor_core
@@ -5411,3 +5413,157 @@ def test_expect_graph_changed_contract_reaches_production_classify(monkeypatch) 
     result = run_executor(request, classify_only=True)
     assert result.ok is True
     assert seen["expect_graph_changed"] is True
+
+
+def _isolated_host_ports(events: list[tuple[str, object]]) -> ExecutorHostPorts:
+    def unused(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        raise AssertionError("unused host operation")
+
+    return ExecutorHostPorts(
+        handle_agent_edit=unused,
+        payload_hash=lambda payload: "test-hash",
+        classify_failure=unused,
+        failure_envelope=unused,
+        begin_deepseek_usage_capture=lambda: events.append(("begin_usage", None)) or "usage",
+        snapshot_deepseek_usage_capture=lambda: ({}, True),
+        end_deepseek_usage_capture=lambda token: events.append(("end_usage", token)),
+        begin_model_attempt_capture=lambda: events.append(("begin_attempts", None)) or "attempts",
+        snapshot_model_attempt_capture=lambda: (),
+        end_model_attempt_capture=lambda token: events.append(("end_attempts", token)),
+    )
+
+
+def test_run_executor_uses_injected_host_ports_without_default_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+    seen: dict[str, object] = {}
+
+    def fake_classify_turn(query: str, **kwargs: Any) -> ClassifyDecision:
+        seen.update(kwargs)
+        return ClassifyDecision(intent="respond", route="respond", reply=True)
+
+    monkeypatch.setattr(
+        executor_core,
+        "_default_host_ports",
+        lambda: (_ for _ in ()).throw(AssertionError("default adapter loaded")),
+    )
+    monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify_turn)
+    monkeypatch.setattr(
+        executor_core,
+        "_resolve_spec",
+        lambda *args, **kwargs: SimpleNamespace(agent="test", model="test", effort="low"),
+    )
+
+    result = run_executor(
+        ExecutorRequest(query="hello"),
+        classify_only=True,
+        host_ports=_isolated_host_ports(events),
+    )
+
+    assert result.ok is True
+    assert seen["max_parse_attempts"] == 1
+    assert events == [
+        ("begin_usage", None),
+        ("begin_attempts", None),
+        ("end_usage", "usage"),
+        ("end_attempts", "attempts"),
+    ]
+
+
+def test_classify_non_parse_value_error_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_classify_turn(query: str, **kwargs: Any) -> ClassifyDecision:
+        nonlocal calls
+        calls += 1
+        raise ValueError("invalid non-parser configuration")
+
+    monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify_turn)
+
+    with pytest.raises(executor_core._ExecutorPhaseError):
+        executor_core._run_classify(
+            ExecutorRequest(query="hello"),
+            SimpleNamespace(agent="test", model="test", effort="low"),
+        )
+    assert calls == 1
+
+
+def test_research_profiler_span_uses_trace_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+    finished: list[tuple[str | None, str]] = []
+
+    class RecordingSpan:
+        def __init__(self, fields: dict[str, Any]) -> None:
+            self.fields = fields
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):  # noqa: ANN001, ANN204, ARG002
+            self.finish(status="error" if exc is not None else "ok")
+            return False
+
+        def update(self, **fields: Any) -> None:
+            self.fields.update(fields)
+
+        def finish(self, *, status: str = "ok", **fields: Any) -> None:
+            self.fields.update(fields)
+            finished.append((self.fields.get("phase"), status))
+
+    trace = AgentResearchTrace(
+        route="research",
+        question="q",
+        iterations=(),
+        final_verdict="refine",
+        summary="",
+        citations=(),
+        uncertainty="",
+        status="exhausted",
+        elapsed_seconds=1.0,
+    )
+    research_result = AgentResearchResult(
+        route="research",
+        trace=trace,
+        evidence_pack=EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=())),
+    )
+
+    monkeypatch.setattr(
+        executor_core,
+        "profiler_span",
+        lambda logger, event, **fields: RecordingSpan(fields),
+    )
+    monkeypatch.setattr(
+        executor_core,
+        "_resolve_spec",
+        lambda *args, **kwargs: SimpleNamespace(agent="test", model="test", effort="low"),
+    )
+    monkeypatch.setattr(
+        executor_core,
+        "_run_classify",
+        lambda *args, **kwargs: ClassifyDecision(
+            research=True,
+            intent="research",
+            route="research",
+            reply=True,
+        ),
+    )
+    monkeypatch.setattr(
+        executor_core,
+        "_run_agent_owned_research",
+        lambda *args, **kwargs: research_result,
+    )
+    monkeypatch.setattr(executor_core, "_run_reply", lambda *args, **kwargs: "done")
+
+    result = run_executor(
+        ExecutorRequest(query="research this"),
+        host_ports=_isolated_host_ports(events),
+    )
+
+    assert result.ok is True
+    assert ("research", "exhausted") in finished
+    assert ("research", "ok") not in finished

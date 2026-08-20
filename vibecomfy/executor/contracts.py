@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy.agent.deepseek_usage import coerce_deepseek_usage
@@ -63,6 +63,37 @@ _MODEL_ATTEMPT_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 # integers are rejected as well so a mistyped budget never silently applies.
 DEFAULT_MAX_BATCHES = 50
 MAX_BATCHES_LIMIT = 250
+
+
+@dataclass(frozen=True)
+class ExecutorHostPorts:
+    """Host-owned operations required by the plain executor orchestration.
+
+    The executor remains usable without importing the ComfyUI agent package at
+    module import time.  ComfyUI supplies these operations lazily in ``core``;
+    other hosts and focused tests can inject their own implementation through
+    :func:`vibecomfy.executor.core.run_executor`.
+    """
+
+    handle_agent_edit: Callable[..., dict[str, Any]]
+    payload_hash: Callable[[Mapping[str, Any]], str]
+    classify_failure: Callable[..., Any]
+    failure_envelope: Callable[..., Any]
+    begin_deepseek_usage_capture: Callable[[], Any]
+    snapshot_deepseek_usage_capture: Callable[[], tuple[dict[str, int], bool]]
+    end_deepseek_usage_capture: Callable[[Any], None]
+    begin_model_attempt_capture: Callable[[], Any]
+    snapshot_model_attempt_capture: Callable[[], tuple[dict[str, Any], ...]]
+    end_model_attempt_capture: Callable[[Any], None]
+    provider_error_types: tuple[type[BaseException], ...] = ()
+
+    def is_provider_error(self, exc: BaseException) -> bool:
+        return isinstance(exc, self.provider_error_types)
+
+
+# Neutral wire value used when the executor synthesizes a validation failure.
+# The host adapter converts it to its compatibility enum at the boundary.
+VALIDATION_FAILURE_KIND = "ValidationError"
 
 
 def coerce_max_batches(value: Any, *, field_name: str = "max_batches") -> int | None:
@@ -2449,6 +2480,7 @@ __all__ = [
     "AgentEvidence",
     "AgentTurnResult",
     "ClassifyDecision",
+    "ExecutorHostPorts",
     "ExecutorRequest",
     "ExecutorResult",
     "GraphFacts",
@@ -2470,6 +2502,7 @@ __all__ = [
     "ModelAttemptEvidence",
     "TopologyFindings",
     "TopologyManifest",
+    "VALIDATION_FAILURE_KIND",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
     "build_topology_manifest",
