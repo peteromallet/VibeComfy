@@ -194,11 +194,11 @@ b02-corpus-full:
 		--corpus-dir "$(CORPUS_DIR)" --expected-count 2825
 
 browser-smoke:
-	$(NODE) --test tests/browser/*.mjs
+	VIBECOMFY_PYTHON="$(PYTHON)" $(NODE) --test tests/browser/*.mjs
 
 # Standalone subset of browser-smoke; pure Node/browser-contract coverage without Playwright or ComfyUI prerequisites (browser-smoke already runs all tests/browser/*.mjs).
 browser-contracts:
-	$(NODE) --test $(BROWSER_CONTRACT_TESTS)
+	VIBECOMFY_PYTHON="$(PYTHON)" $(NODE) --test $(BROWSER_CONTRACT_TESTS)
 
 parity:
 	$(PYTHON) -m tools.check_canonical_parity --all
