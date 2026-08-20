@@ -16870,6 +16870,51 @@ def test_semantic_validation_description_unknown_falls_back() -> None:
 
 # ── T18: latest_candidate skips non-candidate (inspect_only / clarify) turns ─
 
+
+def test_r5_no_candidate_clarification_fixture_is_not_replayed(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _latest_session_candidate_payload
+
+    fixture = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "workflow_execution_spine_r5"
+            / "no_candidate_clarification.json"
+        ).read_text(encoding="utf-8")
+    )
+    session_dir = session_dir_for(tmp_path, "r5-no-candidate")
+    turn_dir = session_dir / "turns" / fixture["turn"]["turn_id"]
+    turn_dir.mkdir(parents=True)
+    turn = fixture["turn"]
+    (turn_dir / "request.json").write_text(
+        json.dumps({"task": "clarify task"}), encoding="utf-8"
+    )
+    (turn_dir / "response.json").write_text(
+        json.dumps(turn["response"]), encoding="utf-8"
+    )
+    (session_dir / "session_state.json").write_text(
+        json.dumps(
+            {
+                "turns": {
+                    turn["turn_id"]: {
+                        "state": turn["state"],
+                        "candidate_graph_hash": "stale-clarify-hash",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    replayed = _latest_session_candidate_payload(
+        session_dir, [turn["turn_id"]]
+    )
+    assert replayed is fixture["expected"]["replay_candidate"]
+    assert turn["response"]["outcome"]["kind"] == fixture["expected"]["outcome"]
+    assert fixture["expected"]["candidate_replayed"] is False
+
 def test_latest_candidate_skips_clarify_outcome_even_with_candidate_state(
     tmp_path: Path,
 ) -> None:

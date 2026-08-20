@@ -4598,6 +4598,27 @@ def test_extract_batch_fence_multiple_fences_raises_malformed() -> None:
         agent_provider.extract_batch_fence(text)
 
 
+def test_r5_multiple_fence_fixture_fails_closed_without_batch_merge_or_rerun() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "workflow_execution_spine_r5"
+            / "multiple_batch_fences.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    with pytest.raises(
+        agent_provider.MalformedModelJSON,
+        match=fixture["expected"]["reason_contains"],
+    ):
+        agent_provider.extract_batch_fence(fixture["response"])
+
+    assert fixture["expected"]["accepted_batch"] is False
+    assert fixture["expected"]["merged_fences"] is False
+    assert fixture["expected"]["rerun_accepted_batch"] is False
+
+
 def test_extract_batch_fence_empty_fence_is_valid() -> None:
     """An empty ```batch fence is accepted (no statements yet)."""
     text = "Nothing to do.\n\n```batch\n```\n\nMaybe later."

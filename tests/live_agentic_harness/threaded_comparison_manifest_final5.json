@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "modes": [
+    "staged",
+    "threaded"
+  ],
+  "entries": [
+    {
+      "id": "audio-tts-narration-using-indextts-2",
+      "descriptor_sha256": "4e55deceb5b3cb551aea17a49436b5749ee5a9ef0c8109239503c7297cf242ff",
+      "source_workflow_sha256": "c77073490f3892e5b847588c734ae3ba2565b3e1de9326f927170496f28b7727",
+      "locked_input_sha256": "c099f40b9208579ce320a0e5bcd9c579b78265f3639f828059efee41c26fb28d"
+    },
+    {
+      "id": "image-image-editing-with-qwen-image",
+      "descriptor_sha256": "84fd815360181be85daa88df0078b17bf9e25791ffd71f1318458c5b6b3cb9be",
+      "source_workflow_sha256": "e639739cd84018810243c609441cb8e8f56f7735be2682578d14fdda7c49fff2",
+      "locked_input_sha256": "dc1062c6fd00ef18395d403ce725964c1d68e354ba9ac6ed56278b835fae20f3"
+    },
+    {
+      "id": "live-graph-explanation-smoke",
+      "descriptor_sha256": "07d69897b6b1e7610e8d3f3eef163d72b815b44c2aae544e03bf1fbb2755ad00",
+      "source_workflow_sha256": null,
+      "locked_input_sha256": "d93e79a71bd0bf6c496744ba81a1f9af9ee7672467a83d6100ffe638c3cd538c"
+    },
+    {
+      "id": "multi-video-based-character-replacement-using",
+      "descriptor_sha256": "f096cd3491a6d5b5c33ed81dff425360cde4b11a297c2f0c1220dde7f55291f6",
+      "source_workflow_sha256": "4b91ba865e85eec812ff4e57248460d6d71ac9a588e96603a66305d2b93e4c27",
+      "locked_input_sha256": "625ed91eacf070e1d531a806b69b8221bf7a02f1e5c2a42b98502b0ae48ac63d"
+    },
+    {
+      "id": "speed-distillation-research",
+      "descriptor_sha256": "c19b6c215834c9e974876f6aaf3d15273a3da02d4940560f8211fc80eee2ed7e",
+      "source_workflow_sha256": null,
+      "locked_input_sha256": "52b36af605acb7728c5809ac0961e901c5bc2fecc1f91f167911428a5d2efa7a"
+    }
+  ]
+}

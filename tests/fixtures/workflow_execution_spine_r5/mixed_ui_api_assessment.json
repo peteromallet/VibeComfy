@@ -1,0 +1,21 @@
+{
+  "family": "mixed_ui_api_assessment",
+  "original": {
+    "representation": "ui",
+    "graph": {
+      "nodes": [{"id": 1, "type": "LoadImage", "widgets_values": ["source.png"]}],
+      "links": []
+    }
+  },
+  "final": {
+    "representation": "api",
+    "graph": {
+      "1": {"class_type": "LoadImage", "inputs": {"image": "source.png"}}
+    }
+  },
+  "expected": {
+    "outcome": "fail_closed",
+    "reason": "representation_mismatch",
+    "fabricated_removals": []
+  }
+}

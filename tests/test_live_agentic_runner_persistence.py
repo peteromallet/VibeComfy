@@ -52,6 +52,34 @@ def _failed_attempt(failure_type: str, *, completion_tokens: int = 0) -> dict:
     }
 
 
+def test_r5_480_second_attempt_ledger_is_identity_bound_and_truthful() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "workflow_execution_spine_r5"
+            / "attempt_ledger_480s.json"
+        ).read_text(encoding="utf-8")
+    )
+    attempt = fixture["attempts"][0]
+
+    assert attempt["attempt_id"] == "turn-0007/attempt-1"
+    assert attempt["turn_id"] == "turn-0007"
+    assert attempt["deadline_seconds"] == 480
+    assert attempt["owner"] == "harness_infrastructure"
+    assert attempt["status"] == "exhausted"
+    assert attempt["retry_disposition"] == "not_safe_to_retry_same_identity"
+    assert attempt["remote_uncertainty"] == "timeout_before_response"
+    assert attempt["model_calls"] == 1
+    assert fixture["expected"] == {
+        "identity_recorded": True,
+        "deadline_recorded": True,
+        "ownership_recorded": True,
+        "truthful_exhaustion": True,
+        "retry_does_not_claim_success": True,
+    }
+
+
 def test_persists_per_scenario_and_incremental_run_summary(tmp_path: Path) -> None:
     passing = _summary(tmp_path, "passing", ok=True)
     failing = _summary(tmp_path, "failing", ok=False)

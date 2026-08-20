@@ -1,0 +1,21 @@
+{
+  "family": "tts_schema_visibility_isolated_worktree",
+  "schema": {
+    "class_type": "IndexTTSEmotionOptionsNode",
+    "pack": "ComfyUI-IndexTTS",
+    "source": "authoritative_object_info",
+    "inputs": {
+      "emotion_control": {"type": "STRING", "required": false, "default": "neutral"}
+    },
+    "outputs": [{"name": "EMOTION_OPTIONS", "type": "EMOTION_OPTIONS"}]
+  },
+  "operation": {
+    "statement": "indexttsemotionoptionsnode.emotion_control = 'joy'",
+    "target_field": "emotion_control"
+  },
+  "expected": {
+    "schema_visible": true,
+    "provider": "authoritative_object_info",
+    "operation": "accepted"
+  }
+}

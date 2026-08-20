@@ -1,0 +1,22 @@
+{
+  "family": "missing_touched_layermask_schema",
+  "graph": {
+    "last_node_id": 99,
+    "last_link_id": 0,
+    "nodes": [
+      {"id": 34, "type": "LayerMask: SegmentAnythingUltra V3", "widgets_values": ["old prompt"], "properties": {"vibecomfy_uid": "34"}},
+      {"id": 99, "type": "UntouchedUnknownNode", "widgets_values": ["opaque"], "properties": {"vibecomfy_uid": "99"}}
+    ],
+    "links": [],
+    "groups": [],
+    "config": {},
+    "extra": {}
+  },
+  "operation": {"target": ["", "34", "prompt"], "value": "person"},
+  "expected": {
+    "replay_ok": false,
+    "error": "missing_touched_schema:LayerMask: SegmentAnythingUltra V3",
+    "untouched_unknown_preserved": true,
+    "applyable": false
+  }
+}

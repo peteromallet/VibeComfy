@@ -1,0 +1,25 @@
+{
+  "family": "bounded_480_second_attempt_ledger",
+  "attempts": [
+    {
+      "attempt_id": "turn-0007/attempt-1",
+      "turn_id": "turn-0007",
+      "attempt": 1,
+      "owner": "harness_infrastructure",
+      "deadline_seconds": 480,
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:08:00Z",
+      "status": "exhausted",
+      "remote_uncertainty": "timeout_before_response",
+      "retry_disposition": "not_safe_to_retry_same_identity",
+      "model_calls": 1
+    }
+  ],
+  "expected": {
+    "identity_recorded": true,
+    "deadline_recorded": true,
+    "ownership_recorded": true,
+    "truthful_exhaustion": true,
+    "retry_does_not_claim_success": true
+  }
+}

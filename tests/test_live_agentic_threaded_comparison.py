@@ -72,6 +72,26 @@ def test_validate_only_locks_compact_lane_without_model_calls(monkeypatch: pytes
     }
 
 
+def test_validate_only_locks_r5_final_five_without_model_calls() -> None:
+    path = (
+        Path(__file__).parent
+        / "live_agentic_harness"
+        / "threaded_comparison_manifest_final5.json"
+    )
+    result = comparator.validate_only(path)
+
+    assert result["ok"] is True
+    assert result["model_calls"] == 0
+    assert result["scenario_count"] == 5
+    assert [item["id"] for item in result["locked_inputs"]] == [
+        "audio-tts-narration-using-indextts-2",
+        "image-image-editing-with-qwen-image",
+        "live-graph-explanation-smoke",
+        "multi-video-based-character-replacement-using",
+        "speed-distillation-research",
+    ]
+
+
 def test_validate_only_rejects_locked_input_drift(tmp_path: Path) -> None:
     manifest = json.loads(comparator.DEFAULT_COMPARISON_MANIFEST.read_text(encoding="utf-8"))
     manifest["entries"][0]["locked_input_sha256"] = "0" * 64

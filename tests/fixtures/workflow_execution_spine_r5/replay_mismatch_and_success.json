@@ -1,0 +1,35 @@
+{
+  "family": "persisted_replay_mismatch_and_success",
+  "submit_graph": {
+    "last_node_id": 1,
+    "last_link_id": 0,
+    "nodes": [{"id": 1, "type": "KnownPromptNode", "widgets_values": ["old"], "properties": {"vibecomfy_uid": "1"}}],
+    "links": [],
+    "groups": [],
+    "config": {},
+    "extra": {}
+  },
+  "operation": {"op": "set_node_field", "target": ["", "1", "prompt"], "value": "authoritative"},
+  "candidate_success": {
+    "last_node_id": 1,
+    "last_link_id": 0,
+    "nodes": [{"id": 1, "type": "KnownPromptNode", "widgets_values": ["authoritative"], "properties": {"vibecomfy_uid": "1"}}],
+    "links": [],
+    "groups": [],
+    "config": {},
+    "extra": {}
+  },
+  "candidate_mismatch": {
+    "last_node_id": 1,
+    "last_link_id": 0,
+    "nodes": [{"id": 1, "type": "KnownPromptNode", "widgets_values": ["tampered"], "properties": {"vibecomfy_uid": "1"}}],
+    "links": [],
+    "groups": [],
+    "config": {},
+    "extra": {}
+  },
+  "expected": {
+    "success": {"replay_ok": true, "candidate_matches": true},
+    "mismatch": {"replay_ok": true, "candidate_matches": false, "error": "candidate_hash_mismatch"}
+  }
+}

@@ -5,8 +5,37 @@ public_input_binding, and the _ingest_snapshot stash on VibeWorkflow.metadata.
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.normalize import from_api
+import json
+from pathlib import Path
+
+import pytest
+
+from vibecomfy.ingest.normalize import from_api, from_ui
 from vibecomfy.ingest.snapshot import capture_ingest_snapshot
+
+
+_R5_FIXTURES = Path(__file__).parent / "fixtures" / "workflow_execution_spine_r5"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T0.1 freeze: UI/API source lineage is currently collapsed at ingest",
+)
+def test_r5_mixed_ui_api_fixture_cannot_pair_representations_or_fabricate_removals() -> None:
+    fixture = json.loads(
+        (_R5_FIXTURES / "mixed_ui_api_assessment.json").read_text(encoding="utf-8")
+    )
+
+    ui_workflow = from_ui(
+        fixture["original"]["graph"],
+        use_comfy_converter=False,
+        comfy_converter_strict=False,
+    )
+    api_workflow = from_api(fixture["final"]["graph"])
+
+    assert ui_workflow.source.source_type == "ui"
+    assert api_workflow.source.source_type == "api"
+    assert fixture["expected"]["fabricated_removals"] == []
 
 
 # ---------------------------------------------------------------------------

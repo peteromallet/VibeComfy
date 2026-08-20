@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import copy
+import json
 from pathlib import Path
+
+
+_R5_FIXTURES = Path(__file__).parent / "fixtures" / "workflow_execution_spine_r5"
 
 from vibecomfy.comfy_nodes.agent.authority_receipts import (
     _response_claims_applyable,
@@ -120,6 +125,138 @@ def test_qwen_positional_assignment_seals_named_delta_and_frozen_replay_succeeds
     assert receipt.replay.replay_ok is True
     assert receipt.replay.candidate_matches is True
     assert receipt.is_applyable is True
+
+
+def test_r5_tts_schema_remains_visible_from_an_isolated_fixture_copy(
+    tmp_path: Path,
+) -> None:
+    fixture_path = _R5_FIXTURES / "tts_schema_visibility.json"
+    isolated_fixture = tmp_path / fixture_path.name
+    isolated_fixture.write_bytes(fixture_path.read_bytes())
+    fixture = json.loads(isolated_fixture.read_text(encoding="utf-8"))
+    schema = fixture["schema"]
+    class_type = schema["class_type"]
+    provider = _Provider(
+        {
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack=schema["pack"],
+                inputs={
+                    "emotion_control": InputSpec(
+                        type="STRING",
+                        required=False,
+                        default="neutral",
+                    )
+                },
+                outputs=[
+                    OutputSpec(type="EMOTION_OPTIONS", name="EMOTION_OPTIONS")
+                ],
+            )
+        }
+    )
+
+    result = EditSession(
+        _single_widget_graph(class_type, uid="1"),
+        schema_provider=provider,
+    ).apply_batch(fixture["operation"]["statement"])
+
+    assert result.ok is True
+    assert result.landed_ops
+    assert fixture["expected"] == {
+        "schema_visible": True,
+        "provider": "authoritative_object_info",
+        "operation": "accepted",
+    }
+
+
+def test_r5_missing_touched_layermask_preserves_untouched_unknown_fixture(
+    tmp_path: Path,
+) -> None:
+    fixture = json.loads(
+        (_R5_FIXTURES / "missing_touched_layermask.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    submit_graph = fixture["graph"]
+    candidate = copy.deepcopy(submit_graph)
+    candidate["nodes"][0]["widgets_values"] = [fixture["operation"]["value"]]
+    operation = {
+        "op": "set_node_field",
+        "target": fixture["operation"]["target"],
+        "value": fixture["operation"]["value"],
+    }
+    receipt, stamped = build_and_persist_authority_receipt(
+        turn_dir=tmp_path / "turns" / "0001",
+        session_id="r5-missing-touched-schema",
+        turn_id="0001",
+        request_payload={"graph": submit_graph},
+        response={
+            "message": "changed",
+            "graph": candidate,
+            "candidate": {"state": "candidate_ready", "graph": candidate},
+            "accepted_batch": [{"statement_index": 1, "op": operation}],
+            "agent_edit_protocol": "v2_delta",
+            "apply_eligible": True,
+            "canvas_apply_allowed": True,
+            "queue_allowed": True,
+            "eligibility": {"applyable": True, "reason": "applyable"},
+            "apply_eligibility": {"applyable": True, "reason": "applyable"},
+            "outcome": {"kind": "candidate", "changes": []},
+        },
+        schema_version="2.0.0",
+        schema_provider=_Provider({}),
+    )
+
+    assert receipt.replay.replay_ok is False
+    assert receipt.replay.error == fixture["expected"]["error"]
+    assert receipt.is_applyable is False
+    assert stamped["candidate"]["graph"]["nodes"][1] == candidate["nodes"][1]
+    assert fixture["expected"]["untouched_unknown_preserved"] is True
+
+
+def test_r5_persisted_replay_fixture_has_success_and_mismatch_paths() -> None:
+    fixture = json.loads(
+        (_R5_FIXTURES / "replay_mismatch_and_success.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    provider = _Provider(
+        {
+            "KnownPromptNode": NodeSchema(
+                class_type="KnownPromptNode",
+                pack="test",
+                inputs={"prompt": InputSpec(type="STRING", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [fixture["operation"]],
+    }
+
+    successful = verify_replay(
+        fixture["submit_graph"],
+        envelope,
+        fixture["candidate_success"],
+        schema_provider=provider,
+    )
+    mismatch = verify_replay(
+        fixture["submit_graph"],
+        envelope,
+        fixture["candidate_mismatch"],
+        schema_provider=provider,
+    )
+
+    assert {
+        "replay_ok": successful.replay_ok,
+        "candidate_matches": successful.candidate_matches,
+    } == fixture["expected"]["success"]
+    assert {
+        "replay_ok": mismatch.replay_ok,
+        "candidate_matches": mismatch.candidate_matches,
+        "error": mismatch.error,
+    } == fixture["expected"]["mismatch"]
 
 
 def test_unresolved_positional_widget_is_rejected_before_delta_is_sealed() -> None:

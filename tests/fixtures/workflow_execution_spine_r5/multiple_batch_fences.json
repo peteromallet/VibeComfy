@@ -1,0 +1,11 @@
+{
+  "family": "repeated_multiple_batch_fences",
+  "response": "```batch\nset_node_field('1', 'prompt', 'first')\n```\n\n```batch\nset_node_field('1', 'prompt', 'second')\n```",
+  "expected": {
+    "outcome": "malformed_protocol",
+    "reason_contains": "multiple",
+    "accepted_batch": false,
+    "merged_fences": false,
+    "rerun_accepted_batch": false
+  }
+}

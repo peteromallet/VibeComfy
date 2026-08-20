@@ -1,0 +1,18 @@
+{
+  "family": "intentional_no_candidate_clarification",
+  "turn": {
+    "turn_id": "0001",
+    "state": "candidate",
+    "response": {
+      "ok": true,
+      "graph": {"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+      "outcome": {"kind": "clarify", "question": "Which sampler should I use?"},
+      "apply_eligibility": {"applyable": false, "reason": "no_candidate"}
+    }
+  },
+  "expected": {
+    "replay_candidate": null,
+    "outcome": "clarify",
+    "candidate_replayed": false
+  }
+}
