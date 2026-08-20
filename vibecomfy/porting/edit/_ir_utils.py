@@ -14,7 +14,7 @@ from vibecomfy.porting.edit.ops import (
     UpsertLinkOp,
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
-from vibecomfy.ingest.normalize import door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
     compact_widget_names_for_node,
@@ -530,7 +530,7 @@ def _subgraph_node_for_uid(
         if not isinstance(match, Mapping):
             return None
         graph = match
-    nodes = graph.get("nodes") if isinstance(graph, Mapping) else None
+    nodes = door_get_nodes(graph) if isinstance(graph, Mapping) else None
     if not isinstance(nodes, list):
         return None
     for raw_node in nodes:
@@ -574,7 +574,7 @@ def _next_link_hint(workflow: "VibeWorkflow") -> int:
     if not isinstance(raw_ui, Mapping):
         door = metadata.get("_ui_door") if isinstance(metadata, Mapping) else None
         raw_ui = door.get("top") if isinstance(door, Mapping) else None
-    raw_links = raw_ui.get("links") if isinstance(raw_ui, Mapping) else None
+    raw_links = door_get_links(raw_ui) if isinstance(raw_ui, Mapping) else None
     if isinstance(raw_links, list):
         for link in raw_links:
             if isinstance(link, (list, tuple)) and link and isinstance(link[0], int):
@@ -599,13 +599,13 @@ def _captured_link_id_for_edge(workflow: "VibeWorkflow", edge: Any) -> int | Non
     if not isinstance(raw_ui, Mapping):
         door = metadata.get("_ui_door") if isinstance(metadata, Mapping) else None
         raw_ui = door.get("top") if isinstance(door, Mapping) else None
-    raw_links = raw_ui.get("links") if isinstance(raw_ui, Mapping) else None
+    raw_links = door_get_links(raw_ui) if isinstance(raw_ui, Mapping) else None
     if not isinstance(raw_links, list):
         return None
 
-    raw_nodes = raw_ui.get("nodes") if isinstance(raw_ui, Mapping) else None
+    raw_nodes = door_get_nodes(raw_ui) if isinstance(raw_ui, Mapping) else None
     if not isinstance(raw_nodes, (list, Mapping)) and isinstance(door, Mapping):
-        raw_nodes = door.get("nodes")
+        raw_nodes = door_get_nodes(door)
 
     def _slot_index(node_id: str, field: str, *, output: bool) -> int | None:
         if str(field).isdigit():
