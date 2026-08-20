@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -306,4 +307,133 @@ def test_cli_uses_threaded_terminology_only() -> None:
     help_text = parser.format_help()
     assert "--validate-only" in help_text
     assert "--run" in help_text
+    assert "--concurrency" in help_text
     assert "two-step" not in help_text.lower()
+
+
+def _comparison_manifest_with_entries(tmp_path: Path, count: int = 5) -> Path:
+    manifest = json.loads(
+        comparator.DEFAULT_COMPARISON_MANIFEST.read_text(encoding="utf-8")
+    )
+    manifest["entries"] = manifest["entries"][:count]
+    path = tmp_path / f"comparison-{count}.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    return path
+
+
+def test_concurrent_comparison_submits_all_legs_and_reconstructs_manifest_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = _comparison_manifest_with_entries(tmp_path, count=5)
+    entered = threading.Barrier(10)
+    calls: list[tuple[str, str, int, str | None]] = []
+    original_descriptors = {
+        scenario_id: json.loads(
+            (comparator.REPO / str(entry["path"])).read_text(encoding="utf-8")
+        )
+        for scenario_id, entry in comparator._authoritative_entries().items()
+        if scenario_id in {
+            str(item["id"])
+            for item in json.loads(manifest.read_text(encoding="utf-8"))["entries"]
+        }
+    }
+
+    monkeypatch.setattr(comparator, "validate_only", lambda _path=None: {"ok": True})
+
+    def fake_run(
+        scenario: dict[str, Any],
+        *,
+        mode: str,
+        locked_input_sha256: str,
+        output_base: Path,
+        tag: str,
+        transport: str | None,
+    ) -> dict[str, Any]:
+        calls.append((scenario["id"], mode, id(scenario), transport))
+        # If legs were accidentally run sequentially, this barrier times out.
+        entered.wait(timeout=3)
+        scenario["mutated_by_worker"] = True
+        return _summary(mode, locked_input_sha256)
+
+    monkeypatch.setattr(comparator, "_run_mode", fake_run)
+    payload = comparator.run_comparison(
+        manifest,
+        output_base=tmp_path / "out",
+        transport="native",
+        concurrency=10,
+    )
+
+    assert len(calls) == 10
+    assert len({call[2] for call in calls}) == 10
+    assert {call[3] for call in calls} == {"native"}
+    expected_ids = [entry["id"] for entry in json.loads(manifest.read_text())["entries"]]
+    assert [item["scenario_id"] for item in payload["scenarios"]] == expected_ids
+    assert all("mutated_by_worker" not in descriptor for descriptor in original_descriptors.values())
+
+
+def test_concurrent_comparison_isolates_leg_exception(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = _comparison_manifest_with_entries(tmp_path, count=5)
+    monkeypatch.setattr(comparator, "validate_only", lambda _path=None: {"ok": True})
+    calls: list[tuple[str, str]] = []
+
+    def fake_run(
+        scenario: dict[str, Any],
+        *,
+        mode: str,
+        locked_input_sha256: str,
+        output_base: Path,
+        tag: str,
+        transport: str | None,
+    ) -> dict[str, Any]:
+        calls.append((scenario["id"], mode))
+        if scenario["id"] == json.loads(manifest.read_text())["entries"][0]["id"] and mode == "staged":
+            raise RuntimeError("intentional leg failure")
+        return _summary(mode, locked_input_sha256)
+
+    monkeypatch.setattr(comparator, "_run_mode", fake_run)
+    payload = comparator.run_comparison(
+        manifest, output_base=tmp_path / "out", concurrency=10
+    )
+
+    assert len(calls) == 10
+    assert len(payload["scenarios"]) == 5
+    first = payload["scenarios"][0]
+    assert first["staged"]["status"] == "runner_exception"
+    assert first["staged"]["exception_type"] == "RuntimeError"
+    assert all(item["threaded"]["status"] == "success" for item in payload["scenarios"])
+
+
+def test_concurrent_comparison_rejects_explicit_session_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = _comparison_manifest_with_entries(tmp_path, count=1)
+    descriptor_path = comparator.REPO / str(
+        comparator._authoritative_entries()[
+            json.loads(manifest.read_text())["entries"][0]["id"]
+        ]["path"]
+    )
+    original_load = comparator._load_json
+
+    def load_with_session(path: Path) -> dict[str, Any] | None:
+        value = original_load(path)
+        if path == descriptor_path and value is not None:
+            value = dict(value)
+            value["session_id"] = "shared-session"
+        return value
+
+    monkeypatch.setattr(comparator, "_load_json", load_with_session)
+    monkeypatch.setattr(comparator, "validate_only", lambda _path=None: {"ok": True})
+
+    with pytest.raises(comparator.ComparisonManifestError, match="session_id"):
+        comparator.run_comparison(manifest, concurrency=2)
+
+
+def test_concurrency_must_be_positive_and_parser_exposes_it() -> None:
+    args = comparator._build_parser().parse_args(["--run", "--concurrency", "10"])
+    assert args.concurrency == 10
+    with pytest.raises(SystemExit):
+        comparator._build_parser().parse_args(["--run", "--concurrency", "0"])
+    with pytest.raises(comparator.ComparisonManifestError, match="positive integer"):
+        comparator.run_comparison(concurrency=0)

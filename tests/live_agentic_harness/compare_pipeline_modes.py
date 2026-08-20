@@ -14,6 +14,7 @@ import hashlib
 import inspect
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -496,6 +497,8 @@ def _leg_metrics(summary: Mapping[str, Any]) -> dict[str, Any]:
         locked_input = summary.get("locked_input_sha256")
     return {
         "status": summary.get("status"),
+        "error": summary.get("error"),
+        "exception_type": summary.get("exception_type"),
         "outcome": (
             "blocked" if failure_family == "infra" or str(failure_family).startswith("infra_")
             else _leg_outcome(summary)
@@ -673,43 +676,161 @@ def _aggregate(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _leg_exception_summary(
+    scenario_id: str,
+    *,
+    mode: str,
+    locked_input_sha256: str,
+    output_base: Path,
+    tag: str,
+    error: Exception,
+) -> dict[str, Any]:
+    """Return a typed failed leg when a concurrent worker raises.
+
+    The expected output path is retained in the summary so downstream
+    comparison and diagnostics can still identify the isolated leg.
+    """
+    output_dir = output_base / mode / tag / scenario_id
+    return {
+        "scenario_id": scenario_id,
+        "pipeline_mode": mode,
+        "status": "runner_exception",
+        "ok": False,
+        "output_dir": str(output_dir),
+        "locked_input_sha256": locked_input_sha256,
+        "error": str(error),
+        "exception_type": type(error).__name__,
+        "failure_class": "runner_exception",
+        "guard": {
+            "live_agentic_success": False,
+            "score_class": "product_fail",
+            "failure_class": "runner_exception",
+        },
+        "deepseek_usage": {},
+        "deepseek_est_cost_usd": None,
+        "model_attempts": [],
+    }
+
+
 def run_comparison(
     manifest_path: Path | None = None,
     *,
     output_base: Path | None = None,
     tag: str = "staged-threaded",
     transport: str | None = None,
+    concurrency: int = 1,
 ) -> dict[str, Any]:
-    """Run the locked comparison lane once threaded adapter wiring is ready."""
-    validation = validate_only(manifest_path)
+    """Run the locked comparison lane once threaded adapter wiring is ready.
+
+    ``concurrency=1`` retains the historical scenario-major,
+    staged-then-threaded execution order.  Higher values submit every
+    scenario/mode leg before awaiting any result, then compare and serialize
+    results on the parent thread in manifest order.
+    """
+    if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
+        raise ComparisonManifestError("concurrency must be a positive integer")
+    validate_only(manifest_path)
     path = manifest_path or DEFAULT_COMPARISON_MANIFEST
     manifest = _load_json(path) or {}
     canonical = _authoritative_entries()
     base = output_base or DEFAULT_OUTPUT_BASE
     comparisons: list[dict[str, Any]] = []
-    for entry in manifest["entries"]:
-        scenario_id = str(entry["id"])
-        descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
-        lock = str(entry["locked_input_sha256"])
-        legs = {
-            mode: _run_mode(
-                descriptor,
-                mode=mode,
-                locked_input_sha256=lock,
-                output_base=base,
-                tag=tag,
-                transport=transport,
+
+    if concurrency > 1:
+        descriptors: list[tuple[str, str, dict[str, Any], str]] = []
+        for entry in manifest["entries"]:
+            scenario_id = str(entry["id"])
+            descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
+            lock = str(entry["locked_input_sha256"])
+            if str(descriptor.get("session_id") or "").strip():
+                raise ComparisonManifestError(
+                    "concurrent comparison does not support explicit session_id "
+                    f"for scenario {scenario_id!r}"
+                )
+            for mode in PIPELINE_MODES:
+                descriptors.append((scenario_id, mode, descriptor, lock))
+
+        # Submit all legs before awaiting any result.  Deep-copy at submission
+        # time so workers cannot share mutable descriptor state.
+        leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
+        with ThreadPoolExecutor(
+            max_workers=min(concurrency, len(descriptors)),
+            thread_name_prefix="compare-pipeline-leg",
+        ) as executor:
+            futures = [
+                executor.submit(
+                    _run_mode,
+                    copy.deepcopy(descriptor),
+                    mode=mode,
+                    locked_input_sha256=lock,
+                    output_base=base,
+                    tag=tag,
+                    transport=transport,
+                )
+                for _scenario_id, mode, descriptor, lock in descriptors
+            ]
+            # Await in submission order for deterministic reconstruction while
+            # allowing every submitted future to run concurrently.
+            for index, (future, (scenario_id, mode, _descriptor, lock)) in enumerate(
+                zip(futures, descriptors)
+            ):
+                try:
+                    leg_results[index] = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    leg_results[index] = _leg_exception_summary(
+                        scenario_id,
+                        mode=mode,
+                        locked_input_sha256=lock,
+                        output_base=base,
+                        tag=tag,
+                        error=exc,
+                    )
+
+        # No comparison or IR projection occurs until every leg has finished.
+        ordered: dict[str, dict[str, dict[str, Any]]] = {}
+        for (scenario_id, mode, _descriptor, _lock), result in zip(
+            descriptors, leg_results
+        ):
+            assert result is not None
+            ordered.setdefault(scenario_id, {})[mode] = result
+        for entry in manifest["entries"]:
+            scenario_id = str(entry["id"])
+            lock = str(entry["locked_input_sha256"])
+            legs = ordered[scenario_id]
+            comparisons.append(
+                compare_pair(
+                    scenario_id,
+                    locked_input_sha256=lock,
+                    staged=legs["staged"],
+                    threaded=legs["threaded"],
+                )
             )
-            for mode in PIPELINE_MODES
-        }
-        comparisons.append(
-            compare_pair(
-                scenario_id,
-                locked_input_sha256=lock,
-                staged=legs["staged"],
-                threaded=legs["threaded"],
+    else:
+        # Compatibility path: preserve the original nested loop and call
+        # behavior when no explicit concurrency is requested.
+        for entry in manifest["entries"]:
+            scenario_id = str(entry["id"])
+            descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
+            lock = str(entry["locked_input_sha256"])
+            legs = {
+                mode: _run_mode(
+                    descriptor,
+                    mode=mode,
+                    locked_input_sha256=lock,
+                    output_base=base,
+                    tag=tag,
+                    transport=transport,
+                )
+                for mode in PIPELINE_MODES
+            }
+            comparisons.append(
+                compare_pair(
+                    scenario_id,
+                    locked_input_sha256=lock,
+                    staged=legs["staged"],
+                    threaded=legs["threaded"],
+                )
             )
-        )
     payload = {"aggregate": _aggregate(comparisons), "scenarios": comparisons}
     base.mkdir(parents=True, exist_ok=True)
     (base / "comparison.json").write_text(
@@ -745,6 +866,16 @@ def _render_markdown(payload: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tests.live_agentic_harness.compare_pipeline_modes"
@@ -755,6 +886,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-base", type=Path, default=None)
     parser.add_argument("--tag", default="staged-threaded")
     parser.add_argument("--transport", choices=("openrouter", "native"), default=None)
+    parser.add_argument(
+        "--concurrency",
+        type=_positive_int,
+        default=1,
+        help="Maximum concurrent scenario/mode legs (default: %(default)s).",
+    )
     return parser
 
 
@@ -769,6 +906,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_base=args.output_base,
                 tag=args.tag,
                 transport=args.transport,
+                concurrency=args.concurrency,
             )
         else:
             print("choose --validate-only or --run")
