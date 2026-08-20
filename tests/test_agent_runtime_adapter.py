@@ -30,7 +30,7 @@ def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.M
     assert kwargs["provider"] == "openrouter"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["model"] == "deepseek/deepseek-v4-pro"
-    assert kwargs["max_tokens"] == 4096
+    assert kwargs["max_tokens"] == runtime._OPENROUTER_MAX_TOKENS
     # Cluster B: bounded, configurable per-turn iteration budget (default 2).
     assert kwargs["max_iterations"] == 2
 
@@ -985,7 +985,7 @@ def test_transport_native_pin_overrides_ambient_openrouter_credentials(
     assert kwargs["api_key"] == "sk-native-key"
     # route="unknown" drops the explicit model and resolves the runtime
     # OpenRouter default, normalized to the bare native slug.
-    assert kwargs["model"] == "deepseek-v4-flash-0731"
+    assert kwargs["model"] == "deepseek-v4-flash"
 
 
 def test_transport_openrouter_pin_overrides_ambient_native_credentials(
