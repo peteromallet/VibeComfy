@@ -229,6 +229,7 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
         question: str,
         spec: AgentSpecShape,
         research_brief: str = "",
+        deadline_seconds: float | None = None,
     ) -> tuple[AgentResearchTrace, EvidencePack]:
         del research_brief
         del spec
@@ -754,6 +755,11 @@ class TestAgentOwnedResearchFlow:
             "uncertainty": "low Requested source 'web' is unavailable in the active C1 research stage; it was not silently substituted or removed.",
             "research_attempt": RESEARCH_ATTEMPT_GROUNDED,
             "next_action": "Use this conclusion for the requested next step.",
+            "research_status": "ok",
+            "research_warnings": [],
+            "tool_calls_executed": 0,
+            "evidence_artifacts": 0,
+            "evidence_preview": "",
         }
         wire_research = result.to_dict()["report"]["executor"]["research"]
         assert wire_research["question"] == result.report.research.decision_memo["question"]
@@ -3928,11 +3934,13 @@ class TestInspectOnlyFlow:
         assert result.ok is True
         reply_kwargs = mock_reply.call_args.kwargs
         graph_summary = reply_kwargs.get("graph_summary")
-        assert graph_summary is not None
-        # Should include widget values like seed/steps/sampler name
-        assert "42" in graph_summary or "euler" in graph_summary
-        # Should include link wiring
-        assert "1->2" in graph_summary.replace(" ", "")
+        graph_inspection = reply_kwargs.get("graph_inspection")
+        # Inspect routes use the detailed inspection lens; graph_summary is
+        # intentionally omitted to avoid census aliases becoming semantics.
+        assert graph_summary is None
+        assert graph_inspection is not None
+        assert "42" in graph_inspection or "euler" in graph_inspection
+        assert "1 edge(s)" in graph_inspection
 
 
 # ── Precedent payload integrity tests (T14) ──────────────────────────────────

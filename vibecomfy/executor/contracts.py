@@ -2573,6 +2573,7 @@ __all__ = [
     "ExecutorHostPorts",
     "ExecutorRequest",
     "ExecutorResult",
+    "ExecutorHostPorts",
     "GraphFacts",
     "HivemindRecordView",
     "ImplementationResult",

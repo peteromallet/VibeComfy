@@ -84,7 +84,14 @@ def _find_existing_splice(
     workflow: VibeWorkflow,
     sampler_id: str,
 ) -> _ControlNetSplice | None:
-    """Recognize this patch after round trips, including pre-marker graphs."""
+    """Recognize this patch after round trips, including pre-marker graphs.
+
+    Markers provide an unambiguous fast path.  The structural fallback is
+    deliberately strict: the sampler must be fed by a ControlNet apply node,
+    and that node must itself be fed by a ControlNet loader plus an original
+    positive-conditioning edge.  This prevents an ordinary node-type match
+    elsewhere in the workflow from suppressing the patch.
+    """
     sampler_pos = _find_edge_into(workflow, sampler_id, "positive")
     if sampler_pos is None:
         return None

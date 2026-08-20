@@ -44,12 +44,13 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 class SessionStateLock:
-    """Mutual exclusion for one durable session's state files.
+    """Mutual-exclusion lock for per-session state files.
 
-    Structured owner metadata makes dead-owner and stale cross-host leases
-    recoverable without allowing a previous owner to unlink a successor's
-    lock. A heartbeat keeps legitimate long-running writers from appearing
-    stale to a process on another host.
+    Structured owner metadata (pid, hostname, timestamp) is stored in the lock
+    file so that dead-owner and stale-lease locks can be recovered safely.
+
+    The small configuration hooks keep the historical ``session`` façade
+    patchable while allowing the locking algorithm to live in this module.
     """
 
     def __init__(
@@ -66,8 +67,6 @@ class SessionStateLock:
         self._heartbeat_stop: threading.Event | None = None
         self._heartbeat_thread: threading.Thread | None = None
 
-    # These hooks keep the historical ``session`` facade patchable while the
-    # lock algorithm has one implementation shared by every orchestration mode.
     def _lock_file_name(self) -> str:
         return LOCK_FILE_NAME
 
@@ -84,16 +83,21 @@ class SessionStateLock:
         _write_json_atomic(path, payload)
 
     def _read_lock_metadata(self) -> dict[str, Any] | None:
+        """Read structured owner metadata from the lock file.
+
+        Returns ``None`` for corrupt, unreadable, empty, or legacy-format
+        (non-JSON) locks so the caller can quarantine them.
+        """
         try:
             raw = self.lock_path.read_text(encoding="utf-8").strip()
             if not raw:
                 return None
-            payload = json.loads(raw)
-            return payload if isinstance(payload, dict) else None
+            return json.loads(raw)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
             return None
 
     def _write_lock_metadata(self, fd: int) -> None:
+        """Write structured owner metadata into the open file descriptor."""
         self._lock_id = uuid.uuid4().hex
         payload = {
             "pid": os.getpid(),
@@ -105,6 +109,7 @@ class SessionStateLock:
         os.fsync(fd)
 
     def _refresh_lock_lease(self) -> None:
+        """Atomically renew this owner's cross-host lease."""
         current = self._read_lock_metadata()
         if not isinstance(current, dict) or current.get("lock_id") != self._lock_id:
             raise RuntimeError("session lock ownership changed during lease renewal")
@@ -120,8 +125,9 @@ class SessionStateLock:
             try:
                 self._refresh_lock_lease()
             except Exception:
-                # Acquisition and exit both verify ownership independently.
-                # A failed renewal must never touch a successor's lock file.
+                # Ownership verification on exit and competing acquisition
+                # remain fail-closed. A failed renewal must not touch a
+                # successor's lock file.
                 return
 
     def _start_lock_heartbeat(self) -> None:
@@ -134,6 +140,11 @@ class SessionStateLock:
         self._heartbeat_thread.start()
 
     def _quarantine_lock(self, reason: str) -> bool:
+        """Rename *lock_path* to a ``.corrupt-<ts>-...`` sibling.
+
+        Returns ``True`` when the lock is gone after the call (whether we
+        removed it or it disappeared on its own).
+        """
         ts = int(time.time())
         dest = self.lock_path.with_name(f".corrupt-{ts}-{self.lock_path.name}-{reason}")
         counter = 0
@@ -157,7 +168,12 @@ class SessionStateLock:
                 return False
 
     def _try_recover(self) -> bool:
-        """Recover only corrupt, dead-owner, or expired cross-host locks."""
+        """Attempt to recover a dead-owner or stale-lease lock.
+
+        Recovery is conservative: live same-host owners and fresh cross-host
+        leases are left untouched, while corrupt, dead-owner, and stale locks
+        are quarantined before acquisition is retried.
+        """
         try:
             stat_before = self.lock_path.stat()
         except FileNotFoundError:
@@ -165,29 +181,28 @@ class SessionStateLock:
 
         metadata = self._read_lock_metadata()
         if metadata is None:
-            # O_EXCL precedes the metadata write. A brand-new empty file can be
-            # a legitimate owner in that narrow window, so wait before judging.
             try:
-                if time.time() - self.lock_path.stat().st_mtime < 0.1:
+                file_age = time.time() - self.lock_path.stat().st_mtime
+                if file_age < 0.1:
                     return False
             except FileNotFoundError:
                 return True
-            return self._quarantine_lock("corrupt_or_legacy")
+            self._quarantine_lock("corrupt_or_legacy")
+            return True
 
         pid = metadata.get("pid")
         hostname = metadata.get("hostname")
         timestamp = metadata.get("timestamp")
-        lock_id = metadata.get("lock_id")
+
         if not (
             isinstance(pid, int)
             and not isinstance(pid, bool)
             and isinstance(hostname, str)
             and isinstance(timestamp, (int, float))
             and not isinstance(timestamp, bool)
-            and isinstance(lock_id, str)
-            and lock_id
         ):
-            return self._quarantine_lock("malformed_metadata")
+            self._quarantine_lock("malformed_metadata")
+            return True
 
         if hostname == socket.gethostname():
             if self._process_is_alive(pid):
@@ -199,6 +214,7 @@ class SessionStateLock:
             stat_after = self.lock_path.stat()
         except FileNotFoundError:
             return True
+
         if (
             stat_after.st_ino != stat_before.st_ino
             or stat_after.st_mtime_ns != stat_before.st_mtime_ns
@@ -206,11 +222,18 @@ class SessionStateLock:
             return False
 
         recheck = self._read_lock_metadata()
-        if recheck != metadata:
-            return False
-        return self._quarantine_lock("dead_or_stale_owner")
+        if recheck is not None:
+            if not (
+                recheck.get("pid") == pid
+                and recheck.get("hostname") == hostname
+                and recheck.get("timestamp") == timestamp
+            ):
+                return False
 
-    def __enter__(self) -> "SessionStateLock":
+        self._quarantine_lock("dead_or_stale_owner")
+        return True
+
+    def __enter__(self) -> SessionStateLock:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + self.timeout_seconds
         while True:
@@ -220,17 +243,8 @@ class SessionStateLock:
                     os.O_CREAT | os.O_EXCL | os.O_WRONLY,
                     0o600,
                 )
-                try:
-                    self._write_lock_metadata(self._fd)
-                    self._start_lock_heartbeat()
-                except BaseException:
-                    os.close(self._fd)
-                    self._fd = None
-                    try:
-                        self.lock_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    raise
+                self._write_lock_metadata(self._fd)
+                self._start_lock_heartbeat()
                 return self
             except FileExistsError:
                 if self._try_recover():

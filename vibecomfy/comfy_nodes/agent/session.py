@@ -4,8 +4,8 @@ import hashlib
 import json
 import logging
 import os
-import re
 import socket
+import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -48,11 +48,15 @@ from ._session_lock import (
     SessionStateLock as _SessionStateLock,
     _process_alive as _lock_process_alive,
 )
+from . import _session_storage
+from . import _session_transaction_journal
+from ._session_storage import (
+    STATE_FILE_NAME as STATE_FILE_NAME,
+    STATE_SCHEMA_VERSION as STATE_SCHEMA_VERSION,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-STATE_FILE_NAME = "session_state.json"
-STATE_SCHEMA_VERSION = 1
 # Bumped whenever `structural_graph_projection` changes shape. A baseline hash
 # stored by an older version is recomputed from the on-disk accepted graph on
 # read, so a projection change never strands an open session on a stale baseline
@@ -810,6 +814,7 @@ def _thread_close(*, session_root: Path | str, session_id: str) -> dict[str, Any
         return _thread_append_unlocked(session_dir, safe_id, [{"kind": "closed"}])
 
 
+
 def canonical_json_bytes(value: Any) -> bytes:
     return _registry_canonical_json_bytes(value, ensure_ascii=False)
 
@@ -823,7 +828,7 @@ def _now() -> str:
 
 
 class SessionStateLock(_SessionStateLock):
-    """Compatibility facade for the extracted session locking subsystem."""
+    """Compatibility façade for the extracted session locking subsystem."""
 
     def _lock_file_name(self) -> str:
         return LOCK_FILE_NAME
@@ -842,34 +847,8 @@ class SessionStateLock(_SessionStateLock):
 
 
 def default_state() -> dict[str, Any]:
-    return {
-        "schema_version": STATE_SCHEMA_VERSION,
-        "next_turn_index": 1,
-        "baseline_turn_id": None,
-        "baseline_graph_hash": None,
-        "baseline_graph_hash_kind": None,
-        "baseline_graph_hash_version": None,
-        "baseline_source": "none",
-        "baseline_rebaseline_id": None,
-        "baseline_graph_source_path": None,
-        "next_rebaseline_index": 1,
-        "turns": {},
-        "idempotency_records": {},
-        # ── Phase 4 transactional storage (T19) ───────────────────────────
-        # These fields are a DISCOVERABLE INDEX over the authoritative
-        # per-turn artifacts under ``turns/<turn_id>/transactions/<plan_hash>/``.
-        # They can always be reconstructed from artifact truth (see
-        # ``recover_transaction_index``); they exist only to make a hot
-        # request path O(1) instead of scanning the filesystem.
-        "next_generation": 1,  # monotonic generation counter (1-based)
-        # turn_id -> prepared (unfinalized) transaction pointer.
-        # A turn has at most one entry here at a time.
-        "prepared_transactions": {},
-        # "<plan_hash>:<generation>" -> durable apply idempotency record.
-        # Keyed by transaction identity so a duplicate finalize/rollback with
-        # the same plan hash and generation replays the recorded receipt.
-        "apply_idempotency_records": {},
-    }
+    """Compatibility façade for the extracted storage default."""
+    return _session_storage.default_state_impl(schema_version=STATE_SCHEMA_VERSION)
 
 
 def _set_baseline_authoritatively(
@@ -885,346 +864,56 @@ def _set_baseline_authoritatively(
     projection_version: int | None = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> None:
-    if not isinstance(next_hash, str):
-        next_hash = None
-        next_kind = None
-        next_source = "none"
-        projection_version = None
-        source_turn_id = None
-        rebaseline_id = None
-        source_path = None
-    elif next_kind not in {"structural", "raw"}:
-        raise ValueError("baseline hash kind must be 'structural' or 'raw'")
-    elif next_source not in {"turn", "rebaseline", "legacy"}:
-        raise ValueError("baseline source must identify a persisted source")
-
-    if next_source == "turn" and not isinstance(source_turn_id, str):
-        raise ValueError("turn baselines require a source turn id")
-    if next_source == "rebaseline" and not isinstance(rebaseline_id, str):
-        raise ValueError("rebaseline baselines require a rebaseline id")
-    if next_kind == "structural" and projection_version is None:
-        projection_version = STRUCTURAL_PROJECTION_VERSION
-
-    state["baseline_turn_id"] = source_turn_id if next_source == "turn" else None
-    state["baseline_graph_hash"] = next_hash
-    state["baseline_graph_hash_kind"] = next_kind
-    state["baseline_graph_hash_version"] = (
-        projection_version if next_kind == "structural" else None
+    """Compatibility façade for authoritative baseline normalization."""
+    _session_storage.set_baseline_authoritatively_impl(
+        state,
+        next_hash=next_hash,
+        next_kind=next_kind,
+        next_source=next_source,
+        reason=reason,
+        source_turn_id=source_turn_id,
+        rebaseline_id=rebaseline_id,
+        source_path=source_path,
+        projection_version=projection_version,
+        metadata=metadata,
+        structural_projection_version=STRUCTURAL_PROJECTION_VERSION,
     )
-    state["baseline_source"] = next_source
-    state["baseline_rebaseline_id"] = (
-        rebaseline_id if next_source == "rebaseline" else None
-    )
-    state["baseline_graph_source_path"] = source_path
-    _ = reason, metadata
 
 
 def _source_path_for_turn_baseline(session_dir: Path, turn_id: str) -> str | None:
-    for relative in (
-        Path("turns") / turn_id / "applied.ui.json",
-        Path("turns") / turn_id / "candidate.ui.json",
-        Path("turns") / turn_id / "response.json",
-    ):
-        if (session_dir / relative).is_file():
-            return relative.as_posix()
-    return None
+    """Compatibility façade for persisted baseline-source discovery."""
+    return _session_storage.source_path_for_turn_baseline_impl(session_dir, turn_id)
 
 
 def _structural_hash_from_source_path(session_dir: Path, source_path: str | None) -> str | None:
-    if not isinstance(source_path, str) or not source_path:
-        return None
-    path = Path(source_path)
-    if path.is_absolute():
-        try:
-            path.relative_to(session_dir)
-        except ValueError:
-            return None
-    else:
-        path = session_dir / path
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    graph = payload.get("graph", payload) if isinstance(payload, Mapping) else payload
-    return structural_graph_hash(graph)
+    """Compatibility façade for baseline-source hashing."""
+    return _session_storage.structural_hash_from_source_path_impl(
+        session_dir,
+        source_path,
+    )
 
 
 def _normalize_baseline_state(session_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
-    baseline_turn_id = state.get("baseline_turn_id")
-    baseline_hash = state.get("baseline_graph_hash")
-    baseline_kind = state.get("baseline_graph_hash_kind")
-    baseline_source = state.get("baseline_source")
-    baseline_version = state.get("baseline_graph_hash_version")
-
-    if isinstance(baseline_turn_id, str):
-        baseline_turn = state["turns"].get(baseline_turn_id)
-        if isinstance(baseline_turn, dict):
-            finalized = baseline_turn.get("state") == "finalized"
-            structural_hash = baseline_turn.get(
-                "finalized_structural_graph_hash"
-                if finalized
-                else "candidate_structural_graph_hash"
-            )
-            stored_version = baseline_turn.get(
-                "finalized_structural_graph_hash_version"
-                if finalized
-                else "candidate_structural_graph_hash_version"
-            )
-            if (
-                not isinstance(structural_hash, str)
-                or stored_version != STRUCTURAL_PROJECTION_VERSION
-            ):
-                recomputed = _structural_hash_from_source_path(
-                    session_dir,
-                    _source_path_for_turn_baseline(session_dir, baseline_turn_id),
-                )
-                if isinstance(recomputed, str):
-                    structural_hash = recomputed
-                    baseline_turn[
-                        "finalized_structural_graph_hash"
-                        if finalized
-                        else "candidate_structural_graph_hash"
-                    ] = recomputed
-                    baseline_turn[
-                        "finalized_structural_graph_hash_version"
-                        if finalized
-                        else "candidate_structural_graph_hash_version"
-                    ] = STRUCTURAL_PROJECTION_VERSION
-            if isinstance(structural_hash, str):
-                _set_baseline_authoritatively(
-                    state,
-                    next_hash=structural_hash,
-                    next_kind="structural",
-                    next_source="turn",
-                    reason="normalize_turn_baseline",
-                    source_turn_id=baseline_turn_id,
-                    source_path=_source_path_for_turn_baseline(session_dir, baseline_turn_id),
-                    projection_version=STRUCTURAL_PROJECTION_VERSION,
-                )
-                return state
-            if not isinstance(baseline_hash, str):
-                migrated_hash = baseline_turn.get("candidate_graph_hash") or baseline_turn.get(
-                    "client_graph_hash"
-                )
-                baseline_hash = migrated_hash if isinstance(migrated_hash, str) else None
-        if isinstance(baseline_hash, str):
-            _set_baseline_authoritatively(
-                state,
-                next_hash=baseline_hash,
-                next_kind="raw",
-                next_source="legacy",
-                reason="normalize_legacy_turn_baseline",
-            )
-            return state
-
-    rebaseline_id = state.get("baseline_rebaseline_id")
-    if baseline_source == "rebaseline" and isinstance(rebaseline_id, str):
-        source_path = state.get("baseline_graph_source_path")
-        if not isinstance(source_path, str):
-            source_path = (Path("_rebaseline") / rebaseline_id / "graph.ui.json").as_posix()
-        structural_hash = baseline_hash if isinstance(baseline_hash, str) else None
-        if (
-            baseline_kind != "structural"
-            or baseline_version != STRUCTURAL_PROJECTION_VERSION
-            or not isinstance(structural_hash, str)
-        ):
-            recomputed = _structural_hash_from_source_path(session_dir, source_path)
-            if isinstance(recomputed, str):
-                structural_hash = recomputed
-        if isinstance(structural_hash, str):
-            _set_baseline_authoritatively(
-                state,
-                next_hash=structural_hash,
-                next_kind="structural",
-                next_source="rebaseline",
-                reason="normalize_rebaseline",
-                rebaseline_id=rebaseline_id,
-                source_path=source_path,
-                projection_version=STRUCTURAL_PROJECTION_VERSION,
-            )
-            return state
-
-    if isinstance(baseline_hash, str):
-        _set_baseline_authoritatively(
-            state,
-            next_hash=baseline_hash,
-            next_kind="raw" if baseline_kind != "structural" else "structural",
-            next_source="legacy",
-            reason="normalize_legacy_baseline",
-            projection_version=(
-                baseline_version if isinstance(baseline_version, int) else None
-            ),
-        )
-        return state
-
-    _set_baseline_authoritatively(
-        state,
-        next_hash=None,
-        next_kind=None,
-        next_source="none",
-        reason="normalize_empty_baseline",
-    )
-    return state
+    """Compatibility façade for persisted baseline normalization."""
+    return _session_storage.normalize_baseline_state_impl(session_dir, state)
 
 
 def read_state(session_dir: Path) -> dict[str, Any]:
-    path = session_dir / STATE_FILE_NAME
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return default_state()
-    if not isinstance(state, dict):
-        return default_state()
-    merged = default_state()
-    merged.update(state)
-    if not isinstance(merged.get("turns"), dict):
-        merged["turns"] = {}
-    if not isinstance(merged.get("idempotency_records"), dict):
-        merged["idempotency_records"] = {}
-    if not isinstance(merged.get("next_turn_index"), int) or merged["next_turn_index"] < 1:
-        merged["next_turn_index"] = 1
-    if (
-        not isinstance(merged.get("next_rebaseline_index"), int)
-        or merged["next_rebaseline_index"] < 1
-    ):
-        merged["next_rebaseline_index"] = 1
-    # ── Phase 4 transactional index normalisation (T19) ───────────────────
-    # The index is recoverable from artifact truth, so on read we only need to
-    # coerce shape: a missing/corrupt counter falls back to 1, and non-dict
-    # index maps are reset to empty.  A corrupt entry never blocks reads.
-    if not isinstance(merged.get("next_generation"), int) or merged["next_generation"] < 1:
-        merged["next_generation"] = 1
-    if not isinstance(merged.get("prepared_transactions"), dict):
-        merged["prepared_transactions"] = {}
-    else:
-        merged["prepared_transactions"] = _normalize_prepared_transactions_index(
-            merged["prepared_transactions"]
-        )
-    if not isinstance(merged.get("apply_idempotency_records"), dict):
-        merged["apply_idempotency_records"] = {}
-    else:
-        merged["apply_idempotency_records"] = _normalize_apply_idempotency_records(
-            merged["apply_idempotency_records"]
-        )
-    _normalize_baseline_state(path.parent, merged)
-    merged["schema_version"] = STATE_SCHEMA_VERSION
-    return merged
+    """Compatibility façade for normalized durable state reads."""
+    return _session_storage.read_state_impl(session_dir)
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    """Compatibility façade for tolerant JSON-object reads."""
+    return _session_storage.load_json_impl(path)
 
 
 def iter_turn_records(
     session_root: Path | str,
     session_id: str,
 ) -> Iterator[DiagnosticRecord]:
-    """Yield typed diagnostic records for every turn under *session_id*.
-
-    This is the canonical server-side iterator used by audit/reporting and by
-    the CLI debug tool.  It depends only on the stdlib, ``pathlib`` and the
-    shared ``DiagnosticRecord`` contract, so it can be imported in lightweight
-    consumers without pulling in ComfyUI or torch.
-    """
-    session_dir = Path(session_root) / session_id
-    if not session_dir.is_dir():
-        return
-
-    state = _load_json(session_dir / STATE_FILE_NAME) or {}
-    st_turns: dict[str, Any] = state.get("turns") if isinstance(state.get("turns"), dict) else {}
-    baseline_turn_id = state.get("baseline_turn_id")
-    turns_dir = session_dir / "turns"
-    if not turns_dir.is_dir():
-        return
-
-    for turn_dir in sorted(turns_dir.iterdir()):
-        if not turn_dir.is_dir():
-            continue
-        turn_id = turn_dir.name
-        response = _load_json(turn_dir / "response.json") or {}
-        request = _load_json(turn_dir / "request.json") or {}
-        life = st_turns.get(turn_id, {})
-        gates = response.get("gates") or {}
-        ok = response.get("ok")
-        kind = response.get("kind")
-        unchanged = response.get("graph_unchanged")
-        lifecycle = life.get("state")
-
-        if lifecycle == "accepted":
-            outcome = "\u2705 APPLIED"
-        elif lifecycle == "rejected":
-            outcome = "\u2717 rejected"
-        elif lifecycle == "discarded":
-            outcome = "\u2717 discarded"
-        elif lifecycle == "unknown" and life.get("superseded_by_turn_id"):
-            outcome = "\u21b7 superseded"
-        elif lifecycle == "finalized":
-            outcome = "\u2705 FINALIZED"
-        elif lifecycle == "rollback_complete":
-            outcome = "\u21ba ROLLED BACK"
-        elif lifecycle == "canvas_verified":
-            outcome = "\U0001f50d canvas-verified"
-        elif lifecycle == "apply_prepared":
-            outcome = "\u23f3 apply-prepared"
-        elif lifecycle == "review_bound":
-            outcome = "\U0001f441 review-bound"
-        elif lifecycle == "candidate_ready":
-            outcome = "\U0001f4cb candidate-ready"
-        elif lifecycle == "submitted":
-            outcome = "\U0001f4e8 submitted"
-        elif lifecycle == "rollback_prepared":
-            outcome = "\u23f3 rollback-prepared"
-        elif ok is True and unchanged:
-            outcome = "clarify/noop"
-        elif ok is True:
-            outcome = "candidate"
-        elif kind:
-            outcome = f"FAIL:{kind}"
-        elif ok is False:
-            outcome = "FAIL"
-        else:
-            outcome = lifecycle or "?"
-
-        from vibecomfy.ingest.normalize import door_get_nodes
-
-        candidate_graph = response.get("graph")
-        candidate_nodes = (
-            len(door_get_nodes(candidate_graph, []))
-            if isinstance(candidate_graph, dict)
-            else None
-        )
-
-        yield DiagnosticRecord(
-            session_id=session_id,
-            turn_id=turn_id,
-            baseline_turn_id=baseline_turn_id if turn_id == baseline_turn_id else None,
-            ok=ok,
-            kind=kind,
-            outcome=outcome,
-            lifecycle=lifecycle,
-            fidelity_ok=gates.get("ui_fidelity_ok"),
-            state_match_ok=gates.get("state_match_ok"),
-            queue_validate_ok=gates.get("queue_validate_ok"),
-            canvas_apply_allowed=response.get("canvas_apply_allowed"),
-            queue_allowed=response.get("queue_allowed"),
-            candidate_nodes=candidate_nodes,
-            task=request.get("task") or response.get("task") or "",
-            route=request.get("route") or "",
-            protocol=life.get("agent_edit_protocol"),
-            summary=(
-                response.get("done_summary")
-                or response.get("message")
-                or response.get("user_facing_message")
-                or ""
-            ),
-            is_baseline=(turn_id == baseline_turn_id),
-            accepted_at=life.get("accepted_at"),
-            live_token=life.get("submitted_client_live_canvas_token"),
-        )
+    """Yield typed diagnostic records for every turn under *session_id*."""
+    yield from _session_storage.iter_turn_records_impl(session_root, session_id)
 
 
 def structural_graph_projection(graph: Any) -> dict[str, Any]:
@@ -1255,87 +944,33 @@ def layout_graph_hash(graph: Any) -> str | None:
 def _candidate_structural_hash_from_turn_dir(
     *, session_dir: Path, turn_id: str
 ) -> str | None:
-    for filename in ("candidate.ui.json", "response.json"):
-        path = session_dir / "turns" / turn_id / filename
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        graph = (
-            payload.get("graph")
-            if filename == "response.json" and isinstance(payload, Mapping)
-            else payload
-        )
-        digest = structural_graph_hash(graph)
-        if isinstance(digest, str):
-            return digest
-    return None
+    """Compatibility façade for candidate hash recovery from turn storage."""
+    return _session_storage.candidate_structural_hash_from_turn_dir_impl(
+        session_dir=session_dir,
+        turn_id=turn_id,
+    )
 
 
 def write_state_atomic(session_dir: Path, state: dict[str, Any]) -> None:
-    session_dir.mkdir(parents=True, exist_ok=True)
-    target = session_dir / STATE_FILE_NAME
-    tmp = session_dir / f".{STATE_FILE_NAME}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-    tmp.write_text(
-        json.dumps(state, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    """Compatibility façade for atomic session-state persistence."""
+    _session_storage.write_state_atomic_impl(
+        session_dir,
+        state,
+        state_file_name=STATE_FILE_NAME,
     )
-    tmp.replace(target)
 
 
 def _write_response_atomic(response_path: Path, response: dict[str, Any]) -> None:
-    """Write *response* to *response_path* atomically via a temp file + rename."""
-    response_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = response_path.with_name(
-        f".{response_path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-    )
-    tmp.write_text(
-        json.dumps(response, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    tmp.replace(response_path)
+    """Compatibility façade for atomic JSON response persistence."""
+    _session_storage.write_response_atomic_impl(response_path, response)
 
 
 def _write_response_immutable(
     response_path: Path,
     response: Mapping[str, Any],
 ) -> bool:
-    """Publish immutable JSON without replacing an existing authority file.
-
-    Returns ``True`` for the winning publisher and ``False`` on collision.
-    A fully fsync'd sibling is hard-linked into place, so readers observe either
-    the complete old authority or the complete new authority, never a partial
-    direct ``O_EXCL`` write.
-    """
-    response_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = response_path.with_name(
-        f".{response_path.name}.{os.getpid()}.{time.monotonic_ns()}.immutable"
-    )
-    data = json.dumps(dict(response), indent=2, sort_keys=True) + "\n"
-    try:
-        with tmp.open("x", encoding="utf-8") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
-        try:
-            os.link(tmp, response_path)
-        except FileExistsError:
-            return False
-        try:
-            directory_fd = os.open(response_path.parent, os.O_RDONLY)
-        except OSError:
-            directory_fd = None
-        if directory_fd is not None:
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        return True
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+    """Compatibility façade for immutable JSON authority publication."""
+    return _session_storage.write_response_immutable_impl(response_path, response)
 
 
 # ── Index mutation primitives (operate on the in-memory state dict) ─────────
@@ -1344,24 +979,20 @@ def _write_response_immutable(
 
 
 def allocate_generation(state: dict[str, Any]) -> int:
-    """Return the current monotonic generation and advance the counter by 1.
-
-    The generation is 1-based and strictly increasing for the lifetime of a
-    session.  A missing/corrupt counter is repaired to 1.
-    """
-    current = state.get("next_generation")
-    if not isinstance(current, int) or current < 1:
-        current = 1
-    state["next_generation"] = current + 1
-    return current
+    """Return the current monotonic generation and advance the counter by 1."""
+    return _session_transaction_journal.allocate_generation_impl(state)
 
 
 def _apply_idempotency_key(plan_hash: str, generation: int) -> str:
-    return f"{plan_hash}:{generation}"
+    return _session_transaction_journal.apply_idempotency_key_impl(
+        plan_hash, generation
+    )
 
 
 def _clear_prepared_pointer(state: dict[str, Any], *, turn_id: str) -> None:
-    state.setdefault("prepared_transactions", {}).pop(turn_id, None)
+    _session_transaction_journal.clear_prepared_pointer_impl(
+        state, turn_id=turn_id
+    )
 
 
 def _set_apply_idempotency_record(
@@ -1371,9 +1002,12 @@ def _set_apply_idempotency_record(
     generation: int,
     record: Mapping[str, Any],
 ) -> None:
-    state.setdefault("apply_idempotency_records", {})[
-        _apply_idempotency_key(plan_hash, generation)
-    ] = dict(record)
+    _session_transaction_journal.set_apply_idempotency_record_impl(
+        state,
+        plan_hash=plan_hash,
+        generation=generation,
+        record=record,
+    )
 
 
 def lookup_apply_idempotency_record(
@@ -1382,19 +1016,12 @@ def lookup_apply_idempotency_record(
     plan_hash: str,
     generation: int,
 ) -> dict[str, Any] | None:
-    """Return the durable apply idempotency record for ``(plan_hash, generation)``.
-
-    A non-``None`` result means this transaction identity was already resolved
-    (finalized, rolled back, or cancelled); a duplicate apply must replay the
-    recorded phase deterministically rather than re-applying.
-    """
-    record = state.get("apply_idempotency_records", {}).get(
-        _apply_idempotency_key(plan_hash, generation)
+    """Return the durable record for a resolved transaction identity."""
+    return _session_transaction_journal.lookup_apply_idempotency_record_impl(
+        state,
+        plan_hash=plan_hash,
+        generation=generation,
     )
-    return dict(record) if isinstance(record, Mapping) else None
-
-
-# ── High-level transaction step storage (artifact + index) ──────────────────
 
 
 def record_prepared_transaction(
@@ -1409,60 +1036,18 @@ def record_prepared_transaction(
     baseline_snapshot: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Persist the authoritative ``prepared`` artifact and update the index.
-
-    Allocates a fresh monotonic generation, appends a ``prepared`` lifecycle
-    event to the append-only log, writes the derived ``prepared.json`` receipt,
-    and records the prepared pointer in the session index (at most one
-    prepared transaction per turn).  The caller must hold the session lock and
-    persist *state* afterwards.  Returns the prepared event record.
-    """
-    generation = allocate_generation(state)
-    transaction_dir = transaction_dir_for(turn_dir, plan_hash)
-    prepared_candidate: dict[str, Any] = {}
-    if candidate_payload and candidate_payload.get("contract_version") == CANDIDATE_TRANSACTION_V2:
-        prepared_candidate = project_transaction_state(
-            candidate_payload,
-            state="prepared",
-            generation=generation,
-            lease_nonce=lease_nonce,
-        )
-        ok, error = validate_candidate_transaction(prepared_candidate)
-        if not ok:
-            raise ValueError(error or "invalid_prepared_candidate_transaction")
-    elif candidate_payload:
-        # Storage primitive compatibility for historical test/audit fixtures.
-        # Production callers are v2-only and take the validated branch above.
-        prepared_candidate = dict(candidate_payload)
-    receipt: dict[str, Any] = {
-        "turn_id": turn_id,
-        "plan_hash": plan_hash,
-        "generation": generation,
-        "lease_nonce": lease_nonce,
-        "structural_hash_before": structural_hash_before,
-        "baseline_snapshot": dict(baseline_snapshot) if baseline_snapshot else {},
-        "candidate": prepared_candidate,
-        "candidate_transaction": prepared_candidate,
-        "phase": "prepared",
-    }
-    event = _append_transaction_lifecycle_event(
-        transaction_dir,
-        event_type="prepared",
+    """Compatibility façade for prepared journal publication and indexing."""
+    return _session_transaction_journal.record_prepared_transaction_impl(
+        state=state,
+        turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
-        generation=generation,
-        receipt=receipt,
+        lease_nonce=lease_nonce,
+        structural_hash_before=structural_hash_before,
+        candidate_payload=candidate_payload,
+        baseline_snapshot=baseline_snapshot,
         now_fn=now_fn,
     )
-    _write_transaction_receipt(transaction_dir, "prepared", event)
-    state.setdefault("prepared_transactions", {})[turn_id] = {
-        "plan_hash": plan_hash,
-        "generation": generation,
-        "lease_nonce": lease_nonce,
-        "structural_hash_before": structural_hash_before,
-        "timestamp": event["timestamp"],
-    }
-    return event
 
 
 def _record_resolved_transaction(
@@ -1476,40 +1061,16 @@ def _record_resolved_transaction(
     receipt: Mapping[str, Any],
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Shared storage for finalize / rollback / cancel steps.
-
-    Appends the lifecycle event, writes the derived receipt snapshot (if any),
-    clears the prepared pointer, and stores the durable apply idempotency
-    record so a duplicate apply with the same ``(plan_hash, generation)``
-    replays deterministically.  The caller must hold the session lock and
-    persist *state* afterwards.  Returns the event record.
-    """
-    transaction_dir = transaction_dir_for(turn_dir, plan_hash)
-    event = _append_transaction_lifecycle_event(
-        transaction_dir,
-        event_type=event_type,
+    return _session_transaction_journal.record_resolved_transaction_impl(
+        state=state,
+        turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
+        event_type=event_type,
         receipt=receipt,
         now_fn=now_fn,
     )
-    _write_transaction_receipt(transaction_dir, event_type, event)
-    _clear_prepared_pointer(state, turn_id=turn_id)
-    _set_apply_idempotency_record(
-        state,
-        plan_hash=plan_hash,
-        generation=generation,
-        record={
-            "turn_id": turn_id,
-            "plan_hash": plan_hash,
-            "generation": generation,
-            "phase": event_type,
-            "receipt_path": _PHASE_TO_RECEIPT_NAME.get(event_type),
-            "timestamp": event["timestamp"],
-        },
-    )
-    return event
 
 
 def record_finalized_transaction(
@@ -1524,39 +1085,16 @@ def record_finalized_transaction(
     journal_durable: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Persist the authoritative ``finalized`` artifact and update the index.
-
-    Marks the transaction resolved (terminal) so a duplicate finalize with the
-    same ``(plan_hash, generation)`` is idempotent.  Returns the event record.
-    """
-    receipt: dict[str, Any] = {
-        "turn_id": turn_id,
-        "plan_hash": plan_hash,
-        "generation": generation,
-        "structural_hash_after": structural_hash_after,
-        "applied": dict(applied_payload) if applied_payload else {},
-        "phase": "finalized",
-    }
-    if journal_durable is not None:
-        from .projection_registry_v1 import validate_journal_durable_v1
-        validated_journal = validate_journal_durable_v1(journal_durable)
-
-        def _plain_json(value: Any) -> Any:
-            if isinstance(value, Mapping):
-                return {str(key): _plain_json(entry) for key, entry in value.items()}
-            if isinstance(value, (list, tuple)):
-                return [_plain_json(entry) for entry in value]
-            return value
-
-        receipt["journal_durable"] = _plain_json(validated_journal)
-    return _record_resolved_transaction(
+    """Compatibility façade for finalized journal publication and indexing."""
+    return _session_transaction_journal.record_finalized_transaction_impl(
         state=state,
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
-        event_type="finalized",
-        receipt=receipt,
+        structural_hash_after=structural_hash_after,
+        applied_payload=applied_payload,
+        journal_durable=journal_durable,
         now_fn=now_fn,
     )
 
@@ -1573,37 +1111,18 @@ def record_canvas_verified_transaction(
     applied_delta_hash: str,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Persist server-verified browser canvas evidence before finalization."""
-    receipt = {
-        "turn_id": turn_id,
-        "plan_hash": plan_hash,
-        "generation": generation,
-        "lease_nonce": lease_nonce,
-        "post_apply_graph_hash": post_apply_graph_hash,
-        "post_apply_structural_hash": post_apply_structural_hash,
-        "applied_delta_hash": applied_delta_hash,
-        "phase": "canvas_verified",
-    }
-    transaction_dir = transaction_dir_for(turn_dir, plan_hash)
-    latest = latest_transaction_event(transaction_dir)
-    if (
-        isinstance(latest, Mapping)
-        and latest.get("event_type") == "canvas_verified"
-        and latest.get("generation") == generation
-        and _safe_receipt(latest) == receipt
-    ):
-        return dict(latest)
-    event = _append_transaction_lifecycle_event(
-        transaction_dir,
-        event_type="canvas_verified",
+    """Compatibility façade for canvas-verification journal publication."""
+    return _session_transaction_journal.record_canvas_verified_transaction_impl(
+        turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
-        receipt=receipt,
+        lease_nonce=lease_nonce,
+        post_apply_graph_hash=post_apply_graph_hash,
+        post_apply_structural_hash=post_apply_structural_hash,
+        applied_delta_hash=applied_delta_hash,
         now_fn=now_fn,
     )
-    _write_transaction_receipt(transaction_dir, "canvas_verified", event)
-    return event
 
 
 def record_rolled_back_transaction(
@@ -1617,28 +1136,15 @@ def record_rolled_back_transaction(
     compensation: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Persist the authoritative ``rolled_back`` artifact and update the index.
-
-    Marks the transaction resolved (terminal); the baseline is restored by the
-    caller.  Returns the event record.
-    """
-    receipt: dict[str, Any] = {
-        "turn_id": turn_id,
-        "plan_hash": plan_hash,
-        "generation": generation,
-        "restored_structural_hash": restored_structural_hash,
-        "phase": "rollback_complete",
-    }
-    if compensation:
-        receipt["compensation"] = dict(compensation)
-    return _record_resolved_transaction(
+    """Compatibility façade for rollback journal publication and indexing."""
+    return _session_transaction_journal.record_rolled_back_transaction_impl(
         state=state,
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
-        event_type="rollback_complete",
-        receipt=receipt,
+        restored_structural_hash=restored_structural_hash,
+        compensation=compensation,
         now_fn=now_fn,
     )
 
@@ -1768,27 +1274,14 @@ def record_cancelled_transaction(
     reason: str | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Mark a prepared transaction as cancelled (superseded) and clear its pointer.
-
-    A cancelled transaction can never be finalized: its apply idempotency
-    record records the cancellation so a late finalize replays as a no-op
-    rejection rather than applying.  Returns the event record.
-    """
-    receipt: dict[str, Any] = {
-        "turn_id": turn_id,
-        "plan_hash": plan_hash,
-        "generation": generation,
-        "reason": reason,
-        "phase": "superseded",
-    }
-    return _record_resolved_transaction(
+    """Compatibility façade for superseded journal publication and indexing."""
+    return _session_transaction_journal.record_cancelled_transaction_impl(
         state=state,
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
-        event_type="superseded",
-        receipt=receipt,
+        reason=reason,
         now_fn=now_fn,
     )
 
@@ -1802,21 +1295,13 @@ def record_discarded_transaction(
     reason: str = "rejected_by_user",
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    receipt = {
-        "turn_id": turn_id,
-        "plan_hash": plan_hash,
-        "generation": 0,
-        "reason": reason,
-        "phase": "discarded",
-    }
-    return _record_resolved_transaction(
+    """Compatibility façade for discarded journal publication and indexing."""
+    return _session_transaction_journal.record_discarded_transaction_impl(
         state=state,
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
-        generation=0,
-        event_type="discarded",
-        receipt=receipt,
+        reason=reason,
         now_fn=now_fn,
     )
 
@@ -3287,67 +2772,20 @@ def reconcile_turn_transactions(
 
 
 def _normalize_prepared_transactions_index(raw: Any) -> dict[str, Any]:
-    """Coerce the prepared_transactions index into a well-shaped mapping.
-
-    Drops entries that are not dicts or that lack ``plan_hash`` and a positive
-    ``generation``.  Never raises: a corrupt entry never blocks reads.
-    """
-    if not isinstance(raw, Mapping):
-        return {}
-    result: dict[str, Any] = {}
-    for turn_id, entry in raw.items():
-        if not isinstance(turn_id, str) or not turn_id:
-            continue
-        if not isinstance(entry, Mapping):
-            continue
-        plan_hash = entry.get("plan_hash")
-        generation = entry.get("generation")
-        if not isinstance(plan_hash, str) or not plan_hash:
-            continue
-        if not isinstance(generation, int) or generation < 1:
-            continue
-        result[turn_id] = {
-            "plan_hash": plan_hash,
-            "generation": generation,
-            "lease_nonce": entry.get("lease_nonce"),
-            "structural_hash_before": entry.get("structural_hash_before"),
-            "timestamp": entry.get("timestamp"),
-        }
-    return result
+    """Compatibility façade for prepared-index normalization."""
+    return (
+        _session_transaction_journal.normalize_prepared_transactions_index_impl(
+            raw
+        )
+    )
 
 
 def _normalize_apply_idempotency_records(raw: Any) -> dict[str, Any]:
-    """Coerce the apply_idempotency_records index into a well-shaped mapping.
-
-    Drops records that are not dicts, lack identity fields, or carry a phase
-    that is not a resolved (terminal) transaction phase.  Never raises.
-    """
-    if not isinstance(raw, Mapping):
-        return {}
-    result: dict[str, Any] = {}
-    for key, record in raw.items():
-        if not isinstance(key, str) or not key:
-            continue
-        if not isinstance(record, Mapping):
-            continue
-        plan_hash = record.get("plan_hash")
-        generation = record.get("generation")
-        phase = record.get("phase")
-        if not isinstance(plan_hash, str) or not plan_hash:
-            continue
-        if not isinstance(generation, int) or generation < 0:
-            continue
-        if phase not in _TRANSACTION_RESOLVED_PHASES:
-            continue
-        result[key] = {
-            "turn_id": record.get("turn_id"),
-            "plan_hash": plan_hash,
-            "generation": generation,
-            "phase": phase,
-            "receipt_path": record.get("receipt_path"),
-            "timestamp": record.get("timestamp"),
-        }
-    return result
+    """Compatibility façade for resolved-idempotency index normalization."""
+    return _session_transaction_journal.normalize_apply_idempotency_records_impl(
+        raw,
+        resolved_phases=_TRANSACTION_RESOLVED_PHASES,
+    )
 
 
 def _record_key(scope: OperationScope, idempotency_key: str | None) -> str | None:
@@ -3516,7 +2954,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
 
     if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
         # Archived v2 callers used the flat ``delta_ops`` bridge before
-        # ``accepted_batch`` became the sole durable representation.  Treat a
+        # ``accepted_batch`` became the sole durable representation. Treat a
         # flat list as explicit v2 evidence for compatibility, but never let a
         # client-live-canvas transaction promote that legacy shape to new
         # authority without the explicit protocol marker.
@@ -4242,7 +3680,11 @@ def record_idempotent_response(
             and authority_receipt is not None
             and isinstance(candidate_plan_hash, str)
             and isinstance(candidate_structural_graph_hash, str)
-            and isinstance(authority_receipt.accepted_batch_digest or authority_receipt.cumulative_delta_hash, str)
+            and isinstance(
+                authority_receipt.accepted_batch_digest
+                or authority_receipt.cumulative_delta_hash,
+                str,
+            )
             and isinstance(authority_receipt.cumulative_delta_hash, str)
             and isinstance(authority_receipt.schema_witness, Mapping)
         )

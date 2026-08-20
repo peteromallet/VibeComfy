@@ -2436,8 +2436,10 @@ function _renderDurableTurnRow(body, panel, entry, index, deps = {}) {
   if (entry.turn_id && !isPending) {
     appendTextLine(turnCard, `turn ${entry.turn_id}`, "#8d93a1");
   }
-  // Pending rows retain the task as a last-resort durable label even if a
-  // concurrent rehydrate temporarily suppresses the optimistic user bubble.
+  // Show the task on pending rows too: the optimistic user bubble in the
+  // thread is the primary surface for the user's message, but if a rehydrate
+  // ever wipes it mid-submit the turn row must still identify what was sent
+  // (observed: "my message disappeared" — empty thread + empty turn card).
   if (entry.task) {
     appendTextLine(turnCard, entry.task, "#edf2f7");
   }

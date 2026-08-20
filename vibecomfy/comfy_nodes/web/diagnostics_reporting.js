@@ -19,30 +19,9 @@ import {
 // the lifecycle store is the single authority for scope identity.
 // Intentionally unchanged.
 
-// ── Module-level dependency injection ────────────────────────────────────────
-
-let _deps = {};
-
-/**
- * Configure monolith-local dependencies required by diagnostics functions.
- *
- * Expected deps shape (all optional — functions degrade gracefully when absent):
- *   el(tag, text)               — document.createElement wrapper
- *   button(label, onClick)       — <button> factory
- *   setButtonEmphasis(btn, visible, tone) — style helper for buttons
- *   downloadBlob(blob, filename) — trigger a browser download
- *   copyTextToClipboard(text)    — async clipboard write
- *   getPanelElementById(panel, id) — DOM query scoped to a panel
- *   buildAgentPanelDebugSnapshot(panel) — full panel debug snapshot
- *   PANEL_IDS                    — { issueModal, … } frozen id map
- *
- * @param {object} deps
- */
-export function configureDiagnosticsDeps(deps) {
-  if (deps && typeof deps === "object") {
-    _deps = { ..._deps, ...deps };
-  }
-}
+// UI/download dependencies are supplied to createDiagnosticsReporting().
+// Pure report builders stay directly exportable, while stateful consumers get
+// an immutable dependency closure instead of sharing process-global mutation.
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -635,7 +614,7 @@ function buildAuditEnvelope(turnEntry) {
   return envelope;
 }
 
-export function downloadTurnAudit(panel, turnIndex) {
+export function downloadTurnAudit(panel, turnIndex, deps = {}) {
   if (!panel) {
     return;
   }
@@ -653,13 +632,13 @@ export function downloadTurnAudit(panel, turnIndex) {
   });
   const turnId = turnEntry.turn_id || `turn-${turnIndex}`;
   const status = turnEntry.status || "unknown";
-  const downloadBlob = _deps.downloadBlob;
+  const downloadBlob = deps.downloadBlob;
   if (typeof downloadBlob === "function") {
     downloadBlob(blob, `vibecomfy-audit-${status}-${turnId}.json`);
   }
 }
 
-export function downloadTurnAuditEntry(turnEntry, turnIndex = 0) {
+export function downloadTurnAuditEntry(turnEntry, turnIndex = 0, deps = {}) {
   if (!turnEntry) {
     return;
   }
@@ -669,7 +648,7 @@ export function downloadTurnAuditEntry(turnEntry, turnIndex = 0) {
   });
   const turnId = turnEntry.turn_id || turnEntry.parent_turn_id || `turn-${turnIndex}`;
   const status = turnEntry.status || "unknown";
-  const downloadBlob = _deps.downloadBlob;
+  const downloadBlob = deps.downloadBlob;
   if (typeof downloadBlob === "function") {
     downloadBlob(blob, `vibecomfy-audit-${status}-${turnId}.json`);
   }
@@ -721,7 +700,7 @@ export function buildCurrentAuditEnvelope(panel) {
   return envelope;
 }
 
-export function downloadCurrentAudit(panel) {
+export function downloadCurrentAudit(panel, deps = {}) {
   if (!panel) {
     return;
   }
@@ -731,7 +710,7 @@ export function downloadCurrentAudit(panel) {
   });
   const turnId = panel.state.turnId || "current";
   const status = panel.state.phase || "unknown";
-  const downloadBlob = _deps.downloadBlob;
+  const downloadBlob = deps.downloadBlob;
   if (typeof downloadBlob === "function") {
     downloadBlob(blob, `vibecomfy-audit-${status}-${turnId}.json`);
   }
@@ -921,7 +900,7 @@ async function appendSessionBundleFiles(panel, files) {
   files.push({ name: "session/_bundle_manifest.txt", text: manifest.join("\n") });
 }
 
-export async function collectIssueReportFiles(panel) {
+export async function collectIssueReportFiles(panel, deps = {}) {
   const files = [{ name: "report.txt", text: buildIssueReport(panel) }];
   try {
     const envelope = buildCurrentAuditEnvelope(panel);
@@ -930,7 +909,7 @@ export async function collectIssueReportFiles(panel) {
     files.push({ name: "audit-error.txt", text: String(error?.stack || error) });
   }
   try {
-    const buildSnapshot = _deps.buildAgentPanelDebugSnapshot;
+    const buildSnapshot = deps.buildAgentPanelDebugSnapshot;
     if (typeof buildSnapshot === "function") {
       const snapshot = buildSnapshot(panel);
       files.push({ name: "debug-snapshot.json", text: JSON.stringify(snapshot, null, 2) });
@@ -948,11 +927,11 @@ export async function collectIssueReportFiles(panel) {
   return files;
 }
 
-export async function downloadIssueReportZip(panel) {
-  const blob = buildZipBlob(await collectIssueReportFiles(panel));
+export async function downloadIssueReportZip(panel, deps = {}) {
+  const blob = buildZipBlob(await collectIssueReportFiles(panel, deps));
   const sessionId = panel?.state?.sessionId || "session";
   const safeSession = String(sessionId).replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 60);
-  const downloadBlob = _deps.downloadBlob;
+  const downloadBlob = deps.downloadBlob;
   if (typeof downloadBlob === "function") {
     downloadBlob(blob, `vibecomfy-issue-report-${safeSession}.zip`);
   }
@@ -1000,10 +979,10 @@ async function copyTextToClipboard(text) {
 
 // ── Issue modal option card (used inside showIssueModal) ────────────────────
 
-function issueModalOption({ title, copyLabel, description, onCopy, link, statusNode }) {
-  const el = _deps.el;
-  const button = _deps.button;
-  const setButtonEmphasis = _deps.setButtonEmphasis;
+function issueModalOption({ title, copyLabel, description, onCopy, link, statusNode }, deps = {}) {
+  const el = deps.el;
+  const button = deps.button;
+  const setButtonEmphasis = deps.setButtonEmphasis;
   if (typeof el !== "function") {
     return null;
   }
@@ -1099,11 +1078,11 @@ function issueModalOption({ title, copyLabel, description, onCopy, link, statusN
 
 // ── "Having issues?" modal ──────────────────────────────────────────────────
 
-export function showIssueModal(panel) {
-  const el = _deps.el;
-  const button = _deps.button;
-  const PANEL_IDS = _deps.PANEL_IDS;
-  const getPanelElementById = _deps.getPanelElementById;
+export function showIssueModal(panel, deps = {}) {
+  const el = deps.el;
+  const button = deps.button;
+  const PANEL_IDS = deps.PANEL_IDS;
+  const getPanelElementById = deps.getPanelElementById;
 
   if (!panel?.shell || typeof document === "undefined") {
     return null;
@@ -1225,7 +1204,7 @@ export function showIssueModal(panel) {
 
   const downloadReportAndCopyIntro = async () => {
     try {
-      await downloadIssueReportZip(panel);
+      await downloadIssueReportZip(panel, deps);
     } catch (error) {
       status.textContent = `Download failed: ${String(error?.message || error)}`;
       status.style.color = "#ffb86c";
@@ -1267,13 +1246,13 @@ export function showIssueModal(panel) {
       title: "File a GitHub issue",
       iconOnly: true,
     },
-  }));
+  }, deps));
   options.appendChild(issueModalOption({
     title: "Solve it",
     description: "Copy this for your coding agent — it'll work with you to get to the bottom of the issue and solve it, for you and others!",
     copyLabel: "Copy for your coding agent",
     onCopy: () => copyAndConfirm(buildAgentSolvePrompt),
-  }));
+  }, deps));
   modal.appendChild(options);
   modal.appendChild(status);
 
@@ -1457,26 +1436,25 @@ export function installBrowserDiagnosticsCapture(panel) {
   }
 }
 
-// ── Configuration helper ────────────────────────────────────────────────────
+// ── Dependency-bound service factory ───────────────────────────────────────
 
-/**
- * Return an object whose keys are the pre-bound diagnostics functions wired
- * with the current deps. Useful when the monolith wants to re-export these
- * under its own names with dependency closure already applied.
- */
-export function configureDiagnosticsBindings() {
+/** Create one diagnostics consumer whose UI/download hooks cannot be replaced by another. */
+export function createDiagnosticsReporting(deps = {}) {
+  const boundDeps = Object.freeze({
+    ...(deps && typeof deps === "object" ? deps : {}),
+  });
   return {
     buildIssueReport,
     buildAgentSolvePrompt,
     buildCurrentAuditEnvelope,
-    downloadCurrentAudit,
-    collectIssueReportFiles,
-    downloadIssueReportZip,
-    showIssueModal,
+    downloadCurrentAudit: (panel) => downloadCurrentAudit(panel, boundDeps),
+    collectIssueReportFiles: (panel) => collectIssueReportFiles(panel, boundDeps),
+    downloadIssueReportZip: (panel) => downloadIssueReportZip(panel, boundDeps),
+    showIssueModal: (panel) => showIssueModal(panel, boundDeps),
     submitRating,
     installBrowserDiagnosticsCapture,
     commitSessionArtifactPathsFromResponse,
-    downloadTurnAudit,
-    downloadTurnAuditEntry,
+    downloadTurnAudit: (panel, turnIndex) => downloadTurnAudit(panel, turnIndex, boundDeps),
+    downloadTurnAuditEntry: (turnEntry, turnIndex = 0) => downloadTurnAuditEntry(turnEntry, turnIndex, boundDeps),
   };
 }

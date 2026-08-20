@@ -17,6 +17,7 @@ from vibecomfy.handles import Handle
 
 if TYPE_CHECKING:
     from vibecomfy.schema.provider import SchemaProvider
+    from vibecomfy.security.provenance import Provenance
 
 
 # ComfyUI-specific validation policy lives in the neutral contracts layer.
@@ -30,7 +31,7 @@ from vibecomfy.contracts.validation import (  # noqa: E402
 # WorkflowSummary is the typed contract for LLM-generated summaries stored
 # under ``workflow.metadata['summary']``.  Re-exported so consumers can
 # import from ``vibecomfy.workflow`` without reaching into contracts.
-from vibecomfy.contracts.summary import WorkflowSummary  # noqa: E402
+from vibecomfy.contracts.summary import WorkflowSummary  # noqa: E402, F401
 
 
 # Stored-envelope format version. The IR is the schema source: writers stamp
@@ -655,7 +656,7 @@ class VibeWorkflow:
             requesting_provenance,
             require_confirmation,
         )
-        from vibecomfy.security.provenance import PROVENANCE_KEY, tag as _tag_provenance
+        from vibecomfy.security.provenance import tag as _tag_provenance
 
         effective = _provenance if _provenance is not None else requesting_provenance.get()
 

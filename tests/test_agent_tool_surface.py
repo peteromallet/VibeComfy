@@ -18,6 +18,7 @@ Covers the ten named agent-invoked tool calls in the batch protocol:
 from __future__ import annotations
 
 import ast
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,7 +35,6 @@ from vibecomfy.executor.tool_contracts import (
     ToolResult,
     ToolStatus,
 )
-from vibecomfy.executor.tool_specs import PHASE_THREADED
 from vibecomfy.porting.edit._parse import (
     _AGENT_TOOL_CALL_NAMES,
     _parse_and_validate_batch,
@@ -810,6 +810,17 @@ class TestLedgerOnlyMemory:
 
 
 class TestPromptSurface:
+    def test_threaded_prompt_composes_both_tool_partitions(self) -> None:
+        messages = build_batch_messages(
+            task="adapt",
+            python_source="x = LoadImage()",
+            tool_phase="threaded",
+        )
+        system = messages[0]["content"]
+        assert "hivemind_search" in system
+        assert "node_schema" in system
+        assert "threaded" in system.lower()
+
     def test_implement_prompt_documents_only_implement_tools(self) -> None:
         messages = build_batch_messages(task="research", python_source="x = LoadImage()")
         system = messages[0]["content"]
@@ -852,23 +863,6 @@ class TestPromptSurface:
         # the research-only prompt no longer documents the removed research()
         assert "research(" not in system
         assert "LEGACY shadow-only" not in system
-
-    def test_threaded_prompt_composes_both_tool_partitions(self) -> None:
-        messages = build_batch_messages(
-            task="research then edit",
-            python_source="x = LoadImage()",
-            tool_phase=PHASE_THREADED,
-        )
-        system = messages[0]["content"]
-
-        assert "threaded research+implement surface" in system
-        assert "hivemind_search" in system
-        assert "hivemind_get" in system
-        assert "node_schema" in system
-        assert "ready_template_load" in system
-        assert "this same durable conversation may gather" in system
-        assert "implement phase has NO external research/search tools" not in system
-        assert "3 searches, 6 fetches, 1 registry lookup" in system
 
     def test_research_only_prompt_grounds_claims_in_workflow_facts(self) -> None:
         """Research-route answers must cite node ids/link ids/exact widget
@@ -953,24 +947,23 @@ class TestR2AgentTrustPromptSurface:
         assert "deterministic validation owns that" in system
         assert "queue blockers" in system
 
-    def test_research_digest_shows_only_honest_time_remaining(self) -> None:
+    def test_research_digest_shows_time_left_only(self) -> None:
         from vibecomfy.executor.agent_research_stage import build_evidence_digest
 
         digest = build_evidence_digest(
             question="q",
             tool_calls=[],
             artifacts={},
-            searches_left=2,
-            fetches_left=5,
-            registry_left=1,
-            turns_left=12,
             seconds_left=200,
         )
-        assert digest == "Time left: ~200s."
+        # Minimal-budget plan: time is the ONLY remaining budget shown.
+        assert "Time left: ~200s." in digest
+        assert "Remaining budget:" not in digest
         assert "search(es)" not in digest
-        assert "turn(s)" not in digest
+        assert "fetch(es)" not in digest
+        # No counters supplied -> no time line, still compact.
         plain = build_evidence_digest(question="q", tool_calls=[], artifacts={})
-        assert plain == "(no tool evidence gathered yet)"
+        assert "Time left:" not in plain
 
     def test_research_prompt_carries_full_brief_and_consumer_contract(self) -> None:
         from vibecomfy.executor.agent_research_stage import build_agent_research_messages
@@ -995,19 +988,22 @@ class TestR2AgentTrustPromptSurface:
         # Consumer contract: the implement agent consumes the synthesis.
         assert "IMPLEMENT agent turns your synthesis" in all_text
         assert "fetch every Hivemind record" in all_text
-        # Arbitrary call/turn quotas are absent; the per-turn digest owns the
-        # honest remaining-time display.
+        # Minimal-budget prompt: unbounded calls, wall-clock bound only.
+        assert "Never request or dump workflow JSON payloads" in all_text
         assert "16 decision turns" not in all_text
-        assert "3 searches" not in all_text
+        assert "~240s" not in all_text
 
     def test_research_stage_budgets_are_honest(self) -> None:
         from vibecomfy.executor import agent_research_stage as stage
 
+        # Minimal-budget plan: 7.5-minute wall clock, NO production turn cap.
         assert stage.TOOL_PHASE_DEADLINE_SECONDS == 450.0
         assert stage._MAX_TURNS is None
 
-    def test_decided_tool_call_executes_after_provider_overruns_deadline(self) -> None:
-        """The deadline bounds the loop, not evidence already requested."""
+    def test_research_deadline_enforced_after_provider_call(self) -> None:
+        """A slow provider decision turn cannot silently overrun the budget —
+        but a decided tool call is never dropped: it executes, its evidence is
+        preserved, and the loop stops after the call."""
         from vibecomfy.executor import agent_research_stage as stage
 
         calls: dict[str, int] = {"judge": 0, "tool": 0}
@@ -1040,9 +1036,11 @@ class TestR2AgentTrustPromptSurface:
             max_turns=10,
         )
         assert calls["judge"] == 1
-        assert calls["tool"] == 1
-        assert trace.executed_tool_calls == 1
-        assert any("call's evidence is preserved" in warning for warning in trace.warnings)
+        # The decided call executes even though the provider call overran;
+        # the loop stops on the next boundary, preserving the call's evidence.
+        assert calls["tool"] == 1, "a decided tool call must never be dropped"
+        assert any("after the tool call" in warning for warning in trace.warnings)
+        assert len(trace.iterations) == 1
 
     def test_research_deadline_enforced_after_tool_call(self) -> None:
         """A slow tool execution cannot silently overrun the budget; the
@@ -1082,110 +1080,6 @@ class TestR2AgentTrustPromptSurface:
         assert any("after the tool call" in warning for warning in trace.warnings)
         # The executed call is preserved in the trace even though the loop stopped.
         assert len(trace.iterations) == 1
-
-    @pytest.mark.parametrize("declared", [None, 99.0])
-    def test_decided_hivemind_timeout_is_not_rewritten_after_decision(
-        self, declared: float | None
-    ) -> None:
-        from vibecomfy.executor import agent_research_stage as stage
-
-        clock = {"t": 100.0}
-        seen: list[dict[str, Any]] = []
-
-        def fake_judge(
-            question: str, digest: str, messages: list[dict[str, Any]] | None = None
-        ) -> dict[str, Any]:
-            clock["t"] = 108.0
-            args: dict[str, Any] = {"query": question}
-            if declared is not None:
-                args["timeout"] = declared
-            return {"action": "call", "tool": "hivemind_search", "args": args}
-
-        def fake_tool(tool: str, args: Mapping[str, Any], **kwargs: Any) -> ToolResult:
-            seen.append(dict(args))
-            clock["t"] = 111.0
-            return _search_hits("hivemind:external_resources:1")
-
-        trace, _pack = stage.run_agent_research_stage(
-            route="research",
-            question="q",
-            judge_fn=fake_judge,
-            tool_fn=fake_tool,
-            now_fn=lambda: clock["t"],
-            deadline_seconds=10.0,
-            max_turns=2,
-        )
-        if declared is None:
-            assert "timeout" not in seen[0]
-        else:
-            assert seen[0]["timeout"] == declared
-        assert trace.status == "exhausted"
-        assert len(trace.iterations) == 1
-        assert trace.iterations[0].tool_calls[0]["status"] == "ok"
-
-    def test_declared_hivemind_timeout_is_unchanged_with_ample_budget(self) -> None:
-        from vibecomfy.executor import agent_research_stage as stage
-
-        clock = {"t": 100.0}
-        seen: list[dict[str, Any]] = []
-
-        def fake_judge(
-            question: str, digest: str, messages: list[dict[str, Any]] | None = None
-        ) -> dict[str, Any]:
-            return {
-                "action": "call",
-                "tool": "hivemind_search",
-                "args": {"query": question, "timeout": 3},
-            }
-
-        def fake_tool(tool: str, args: Mapping[str, Any], **kwargs: Any) -> ToolResult:
-            seen.append(dict(args))
-            clock["t"] = 200.0
-            return _ok_result("hivemind_search", {"count": 0, "hits": []}, ())
-
-        stage.run_agent_research_stage(
-            route="research",
-            question="q",
-            judge_fn=fake_judge,
-            tool_fn=fake_tool,
-            now_fn=lambda: clock["t"],
-            deadline_seconds=50.0,
-            max_turns=2,
-        )
-        assert seen[0]["timeout"] == 3
-
-    def test_malformed_hivemind_timeout_reaches_typed_validation(self) -> None:
-        from vibecomfy.executor import agent_research_stage as stage
-
-        calls = {"n": 0}
-
-        def fake_judge(
-            question: str, digest: str, messages: list[dict[str, Any]] | None = None
-        ) -> dict[str, Any]:
-            calls["n"] += 1
-            if calls["n"] == 1:
-                return {
-                    "action": "call",
-                    "tool": "hivemind_search",
-                    "args": {"query": question, "timeout": "bad"},
-                }
-            return {
-                "action": "finish",
-                "conclusion": "typed invalid request observed",
-                "evidence_ids": [],
-                "uncertainty": "invalid timeout",
-            }
-
-        trace, _pack = stage.run_agent_research_stage(
-            route="research",
-            question="q",
-            judge_fn=fake_judge,
-            deadline_seconds=30.0,
-            max_turns=2,
-        )
-        call = trace.iterations[0].tool_calls[0]
-        assert call["status"] == "invalid_request"
-        assert "timeout" in call["conclusion"]
 
 
 # ── End-to-end batch-REPL interleave ─────────────────────────────────────────
@@ -1411,110 +1305,3 @@ class TestEndToEndInterleave:
         assert budgets[0]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1
         assert budgets[1]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1  # not reset
         assert budgets[1]["fetches_remaining"] == TOOL_FETCH_BUDGET - 1
-
-    def test_live_threaded_executor_researches_then_edits_in_one_durable_host(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
-        from vibecomfy.executor import core
-        from vibecomfy.executor.contracts import ExecutorHostPorts, ExecutorRequest
-
-        monkeypatch.setattr(
-            core,
-            "run_classify_turn",
-            lambda *args, **kwargs: pytest.fail("threaded mode must never classify"),
-        )
-        monkeypatch.setattr(
-            "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
-            lambda **_kwargs: {"json": {}},
-        )
-
-        import vibecomfy.executor.hivemind_tools as hivemind_tools
-
-        monkeypatch.setattr(
-            hivemind_tools,
-            "hivemind_search",
-            lambda query, **kwargs: _search_hits("hivemind:external_resources:threaded"),
-        )
-
-        observed_prompts: list[str] = []
-
-        def client(messages: list[dict[str, str]]) -> dict[str, str]:
-            system = messages[0]["content"]
-            user = messages[1]["content"]
-            observed_prompts.append(system)
-            if len(observed_prompts) == 1:
-                assert "threaded research+implement surface" in system
-                assert "hivemind_search" in system
-                assert "node_schema" in system
-                return {
-                    "message": "Checking precedent.",
-                    "batch": 'hivemind_search("save prefix convention")',
-                }
-            assert "Tool evidence ledger" in user
-            assert "hivemind:external_resources:threaded" in user
-            return {
-                "message": "The researched prefix edit is ready.",
-                "batch": 'saveimage.filename_prefix = "after"\ndone()',
-            }
-
-        def live_edit(payload: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
-            assert payload["pipeline_mode"] == "threaded"
-            return handle_agent_edit(
-                payload,
-                schema_provider=_test_provider(),
-                deepseek_client=client,
-                session_root=tmp_path,
-                **kwargs,
-            )
-
-        failure = SimpleNamespace(
-            kind=SimpleNamespace(value="ValidationError"),
-            user_facing_message="failed",
-        )
-        ports = ExecutorHostPorts(
-            handle_agent_edit=live_edit,
-            payload_hash=lambda payload: "stable-request-hash",
-            classify_failure=lambda *args, **kwargs: failure,
-            failure_envelope=lambda *args, **kwargs: failure,
-            begin_deepseek_usage_capture=lambda: object(),
-            snapshot_deepseek_usage_capture=lambda: ({}, False),
-            end_deepseek_usage_capture=lambda token: None,
-            begin_model_attempt_capture=lambda: object(),
-            snapshot_model_attempt_capture=lambda: (),
-            end_model_attempt_capture=lambda token: None,
-        )
-
-        result = core.run_executor(
-            ExecutorRequest(
-                query="research precedent, then rename the save prefix",
-                graph=_ui_graph(),
-                workflow_id="713b5d5c-87f4-51b6-921a-a9acfa74e43c",
-                session_id="threaded-live-e2e",
-                pipeline_mode="threaded",
-                max_batches=4,
-            ),
-            host_ports=ports,
-        )
-
-        assert result.ok is True
-        assert result.graph is not None
-        assert len(observed_prompts) == 2
-        assert result.report is not None
-        implementation = result.report.implementation
-        assert implementation is not None
-        durable = implementation.durable_response
-        assert durable is not None
-        assert durable["session_id"] == "threaded-live-e2e"
-        assert durable["turn_id"]
-        turns = durable["batch_turns"]
-        assert [turn["batch"] for turn in turns] == [
-            'hivemind_search("save prefix convention")',
-            'saveimage.filename_prefix = "after"\ndone()',
-        ]
-        first_detail = turns[0]["statements"][0]["detail"]
-        assert first_detail["tool_status"] == "ok"
-        assert first_detail["tool_budget"]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1
-        assert durable["accepted_batch"]

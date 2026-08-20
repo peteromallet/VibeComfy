@@ -18,6 +18,7 @@ const WEB_SOURCE_ROOT = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web");
 // pulled in transitively via prepared_authority_v1.js).
 export const STAGED_WEB_MODULES = [
   "vibecomfy_roundtrip.js",
+  "roundtrip_extension.js",
   "panel_runtime.js",
   "panel_scheduler.js",
   "panel_thread.js",
@@ -63,6 +64,8 @@ export const STAGED_WEB_MODULES = [
   "mutation_materialization_v1.js",
   "legacy_migration_v1.js",
   "journal_durable_v1.js",
+  "_intent_graph_receipt_core.mjs",
+  "_prepared_plan_builder_v1.mjs",
 ];
 
 // Relative imports that intentionally escape the web module directory.  They

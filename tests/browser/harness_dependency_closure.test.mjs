@@ -12,7 +12,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +47,17 @@ test("the production manifest is the canonical set of staged web modules", () =>
     assert.equal(seen.has(name), false, `duplicate manifest entry: ${name}`);
     seen.add(name);
   }
+});
+
+test("the staging manifest contains every distributable web source module", async () => {
+  const sourceModules = (await readdir(WEB_SOURCE_ROOT))
+    .filter((name) => /\.(?:js|mjs)$/.test(name))
+    .sort();
+  assert.deepEqual(
+    [...STAGED_WEB_MODULES].sort(),
+    sourceModules,
+    "STAGED_WEB_MODULES must exactly match the distributable .js/.mjs source set",
+  );
 });
 
 test("the two C1 transitive dependencies are present in the staging manifest", () => {

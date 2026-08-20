@@ -157,20 +157,14 @@ export {
 } from "./graph_projection.js";
 
 import {
-  configureDiagnosticsDeps,
   buildIssueReport,
   buildAgentSolvePrompt,
   buildCurrentAuditEnvelope,
-  downloadCurrentAudit,
-  collectIssueReportFiles,
-  downloadIssueReportZip,
-  showIssueModal,
+  createDiagnosticsReporting,
   submitRating,
   installBrowserDiagnosticsCapture,
   commitSessionArtifactPathsFromResponse,
   compactPanelPreviewDiff,
-  downloadTurnAudit,
-  downloadTurnAuditEntry,
 } from "./diagnostics_reporting.js";
 import {
   normalizeExecutorPhasePayload,
@@ -248,14 +242,10 @@ import { installAgenticReplay } from "./agentic_replay.js";
 import { isLegacyUndoCacheEntryV1 } from "./journal_durable_v1.js";
 import { createApplyFlow } from "./agent_apply_flow.js";
 import {
-  configureSubmitWatchdogDeps,
+  createSubmitFlowDeps,
   DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,
   DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
   DEFAULT_SUBMIT_DEADLINE_MS,
-  pendingTransactionSnapshotByPanel,
-  resetSubmitWatchdogDeps,
-  submitActivityByPanel,
-  submitWatchdogDepsState,
 } from "./agent_flow_deps.js";
 import { createAgentPreviewCache } from "./agent_preview_cache.js";
 import { createRebaselineUndoFlow } from "./agent_rebaseline_undo.js";
@@ -264,10 +254,10 @@ import {
   DEFAULT_PIPELINE_MODE,
   normalizePipelineMode,
 } from "./agent_submit_flow.js";
+import { registerRoundtripExtension } from "./roundtrip_extension.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
-  configureDiagnosticsDeps,
   buildIssueReport,
   buildAgentSolvePrompt,
   buildCurrentAuditEnvelope,
@@ -469,11 +459,35 @@ const PANEL_IDS = Object.freeze({
   welcomeOverlay: "vibecomfy-agent-panel-welcome-overlay",
 });
 
+const diagnosticsReporting = createDiagnosticsReporting({
+  el,
+  button,
+  setButtonEmphasis,
+  downloadBlob,
+  getPanelElementById,
+  buildAgentPanelDebugSnapshot,
+  PANEL_IDS,
+});
+const {
+  collectIssueReportFiles,
+  downloadCurrentAudit,
+  downloadIssueReportZip,
+  downloadTurnAudit,
+  downloadTurnAuditEntry,
+  showIssueModal,
+} = diagnosticsReporting;
+
 // ── T-057: Submit flow behind injected boundaries ──────────────────────────
-// Build the deps object ONCE at module init from the centralized live
-// singletons. The flow reads the SAME object references (submitWatchdogDepsState
-// is mutated by configureSubmitWatchdogDeps / resetSubmitWatchdogDeps;
-// submitActivityByPanel is shared), so injection and reset keep working.
+// Build one consumer-owned state bundle. Tests can configure this extension's
+// watchdog through the re-exported closures without mutating another harness.
+const submitFlowDeps = createSubmitFlowDeps();
+const {
+  configureSubmitWatchdogDeps,
+  pendingTransactionSnapshotByPanel,
+  resetSubmitWatchdogDeps,
+  submitActivityByPanel,
+  submitWatchdogDepsState,
+} = submitFlowDeps;
 const submitFlow = createSubmitFlow({
   submitWatchdogDepsState,
   submitActivityByPanel,
@@ -4298,10 +4312,12 @@ async function _rehydrateChat(panel) {
   let savedId = scopedSessionId || _lsGet(LS_ACTIVE_SESSION_KEY);
 
   if (!savedId) {
-    // Browser scope storage is advisory. A workflow-tab switch can abort an
-    // in-flight fetch after the server has durably committed the turn, leaving
-    // no local scope-to-session binding. Recover it from the durable request
-    // artifacts using the workflow UUID the client still knows.
+    // ── Scope-switch recovery: the in-flight submit's scope→session binding
+    // may have been lost (a workflow-tab switch aborts the fetch and drops the
+    // stale response, while the server completes the turn and persists it
+    // durably).  Recover the session id from the durable store by the one
+    // identity the client still knows — the workflow UUID it submitted with —
+    // so the completed turn rehydrates instead of showing an empty thread.
     let recoveredId = null;
     if (requestScopeId) {
       try {
@@ -4326,8 +4342,7 @@ async function _rehydrateChat(panel) {
           }
         }
       } catch (_recoverError) {
-        // Recovery is best-effort; the ordinary no-session transition remains
-        // the safe fallback when storage cannot be inspected.
+        // Best-effort recovery; fall through to the no-session path.
       }
     }
     if (!recoveredId) {
@@ -8292,9 +8307,15 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     });
     submitEpoch = startObligations.submitEpoch;
 
-    // Pin the user's message before buildSubmitSnapshot yields. Scope recovery
-    // can resolve during serialization, and the lifecycle reducer preserves
-    // current-epoch optimistic entries while SUBMITTING.
+    // ── Pin the user's message before ANY await ─────────────────────────
+    // The scope-switch rehydrate (SCOPE_SWITCH → rehydrateChat → recover
+    // fetch) can resolve mid-submit and CHAT_REHYDRATE_NO_SESSION used to
+    // wipe chatMessages — deleting the optimistic bubble the submit had just
+    // painted ("my sent message disappears").  Paint the user line + pending
+    // agent bubble HERE, before buildSubmitSnapshot yields, so the thread
+    // shows the message the instant Submit is hit.  The submit_epoch field
+    // (not the idempotency key) is what reconciliation uses to preserve
+    // in-flight optimistic entries, so a pre-snapshot placeholder key is safe.
     if (!Array.isArray(panel.state.chatMessages)) {
       panel.state.chatMessages = [];
     }
@@ -8376,8 +8397,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     // returns the current epoch when payload.submitEpoch is supplied.
     submitEpoch = panel.state.submitEpoch;
     submitFlow.beginSubmitActivity(panel, submitEpoch);
-    // The optimistic user and pending-agent messages were pinned before
-    // serialization so a concurrent rehydrate cannot erase the submitted text.
+    // The optimistic user bubble + pending agent message were already pinned
+    // BEFORE buildSubmitSnapshot (see above) so the user's line is visible the
+    // instant they hit Submit and cannot be raced by a rehydrate wipe.
     pushHistory(panel, "pending", pendingMessage);
     pushTurnStatus(panel, "pending", {
       task,
@@ -9856,68 +9878,35 @@ function toast(msg) {
   }
 }
 
-app.registerExtension({
-  name: "VibeComfy.Roundtrip",
-  commands: [
-    { id: "VibeComfy.Roundtrip", label: "Round-trip (VibeComfy)", function: openRoundtrip },
-    { id: "VibeComfy.AgentEdit", label: "Edit with Agent (VibeComfy)", function: openAgentEdit },
-  ],
-  menuCommands: [{ path: ["Extensions", "VibeComfy"], commands: ["VibeComfy.Roundtrip", "VibeComfy.AgentEdit"] }],
-  async beforeRegisterNodeDef(nodeType, nodeData) {
-    patchIntentNodePrototype(nodeType, nodeData);
+registerRoundtripExtension(app, {
+  openRoundtrip,
+  openAgentEdit,
+  patchIntentNodePrototype,
+  configureDiagnostics() {
+    return diagnosticsReporting;
   },
-  async setup() {
-    console.log("[vibecomfy] extension setup() running");
-    try {
-      const pingRes = await fetch("/vibecomfy/ping");
-      const pingBody = await pingRes.text();
-      console.log("[vibecomfy] /vibecomfy/ping response", pingRes.status, pingBody);
-    } catch (pingErr) {
-      console.error("[vibecomfy] /vibecomfy/ping failed", pingErr);
-    }
-    configureDiagnosticsDeps({
-      el,
-      button,
-      setButtonEmphasis,
-      downloadBlob,
-      getPanelElementById,
-      buildAgentPanelDebugSnapshot,
-      PANEL_IDS,
-    });
-    await checkFrontendVersion();
-    registerDefaultExecutionModeSetting();
-    registerOnDemandSchemasSetting();
-    installGraphConfigureIntentFallback();
-    installIntentNodeFallback();
-    installAgentPreviewOverlay();
-    repairLiveIntentNodesFromCandidate();
-    installQueueGuard();
-    ensureAgentTurnListener();
-    ensureExecutorPhaseListener();
-    installAgentPanelDebugHook();
-    const proto = window.LiteGraph?.LGraphCanvas?.prototype;
-    if (proto && !proto.__vibecomfyRoundtripPatched) {
-      proto.__vibecomfyRoundtripPatched = true;
-      const orig = proto.getCanvasMenuOptions;
-      proto.getCanvasMenuOptions = function () {
-        const opts = orig ? orig.apply(this, arguments) : [];
-        opts.push({ content: "Round-trip (VibeComfy)", callback: openRoundtrip });
-        opts.push({ content: "Edit with Agent (VibeComfy)", callback: openAgentEdit });
-        return opts;
-      };
-    }
-    ensureAgentPanel();
+  checkFrontendVersion,
+  registerDefaultExecutionModeSetting,
+  registerOnDemandSchemasSetting,
+  installGraphConfigureIntentFallback,
+  installIntentNodeFallback,
+  installAgentPreviewOverlay,
+  repairLiveIntentNodesFromCandidate,
+  installQueueGuard,
+  ensureAgentTurnListener,
+  ensureExecutorPhaseListener,
+  installAgentPanelDebugHook,
+  ensureAgentPanel,
+  prefetchAgentStatus() {
     // Prefetch agent status at extension setup so the route/model controls are
     // ready before the launcher is first clicked (same path as openAgentPanel).
     // Safe on the not-yet-mounted shell: refreshAgentStatus mutates only
     // panel.state/fields and its renders are guarded by isAgentPanelRootConnected.
     pollerRefreshAgentStatus(currentAgentPanel(), { quiet: true }, agentStatusDeps());
-    // The right-edge launcher is the sole production entry point. Keep the
-    // historical ComfyUI sidebar mount available only to explicit test/dev
-    // harnesses so users do not see duplicate VibeComfy controls on both sides.
-    if (globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__ === true) {
-      ensureAgentSidebarTab();
-    }
-    ensureAgentLauncher();
   },
+  // The right-edge launcher is the sole production entry point. Keep the
+  // historical ComfyUI sidebar mount available only to explicit test/dev
+  // harnesses so users do not see duplicate VibeComfy controls on both sides.
+  ensureAgentSidebarTab,
+  ensureAgentLauncher,
 });

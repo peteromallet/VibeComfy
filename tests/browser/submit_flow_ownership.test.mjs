@@ -38,8 +38,8 @@ function makePanel(overrides = {}) {
   return { state };
 }
 
-test("submit flow keeps exactly TWO module-level WeakMaps and one scalar deps object (S12)", () => {
-  // Exactly two WeakMap singletons in the whole module — any third WeakMap
+test("submit flow factory keeps exactly TWO consumer-owned WeakMaps and one scalar deps object (S12)", () => {
+  // Exactly two WeakMaps in each factory result — any third WeakMap
   // (e.g. a preview cache) breaks this pin.
   const weakMapDeclarations = depsSource.match(/const\s+(\w+)\s*=\s*new WeakMap\(\)/g) || [];
   assert.deepEqual(
@@ -69,12 +69,13 @@ test("submit flow keeps exactly TWO module-level WeakMaps and one scalar deps ob
       `submitWatchdogDepsState must carry scalar dep ${scalarKey}`);
   }
 
-  // Accessor seam is exported (get/inject/reset).
-  assert.match(depsSource, /export\s+function\s+configureSubmitWatchdogDeps\(/);
-  assert.match(depsSource, /export\s+function\s+resetSubmitWatchdogDeps\(/);
+  // The factory is exported; configure/reset are closures owned by its result.
+  assert.match(depsSource, /export\s+function\s+createSubmitFlowDeps\(/);
+  assert.match(depsSource, /function\s+configureSubmitWatchdogDeps\(/);
+  assert.match(depsSource, /function\s+resetSubmitWatchdogDeps\(/);
 });
 
-test("submit watchdog deps seam behaves as a plain-object singleton (behavioral via harness)", async () => {
+test("submit watchdog deps seam behaves as a consumer-owned plain object (behavioral via harness)", async () => {
   const harness = await createBrowserHarness();
   try {
     const mod = await harness.loadExtension();
@@ -152,11 +153,12 @@ test("lifecycle module is the authority and roundtrip delegates (no duplicate fa
   // ...and does NOT re-implement it.
   assertNoDefinition(roundtripSource, "createAgentEditState", "vibecomfy_roundtrip.js must not define its own createAgentEditState");
 
-  // The submit-flow singletons are imported from the owner module
-  // (agent_flow_deps.js), never re-declared here...
+  // Roundtrip imports the consumer-state factory from agent_flow_deps.js and
+  // creates one bundle; it does not import process-global mutable carriers.
   assert.match(roundtripSource, /from\s+["']\.\/agent_flow_deps\.js["']/, "roundtrip must import the submit-flow deps from agent_flow_deps.js");
-  assert.match(roundtripSource, /submitWatchdogDepsState,\s*$/m, "roundtrip must import submitWatchdogDepsState from agent_flow_deps.js");
-  assert.match(roundtripSource, /pendingTransactionSnapshotByPanel,\s*$/m, "roundtrip must import pendingTransactionSnapshotByPanel from agent_flow_deps.js");
+  assert.match(roundtripSource, /createSubmitFlowDeps,?\s*$/m, "roundtrip must import createSubmitFlowDeps from agent_flow_deps.js");
+  assert.match(roundtripSource, /const\s+submitFlowDeps\s*=\s*createSubmitFlowDeps\(\);/);
+  assert.match(roundtripSource, /pendingTransactionSnapshotByPanel,\s*$/m, "roundtrip must destructure its consumer-owned compensation map");
 
   // ...and the seams are re-exported for tests and external callers.
   assert.match(roundtripSource, /export\s*\{\s*configureSubmitWatchdogDeps,/, "roundtrip must re-export configureSubmitWatchdogDeps");

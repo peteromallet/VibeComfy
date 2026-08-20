@@ -23,11 +23,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = Path(ebr.__file__)
 MODULE_SOURCE = MODULE_PATH.read_text(encoding="utf-8")
 
-# S4 ground truth: the batch loop references 80 external names; 5 are
-# stdlib-importable (Any/Mapping/dataclasses/json/time) and the remaining
-# 75 real deps (58 private + 17 public) are resolved from the façade globals.
-S4_TOTAL = 75
-S4_PRIVATE = 58
+# Current dependency surface after retired prompt-only helpers were removed:
+# 71 real deps (54 private + 17 public) resolve from the façade globals.
+S4_TOTAL = 71
+S4_PRIVATE = 54
 S4_PUBLIC = 17
 
 # S3 seam names that the batch loop pulls in from the façade through the deps

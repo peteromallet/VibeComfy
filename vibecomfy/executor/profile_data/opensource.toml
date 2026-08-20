@@ -1,11 +1,11 @@
 # Open-source / OpenRouter profile for vibecomfy-executor.
 #
 # Routes through OpenRouter using the Arnold "hermes" agent family.
-# Every stage uses the same pinned DeepSeek V4 Flash revision so behavior and
-# telemetry remain comparable across the staged pipeline.
+# Classify stays on DeepSeek V4 Flash; research and implementation use the
+# stronger Kimi K2.7 Code route, while reply stays on DeepSeek V4 Pro.
 [profiles.opensource]
 classify   = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
-research   = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
-implement  = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
-reply      = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"
+research   = "hermes:openrouter:moonshotai/kimi-k2.7-code"
+implement  = "hermes:openrouter:moonshotai/kimi-k2.7-code"
+reply      = "hermes:openrouter:deepseek/deepseek-v4-pro"
 execute    = "hermes:openrouter:deepseek/deepseek-v4-flash-0731"

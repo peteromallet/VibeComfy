@@ -322,8 +322,6 @@ def port_convert_workflow(
     # channel (FG-005): convert each HelperDiagnostic into an
     # EmissionDiagnostic so they flow through the standard
     # PortConvertValidation.to_json() reporting path.
-    from vibecomfy._compile._helpers import HelperDiagnostic
-
     for hd in resolve_diagnostics.diagnostics:
         sev: EmissionSeverity = "warning"
         if hd.severity == "info":

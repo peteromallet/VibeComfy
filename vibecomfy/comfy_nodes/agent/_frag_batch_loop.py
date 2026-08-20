@@ -10,9 +10,6 @@ under the old exec assembly; guarded imports stay function-local.
 """
 from __future__ import annotations
 
-import dataclasses
-import json
-import time
 from typing import Any, Mapping
 
 
@@ -672,6 +669,20 @@ def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ..
     return tuple(ordered)
 
 
+def _append_required_class(
+    required: list[str], target_classes: set[str], raw: Any
+) -> None:
+    """Append one normalized, genuinely new class while preserving order."""
+    class_type = str(raw or "").strip()
+    if (
+        class_type
+        and class_type != "Unknown"
+        and class_type not in target_classes
+        and class_type not in required
+    ):
+        required.append(class_type)
+
+
 def _actionable_plan_required_new_classes(
     state: AgentEditState,
     plan: Mapping[str, Any],
@@ -693,14 +704,7 @@ def _actionable_plan_required_new_classes(
     required: list[str] = []
 
     def add_class(raw: Any) -> None:
-        class_type = str(raw or "").strip()
-        if (
-            class_type
-            and class_type != "Unknown"
-            and class_type not in target_classes
-            and class_type not in required
-        ):
-            required.append(class_type)
+        _append_required_class(required, target_classes, raw)
 
     # W-07 — manifest-preferred dependency derivation.  When a complete
     # manifest is present on the adapt route, its canonical_class_type set is

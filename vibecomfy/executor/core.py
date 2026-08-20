@@ -1085,7 +1085,8 @@ def _research_decision_memo(
     trace: AgentResearchTrace,
     *,
     diagnostics: tuple[dict[str, Any], ...],
-    attempt: str,
+    attempt: str = RESEARCH_ATTEMPT_NEVER,
+    artifacts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     inspected = [
         evidence_id
@@ -1120,7 +1121,11 @@ def _research_decision_memo(
             "No external evidence was gathered by the research stage; "
             "answer from the attached workflow graph and general knowledge."
         )
-    return {
+    warning_lines = list(trace.warnings)
+    evidence_preview = _research_evidence_preview(
+        trace, artifacts=artifacts
+    )
+    memo = {
         "question": trace.question,
         "conclusion": conclusion,
         "citations": inspected[:6],
@@ -1139,7 +1144,98 @@ def _research_decision_memo(
                 else "Refine the unresolved research question before acting on this conclusion."
             )
         ),
+        "research_status": trace.status,
+        "research_warnings": warning_lines,
+        "tool_calls_executed": trace.executed_tool_calls,
+        "evidence_artifacts": trace.evidence_artifact_count,
+        "evidence_preview": evidence_preview,
     }
+    # R4d: a FAILED stage (e.g. an unparseable model decision) must expose the
+    # actual error so the reply stage reports the real cause — never a
+    # fabricated "ran out of time" (observed: malformed decision ValueError,
+    # memo without trace.error, reply inventing a timeout story).  Key is
+    # failure-only so successful-memo dict equality assertions stay stable.
+    if trace.status == "failed" and trace.error:
+        memo["research_error"] = trace.error[:400]
+    return memo
+
+
+def _research_evidence_preview(
+    trace: Any, *, max_chars: int = 900, artifacts: Mapping[str, Any] | None = None
+) -> str:
+    """Bounded preview of what the research tools actually returned.
+
+    Includes BOTH layers of gathered evidence: (1) the compact search-hit
+    conclusions from the trace, and (2) the FETCHED RECORD BODIES from the
+    evidence pack when available — the same content the research agent read.
+    A time-cutoff must not drop the fetched records: they are the substance
+    of the research, and the reply should be able to name what was actually
+    read before the deadline hit (user decision: include everything
+    researched).  ``payload`` (workflow JSON) never enters the preview.
+
+    Only produced when the stage failed to synthesize (exhausted/failed) but
+    DID execute tools and record tool evidence with no citations — a
+    successful no-citation synthesis is a legitimate outcome, not a timed-out
+    search (Codex review P1-6).
+    """
+    if trace.status not in {"exhausted", "failed"}:
+        return ""
+    if not trace.executed_tool_calls:
+        return ""
+    if trace.evidence_artifact_count <= 0:
+        return ""
+    if trace.citations:
+        return ""
+    lines: list[str] = []
+
+    # Layer 2 first (most substantive): fetched record bodies, deduped.
+    seen: set[str] = set()
+    for iteration in getattr(trace, "iterations", ()) or ():
+        for call in getattr(iteration, "tool_calls", ()) or ():
+            if not isinstance(call, dict):
+                continue
+            if str(call.get("tool") or "") != "hivemind_get":
+                continue
+            if str(call.get("status") or "") != "ok":
+                continue
+            for evidence_id in (call.get("evidence_ids") or ()):
+                if evidence_id in seen or not artifacts:
+                    continue
+                seen.add(evidence_id)
+                artifact = artifacts.get(evidence_id)
+                if artifact is None:
+                    continue
+                body = artifact.body if isinstance(artifact.body, Mapping) else {"value": artifact.body}
+                title = str(body.get("title") or body.get("name") or evidence_id)
+                content = str(
+                    body.get("body")
+                    or body.get("description")
+                    or body.get("content")
+                    or ""
+                )
+                # Never payload (workflow JSON); bounded per record.
+                if content:
+                    lines.append(f"[fetched {evidence_id}] {title}: {content[:220]}")
+
+    # Layer 1: search-hit conclusions (titles of what was surfaced).
+    for iteration in getattr(trace, "iterations", ()) or ():
+        for call in getattr(iteration, "tool_calls", ()) or ():
+            if not isinstance(call, dict):
+                continue
+            tool = str(call.get("tool") or "")
+            status = str(call.get("status") or "")
+            if status != "ok" or tool != "hivemind_search":
+                continue
+            conclusion = str(call.get("conclusion") or "").strip()
+            if not conclusion or conclusion.startswith("0 "):
+                continue
+            query = str(call.get("query") or "").strip()
+            prefix = f"[{tool} {query}] " if query else f"[{tool}] "
+            lines.append(prefix + conclusion[:220])
+    preview = "\n".join(lines)
+    if len(preview) > max_chars:
+        preview = preview[: max(0, max_chars - 3)].rstrip() + "..."
+    return preview
 
 
 def _research_stage_package(
@@ -1221,12 +1317,48 @@ def _run_agent_owned_research(
     route = _canonical_route_for_plan(plan)
     question, _source_field = form_research_question(request=request, plan=plan)
     brief = build_research_brief(plan=plan, request=request)
-    trace, pack = run_agent_research_stage(
-        route=route,
-        question=question,
-        research_brief=brief,
-        spec=spec,
-    )
+    # Research-only routes get the same wall-clock budget the batch-REPL
+    # research path uses (VIBECOMFY_RESEARCH_PHASE_DEADLINE, default 450s):
+    # a research-only turn has no implement phase, and flash-class decision
+    # turns take 30-150s each — the old 240s starved the agent mid-evidence
+    # (observed: 3 iterations, 30 evidence artifacts, then the deadline
+    # dropped the deciding call that would have finished the synthesis).
+    # ADAPT routes share the same 450s research budget: research + implement
+    # then each get ~half of the panel's 15-min absolute submit deadline
+    # (900s), with implement consuming the remainder after research returns.
+    # The stage coerces float(deadline_seconds) unconditionally, so we only
+    # pass a value for research routes (never None); 0/negative env falls
+    # back to the stage default (450s) rather than an immediate deadline.
+    deadline_seconds: float | None = None
+    if route in ("research", "adapt"):
+        try:
+            configured = float(os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "450") or 0)
+        except ValueError:
+            configured = 450.0
+        if configured > 0:
+            deadline_seconds = configured
+    research_kwargs: dict[str, float] = {}
+    if deadline_seconds is not None:
+        research_kwargs["deadline_seconds"] = deadline_seconds
+    try:
+        trace, pack = run_agent_research_stage(
+            route=route,
+            question=question,
+            research_brief=brief,
+            spec=spec,
+            **research_kwargs,
+        )
+    except TypeError as exc:
+        # Keep injected/legacy stage doubles source-compatible while the
+        # production stage receives its explicit deadline telemetry.
+        if "deadline_seconds" not in str(exc):
+            raise
+        trace, pack = run_agent_research_stage(
+            route=route,
+            question=question,
+            research_brief=brief,
+            spec=spec,
+        )
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
         pack = EvidencePack(
@@ -1239,6 +1371,7 @@ def _run_agent_owned_research(
             trace,
             diagnostics=diagnostics,
             attempt=attempt,
+            artifacts=pack.artifacts,
         )
         if route == "research"
         else None

@@ -35,8 +35,7 @@ _CLASSIFY_SYSTEM = (
     "Analyze the user request and choose exactly one locked route. "
     "The executor will run deterministic safety checks after classification; "
     "your job is to make the semantic route contract explicit.\n"
-    "Return ONLY a JSON object with these keys:\n"
-    '  "research": true/false — whether the executor should search for relevant nodes, '
+    "Return ONLY a JSON object with these keys:\n"    '  "research": true/false — whether the executor should search for relevant nodes, '
     "templates, or techniques.\n"
     '  "implement": true/false — whether the executor should edit the graph.\n'
     '  "reply": true/false — whether the executor should produce a user-facing reply.\n'
@@ -320,6 +319,21 @@ _CLASSIFY_SYSTEM = (
     "- When route=\"clarify\", include a clarification_question (string) and "
     "clarification_options (array of 1-4 strings) to help the user resolve "
     "the ambiguity."
+)
+
+# Corrective nudge appended to the classify messages when the model's first
+# reply is not a parseable JSON object (empty, prose, or valid JSON plus
+# trailing prose with braces that breaks extraction).  Mirrors the research
+# decision seam's retry: the model gets ONE bounded chance to repair its
+# output with the redacted preview instead of the whole turn dying on a
+# transient malformed response.
+_CLASSIFY_PARSE_RETRY_PROMPT = (
+    "Your previous reply was empty or not valid JSON for the workflow intent "
+    "classifier. Reply with exactly one JSON object and no other markdown or "
+    "prose, using the classify contract: "
+    '{"research": true|false, "implement": true|false, "reply": true|false, '
+    '"effort": "low"|"medium"|"high", "plan_summary": "...", '
+    '"intent": "edit"|"research"|"explain_graph"|"respond"}.'
 )
 
 
@@ -725,7 +739,16 @@ def build_reply_messages(
 # ── response parsers ─────────────────────────────────────────────────────────
 
 def _first_json_object_span(text: str) -> tuple[int, int] | None:
-    """Return the first balanced JSON-object span, respecting JSON strings."""
+    """Return (start, end) of the FIRST balanced JSON object in *text*.
+
+    A greedy ``{.*}`` match is unsafe: model output frequently appends
+    explanatory prose after the JSON, and any ``{``/``}`` in that prose (e.g.
+    "the {LoRA} distillation") extends the span past the object's real closing
+    brace, making json.loads fail on otherwise-valid JSON (observed: classify
+    returning ``{"research": false, ...}`` plus a trailing note).  This scan
+    tracks brace depth from the first ``{`` so the span ends at the matching
+    close — the object alone, never trailing prose.
+    """
     start = text.find("{")
     if start < 0:
         return None

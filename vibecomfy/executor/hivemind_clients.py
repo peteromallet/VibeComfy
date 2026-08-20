@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlencode
 
 # R2-B2: reuse the pack resolver's Retry-After parser (seconds or HTTP date)
@@ -807,6 +807,9 @@ def _hivemind_scope_params(
     }
 
     if table == "external_resources":
+        # external_resources is a small, indexed table: a server-side recency
+        # sort is cheap and gives a stable candidate pool.
+        params["order"] = "created_at.desc"
         if channel or author:
             # external_resources carries no channel/author columns: the scope
             # is skipped rather than guessed at.
@@ -902,7 +905,7 @@ def _hivemind_scope_params(
         # Discord lives on raw message_feed; unified_feed is distillation-only.
         if has_workflow is not None:
             params["metadata"] = _json_containment({"has_workflow": has_workflow})
-    else:  # pragma: no cover - message_feed is not a search scope
+    else:  # pragma: no cover - unknown table
         return None
 
     if date_from and date_to:

@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 # ── Narrator defaults (SD3) ───────────────────────────────────────────────
 _NARRATOR_DEFAULT_ROUTE = "openrouter"
-_NARRATOR_DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash"
+_NARRATOR_DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash-0731"
 
 
 @dataclass

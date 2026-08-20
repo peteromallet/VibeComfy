@@ -108,6 +108,10 @@ def _message_row(
     created_at: str = "2026-08-02T00:00:00Z",
     **extra: Any,
 ) -> dict[str, Any]:
+    # REC-D: the discord scope reads the raw message_feed table, whose native
+    # columns are message_id / content / channel_name / author_name (no
+    # title/body/kind/item_id).  The hit projector maps content -> body and
+    # channel_name -> channel.
     row: dict[str, Any] = {
         "message_id": item_id,
         "content": f"{title}: community chatter about ltx",
@@ -481,7 +485,7 @@ class TestSearchFilterTranslation:
 
     def test_scope_params_return_none_without_criteria(self) -> None:
         params = _hivemind_scope_params(
-            table="unified_feed",
+            table="message_feed",
             kind="message",
             query="what is this",
             model_family=None,
@@ -555,7 +559,7 @@ class TestSearchResults:
             _message_row(
                 2,
                 title="unrelated photo",
-                body="just a photo of a cat",
+                content="just a photo of a cat",
                 created_at="2026-08-04T00:00:00Z",
             ),
         ]
@@ -797,13 +801,16 @@ class TestGet:
         assert "id=eq.wf-1" in seen[0]
 
     def test_resolves_message_feed_message_and_unified_distillation(self) -> None:
+        seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
-            side_effect=_capture_urlopen([], _json_response([_message_row(42)])),
+            side_effect=_capture_urlopen(seen, _json_response([_message_row(42)])),
         ):
             result = hivemind_get("hivemind:message_feed:42")
         assert result.status is ToolStatus.OK
         assert result.result["source_type"] == "discord"
+        assert result.result["table"] == "message_feed"
+        assert "message_id=eq.42" in seen[0]
 
         with patch(
             "urllib.request.urlopen",

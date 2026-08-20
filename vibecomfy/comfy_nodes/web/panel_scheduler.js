@@ -17,11 +17,11 @@ export const SETTINGS_STATUS_RENDER_SECTIONS = Object.freeze([
 ]);
 const AGENT_PANEL_RENDER_TIMEOUT_MS = 100;
 
-let renderGateway = null;
-
-export function setRenderGateway(fn) {
-  renderGateway = typeof fn === "function" ? fn : null;
-  getAgentPanelRuntime().renderDirtyAgentPanelSections = renderGateway;
+export function setRenderGateway(fn, runtime = getAgentPanelRuntime()) {
+  if (!runtime || typeof runtime !== "object") {
+    return;
+  }
+  runtime.renderDirtyAgentPanelSections = typeof fn === "function" ? fn : null;
 }
 
 export function normalizeDirtySectionList(sections) {
@@ -249,7 +249,7 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
     if (runtime._agentPanelRenderScheduleGeneration !== scheduleGeneration) {
       return;
     }
-    const gateway = renderGateway || runtime.renderDirtyAgentPanelSections;
+    const gateway = runtime.renderDirtyAgentPanelSections;
     const scheduledBatch = Array.isArray(runtime._scheduledAgentPanelRenders)
       && runtime._scheduledAgentPanelRenders.length
       ? runtime._scheduledAgentPanelRenders.slice()

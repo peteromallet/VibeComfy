@@ -10,6 +10,7 @@ import pytest
 
 from vibecomfy.patches.gguf_unet import GGUF_MODEL, patch as gguf_unet
 from vibecomfy.patches.registry import find_applicable, register, registered_patches
+from vibecomfy.patches.gguf_unet import GGUF_MODEL, patch as gguf_unet
 from vibecomfy.patches.ltx_lowvram import COMFY_CONFIGURATION, FP8_CHECKPOINT, SOURCE_CHECKPOINT, patch as ltx_lowvram
 from vibecomfy.patches.requirements import ensure_custom_nodes
 from vibecomfy.patches.seed import seed

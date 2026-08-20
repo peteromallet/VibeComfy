@@ -5,7 +5,8 @@ agent-driven tool-calling loop: the MODEL chooses every evidence tool call
 (``hivemind_search``, ``hivemind_get``, ``registry_lookup``) and decides when
 the evidence answers the question (``finish``).  Deterministic Python never
 auto-chooses a search or fetch — it only executes the agent's chosen calls,
-records typed evidence, and enforces the phase allowlist + effort budgets.
+records typed evidence, and enforces the phase allowlist + the wall-clock
+deadline (calls and turns are unbounded — minimal-budget plan).
 The stage returns ``(trace, evidence_pack)``; the F01 :class:`EvidencePack`
 is the only handoff into the implement phase.
 
@@ -57,6 +58,7 @@ from .hivemind_tools import (
     HIVE_MIND_SEARCH_TOOL,
     serve_hivemind_record,
 )
+from .hivemind_clients import _first_text, _workflow_semantics
 from .tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
 from .tool_specs import (
     PHASE_RESEARCH,
@@ -261,6 +263,12 @@ def _served_record_preview(view: Any, body: Mapping[str, Any]) -> str:
             content = str(view.get("content") or "")
             return f"[non_workflow] {content}" if content else "[non_workflow]"
         if record_type == RECORD_TYPE_MALFORMED:
+            # Keep the typed malformed classification, but communicate the
+            # bounded workflow metadata when available.  This is useful for
+            # rows that carry semantics without a normalizable JSON payload;
+            # raw payload/source still never enters the digest.
+            if _is_workflow_row(body):
+                return _workflow_digest_line(body)
             return f"[malformed_record] {str(view.get('error') or '')}"
     return str(body.get("body") or body.get("description") or body.get("content") or "")
 
@@ -460,6 +468,13 @@ def _extract_content(result: dict[str, Any]) -> str:
     )
 
 
+# ── model request construction ───────────────────────────────────────────────
+# The agent decision request carries ONLY the question + the research-phase
+# tool catalog + a compact evidence digest.  It must never contain the full
+# research result object nor a workflow schema dump — the digest builder below
+# is the only evidence channel into the prompt.
+
+
 _RESEARCH_DECISION_RETRY_PROMPT = (
     "Your previous reply was empty or not valid JSON for VibeComfy's research "
     "decision transport. Reply with exactly one JSON object and no other "
@@ -468,6 +483,7 @@ _RESEARCH_DECISION_RETRY_PROMPT = (
     'or {"action": "finish", "conclusion": "...", "evidence_ids": [...], '
     '"uncertainty": "", "refine_question": null}.'
 )
+
 _RESEARCH_DECISION_MAX_ATTEMPTS = 3
 
 
@@ -475,13 +491,15 @@ def _research_decision_retry_messages(
     messages: list[dict[str, Any]],
     exc: BaseException,
 ) -> list[dict[str, Any]]:
-    """Append a bounded corrective JSON nudge after a malformed decision."""
+    """Append the corrective retry nudge (with redacted raw preview) to the
+    decision-turn messages, mirroring the batch-REPL recovery in provider.py."""
     prompt = _RESEARCH_DECISION_RETRY_PROMPT
     raw_preview = getattr(exc, "raw_response_preview", None)
     if isinstance(raw_preview, str) and raw_preview.strip():
-        prompt += (
-            "\n\nPrevious response preview, for correction only:\n"
-            + raw_preview.strip()
+        prompt = (
+            f"{prompt}\n\n"
+            "Previous response preview, for correction only:\n"
+            f"{raw_preview.strip()}"
         )
     return [*messages, {"role": "system", "content": prompt}]
 
@@ -496,7 +514,20 @@ def _run_decision_turn_with_retry(
     now_fn: Callable[[], float],
     max_attempts: int = _RESEARCH_DECISION_MAX_ATTEMPTS,
 ) -> tuple[dict[str, Any], int]:
-    """Retry only typed malformed model JSON, never transport failures."""
+    """Run one agent decision turn with bounded corrective retries.
+
+    A malformed/empty decision (typed ``MalformedModelJSON``) is retried up
+    to *max_attempts* times, appending a corrective system message that
+    carries the redacted raw preview so the model can fix its output — the
+    same recovery the batch-REPL path has (provider.py).  Provider-level
+    failures (AuthError/TimeoutError/ProviderError) are NEVER retried: only
+    the parse-level typed failure is a retryable model-output problem.
+
+    The wall-clock deadline is checked before every retry: an in-flight
+    provider call may overrun, but the stage never starts ANOTHER call after
+    the deadline.  Returns ``(decision, retry_count)``; raises the last
+    ``MalformedModelJSON`` when retries are exhausted.
+    """
     from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON  # noqa: PLC0415
 
     retries = 0
@@ -514,14 +545,7 @@ def _run_decision_turn_with_retry(
             last_exc = exc
             if attempt_index >= max_attempts - 1:
                 raise
-    raise last_exc  # pragma: no cover
-
-
-# ── model request construction ───────────────────────────────────────────────
-# The agent decision request carries ONLY the question + the research-phase
-# tool catalog + a compact evidence digest.  It must never contain the full
-# research result object nor a workflow schema dump — the digest builder below
-# is the only evidence channel into the prompt.
+    raise last_exc  # pragma: no cover - loop above always returns or raises
 
 
 def _brief_model_family_nudge(research_brief: str) -> str:
@@ -692,6 +716,141 @@ def build_agent_research_messages(
     ]
 
 
+def _as_str_list(value: Any) -> list[str]:
+    """Normalize a string/list metadata value to a list of clean strings."""
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _prose_description(row: Mapping[str, Any]) -> str:
+    """One-line human description of a workflow row, python-scratchpad-stripped."""
+    raw = _first_text(row, "body", "description", "content")
+    if not raw:
+        return ""
+    cut = len(raw)
+    for marker in (
+        "Python scratchpad source:",
+        "Python ready-template source:",
+        "Workflow semantics (rule-based):",
+        "Workflow semantics (canonical):",
+    ):
+        idx = raw.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    text = " ".join(raw[:cut].split())
+    if text.lower().startswith("description:"):
+        text = text[len("description:") :].strip()
+    return text
+
+
+def _class_tokens(semantics: Mapping[str, Any]) -> list[str]:
+    """Deterministic class inventory: node_class_multiset (counts) else node_types."""
+    multiset = semantics.get("node_class_multiset")
+    # Accept any Mapping — frozen ToolResults wrap nested dicts in mappingproxy.
+    if isinstance(multiset, Mapping) and multiset:
+        items = sorted(
+            ((str(k), int(v)) for k, v in multiset.items() if k),
+            key=lambda kv: (-kv[1], kv[0].casefold()),
+        )
+        return [f"{name}×{count}" if count != 1 else name for name, count in items]
+    return _as_str_list(semantics.get("node_types"))
+
+
+def _is_workflow_row(row: Mapping[str, Any]) -> bool:
+    """True when a fetched row is a workflow (kind column or semantics metadata)."""
+    if str(row.get("kind") or "") == "workflow":
+        return True
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), Mapping) else {}
+    return isinstance(metadata.get("workflow_semantics"), Mapping)
+
+
+# Workflow digest line caps (Grok workflow-communication spec).
+_WORKFLOW_LINE_CAP = 800
+_WORKFLOW_CLASS_CAP = 24
+_WORKFLOW_MODEL_CAP = 8
+_WORKFLOW_CUSTOM_CAP = 12
+
+
+def _workflow_digest_line(row: Mapping[str, Any], *, limit: int = _WORKFLOW_LINE_CAP) -> str:
+    """Deterministic bounded preview of a fetched WORKFLOW row.
+
+    Workflow rows are the one big-record case: their ``body`` is often a
+    short description followed by tens of KB of generated Python, and the
+    node-class line lands AFTER that (truncated away by any body-prefix
+    preview).  Communicate the workflow via its structured
+    ``workflow_semantics`` (class inventory, task/media, families, gates)
+    instead — never ``payload``/Python source.  Discord/distillation rows
+    keep the plain body preview (they are small prose).
+    """
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), Mapping) else {}
+    semantics = _workflow_semantics(row)
+    gates = semantics.get("promotion_gates") if isinstance(semantics.get("promotion_gates"), Mapping) else {}
+
+    title = _first_text(row, "title", "name") or "(untitled workflow)"
+    parts: list[str] = [title]
+
+    desc = _prose_description(row)
+    if desc:
+        parts.append("desc: " + desc)
+
+    kv: list[str] = []
+    for key, label in (("task_type", "task"), ("media_type", "media")):
+        value = semantics.get(key)
+        if isinstance(value, str) and value and value != "unknown":
+            kv.append(f"{label}={value}")
+    families = _as_str_list(semantics.get("model_families"))
+    if families:
+        kv.append("families=" + ",".join(families))
+    if kv:
+        parts.append(" ".join(kv))
+
+    classes = _class_tokens(semantics)[:_WORKFLOW_CLASS_CAP]
+    if classes:
+        all_classes = _class_tokens(semantics)
+        extra = len(all_classes) - len(classes)
+        suffix = f" +{extra}" if extra > 0 else ""
+        parts.append("classes: " + ", ".join(classes) + suffix)
+
+    custom = _as_str_list(semantics.get("custom_nodes"))[:_WORKFLOW_CUSTOM_CAP]
+    if custom:
+        parts.append("custom: " + ", ".join(custom))
+
+    models = _as_str_list(semantics.get("models"))[:_WORKFLOW_MODEL_CAP]
+    if models:
+        parts.append("models: " + ", ".join(models))
+
+    gate_bits: list[str] = []
+    for key, label in (
+        ("parseable_workflow", "parseable"),
+        ("has_compiled_api", "compiled_api"),
+        ("has_workflow_json", "json"),
+    ):
+        if key in gates:
+            gate_bits.append(f"{label}={bool(gates.get(key))}")
+    if not gate_bits and (
+        metadata.get("has_workflow_json") is True
+        or row.get("has_workflow_json") is True
+    ):
+        gate_bits.append("json=True")
+    if gate_bits:
+        parts.append("gates: " + " ".join(gate_bits))
+
+    url = _first_text(row, "url", "source_url", "permalink")
+    if url:
+        parts.append("url: " + url)
+
+    if len(parts) == 1:  # title only — say so
+        parts.append("(no workflow semantics)")
+
+    line = " | ".join(parts)
+    if len(line) <= limit:
+        return line
+    return line[: limit - 1].rstrip() + "…"
+
+
 def build_evidence_digest(
     *,
     question: str,
@@ -711,7 +870,6 @@ def build_evidence_digest(
     accepted for callers compiled against the older helper, but the research
     stage is deadline-bounded and displays only honest remaining time.
     """
-    del searches_left, fetches_left, registry_left, turns_left
     lines: list[str] = []
     if seconds_left is not None:
         lines.append(f"Time left: ~{max(0, int(seconds_left))}s.")
@@ -924,6 +1082,12 @@ class AgentResearchTrace:
     evidence_artifact_count: int = 0
     warnings: tuple[str, ...] = ()
     error: str | None = None
+    # R4 honesty counters: how many agent-chosen tool calls actually executed
+    # and how many evidence artifacts were recorded.  Consumers (the reply
+    # memo) use these to distinguish "searched and found nothing" from
+    # "research never ran a tool".
+    executed_tool_calls: int = 0
+    evidence_artifact_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1185,8 +1349,8 @@ def run_agent_research_stage(
         # record.  Do NOT auto-fail the stage: record the typed
         # ``finish_premature`` marker (ledger + digest + one refinement
         # iteration) so the next turn nudges the agent to make at least one
-        # evidence tool call before finishing.  The turn budget still bounds
-        # the loop if the agent keeps refusing to call a tool.
+        # evidence tool call before finishing.  The wall-clock deadline still
+        # bounds the loop if the agent keeps refusing to call a tool.
         _add_entry(
             EvidenceLedgerEntry(
                 decision=DECISION_FINISH_PREMATURE,
@@ -1300,6 +1464,20 @@ def run_agent_research_stage(
                 # does not count as evidence here.
                 citable_citations = tuple(
                     citation for citation in cited if citation != _QUESTION_ARTIFACT_ID
+                )
+                # P1-c + R5c: finish-with-zero-evidence prevention.  A finish
+                # is premature when (a) it cites no evidence AND made no tool
+                # call (nothing was researched), or (b) it FETCHED records
+                # but cites none of them — the agent gathered citable
+                # evidence and ignored it (observed live: 7 fetched records,
+                # then a zero-citation finish claiming "no distillation LoRA
+                # exists" while its own fetches named the RAVEN/Turbo LoRAs;
+                # delivering that would ship a false negative).  A search-only
+                # run that found nothing worth fetching may still finish with
+                # empty citations (honest "not in corpus").
+                fetched_cited = any(
+                    citation.startswith("hivemind_get:")
+                    for citation in citable_citations
                 )
                 if not citable_citations and tool_calls_made == 0:
                     _finish_premature_turn(

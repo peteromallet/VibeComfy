@@ -1959,7 +1959,7 @@ def test_uid_counter_monotonic_never_resets() -> None:
     b2 = wf.node("B")
     del wf.nodes[b1.node.id]
     del wf.nodes[b2.node.id]
-    b3 = wf.node("C")
+    wf.node("C")
     assert wf._uid_counter == 3  # monotonically incremented, not reset
 
 

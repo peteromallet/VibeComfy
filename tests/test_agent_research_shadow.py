@@ -11,8 +11,9 @@ Covers the active research-phase contract:
 3. No full research result or workflow schema dump is injected into the model
    request (behavioral capture + source grep); the digest carries only compact
    tool statuses, evidence IDs, and previews.
-4. Effort budgets (3 searches / 6 fetches / 1 registry / ~90s) and the phase
-   deadline terminate the loop deterministically.
+4. Research calls and decision turns are UNBOUNDED (minimal-budget plan); the
+   wall-clock deadline terminates the loop deterministically (tests inject
+   small ``deadline_seconds`` / ``max_turns`` clamps).
 
 All model calls and Hivemind tools are faked and deterministic — no network,
 no ComfyUI boot, no Arnold imports.
@@ -309,11 +310,21 @@ class TestTraceRecordsQuestionAndJudgment:
     def test_test_turn_clamp_exhausts_without_budget_refusals(
         self, profile_dir: Path
     ) -> None:
-        """An agent that never finishes still terminates (bounded), leaving a
-        refine verdict and a recorded trace."""
+        """Minimal-budget plan: an agent that never finishes still terminates
+        — on the WALL-CLOCK DEADLINE, not a call-count budget.  Searches are
+        unbounded, so every call is a successful search (zero budget
+        refusals); the deadline stop is ``status="exhausted"``, never "ok",
+        so the executor fails closed."""
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        clock = {"t": 1000.0}
+
+        def fake_now() -> float:
+            return clock["t"]
 
         def always_search(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            # Each decision costs wall time; after a few searches the fake
+            # clock crosses the deadline and the loop stops.
+            clock["t"] += 1.0
             return {
                 "action": "call",
                 "tool": "hivemind_search",
@@ -329,8 +340,8 @@ class TestTraceRecordsQuestionAndJudgment:
             judge_fn=always_search,
             max_turns=5,
         )
-        # P1-a: a loop that stops without an agent finish (max-turns here) is
-        # "exhausted", never "ok" — the executor fails closed on it.
+        # P1-a: a loop that stops without an agent finish is "exhausted",
+        # never "ok" — the executor fails closed on it.
         assert trace.status == "exhausted"
         assert trace.final_verdict == "refine"
         # The test-only turn clamp stops the loop; production has no arbitrary
@@ -700,6 +711,151 @@ class TestNoLegacyInjectionIntoModelRequest:
         assert _EXPLICIT_QUESTION in all_text
         assert '"nodes"' not in all_text
 
+    def test_workflow_digest_line_communicates_semantics_not_payload(
+        self, profile_dir: Path
+    ) -> None:
+        """A fetched WORKFLOW record's digest preview is the structured
+        semantics line (class inventory, task/media, gates, url) — NOT the
+        body prefix, which is a description followed by generated Python
+        (Grok workflow-communication spec)."""
+        captured: dict[str, Any] = {}
+
+        def recording_judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            captured["digest"] = digest
+            if "hivemind_get →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "done",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        def semantics_get(evidence_id: str, **kwargs: Any) -> ToolResult:
+            return ToolResult(
+                tool_name="hivemind_get",
+                status=ToolStatus.OK,
+                result={
+                    "evidence_id": evidence_id,
+                    "source_type": "workflow",
+                    "row": {
+                        "id": "111",
+                        "title": "MiniMax H3 I2V",
+                        "kind": "workflow",
+                        "body": (
+                            "Description: Generates a video.\n"
+                            "Python scratchpad source:\n"
+                            "print('tens of KB of python')\n"
+                            "Workflow semantics (rule-based):\n"
+                            "node_types: [LoraLoader, KSampler]"
+                        ),
+                        "url": "https://raw.example.com/wf.json",
+                        "metadata": {
+                            "workflow_semantics": {
+                                "task_type": "image_to_video",
+                                "media_type": "video",
+                                "node_class_multiset": {"LoraLoader": 2, "KSampler": 1},
+                                "models": ["h3.safetensors"],
+                                "promotion_gates": {"parseable_workflow": True},
+                            }
+                        },
+                    },
+                },
+                evidence_ids=(evidence_id,),
+            )
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=semantics_get,
+            judge_fn=recording_judge,
+        )
+        assert trace.status == "ok"
+        digest = captured["digest"]
+        # Class inventory + gates + url are the communicated channel.
+        assert "classes: LoraLoader×2, KSampler" in digest
+        assert "task=image_to_video media=video" in digest
+        assert "gates: parseable=True" in digest
+        assert "https://raw.example.com/wf.json" in digest
+        # The generated Python never appears; the raw body prefix is not the
+        # preview channel for workflows.
+        assert "tens of KB of python" not in digest
+        assert "print('" not in digest
+        assert len(digest) < 4_000
+
+    def test_payload_never_enters_digest_even_when_artifact_stores_it(
+        self, profile_dir: Path
+    ) -> None:
+        """A fetched workflow record may store its full row (including a
+        50KB+ ``payload``) as the artifact, but the DIGEST must never
+        stringify payload — the body/description/content preview only."""
+        captured: dict[str, Any] = {}
+
+        def recording_judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            captured["digest"] = digest
+            if "hivemind_get →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "done",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        big_payload = '{"nodes": [' + ",".join('{"type": "KSampler"}' for _ in range(2000)) + "]}"
+
+        def payload_get(evidence_id: str, **kwargs: Any) -> ToolResult:
+            return ToolResult(
+                tool_name="hivemind_get",
+                status=ToolStatus.OK,
+                result={
+                    "evidence_id": evidence_id,
+                    "source_type": "workflow",
+                    "row": {
+                        "id": "111",
+                        "title": "wf 111",
+                        "body": "description text",
+                        "kind": "workflow",
+                        "payload": big_payload,
+                        "has_workflow_json": True,
+                    },
+                },
+                evidence_ids=(evidence_id,),
+            )
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=payload_get,
+            judge_fn=recording_judge,
+        )
+        assert trace.status == "ok"
+        digest = captured["digest"]
+        # The description preview is present; the 50KB payload is not.
+        assert "description text" in digest
+        assert "KSampler" not in digest
+        assert big_payload[:200] not in digest
+        assert len(digest) < 4_000
+        # The artifact MAY keep the payload for the implement phase.
+        artifact = pack.artifacts.get("hivemind_get:workflows:111")
+        assert artifact is not None
+        if isinstance(artifact.body, dict):
+            assert artifact.body.get("payload") == big_payload
+
     def test_end_to_end_model_request_never_contains_legacy_or_graph(
         self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -840,6 +996,102 @@ class TestFinishPrematureGuard:
         # One iteration per decision: premature-finish, search, finish.
         assert len(trace.iterations) == 3
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_finish_citing_lead_id_after_fetch_aliases_to_get_id(self, profile_dir: Path) -> None:
+        """Grok citation contract: after fetching table:id, citing EITHER
+        spelling (lead ``hivemind:table:id`` OR namespaced
+        ``hivemind_get:table:id``) counts as citing that fetch — the finish
+        must NOT loop on the lead-spelling citation."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        state = {"judge_calls": 0}
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            state["judge_calls"] += 1
+            if state["judge_calls"] == 1:
+                return {"action": "call", "tool": "hivemind_get", "args": {"evidence_id": "hivemind:workflows:111"}}
+            # Cite the LEAD id — must alias to the fetched get id.
+            return {
+                "action": "finish",
+                "conclusion": "The record answers the question.",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        # No premature rejection: the lead id aliased to the fetched get id.
+        assert not any(
+            entry.decision == stage.DECISION_FINISH_PREMATURE
+            for entry in pack.ledger.entries
+        )
+        # The stored synthesis citation is normalized to the canonical get id.
+        synth = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_SYNTHESIZE
+        ]
+        assert len(synth) == 1
+        assert synth[0].evidence_ids == ("hivemind_get:workflows:111",)
+        assert trace.citations == ("hivemind_get:workflows:111",)
+
+    def test_finish_after_fetch_but_no_citation_is_premature_refinement(self, profile_dir: Path) -> None:
+        """R5c: a finish that FETCHED records but cites NONE is premature —
+        the agent gathered citable evidence and ignored it (observed live: 7
+        fetched records, then a zero-citation finish claiming "no distillation
+        LoRA exists" while its own fetches named the RAVEN/Turbo LoRAs)."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        judge_log: list[dict[str, Any]] = []
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            judge_log.append({"digest": digest})
+            if "hivemind_get →" not in digest:
+                return {"action": "call", "tool": "hivemind_get", "args": {"evidence_id": "hivemind:workflows:111"}}
+            if "finish_premature" not in digest:
+                return {
+                    "action": "finish",
+                    "conclusion": "No distillation LoRA exists in the corpus.",
+                    "evidence_ids": [],
+                    "uncertainty": "none found",
+                }
+            return {
+                "action": "finish",
+                "conclusion": "The RAVEN Streaming LoRA is the distillation LoRA.",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        premature = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_FINISH_PREMATURE
+        ]
+        assert len(premature) == 1
+        assert "fetched records but cited none" in premature[0].conclusion
+        synth = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_SYNTHESIZE
+        ]
+        assert len(synth) == 1
+        assert synth[0].evidence_ids == ("hivemind_get:workflows:111",)
+        assert trace.citations == ("hivemind_get:workflows:111",)
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
 
     def test_repeated_premature_finishes_stay_bounded_and_exhausted(self, profile_dir: Path) -> None:
         """P1-c: an agent that keeps finishing without any tool call consumes
@@ -1220,3 +1472,665 @@ class TestModelFamilyBriefNudge:
         all_text = " ".join(_all_strings(messages))
         assert "Model-family focus" not in all_text
         assert '"model_family"' not in all_text
+
+
+class TestEmptyTitleHitWhitespaceContract:
+    """R4: a Discord hit with empty title AND body (embeds, image-only
+    messages) used to leak a trailing ``" | "`` into the projected search
+    conclusion; ``EvidenceLedgerEntry`` rejected the whitespace and the
+    stage-wide except flipped the whole phase to ``failed``, discarding
+    every artifact already gathered (observed: 4 executed calls, 32 evidence
+    artifacts lost to one trailing-space ValueError)."""
+
+    def _search_with_empty_title_hits(self) -> ToolResult:
+        hits = [
+            {
+                "evidence_id": "hivemind:unified_feed:1",
+                "source_type": "discord",
+                "title": "",
+                "body": "",
+                "url": "",
+            },
+            {
+                "evidence_id": "hivemind:unified_feed:2",
+                "source_type": "discord",
+                "title": "Real title",
+                "body": "real body",
+                "url": "",
+            },
+            {
+                "evidence_id": "hivemind:unified_feed:3",
+                "source_type": "discord",
+                "title": "",
+                "body": "",
+                "url": "",
+            },
+        ]
+        return ToolResult(
+            tool_name="hivemind_search",
+            status=ToolStatus.OK,
+            result={
+                "query": "q",
+                "count": 3,
+                "hits": hits,
+                "next_cursor": None,
+                "has_more": False,
+            },
+            evidence_ids=tuple(hit["evidence_id"] for hit in hits),
+        )
+
+    def test_empty_title_hits_produce_clean_ledger_conclusion(self, profile_dir: Path) -> None:
+        """The projected conclusion skips empty rows and never carries
+        leading/trailing whitespace, so ledger construction succeeds."""
+        from vibecomfy.executor.evidence_pack import EvidenceLedgerEntry
+        from vibecomfy.executor.tool_specs import TOOL_SPEC_BY_NAME, project_tool_evidence
+
+        result = self._search_with_empty_title_hits()
+        _artifacts, entry, _digest = project_tool_evidence(
+            TOOL_SPEC_BY_NAME["hivemind_search"], {"query": "q"}, result, None
+        )
+        assert entry["conclusion"] == "3 hit(s): Real title"
+        assert entry["conclusion"] == entry["conclusion"].strip()
+        # The exact construction that used to crash the phase.
+        ledger = EvidenceLedgerEntry(
+            decision=entry["decision"],
+            conclusion=entry["conclusion"],
+            evidence_ids=entry["evidence_ids"],
+            uncertainty="",
+        )
+        assert ledger.conclusion.startswith("3 hit(s)")
+
+    def test_phase_survives_one_bad_projection_and_preserves_prior_evidence(
+        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A single tool call whose evidence projection fails degrades to a
+        typed refusal — the phase keeps its ``ok`` status, prior artifacts
+        survive, and the agent can still finish with later evidence.  The
+        stage-wide except must never convert one malformed row into
+        ``failed`` for the whole run."""
+        real_projector = stage.project_tool_evidence
+
+        def flaky_projector(spec, args, result, session):
+            if spec.name == "hivemind_search":
+                raise ValueError("corpus row violates compact contract")
+            return real_projector(spec, args, result, session)
+
+        monkeypatch.setattr(stage, "project_tool_evidence", flaky_projector)
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "hivemind_search →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question},
+                }
+            if "hivemind_get →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Use the workflow",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        assert trace.citations == ("hivemind_get:workflows:111",)
+        # The search executed (counted) but its evidence projection failed;
+        # the get executed and recorded normally.
+        assert trace.executed_tool_calls == 2
+        assert trace.evidence_artifact_count >= 1
+        assert any("evidence projection failed" in w for w in trace.warnings)
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+
+class TestDuplicateFetchGuard:
+    """R5a: a hivemind_get of an evidence ID already fetched this turn does
+    NOT re-hit the network or burn a fetch slot — it replays the cached
+    artifact as a successful get so the agent reads the content it asked for
+    and can proceed.  A bare refusal (nothing to read) previously made the
+    agent retry the same fetch and burn the whole turn budget."""
+
+    def test_second_fetch_of_same_id_replays_cached_record(self, profile_dir: Path) -> None:
+        state = {"judge_calls": 0, "fetches": 0}
+
+        def recording_get(evidence_id: str, **kwargs: Any) -> ToolResult:
+            state["fetches"] += 1
+            return _fake_get(evidence_id, **kwargs)
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            state["judge_calls"] += 1
+            if state["judge_calls"] == 1:
+                # Real network fetch of record 111.
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            if state["judge_calls"] == 2:
+                # Re-fetch the SAME id: must be served from the cache, not
+                # re-hit the network.
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Use LoadAudio -> ConditioningCombine",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            spec=spec,
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            search_fn=_fake_search,
+            get_fn=recording_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        # The duplicate fetch was served from cache: only ONE network get.
+        assert state["fetches"] == 1
+        # No bare refusal was needed (cache replay, not a dead-end refusal).
+        assert not any(
+            "already fetched" in call.get("conclusion", "")
+            for it in trace.iterations
+            for call in it.tool_calls
+        )
+        # The cached replay reached the digest as an ok get with content.
+        assert any(
+            "workflow record hivemind:workflows:111" in call.get("conclusion", "")
+            for it in trace.iterations
+            for call in it.tool_calls
+        )
+
+    def test_repeated_fetch_of_same_id_is_silent_cache_hit(self, profile_dir: Path) -> None:
+        """Minimal-budget plan: fetches are free, so a repeat hivemind_get of
+        an already-fetched id is a SILENT cache hit — no refusal, no special
+        status, no second network GET.  The agent can re-read freely."""
+        state = {"judge_calls": 0, "fetches": 0}
+
+        def recording_get(evidence_id: str, **kwargs: Any) -> ToolResult:
+            state["fetches"] += 1
+            return _fake_get(evidence_id, **kwargs)
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            state["judge_calls"] += 1
+            if state["judge_calls"] <= 4:
+                # fetch → re-fetch → re-fetch → re-fetch: all must be served
+                # from cache after the first (no refusals, no refusals).
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "done",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            spec=spec,
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            search_fn=_fake_search,
+            get_fn=recording_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        # Only the FIRST call hit the network; every repeat was cached.
+        assert state["fetches"] == 1
+        conclusions = [
+            str(call.get("conclusion") or "")
+            for it in trace.iterations
+            for call in it.tool_calls
+        ]
+        # Zero refusals — the cache hit is silent and non-punishing.
+        assert not any("already fetched" in c for c in conclusions)
+        # Cached gets project normally: the record is visible (title in the
+        # conclusion line; the full body preview lives in the digest).
+        assert any("full record 111" in c for c in conclusions)
+        assert any("cached record hivemind_get:workflows:111" in c for c in conclusions)
+
+    def test_last_fetch_gets_expanded_digest_window(self, profile_dir: Path) -> None:
+        """Grok rule: the most recently fetched record's preview window is
+        much larger than the default 320-char cap — enough to name class
+        types/wiring — while the digest total stays bounded."""
+        judge_log: list[dict[str, Any]] = []
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            judge_log.append({"digest": digest})
+            if "hivemind_get →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:111"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "done",
+                "evidence_ids": ["hivemind_get:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            spec=spec,
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        last_digest = judge_log[-1]["digest"]
+        # PR #154 serves the typed IR surface lens, rather than the raw
+        # fetched body; raw source-tail markers must stay out of the digest.
+        assert "END-OF-SURFACE-LENS" in last_digest
+        assert "END-OF-EXPANDED-RECORD" not in last_digest
+        assert len(last_digest) < 4_000
+
+    def test_failed_fetch_of_id_is_retryable(self, profile_dir: Path) -> None:
+        """A get that resolves to NO row is NOT marked fetched — a genuine
+        miss can be retried (the digest refuses only duplicates of fetched
+        records)."""
+        judge_log: list[dict[str, Any]] = []
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            judge_log.append({"digest": digest})
+            if "hivemind_get →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_get",
+                    "args": {"evidence_id": "hivemind:workflows:999"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "no record; answer from search titles",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "record 999 absent",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            spec=spec,
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            search_fn=_fake_search,
+            get_fn=lambda evidence_id, **kw: ToolResult(
+                tool_name="hivemind_get",
+                status=ToolStatus.NO_RESULTS,
+                result={},
+                diagnostics=(),
+            ),
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        all_conclusions = " ".join(
+            str(call.get("conclusion") or "")
+            for it in trace.iterations
+            for call in it.tool_calls
+        )
+        assert "already fetched" not in all_conclusions
+
+
+class TestSourcePreferenceBriefNudge:
+    def test_source_preferences_translate_to_source_type_hint(self) -> None:
+        """When the classifier brief names source preferences, the decision
+        messages translate them into the concrete hivemind_search source_type
+        filter — 'workflows' → exact graph precedent, 'messages' → community
+        knowledge."""
+        brief = (
+            "- Source preferences: workflows, messages\n"
+            "- Known graph context: empty graph"
+        )
+        messages = stage.build_agent_research_messages(
+            question=_EXPLICIT_QUESTION,
+            evidence_digest="(digest)",
+            route="research",
+            research_brief=brief,
+        )
+        user_text = messages[-1]["content"]
+        assert 'filters={"source_type": "<tier>"}' in user_text
+        assert '"workflow" when you need an exact graph precedent' in user_text
+        assert '"discord" when you need community knowledge' in user_text
+
+    def test_no_source_preferences_means_no_nudge(self) -> None:
+        messages = stage.build_agent_research_messages(
+            question=_EXPLICIT_QUESTION,
+            evidence_digest="(digest)",
+            route="research",
+            research_brief="",
+        )
+        user_text = messages[-1]["content"]
+        assert "Source preferences:" not in user_text
+
+
+class TestResearchDecisionRetryAndTelemetry:
+    """R4d: the research decision seam uses the provider's typed error and
+    corrective retry — a malformed/empty model decision is retried (up to 3
+    attempts, never past the deadline) instead of failing the whole phase,
+    and the recorded model attempt is flipped to failure instead of lying as
+    a "success" (observed: prose with finish_reason=stop killing the phase;
+    memo without the error; reply fabricating "ran out of time")."""
+
+    def _provider(self, monkeypatch: pytest.MonkeyPatch, responses: list[dict[str, Any]]):
+        from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+        calls: list[dict[str, Any]] = []
+        consumed = list(responses)
+
+        def fake_run_model_turn(*_args, **_kwargs):
+            calls.append(dict(_kwargs))
+            return consumed.pop(0)
+
+        monkeypatch.setattr(provider_mod, "run_model_turn", fake_run_model_turn)
+        return provider_mod, calls
+
+    def test_seam_malformed_prose_raises_typed_error_with_preview_and_failure_attempt(
+        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Prose (non-JSON) content raises MalformedModelJSON carrying the
+        redacted raw preview + parse reason, and the model attempt evidence
+        is flipped to failure — the provider must not record a "success" for
+        output the seam could not parse."""
+        provider_mod, _calls = self._provider(
+            monkeypatch,
+            [{"content": "Let me search for that, one moment", "model_attempts": [
+                {"attempt": 1, "outcome": "success", "failure_type": "None",
+                 "phase": "research_stage", "requested_model": "m", "resolved_model": "m",
+                 "transport": "arnold", "adapter": "hermes", "endpoint": "e",
+                 "finish_reason": "stop", "token_usage": {}},
+            ]}],
+        )
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        with pytest.raises(MalformedModelJSON) as raised:
+            stage.run_agent_research_turn(
+                _EXPLICIT_QUESTION,
+                "digest",
+                route="research",
+                model="deepseek-v4-pro",
+            )
+        exc = raised.value
+        assert isinstance(exc, ValueError)  # typed subclass, backward compatible
+        assert "malformed JSON" in str(exc) or "non_json" in str(exc)
+        assert exc.raw_response_preview and "Let me search" in exc.raw_response_preview
+        assert exc.parse_reason == "non_json_content"
+
+    def test_seam_empty_content_is_empty_response_reason(
+        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Blank content maps to parse_reason empty_response (distinct from
+        prose/non-JSON) so retry telemetry can tell the cases apart."""
+        provider_mod, _calls = self._provider(monkeypatch, [{"content": ""}])
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        with pytest.raises(MalformedModelJSON) as raised:
+            stage.run_agent_research_turn(
+                _EXPLICIT_QUESTION,
+                "digest",
+                route="research",
+                model="deepseek-v4-pro",
+            )
+        assert raised.value.parse_reason == "empty_response"
+        assert raised.value.raw_response_preview is None or raised.value.raw_response_preview == ""
+
+    def test_seam_schema_invalid_json_is_missing_required_fields(
+        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Valid JSON that violates the decision schema (call without a tool
+        name) maps to missing_required_fields — retryable, distinct reason."""
+        provider_mod, _calls = self._provider(
+            monkeypatch, [{"content": '{"action": "call"}'}]
+        )
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        with pytest.raises(MalformedModelJSON) as raised:
+            stage.run_agent_research_turn(
+                _EXPLICIT_QUESTION,
+                "digest",
+                route="research",
+                model="deepseek-v4-pro",
+            )
+        assert raised.value.parse_reason == "missing_required_fields"
+
+    def test_seam_success_records_attempts(self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A valid decision passes through unchanged and the successful
+        attempt is recorded (parity with the classify/reply seam)."""
+        from vibecomfy.comfy_nodes.agent.runtime import (
+            begin_model_attempt_capture,
+            end_model_attempt_capture,
+            snapshot_model_attempt_capture,
+        )
+        from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+        captured: dict[str, Any] = {}
+        attempts = [{"attempt": 1, "outcome": "success", "failure_type": "None",
+                     "phase": "research_stage", "requested_model": "m", "resolved_model": "m",
+                     "transport": "arnold", "adapter": "hermes", "endpoint": "e",
+                     "finish_reason": "stop", "token_usage": {}}]
+
+        def fake_run_model_turn(*_args, **_kwargs):
+            return {"content": '{"action": "finish", "conclusion": "done", '
+                               '"evidence_ids": [], "uncertainty": "", "refine_question": null}',
+                    "model_attempts": attempts}
+
+        monkeypatch.setattr(provider_mod, "run_model_turn", fake_run_model_turn)
+        token = begin_model_attempt_capture()
+        try:
+            decision = stage.run_agent_research_turn(
+                _EXPLICIT_QUESTION,
+                "digest",
+                route="research",
+                model="deepseek-v4-pro",
+            )
+            captured["attempts"] = snapshot_model_attempt_capture()
+        finally:
+            end_model_attempt_capture(token)
+        assert decision["action"] == "finish"
+        assert captured["attempts"], "successful attempt must be recorded"
+
+    def test_stage_retries_malformed_decision_and_recovers(
+        self, profile_dir: Path
+    ) -> None:
+        """A malformed first decision is corrected by the appended retry
+        message; the phase completes ok with a recovery warning — the exact
+        run-D failure no longer kills the phase after 3 tool calls."""
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        judge_calls: list[list[dict[str, Any]]] = []
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            judge_calls.append(list(messages or []))
+            if len(judge_calls) == 1:
+                # First attempt: malformed (run-D failure). The retry must
+                # append the corrective message and re-call.
+                raise MalformedModelJSON(
+                    "agent research decision: malformed JSON",
+                    raw_response="Here is what I found, in prose",
+                    parse_reason="non_json_content",
+                )
+            if "hivemind_search →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Use LoadAudio -> ConditioningCombine",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        # Calls: malformed attempt + corrective retry + the next decision
+        # turn (finish). The retry message is what the SECOND call saw.
+        assert len(judge_calls) == 3
+        retry_message = judge_calls[1][-1]
+        assert retry_message["role"] == "system"
+        assert "research decision" in retry_message["content"]
+        assert "Previous response preview" in retry_message["content"]
+        assert "prose" in retry_message["content"]
+        assert any("corrective retry" in w for w in trace.warnings)
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_stage_never_retries_after_deadline(
+        self, profile_dir: Path
+    ) -> None:
+        """The corrective retry checks the wall-clock deadline before every
+        attempt: after the deadline passes, the stage raises instead of
+        starting another provider call."""
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+        clock = {"t": 100.0}
+        judge_calls = 0
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            nonlocal judge_calls
+            judge_calls += 1
+            # The in-flight first attempt overruns the deadline (deadline is
+            # started + 1s = 101.0): the retry check must refuse to start
+            # another provider call.
+            clock["t"] = 200.0
+            raise MalformedModelJSON(
+                "agent research decision: malformed JSON",
+                raw_response="still prose",
+                parse_reason="non_json_content",
+            )
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+            deadline_seconds=1.0,
+            now_fn=lambda: clock["t"],
+        )
+        # First attempt ran (before deadline), the deadline passed, no retry.
+        assert judge_calls == 1
+        assert trace.status == "failed"
+        assert trace.error and "MalformedModelJSON" in trace.error
+        assert "raw response preview" in trace.error
+        assert "prose" in trace.error
+
+    def test_stage_retry_exhaustion_fails_with_preview_and_memo_error(
+        self, profile_dir: Path
+    ) -> None:
+        """Three consecutive malformed decisions exhaust retries → typed
+        failed trace whose error string carries the bounded raw preview, and
+        the C5 memo exposes research_error so the reply cannot invent a
+        timeout story."""
+        from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+        from vibecomfy.executor import core as executor_core
+
+        judge_calls = 0
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            nonlocal judge_calls
+            judge_calls += 1
+            raise MalformedModelJSON(
+                "agent research decision: malformed JSON",
+                raw_response="final prose failure",
+                parse_reason="non_json_content",
+            )
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert judge_calls == 3  # 1 + 2 corrective retries
+        assert trace.status == "failed"
+        assert trace.final_verdict == "failed"
+        assert "MalformedModelJSON" in trace.error
+        assert "final prose failure" in trace.error
+        # The memo carries the real error on failed traces (failure-only key).
+        memo = executor_core._research_decision_memo(trace, diagnostics=())
+        assert memo["research_status"] == "failed"
+        assert memo["research_error"]
+        assert "final prose failure" in memo["research_error"]
+
+    def test_stage_never_retries_provider_errors(self, profile_dir: Path) -> None:
+        """AuthError/ProviderError/TimeoutError are transport failures, not
+        model-output problems: the corrective retry must never mask them."""
+        from vibecomfy.comfy_nodes.agent.provider import ProviderError
+
+        judge_calls = 0
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            nonlocal judge_calls
+            judge_calls += 1
+            raise ProviderError("provider offline")
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert judge_calls == 1  # ProviderError is never retried
+        assert trace.status == "failed"
+        assert "ProviderError" in trace.error
+
+    def test_memo_ok_trace_has_no_research_error_key(self, profile_dir: Path) -> None:
+        """research_error is failure-only: successful-memo dict equality
+        assertions elsewhere stay stable."""
+        from vibecomfy.executor import core as executor_core
+        from vibecomfy.executor.agent_research_stage import AgentResearchTrace
+
+        trace = AgentResearchTrace(
+            route="research",
+            question="q",
+            iterations=(),
+            final_verdict="enough",
+            summary="s",
+            citations=(),
+            uncertainty="",
+            status="ok",
+            elapsed_seconds=1.0,
+        )
+        memo = executor_core._research_decision_memo(trace, diagnostics=())
+        assert "research_error" not in memo
+        assert memo["research_status"] == "ok"

@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from vibecomfy.ingest.normalize import door_get_nodes
+
+from . import _agentic_replay_service
+
 _LOGGER = logging.getLogger(__name__)
 
 from vibecomfy.security.gate import CapabilityFenceError
@@ -472,198 +475,35 @@ def _agentic_replay_root() -> Path:
 
 
 def _is_agentic_replay_enabled() -> bool:
-    return os.environ.get("VIBECOMFY_AGENTIC_REPLAY") == "1"
+    return _agentic_replay_service.is_enabled()
 
 
 def _is_safe_replay_id(value: str) -> bool:
-    if not _is_safe_demo_id(value):
-        return False
-    return "~" not in value
-
-
-def _agentic_replay_run_dir(run_id: str) -> Path | None:
-    if not _is_safe_replay_id(run_id):
-        return None
-    root = _agentic_replay_root().resolve()
-    run_dir = (root / run_id).resolve()
-    try:
-        run_dir.relative_to(root)
-    except ValueError:
-        return None
-    return run_dir
-
-
-def _agentic_replay_test_dir(run_id: str, test_id: str) -> Path | None:
-    if not _is_safe_replay_id(test_id):
-        return None
-    run_dir = _agentic_replay_run_dir(run_id)
-    if run_dir is None:
-        return None
-    test_dir = (run_dir / test_id).resolve()
-    try:
-        test_dir.relative_to(run_dir)
-    except ValueError:
-        return None
-    return test_dir
-
-
-def _agentic_replay_json(path: Path) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError:
-        return None
-
-
-def _agentic_replay_graph(test_dir: Path, response_json: Mapping[str, Any], kind: str) -> dict[str, Any] | None:
-    keys = {
-        "original": ("original_graph", "original_ui"),
-        "candidate": ("candidate_graph", "candidate_ui"),
-    }[kind]
-    for key in keys:
-        value = response_json.get(key)
-        if isinstance(value, dict):
-            return value
-    artifacts = response_json.get("artifacts")
-    if isinstance(artifacts, Mapping):
-        for key in keys:
-            value = artifacts.get(key)
-            if isinstance(value, str):
-                graph = _agentic_replay_json(test_dir / value)
-                if isinstance(graph, dict):
-                    return graph
-    fallback = "original.ui.json" if kind == "original" else "candidate.ui.json"
-    graph = _agentic_replay_json(test_dir / fallback)
-    return graph if isinstance(graph, dict) else None
-
-
-def _agentic_replay_stage_payload(
-    response_json: Mapping[str, Any],
-    *,
-    original_graph: dict[str, Any] | None,
-    candidate_graph: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    stages = response_json.get("stages")
-    if isinstance(stages, list) and all(isinstance(stage, dict) for stage in stages):
-        return [dict(stage) for stage in stages]
-    projected: list[dict[str, Any]] = [
-        {"id": "sent", "label": "Sent"},
-        {"id": "thinking", "label": "Thinking"},
-    ]
-    if original_graph is not None and candidate_graph is not None:
-        projected.extend(
-            [
-                {
-                    "id": "ready_to_apply",
-                    "label": "Ready to apply",
-                    "original_graph": original_graph,
-                    "candidate_graph": candidate_graph,
-                },
-                {
-                    "id": "applied",
-                    "label": "Applied",
-                    "original_graph": original_graph,
-                    "candidate_graph": candidate_graph,
-                },
-            ]
-        )
-    else:
-        projected.append(
-            {
-                "id": "missing_artifacts",
-                "label": "Missing artifacts",
-                "status": "missing",
-            }
-        )
-    return projected
+    return _agentic_replay_service.is_safe_replay_id(value)
 
 
 def _list_agentic_replay_runs() -> tuple[dict[str, Any], int]:
-    if not _is_agentic_replay_enabled():
-        return {"ok": False, "error": "Not found"}, 404
-    root = _agentic_replay_root()
-    if not root.is_dir():
-        return {"ok": True, "runs": []}, 200
-    runs = []
-    for path in sorted(root.iterdir(), key=lambda item: item.name):
-        if not path.is_dir() or not _is_safe_replay_id(path.name):
-            continue
-        runs.append({"run_id": path.name, "label": path.name})
-    return {"ok": True, "runs": runs}, 200
+    return _agentic_replay_service.list_runs(
+        _agentic_replay_root(),
+        enabled=_is_agentic_replay_enabled(),
+    )
 
 
 def _list_agentic_replay_tests(run_id: str) -> tuple[dict[str, Any], int]:
-    if not _is_agentic_replay_enabled():
-        return {"ok": False, "error": "Not found"}, 404
-    run_dir = _agentic_replay_run_dir(run_id)
-    if run_dir is None:
-        return {"ok": False, "error": "Invalid run ID"}, 400
-    if not run_dir.is_dir():
-        return {"ok": False, "error": "Run not found"}, 404
-    tests = []
-    for path in sorted(run_dir.iterdir(), key=lambda item: item.name):
-        if not path.is_dir() or not _is_safe_replay_id(path.name):
-            continue
-        response_json = _agentic_replay_json(path / "response.json")
-        label = path.name
-        query = None
-        if isinstance(response_json, Mapping):
-            label = str(response_json.get("title") or response_json.get("name") or path.name)
-            query_value = response_json.get("query")
-            query = query_value if isinstance(query_value, str) else None
-        tests.append({"test_id": path.name, "label": label, "query": query})
-    return {"ok": True, "run_id": run_id, "tests": tests}, 200
+    return _agentic_replay_service.list_tests(
+        _agentic_replay_root(),
+        run_id,
+        enabled=_is_agentic_replay_enabled(),
+    )
 
 
 def _resolve_agentic_replay_scenario(run_id: str, test_id: str) -> tuple[dict[str, Any], int]:
-    if not _is_agentic_replay_enabled():
-        return {"ok": False, "error": "Not found"}, 404
-    test_dir = _agentic_replay_test_dir(run_id, test_id)
-    if test_dir is None:
-        return {"ok": False, "error": "Invalid replay ID"}, 400
-    if not test_dir.is_dir():
-        return {"ok": False, "error": "Replay test not found"}, 404
-    response_json = _agentic_replay_json(test_dir / "response.json")
-    if not isinstance(response_json, Mapping):
-        return {"ok": False, "error": "response.json not found"}, 404
-    original_graph = _agentic_replay_graph(test_dir, response_json, "original")
-    candidate_graph = _agentic_replay_graph(test_dir, response_json, "candidate")
-    query = response_json.get("query")
-    reply = response_json.get("reply") or response_json.get("message") or response_json.get("agent_reply") or ""
-    checks = response_json.get("checks")
-    status = "ready" if original_graph is not None and candidate_graph is not None else "missing"
-    missing: list[str] = []
-    if original_graph is None:
-        missing.append("original_graph")
-    if candidate_graph is None:
-        missing.append("candidate_graph")
-    session_id = response_json.get("session_id") or f"replay-{run_id}-{test_id}"
-    turn_id = response_json.get("turn_id") or f"replay-{test_id}-turn"
-    payload = {
-        "ok": True,
-        "run_id": run_id,
-        "test_id": test_id,
-        "status": status,
-        "checks": checks if isinstance(checks, list) else [],
-        "query": query if isinstance(query, str) else "",
-        "agent_reply": reply if isinstance(reply, str) else "",
-        "original_graph": original_graph,
-        "candidate_graph": candidate_graph,
-        "stages": _agentic_replay_stage_payload(
-            response_json,
-            original_graph=original_graph,
-            candidate_graph=candidate_graph,
-        ),
-        "session_id": session_id if isinstance(session_id, str) else f"replay-{run_id}-{test_id}",
-        "turn_id": turn_id if isinstance(turn_id, str) else f"replay-{test_id}-turn",
-        "source_dir": str(test_dir.relative_to(_agentic_replay_root())),
-    }
-    if missing:
-        payload["ok"] = False
-        payload["error"] = "Replay artifacts missing: " + ", ".join(missing)
-        payload["missing_artifacts"] = missing
-    return payload, 200
+    return _agentic_replay_service.resolve_scenario(
+        _agentic_replay_root(),
+        run_id,
+        test_id,
+        enabled=_is_agentic_replay_enabled(),
+    )
 
 
 def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1023,8 +863,22 @@ def _failure_response(stage: str, failure: Any) -> dict[str, Any]:
         serialized.update(product_failure_envelope_fields(failure))
     try:
         stamped = ensure_agent_edit_response_contract(serialized, stage=stage)
-    except Exception:
-        stamped = serialized
+    except Exception as exc:
+        _LOGGER.error(
+            "Agent-edit response contract validation failed for stage %s: %s",
+            stage,
+            type(exc).__name__,
+        )
+        contract_failure = failure_envelope(
+            FailureKind.VALIDATION_ERROR,
+            stage,
+            agent_failure_context={
+                "explanation": "The agent response failed public contract validation.",
+                "contract_error": type(exc).__name__,
+            },
+        )
+        stamped = contract_failure.to_dict()
+        stamped.update(product_failure_envelope_fields(contract_failure))
     return _ensure_stale_recovery(stamped)
 
 
@@ -1801,10 +1655,12 @@ def register_agent_edit_routes(app) -> None:
         finalize_turn_transaction as _session_finalize_turn_transaction,
         normalize_session_id as _safe_session_id,
         prepare_turn_transaction as _session_prepare_turn_transaction,
-        _recover_session_for_workflow,
         rebaseline_session,
         reconcile_turn_transactions as _session_reconcile_turn_transactions,
         rollback_turn_transaction as _session_rollback_turn_transaction,
+    )
+    from ._frag_session_bundle import (  # noqa: PLC0415
+        recover_session_for_workflow,
     )
     from .contracts import (
         FailureKind as _FK,
@@ -2150,7 +2006,7 @@ def register_agent_edit_routes(app) -> None:
             )
         try:
             result = await asyncio.to_thread(
-                _recover_session_for_workflow,
+                recover_session_for_workflow,
                 _SESSION_ROOT,
                 workflow_id.strip(),
             )

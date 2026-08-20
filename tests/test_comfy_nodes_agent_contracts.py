@@ -1722,6 +1722,42 @@ def test_classify_agent_response_provider_error_fallback() -> None:
     assert fe.kind is FailureKind.PROVIDER_ERROR
 
 
+def test_classify_stage_json_parse_error_is_malformed_model_json() -> None:
+    """A ValueError from the classify phase's JSON parser must classify as
+    MALFORMED_MODEL_JSON, never as VALIDATION_ERROR.  The executor routes
+    classify parse failures through classify_failure("classify", exc); before
+    the classify-stage branch existed they fell through to VALIDATION_ERROR and
+    the user saw "The edited workflow has validation errors and was not
+    applied" for a failure that never touched the graph (observed: greedy JSON
+    extraction failing on valid leading JSON + trailing prose)."""
+    ctx = TurnContext(session_id="s1")
+    fe = classify_failure(
+        "classify",
+        ValueError("Could not extract a JSON object from: '{...}'"),
+        ctx,
+    )
+    assert fe.kind is FailureKind.MALFORMED_MODEL_JSON
+    assert "could not be parsed" in fe.user_facing_message
+    assert "validation errors" not in fe.user_facing_message
+
+
+def test_classify_stage_json_decode_error_is_malformed_model_json() -> None:
+    ctx = TurnContext(session_id="s1")
+    try:
+        json.loads("{bad")
+    except json.JSONDecodeError as exc:
+        fe = classify_failure("classify", exc, ctx)
+    assert fe.kind is FailureKind.MALFORMED_MODEL_JSON
+
+
+def test_classify_stage_unknown_error_is_provider_error() -> None:
+    """Unrecognized classify-stage failures stay PROVIDER_ERROR, not a graph
+    validation lie."""
+    ctx = TurnContext(session_id="s1")
+    fe = classify_failure("classify", RuntimeError("worker subprocess vanished"), ctx)
+    assert fe.kind is FailureKind.PROVIDER_ERROR
+
+
 def test_classify_openrouter_credit_error_is_specific_and_non_retryable() -> None:
     ctx = TurnContext(session_id="s1")
     fe = classify_failure(

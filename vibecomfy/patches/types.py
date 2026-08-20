@@ -138,7 +138,14 @@ def _merge_patch_application(
     existing: dict[str, Any],
     current: dict[str, Any],
 ) -> dict[str, Any]:
-    """Keep one durable telemetry marker per patch name."""
+    """Keep one durable telemetry marker per patch name.
+
+    A repeated idempotent call produces a no-op snapshot.  Replacing the first
+    record with that snapshot would erase the useful evidence that the patch
+    originally changed the graph, while appending it would make metadata itself
+    non-idempotent.  Merge any later material change into the original record
+    and otherwise leave the marker byte-for-byte stable.
+    """
     current_changed = bool(current.get("topology_changed") or current.get("value_changed"))
     if not current_changed:
         return existing

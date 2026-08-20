@@ -2350,6 +2350,54 @@ def classify_failure(
             },
         )
 
+    if stage == "classify":
+        # The executor's classify phase routes model-parse failures through
+        # this stage (core._run_classify generic except).  A classifier that
+        # returned unparseable output is a MALFORMED_MODEL_JSON problem, NOT a
+        # graph validation error — mislabeling it as VALIDATION_ERROR surfaces
+        # "The edited workflow has validation errors and was not applied" for
+        # a failure that never touched the graph (observed: greedy-JSON-extract
+        # failure on valid leading JSON + trailing prose).  Mirror the
+        # agent_response stage's model-parse mappings so the user-facing
+        # message tells the truth about what failed.
+        if exc_name == "AuthError":
+            return failure_envelope(
+                FailureKind.AUTH_ERROR,
+                stage,
+                context,
+                agent_failure_context={"explanation": str(exc_or_issue)},
+            )
+        if exc_name == "MissingRequiredField":
+            return failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                stage,
+                context,
+                agent_failure_context={"explanation": str(exc_or_issue)},
+            )
+        if exc_name == "MalformedModelJSON":
+            return failure_envelope(
+                FailureKind.MALFORMED_MODEL_JSON,
+                stage,
+                context,
+                agent_failure_context={"explanation": str(exc_or_issue)},
+            )
+        if isinstance(exc_or_issue, (json.JSONDecodeError, TypeError, ValueError)):
+            return failure_envelope(
+                FailureKind.MALFORMED_MODEL_JSON,
+                stage,
+                context,
+                agent_failure_context={"explanation": str(exc_or_issue)},
+            )
+        return failure_envelope(
+            FailureKind.PROVIDER_ERROR,
+            stage,
+            context,
+            agent_failure_context={
+                "explanation": str(exc_or_issue),
+                "http_status": status_code,
+            },
+        )
+
     if stage == "ingest":
         if "stale" in lower_message or "hash" in lower_message or "baseline" in lower_message:
             return failure_envelope(

@@ -45,13 +45,11 @@ STDLIB-ONLY IMPORT POLICY
     ``importlib.import_module`` / ``_import_from`` calls so this module keeps
     its stdlib-only import surface (enforced by the T-036 deps test).
 
-THE 72-NAME FIELD SET
+THE 71-NAME FIELD SET
     Derived mechanically from the fragments' free names (scope-aware
-    ``symtable`` analysis of the concatenated fragment source): 80 external
-    names, of which 5 are stdlib-importable (``Any``, ``Mapping``,
-    ``dataclasses``, ``json``, ``time``) and 72 are real dependencies — the S4
-    ground truth: 55 private + 17 public across the 18 host fragment modules
-    (19 modules counting the ``edit.py`` façade itself). Fields are grouped
+    ``symtable`` analysis of the concatenated fragment source), then reduced
+    as retired prompt-only helpers left the loop: 54 private + 17 public
+    dependencies across the host fragment modules. Fields are grouped
     private-then-public, alphabetical, each annotated with the host fragment
     that defines it. Every field is ``Any``-typed on purpose: the concrete
     type of each binding is owned by its host fragment and cannot be known
@@ -80,8 +78,9 @@ import time
 from dataclasses import dataclass, fields
 from typing import Any, Mapping
 
-
 from vibecomfy.ingest.normalize import door_get_nodes
+
+
 class MissingEditBatchReplDepsError(KeyError):
     """Façade globals lacked one or more names the batch REPL requires.
 
@@ -101,7 +100,7 @@ class EditBatchReplDeps:
     namespace; see the module docstring for the design rationale.
     """
 
-    # -- private façade helpers (55) --
+    # -- private façade helpers (54) --
     _BATCH_EXIT_BUDGET: Any  # host: _frag_batch_reports
     _BATCH_EXIT_DONE: Any  # host: _frag_batch_reports
     _BATCH_EXIT_EDIT_CLARIFY: Any  # host: _frag_batch_reports
@@ -224,6 +223,15 @@ def _import_from(module_path: str, name: str) -> Any:
     return getattr(importlib.import_module(module_path), name)
 
 
+def _batch_loop_helper(name: str) -> Any:
+    """Lazily resolve a helper from the canonical batch-loop module.
+
+    This keeps the module's stdlib-only import contract while avoiding a
+    second implementation of helpers exported by the frozen ``edit`` façade.
+    """
+    return _import_from("vibecomfy.comfy_nodes.agent._frag_batch_loop", name)
+
+
 _BATCH_IDENTITY_DIAGNOSTIC_CODES = frozenset(
     {
         "batch_identity_rejected",
@@ -301,6 +309,23 @@ def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _import_from("vibecomfy.porting.emit.ui", "emit_ui_json")(*args, **kwargs)
 
 
+def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
+    """Validate the retained-IR candidate through the canonical UI emit door."""
+    workflow = getattr(session, "last_rendered_workflow", None)
+    if workflow is None:
+        return
+    state.edited_workflow = workflow
+    _emit_ui_json(
+        workflow,
+        schema_provider=state.schema_provider,
+        prior_store=state.prior_store,
+        guard_original_ui=state.guard_original_ui or state.graph,
+        guard_resolved_ops=getattr(session, "resolved_ops", ()),
+        prior_ui_payload=state.guard_original_ui or state.graph,
+    )
+
+
+
 # ── Research collection fold (B03) ──────────────────────────────────────────
 # Transport plumbing only: cross-turn union of message/distillation sources and
 # last-write-wins paragraphs, folded from each live StatementResult.detail right
@@ -310,40 +335,19 @@ def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 
 
+def _malformed_model_json_detail(exc: BaseException) -> dict[str, str]:
+    return _batch_loop_helper("_malformed_model_json_detail")(exc)
+
+
 def _batch_protocol_parse_reason(exc: BaseException) -> str:
-    explicit = getattr(exc, "parse_reason", None)
-    if isinstance(explicit, str) and explicit.strip():
-        return explicit.strip()
-    text = str(exc).lower()
-    if "empty" in text:
-        return "empty"
-    if "multiple" in text:
-        return "multiple_batch_fences"
-    if "must be a string" in text or "non_string" in text:
-        return "non_string"
-    if "batch fenced block" in text or "batch code block" in text:
-        return "missing_batch_fence"
-    return "malformed"
+    return _batch_loop_helper("_batch_protocol_parse_reason")(exc)
 
 
 def _batch_protocol_retry_messages(
     messages: list[dict[str, str]],
     exc: BaseException | None = None,
 ) -> list[dict[str, str]]:
-    from vibecomfy.comfy_nodes.agent._frag_batch_loop import _BATCH_PROTOCOL_RETRY_PROMPT  # noqa: PLC0415
-    from vibecomfy.comfy_nodes.agent.edit import _malformed_model_json_detail  # noqa: PLC0415
-
-    prompt = _BATCH_PROTOCOL_RETRY_PROMPT
-    if exc is not None:
-        detail = _malformed_model_json_detail(exc)
-        raw_preview = detail.get("raw_response_preview")
-        if raw_preview:
-            prompt = (
-                f"{prompt}\n\n"
-                "Previous response preview, for correction only:\n"
-                f"{raw_preview}"
-            )
-    return [*messages, {"role": "system", "content": prompt}]
+    return _batch_loop_helper("_batch_protocol_retry_messages")(messages, exc)
 
 
 def _evaluate_execution_plan_after_candidate_update(deps, state: AgentEditState) -> dict[str, Any]:
@@ -366,42 +370,7 @@ def _execution_plan_status_for_prompt(deps, state: AgentEditState) -> dict[str, 
 
 
 def _execution_plan_done_refusal_hint(state: AgentEditState) -> str:
-    evaluation = getattr(state, "plan_evaluation", None)
-    if evaluation is None:
-        return "the execution plan has not been evaluated yet."
-    failed_condition_ids = [
-        str(condition.get("condition_id") or condition.get("id") or "unknown_condition")
-        for condition in getattr(evaluation, "failed_conditions", ()) or ()
-        if isinstance(condition, Mapping)
-    ]
-    advisory_miss_ids = [
-        str(item.get("step_id") or "unknown_step")
-        for item in getattr(evaluation, "diagnostics", ()) or ()
-        if isinstance(item, Mapping)
-        and str(item.get("kind") or "") == "advisory_step_miss"
-    ]
-    parts = [
-        "the execution plan's declared safety/invariant conditions still block completion.",
-        f"plan_id={getattr(evaluation, 'plan_id', 'unknown')}",
-    ]
-    if failed_condition_ids:
-        parts.append(
-            "failed execution-plan condition ids: "
-            + ", ".join(failed_condition_ids)
-        )
-    if advisory_miss_ids:
-        parts.append(
-            "advisory execution-plan step misses (these do NOT block done, "
-            "but review whether the intended structure was built another way): "
-            + ", ".join(advisory_miss_ids)
-        )
-    feedback = str(getattr(evaluation, "feedback", "") or "").strip()
-    if feedback:
-        parts.append(feedback)
-    parts.append(
-        "Fix the failing plan conditions (invariants) and call done() again."
-    )
-    return " ".join(parts)
+    return _batch_loop_helper("_execution_plan_done_refusal_hint")(state)
 
 
 def _done_validation_repair_hint(
@@ -464,12 +433,7 @@ def _done_validation_repair_hint(
 
 
 def _manifest_is_complete(manifest: Any) -> bool:
-    """Return True when *manifest* is a non-empty manifest mapping.
-
-    Used to gate the manifest-preferred compact-notes path.  A None, missing,
-    or empty manifest keeps the legacy compact-notes behavior byte-for-byte.
-    """
-    return isinstance(manifest, Mapping) and bool(manifest)
+    return _batch_loop_helper("_manifest_is_complete")(manifest)
 
 
 def _active_manifest_from_plan(deps,
@@ -497,125 +461,19 @@ def _active_manifest_from_plan(deps,
 
 
 def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
-    """Return class types from UI/API graphs in stable encounter order."""
-    if not isinstance(graph, Mapping):
-        return ()
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-
-    def add_node(node: Any) -> None:
-        if not isinstance(node, Mapping):
-            return
-        raw = node.get("class_type") or node.get("type")
-        class_type = str(raw or "").strip()
-        if (
-            class_type
-            and class_type != "Unknown"
-            and not _is_ui_only_annotation_class_type(class_type)
-            and class_type not in seen
-        ):
-            seen.add(class_type)
-            ordered.append(class_type)
-
-    def visit(scope: Mapping[str, Any]) -> None:
-        nodes = door_get_nodes(scope)
-        if isinstance(nodes, list):
-            for node in nodes:
-                add_node(node)
-        elif isinstance(nodes, Mapping):
-            for node in nodes.values():
-                add_node(node)
-        else:
-            # Comfy API graphs store node records directly under numeric ids.
-            for key, node in scope.items():
-                if str(key).isdigit():
-                    add_node(node)
-
-        definitions = scope.get("definitions")
-        if isinstance(definitions, Mapping):
-            for definition in definitions.values():
-                if isinstance(definition, Mapping):
-                    visit(definition)
-
-    visit(graph)
-    return tuple(ordered)
+    return _batch_loop_helper("_dependency_graph_class_types")(graph)
 
 
 def _is_ui_only_annotation_class_type(class_type: Any) -> bool:
-    """Use the shared conservative annotation classifier."""
-    is_ui_only_annotation_class_type = _import_from("vibecomfy.executor.contracts", "is_ui_only_annotation_class_type")
-
-    return is_ui_only_annotation_class_type(class_type)
+    return _batch_loop_helper("_is_ui_only_annotation_class_type")(class_type)
 
 
 def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]:
-    """Return annotation classes ignored by dependency preflight."""
-    ignored: list[str] = []
-
-    def consider(raw: Any) -> None:
-        class_type = str(raw or "").strip()
-        if (
-            class_type
-            and _is_ui_only_annotation_class_type(class_type)
-            and class_type not in ignored
-        ):
-            ignored.append(class_type)
-
-    explicit = plan.get("required_new_nodes")
-    if isinstance(explicit, (list, tuple)):
-        for record in explicit:
-            if isinstance(record, Mapping):
-                consider(
-                    record.get("class_type")
-                    or record.get("node_type")
-                    or record.get("type")
-                )
-    candidate_graph = plan.get("candidate_graph")
-    if isinstance(candidate_graph, Mapping):
-        nodes = door_get_nodes(candidate_graph)
-        records = (
-            nodes
-            if isinstance(nodes, list)
-            else nodes.values()
-            if isinstance(nodes, Mapping)
-            else candidate_graph.values()
-        )
-        for record in records:
-            if isinstance(record, Mapping):
-                consider(record.get("class_type") or record.get("type"))
-    return tuple(ignored)
+    return _batch_loop_helper("_actionable_plan_ui_only_classes")(plan)
 
 
 def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ...]:
-    """Derive runtime dependency classes from a complete manifest's nodes.
-
-    Reads ONLY ``nodes[].canonical_class_type`` (the authoritative class set).
-    Never introduces classes from goldens, filenames, fixture labels, or
-    ``prior_path``.  UI-only annotation classes are filtered out via the shared
-    conservative classifier.
-    """
-    if not isinstance(manifest, Mapping):
-        return ()
-    nodes_raw = door_get_nodes(manifest)
-    if not isinstance(nodes_raw, (list, tuple)):
-        return ()
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for node in nodes_raw:
-        if not isinstance(node, Mapping):
-            continue
-        raw = node.get("canonical_class_type")
-        class_type = str(raw or "").strip()
-        if (
-            class_type
-            and class_type != "Unknown"
-            and not _is_ui_only_annotation_class_type(class_type)
-            and class_type not in seen
-        ):
-            seen.add(class_type)
-            ordered.append(class_type)
-    return tuple(ordered)
+    return _batch_loop_helper("_manifest_required_new_classes")(manifest)
 
 
 def _actionable_plan_required_new_classes(deps,
@@ -638,14 +496,9 @@ def _actionable_plan_required_new_classes(deps,
     required: list[str] = []
 
     def add_class(raw: Any) -> None:
-        class_type = str(raw or "").strip()
-        if (
-            class_type
-            and class_type != "Unknown"
-            and class_type not in target_classes
-            and class_type not in required
-        ):
-            required.append(class_type)
+        _batch_loop_helper("_append_required_class")(
+            required, target_classes, raw
+        )
 
     # W-07 — manifest-preferred dependency derivation.  When a complete
     # manifest is present on the adapt route, its canonical_class_type set is
@@ -816,7 +669,7 @@ def _hydrate_actionable_registry_dependencies(deps, state: AgentEditState) -> No
     if not new_candidates:
         return
     try:
-        CompositeSchemaProvider, ProvisionalRegistrySchemaProvider = _import_from("vibecomfy.schema", "CompositeSchemaProvider"), _import_from("vibecomfy.schema", "ProvisionalRegistrySchemaProvider")
+        ProvisionalRegistrySchemaProvider = _import_from("vibecomfy.schema", "ProvisionalRegistrySchemaProvider")
         with_provisional_gap_filler = _import_from("vibecomfy.schema", "with_provisional_gap_filler")
 
         provisional = ProvisionalRegistrySchemaProvider(new_candidates)
@@ -988,17 +841,12 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         prepared_ui,
         schema_provider=state.schema_provider,
         value_default_context=value_default_context,
-        # Batch 3 (one retained ingest authority): seed the session with the IR
-        # the named door already built at allocation so the first render does
-        # not re-derive the ingest JSON from working_ui.
         initial_workflow=state.workflow,
     )
     session.research_only = research_only_route
     session.tool_phase = (
         "threaded" if threaded_route else ("research" if research_only_route else "implement")
     )
-    # Multi-turn identity is session.history: (wf_i, Δ_i).  Bindings for
-    # turn N resolve against the accumulated IR, not raw UI snapshots.
     state.batch_session = session
     initial_render = session.render()
     present_types = deps._present_class_types(session)
@@ -1241,8 +1089,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         effort=effort,
                     )
             except (deps.MalformedModelJSON, deps.MissingRequiredField) as first_exc:
-                from vibecomfy.comfy_nodes.agent.edit import _malformed_model_json_detail  # noqa: PLC0415
-
                 retry_messages = _batch_protocol_retry_messages(messages, first_exc)
                 first_detail = _malformed_model_json_detail(first_exc)
                 retry_request_entry = {
@@ -1415,26 +1261,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             state.user_message = clarify_message
             state.python_after = current_render
             state.after_py_path.write_text(current_render, encoding="utf-8")
-            # Batch 3: the exit goes through the UI door (emit_ui_json) so the
-            # emitted candidate is guard-validated (guard_emit via
-            # guard_original_ui/guard_resolved_ops) exactly like the delta
-            # path's emit stage; the edited IR is retained on state for
-            # IR-authority renders.  The PUBLISHED candidate is the apply
-            # engine's exact working candidate: emit_ui_json's deterministic
-            # reconstruction re-stamps ledger ids, canonicalizes geometry, and
-            # recomputes the breadcrumb, so it cannot carry schema-less batch
-            # nodes byte-faithfully — and the durable authority replay verifies
-            # the published graph byte-for-byte against apply(submit, delta),
-            # which the apply engine's own candidate reproduces exactly.
-            state.edited_workflow = session.last_rendered_workflow
-            _emit_ui_json(
-                state.edited_workflow,
-                schema_provider=state.schema_provider,
-                prior_store=state.prior_store,
-                guard_original_ui=state.guard_original_ui or state.graph,
-                guard_resolved_ops=session.resolved_ops,
-                prior_ui_payload=state.guard_original_ui or state.graph,
-            )
+            _publish_session_candidate(state, session)
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             state.report = {
@@ -1531,26 +1358,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             _batch_journal_mod.maybe_inject_batch_fault("after_render")
             state.python_after = next_render
             state.after_py_path.write_text(next_render, encoding="utf-8")
-            # Batch 3: the exit goes through the UI door (emit_ui_json) so the
-            # emitted candidate is guard-validated (guard_emit via
-            # guard_original_ui/guard_resolved_ops) exactly like the delta
-            # path's emit stage; the edited IR is retained on state for
-            # IR-authority renders.  The PUBLISHED candidate is the apply
-            # engine's exact working candidate: emit_ui_json's deterministic
-            # reconstruction re-stamps ledger ids, canonicalizes geometry, and
-            # recomputes the breadcrumb, so it cannot carry schema-less batch
-            # nodes byte-faithfully — and the durable authority replay verifies
-            # the published graph byte-for-byte against apply(submit, delta),
-            # which the apply engine's own candidate reproduces exactly.
-            state.edited_workflow = session.last_rendered_workflow
-            _emit_ui_json(
-                state.edited_workflow,
-                schema_provider=state.schema_provider,
-                prior_store=state.prior_store,
-                guard_original_ui=state.guard_original_ui or state.graph,
-                guard_resolved_ops=session.resolved_ops,
-                prior_ui_payload=state.guard_original_ui or state.graph,
-            )
+            _publish_session_candidate(state, session)
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             _batch_journal_mod.maybe_inject_batch_fault("after_candidate_write")
@@ -1560,15 +1368,12 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
             lint_dropped_count = 0
             lint_diag_dicts: tuple[dict[str, Any], ...] = ()
-            # Publish the emit-side projection of interpret's Δ.  Authority
-            # replay is apply_delta(submit, envelope); IR typed slots
-            # (IMAGE_0) are not UI names and must not be the durable ops.
             persisted_landed_ops = tuple(
                 session._projection_op(op) for op in batch_result.landed_ops
             )
             if (
                 deps._edit_lint_enabled()
-                and persisted_landed_ops
+                and batch_result.landed_ops
                 and deps._agent_edit_batch_repl_enabled()
             ):
                 LintIndex, lint_delta = _import_from("vibecomfy.porting.edit.lint", "LintIndex"), _import_from("vibecomfy.porting.edit.lint", "lint_delta")
@@ -1576,7 +1381,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
 
                 index = LintIndex.build(state.graph)
                 lint_result = lint_delta(
-                    persisted_landed_ops,
+                    batch_result.landed_ops,
                     index,
                     schema_provider=state.schema_provider,
                 )
@@ -1641,7 +1446,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
 
             raw_landed = len(batch_result.landed_ops)
             effective_landed = raw_landed - lint_dropped_count
-            landed_count = effective_landed
             total_landed += effective_landed
             last_landed_count = effective_landed
             # Compute this turn's search() signatures once; used for the duplicate-
@@ -1650,6 +1454,18 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             # this turn — a search followed by a successful edit is not a dead-end
             # and must not trigger the cycle guard on repeat.
             current_search_signatures = deps._extract_search_signatures(batch_result)
+            if batch_result.landed_ops:
+                DELTA_SCHEMA_VERSION, ensure_root_scoped_delta_envelope, op_to_dict = _import_from("vibecomfy.porting.edit.ops", "DELTA_SCHEMA_VERSION"), _import_from("vibecomfy.porting.edit.ops", "ensure_root_scoped_delta_envelope"), _import_from("vibecomfy.porting.edit.ops", "op_to_dict")
+
+                delta_envelope_payload = ensure_root_scoped_delta_envelope(
+                    {
+                        "schema_version": DELTA_SCHEMA_VERSION,
+                        "ops": [op_to_dict(op) for op in persisted_landed_ops],
+                    },
+                    strict=True,
+                ).to_dict()
+            else:
+                delta_envelope_payload = None
             turn_is_read_only = effective_landed == 0 and all(
                 str(item.op_kind or "") in {"query", "done", "clarify"}
                 for item in batch_result.statements
@@ -1671,31 +1487,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_dropped_count=lint_dropped_count,
                 lint_diagnostics=lint_diag_dicts,
             )
-            identity_failure_names = _batch_identity_failure_names(batch_result)
-            identity_reprompt = bool(
-                identity_failure_names
-                and identity_repair_turns < 1
-                and (turn_number + 1) < max_batches
-                and not research_only_route
-            )
-            if identity_reprompt:
-                available_names = sorted(str(name) for name in session.uid_by_name)
-                shown_names = available_names[:80]
-                inventory_suffix = (
-                    f" (plus {len(available_names) - len(shown_names)} more)"
-                    if len(available_names) > len(shown_names)
-                    else ""
-                )
-                report_text += (
-                    "\n\nIDENTITY CORRECTION REQUIRED: the batch was rejected "
-                    "atomically; none of its edits landed. Invalid graph name(s): "
-                    + ", ".join(repr(name) for name in identity_failure_names)
-                    + ". Re-rendered bound names are: "
-                    + (", ".join(shown_names) or "(none)")
-                    + inventory_suffix
-                    + ". Submit one corrected batch using only those exact names, "
-                    "or a uid that is present in the current render."
-                )
             # Duplicate-query cycle guard (Part C): detect when the agent re-emits
             # an identical search() on consecutive turns after the prior search
             # landed nothing.  Reads the PRIOR turn's search record
@@ -1724,6 +1515,31 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             )
             if extra_feedback:
                 report_text = f"{report_text}\n{extra_feedback}"
+            identity_failure_names = _batch_identity_failure_names(batch_result)
+            identity_reprompt = bool(
+                identity_failure_names
+                and identity_repair_turns < 1
+                and (turn_number + 1) < max_batches
+                and not research_only_route
+            )
+            if identity_reprompt:
+                available_names = sorted(str(name) for name in session.uid_by_name)
+                shown_names = available_names[:80]
+                inventory_suffix = (
+                    f" (plus {len(available_names) - len(shown_names)} more)"
+                    if len(available_names) > len(shown_names)
+                    else ""
+                )
+                report_text += (
+                    "\n\nIDENTITY CORRECTION REQUIRED: the batch was rejected "
+                    "atomically; none of its edits landed. Invalid graph name(s): "
+                    + ", ".join(repr(name) for name in identity_failure_names)
+                    + ". Re-rendered bound names are: "
+                    + (", ".join(shown_names) or "(none)")
+                    + inventory_suffix
+                    + ". Submit one corrected batch using only those exact names, "
+                    "or a uid that is present in the current render."
+                )
             report_json = deps._format_batch_report_json(
                 batch_result,
                 consecutive_errors=consecutive_errors,
@@ -1765,7 +1581,11 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             }
             if execution_plan_status:
                 turn_record["execution_plan_status"] = execution_plan_status
-            turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
+            if delta_envelope_payload is not None:
+                turn_record["delta_ops_envelope"] = delta_envelope_payload
+                turn_record["delta_ops"] = list(delta_envelope_payload["ops"])
+            if noop_field_changes:
+                turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
             if clarify_message is not None:
                 turn_record["clarification_required"] = True
                 turn_record["clarification_message"] = clarify_message
@@ -1826,10 +1646,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         state.model_response_path,
                         {"turns": response_log},
                     )
-                # This bounded correction turn is an explicit recovery path,
-                # not a second generic error.  Keep the unchanged render and
-                # do not let max_consecutive_errors suppress the promised
-                # re-prompt.
                 consecutive_errors = max(0, consecutive_errors - 1)
                 current_render = next_render
                 last_diff = diff_text
@@ -2170,21 +1986,8 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                     turn_result.message,
                     fallback="I made the requested workflow changes.",
                 )
-                edited_node_ids = sorted(
-                    {
-                        str(change.uid)
-                        for change in state.batch_field_changes
-                        if getattr(change, "uid", None) is not None
-                    }
-                )
                 state.report = {
                     "done_summary": done_result.summary,
-                    "change": {
-                        "content_edits": {
-                            "edited": edited_node_ids,
-                            "preserved": [],
-                        }
-                    },
                     "queue_blockers": [],
                 }
                 deps._finalize_revision_evidence_with_candidate(

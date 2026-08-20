@@ -23,6 +23,7 @@ _EXPORT_MODULES = {
     "parse_reply_response": ".prompts",
     "Report": ".contracts",
     "resolve_orchestration_mode": ".contracts",
+    "VALIDATION_FAILURE_KIND": ".contracts",
     "run_classify_turn": ".agent_backend",
     "run_executor": ".core",
     "compare_effective_field": ".graph_facts",
