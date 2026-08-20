@@ -1316,6 +1316,11 @@ def _run_implement(
         "additive": bool(additive),
         "max_batches": request.max_batches,
     }
+    if request.pipeline_mode is not None:
+        # Boundary-only orchestration marker. The agent-edit host remains the
+        # sole session, graph writer, checkpoint, replay, and emit authority;
+        # it uses this only to select the admitted tool phase.
+        payload["pipeline_mode"] = request.pipeline_mode
     # Batch 11/12 (Law 4): the implement stage's model-facing graph text is
     # the composable renderer's surface+topology view (COMPLETE — no
     # 5-widget/6-input/20-edge caps).  The implement stage has no accepted Δ

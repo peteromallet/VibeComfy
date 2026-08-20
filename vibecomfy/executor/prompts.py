@@ -1018,83 +1018,9 @@ def parse_reply_response(raw: str) -> str:
     return prose
 
 
-def build_threaded_messages(
-    query: str,
-    *,
-    graph_render: str | None,
-    transcript: str = "",
-    evidence_ledger: str = "",
-    edit_enabled: bool = True,
-    reply_only: bool = False,
-    remaining_continuations: int = 1,
-) -> list[dict[str, str]]:
-    """Build the combined-tool, single-conversation threaded prompt."""
-    from vibecomfy.executor.tool_specs import PHASE_THREADED, tool_catalog_docs
-    from vibecomfy.porting.edit.grammar import render_prompt_doc
-
-    edit_contract = (
-        "Typed edit calls: edit_node, add_node, remove_node, upsert_link, "
-        "remove_link, set_node_mode, edit_batch. You may submit ONE atomic "
-        "edit call; after a rejected call you get at most ONE replacement."
-        if edit_enabled
-        else "Editing is disabled for this answer-only interaction."
-    )
-    mode = (
-        "The host has accepted/closed the edit. Do not call more tools; submit now."
-        if reply_only
-        else "Choose the next useful tool/edit action or submit a final answer."
-    )
-    system = (
-        "You are one durable VibeComfy agent conversation. There is no classifier "
-        "and no later narration agent. Research, inspect, edit, and reply here.\n\n"
-        "Registered research/inspection tools:\n"
-        f"{tool_catalog_docs(PHASE_THREADED)}\n\n"
-        f"{edit_contract}\n\n{render_prompt_doc()}\n\n"
-        "Return exactly one JSON object, either "
-        '{"action":"tool_call","tool":"name","args":{...}} or '
-        '{"action":"submit","reply":"self-contained final message",'
-        '"claims":{"delta_ids":[],"fact_ids":[],"evidence_ids":[]}}. '
-        "Claim IDs must come from host results in this transcript. Never invent one.\n"
-        f"{mode} Remaining model continuations: {remaining_continuations}."
-    )
-    context = [f"User request:\n{query}"]
-    if graph_render:
-        context.append(f"Current workflow (shared renderer):\n{graph_render}")
-    if transcript:
-        context.append(f"Durable conversation transcript:\n{transcript}")
-    if evidence_ledger:
-        context.append(f"Evidence ledger (IDs are citation handles):\n{evidence_ledger}")
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": "\n\n".join(context)},
-    ]
-
-
-def parse_threaded_action(raw: str) -> dict[str, Any]:
-    """Parse one strict threaded host action."""
-    payload = _extract_json_object(raw)
-    action = payload.get("action")
-    if action == "tool_call":
-        if not isinstance(payload.get("tool"), str) or not payload["tool"].strip():
-            raise ValueError("threaded tool_call requires a non-empty tool")
-        if not isinstance(payload.get("args"), dict):
-            raise ValueError("threaded tool_call requires an args object")
-        return payload
-    if action == "submit":
-        if not isinstance(payload.get("reply"), str) or not payload["reply"].strip():
-            raise ValueError("threaded submit requires a non-empty reply")
-        claims = payload.get("claims", {})
-        if not isinstance(claims, dict):
-            raise ValueError("threaded submit claims must be an object")
-        return payload
-    raise ValueError("threaded action must be tool_call or submit")
-
-
 __all__ = [
     "build_classify_messages",
     "build_reply_messages",
-    "build_threaded_messages",
     "parse_classify_response",
     "parse_reply_response",
-    "parse_threaded_action",
 ]
