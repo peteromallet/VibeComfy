@@ -211,16 +211,11 @@ def _interpret_ops(
     landed: list[EditOp] = []
     for index, op in enumerate(ops):
         try:
-            # AddNodeOp already carries the field-channel contract in
-            # ``widget_field_names``.  The Python surface deliberately leaves
-            # that tuple empty and treats constructor fields as literal input
-            # values; replaying the accepted op must use the same channel
-            # semantics rather than reclassifying list-valued fields through
-            # the schema.  Otherwise a field such as ``flags=[...]`` lands in
-            # ``inputs`` on the source path but in ``widgets`` on typed-op
-            # replay, making the shared apply gate reject a valid edit.
-            op_schema_provider = None if isinstance(op, AddNodeOp) else schema_provider
-            post = apply_edit_cow(post, op, schema_provider=op_schema_provider)
+            # Typed-op callers carry their channel contract in the op (and,
+            # for AddNodeOp, its explicit widget_field_names), while Python
+            # source batches are replayed from source by apply_gate. Keep the
+            # typed-op interpreter aligned with typed validation here.
+            post = apply_edit_cow(post, op, schema_provider=schema_provider)
         except Exception as exc:
             failed = StatementOutcome(
                 statement_index=index,
