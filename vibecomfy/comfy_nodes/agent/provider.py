@@ -20,6 +20,7 @@ from vibecomfy.executor.contracts import (
 from vibecomfy.executor.tool_specs import (
     PHASE_IMPLEMENT,
     PHASE_RESEARCH,
+    PHASE_THREADED,
     tool_catalog_docs,
 )
 
@@ -378,6 +379,7 @@ def build_batch_messages(
     max_batches: int = 12,
     conversation_messages: list[dict[str, Any]] | None = None,
     research_only: bool = False,
+    tool_phase: str | None = None,
     revision_evidence_json: str = "",
     execution_plan_status: Mapping[str, Any] | None = None,
     evidence_ledger: str = "",
@@ -391,6 +393,8 @@ def build_batch_messages(
     render only when the caller supplies it (for example after a no-edit
     search/report turn).
 
+    ``tool_phase="threaded"`` composes the registered research and implement
+    tools without changing the batch protocol or creating another session.
     The system prompt describes prose + a single ```batch fenced block with
     ``done()`` and ``clarify(\"...\")`` as in-batch calls.  It does **not**
     mention JSON delta response requirements.
@@ -418,6 +422,44 @@ def build_batch_messages(
     # references ``mission``; research() is removed, so there is no separate
     # research mission to advertise.
     mission = "You edit a ComfyUI canvas as live Python objects.\n"
+    active_tool_phase = (
+        PHASE_RESEARCH
+        if research_only
+        else PHASE_THREADED
+        if tool_phase == PHASE_THREADED
+        else PHASE_IMPLEMENT
+    )
+    threaded_tools = active_tool_phase == PHASE_THREADED
+    tool_heading = (
+        "- Agent tool calls (no edit lands) — threaded research+implement surface:\n"
+        if threaded_tools
+        else "- Agent tool calls (no edit lands) — implement phase only:\n"
+    )
+    research_handoff = (
+        "this same durable conversation may gather workflow and community evidence "
+        "with the registered research tools, then edit from its compact ledger — "
+        if threaded_tools
+        else "the research phase already gathered workflow and community evidence and "
+        "handed it to you as compact ledger entries + evidence IDs — the "
+        "implement phase has NO external research/search tools. "
+    )
+    ledger_guidance = (
+        "Prior tool results reach later continuations only as compact ledger entries + "
+        "evidence IDs; pass an evidence ID only to its registered fetch tool and never "
+        "repeat raw bodies back into the conversation. "
+        if threaded_tools
+        else "Prior tool results reach you only as compact ledger entries + evidence IDs; "
+        "the ledger is already resolved — evidence IDs are provenance labels, not "
+        "callable handles; never repeat raw bodies back into the conversation. "
+    )
+    tool_budget_guidance = (
+        "Tool budget: 3 searches, 6 fetches, 1 registry lookup, and a ~90s "
+        "phase deadline; exhaustion is a typed refusal that preserves gathered "
+        "evidence — then synthesize and `done()`. "
+        if threaded_tools
+        else "Tool budget: 6 fetches and a ~90s phase deadline; exhaustion is a "
+        "typed refusal that preserves gathered evidence — then synthesize and `done()`. "
+    )
     if research_only:
         # C01 research-only prompt: no graph-construction surface; the agent
         # gathers auditable evidence with the research-phase tool catalog
@@ -463,9 +505,10 @@ def build_batch_messages(
         "- `del x`\n"
         "- `node.mode = \"bypassed\" | \"muted\" | \"enabled\"` (bypass does NOT pass input through)\n"
         "- `search(focus_types=[\"ClassName\"])` — exact current authoring-schema lookup only; no internet/precedent search and no edit lands\n"
-        "- Agent tool calls (no edit lands) — implement phase only:\n"
-        f"{tool_catalog_docs(PHASE_IMPLEMENT)}\n"
-        "Tool budget: 6 fetches and a ~90s phase deadline; exhaustion is a typed refusal that preserves gathered evidence — then synthesize and `done()`. Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
+        f"{tool_heading}"
+        f"{tool_catalog_docs(active_tool_phase)}\n"
+        f"{tool_budget_guidance}"
+        "Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
         "- `python()` — view current workflow Python\n"
         "- `done()` — commit landed edits\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
@@ -518,10 +561,9 @@ def build_batch_messages(
         "invention (new node classes, ControlNet/IPAdapter chains, multi-link "
         "rewires, slot-name invention, architecture swaps). Prefer schema field names "
         "(lossless, steps, seed) over positional widgets whenever a schema name exists.\n\n"
-        "Authoring strategy (bounded guidance): for edit-by-precedent, the "
-        "research phase already gathered workflow and community evidence and "
-        "handed it to you as compact ledger entries + evidence IDs — the "
-        "implement phase has NO external research/search tools. Use `node_schema` for "
+        "Authoring strategy (bounded guidance): for edit-by-precedent, "
+        f"{research_handoff}"
+        "Use `node_schema` for "
         "the exact classes you intend to add and `ready_template_load` for a "
         "direct-load asset when the request names one. "
         "Do not research installation, provider packs, registry, or local addability unless "
@@ -535,9 +577,7 @@ def build_batch_messages(
         "`clarify()` over splicing. `rank_edit_targets` and `suggest_seed_nodes` "
         "are lossy advisory hints — use them if helpful, ignore them if not; "
         "they never override your judgment. "
-        "Prior tool results reach you only as compact ledger entries + evidence IDs; "
-        "the ledger is already resolved — evidence IDs are provenance labels, not "
-        "callable handles; never repeat raw bodies back into the conversation. "
+        f"{ledger_guidance}"
         "Workflow_schema classes from selected workflow precedent are provisional constructor permission "
         "when they appear in the signature catalog. Do not invent replacement classes. Supported node setup is automatic; "
         "do not request installation. Never write a field/socket not visible in "

@@ -18,8 +18,6 @@ from typing import Any
 from unittest.mock import patch
 from urllib.parse import unquote_plus
 
-import pytest
-
 from vibecomfy.executor.hivemind_clients import (
     _evidence_id,
     _hivemind_scope_params,
@@ -111,14 +109,12 @@ def _message_row(
     **extra: Any,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
-        "item_id": item_id,
-        "kind": "message",
-        "title": title,
-        "body": "community chatter about ltx",
-        "author": "alice",
-        "channel": "ltx_chatter",
+        "message_id": item_id,
+        "content": f"{title}: community chatter about ltx",
+        "author_name": "alice",
+        "channel_name": "ltx_chatter",
         "created_at": created_at,
-        "url": "https://discord.com/channels/1/2/3",
+        "permalink": "https://discord.com/channels/1/2/3",
     }
     row.update(extra)
     return row
@@ -286,10 +282,10 @@ class TestSearchScopeTranslation:
         assert "/external_resources?" in url
         assert "kind=eq.workflow" in url
         assert "select=*" in url
-        assert "limit=20" in url  # fixed candidate pool, not the page size
+        assert "limit=100" in url  # fixed candidate pool, not the page size
         assert "order=created_at.desc" in url
 
-    def test_source_type_discord_queries_unified_feed_messages(self) -> None:
+    def test_source_type_discord_queries_raw_message_feed(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -301,8 +297,9 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert len(seen) == 1
         url = seen[0]
-        assert "/unified_feed?" in url
-        assert "kind=eq.message" in url
+        assert "/message_feed?" in url
+        assert "content.ilike.*ltx*" in url
+        assert "order=created_at.desc" in url
 
     def test_source_type_distillation_queries_unified_feed_distillations(self) -> None:
         seen: list[str] = []
@@ -327,7 +324,7 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert len(seen) == 3
         assert any("/external_resources?" in u for u in seen)
-        assert any("kind=eq.message" in u for u in seen)
+        assert any("/message_feed?" in u for u in seen)
         assert any("kind=eq.distillation" in u for u in seen)
 
     def test_stopword_only_query_runs_only_external_scope(self) -> None:
@@ -421,7 +418,7 @@ class TestSearchFilterTranslation:
         assert '"node_types":["LTXVLoader"]' in url
         assert '"has_workflow_json":true' in url
 
-    def test_unified_feed_family_translates_to_ilike_or_groups(self) -> None:
+    def test_message_feed_family_translates_to_content_or_groups(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -433,11 +430,11 @@ class TestSearchFilterTranslation:
             )
         url = seen[0]
         # text query AND family aliases -> nested or: groups inside and=
-        assert "and=(or:(title.ilike.*ltx*,body.ilike.*ltx*)" in url
-        assert "title.ilike.*ltxv*" in url
-        assert "title.ilike.*lightricks*" in url
+        assert "and=(or:(content.ilike.*ltx*)" in url
+        assert "content.ilike.*ltxv*" in url
+        assert "content.ilike.*lightricks*" in url
 
-    def test_unified_feed_channel_author_dates(self) -> None:
+    def test_message_feed_channel_author_dates(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -454,8 +451,8 @@ class TestSearchFilterTranslation:
                 },
             )
         url = seen[0]
-        assert "channel=eq.wan_chatter" in url
-        assert "author=eq.alice" in url
+        assert "channel_name=eq.wan_chatter" in url
+        assert "author_name=eq.alice" in url
         assert (
             "and=(created_at.gte.2026-08-01,created_at.lte.2026-08-10)"
             in url
@@ -478,7 +475,8 @@ class TestSearchFilterTranslation:
             )
         url = seen[0]
         assert url.count("and=(") == 1
-        assert "or:(title.ilike.*ltx*,body.ilike.*ltx*,title.ilike.*ltxv*" in url
+        assert "or:(content.ilike.*ltx*),or:(content.ilike.*ltx*" in url
+        assert "content.ilike.*ltxv*" in url
         assert "created_at.gte.2026-08-01,created_at.lte.2026-08-10)" in url
 
     def test_scope_params_return_none_without_criteria(self) -> None:
@@ -570,7 +568,7 @@ class TestSearchResults:
             )
         assert result.status is ToolStatus.OK
         assert [h["evidence_id"] for h in result.result["hits"]] == [
-            "hivemind:unified_feed:1"
+            "hivemind:message_feed:1"
         ]
 
     def test_validated_sort_prefers_approved_distillations(self) -> None:
@@ -591,7 +589,7 @@ class TestSearchResults:
                         )
                     ]
                 )
-            if "kind=eq.message" in url:
+            if "/message_feed?" in url:
                 return _json_response(
                     [_message_row(1, created_at="2026-08-02T00:00:00Z")]
                 )
@@ -624,7 +622,7 @@ class TestSearchResults:
             )
         assert result.status is ToolStatus.OK
         assert result.result["count"] == 1
-        assert result.result["hits"][0]["evidence_id"] == "hivemind:unified_feed:42"
+        assert result.result["hits"][0]["evidence_id"] == "hivemind:message_feed:42"
 
     def test_opaque_cursor_pages_deterministically(self) -> None:
         rows = [
@@ -748,7 +746,7 @@ class TestTransportOnlyGuarantee:
                 return _json_response(
                     [_workflow_row("wf-1", title="LTX workflow", created_at="2026-08-05T00:00:00Z")]
                 )
-            if "kind=eq.message" in url:
+            if "/message_feed?" in url:
                 raise urllib.error.HTTPError(
                     req.full_url, 500, "statement timeout", {}, io.BytesIO(b'{"code":"57014"}')
                 )
@@ -763,7 +761,7 @@ class TestTransportOnlyGuarantee:
         assert result.result["count"] == 1
         codes = {d.code for d in result.diagnostics}
         assert codes == {"hivemind_scope_failed"}
-        assert result.diagnostics[0].details["scope"] == "unified_feed:message"
+        assert result.diagnostics[0].details["scope"] == "message_feed:message"
 
     def test_all_scopes_failed_returns_typed_failure(self) -> None:
         def _responder(req: Any, url: str) -> Any:
@@ -798,12 +796,12 @@ class TestGet:
         assert result.result["row"] == row
         assert "id=eq.wf-1" in seen[0]
 
-    def test_resolves_unified_feed_message_and_distillation(self) -> None:
+    def test_resolves_message_feed_message_and_unified_distillation(self) -> None:
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response([_message_row(42)])),
         ):
-            result = hivemind_get("hivemind:unified_feed:42")
+            result = hivemind_get("hivemind:message_feed:42")
         assert result.status is ToolStatus.OK
         assert result.result["source_type"] == "discord"
 
@@ -890,11 +888,11 @@ class TestServeRecordView:
 
     def test_message_row_is_typed_non_workflow_with_content(self) -> None:
         row = _message_row(42)
-        view = serve_hivemind_record(row, evidence_id="hivemind:unified_feed:42")
+        view = serve_hivemind_record(row, evidence_id="hivemind:message_feed:42")
         assert view.record_type == "non_workflow"
         assert view.source_type == "discord"
         # The agent sees the record type + its actual content (text/body).
-        assert view.content == "community chatter about ltx"
+        assert view.content == "ltx discussion: community chatter about ltx"
         assert view.surface_lens is None and view.error is None
 
     def test_distillation_row_is_typed_non_workflow_with_content(self) -> None:
@@ -971,13 +969,15 @@ class TestGetTypedRecordView:
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response([_message_row(42)])),
         ):
-            result = hivemind_get("hivemind:unified_feed:42")
+            result = hivemind_get("hivemind:message_feed:42")
         assert result.status is ToolStatus.OK
         view = result.result["record_view"]
         assert view["record_type"] == "non_workflow"
-        assert view["content"] == "community chatter about ltx"
+        assert view["content"] == "ltx discussion: community chatter about ltx"
         # The raw row is still resolvable as the evidence artifact side.
-        assert result.result["row"]["body"] == "community chatter about ltx"
+        assert result.result["row"]["content"] == (
+            "ltx discussion: community chatter about ltx"
+        )
 
     def test_get_returns_typed_malformed_for_workflow_without_json(self) -> None:
         with patch(

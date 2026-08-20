@@ -479,6 +479,13 @@ _REPLY_SYSTEM = (
     "external evidence (research_attempt=never/empty), answer directly from "
     "the attached workflow graph and general knowledge — the reply must "
     "NEVER say that no supported conclusion was produced.\n"
+    "- When a research memo includes durable trace fields, interpret them "
+    "literally: research_status=exhausted means the agent stopped before a "
+    "synthesis; research_status=failed means it failed for research_error. "
+    "Only say tools found nothing when tool_calls_executed is positive and "
+    "evidence_artifacts is zero. Empty citations alone do not mean empty "
+    "research. If evidence_preview is present, name the concrete gathered "
+    "sources it contains before explaining that synthesis did not finish.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -717,17 +724,40 @@ def build_reply_messages(
 
 # ── response parsers ─────────────────────────────────────────────────────────
 
-# Matches a JSON object that starts with { and ends with } across lines.
-# More permissive than the top-level json.loads so we can extract from
-# model output that may have stray whitespace or a trailing period.
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _first_json_object_span(text: str) -> tuple[int, int] | None:
+    """Return the first balanced JSON-object span, respecting JSON strings."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    return None
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
     """Extract the first JSON object from potentially noisy model output.
 
     Strips markdown fences, trims surrounding whitespace, and falls back to
-    regex extraction before handing off to ``json.loads``.
+    balanced-brace extraction before handing off to ``json.loads``.
     """
     stripped = text.strip()
     # Strip outermost ``` fences (with or without ``json`` language tag).
@@ -744,11 +774,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Fall back to regex extraction: find the first { ... } span.
-    match = _JSON_OBJECT_RE.search(stripped)
-    if match:
+    # Fall back to the first balanced object. A greedy regex incorrectly
+    # absorbs braces from explanatory prose after otherwise-valid JSON.
+    span = _first_json_object_span(stripped)
+    if span is not None:
+        start, end = span
         try:
-            parsed = json.loads(match.group(0))
+            parsed = json.loads(stripped[start:end])
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
@@ -1018,83 +1050,9 @@ def parse_reply_response(raw: str) -> str:
     return prose
 
 
-def build_threaded_messages(
-    query: str,
-    *,
-    graph_render: str | None,
-    transcript: str = "",
-    evidence_ledger: str = "",
-    edit_enabled: bool = True,
-    reply_only: bool = False,
-    remaining_continuations: int = 1,
-) -> list[dict[str, str]]:
-    """Build the combined-tool, single-conversation threaded prompt."""
-    from vibecomfy.executor.tool_specs import PHASE_THREADED, tool_catalog_docs
-    from vibecomfy.porting.edit.grammar import render_prompt_doc
-
-    edit_contract = (
-        "Typed edit calls: edit_node, add_node, remove_node, upsert_link, "
-        "remove_link, set_node_mode, edit_batch. You may submit ONE atomic "
-        "edit call; after a rejected call you get at most ONE replacement."
-        if edit_enabled
-        else "Editing is disabled for this answer-only interaction."
-    )
-    mode = (
-        "The host has accepted/closed the edit. Do not call more tools; submit now."
-        if reply_only
-        else "Choose the next useful tool/edit action or submit a final answer."
-    )
-    system = (
-        "You are one durable VibeComfy agent conversation. There is no classifier "
-        "and no later narration agent. Research, inspect, edit, and reply here.\n\n"
-        "Registered research/inspection tools:\n"
-        f"{tool_catalog_docs(PHASE_THREADED)}\n\n"
-        f"{edit_contract}\n\n{render_prompt_doc()}\n\n"
-        "Return exactly one JSON object, either "
-        '{"action":"tool_call","tool":"name","args":{...}} or '
-        '{"action":"submit","reply":"self-contained final message",'
-        '"claims":{"delta_ids":[],"fact_ids":[],"evidence_ids":[]}}. '
-        "Claim IDs must come from host results in this transcript. Never invent one.\n"
-        f"{mode} Remaining model continuations: {remaining_continuations}."
-    )
-    context = [f"User request:\n{query}"]
-    if graph_render:
-        context.append(f"Current workflow (shared renderer):\n{graph_render}")
-    if transcript:
-        context.append(f"Durable conversation transcript:\n{transcript}")
-    if evidence_ledger:
-        context.append(f"Evidence ledger (IDs are citation handles):\n{evidence_ledger}")
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": "\n\n".join(context)},
-    ]
-
-
-def parse_threaded_action(raw: str) -> dict[str, Any]:
-    """Parse one strict threaded host action."""
-    payload = _extract_json_object(raw)
-    action = payload.get("action")
-    if action == "tool_call":
-        if not isinstance(payload.get("tool"), str) or not payload["tool"].strip():
-            raise ValueError("threaded tool_call requires a non-empty tool")
-        if not isinstance(payload.get("args"), dict):
-            raise ValueError("threaded tool_call requires an args object")
-        return payload
-    if action == "submit":
-        if not isinstance(payload.get("reply"), str) or not payload["reply"].strip():
-            raise ValueError("threaded submit requires a non-empty reply")
-        claims = payload.get("claims", {})
-        if not isinstance(claims, dict):
-            raise ValueError("threaded submit claims must be an object")
-        return payload
-    raise ValueError("threaded action must be tool_call or submit")
-
-
 __all__ = [
     "build_classify_messages",
     "build_reply_messages",
-    "build_threaded_messages",
     "parse_classify_response",
     "parse_reply_response",
-    "parse_threaded_action",
 ]

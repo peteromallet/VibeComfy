@@ -8,6 +8,8 @@ contracts.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -53,6 +55,83 @@ from vibecomfy.executor.prompts import (
     parse_classify_response,
     parse_reply_response,
 )
+
+
+def test_executor_core_import_does_not_eagerly_load_comfyui_host_modules() -> None:
+    code = """
+import sys
+import vibecomfy.executor.core
+for name in (
+    "vibecomfy.comfy_nodes.agent.contracts",
+    "vibecomfy.comfy_nodes.agent.edit",
+    "vibecomfy.comfy_nodes.agent.provider",
+    "vibecomfy.comfy_nodes.agent.runtime",
+    "vibecomfy.comfy_nodes.agent.session",
+):
+    assert name not in sys.modules, name
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_direct_classify_backend_repairs_one_malformed_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import provider as agent_provider
+    from vibecomfy.executor.agent_backend import run_classify_turn
+
+    calls: list[list[dict[str, object]]] = []
+
+    def fake_model_turn(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        messages = list(args[1])
+        calls.append(messages)
+        if len(calls) == 1:
+            content = "api_key=sk-secret prose with {LoRA}"
+        else:
+            content = (
+                '{"research": false, "implement": false, "reply": true, '
+                '"effort": "low", "plan_summary": "Clarify", '
+                '"intent": "respond", "route": "respond"}'
+            )
+        return {"content": content, "model_attempts": []}
+
+    monkeypatch.setattr(agent_provider, "run_model_turn", fake_model_turn)
+
+    decision = run_classify_turn("help", route="openrouter", model="model")
+
+    assert decision.effective_route == "respond"
+    assert len(calls) == 2
+    retry = calls[1][-1]
+    assert retry["role"] == "system"
+    assert "classify contract" in str(retry["content"])
+    assert "Previous response preview" in str(retry["content"])
+    assert "<redacted>" in str(retry["content"])
+    assert "sk-secret" not in str(retry["content"])
+
+
+def test_direct_classify_backend_never_retries_provider_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import provider as agent_provider
+    from vibecomfy.executor.agent_backend import run_classify_turn
+
+    calls = 0
+
+    def fake_model_turn(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nonlocal calls
+        calls += 1
+        raise agent_provider.AuthError("bad credentials")
+
+    monkeypatch.setattr(agent_provider, "run_model_turn", fake_model_turn)
+
+    with pytest.raises(agent_provider.AuthError):
+        run_classify_turn("help", route="openrouter", model="model")
+    assert calls == 1
 
 
 def _agent_research_result(summary: str = "found") -> AgentResearchResult:

@@ -108,9 +108,13 @@ def _bounded_request(request: ExecutorRequest) -> tuple[ExecutorRequest, Threade
     requested = request.max_batches or THREADED_DEFAULT_AGENT_BATCHES
     bounded = min(requested, THREADED_MAX_AGENT_BATCHES)
     budget = ThreadedPurposeBudget(research_and_edit_batches=bounded)
-    if request.max_batches == bounded:
+    # Always carry the resolved mode across the host adapter boundary. This
+    # matters when threaded mode was selected by the environment rather than
+    # an explicit request field: the durable batch host still needs to expose
+    # and enforce the composed research+implement tool phase.
+    if request.max_batches == bounded and request.pipeline_mode == "threaded":
         return request, budget
-    return replace(request, max_batches=bounded), budget
+    return replace(request, max_batches=bounded, pipeline_mode="threaded"), budget
 
 
 def _failure_kind(failure: Any) -> str:

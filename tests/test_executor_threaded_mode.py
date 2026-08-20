@@ -157,7 +157,6 @@ def test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap() -> N
             query="set steps",
             graph=graph,
             session_id="same-window",
-            pipeline_mode="threaded",
             max_batches=250,
         ),
         kernel=kernel,
@@ -169,6 +168,7 @@ def test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap() -> N
     assert result.graph is graph
     assert seen["stage"] == "execute"
     assert seen["request"].max_batches == THREADED_MAX_AGENT_BATCHES
+    assert seen["request"].pipeline_mode == "threaded"
     assert seen["plan"].effective_route == "adapt"
     assert seen["grounding"]["landed"] is True
     assert events == [("execute", "start"), ("execute", "done")]

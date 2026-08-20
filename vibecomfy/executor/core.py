@@ -4,9 +4,9 @@ Implements the full executor pipeline (SD1).  Every request flows through
 classify (always calls the model backend), then optionally research and/or
 implement, then always reply via the model backend.
 
-Failures are converted through the existing failure-envelope classification
-machinery (``classify_failure`` / ``failure_envelope`` from the agent
-contracts module) — raw exceptions never leak out of this module.
+Failures are converted through an injected host port — raw exceptions never
+leak out of this module, and importing the plain executor does not eagerly
+load ComfyUI provider, runtime-capture, edit, or session internals.
 """
 
 from __future__ import annotations
@@ -20,26 +20,6 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from vibecomfy.comfy_nodes.agent.contracts import (
-    FailureKind,
-    classify_failure,
-    failure_envelope,
-)
-from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
-from vibecomfy.comfy_nodes.agent.provider import (
-    AuthError,
-    MalformedModelJSON,
-    MissingRequiredField,
-    ProviderError,
-)
-from vibecomfy.comfy_nodes.agent.runtime import (
-    begin_deepseek_usage_capture,
-    begin_model_attempt_capture,
-    end_deepseek_usage_capture,
-    end_model_attempt_capture,
-    snapshot_deepseek_usage_capture,
-    snapshot_model_attempt_capture,
-)
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 from vibecomfy.executor.profiler import (
     new_profile_id,
@@ -73,6 +53,7 @@ from .contracts import (
     ExecutorResult,
     ImplementationResult,
     Report,
+    VALIDATION_FAILURE_KIND,
     _ALLOWED_ROUTES,
     coerce_model_attempts,
     resolve_orchestration_mode,
@@ -84,16 +65,70 @@ from .profiles import (
 
 LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_HOST_PORTS: ExecutorHostPorts | None = None
+
+
+def _default_host_ports() -> ExecutorHostPorts:
+    """Build the production ComfyUI host adapter on first use."""
+    global _DEFAULT_HOST_PORTS
+    if _DEFAULT_HOST_PORTS is None:
+        from vibecomfy.comfy_nodes.agent.executor_adapter import (  # noqa: PLC0415
+            build_executor_host_ports,
+        )
+
+        _DEFAULT_HOST_PORTS = build_executor_host_ports()
+    return _DEFAULT_HOST_PORTS
+
+
+# Compatibility forwarding names: existing integrations and tests patch these
+# module attributes.  New non-ComfyUI hosts should inject ``host_ports=``.
+def handle_agent_edit(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _default_host_ports().handle_agent_edit(*args, **kwargs)
+
+
+def classify_failure(*args: Any, **kwargs: Any) -> Any:
+    return _default_host_ports().classify_failure(*args, **kwargs)
+
+
+def failure_envelope(*args: Any, **kwargs: Any) -> Any:
+    return _default_host_ports().failure_envelope(*args, **kwargs)
+
+
+def begin_deepseek_usage_capture() -> Any:
+    return _default_host_ports().begin_deepseek_usage_capture()
+
+
+def snapshot_deepseek_usage_capture() -> tuple[dict[str, int], bool]:
+    return _default_host_ports().snapshot_deepseek_usage_capture()
+
+
+def end_deepseek_usage_capture(token: Any) -> None:
+    _default_host_ports().end_deepseek_usage_capture(token)
+
+
+def begin_model_attempt_capture() -> Any:
+    return _default_host_ports().begin_model_attempt_capture()
+
+
+def snapshot_model_attempt_capture() -> tuple[dict[str, Any], ...]:
+    return _default_host_ports().snapshot_model_attempt_capture()
+
+
+def end_model_attempt_capture(token: Any) -> None:
+    _default_host_ports().end_model_attempt_capture(token)
+
+
+def _is_provider_error(exc: BaseException) -> bool:
+    return _default_host_ports().is_provider_error(exc)
+
+
+def _payload_hash(payload: Mapping[str, Any]) -> str:
+    return _default_host_ports().payload_hash(payload)
+
 # Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
 # events emitted while the implement phase is running.
 _IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _RESEARCH_HANG_RETRY_SKIP_ENV = "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"
-
-
-def _payload_hash(payload: Mapping[str, Any]) -> str:
-    from vibecomfy.comfy_nodes.agent.session import payload_hash
-
-    return payload_hash(payload)
 
 
 def _legacy_host_ports() -> ExecutorHostPorts:
@@ -102,7 +137,9 @@ def _legacy_host_ports() -> ExecutorHostPorts:
     This remains lazy at call time so existing tests that monkeypatch the core
     compatibility names continue to observe their patches.
     """
-    return ExecutorHostPorts(
+    ports = _default_host_ports()
+    return replace(
+        ports,
         handle_agent_edit=handle_agent_edit,
         payload_hash=_payload_hash,
         classify_failure=classify_failure,
@@ -113,13 +150,6 @@ def _legacy_host_ports() -> ExecutorHostPorts:
         begin_model_attempt_capture=begin_model_attempt_capture,
         snapshot_model_attempt_capture=snapshot_model_attempt_capture,
         end_model_attempt_capture=end_model_attempt_capture,
-        provider_error_types=(
-            AuthError,
-            MalformedModelJSON,
-            MissingRequiredField,
-            ProviderError,
-            TimeoutError,
-        ),
     )
 
 
@@ -742,14 +772,26 @@ def _satisfies_expected_graph_change(plan: ClassifyDecision) -> bool:
 
 def _classify_parse_is_retryable(exc: BaseException) -> bool:
     """True for classify malformed_json / missing_required_fields only."""
-    if isinstance(exc, (MalformedModelJSON, MissingRequiredField)):
+    if type(exc).__name__ in {
+        "JSONDecodeError",
+        "MalformedModelJSON",
+        "MissingRequiredField",
+    }:
+        return True
+    if not isinstance(exc, ValueError):
+        return False
+    if isinstance(getattr(exc, "worker_result", None), Mapping):
         return True
     from vibecomfy.executor.agent_backend import _downstream_failure_type
 
     raw = getattr(exc, "raw_response_preview", None)
-    return _downstream_failure_type(raw if isinstance(raw, str) else None) in {
+    if not isinstance(raw, str):
+        return False
+    return _downstream_failure_type(raw) in {
+        "empty_response",
         "malformed_json",
         "missing_required_fields",
+        "non_json_content",
     }
 
 
@@ -780,7 +822,7 @@ def _reroute_expected_edit(
     if not _satisfies_expected_graph_change(plan):
         raise _ExecutorPhaseError(
             stage="classify",
-            failure_kind=FailureKind.MISSING_REQUIRED_FIELD.value,
+            failure_kind="MissingRequiredField",
             message=(
                 "Classification failed: the scenario expects a graph change "
                 "(expect_graph_changed=true), but classify still routed to "
@@ -798,6 +840,7 @@ def _run_classify(
     *,
     session_context: dict[str, Any] | None = None,
     expect_graph_changed: bool | None = None,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> ClassifyDecision:
     """Run the classify model turn.
 
@@ -824,6 +867,9 @@ def _run_classify(
             "has_graph": request.graph is not None,
             "graph_summary": graph_summary,
             "expect_graph_changed": expect_graph_changed,
+            # The IR-aware core owns its one bounded, route-aware repair turn.
+            # Direct agent_backend callers retain that backend's own repair.
+            "max_parse_attempts": 1,
         }
         # Pre-build messages whenever we have session context beyond the
         # bare query.  The census lens already carries the node reference
@@ -845,9 +891,6 @@ def _run_classify(
 
         try:
             plan = run_classify_turn(request.query, **classify_kwargs)
-        except (ProviderError, AuthError, TimeoutError) as first_exc:
-            if not _classify_parse_is_retryable(first_exc):
-                raise
         except Exception as first_exc:
             if isinstance(first_exc, _ExecutorPhaseError) or not _classify_parse_is_retryable(
                 first_exc
@@ -884,20 +927,23 @@ def _run_classify(
         return plan
     except _ExecutorPhaseError:
         raise
-    except (ProviderError, AuthError, MalformedModelJSON,
-            MissingRequiredField, TimeoutError) as exc:
-        # Map provider-level errors through the failure envelope machinery.
-        failure = classify_failure("agent_response", exc)
-        failure = _enrich_failure_envelope(failure, exc)
-        raise _ExecutorPhaseError(
-            stage="classify",
-            failure_kind=failure.kind.value,
-            message=_classify_stage_message(failure.user_facing_message),
-            failure_envelope=failure,
-            model_attempts=_failure_model_attempts(failure),
-        ) from exc
     except Exception as exc:
-        failure = classify_failure("classify", exc)
+        provider_failure = (
+            host_ports.is_provider_error(exc)
+            if host_ports is not None
+            else _is_provider_error(exc)
+        )
+        classify = (
+            host_ports.classify_failure
+            if host_ports is not None
+            else classify_failure
+        )
+        failure = classify(
+            "agent_response"
+            if provider_failure or _classify_parse_is_retryable(exc)
+            else "classify",
+            exc,
+        )
         failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="classify",
@@ -1316,6 +1362,11 @@ def _run_implement(
         "additive": bool(additive),
         "max_batches": request.max_batches,
     }
+    if request.pipeline_mode is not None:
+        # Boundary-only orchestration marker. The agent-edit host remains the
+        # sole session, graph writer, checkpoint, replay, and emit authority;
+        # it uses this only to select the admitted tool phase.
+        payload["pipeline_mode"] = request.pipeline_mode
     # Batch 11/12 (Law 4): the implement stage's model-facing graph text is
     # the composable renderer's surface+topology view (COMPLETE — no
     # 5-widget/6-input/20-edge caps).  The implement stage has no accepted Δ
@@ -1362,6 +1413,10 @@ def _run_implement(
         payload["expected_baseline_graph_hash"] = request.expected_baseline_graph_hash
     if request.on_demand_schemas is not None:
         payload["on_demand_schemas"] = request.on_demand_schemas
+    if request.pipeline_mode is not None:
+        # Persist the canonical driver choice with the durable edit request so
+        # browser/headless recovery continues the same conversation mode.
+        payload["pipeline_mode"] = request.pipeline_mode
 
     ports = host_ports or _legacy_host_ports()
     try:
@@ -1383,7 +1438,7 @@ def _run_implement(
 
     if not isinstance(result, dict):
         failure = ports.failure_envelope(
-            FailureKind.VALIDATION_ERROR,
+            VALIDATION_FAILURE_KIND,
             "implement",
             agent_failure_context={
                 "explanation": "handle_agent_edit returned a non-dict result."
@@ -1416,18 +1471,27 @@ def _run_implement(
             value = result.get(key)
             if value is not None:
                 failure_payload[key] = value
-        failure = ports.failure_envelope(
-            FailureKind(fk) if isinstance(fk, str) and fk in {k.value for k in FailureKind} else FailureKind.VALIDATION_ERROR,
-            "implement",
-            agent_failure_context={
-                "explanation": fm,
-                **{
-                    key: value
-                    for key, value in failure_payload.items()
-                    if key not in {"message", "stage", "failure_kind"}
-                },
+        make_failure = ports.failure_envelope
+        failure_context_payload = {
+            "explanation": fm,
+            **{
+                key: value
+                for key, value in failure_payload.items()
+                if key not in {"message", "stage", "failure_kind"}
             },
-        )
+        }
+        try:
+            failure = make_failure(
+                fk if isinstance(fk, str) else VALIDATION_FAILURE_KIND,
+                "implement",
+                agent_failure_context=failure_context_payload,
+            )
+        except ValueError:
+            failure = make_failure(
+                VALIDATION_FAILURE_KIND,
+                "implement",
+                agent_failure_context=failure_context_payload,
+            )
         raise _ExecutorPhaseError(
             stage="implement",
             failure_kind=failure.kind.value,
@@ -1921,6 +1985,7 @@ def _run_reply(
     research_result: AgentResearchResult | None = None,
     implementation_result: ImplementationResult | None = None,
     graph_inspection: str | None = None,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> str:
     """Run the reply model turn.
 
@@ -2025,8 +2090,13 @@ def _run_reply(
                     reply = value
                     break
             if not reply:
-                failure = failure_envelope(
-                    FailureKind.VALIDATION_ERROR,
+                make_failure = (
+                    host_ports.failure_envelope
+                    if host_ports is not None
+                    else failure_envelope
+                )
+                failure = make_failure(
+                    VALIDATION_FAILURE_KIND,
                     "reply",
                     agent_failure_context={
                         "explanation": "Reply phase returned a response without reply text."
@@ -2039,8 +2109,13 @@ def _run_reply(
                     failure_envelope=failure,
                 )
         else:
-            failure = failure_envelope(
-                FailureKind.VALIDATION_ERROR,
+            make_failure = (
+                host_ports.failure_envelope
+                if host_ports is not None
+                else failure_envelope
+            )
+            failure = make_failure(
+                VALIDATION_FAILURE_KIND,
                 "reply",
                 agent_failure_context={
                     "explanation": "Reply phase returned a response without reply text."
@@ -2062,19 +2137,18 @@ def _run_reply(
             reason=_no_candidate_reason(implementation_result),
             delta_ops=delta_ops,
         )
-    except (ProviderError, AuthError, MalformedModelJSON,
-            MissingRequiredField, TimeoutError) as exc:
-        failure = classify_failure("agent_response", exc)
-        failure = _enrich_failure_envelope(failure, exc)
-        raise _ExecutorPhaseError(
-            stage="reply",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
-            model_attempts=_failure_model_attempts(failure),
-        ) from exc
     except Exception as exc:
-        failure = classify_failure("reply", exc)
+        provider_failure = (
+            host_ports.is_provider_error(exc)
+            if host_ports is not None
+            else _is_provider_error(exc)
+        )
+        classify = (
+            host_ports.classify_failure
+            if host_ports is not None
+            else classify_failure
+        )
+        failure = classify("agent_response" if provider_failure else "reply", exc)
         failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="reply",
@@ -2201,6 +2275,9 @@ def _run_staged_executor(
         implement payload so the revise pipeline can relax ONLY the pre-edit
         "input graph has dangling/absent endpoints -> refuse to compound"
         precondition.  All post-edit validation and gates remain enforced.
+    host_ports:
+        Optional host implementation for edit, failure, hashing, and capture
+        operations.  When omitted, ComfyUI's implementation is loaded lazily.
 
     Returns
     -------
@@ -2263,7 +2340,8 @@ def _run_staged_executor(
     try:
         classify_spec = _resolve_spec(request.profile, "classify")
     except Exception as exc:
-        failure = classify_failure("profile", exc)
+        classify = ports.classify_failure
+        failure = classify("profile", exc)
         return _finish(ExecutorResult.failure(
             kind=failure.kind.value,
             stage="profile",
@@ -2303,6 +2381,7 @@ def _run_staged_executor(
                 classify_spec,
                 session_context=session_context,
                 expect_graph_changed=request.expect_graph_changed,
+                host_ports=ports,
             )
             span.update(
                 plan_research=plan.research,
@@ -2417,7 +2496,8 @@ def _run_staged_executor(
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
-            failure = classify_failure("profile", exc)
+            classify = ports.classify_failure
+            failure = classify("profile", exc)
             return _finish(ExecutorResult.failure(
                 kind=failure.kind.value,
                 stage="profile",
@@ -2432,24 +2512,39 @@ def _run_staged_executor(
                 status="start",
                 client_id=client_id,
             )
-            with profiler_span(
+            research_span = profiler_span(
                 LOGGER,
                 "executor.phase",
                 **request_fields,
                 phase="research",
                 **_spec_fields(research_spec),
-            ) as span:
+            )
+            research_span.__enter__()
+            try:
                 research_result = _run_agent_owned_research(
                     request,
                     research_spec,
                     plan=plan,
                 )
-                span.update(
+                research_span.update(
                     research_status=research_result.trace.status,
                     research_verdict=research_result.trace.final_verdict,
                     ledger_entries=len(research_result.ledger.entries),
+                    executed_tool_calls=getattr(
+                        research_result.trace, "executed_tool_calls", None
+                    ),
+                    evidence_artifacts=getattr(
+                        research_result.trace, "evidence_artifact_count", None
+                    ),
                     summary_preview=short_text(research_result.summary),
                 )
+                # A completed Python call is not necessarily successful
+                # research: preserve the trace's exhausted/failed status in
+                # profiler output instead of reporting a generic "ok".
+                research_span.finish(status=research_result.trace.status)
+            except Exception:
+                research_span.finish(status="error")
+                raise
     else:
         _emit_executor_phase_event(
             request,
@@ -2476,7 +2571,8 @@ def _run_staged_executor(
             implement_spec = _resolve_spec(request.profile, "implement")
         except Exception as exc:
             # Profile missing implement spec → failure.
-            failure = classify_failure("profile", exc)
+            classify = ports.classify_failure
+            failure = classify("profile", exc)
             report = _build_report(plan=plan, research=research_result)
             return _finish(ExecutorResult.failure(
                 kind=failure.kind.value,
@@ -2634,7 +2730,8 @@ def _run_staged_executor(
     try:
         reply_spec = _resolve_spec(request.profile, "reply")
     except Exception as exc:
-        failure = classify_failure("profile", exc)
+        classify = ports.classify_failure
+        failure = classify("profile", exc)
         report = _build_report(
             plan=plan,
             research=research_result,
@@ -2671,6 +2768,7 @@ def _run_staged_executor(
                 graph_inspection=render_inspect_markdown(inspect_graph(effective_graph))
                 if route_behavior.reply_uses_graph_inspection
                 else None,
+                host_ports=ports,
             )
             span.update(reply_preview=short_text(reply_text))
     except _ExecutorPhaseError as exc:
@@ -2784,6 +2882,12 @@ def run_executor(
             stage="configuration",
             message=str(getattr(failure, "user_facing_message", exc)),
         )
+
+    # Environment selection is an ingress boundary too. Materialize only the
+    # non-default value so threaded sessions persist their canonical mode while
+    # legacy staged requests retain byte-compatible omission.
+    if request.pipeline_mode is None and mode == "threaded":
+        request = replace(request, pipeline_mode=mode)
 
     if mode == "staged":
         return _run_staged_executor(

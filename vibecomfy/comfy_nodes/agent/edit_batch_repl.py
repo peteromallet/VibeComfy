@@ -980,6 +980,10 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # omitted research() sources= to ("messages", "web") on the research route.
     canonical_route = deps._canonical_agent_edit_route(state.route or route)
     research_only_route = canonical_route == "research"
+    threaded_route = (
+        state.request_payload.get("pipeline_mode") == "threaded"
+        and not research_only_route
+    )
     session = edit_session_module.EditSession(
         prepared_ui,
         schema_provider=state.schema_provider,
@@ -990,6 +994,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         initial_workflow=state.workflow,
     )
     session.research_only = research_only_route
+    session.tool_phase = (
+        "threaded" if threaded_route else ("research" if research_only_route else "implement")
+    )
     # Multi-turn identity is session.history: (wf_i, Δ_i).  Bindings for
     # turn N resolve against the accumulated IR, not raw UI snapshots.
     state.batch_session = session
@@ -1199,6 +1206,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             max_batches=max_batches,
             conversation_messages=conversation_messages if turn_number == 0 else None,
             research_only=research_only_route,
+            tool_phase=session.tool_phase,
             evidence_ledger=evidence_ledger,
             revision_evidence_json=deps._revision_evidence_prompt_json(state)
             if turn_number == 0

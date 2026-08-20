@@ -259,7 +259,11 @@ import {
 } from "./agent_flow_deps.js";
 import { createAgentPreviewCache } from "./agent_preview_cache.js";
 import { createRebaselineUndoFlow } from "./agent_rebaseline_undo.js";
-import { createSubmitFlow } from "./agent_submit_flow.js";
+import {
+  createSubmitFlow,
+  DEFAULT_PIPELINE_MODE,
+  normalizePipelineMode,
+} from "./agent_submit_flow.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -341,6 +345,7 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 //   graph   (object, required) — ComfyUI UI JSON (app.canvas.graph.serialize())
 //   task    (string, required) — natural-language edit instruction
 //   route   (string, optional) — "openrouter" (default when absent)
+//   pipeline_mode (string) — canonical "staged" or "threaded"
 //   model   (string, optional) — model id for the provider
 //   session_id        (string, optional) — reuse existing session
 //   idempotency_key   (string, optional) — client dedup key
@@ -411,6 +416,7 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 // matching FailureKind.
 
 const SUPPORTED_FRONTEND = "1.39.x";
+const PIPELINE_MODE_STORAGE_KEY = "vibecomfy_agent_pipeline_mode";
 
 const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
@@ -428,6 +434,7 @@ const PANEL_IDS = Object.freeze({
   composerNotice: "vibecomfy-agent-panel-composer-notice",
   prompt: "vibecomfy-agent-panel-prompt",
   route: "vibecomfy-agent-panel-route",
+  pipelineMode: "vibecomfy-agent-panel-pipeline-mode",
   model: "vibecomfy-agent-panel-model",
   apiKey: "vibecomfy-agent-panel-api-key",
   researchContribution: "vibecomfy-agent-panel-research-contribution",
@@ -3201,6 +3208,7 @@ async function buildSubmitSnapshot(panel) {
   const layoutHash = await layoutGraphHash(graph);
   const liveCanvasToken = captureLiveCanvasToken(graphHash, structuralHash);
   const route = normalizeRoutePreference(panel.fields.route.value);
+  const pipelineMode = normalizePipelineMode(panel.fields.pipelineMode?.value);
   const model = normalizeModelPreference(panel.fields.model.value);
   const idempotencyKey = buildSubmitIdempotencyKey({
     sessionId: panel.state.sessionId,
@@ -3221,6 +3229,7 @@ async function buildSubmitSnapshot(panel) {
     layoutHash,
     liveCanvasToken,
     route,
+    pipelineMode,
     model,
     idempotencyKey,
     expectedBaselineGraphHash,
@@ -3624,6 +3633,38 @@ function createAgentPanelShell() {
   });
   pollerPopulateRouteSelect(routeSelect, null, { selectedRoute: "auto" }, agentStatusDeps());
   routeSelect.value = "auto";
+  const pipelineModeLabel = el("label", "Agent mode");
+  pipelineModeLabel.htmlFor = PANEL_IDS.pipelineMode;
+  Object.assign(pipelineModeLabel.style, {
+    color: "#c4ccd6",
+    fontSize: "11px",
+    marginTop: "8px",
+  });
+  const pipelineModeSelect = document.createElement("select");
+  pipelineModeSelect.id = PANEL_IDS.pipelineMode;
+  for (const [value, text] of [
+    ["staged", "Staged pipeline"],
+    ["threaded", "Threaded agent"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    pipelineModeSelect.appendChild(option);
+  }
+  Object.assign(pipelineModeSelect.style, {
+    width: "100%",
+    background: "#0d0e12",
+    color: "#edf2f7",
+    border: "1px solid #373c46",
+    borderRadius: "6px",
+    padding: "6px 28px 6px 8px",
+    fontFamily: "monospace",
+    fontSize: "12px",
+    boxSizing: "border-box",
+  });
+  pipelineModeSelect.value = normalizePipelineMode(
+    _lsGet(PIPELINE_MODE_STORAGE_KEY) || DEFAULT_PIPELINE_MODE,
+  );
   const modelInput = document.createElement("input");
   modelInput.id = PANEL_IDS.model;
   modelInput.placeholder = "Model override (optional)";
@@ -3732,6 +3773,15 @@ function createAgentPanelShell() {
     }
     return undefined;
   };
+  pipelineModeSelect.onchange = () => {
+    const canonicalMode = normalizePipelineMode(pipelineModeSelect.value);
+    pipelineModeSelect.value = canonicalMode;
+    _lsSet(PIPELINE_MODE_STORAGE_KEY, canonicalMode);
+    const panel = currentAgentPanel();
+    if (panel) {
+      panel.fields.pipelineMode.value = canonicalMode;
+    }
+  };
   modelInput.onchange = () => {
     const panel = currentAgentPanel();
     if (panel) {
@@ -3767,6 +3817,8 @@ function createAgentPanelShell() {
   };
   settingsButtons.appendChild(settingsTest);
   settingsRegion.body.appendChild(routeSelect);
+  settingsRegion.body.appendChild(pipelineModeLabel);
+  settingsRegion.body.appendChild(pipelineModeSelect);
   settingsRegion.body.appendChild(modelInput);
   settingsRegion.body.appendChild(apiKeyInput);
   settingsRegion.body.appendChild(settingsButtons);
@@ -3866,6 +3918,7 @@ function createAgentPanelShell() {
     fields: {
       prompt: textarea,
       route: routeSelect,
+      pipelineMode: pipelineModeSelect,
       model: modelInput,
       apiKey: apiKeyInput,
       researchContribution: researchContributionControl,
@@ -4326,6 +4379,7 @@ async function _rehydrateChat(panel) {
       const lifecyclePayload = {
         requestEpoch,
         messages,
+        pipelineMode: payload.pipelineMode,
         chatSessionPath: payload.sessionPath,
         chatDetailJsonPath: payload.detailJsonPath,
         chatSessionPathResolved: payload.sessionPathResolved,
@@ -4357,6 +4411,10 @@ async function _rehydrateChat(panel) {
       // on this scope use the correct session id.
       if (requestScopeId && typeof payload.sessionId === "string" && payload.sessionId) {
         setScopedSessionId(requestScopeId, payload.sessionId);
+      }
+      if (panel.fields.pipelineMode) {
+        panel.fields.pipelineMode.value = normalizePipelineMode(payload.pipelineMode);
+        _lsSet(PIPELINE_MODE_STORAGE_KEY, panel.fields.pipelineMode.value);
       }
       fulfillAgentPanelCommitObligations(panel, successObligations, "rehydrate");
       resetThreadRenderState(panel);
@@ -5052,6 +5110,9 @@ function normalizeChatRehydratePayload(rawPayload) {
         : (rawPayload.latest_candidate && typeof rawPayload.latest_candidate === "object"
           ? normalizeAgentEditResponse(rawPayload.latest_candidate, { endpoint: "chat:latest_candidate", allowLegacy: true })
           : null),
+    pipelineMode: normalizePipelineMode(
+      rawPayload.pipelineMode ?? rawPayload.pipeline_mode ?? DEFAULT_PIPELINE_MODE,
+    ),
     messages: Array.isArray(rawPayload.messages)
       ? rawPayload.messages.map((message) => normalizeChatMessagePayload(message))
       : [],
@@ -8290,6 +8351,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       lastSubmit: {
         task,
         route: snapshot.route,
+        pipeline_mode: snapshot.pipelineMode,
         model: snapshot.model,
         client_graph_hash: snapshot.graphHash,
         client_structural_graph_hash: snapshot.structuralHash,
@@ -8299,6 +8361,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       debugPayload: {
         task,
         route: snapshot.route,
+        pipeline_mode: snapshot.pipelineMode,
         model: snapshot.model,
         client_graph_hash: snapshot.graphHash,
         client_structural_graph_hash: snapshot.structuralHash,

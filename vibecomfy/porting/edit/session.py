@@ -561,8 +561,18 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 )
 
             baseline_ui = self._emit_working_snapshot(pre, ops=())
-            candidate_ui = self._emit_working_snapshot(post, ops=canonical_ops)
-            exit_guard = guard_exit_ui(baseline_ui, candidate_ui, canonical_ops)
+            # The returned candidate is the complete post-transaction graph,
+            # not a graph containing only this batch's attribution.  Pinning
+            # with just ``canonical_ops`` would restore earlier accepted edits
+            # from ``original_ui`` while the retained IR already contains
+            # them, so a second typed turn could return a graph that silently
+            # regresses the first turn.  Include the prior landed operations
+            # while the transaction is still uncommitted; this is equivalent
+            # to the snapshot emitted after commit and keeps candidate/UI
+            # equality stable across a durable threaded continuation.
+            accepted_ops = tuple(self.landed_ops) + canonical_ops
+            candidate_ui = self._emit_working_snapshot(post, ops=accepted_ops)
+            exit_guard = guard_exit_ui(baseline_ui, candidate_ui, accepted_ops)
             if not exit_guard.ok:
                 diagnostics = tuple(
                     _diag(

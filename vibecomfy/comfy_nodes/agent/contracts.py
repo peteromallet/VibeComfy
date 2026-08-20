@@ -2002,6 +2002,9 @@ def public_session_turn_summary(turn: Mapping[str, Any]) -> dict[str, Any]:
 
 def public_chat_rehydrate_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Project a raw chat rehydrate envelope to the browser-safe public shape."""
+    pipeline_mode = payload.get("pipeline_mode")
+    if pipeline_mode not in {"staged", "threaded"}:
+        pipeline_mode = "staged"
     public: dict[str, Any] = {
         "ok": payload.get("ok") is not False,
         "exists": bool(payload.get("exists")),
@@ -2014,6 +2017,7 @@ def public_chat_rehydrate_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "baseline_source": payload.get("baseline_source"),
         "baseline_rebaseline_id": payload.get("baseline_rebaseline_id"),
         "baseline_graph_source_path": payload.get("baseline_graph_source_path"),
+        "pipeline_mode": pipeline_mode,
         "messages": [],
         "latest_candidate": public_latest_candidate(payload.get("latest_candidate")),
         "latest_turn_lifecycle": public_latest_turn_lifecycle(

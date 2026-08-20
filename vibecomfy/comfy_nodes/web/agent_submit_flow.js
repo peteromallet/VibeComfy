@@ -19,6 +19,20 @@
 // same WeakMap lifecycle (set/get/delete on submitActivityByPanel), same
 // defaults and watchdog timing math.
 
+export const DEFAULT_PIPELINE_MODE = "staged";
+
+/** Normalize aliases at the browser request/recovery boundary. */
+export function normalizePipelineMode(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!normalized || normalized === "staged" || normalized === "full") {
+    return "staged";
+  }
+  if (normalized === "threaded" || normalized === "two_step") {
+    return "threaded";
+  }
+  return DEFAULT_PIPELINE_MODE;
+}
+
 export function createSubmitFlow(deps) {
   const {
     submitWatchdogDepsState,
@@ -75,6 +89,7 @@ export function createSubmitFlow(deps) {
       task,
       route: snapshot.route,
       profile,
+      pipeline_mode: normalizePipelineMode(snapshot.pipelineMode),
       model: snapshot.model || undefined,
       session_id: sessionIdOverride || panel.state.sessionId || undefined,
       client_id: api?.clientId || undefined,

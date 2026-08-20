@@ -147,10 +147,19 @@ def _hivemind_search_projector(
             source="hivemind",
         )
     ids = tuple(artifacts)
-    titles = [_shorten_query_text(hit.get("title") or hit.get("body") or "", max_chars=80) for hit in hits]
+    titles = [
+        text
+        for text in (
+            _shorten_query_text(
+                hit.get("title") or hit.get("body") or "", max_chars=80
+            )
+            for hit in hits
+        )
+        if text
+    ]
     conclusion = f"{len(hits)} hit(s)"
     if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
+        conclusion += ": " + " | ".join(titles)[:380].rstrip()
     entry = _ledger_entry_dict(
         decision=f"hivemind_search {_tool_arg_summary(args)}",
         conclusion=conclusion,
@@ -220,10 +229,17 @@ def _web_search_projector(
             source="web",
         )
     ids = tuple(artifacts)
-    titles = [_shorten_query_text(item.get("title") or "", max_chars=80) for item in results]
+    titles = [
+        text
+        for text in (
+            _shorten_query_text(item.get("title") or "", max_chars=80)
+            for item in results
+        )
+        if text
+    ]
     conclusion = f"{len(results)} result(s)"
     if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
+        conclusion += ": " + " | ".join(titles)[:380].rstrip()
     entry = _ledger_entry_dict(
         decision=f"web_search {_tool_arg_summary(args)}",
         conclusion=conclusion,
@@ -713,7 +729,12 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         phase=PHASE_RESEARCH,
         description=(
             "search the Hivemind corpus (Discord community, external resources, "
-            "curated distillations) for workflow precedents and community knowledge"
+            "curated distillations) for workflow precedents and community knowledge. "
+            "Choose filters.source_type by need: 'workflow' for exact graph "
+            "precedents, 'discord' for community usage/settings/gotchas, and "
+            "'distillation' for curated Q&A. A distillation/speed/turbo LoRA is "
+            "a model type, not the 'distillation' source tier; search workflow "
+            "or discord for those models."
         ),
         positional_names=("query",),
         keywords=("query", "filters", "cursor", "limit", "timeout"),

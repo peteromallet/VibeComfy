@@ -68,7 +68,7 @@ MAX_BATCHES_LIMIT = 250
 
 @dataclass(frozen=True)
 class ExecutorHostPorts:
-    """Narrow host boundary used by orchestration-only executor drivers.
+    """Narrow host boundary used by staged and threaded executor drivers.
 
     The concrete ComfyUI adapter owns edit-session allocation, provider error
     classification, request hashing, and model-usage capture. Keeping those
@@ -99,6 +99,10 @@ class ExecutorHostPorts:
     def is_provider_error(self, exc: BaseException) -> bool:
         return isinstance(exc, self.provider_error_types)
 
+
+# Neutral wire value used when the executor synthesizes a validation failure.
+# The host adapter converts it to its compatibility enum at the boundary.
+VALIDATION_FAILURE_KIND = "ValidationError"
 
 # ── orchestration mode ──────────────────────────────────────────────────────
 
@@ -2592,6 +2596,7 @@ __all__ = [
     "PIPELINE_MODE_ENV_VAR",
     "TopologyFindings",
     "TopologyManifest",
+    "VALIDATION_FAILURE_KIND",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
     "build_topology_manifest",
