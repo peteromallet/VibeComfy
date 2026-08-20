@@ -7187,7 +7187,7 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
     recovery: [],
   };
   const deltaOps = [
-    { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "preview-only-intent" },
+    { op: "set_node_field", target: ["", "uid-1", "widgets_values.0"], value: "preview-only-intent" },
   ];
 
   const harness = await createBrowserHarness({
@@ -7220,7 +7220,7 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
           apply_allowed: true,
           queue_allowed: false,
           graph: candidateGraph,
-          delta_ops: deltaOps,
+          accepted_batch: deltaOps.map((op) => ({ op })),
           report: candidateReport,
           submit_graph_hash: sha256HexUtf8(liveGraph),
           candidate_graph_hash: sha256HexUtf8(candidateGraph),
