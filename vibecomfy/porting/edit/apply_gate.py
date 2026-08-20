@@ -74,7 +74,15 @@ def verify_apply(
         diagnostics.append(orphan_diag)
         return _reject("orphaned_output", diagnostics)
 
-    replay_source: str | Sequence[EditOp] | None = claimed_ops or delta
+    # A Python batch's source is the authoritative replay value. Its AddNodeOp
+    # intentionally carries no schema-derived widget-channel classification
+    # for unknown-schema nodes, so replaying only the typed op can re-channel
+    # literals even though replaying the accepted source is faithful to the
+    # post-IR. Typed-tool callers do not supply a source string and continue
+    # to replay their canonical ops.
+    replay_source: str | Sequence[EditOp] | None = (
+        delta if isinstance(delta, str) else (claimed_ops or delta)
+    )
     claimed_edit = bool(claimed_ops) or bool(delta)
 
     if not claimed_edit or editable_signature(pre) == editable_signature(post):
