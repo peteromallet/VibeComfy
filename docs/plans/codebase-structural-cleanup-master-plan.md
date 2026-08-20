@@ -216,6 +216,7 @@ This reconciliation is planning evidence only. It does not authorize cleanup, de
 | `1136f7cb` | Test correction aligning runtime expectations with integrated defaults. |
 | `25260147` | Closed replay-schema, compact-prompt, and typed empty-worker-response contract gaps found by adjacent verification. |
 | `58727689` | Passed the configured Python interpreter into browser contract/smoke targets, fixing PR156's `spawnSync(...).status === null` CI failure. |
+| `9eca3ed1` | Initial post-PR156 cleanup-plan reconciliation submitted to independent CR-0A review. |
 | Final integration location | Branch `integrate/pr156-local-cleanup-20260820`, worktree `/private/tmp/vibecomfy-pr156-local-integration`. |
 | Live tree | Original live worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` is preserved unchanged. |
 
@@ -228,8 +229,8 @@ The final branch/worktree is not yet an approved cleanup base: P00 remains block
 | PR156 follow-up preservation | Virtual-wire, pipeline readiness/recovery, compatibility seams, typed edit COW, canonical retained access | All six PR156 fixes present after local replay; virtual-wire 3 passed, typed edit COW 9 passed, readiness/materialization 3 passed |
 | Session and pipeline conflict | Session/pipeline plus virtual-wire/pipeline focused shards | 73 passed, then 15 passed; no unresolved conflict remains |
 | Backend/executor integration | Threaded, contracts, flows, profiles, host boundary, routes, session, runtime-adapter shards | 509 passed/6 contract gaps; the six exact failures were fixed without weakening tests, then 6 exact nodeids plus affected 9/201/45/19-test shards passed |
-| Frontend integration | Lifecycle/canonical/response/parity; migration/M1/ownership/dependency; smoke/pipeline/graph projection | 441 passed; 65 passed; 275 passed with 2 skipped; browser contracts 576 passed |
-| PR156 CI reproduction | `m1_contracts.test.mjs` with configured and missing Python | Reproduced `null !== 0` only with missing interpreter; Makefile now exports `VIBECOMFY_PYTHON="$(PYTHON)"`; exact 17 and browser-contract 576 tests pass |
+| Frontend integration | Lifecycle/canonical/response/parity; migration/M1/ownership/dependency; smoke/pipeline/graph projection | 441 passed; 65 passed; 275 passed with 2 skipped; browser contracts 576 passed; final `make browser-smoke` 1,653 passed/2 skipped/0 failed |
+| PR156 CI reproduction | `m1_contracts.test.mjs` with configured and missing Python | Reproduced `null !== 0` only with missing interpreter; Makefile now exports `VIBECOMFY_PYTHON="$(PYTHON)"`; exact 17, browser-contract 576, and final browser-smoke 1,653 passed/2 skipped/0 failed |
 | Reorganise/patch integration | Focused/golden reorganise plus ControlNet/patch suites | 191 passed |
 | Graph/IR baseline | Workflow/convert/virtual-wire and IR-law/boundary/edit shards | 104 passed/4 failed/3 skipped and 94 passed/9 failed. Two failures require an absent external corpus fixture; the remaining bypass/static-boundary/inverse/legacy-envelope/undo failures are P03 evidence for G54/G58/G60/G63, not silently accepted completion |
 | Documentation paths | `tools.check_markdown_links` | Passed on the integrated tree; anchor validation remains a separate prerequisite |
@@ -449,7 +450,7 @@ The absence of an `[XHARD]` tag does not mean “easy.” It means the work is s
 ### [XHARD] P00A — PR154/PR156/local replay integration freeze
 
 **Estimate:** 1 day read-only reconciliation
-**Prerequisite:** `P00`
+**Prerequisite:** verified preservation snapshot `4abeb90d`. `P00` may remain in progress while it classifies independent dirty worktrees.
 
 Freeze the provenance and ownership boundary between the preserved PR154 checkpoint, PR156, and the local structural replay before any implementation package is dispatched. This package is a planning gate, not a cleanup implementation.
 
@@ -462,6 +463,7 @@ Freeze the provenance and ownership boundary between the preserved PR154 checkpo
 - `1136f7cb` — runtime expectation correction;
 - `25260147` — adjacent-verification contract corrections;
 - `58727689` — configured-Python browser CI correction and latest verified code HEAD before this plan-only reconciliation;
+- `9eca3ed1` — initial post-PR156 cleanup-plan reconciliation submitted to independent CR-0A review;
 - branch/worktree: `integrate/pr156-local-cleanup-20260820` at `/private/tmp/vibecomfy-pr156-local-integration`;
 - original live worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` unchanged.
 
@@ -477,7 +479,7 @@ Freeze the provenance and ownership boundary between the preserved PR154 checkpo
 
 - all receipts above are recorded and their preservation meaning is explicit;
 - no dirty payload is silently folded into cleanup ownership;
-- P00 remains blocking until the six other payloads and active test worktree have decisions;
+- P00A may be accepted independently of P00; P00 remains separately blocking until the six other payloads and active test worktree have decisions;
 - every affected package has a status and a concrete next goal;
 - an independent `[XHARD-REVIEW]` gate accepts the reconciliation before P01–P03 or mutation work proceeds.
 
@@ -486,7 +488,7 @@ Freeze the provenance and ownership boundary between the preserved PR154 checkpo
 ### P01 — Public surface and monkeypatch inventory
 
 **Estimate:** four read-only slices of 0.5–1 day
-**Prerequisite:** `P00A`
+**Prerequisites:** completed `P00`; accepted `P00A`/`CR-0A`
 
 Inventory:
 
@@ -509,7 +511,7 @@ Execute as `P01a` backend/session/routes, `P01b` executor/provider/runtime, `P01
 ### P02 — Authority and derived-data ledger
 
 **Estimate:** four read-only slices of 0.5–1 day
-**Prerequisite:** `P00A`
+**Prerequisites:** completed `P00`; accepted `P00A`/`CR-0A`
 
 Create a table for:
 
@@ -526,7 +528,7 @@ Use the same backend, executor, frontend, and graph slices as `P01`; add one int
 ### P03 — Baseline test and performance ledger
 
 **Estimate:** four authorized slices of 0.5–1 day plus integration
-**Prerequisite:** `P00A`
+**Prerequisites:** completed `P00`; accepted `P00A`/`CR-0A`
 
 Record commands and current results for:
 
@@ -593,14 +595,14 @@ Do not “fix while measuring.” Existing failures must be classified before Wa
 - no link targets a nonexistent emitted socket;
 - refusal diagnostics retain endpoint evidence for genuinely malformed graphs.
 
-### C12 — Resolve the `4096` versus `16384` runtime default
+### C12 — Validate and propagate the integrated `16384` runtime default
 
 **Estimate:** 0.5 day
 **Prerequisite:** `P02`
 
-Find every default in Python, TOML, environment handling, status projection, and tests. Choose one authority based on intended product behavior, then make all projections derive from it. Do not update the test merely to match the current implementation.
+The PR156 integration freezes `16384` as the characterized current baseline: production and its direct contract test must both state the value literally so changing the implementation alone cannot silently weaken the test. Inventory every projection in Python, TOML, environment handling, status output, and tests; then make them derive from one named authority without replacing literal boundary assertions with self-referential constants.
 
-Before editing, record the decision owner, chosen value, rationale, compatibility impact, and rollout expectation in the package card.
+Before changing the value in the future, record the decision owner, rationale, compatibility impact, migration/rollout expectation, and the concrete boundary assertions that must change. A different product decision is allowed, but it is an explicit contract change rather than cleanup drift.
 
 ### C13 — Cache schema providers and object-info shards safely
 
@@ -1764,7 +1766,8 @@ Delete only after proving zero consumers with repository search, import tests, b
 When the schedule names a parent epic such as `B34`, `F44`, or `G59`, it means every suffix required by the dependent package is complete. Executable cards must replace parent shorthand with precise suffix prerequisites before work begins.
 
 ```text
-P00 -> [XHARD] P00A -> P01/P02/P03
+(P00 completed) + ([XHARD] P00A -> [XHARD-REVIEW] CR-0A accepted)
+    -> P01/P02/P03
     -> C10/C11/C12/C13
     -> A20 -> A21/A22/A23/A24/A25/A26
     -> early inversions: B30/B31/B32/B33, F40/F41/F42, G50/G51/G52/G53
@@ -2158,7 +2161,7 @@ Only the first category automatically blocks on code. Flaky or environmental cla
 Subagents may research and recommend, but must not silently choose:
 
 - `D01` — preview canvas-only versus canvas+DOM chips (`F41`);
-- `D02` — canonical `4096` versus `16384` runtime token default (`C12`);
+- `D02` — any future change from the integrated canonical `16384` runtime token default (`C12`);
 - `D03` — whether committed `WIDGET_SCHEMA` remains authoritative curated evidence (`G53a`);
 - `D04` — removal window for accept/finalize and other deployed route bridges (`S74`);
 - `D05` — long-term furniture carrier at the IR/reorganise boundary (`G50`/`G63`);

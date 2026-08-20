@@ -30,7 +30,7 @@ def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.M
     assert kwargs["provider"] == "openrouter"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["model"] == "deepseek/deepseek-v4-pro"
-    assert kwargs["max_tokens"] == runtime._OPENROUTER_MAX_TOKENS
+    assert kwargs["max_tokens"] == 16384
     # Cluster B: bounded, configurable per-turn iteration budget (default 2).
     assert kwargs["max_iterations"] == 2
 
