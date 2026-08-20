@@ -498,6 +498,51 @@ def _root_node_for_uid(
     return None, None
 
 
+def _subgraph_node_for_uid(
+    workflow: "VibeWorkflow", scope_path: str, uid: str
+) -> dict[str, Any] | None:
+    """Resolve a retained raw subgraph node without rebuilding the IR.
+
+    Subgraph definitions remain an opaque, lossless part of the retained IR;
+    edits to their editor-native fields therefore apply copy-on-write to the
+    definition payload and leave the root execution graph untouched.
+    """
+    from vibecomfy.identity.scope import sg_key
+
+    definitions = getattr(workflow, "metadata", {}).get("definitions")
+    if not isinstance(definitions, Mapping):
+        return None
+    graph: Mapping[str, Any] = definitions
+    for segment in str(scope_path).split("/"):
+        if not segment:
+            continue
+        subgraphs = graph.get("subgraphs") if isinstance(graph, Mapping) else None
+        if not isinstance(subgraphs, list):
+            return None
+        match = next(
+            (
+                item
+                for item in subgraphs
+                if isinstance(item, Mapping) and sg_key(item) == segment
+            ),
+            None,
+        )
+        if not isinstance(match, Mapping):
+            return None
+        graph = match
+    nodes = graph.get("nodes") if isinstance(graph, Mapping) else None
+    if not isinstance(nodes, list):
+        return None
+    for raw_node in nodes:
+        if not isinstance(raw_node, dict):
+            continue
+        properties = raw_node.get("properties")
+        raw_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        if str(raw_uid if raw_uid is not None else raw_node.get("id")) == str(uid):
+            return raw_node
+    return None
+
+
 def _mint_ir_node_id(workflow: "VibeWorkflow") -> str:
     """Mint the next numeric node id (max existing numeric id + 1)."""
     highest = 0
@@ -516,6 +561,83 @@ def _mint_ir_uid(workflow: "VibeWorkflow") -> str:
         if uid.startswith("n") and uid[1:].isdigit():
             highest = max(highest, int(uid[1:]))
     return f"n{highest + 1}"
+
+
+def _edge_hint_key(from_node: Any, from_output: Any, to_node: Any, to_input: Any) -> str:
+    return "\x1f".join((str(from_node), str(from_output), str(to_node), str(to_input)))
+
+
+def _next_link_hint(workflow: "VibeWorkflow") -> int:
+    highest = 0
+    metadata = getattr(workflow, "metadata", {})
+    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    if not isinstance(raw_ui, Mapping):
+        door = metadata.get("_ui_door") if isinstance(metadata, Mapping) else None
+        raw_ui = door.get("top") if isinstance(door, Mapping) else None
+    raw_links = raw_ui.get("links") if isinstance(raw_ui, Mapping) else None
+    if isinstance(raw_links, list):
+        for link in raw_links:
+            if isinstance(link, (list, tuple)) and link and isinstance(link[0], int):
+                highest = max(highest, link[0])
+            elif isinstance(link, Mapping) and isinstance(link.get("id"), int):
+                highest = max(highest, link["id"])
+    hints = metadata.get("_edit_link_id_hints") if isinstance(metadata, Mapping) else None
+    if isinstance(hints, Mapping):
+        highest = max((int(value) for value in hints.values() if str(value).isdigit()), default=highest)
+    return highest + 1
+
+
+def _record_link_hint(workflow: "VibeWorkflow", edge: Any, link_id: int) -> None:
+    hints = workflow.metadata.setdefault("_edit_link_id_hints", {})
+    hints[_edge_hint_key(edge.from_node, edge.from_output, edge.to_node, edge.to_input)] = int(link_id)
+
+
+def _captured_link_id_for_edge(workflow: "VibeWorkflow", edge: Any) -> int | None:
+    metadata = getattr(workflow, "metadata", {})
+    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    door = None
+    if not isinstance(raw_ui, Mapping):
+        door = metadata.get("_ui_door") if isinstance(metadata, Mapping) else None
+        raw_ui = door.get("top") if isinstance(door, Mapping) else None
+    raw_links = raw_ui.get("links") if isinstance(raw_ui, Mapping) else None
+    if not isinstance(raw_links, list):
+        return None
+
+    raw_nodes = raw_ui.get("nodes") if isinstance(raw_ui, Mapping) else None
+    if not isinstance(raw_nodes, (list, Mapping)) and isinstance(door, Mapping):
+        raw_nodes = door.get("nodes")
+
+    def _slot_index(node_id: str, field: str, *, output: bool) -> int | None:
+        if str(field).isdigit():
+            return int(field)
+        if not isinstance(raw_nodes, (list, Mapping)):
+            return None
+        node_values = raw_nodes.values() if isinstance(raw_nodes, Mapping) else raw_nodes
+        for node in node_values:
+            if not isinstance(node, Mapping) or str(node.get("id")) != str(node_id):
+                continue
+            entries = node.get("outputs" if output else "inputs")
+            if not isinstance(entries, list):
+                return None
+            for index, entry in enumerate(entries):
+                if isinstance(entry, Mapping) and str(entry.get("name")) == str(field):
+                    return index
+        return None
+
+    source_slot = _slot_index(edge.from_node, edge.from_output, output=True)
+    target_slot = _slot_index(edge.to_node, edge.to_input, output=False)
+    for link in raw_links:
+        if isinstance(link, (list, tuple)) and len(link) >= 6:
+            if (
+                str(link[1]) == str(edge.from_node)
+                and source_slot is not None
+                and int(link[2]) == source_slot
+                and str(link[3]) == str(edge.to_node)
+                and target_slot is not None
+                and int(link[4]) == target_slot
+            ):
+                return int(link[0]) if isinstance(link[0], int) else None
+    return None
 
 
 def _ir_output_slot_name(node: Any, output_slot: str | int) -> str:
@@ -726,11 +848,24 @@ def apply_edit_cow(
 
     if isinstance(op, SetNodeFieldOp):
         node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if op.target.scope_path:
+            raise NotImplementedError(
+                f"subgraph field target {op.target.scope_path!r} is not supported by "
+                "the retained IR edit surface"
+            )
         if node is None:
             raise KeyError(
                 f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
         field = op.target.field_path
+        # A literal assignment is also the explicit unlink operation for a
+        # widget-backed input.  The retained IR has one edge authority, so
+        # remove the incoming edge before materializing the literal value.
+        post.edges = [
+            edge
+            for edge in post.edges
+            if not (edge.to_node == node_id and edge.to_input == field)
+        ]
         if _apply_primitive_widget_alias_write(
             node,
             field,
@@ -749,6 +884,14 @@ def apply_edit_cow(
         return post
 
     if isinstance(op, SetModeOp):
+        if op.target.scope_path:
+            raw_node = _subgraph_node_for_uid(post, op.target.scope_path, op.target.uid)
+            if raw_node is None:
+                raise KeyError(
+                    f"set_mode: no retained subgraph node for uid {op.target.uid!r}"
+                )
+            raw_node["mode"] = int(op.mode)
+            return post
         _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
         if node is None:
             raise KeyError(
@@ -793,14 +936,14 @@ def apply_edit_cow(
             for edge in post.edges
             if not (edge.to_node == target_id and edge.to_input == op.target.input_field)
         ]
-        post.edges.append(
-            VibeEdge(
-                from_node=source_id,
-                from_output=_ir_output_slot_name(source_node, op.source.output_slot),
-                to_node=target_id,
-                to_input=op.target.input_field,
-            )
+        replacement = VibeEdge(
+            from_node=source_id,
+            from_output=_ir_output_slot_name(source_node, op.source.output_slot),
+            to_node=target_id,
+            to_input=op.target.input_field,
         )
+        post.edges.append(replacement)
+        _record_link_hint(post, replacement, _next_link_hint(post))
         # The target's input now combines the source's provenance: max-taint.
         _tag_agent_edit_provenance(source_node)
         _tag_agent_edit_provenance(target_node, source_node)
@@ -812,12 +955,31 @@ def apply_edit_cow(
             raise KeyError(
                 f"remove_node: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
+        removed_class = str(getattr(_node, "class_type", "") or "")
+        incoming = [edge for edge in post.edges if edge.to_node == node_id]
+        outgoing = [edge for edge in post.edges if edge.from_node == node_id]
         post.nodes.pop(node_id, None)
         post.edges = [
             edge
             for edge in post.edges
             if edge.from_node != node_id and edge.to_node != node_id
         ]
+        if removed_class == "Reroute" and incoming and outgoing:
+            rewired_edges = [
+                VibeEdge(
+                    from_node=in_edge.from_node,
+                    from_output=in_edge.from_output,
+                    to_node=out_edge.to_node,
+                    to_input=out_edge.to_input,
+                )
+                for in_edge in incoming
+                for out_edge in outgoing
+            ]
+            post.edges.extend(rewired_edges)
+            for rewired, outgoing_edge in zip(rewired_edges, outgoing):
+                captured_id = _captured_link_id_for_edge(workflow, outgoing_edge)
+                if captured_id is not None:
+                    _record_link_hint(post, rewired, captured_id)
         post.inputs = {
             name: entry
             for name, entry in post.inputs.items()
@@ -927,14 +1089,14 @@ def apply_edit_cow(
                     f"{input_name!r} is missing from workflow {workflow.id!r}"
                 )
             source_nodes.append(source_node)
-            post.edges.append(
-                VibeEdge(
+            added_edge = VibeEdge(
                     from_node=source_id,
                     from_output=_ir_output_slot_name(source_node, source_ref.output_slot),
                     to_node=new_id,
                     to_input=input_name,
                 )
-            )
+            post.edges.append(added_edge)
+            _record_link_hint(post, added_edge, _next_link_hint(post))
         # New node's provenance = join(agent_generated, *source provenances).
         _tag_fresh_node_provenance(node, *source_nodes)
         post.nodes[new_id] = node

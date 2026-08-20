@@ -290,7 +290,17 @@ class AgentDeltaTurnResult:
 
     def to_dict(self) -> dict[str, Any]:
         ops = [canonical_op_to_dict(op) for op in self.delta]
+        envelope = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": ops,
+        }
         return {
+            # ``delta`` and ``delta_ops_envelope`` are the explicit bridge for
+            # callers that still consume the model-facing response shape.  The
+            # durable result remains ``accepted_batch``; both views are
+            # canonicalized from the same typed ops.
+            "delta": ops,
+            "delta_ops_envelope": envelope,
             "accepted_batch": [{"op": op} for op in ops],
             "message": self.message,
             "route": self.route,

@@ -125,6 +125,18 @@ def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
             "wrong_channel",
             f"field {field!r} is a socket; use upsert_link instead of a literal write.",
         )
+    from vibecomfy.porting.edit.validate import validate_literal_value
+
+    issues = validate_literal_value(
+        value=op.value,
+        spec=spec,
+        class_type=str(node.class_type),
+        input_name=field,
+        context="typed edit",
+    )
+    for issue in issues:
+        if getattr(issue, "severity", "error") == "error":
+            raise ApplyOpsError(issue.code, issue.message)
     accepted = _LITERAL_TYPES.get(spec_type)
     if accepted is not None and (
         not isinstance(op.value, accepted)
@@ -182,6 +194,28 @@ def _validate_link(workflow: Any, op: UpsertLinkOp, provider: Any) -> None:
         raise ApplyOpsError(
             "unknown_port",
             f"input {op.target.input_field!r} is not present on {target.class_type!r}.",
+        )
+    # Keep typed-op validation on the same socket compatibility rail as the
+    # Python surface.  The IR COW layer stores named endpoints, so only the
+    # schema/retained metadata type evidence belongs here.
+    from vibecomfy.porting.edit._interpret import _input_socket_type, _output_socket_type
+    from vibecomfy.schema import socket_types_compatible
+
+    source_type = _output_socket_type(source, op.source.output_slot)
+    if source_type is None:
+        metadata = getattr(source, "metadata", None) or {}
+        names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+        types = metadata.get("output_types") if isinstance(metadata, Mapping) else None
+        if isinstance(names, (list, tuple)) and isinstance(types, (list, tuple)):
+            try:
+                source_type = str(types[list(names).index(op.source.output_slot)])
+            except (ValueError, IndexError):
+                source_type = None
+    target_type = _input_socket_type(target, op.target.input_field, provider)
+    if source_type and target_type and not socket_types_compatible(source_type, target_type):
+        raise ApplyOpsError(
+            "incompatible_socket_types",
+            f"Cannot wire {source_type} into {target_type} on {target.class_type}.{op.target.input_field}.",
         )
 
 

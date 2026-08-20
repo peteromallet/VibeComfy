@@ -209,22 +209,33 @@ def _interpret_ops(
     post = _cow_workflow_copy(pre_workflow)
     statements: list[StatementOutcome] = []
     landed: list[EditOp] = []
+    diagnostics: list[CompactDiagnostic] = []
     for index, op in enumerate(ops):
         try:
+            # Typed deltas bypass the Python parser, so run the shared
+            # sequential validator before each COW step.  This preserves
+            # add-then-link batches while keeping invalid batches atomic.
+            if not _op_has_scoped_target(op):
+                from vibecomfy.porting.edit._op_validate import _validate_one
+
+                _validate_one(post, op, schema_provider)
             # Typed-op callers carry their channel contract in the op (and,
             # for AddNodeOp, its explicit widget_field_names), while Python
             # source batches are replayed from source by apply_gate. Keep the
             # typed-op interpreter aligned with typed validation here.
+            before = post
             post = apply_edit_cow(post, op, schema_provider=schema_provider)
+            diagnostics.extend(_apply_diagnostics(before, post, op))
         except Exception as exc:
+            code = getattr(exc, "code", "apply_failed")
             failed = StatementOutcome(
                 statement_index=index,
                 source=type(op).__name__,
                 status="rejected",
-                reason="apply_failed",
+                reason=code,
                 op_kind=getattr(op, "op", type(op).__name__),
                 diagnostics=(
-                    _diag("apply_failed", str(exc), severity="error"),
+                    _diag(code, str(exc), severity="error"),
                 ),
                 op=op,
             )
@@ -255,7 +266,7 @@ def _interpret_ops(
                 workflow=_cow_workflow_copy(pre_workflow),
                 statements=tuple(rolled),
                 ok=False,
-                diagnostics=(rollback_diag, *failed.diagnostics),
+                diagnostics=tuple(diagnostics) + (rollback_diag, *failed.diagnostics),
                 landed_ops=(),
             )
         statements.append(
@@ -272,8 +283,86 @@ def _interpret_ops(
         workflow=post,
         statements=tuple(statements),
         ok=True,
+        diagnostics=tuple(diagnostics),
         landed_ops=tuple(landed),
     )
+
+
+def _apply_diagnostics(
+    before: VibeWorkflow,
+    after: VibeWorkflow,
+    op: EditOp,
+) -> tuple[CompactDiagnostic, ...]:
+    """Return informational diagnostics describing COW graph side effects."""
+    before_edges = tuple(before.edges)
+    after_edges = tuple(after.edges)
+    if isinstance(op, AddNodeOp):
+        return (
+            _diag(
+                "add_node_applied",
+                "add_node materialized a new LiteGraph node with deterministic ledger ids and placement.",
+                severity="info",
+            ),
+        )
+    if isinstance(op, SetNodeFieldOp):
+        if any(
+            edge.to_input == op.target.field_path and edge not in after_edges
+            for edge in before_edges
+        ):
+            return (
+                _diag(
+                    "automatic_link_removal",
+                    "A literal widget assignment removed the previous incoming link.",
+                    severity="info",
+                ),
+            )
+    elif isinstance(op, UpsertLinkOp):
+        target_id = next(
+            (node.id for node in before.nodes.values() if node.uid == op.target.uid),
+            None,
+        )
+        if any(
+            edge.to_node == target_id and edge.to_input == op.target.input_field
+            for edge in before_edges
+        ):
+            return (
+                _diag(
+                    "upsert_link_replaced_existing",
+                    "upsert_link removed the previous incoming link for the target input.",
+                    severity="info",
+                ),
+            )
+    elif isinstance(op, RemoveNodeOp):
+        removed_node = next(
+            (node for node in before.nodes.values() if node.uid == op.target.uid),
+            None,
+        )
+        if removed_node is not None and any(
+            edge not in before_edges
+            and edge.from_node != removed_node.id
+            and edge.to_node != removed_node.id
+            for edge in after_edges
+        ):
+            return (
+                _diag(
+                    "remove_node_passthrough_rewire",
+                    "remove_node rewired the retained passthrough edge.",
+                    severity="info",
+                ),
+            )
+    return ()
+
+
+def _op_has_scoped_target(op: EditOp) -> bool:
+    """Whether an op addresses retained subgraph data rather than root IR."""
+    scope_path = getattr(op, "scope_path", "")
+    if scope_path:
+        return True
+    for attr in ("target", "source"):
+        ref = getattr(op, attr, None)
+        if ref is not None and getattr(ref, "scope_path", ""):
+            return True
+    return False
 
 
 def _outcomes_from_parse(
@@ -328,6 +417,7 @@ class _InterpretRunner:
         # binding disappears its spelling is retired rather than reassigned to
         # a different surviving node after class+order renumbering.
         self._retired_name_uids: dict[str, str] = {}
+        self._pending_apply_diagnostics: list[CompactDiagnostic] = []
         self._pre_helper_uids = {
             str(node.uid)
             for node in pre_workflow.nodes.values()
@@ -355,6 +445,8 @@ class _InterpretRunner:
             outcome = self._run_one(item)
             outcomes.append(outcome)
             diagnostics.extend(outcome.diagnostics)
+            diagnostics.extend(self._pending_apply_diagnostics)
+            self._pending_apply_diagnostics.clear()
             is_edit = outcome.op_kind not in {None, "query", "done", "statement"}
             if outcome.status == "applied" and is_edit:
                 saw_landed_edit = True
@@ -411,7 +503,9 @@ class _InterpretRunner:
             workflow=self.workflow,
             statements=tuple(outcomes),
             ok=ok,
-            diagnostics=tuple(diag for diag in diagnostics if diag.severity in {"error", "warning"}),
+            diagnostics=tuple(
+                diag for diag in diagnostics if diag.severity in {"error", "warning"}
+            ),
             landed_ops=tuple(landed),
         )
 
@@ -1292,6 +1386,7 @@ class _InterpretRunner:
 
     def _apply(self, item: _ExpandedStatement, op: EditOp) -> StatementOutcome | None:
         try:
+            before = self.workflow
             # Add-node reconstruction matches from_ui: named literals land in
             # inputs, widget_* names in widgets.  Passing the catalog would
             # re-channel named widgets and break π_edit channel honesty.
@@ -1299,6 +1394,7 @@ class _InterpretRunner:
             self.workflow = apply_edit_cow(
                 self.workflow, op, schema_provider=provider
             )
+            self._pending_apply_diagnostics.extend(_apply_diagnostics(before, self.workflow, op))
         except Exception as exc:
             return StatementOutcome(
                 statement_index=item.statement_index,

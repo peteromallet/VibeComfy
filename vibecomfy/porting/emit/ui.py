@@ -2208,7 +2208,10 @@ def _normalize_pinned_node_link_refs(
             # Rich-edge authority: always stamp the IR's current ids.
             # Extra captured output links are stale and are dropped.
             # Missing captured output links are filled from the IR.
-            raw_output["links"] = current_link_ids or None
+            # Preserve an observed list-shaped link field when a touched
+            # output becomes unwired; fresh schema-derived outputs continue to
+            # use null in the normal emission path.
+            raw_output["links"] = current_link_ids
             seen_output_slots.add(slot)
 
     missing_output_slots = sorted(
@@ -2518,6 +2521,20 @@ def emit_ui_json(
         strict=strict,
     ):
         envelope = _emit_untouched_door_ui(_door)
+        # Subgraph definitions are retained outside the root-node fingerprint.
+        # Keep the byte-faithful root graph (including node order/geometry) for
+        # a definitions-only edit, while replacing just the changed definitions
+        # blob with the IR-authoritative form.
+        captured_defs = _door_top(_door).get("definitions")
+        ir_metadata = getattr(wf, "metadata", None)
+        ir_defs = ir_metadata.get("definitions") if isinstance(ir_metadata, Mapping) else None
+        if isinstance(captured_defs, Mapping) and isinstance(ir_defs, Mapping):
+            from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
+
+            if _door_freeze(captured_defs) != _door_freeze(ir_defs):
+                emitted_defs = _emit_definitions(wf)
+                if emitted_defs is not None:
+                    envelope["definitions"] = emitted_defs
         if guard_original_ui is not None:
             from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
             from vibecomfy.porting.refuse import guard_emit as _guard_emit  # noqa: PLC0415
@@ -2851,11 +2868,18 @@ def emit_ui_json(
     # 1-indexed numbering (the captured map is empty there).
     EdgeKey = tuple[str, str, str, str]
     captured_link_ids = _captured_link_id_map(_door)
+    edit_link_hints = (wf.metadata or {}).get("_edit_link_id_hints", {})
     used_link_ids: set[int] = set()
     link_id_map: dict[EdgeKey, int] = {}
     next_link_id = max(captured_link_ids.values(), default=0) + 1
     for edge in sorted_edges:
         key = (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+        hint_key = "\x1f".join(key)
+        hinted = edit_link_hints.get(hint_key) if isinstance(edit_link_hints, Mapping) else None
+        if isinstance(hinted, int) and hinted not in used_link_ids:
+            link_id_map[key] = hinted
+            used_link_ids.add(hinted)
+            continue
         captured = captured_link_ids.get(key)
         if captured is not None and captured not in used_link_ids:
             link_id_map[key] = captured
@@ -2940,6 +2964,7 @@ def emit_ui_json(
             furniture = _resolve_furniture(node, None)
         schema = schema_cache.get(node.class_type)
         schema_outputs = list(getattr(schema, "outputs", None) or []) if schema else []
+        raw_ui_node = _raw_ui_node_for_node(node_id, node, raw_ui_node_map)
         exec_io = _exec_io_for_node(node)
 
         # --- outputs list ---
@@ -2956,10 +2981,19 @@ def emit_ui_json(
         elif schema_outputs:
             for slot_idx, out_spec in enumerate(schema_outputs):
                 link_list = sorted(output_links_by_slot.get(slot_idx, []))
+                raw_outputs = raw_ui_node.get("outputs") if isinstance(raw_ui_node, Mapping) else None
+                raw_output = (
+                    raw_outputs[slot_idx]
+                    if isinstance(raw_outputs, list) and slot_idx < len(raw_outputs)
+                    and isinstance(raw_outputs[slot_idx], Mapping)
+                    else None
+                )
+                raw_links = raw_output.get("links") if raw_output is not None else None
+                emitted_links = link_list if link_list else ([] if isinstance(raw_links, list) else None)
                 outputs.append({
                     "name": out_spec.name or f"output_{slot_idx}",
                     "type": out_spec.type or "",
-                    "links": link_list if link_list else None,
+                    "links": emitted_links,
                     "slot_index": slot_idx,
                 })
         elif edges_from[node_id]:
