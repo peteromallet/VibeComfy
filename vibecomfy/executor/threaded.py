@@ -8,6 +8,7 @@ host. There is no threaded session store and no classifier call.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
@@ -24,6 +25,8 @@ from .contracts import (
     validate_reply_change_claims,
 )
 from .profiles import AgentSpecShape
+
+LOGGER = logging.getLogger(__name__)
 
 # Hard production ceiling. Unlike the prototype this is neither a 200-call nor
 # a million-token experiment. The shared batch agent enforces this value at
@@ -114,6 +117,30 @@ def _failure_kind(failure: Any) -> str:
     kind = getattr(failure, "kind", "ValidationError")
     value = getattr(kind, "value", kind)
     return str(value)
+
+
+def _durable_projection_fallback(
+    *,
+    landed: bool,
+    reason: str | None,
+    delta_ops: tuple[dict[str, Any], ...],
+) -> str:
+    """Project truthful prose after a fallible post-checkpoint failure."""
+    if landed:
+        if delta_ops:
+            count = len(delta_ops)
+            noun = "operation" if count == 1 else "operations"
+            return (
+                "The workflow edit landed. "
+                f"The durable accepted change set contains {count} {noun}; "
+                "the candidate and accepted change evidence are authoritative."
+            )
+        return (
+            "The workflow edit landed and the durable candidate is ready to "
+            "review."
+        )
+    suffix = f" Reason: {reason}." if reason else ""
+    return f"No workflow edit was applied.{suffix}"
 
 
 def run_threaded_executor(
@@ -226,24 +253,38 @@ def run_threaded_executor(
         if landed
         else "No workflow edit was applied."
     )
-    reply = kernel.enforce_reply_grounding(
-        reply,
-        landed=landed,
-        graph=graph or request.graph,
-        reason=reason,
-        delta_ops=delta_ops,
-    )
-    if isinstance(durable, Mapping):
-        claim_violations = validate_reply_change_claims(durable)
-        if claim_violations:
-            # Never expose prose/sidecars that claim beyond the accepted delta.
-            reply = kernel.enforce_reply_grounding(
-                "The workflow edit landed; see the accepted change set in the candidate.",
-                landed=landed,
-                graph=graph or request.graph,
-                reason=reason,
-                delta_ops=delta_ops,
-            )
+    try:
+        reply = kernel.enforce_reply_grounding(
+            reply,
+            landed=landed,
+            graph=graph or request.graph,
+            reason=reason,
+            delta_ops=delta_ops,
+        )
+        if isinstance(durable, Mapping):
+            claim_violations = validate_reply_change_claims(durable)
+            if claim_violations:
+                # Never expose prose/sidecars that claim beyond the accepted
+                # delta. This pass also grounds node identifiers.
+                reply = kernel.enforce_reply_grounding(
+                    "The workflow edit landed; see the accepted change set in the candidate.",
+                    landed=landed,
+                    graph=graph or request.graph,
+                    reason=reason,
+                    delta_ops=delta_ops,
+                )
+    except Exception:
+        # The accepted delta predates narration/projection. Preserve that
+        # durable success with prose derived only from checkpoint facts.
+        LOGGER.exception(
+            "threaded terminal projection failed after durable checkpoint; "
+            "using accepted-delta fallback"
+        )
+        reply = _durable_projection_fallback(
+            landed=landed,
+            reason=reason,
+            delta_ops=delta_ops,
+        )
 
     kernel.emit_phase(
         bounded_request,

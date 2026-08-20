@@ -2423,7 +2423,10 @@ def validate_reply_change_claims(response: Any) -> list[str]:
     if not isinstance(response, Mapping):
         return ["response must be a mapping"]
     accepted_batch = response.get("accepted_batch")
-    if not isinstance(accepted_batch, list):
+    # ``ImplementationResult`` closes a durable checkpoint by recursively
+    # freezing JSON arrays to tuples. Threaded terminal validation runs after
+    # that boundary, so both wire lists and immutable tuples are canonical.
+    if not isinstance(accepted_batch, (list, tuple)):
         return []
     delta_ops = [
         item.get("op")
@@ -2461,11 +2464,11 @@ def _claim_operations(payload: Any) -> list[Any]:
     if not isinstance(payload, Mapping):
         return []
     operations = payload.get("operations")
-    if isinstance(operations, list):
-        return operations
+    if isinstance(operations, (list, tuple)):
+        return list(operations)
     changes = payload.get("changes")
-    if isinstance(changes, list):
-        return changes
+    if isinstance(changes, (list, tuple)):
+        return list(changes)
     return []
 
 

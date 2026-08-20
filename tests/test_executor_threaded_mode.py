@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from vibecomfy.executor.contracts import (
     OrchestrationModeConfigurationError,
     coerce_orchestration_mode,
     resolve_orchestration_mode,
+    validate_reply_change_claims,
 )
 from vibecomfy.executor.profiles import AgentSpecShape, load_profile
 from vibecomfy.executor.threaded import (
@@ -176,3 +178,139 @@ def test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap() -> N
 def test_shipped_profiles_have_explicit_execute_specs() -> None:
     for name in ("default", "opensource", "openrouter", "openai", "anthropic"):
         assert isinstance(load_profile(name)["execute"], AgentSpecShape)
+
+
+def test_frozen_durable_checkpoint_still_enforces_claims_subset_delta() -> None:
+    implementation = ImplementationResult(
+        graph={"nodes": [], "links": []},
+        durable_response={
+            "accepted_batch": [
+                {
+                    "op": {
+                        "op": "set_node_field",
+                        "target": ["workflow", "1", "steps"],
+                        "value": 30,
+                    }
+                }
+            ],
+            "outcome": {
+                "changes": [
+                    {"uid": "1", "field_path": "cfg"},
+                ]
+            },
+        },
+    )
+
+    assert implementation.durable_response is not None
+    assert isinstance(implementation.durable_response["accepted_batch"], tuple)
+    violations = validate_reply_change_claims(implementation.durable_response)
+    assert len(violations) == 1
+    assert "(1, cfg)" in violations[0]
+
+
+def test_threaded_accepted_edit_survives_projection_failure() -> None:
+    graph = {"nodes": [], "links": []}
+    ended: list[object] = []
+    ports = replace(
+        _ports(),
+        end_deepseek_usage_capture=lambda token: ended.append(token),
+    )
+
+    def run_implement(*args: Any, **kwargs: Any) -> ImplementationResult:
+        return ImplementationResult(
+            graph=graph,
+            message="Untrusted narration after the checkpoint.",
+            durable_response={
+                "accepted_batch": [
+                    {
+                        "op": {
+                            "op": "set_node_field",
+                            "target": ["workflow", "1", "steps"],
+                            "value": 30,
+                        }
+                    }
+                ]
+            },
+        )
+
+    kernel = ThreadedKernel(
+        resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
+        run_implement=run_implement,
+        emit_phase=lambda *args, **kwargs: None,
+        enforce_reply_grounding=lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("projection failed")
+        ),
+        accepted_delta_ops=lambda implementation: (
+            dict(implementation.durable_response["accepted_batch"][0]["op"]),
+        ),
+        implementation_landed_edit=lambda implementation: True,
+        no_candidate_reason=lambda implementation: None,
+    )
+
+    result = run_threaded_executor(
+        ExecutorRequest(query="set steps", graph=graph, pipeline_mode="threaded"),
+        kernel=kernel,
+        host_ports=ports,
+        executor_id="executor-test",
+    )
+
+    assert result.ok is True
+    assert result.graph is graph
+    assert "edit landed" in result.reply
+    assert "1 operation" in result.reply
+    assert len(ended) == 1
+
+
+def test_threaded_replaces_prose_when_frozen_sidecar_claim_exceeds_delta() -> None:
+    graph = {"nodes": [], "links": []}
+    grounded: list[str] = []
+
+    def run_implement(*args: Any, **kwargs: Any) -> ImplementationResult:
+        return ImplementationResult(
+            graph=graph,
+            message="I changed both steps and cfg.",
+            durable_response={
+                "accepted_batch": [
+                    {
+                        "op": {
+                            "op": "set_node_field",
+                            "target": ["workflow", "1", "steps"],
+                            "value": 30,
+                        }
+                    }
+                ],
+                "outcome": {
+                    "changes": [{"uid": "1", "field_path": "cfg"}],
+                },
+            },
+        )
+
+    def enforce(reply: str, **kwargs: Any) -> str:
+        grounded.append(reply)
+        return reply
+
+    kernel = ThreadedKernel(
+        resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
+        run_implement=run_implement,
+        emit_phase=lambda *args, **kwargs: None,
+        enforce_reply_grounding=enforce,
+        accepted_delta_ops=lambda implementation: (
+            dict(implementation.durable_response["accepted_batch"][0]["op"]),
+        ),
+        implementation_landed_edit=lambda implementation: True,
+        no_candidate_reason=lambda implementation: None,
+    )
+
+    result = run_threaded_executor(
+        ExecutorRequest(query="set steps", graph=graph, pipeline_mode="threaded"),
+        kernel=kernel,
+        host_ports=_ports(),
+        executor_id="executor-test",
+    )
+
+    assert result.ok is True
+    assert grounded == [
+        "I changed both steps and cfg.",
+        "The workflow edit landed; see the accepted change set in the candidate.",
+    ]
+    assert result.reply == grounded[-1]
