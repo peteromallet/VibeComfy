@@ -75,6 +75,10 @@ from vibecomfy.executor.profiler import profiler_log, profiler_span, short_text,
 LOGGER = logging.getLogger(__name__)
 
 
+class EmptyModelResponseError(ValueError):
+    """Raised when the provider returns no model content at all."""
+
+
 def _extract_json_object(text: str) -> dict:
     stripped = (text or "").strip()
     if stripped.startswith("```"):
@@ -105,6 +109,8 @@ def _raw_response_preview(text: str | None, *, limit: int = 1200) -> str | None:
 
 def _model_attempt_failure_type(exc: BaseException, raw_text: str | None) -> str:
     """Classify an observed failed call without consulting response wording."""
+    if isinstance(exc, EmptyModelResponseError):
+        return "empty_response"
     if raw_text is not None and not str(raw_text).strip():
         return "empty_response"
     if isinstance(exc, TimeoutError):
@@ -119,6 +125,15 @@ def _model_attempt_failure_type(exc: BaseException, raw_text: str | None) -> str
             return "missing_required_fields"
         return "malformed_json"
     return "provider_failure"
+
+
+def _parse_failure_reason(exc: BaseException, raw_text: str | None) -> str:
+    """Return the stable parse-reason vocabulary used by worker envelopes."""
+    failure_type = _model_attempt_failure_type(exc, raw_text)
+    return {
+        "empty_response": "empty",
+        "missing_required_fields": "missing_content",
+    }.get(failure_type, failure_type)
 
 
 def _worker_provider_transport(
@@ -198,13 +213,17 @@ def _persist_parse_evidence(
     preview = _raw_response_preview(raw_text)
     if preview:
         out["raw_response_preview"] = preview
-    out["parse_reason"] = {
-        "empty_response": "empty",
-        "missing_required_fields": "missing_content",
-    }.get(failure_type, failure_type)
+    out["parse_reason"] = _parse_failure_reason(exc, raw_text)
+    out["empty_response"] = failure_type == "empty_response"
     model = request.get("model") or agent_kwargs.get("model")
     if model:
         out["model"] = model
+        out["resolved_model"] = model
+    out["adapter"] = request.get("agent_id") or "hermes"
+    provider = agent_kwargs.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        provider, _transport, _endpoint = _worker_provider_transport(request)
+    out["provider"] = provider
     phase = profiling_context.get("backend_phase") or "agent_turn"
     if phase:
         out["phase"] = phase
@@ -222,6 +241,9 @@ def _persist_parse_evidence(
                 value = usage.get(key)
                 if isinstance(value, int):
                     out[key] = value
+            completion_tokens = usage.get("completion_tokens")
+            if isinstance(completion_tokens, int):
+                out["completion_tokens_zero"] = completion_tokens == 0
     out["model_attempts"] = [
         _model_attempt(
             request,
@@ -540,18 +562,22 @@ def main() -> int:
             span.update(raw_text_length=len(text or ""))
             if response_contract == "batch_repl":
                 if not isinstance(text, str) or not text.strip():
-                    raise ValueError("Agent returned an empty batch_repl response.")
+                    raise EmptyModelResponseError("Agent returned an empty batch_repl response.")
                 out = {"content": text}
             elif response_contract == "text":
                 if not isinstance(text, str) or not text.strip():
-                    raise ValueError("Agent returned an empty text response.")
+                    raise EmptyModelResponseError("Agent returned an empty text response.")
                 out = {"content": text}
             elif response_contract == "json":
                 if not isinstance(text, str) or not text.strip():
-                    raise ValueError("Agent returned an empty json response.")
+                    raise EmptyModelResponseError("Agent returned an empty json response.")
                 payload = _extract_json_object(text)
                 out = {"content": text, "json": payload}
             elif response_contract in ("python", "delta"):
+                if not isinstance(text, str) or not text.strip():
+                    raise EmptyModelResponseError(
+                        f"Agent returned an empty {response_contract} response."
+                    )
                 payload = _extract_json_object(text or "")
                 message = payload.get("message")
                 if not isinstance(message, str):

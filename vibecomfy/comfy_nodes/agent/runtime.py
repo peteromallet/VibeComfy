@@ -625,6 +625,11 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
 
 def _is_typed_empty_worker_result(result: Mapping[str, Any]) -> bool:
     """True only for typed empty responses with observed zero completion tokens."""
+    if result.get("empty_response") is True:
+        return (
+            result.get("completion_tokens_zero") is True
+            or result.get("completion_tokens") == 0
+        )
     attempts = coerce_model_attempts(result.get("model_attempts"))
     if not attempts:
         return False
@@ -722,6 +727,11 @@ def _is_iteration_exhaustion_result(result: Mapping[str, Any]) -> bool:
         "missing_content",
         "missing_required_fields",
     }
+
+
+def _is_transient_worker_result(result: Mapping[str, Any]) -> bool:
+    """Return whether a worker envelope is eligible for transport recovery."""
+    return _is_typed_empty_worker_result(result) or _is_iteration_exhaustion_result(result)
 
 
 def _terminate_worker_group(pid: int) -> None:

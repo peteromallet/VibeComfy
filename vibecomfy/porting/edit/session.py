@@ -385,7 +385,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 )
             generalized = diff(workflow, result.workflow)
             if equality is not None:
-                reconstructed = interpret(workflow, generalized)
+                reconstructed = interpret(
+                    workflow,
+                    generalized,
+                    schema_provider=self.schema_provider,
+                )
                 if not equality(reconstructed.workflow, result.workflow):
                     raise ValueError(
                         f"delta history entry {index}: diff(pre, post) "
