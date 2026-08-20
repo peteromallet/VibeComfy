@@ -1,8 +1,8 @@
 # VibeComfy structural cleanup master plan
 
-Status: **planning only — do not execute yet**  
-Prepared: 2026-08-20  
-Intended branch family: `desloppify/*`  
+Status: **planning only — do not execute yet**<br>
+Prepared: 2026-08-20<br>
+Intended branch family: `desloppify/*`
 Primary audience: a competent programmer who knows Python and JavaScript but does not already know VibeComfy's architecture.
 
 ## 1. Outcome
@@ -142,18 +142,18 @@ The following sizes are orientation signals, not proof that a file is badly desi
 
 | File | Approximate current size | Main concern |
 |---|---:|---|
-| `vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js` | 9,791 lines | UI composition, session recovery, submit/apply orchestration, graph integration, and rendering remain mixed |
-| `vibecomfy/porting/reorganise/compile.py` | 7,231 lines | Multiple compiler phases remain in one module after placement extraction |
-| `vibecomfy/comfy_nodes/agent/session.py` | 4,060 lines | Compatibility façade still owns major lifecycle behavior |
-| `vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js` | 3,948 lines | State authority and projection complexity |
-| `vibecomfy/porting/emit/ui.py` | 3,139 lines | Schema resolution, layout reconciliation, node/link emission, and refusal evidence are mixed |
-| `vibecomfy/comfy_nodes/agent/contracts.py` | 2,709 lines | Several contract families and public projections share one module |
-| `vibecomfy/comfy_nodes/web/panel_thread.js` | 2,511 lines | Thread projection and rendering responsibilities need classification |
-| `vibecomfy/executor/core.py` | 2,393 lines | Phase orchestration plus compatibility and host fallbacks |
-| `vibecomfy/executor/contracts.py` | 2,302 lines | Multiple cross-layer contract families |
-| `vibecomfy/comfy_nodes/agent/routes.py` | 2,259 lines | HTTP registration, request parsing, services, fixtures, and settings mixed |
-| `vibecomfy/comfy_nodes/agent/edit_batch_repl.py` | 2,058 lines | Explicit module now exists, but still receives a very wide implicit dependency container |
-| `vibecomfy/comfy_nodes/agent/provider.py` | 1,929 lines | Prompting, route policy, dispatch, readiness, and credential persistence mixed |
+| `vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js` | 9,912 lines | UI composition, session recovery, submit/apply orchestration, graph integration, and rendering remain mixed |
+| `vibecomfy/porting/reorganise/compile.py` | 7,232 lines | Multiple compiler phases remain in one module after placement extraction |
+| `vibecomfy/comfy_nodes/agent/session.py` | 4,544 lines | Compatibility façade still owns major lifecycle behavior despite the integrated lock/storage/journal/thread extraction foundations |
+| `vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js` | 3,954 lines | State authority and projection complexity |
+| `vibecomfy/porting/emit/ui.py` | 4,301 lines | Schema resolution, layout reconciliation, node/link emission, and refusal evidence are mixed |
+| `vibecomfy/comfy_nodes/agent/contracts.py` | 2,745 lines | Several contract families and public projections share one module |
+| `vibecomfy/comfy_nodes/web/panel_thread.js` | 2,522 lines | Thread projection and rendering responsibilities need classification |
+| `vibecomfy/executor/core.py` | 3,056 lines | Phase orchestration plus compatibility and host fallbacks |
+| `vibecomfy/executor/contracts.py` | 2,612 lines | Multiple cross-layer contract families |
+| `vibecomfy/comfy_nodes/agent/routes.py` | 2,261 lines | HTTP registration, request parsing, services, fixtures, and settings mixed |
+| `vibecomfy/comfy_nodes/agent/edit_batch_repl.py` | 2,214 lines | Explicit module now exists, but still receives a very wide implicit dependency container |
+| `vibecomfy/comfy_nodes/agent/provider.py` | 2,057 lines | Prompting, route policy, dispatch, readiness, and credential persistence mixed |
 
 Large `vibecomfy/nodes/*.py` files must be classified as generated, mirrored, declarative, or authored before they enter the cleanup queue. Do not refactor them merely because they are large.
 
@@ -172,7 +172,7 @@ Do not repeat work that is already complete:
 - patch application and telemetry have idempotency coverage;
 - workflow conversion copies caller-owned graph and raw evidence at its boundary.
 
-These are foundations. Several still depend back on their old façade and therefore need a second-stage dependency cleanup rather than another blind extraction.
+These are foundations, not completion receipts. Several still depend back on their old façade and therefore need a second-stage dependency cleanup rather than another blind extraction. The integrated replay below records exactly which claims are current, partial, blocked, or resolved.
 
 ### 3.3 Non-negotiable compatibility constraints
 
@@ -202,6 +202,101 @@ Before execution is authorized:
 6. Start each implementation package from a clean status; do not use reset, clean, stash deletion, or worktree deletion to manufacture cleanliness.
 
 The plan file itself may be reviewed and revised in the current tree. Production cleanup may not begin here until this stop condition is cleared.
+
+### 3.5 PR154/PR156/local-replay preservation and integration receipts
+
+This reconciliation is planning evidence only. It does not authorize cleanup, deletion, reset, stash, commit, migration, or a Desloppify rescan.
+
+| Receipt | Preservation fact |
+|---|---|
+| `4abeb90d` | Preserved the pre-PR154 local structural-work checkpoint. |
+| `654373b7` | Preserved the intermediate PR154/local-integration checkpoint. |
+| `368a332a` | PR156 head: canonical accessors for edit-IR retained data. |
+| `49dd66d4` | Integrated PR156 head with the local structural replay. |
+| `1136f7cb` | Test correction aligning runtime expectations with integrated defaults. |
+| `25260147` | Closed replay-schema, compact-prompt, and typed empty-worker-response contract gaps found by adjacent verification. |
+| `58727689` | Passed the configured Python interpreter into browser contract/smoke targets, fixing PR156's `spawnSync(...).status === null` CI failure. |
+| Final integration location | Branch `integrate/pr156-local-cleanup-20260820`, worktree `/private/tmp/vibecomfy-pr156-local-integration`. |
+| Live tree | Original live worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` is preserved unchanged. |
+
+The final branch/worktree is not yet an approved cleanup base: P00 remains blocking because six other dirty worktree payloads and one active test worktree still require ownership/landing decisions. The `session.py` PR156 conflict is resolved and its focused integration tests pass, but this does not complete B33–B35 because the façade and reverse dependencies remain. The preservation chain is evidence that work was not discarded; it is not evidence that any cleanup package is done.
+
+#### Integrated verification receipts
+
+| Area | Evidence | Result and disposition |
+|---|---|---|
+| PR156 follow-up preservation | Virtual-wire, pipeline readiness/recovery, compatibility seams, typed edit COW, canonical retained access | All six PR156 fixes present after local replay; virtual-wire 3 passed, typed edit COW 9 passed, readiness/materialization 3 passed |
+| Session and pipeline conflict | Session/pipeline plus virtual-wire/pipeline focused shards | 73 passed, then 15 passed; no unresolved conflict remains |
+| Backend/executor integration | Threaded, contracts, flows, profiles, host boundary, routes, session, runtime-adapter shards | 509 passed/6 contract gaps; the six exact failures were fixed without weakening tests, then 6 exact nodeids plus affected 9/201/45/19-test shards passed |
+| Frontend integration | Lifecycle/canonical/response/parity; migration/M1/ownership/dependency; smoke/pipeline/graph projection | 441 passed; 65 passed; 275 passed with 2 skipped; browser contracts 576 passed |
+| PR156 CI reproduction | `m1_contracts.test.mjs` with configured and missing Python | Reproduced `null !== 0` only with missing interpreter; Makefile now exports `VIBECOMFY_PYTHON="$(PYTHON)"`; exact 17 and browser-contract 576 tests pass |
+| Reorganise/patch integration | Focused/golden reorganise plus ControlNet/patch suites | 191 passed |
+| Graph/IR baseline | Workflow/convert/virtual-wire and IR-law/boundary/edit shards | 104 passed/4 failed/3 skipped and 94 passed/9 failed. Two failures require an absent external corpus fixture; the remaining bypass/static-boundary/inverse/legacy-envelope/undo failures are P03 evidence for G54/G58/G60/G63, not silently accepted completion |
+| Documentation paths | `tools.check_markdown_links` | Passed on the integrated tree; anchor validation remains a separate prerequisite |
+
+### 3.6 Integrated replay reconciliation ledger
+
+Status vocabulary: **resolved** means the stated package behavior is evidenced and no material follow-up remains; **current** means the architectural decision or classification is valid but implementation work remains; **partial** means a bounded slice landed while the package goal remains open; **blocked** means prerequisites or a fail-closed gate prevent safe continuation; **superseded** means the original plan statement is replaced by the current contract; **new prerequisite** means this package must be added before mutation.
+
+| Package | Status | Current evidence | Remaining goal or blocker |
+|---|---|---|---|
+| `P00` | blocked | Integrated branch/worktree receipts above; six dirty worktree payloads plus one active test worktree remain outside an ownership ledger. | Assign owner/landing decision to every dirty path and choose a clean execution worktree. |
+| `P00A` | reconciliation assembled / review pending | Checkpoint, intermediate, PR156 head, integrated replay, correction, CI, conflict, and verification receipts are recorded above. | Independent `[XHARD-REVIEW] CR-0A` must accept provenance and landing decisions; P00 still owns the six other dirty payloads and active test worktree. |
+| `A25` | partial | `contracts.py`, `_frag_response_contract.py`, generated JS, `tools/generate_agent_contract_js.py`, `tests/test_agent_contract_codegen.py`, browser response/canonical-delta tests. | Freeze one matrix covering Python/JS fields, `accepted_batch`, mode, paid submit, virtual-wire sidecar, fixtures, and legacy projections; pair with B38/F42. |
+| `A26` | partial | `comfy_adapter.js`, `intent_graph_adapter.js`, projection registry, graph projection, ownership tests. | Freeze canonical IR/raw UI/furniture/sidecar/refusal ownership; shell and emitter still duplicate graph semantics. |
+| `B33` | partial | `_session_storage.py` and `_session_transaction_journal.py` exist; storage tests cover persistence. | Remove implementation imports back into `session.py` (including `structural_graph_hash` and journal `session as host`) while preserving façade names. |
+| `B34` | partial/blocked | Transaction storage/backend-spine tests and journal/artifact helpers exist. | Prove lifecycle log authority, rebuildable receipts/indexes, independent transaction service, and recovery/corruption policy. |
+| `B35` | partial/blocked | Allocation/idempotency/CAS behavior is covered through session/backend-spine tests. | Extract typed transition service and complete concurrency/replay matrix; depends on B34. |
+| `B36` | partial | `_agentic_replay_service.py` and replay route tests prove one bounded extraction; `routes.py` remains 2,261 lines. | Split registration/common parsing and remaining submit/chat/actions/demo/nodepack/settings/research/rating families. |
+| `B37` | blocked | `edit_batch_repl.py` still resolves a 71-name `EditBatchReplDeps` surface; dependency test characterizes it. | Replace globals-derived namespace with typed capabilities; retain compatibility builder until all callers migrate. |
+| `B38` | partial | Contract aliases/reexports and generated response compatibility remain covered; `contracts.py` remains monolithic. | Split semantic contract families without changing wire fields; coordinate with F42/A25. |
+| `B39` | blocked | Session/routes/contracts/edit/provider façades remain substantial. | Complete public/temp/dead wrapper audit; deletion belongs to S71–S75 only after owners and receipts exist. |
+| `F42` | partial | Generated JS freshness and canonical `accepted_batch`/delta tests exist. | Remove duplicate normalization and add served-code plus full cross-layer compatibility proof. |
+| `F43` | partial | Lifecycle has canonical compartments and rehydrate/idempotency tests. | Collapse `chatMessages`/`turns`/`history` mirrors behind one projection with explicit removal conditions. |
+| `F44` | partial/blocked | Lifecycle race/recovery fixes landed; `agent_edit_lifecycle.js` remains monolithic. | Split scope/chat/candidate/transaction/submit domains; transaction slice waits for B34/B35. |
+| `F45` | partial | Submit-flow/dependency factories landed; apply/rebaseline still carry wide dependency lists. | Introduce typed capability bundles for submit/apply/reject/rebaseline. |
+| `F46` | partial/blocked | Adapter/projection ownership tests exist; `vibecomfy_roundtrip.js` remains 9,912 lines with graph algorithms. | Move dynamic IO/link/field/target/mutation semantics behind A26/G58/G60 gates. |
+| `F47` | partial | `roundtrip_extension.js`, diagnostics/watchdog factories, dependency-isolation tests. | Centralize global side-effect managers with idempotent install/uninstall. |
+| `F48` | partial/blocked | Closure/ownership tests exist; no complete wrapper ledger or served browser proof. | Classify every shell export and prove served open→submit→apply/reject/rebaseline before S76. |
+| `G50` | current/blocked | UI → `GraphInventoryFacts` → `LayoutPlanV1` → patch exists in reorganise modules/tests. | Make D05 furniture-carrier/loss-model decision before long-term IR authority or deletion. |
+| `G51` | partial | `canonical_coords.py` and emitter rounding intentionally differ and have tests. | Remove layout imports of emitter helpers; preserve separate snap vs emitted-round semantics. |
+| `G52` | blocked | `NodeSchema` is duplicated in `schema/types.py` and `schema/provider.py`. | Establish one runtime type identity and provider reexport before schema consumers move. |
+| `G53` | partial | `WidgetNameResolution` precedence is implemented/tested in `compact_resolver.py`. | Decide curated `WIDGET_SCHEMA` authority and add confidence/refusal evidence to the result. |
+| `G54` | partial | Graph-facts/furniture and normal-ingest tests exist. | Add explicit side-by-side characterization and loss model. |
+| `G55` | partial | Structural/topology/plan hash helpers and deterministic tests exist. | Add named semantic hash ledger (including furniture/layout distinction) without silently changing identity. |
+| `G56` | partial | `_placement.py` extracts bounded placement/topology helpers. | Extract remaining compiler topology/ownership phases with golden/determinism/monkeypatch proof. |
+| `G57` | partial | Local placement extraction landed. | Separate wall/global placement and collision repair/metrics from compiler. |
+| `G58a` | partial | Identity/remapping helpers and emitter tests exist. | Finish behavior-preserving identity extraction; defer edge/socket/reroute/broadcast/dynamic-port semantics. |
+| `G58b` | blocked | Edge/socket/reroute/broadcast/dynamic-port logic remains in emitter. | Wait for G60 known-schema fail-closed proof and MIG-G1/MIG-G2 receipts. |
+| `G59` | blocked | Emitter still combines widgets, evidence, layout, validation, and refusal. | Split only after G53/G58b/A26; preserve golden UI/API/refusal behavior. |
+| `G60` | blocked | `emit/ui.py:_resolve_output_slot_and_type` still returns slot 0/empty type for unresolved names. | Add known-schema missing-output refusal; retain slot-0 best effort only for schema-less nodes. |
+| `G61` | current/partial | Generated headers, shim generator, and node-shim tests exist. | Keep source-of-truth classification; generator `--check`/output-dir/regeneration gate remains S77. |
+| `G62` | current/partial | Reorganise and porting/layout engines remain distinct. | Characterize their intentional differences and prevent accidental authority merging. |
+| `G63` | blocked | No MIG-G1/MIG-G2/MIG-G3 receipt artifacts; migration docs are plans. | Produce explicit receipts before deleting raw UI/furniture/browser/Python/edit compatibility paths. |
+| `E60` | partial | Typed `ExecutorHostPorts`, phase result contracts, and host-boundary tests exist. | Isolate typed inputs/outputs for each phase; core remains a phase monolith. |
+| `E61` | partial | Fresh-process/injected host-boundary tests exist. | Remove `_default_host_ports`/compatibility loading only after port replacement proof. |
+| `E62` | partial | `agent_research_stage.py`, shadow/evidence tests, Hivemind adapters. | Finish typed classify/research handoff with retry/redaction/shadow evidence. |
+| `E63` | blocked | Implement/reply remain `_run_implement`/`_run_reply` in `executor/core.py`. | Extract durable implement/reply phases after B34/E60/E61 while retaining `run_executor` as sole public entry. |
+| `E64` | partial | Host/config compatibility adapters remain in core. | Complete façade/config ownership and cache/import audit. |
+| Markdown-link gate | resolved path gate / new anchor prerequisite | `tools/check_markdown_links.py`, Makefile docs target, and historical repairs in `fb2c0b19`, `bced7477`, `a0d441f3`, `31eb1408`; current path checker passes. | Checker validates target paths only, not `#L...` anchors. Add an anchor audit/validator before treating docs hygiene as complete. |
+| Stale hotspot/count snapshot | superseded | The pre-replay line-count table was replaced with the measured checkpoint counts above. | Refresh counts only at a new approved base; never use line-count drift as a cleanup authorization. |
+
+### 3.7 Cross-layer compatibility gates
+
+These gates are part of A25/A26 and must be cited by B38, F42, F46, G58/G60/G63, E60/E63, and the relevant shim packages.
+
+1. **Accepted batch authority.** `accepted_batch` is the sole durable edit authority. `delta_ops_envelope`/`delta_ops` are derived legacy serializers only; no validator, reducer, or transaction service may consult them as authority. Preserve the serializer until MIG-G2/S74 and prove Python, generated JS, browser, and persisted-fixture parity.
+2. **Pipeline mode (`pipeline_mode`).** `staged` and `threaded` are canonical. `full` and `two_step` are ingress aliases only. Resolve once at `run_executor`; readiness, recovery, submit body, and response metadata must agree. Staged may omit mode for wire compatibility; threaded reports `report.executor.orchestration_mode`. No mode branch belongs below orchestration.
+3. **Paid-submit confirmation (`paid_submit`).** `vibecomfy_roundtrip.js` must confirm provider cost before the first paid submit, always confirm welcome-example prompts, persist acknowledgement only through delegated `_lsGet`/`_lsSet`, ask again if storage is unavailable, and leave draft state untouched on cancel. Add dedicated browser tests before F45/F47/F48 completion.
+4. **Virtual-wire sidecar.** Conversion captures virtual wires before copying caller data, publishes `metadata["virtual_wires"]` only after successful conversion, and never mutates caller metadata on failure. The sidecar is derived editor evidence, not graph authority. Preserve `tests/test_virtual_wire_round_trip.py` and agent-edit safety coverage through G50/G58/G63.
+
+### 3.8 Corrected plan assertions
+
+- “Extracted session storage/journal” means a partial foundation until those modules stop importing `session.py` for implementation helpers.
+- “Layout never imports emitter” is not currently true; layout sizing/placement and executor layout hints still use emitter helpers.
+- “One canonical `NodeSchema`” is not currently true; provider and `schema/types.py` define duplicate classes.
+- “Known-schema socket mistakes fail closed” is not currently true; unresolved named outputs still have slot-0 fallback in `emit/ui.py`.
+- “MIG-G1/MIG-G2/MIG-G3” are required receipts, not claims implied by migration documents; none is present in this integration tree.
 
 ## 4. Architectural laws
 
@@ -280,7 +375,7 @@ The cleanup is divided into dependency-ordered waves.
 
 | Wave | Purpose | Packages |
 |---|---|---|
-| 0 | Preserve and measure | `P00`–`P03` |
+| 0 | Preserve and measure | `P00`–`P03`, with `[XHARD] P00A` reconciliation freeze |
 | 1 | Repair known correctness/performance debt | `C10`–`C13` |
 | 2 | Define cross-cutting authority | `A20`–`A26` |
 | 3 | Remove backend dependency inversions | `B30`–`B39` |
@@ -294,10 +389,11 @@ The package identifiers are stable references. If a package is split later, use 
 
 ### 5.1 XHARD dispatch index
 
-The plan contains **22 `[XHARD]` execution units**. This index is the dispatch and review overlay; the package cards remain authoritative for scope, prerequisites, tests, and acceptance.
+The plan contains **23 `[XHARD]` execution units**. This index is the dispatch and review overlay; the package cards remain authoritative for scope, prerequisites, tests, and acceptance. `[XHARD-REVIEW]` is a separate label for integration reviews that require big-picture architectural judgment; it does not turn bounded package diff review or ordinary verifier runs into XHARD work.
 
 | Unit | Why it is XHARD | Required ownership | Required decision/review gate |
 |---|---|---|---|
+| `P00A` | Reconciles preserved PR154/PR156 work with local structural replay without losing ownership, provenance, or unresolved conflict state | GPT-5.6 Sol manager/validator independent of the integration implementer | `[XHARD-REVIEW] CR-0A`; receipts, dirty-path ledger, compatibility/authority ledger, and clean-base decision |
 | `A25` | Freezes a generated Python/JavaScript wire contract while both runtimes and persisted payloads must remain in parity | GPT-5.6 Sol manager/validator; delegate inventories and parity checks | `CR-2`; generated freshness and cross-language parity evidence |
 | `A26` | Defines the browser/graph projection boundary across canonical IR, raw UI evidence, furniture, and lossy projections | GPT-5.6 Sol manager/validator with graph and frontend reviewers | `CR-2`, then re-check at `CR-5` |
 | `B34` | Makes the append-only lifecycle log executable transaction authority without losing recovery or V1/V2 readability | GPT-5.6 Sol manager/validator with persistence reviewer | `CR-3`; persistence fixtures, replay, rollback, and recovery proof |
@@ -329,7 +425,7 @@ The absence of an `[XHARD]` tag does not mean “easy.” It means the work is s
 
 ### P00 — Working-tree ownership ledger
 
-**Estimate:** 0.5 day  
+**Estimate:** 0.5 day
 **Purpose:** ensure cleanup never overwrites or misattributes current work.
 
 **Steps**
@@ -350,10 +446,47 @@ The absence of an `[XHARD]` tag does not mean “easy.” It means the work is s
 
 **Rollback:** documentation-only; no code mutation.
 
+### [XHARD] P00A — PR154/PR156/local replay integration freeze
+
+**Estimate:** 1 day read-only reconciliation
+**Prerequisite:** `P00`
+
+Freeze the provenance and ownership boundary between the preserved PR154 checkpoint, PR156, and the local structural replay before any implementation package is dispatched. This package is a planning gate, not a cleanup implementation.
+
+**Required receipts**
+
+- `4abeb90d` — preserved pre-PR154 local structural work;
+- `654373b7` — preserved intermediate PR154/local-integration state;
+- `368a332a` — PR156 head;
+- `49dd66d4` — integrated PR156 head plus local replay;
+- `1136f7cb` — runtime expectation correction;
+- `25260147` — adjacent-verification contract corrections;
+- `58727689` — configured-Python browser CI correction and latest verified code HEAD before this plan-only reconciliation;
+- branch/worktree: `integrate/pr156-local-cleanup-20260820` at `/private/tmp/vibecomfy-pr156-local-integration`;
+- original live worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` unchanged.
+
+**Steps**
+
+1. Record the exact base/head/replay chain, final branch/worktree, and original-live-tree protection.
+2. Reconcile every staged/dirty/unresolved path to one owner and landing decision; preserve the six other dirty worktree payloads and one active test worktree as protected inputs.
+3. Record the resolved `session.py` conflict and focused evidence without treating façade edits as completed B33–B35 extraction.
+4. Update the package status table, compatibility gates, and authority ledger with concrete files/tests and remaining blockers.
+5. Produce a clean descendant/worktree recommendation. Do not mutate code, tests, generated outputs, caches, or the live tree.
+
+**Acceptance criteria**
+
+- all receipts above are recorded and their preservation meaning is explicit;
+- no dirty payload is silently folded into cleanup ownership;
+- P00 remains blocking until the six other payloads and active test worktree have decisions;
+- every affected package has a status and a concrete next goal;
+- an independent `[XHARD-REVIEW]` gate accepts the reconciliation before P01–P03 or mutation work proceeds.
+
+**Rollback:** documentation-only; restore the prior plan text if the reconciliation is superseded. Never reset or delete the preserved worktrees.
+
 ### P01 — Public surface and monkeypatch inventory
 
-**Estimate:** four read-only slices of 0.5–1 day  
-**Prerequisite:** `P00`
+**Estimate:** four read-only slices of 0.5–1 day
+**Prerequisite:** `P00A`
 
 Inventory:
 
@@ -375,8 +508,8 @@ Execute as `P01a` backend/session/routes, `P01b` executor/provider/runtime, `P01
 
 ### P02 — Authority and derived-data ledger
 
-**Estimate:** four read-only slices of 0.5–1 day  
-**Prerequisite:** `P00`
+**Estimate:** four read-only slices of 0.5–1 day
+**Prerequisite:** `P00A`
 
 Create a table for:
 
@@ -392,8 +525,8 @@ Use the same backend, executor, frontend, and graph slices as `P01`; add one int
 
 ### P03 — Baseline test and performance ledger
 
-**Estimate:** four authorized slices of 0.5–1 day plus integration  
-**Prerequisite:** `P00`
+**Estimate:** four authorized slices of 0.5–1 day plus integration
+**Prerequisite:** `P00A`
 
 Record commands and current results for:
 
@@ -416,7 +549,7 @@ Do not “fix while measuring.” Existing failures must be classified before Wa
 
 ### C10 — Fail malformed roundtrip payloads closed
 
-**Estimate:** 0.5–1 day  
+**Estimate:** 0.5–1 day
 **Prerequisites:** `P01`, `P02`, `P03`
 
 **Problem:** malformed graph shapes can be normalized into a successful roundtrip response instead of producing a typed error.
@@ -442,7 +575,7 @@ Do not “fix while measuring.” Existing failures must be classified before Wa
 
 ### C11 — Preserve dynamic exec input links during UI emission
 
-**Estimate:** 1–1.5 days  
+**Estimate:** 1–1.5 days
 **Prerequisites:** `P02`, `P03`
 
 **Problem:** repeated or dynamic `in_N` links can be refused as dangling because declared exec IO and emitted socket resolution disagree.
@@ -462,7 +595,7 @@ Do not “fix while measuring.” Existing failures must be classified before Wa
 
 ### C12 — Resolve the `4096` versus `16384` runtime default
 
-**Estimate:** 0.5 day  
+**Estimate:** 0.5 day
 **Prerequisite:** `P02`
 
 Find every default in Python, TOML, environment handling, status projection, and tests. Choose one authority based on intended product behavior, then make all projections derive from it. Do not update the test merely to match the current implementation.
@@ -471,7 +604,7 @@ Before editing, record the decision owner, chosen value, rationale, compatibilit
 
 ### C13 — Cache schema providers and object-info shards safely
 
-**Estimate:** two slices of 1–2 days  
+**Estimate:** two slices of 1–2 days
 **Prerequisites:** `P02`, `P03`
 
 **Problem:** schema lookup synchronously reconstructs providers and parses multi-megabyte shards. Under contention, this can consume a large part of request/test time.
@@ -504,7 +637,7 @@ This parent epic has two distinct cache layers:
 
 ### A20 — Canonical vocabulary catalog
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `P01`, `P02`
 
 Catalog and assign owners for:
@@ -521,35 +654,35 @@ This package produces decisions and characterization tests, not mass movement.
 
 ### A21 — Hash and identity ownership
 
-**Estimate:** 1–1.5 days  
+**Estimate:** 1–1.5 days
 **Prerequisite:** `A20`
 
 Confirm the inputs and owners of payload hash, graph hash, structural hash, layout hash, plan hash, candidate stable key, generation, lease nonce, and idempotency key. Remove only exact duplicate implementations after fixture parity is proven.
 
 ### A22 — Failure taxonomy map
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisite:** `A20`
 
 Map provider exceptions, `FailureKind`, executor phase errors, route envelopes, and frontend diagnostics. The target is a neutral vocabulary plus explicit layer adapters, not one giant exception class.
 
 ### A23 — Transport/domain/projection contract map
 
-**Estimate:** 1.5 days  
+**Estimate:** 1.5 days
 **Prerequisite:** `A20`
 
 Classify similarly named results and outcomes across agent contracts, executor contracts, provider responses, route responses, and frontend normalization. Rename or move only after wire-format and semantic differences are documented.
 
 ### A24 — Import-boundary contract
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `P01`, `A20`
 
 Define allowed package directions and add fresh-process checks for the most important boundaries. Avoid an all-or-nothing cycle ban until intentional compatibility imports have migration replacements.
 
 ### [XHARD] A25 — Python/JavaScript contract freeze
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `A20`, `A22`, `A23`
 
 Freeze the wire vocabulary, generated-source ownership, compatibility aliases, transaction fields, route fields, and malformed-payload rules used by both Python and JavaScript.
@@ -558,7 +691,7 @@ Freeze the wire vocabulary, generated-source ownership, compatibility aliases, t
 
 ### [XHARD] A26 — Graph/browser projection boundary freeze
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `P02`, `A21`
 
 Name the owner and result shape for:
@@ -576,7 +709,7 @@ Name the owner and result shape for:
 
 ### B30 — Break the `porting.edit.ops` / `agent.provider` cycle
 
-**Estimate:** 1–1.5 days  
+**Estimate:** 1–1.5 days
 **Prerequisites:** `P01`, `A22`, `A24`
 
 **Current inversion:** `porting/edit/ops.py` imports provider exceptions while `agent/provider.py` imports delta parsing/schema helpers from `ops.py`.
@@ -596,14 +729,14 @@ Name the owner and result shape for:
 
 ### B31 — Neutral model-attempt evidence
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `A23`, `A24`
 
 Move model-attempt evidence, endpoint normalization, and redaction to a neutral module usable by provider, runtime, and executor. Preserve the old executor-contract import through a re-export during migration.
 
 ### B32 — Unify route, model, transport, and credential policy
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisites:** `A20`, `B30`
 
 Create one neutral runtime-config owner for route aliases, route descriptors, model/transport selection, dotenv parsing, and credential presence. Provider readiness, runtime dispatch, and browser status must use the same normalized decision.
@@ -618,7 +751,7 @@ This is a parent epic. Execute as:
 
 ### B33 — Extract session primitives without changing storage
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisites:** `P01`, `P02`, `A21`, `A24`
 
 Move safe path components, session/turn path builders, canonical JSON/hash helpers, filenames/schema constants, atomic JSON helpers, and clock hooks into a neutral session-primitives module.
@@ -634,7 +767,7 @@ Then change `_session_storage.py`, `_session_transaction_journal.py`, `_artifact
 
 ### [XHARD] B34 — Make transaction authority executable
 
-**Estimate:** 2 days  
+**Estimate:** 2 days
 **Prerequisites:** `B33`, `A20`
 
 Separate transaction artifact persistence from transaction application services.
@@ -660,14 +793,14 @@ Execute as:
 
 ### [XHARD] B35 — Isolate turn allocation and transition rules
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisite:** `B34`
 
 Extract allocation, idempotency, accept/reject/rebaseline, CAS checks, and transition validation behind typed services. Maintain read compatibility for legacy V1 state; keep V2 writes fail closed.
 
 ### B36 — Split route handlers from registration
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisites:** `B32`, `B34`, `B35`
 
 Create independently importable handler/service families for submit, actions, chat, roundtrip, demo, replay, node-pack installation, settings, credentials, contribution, and rating. Keep aiohttp/ComfyUI registration in one registration module.
@@ -682,7 +815,7 @@ Execute as:
 
 ### [XHARD] B37 — Replace the batch REPL globals container
 
-**Estimate:** 2 days  
+**Estimate:** 2 days
 **Prerequisites:** `P01`, `B30`, `B32`
 
 Replace the 71-name dependency lookup from `edit.py` globals with a typed host split into cohesive ports such as graph editing, provider calls, memory/research, reporting, and response construction.
@@ -691,7 +824,7 @@ Keep the existing globals-based builder as a compatibility fallback until every 
 
 ### [XHARD] B38 — Split agent contracts by semantic family
 
-**Estimate:** 2 days  
+**Estimate:** 2 days
 **Prerequisites:** `A22`, `A23`, `B34`, `B35`
 
 Candidate families:
@@ -713,7 +846,7 @@ This work is paired with `F42` under `A25`; Python movement must not strand gene
 
 ### B39 — Backend façade retirement audit
 
-**Estimate:** five subsystem slices of 0.5 day  
+**Estimate:** five subsystem slices of 0.5 day
 **Prerequisites:** `B30`–`B38`
 
 For every wrapper in `session.py`, `routes.py`, `edit.py`, `provider.py`, and `contracts.py`, choose one outcome:
@@ -788,7 +921,7 @@ ComfyUI and browser adapters
 
 ### F40 — Reconcile frontend docs, endpoints, and state owners
 
-**Estimate:** 0.5–1 day  
+**Estimate:** 0.5–1 day
 **Prerequisites:** `P01`, `P02`, `A20`, `A23`
 
 Produce three current-state tables before changing code:
@@ -808,7 +941,7 @@ Produce three current-state tables before changing code:
 
 ### F41 — Decide the preview rendering contract
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisite:** `F40`
 
 Choose one product-supported design:
@@ -834,7 +967,7 @@ If DOM chips stay, document why both layers exist and move all invocation, inval
 
 ### [XHARD] F42 — Make generated wire contracts and selectors authoritative
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisites:** `F40`, `A22`, `A23`, `A25`
 
 **Current overlap:** rebaseline recovery and other payload shapes are interpreted in generated JavaScript, hand-written response normalization, lifecycle code, and shell helpers.
@@ -864,7 +997,7 @@ This package is coordinated with `B38`. Do not land Python contract movement or 
 
 ### [XHARD] F43 — Collapse transcript and detail compatibility mirrors
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisite:** `F42`
 
 **Current overlap:** lifecycle compartments such as `transcriptMessages`, `responseDetails`, `executionEvents`, `auditArtifacts`, and `debugDiagnostics` coexist with `chatMessages`, `turns`, `history`, and detail snapshots.
@@ -886,7 +1019,7 @@ This package is coordinated with `B38`. Do not land Python contract movement or 
 
 ### F44 — Split lifecycle domains behind one event façade
 
-**Estimate:** five slices of 1–2 days each  
+**Estimate:** five slices of 1–2 days each
 **Prerequisite:** `F43`
 
 Keep the public `transition(panel, event, payload)` API initially. The executable slices are:
@@ -909,7 +1042,7 @@ Keep the public `transition(panel, event, payload)` API initially. The executabl
 
 ### F45 — Replace wide flow dependencies with capability bundles
 
-**Estimate:** 1.5–2 days per flow family  
+**Estimate:** 1.5–2 days per flow family
 **Prerequisite:** `F44`
 
 `agent_apply_flow.js` currently receives roughly 68 dependencies and `agent_rebaseline_undo.js` roughly 45. Replace flat lists with small named capabilities, not one untyped mega-object.
@@ -936,7 +1069,7 @@ Apply the pattern as `F45a` submit, `F45b` apply/finalize, and `F45c` reject/reb
 
 ### [XHARD] F46 — Move graph semantics out of the shell
 
-**Estimate:** 1.5–2 days per semantic family  
+**Estimate:** 1.5–2 days per semantic family
 **Prerequisites:** `F42`, `F45`, `A26`
 
 Move duplicate exec-I/O normalization, link normalization, field lookup, inverse-link helpers, target resolution, serialization repair, and graph mutation into `comfy_adapter.js` or a dependency-light pure graph module.
@@ -953,7 +1086,7 @@ Keep thin shell exports temporarily for compatibility. Execute separately as `F4
 
 ### F47 — Extract panel composition and global side-effect managers
 
-**Estimate:** 1.5–2 days  
+**Estimate:** 1.5–2 days
 **Prerequisites:** `F43`, `F45`
 
 Extract panel DOM construction from the shell and centralize ownership for:
@@ -976,7 +1109,7 @@ Each manager needs idempotent install plus uninstall or reference-counted replac
 
 ### F48 — Frontend façade classification and served-code proof
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `F41`–`F47`
 
 Classify every wrapper/export in `vibecomfy_roundtrip.js` as public, temporary, or dead. Do not remove delegates in this package; actual shim removal belongs to `S76`. Then verify staged dependency closure, served assets, ComfyUI reload behavior, and a real browser path from open through submit, preview, and apply/reject/rebaseline.
@@ -1070,7 +1203,7 @@ Reorganisation currently follows an intentional UI-evidence path through `GraphI
 
 ### [XHARD] G50 — Graph and furniture authority decision record
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `P02`, `A21`
 
 Compare normal ingest and reorganise fact extraction for node identity, edges, helper roles, widget values, modes, subgraphs, virtual wires, groups, reroutes, and raw furniture evidence.
@@ -1091,7 +1224,7 @@ Do not implement the long-term path until the IR migration defines furniture own
 
 ### G51 — Extract canonical coordinate primitives
 
-**Estimate:** 1–1.5 days  
+**Estimate:** 1–1.5 days
 **Prerequisite:** `P03`
 
 The repository already has two intentionally different coordinate semantics:
@@ -1110,7 +1243,7 @@ Do not collapse them under one ambiguous helper. Name them separately, for examp
 
 ### G52 — Consolidate `NodeSchema` type identity
 
-**Estimate:** 0.5–1 day  
+**Estimate:** 0.5–1 day
 **Prerequisites:** `P01`, `C13`
 
 Inventory imports of both definitions. Enrich the dependency-light `schema/types.py::NodeSchema` as the canonical type; have `schema/provider.py` re-export it. Keep provenance as neutral fields/types and never make `schema.types` import provider/runtime/ComfyUI code.
@@ -1125,7 +1258,7 @@ Inventory imports of both definitions. Enrich the dependency-light `schema/types
 
 ### [XHARD] G53 — Define one widget-resolution result and precedence
 
-**Estimate:** two slices of 1–2 days  
+**Estimate:** two slices of 1–2 days
 **Prerequisites:** `C13`, `G52`
 
 Extend the existing `WidgetNameResolution` rather than introducing a third result type. It must distinguish semantic names, raw UI slots, compact values, provenance, confidence, and refusal evidence.
@@ -1158,7 +1291,7 @@ Execute as:
 
 ### G54 — Characterize reorganise fact extraction against normal ingest
 
-**Estimate:** 1–2 days  
+**Estimate:** 1–2 days
 **Prerequisites:** `G50`, `G53`
 
 Add side-by-side characterization for representative UI workflows, including helpers, groups, reroutes, subgraphs, dynamic IO, widgets, and virtual wires. Enumerate intentional differences rather than forcing parity prematurely.
@@ -1171,7 +1304,7 @@ Add side-by-side characterization for representative UI workflows, including hel
 
 ### [XHARD] G55 — Extract and rename reorganise hash semantics
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisite:** `A21`
 
 First inventory every hash consumer and existing payload. Move compatibility digest implementations into a cohesive module without changing bytes. Only then introduce clearer `topology_hash`, `layout_furniture_hash`, and `plan_hash` semantics through explicit adapters.
@@ -1186,7 +1319,7 @@ First inventory every hash consumer and existing payload. Move compatibility dig
 
 ### [XHARD] G56 — Extract reorganise topology and ownership
 
-**Estimate:** 2 days  
+**Estimate:** 2 days
 **Prerequisites:** `G54`, `G55`
 
 Move SCC/rank/island/component logic and section ownership/classification policy from `compile.py` into cohesive modules. Preserve `compile_layout_plan()` and existing private compatibility imports during migration.
@@ -1199,7 +1332,7 @@ Move SCC/rank/island/component logic and section ownership/classification policy
 
 ### [XHARD] G57 — Extract local layout, wall layout, and collision policy
 
-**Estimate:** three slices of 1–2 days  
+**Estimate:** three slices of 1–2 days
 **Prerequisite:** `G56`
 
 The executable slices are:
@@ -1218,7 +1351,7 @@ Preserve the orchestrator's deliberate fallback compile behavior and make that f
 
 ### G58 — Split emitter identity and link/socket resolution
 
-**Estimate:** two slices of 1.5–2 days  
+**Estimate:** two slices of 1.5–2 days
 **Prerequisites:** `G51`, `G53`, `A26`; `G58b` also requires `G60` and migration gates `MIG-G1`/`MIG-G2` from `G63`
 
 Execute as `G58a` behavior-preserving ID/UID remapping extraction, then **`[XHARD] G58b`** edge normalization, reroutes, broadcasts, dynamic exec ports, and socket resolution. Each slice is 1.5–2 days. Any semantic identity/link change waits for the migration gates.
@@ -1234,7 +1367,7 @@ Execute as `G58a` behavior-preserving ID/UID remapping extraction, then **`[XHAR
 
 ### [XHARD] G59 — Split emitter widget, evidence, layout, and validation policy
 
-**Estimate:** four slices of 1–2 days  
+**Estimate:** four slices of 1–2 days
 **Prerequisites:** `G53`, `G58b`, `A26`; semantic redirection requires `MIG-G1`/`MIG-G2`, and projection-path deletion requires `MIG-G3`
 
 The executable slices are:
@@ -1253,7 +1386,7 @@ The executable slices are:
 
 ### G60 — Make socket fallback policy explicit
 
-**Estimate:** 0.5–1 day  
+**Estimate:** 0.5–1 day
 **Prerequisite:** `G58a`
 
 Current `_resolve_output_slot_and_type()` can return slot zero for an unresolved named output even when a schema exists. Change it to return a typed unresolved-name refusal for known-schema misses; retain slot-zero best effort only when the schema is genuinely absent.
@@ -1262,7 +1395,7 @@ The required sequence is `G58a -> G60 -> G58b`. Add cases for known-schema missi
 
 ### G61 — Classify and gate generated node shims
 
-**Estimate:** 0.5 day  
+**Estimate:** 0.5 day
 **Prerequisite:** `P00`
 
 Files such as `nodes/core.py`, `kjnodes.py`, `wanvideowrapper.py`, and `ltxvideo.py` carry generated-file headers and are produced by `tools.generate_node_shims`.
@@ -1278,14 +1411,14 @@ Ownership boundary: `G61` decides classification and source-of-truth policy; `S7
 
 ### G62 — Audit the relationship between layout engines
 
-**Estimate:** 1 day research decision, implementation separately  
+**Estimate:** 1 day research decision, implementation separately
 **Prerequisites:** `G50`, `G54`
 
 Start from the documented decision that the semantic reorganiser and topology-first layout engine are separate policies that may share neutral geometry helpers. Compare consumers, inputs, output contracts, and duplicated primitives. Recommend merging or retirement only if new behavioral proof overturns that decision; do not reopen it by default.
 
 ### [XHARD] G63 — IR migration compatibility gate
 
-**Estimate:** 0.5 day  
+**Estimate:** 0.5 day
 **Prerequisites:** `G54`, `G62`
 
 Define named cleanup gates that cite, rather than rename, the source-plan milestones:
@@ -1347,7 +1480,7 @@ Additional required assertions:
 
 ### [XHARD] E60 — Define typed phase boundaries
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `A22`, `A23`, `B31`, `B38`
 
 Write explicit input/output contracts for classify, research, implement, and reply. Document which evidence is durable, public, redacted, provider-specific, or internal.
@@ -1356,7 +1489,7 @@ No phase movement occurs until these contracts have characterization tests.
 
 ### E61 — Inject session context and event sinks
 
-**Estimate:** 1–1.5 days  
+**Estimate:** 1–1.5 days
 **Prerequisites:** `B33`, `E60`
 
 Extend neutral host ports so executor core does not need compatibility imports of `agent.edit` for session context or `server.PromptServer` for websocket events.
@@ -1370,21 +1503,21 @@ Extend neutral host ports so executor core does not need compatibility imports o
 
 ### E62 — Extract classify and research phases
 
-**Estimate:** two slices of 1.5–2 days  
+**Estimate:** two slices of 1.5–2 days
 **Prerequisites:** `E60`, `E61`
 
 Execute as `E62a` classify phase and **`[XHARD] E62b`** research phase, each 1.5–2 days. Preserve route behavior, prompt/tool evidence, bounded retries, redaction, and research-shadow behavior.
 
 ### [XHARD] E63 — Extract implement and reply phases
 
-**Estimate:** two slices of 1.5–2 days  
+**Estimate:** two slices of 1.5–2 days
 **Prerequisites:** `B34`, `E60`, `E61`
 
 Execute as `E63a` durable implementation handoff and `E63b` result/failure/reply assembly, each 1.5–2 days. Keep `run_executor` as the only public orchestration entry point.
 
 ### E64 — Executor façade and configuration audit
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `B32`, `E62`, `E63`
 
 Classify compatibility forwarding functions and `_DEFAULT_HOST_PORTS` caching. Ensure configuration defaults come from one authority and that no phase imports HTTP routes, browser contracts, or ComfyUI registration.
@@ -1448,7 +1581,7 @@ The executable ledger must expand representative rows to concrete file/line entr
 
 ### S70 — Repository-wide shim census
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `P00`, `P01`, `A24`
 
 Create a machine-readable or Markdown ledger containing:
@@ -1463,14 +1596,14 @@ Each shim receives exactly one implementation owner and one cleanup package. Oth
 
 ### S71 — Remove proven dead forwarding wrappers
 
-**Estimate:** 0.5–1 day per subsystem  
+**Estimate:** 0.5–1 day per subsystem
 **Prerequisites:** `S70`, relevant subsystem façade audit
 
 First reconcile historical deletion claims for the old testing/YAML/schema/runtime-config/research-engine/source-assembler shims against the current tree. Then remove only wrappers with no supported import, monkeypatch, route, persisted-data, browser, or plugin consumer. Keep deletion commits separate from implementation movement.
 
 ### S72 — Replace dependency-hiding shims with ports
 
-**Estimate:** 1–2 days per boundary  
+**Estimate:** 1–2 days per boundary
 **Prerequisites:** `S70`, `A24`
 
 Priority candidates include:
@@ -1492,7 +1625,7 @@ Execute as independent cards tied to their owning architecture packages:
 
 ### S73 — Consolidate re-export façades
 
-**Estimate:** 1 day per façade family  
+**Estimate:** 1 day per façade family
 **Prerequisites:** `S70`, completed implementation extraction
 
 For `session.py`, `routes.py`, `edit.py`, agent/executor contracts, executor core, and the frontend roundtrip shell:
@@ -1505,7 +1638,7 @@ For `session.py`, `routes.py`, `edit.py`, agent/executor contracts, executor cor
 
 ### [XHARD] S74 — Route, field, and state compatibility bridges
 
-**Estimate:** 1–2 days  
+**Estimate:** 1–2 days
 **Prerequisites:** `F40`, `A20`, `A23`, `A25`, `B34`, `B35`, `B38`, `F42`, `S70`
 
 Inventory legacy route spellings, accept/finalize bridges, camel/snake field aliases, V1/V2 state readers, and compatibility response projections.
@@ -1521,7 +1654,7 @@ Execute as `S74a` backend transaction/route bridges, `S74b` executor route/task/
 
 ### S75 — Local-import and monkeypatch shim cleanup
 
-**Estimate:** 1 day per subsystem  
+**Estimate:** 1 day per subsystem
 **Prerequisites:** `S70`, `T72`
 
 Classify every important function-local import and patchable forwarding name as:
@@ -1535,14 +1668,14 @@ Replace obsolete cases with ordinary imports only after fresh-process and monkey
 
 ### S76 — Frontend shell delegates and global installers
 
-**Estimate:** 1–2 days  
+**Estimate:** 1–2 days
 **Prerequisites:** `F42`–`F48`, `S70`
 
 Remove shell wrappers that merely duplicate adapter/lifecycle/overlay/diagnostic behavior. Retain only stable public exports and composition wiring. Global installers must expose idempotent ownership and cleanup rather than hiding repeated installation behind flags scattered across `window`, `api`, prototypes, graph objects, and runtime state.
 
 ### S77 — Generated node shim cleanup
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `G61`, `S70`, `T70`
 
 Generated node shims are cleaned at their source:
@@ -1561,21 +1694,21 @@ Do **not** manually split or rewrite `nodes/core.py`, `kjnodes.py`, `wanvideowra
 
 ### S78 — Shim disposition completeness audit
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisites:** `S71`–`S77`
 
 Repeat the census and require every remaining shim to have a supported consumer, owner, test, and disposition. “Temporary” shims must point to a blocking package and removal condition. Any unclassified shim reopens the queue; retained supported shims do not count as a failure.
 
 ### T70 — Zone classification
 
-**Estimate:** 0.5 day  
+**Estimate:** 0.5 day
 **Prerequisite:** `P00`
 
 Classify authored production, generated shims, checked-in object-info data/cache, fixtures, scripts, and external/vendor-like content. Configure health tooling so generated size does not distort subjective structure scoring.
 
 ### T71 — Replace structure-locking tests selectively
 
-**Estimate:** 1–2 days per subsystem  
+**Estimate:** 1–2 days per subsystem
 **Prerequisite:** `P01`
 
 Inventory tests that assert source text, AST placement, private helper location, exact wrapper names, or module-global shape.
@@ -1584,7 +1717,7 @@ Retain static tests when they genuinely protect packaging, generated-file parity
 
 ### T72 — Fresh-process import and side-effect harness
 
-**Estimate:** 1.5 days  
+**Estimate:** 1.5 days
 **Prerequisite:** `A24`
 
 Add reusable subprocess checks for:
@@ -1597,14 +1730,14 @@ Add reusable subprocess checks for:
 
 ### T73 — Performance and resource-aware test gates
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisite:** `P03`
 
 Record CPU time, wall time, host load, cache cold/warm state, and process count for schema and executor timing gates. Keep exact-test reruns separate from heavily parallel test waves so resource contention is not mistaken for a regression.
 
 ### T74 — Documentation status and compatibility ledger
 
-**Estimate:** 1 day  
+**Estimate:** 1 day
 **Prerequisite:** all subsystem packages in the current wave
 
 For each older architecture/cleanup plan, mark recommendations:
@@ -1619,7 +1752,7 @@ Update the compatibility ledger with every retained façade, alias, route bridge
 
 ### T75 — Dead-path deletion queue
 
-**Estimate:** one independently reviewable deletion per 0.5–1 day package  
+**Estimate:** one independently reviewable deletion per 0.5–1 day package
 **Prerequisites:** `T71`, `T72`, subsystem façade audits
 
 Delete only after proving zero consumers with repository search, import tests, behavior tests, fixture tests, and served-code checks where applicable. Never mix dead-path deletion with a major extraction.
@@ -1631,7 +1764,7 @@ Delete only after proving zero consumers with repository search, import tests, b
 When the schedule names a parent epic such as `B34`, `F44`, or `G59`, it means every suffix required by the dependent package is complete. Executable cards must replace parent shorthand with precise suffix prerequisites before work begins.
 
 ```text
-P00 -> P01/P02/P03
+P00 -> [XHARD] P00A -> P01/P02/P03
     -> C10/C11/C12/C13
     -> A20 -> A21/A22/A23/A24/A25/A26
     -> early inversions: B30/B31/B32/B33, F40/F41/F42, G50/G51/G52/G53
@@ -1791,15 +1924,15 @@ Warnings:
 
 ### 15.7 Execution readiness
 
-This master plan is **roadmap-ready** and can guide the full cleanup one package at a time. It is not yet legal to dispatch mutation agents in the current checkout because §3.4 is a STOP condition.
+This master plan is **roadmap-ready** and can guide the full cleanup one package at a time. It is not yet legal to dispatch mutation agents in the current checkout because §3.4 and `[XHARD] P00A` are STOP conditions. The integration reconciliation itself also requires an independent `[XHARD-REVIEW] CR-0A` before Wave 0 inventories can be accepted.
 
 Readiness has three levels:
 
 | Level | Meaning | Current state |
 |---|---|---|
 | Roadmap-ready | target architecture, package order, risks, and gates are defined | Ready |
-| Wave-ready | ownership, decisions, baselines, and suffix package cards for one wave are complete | Wave 0 can be prepared; mutation waves are conditional |
-| Dispatch-ready | one suffix package has exact files, tests, rollback, reviewer, and a clean worktree | Not until `P00`–`P03` and its prerequisites clear |
+| Wave-ready | ownership, decisions, baselines, and suffix package cards for one wave are complete | Wave 0 can be prepared only after P00A and CR-0A; mutation waves are conditional |
+| Dispatch-ready | one suffix package has exact files, tests, rollback, reviewer, and a clean worktree | Not until `P00`/P00A, `P01`–`P03`, and their review gates clear |
 
 The program manager may prepare packages just in time. It does not need to pre-author every suffix card before Wave 0, but it may not dispatch an implementer from a parent epic description alone.
 
@@ -1935,23 +2068,31 @@ Reviewers must answer:
 7. Are failure/refusal paths still fail closed?
 8. Can the package be reverted independently?
 
+### 15.10A Review difficulty legend and XHARD-review protocol
+
+- **Ordinary package review:** bounded diff review by a read-only reviewer; Luna is the default for inventories, implementation, focused verification, and bounded domain review. It does not require Sol escalation.
+- **`[XHARD-REVIEW]`:** an integration review that requires big-picture architectural judgment across authorities, compatibility, persistence, served code, or migration gates. It is distinct from `[XHARD]` implementation and must not be attached to an ordinary package diff review or verifier test run.
+- Every `[XHARD-REVIEW]` reviewer must be an independent GPT-5.6 Sol reviewer who did not implement or manage the reviewed chunk. The Sol reviewer consumes package receipts, the compatibility/authority ledgers, focused and adjacent evidence, and the relevant integration receipts.
+- Every `[XHARD-REVIEW]` returns exactly one verdict: `continue`, `correct`, `replan`, or `stop`, with blocking evidence and the smallest required next gate. A green test alone is never a verdict.
+
 ### 15.11 Chunk-level review milestones
 
 Do not wait until the end to discover architectural drift. Pause for an integration review at these seams:
 
-| Review | After | Questions |
-|---|---|---|
-| CR-0 | `P00`–`P03` | Is the base/worktree safe, and are baselines trustworthy? |
-| CR-1 | `C10`–`C13` | Are known correctness/performance failures resolved without hiding them? |
-| CR-2 | `A20`–`A26`, `B30`–`B33`, `F40`–`F42`, `G50`–`G53` | Are authorities and boundaries coherent before large movement? |
-| CR-3 | `B34`–`B39` | Are session/transaction/routes/edit façades truly thinner and dependency-correct? |
-| CR-4 | `F43`–`F48` | Is there one frontend state/effect/render path with safe served-code behavior? |
-| CR-5 | `G54`–`G63` | Are graph facts, layout, emitter, schema, and migration gates still coherent? |
-| CR-6 | `E60`–`E64` | Is executor core headless, phase-typed, and host-injected? |
-| CR-7 | before `S71`–`S78` deletion work | Are all shims classified and are removal conditions actually satisfied? |
-| CR-8 | before `R82` | Are wave receipts green enough for full integration/rescan? |
+| Review | Class | When | Independent reviewer and inputs | Required verdict question |
+|---|---|---|---|---|
+| `CR-0A` | `[XHARD-REVIEW]` | Immediately after `P00A`, before P01–P03 | GPT-5.6 Sol not involved in integration management; preservation receipts, dirty-path ledger, package status table, and clean-base recommendation | Is provenance/ownership frozen without discarding live work? |
+| `CR-0` | ordinary integration review | After `P00`–`P03` | Read-only reviewer; worktree ledger, authority ledger, baseline receipts | Is the base/worktree safe and are baselines trustworthy? |
+| `CR-1` | ordinary integration review | After `C10`–`C13` | Domain reviewer; focused correctness/performance receipts | Are known failures resolved without hiding them? |
+| `CR-2` | `[XHARD-REVIEW]` | After `A20`–`A26`, `B30`–`B33`, `F40`–`F42`, `G50`–`G53` | Independent GPT-5.6 Sol; authority/compatibility ledgers, generated parity, schema/widget, graph/browser and focused/adjacent receipts | Are cross-language and graph/browser authorities coherent before movement? |
+| `CR-3` | `[XHARD-REVIEW]` | After `B34`–`B39` | Independent GPT-5.6 Sol; lifecycle-log/transaction receipts, V1/V2 fixtures, CAS/replay tests, façade ledger | Is session/transaction authority independent and are façades dependency-correct? |
+| `CR-4` | `[XHARD-REVIEW]` | After `F43`–`F48` | Independent GPT-5.6 Sol; frontend state/served-code ledger, browser ownership/rehydration/closure and adjacent receipts | Is there one frontend state/effect/render path with safe served-code behavior? |
+| `CR-5` | `[XHARD-REVIEW]` | After `G54`–`G63` | Independent GPT-5.6 Sol; graph/IR/hash/emitter/refusal ledgers, golden/parity tests, MIG receipts | Are graph facts, layout, schema, emitter refusal, and migration gates coherent? |
+| `CR-6` | `[XHARD-REVIEW]` | After `E60`–`E64` | Independent GPT-5.6 Sol; phase contracts, host-boundary/import receipts, durable handoff and adjacent tests | Is executor core headless, phase-typed, and durably handed off? |
+| `CR-7` | `[XHARD-REVIEW]` | Before `S71`–`S78` deletion work | Independent GPT-5.6 Sol; complete shim/compatibility ledger, consumer census, persisted/served evidence, rollback receipts | Are all shims classified and removal conditions actually satisfied? |
+| `CR-8` | `[XHARD-REVIEW]` | Before `R82` | Independent GPT-5.6 Sol; all wave receipts, authority/compatibility ledgers, queue and final integration evidence | Is the final architecture/queue coherent enough for rescan? |
 
-Each chunk review uses one or more read-only reviewers and produces a short decision: `continue`, `correct`, `replan`, or `stop`.
+Each chunk review uses the named reviewer class and produces the required verdict. `[XHARD-REVIEW]` cannot be performed by the package author, package manager, or ordinary verifier.
 
 ### 15.12 Test sharding and resource policy
 
@@ -2031,6 +2172,11 @@ The decision record must name the owner, rationale, alternatives rejected, compa
 ```text
 Role: implementation agent
 Package: <exact suffix ID>
+Author: <implementer identity>
+Bounded reviewer: <independent read-only reviewer; not the author>
+Verifier: <adjacent/wave test verifier; not the author for high-risk work>
+Sol manager: <GPT-5.6 Sol manager/validator when the package is `[XHARD]`; otherwise named program manager>
+Independent Sol XHARD reviewer: <required only at a named `[XHARD-REVIEW]` gate; must not implement or manage the chunk>
 Plan sections to read: <links/headings>
 Goal: <one measurable outcome>
 Prerequisites/decisions: <completed IDs>
@@ -2050,6 +2196,11 @@ remaining risks, and any blocker. Do not declare completion.
 ```text
 Role: independent read-only reviewer
 Package: <exact suffix ID>
+Author: <implementer identity>
+Bounded reviewer: <your identity; independent of author>
+Verifier: <adjacent/wave verifier identity>
+Sol manager: <package manager/validator identity>
+Independent Sol XHARD reviewer: <identity at the named `[XHARD-REVIEW]` gate, or `not applicable` for bounded review>
 Read: package card, baseline receipt, diff, compatibility ledger entries
 Review for: goal completion, single ownership, dependency direction, behavior/wire/
 persistence/hash/import compatibility, test quality, scope creep, rollback.
@@ -2058,6 +2209,8 @@ Do not edit or run the full suite.
 Return: verdict (accept/correct/replan/stop), evidence with file:line, and the smallest
 required correction/test set.
 ```
+
+For a named `[XHARD-REVIEW]`, dispatch a separate read-only GPT-5.6 Sol reviewer with the author, bounded reviewer, verifier, and Sol manager identities recorded. The XHARD reviewer must consume the package receipts plus authority/compatibility ledgers and focused/adjacent evidence, then return `continue`, `correct`, `replan`, or `stop`. Luna remains the default for ordinary inventories, implementation, focused verification, and bounded review.
 
 ## 16. Risk register
 
@@ -2080,7 +2233,7 @@ Use one honest `scan -> triage -> execute complete queue -> rescan` cycle.
 
 ### R80 — Establish or reconcile the baseline
 
-**Estimate:** 0.5 day  
+**Estimate:** 0.5 day
 **Prerequisites:** `P00`, approved clean worktree
 
 Before scanning, record Desloppify version, commit, worktree status, scope/options, exclusions, zone classifications, and existing `.desloppify` state ownership.
@@ -2091,7 +2244,7 @@ Never delete `.desloppify` state, locks, backups, progression files, or scan rec
 
 ### R81 — Triage and execute the approved queue
 
-**Estimate:** planning 0.5–1 day; execution is the sum of approved packages  
+**Estimate:** planning 0.5–1 day; execution is the sum of approved packages
 **Prerequisite:** `R80`
 
 `R81` is a planning/triage umbrella, not one executable implementation package. Actual work is performed only through separately sized package cards from Waves 1–7.
@@ -2110,7 +2263,7 @@ Do not rescan after each commit. Detector churn and cascades are expected; finis
 
 ### R82 — Final rescan and subjective review
 
-**Estimate:** 1 day plus review runtime  
+**Estimate:** 1 day plus review runtime
 **Prerequisites:** every approved implementation/shim/test package complete; wave gates green
 
 Run the final scan and unbiased subjective review only after:
@@ -2170,6 +2323,7 @@ The program is complete only when:
 - Repository-wide shim research census: integrated; executable file/line ledger `S70` remains a required pre-mutation package.
 - Independent clarity, frontend, graph/migration, shim, and execution-readiness reviews: integrated.
 - Plain-language architectural and contributor end-state: integrated.
-- `[XHARD]` classification, GPT-5.6 Sol ownership, and decision/review gates: integrated for 22 execution units.
+- `[XHARD]` classification, GPT-5.6 Sol ownership, and decision/review gates: integrated for 23 execution units, including P00A.
+- `[XHARD-REVIEW]` governance: integrated for CR-0A and CR-2 through CR-8; ordinary package reviews and verifier runs remain distinct.
 - Agent roles, independent review loops, chunk gates, test sharding, resource limits, and dispatch templates: integrated.
 - Cleanup execution: **not authorized and not started**.
