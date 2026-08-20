@@ -3605,6 +3605,67 @@ test("CHAT_REHYDRATE_NO_SESSION clears only thread-visible chat state and leaves
   assert.equal(panel.state.chatDetailJsonPath, null);
 });
 
+test("CHAT_REHYDRATE_NO_SESSION preserves current optimistic messages while SUBMITTING", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 7,
+    chatRehydrateEpoch: 4,
+    chatMessages: [
+      { role: "user", text: "Keep this visible", optimistic: true, submit_epoch: 7, local_id: "submit-user:7" },
+      { role: "agent", text: "", pending_response: true, executor_pending: true, optimistic: true, submit_epoch: 7, local_id: "executor-pending:7" },
+    ],
+  });
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", {
+    requestEpoch: 4,
+  });
+
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: THREAD_DIRTY_SECTIONS,
+  });
+  assert.ok(panel.state.chatMessages.some((message) => message.text === "Keep this visible"));
+  assert.ok(panel.state.chatMessages.some((message) => message.pending_response === true));
+  assert.equal(panel.state.chatLoaded, false);
+});
+
+test("CHAT_REHYDRATE_MISSING_SESSION preserves current optimistic messages while SUBMITTING", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-old",
+    submitEpoch: 3,
+    chatRehydrateEpoch: 2,
+    chatMessages: [
+      { role: "user", text: "Keep me visible", optimistic: true, submit_epoch: 3, local_id: "submit-user:3" },
+    ],
+  });
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_MISSING_SESSION", {
+    requestEpoch: 2,
+    sessionId: "sess-old",
+  });
+
+  assert.ok(panel.state.chatMessages.some((message) => message.text === "Keep me visible"));
+  assert.equal(panel.state.sessionId, null);
+  assert.equal(obligations.forgetSession, true);
+});
+
+test("CHAT_REHYDRATE_NO_SESSION drops optimistic messages from stale submit epochs", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 9,
+    chatRehydrateEpoch: 4,
+    chatMessages: [
+      { role: "user", text: "stale", optimistic: true, submit_epoch: 8, local_id: "submit-user:8" },
+      { role: "agent", text: "", pending_response: true, optimistic: true, submit_epoch: 8, local_id: "executor-pending:8" },
+    ],
+  });
+
+  transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch: 4 });
+
+  assert.deepEqual(panel.state.chatMessages, []);
+});
+
 test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE is skipped while submit/apply is active or candidate graph is missing", () => {
   const submittingPanel = makePanel({
     phase: PANEL_STATE.SUBMITTING,

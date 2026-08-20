@@ -4242,13 +4242,48 @@ async function _rehydrateChat(panel) {
     ? resolveScopeSessionId(requestScopeId)
     : null;
   // Fall back to legacy localStorage when scope is not yet set.
-  const savedId = scopedSessionId || _lsGet(LS_ACTIVE_SESSION_KEY);
+  let savedId = scopedSessionId || _lsGet(LS_ACTIVE_SESSION_KEY);
 
   if (!savedId) {
-    const noSessionObligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch });
-    fulfillAgentPanelCommitObligations(panel, noSessionObligations, "rehydrate");
-    resetThreadRenderState(panel);
-    return;
+    // Browser scope storage is advisory. A workflow-tab switch can abort an
+    // in-flight fetch after the server has durably committed the turn, leaving
+    // no local scope-to-session binding. Recover it from the durable request
+    // artifacts using the workflow UUID the client still knows.
+    let recoveredId = null;
+    if (requestScopeId) {
+      try {
+        const activeWorkflowId = resolveActiveWorkflowUuid();
+        if (activeWorkflowId) {
+          const recoverRes = await fetch(
+            `/vibecomfy/agent-edit/recover?workflow_id=${encodeURIComponent(activeWorkflowId)}`,
+          );
+          if (recoverRes.ok) {
+            const recoverPayload = await recoverRes.json();
+            const candidate = recoverPayload && typeof recoverPayload === "object"
+              ? recoverPayload.session_id
+              : null;
+            if (
+              typeof candidate === "string"
+              && candidate
+              && panel.state.chatScopeId === requestScopeId
+            ) {
+              setScopedSessionId(requestScopeId, candidate);
+              recoveredId = candidate;
+            }
+          }
+        }
+      } catch (_recoverError) {
+        // Recovery is best-effort; the ordinary no-session transition remains
+        // the safe fallback when storage cannot be inspected.
+      }
+    }
+    if (!recoveredId) {
+      const noSessionObligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch });
+      fulfillAgentPanelCommitObligations(panel, noSessionObligations, "rehydrate");
+      resetThreadRenderState(panel);
+      return;
+    }
+    savedId = recoveredId;
   }
 
   try {
@@ -8196,6 +8231,32 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     });
     submitEpoch = startObligations.submitEpoch;
 
+    // Pin the user's message before buildSubmitSnapshot yields. Scope recovery
+    // can resolve during serialization, and the lifecycle reducer preserves
+    // current-epoch optimistic entries while SUBMITTING.
+    if (!Array.isArray(panel.state.chatMessages)) {
+      panel.state.chatMessages = [];
+    }
+    clearPendingResponseMessages(panel);
+    panel.state.chatMessages.push(mutableTranscriptMessage({
+      role: "user",
+      text: task,
+      optimistic: true,
+      local_id: `submit-user:${submitEpoch}`,
+      submit_epoch: submitEpoch,
+      timestamp: new Date().toISOString(),
+    }));
+    const pendingProgress = createExecutorProgressSnapshot({ decide: "active" });
+    panel.state.executorProgress = pendingProgress;
+    panel.state.chatMessages.push(
+      makePendingResponseChatMessage(panel, task, pendingProgress, submitEpoch),
+    );
+    panel.state.transcriptMessages = panel.state.chatMessages
+      .map(mutableTranscriptMessage)
+      .filter(Boolean);
+    ensureThreadRenderState(panel).forceScrollOnNextRender = true;
+    markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
+
     let snapshot;
     try {
       snapshot = await buildSubmitSnapshot(panel);
@@ -8252,34 +8313,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     // returns the current epoch when payload.submitEpoch is supplied.
     submitEpoch = panel.state.submitEpoch;
     submitFlow.beginSubmitActivity(panel, submitEpoch);
-    // Optimistically surface the user's message in the chat thread the instant
-    // they hit Submit, instead of waiting for the server round-trip + rehydrate.
-    // Rehydrate replaces chatMessages wholesale and carries the server's own
-    // copy of this message, so there is no duplicate once the turn resolves.
-    if (!Array.isArray(panel.state.chatMessages)) {
-      panel.state.chatMessages = [];
-    }
-    clearPendingResponseMessages(panel);
-    // Stable local identity tied to submit epoch and idempotency key so
-    // rehydrate reconciliation can distinguish in-flight optimistic entries
-    // from stale/cancelled ones without duplicating or resurrecting messages.
-    const idempotencyKey = snapshot?.idempotencyKey || "";
-    panel.state.chatMessages.push(mutableTranscriptMessage({
-      role: "user",
-      text: task,
-      optimistic: true,
-      local_id: `submit-user:${submitEpoch}:${idempotencyKey}`,
-      submit_epoch: submitEpoch,
-      idempotency_key: idempotencyKey || undefined,
-      timestamp: new Date().toISOString(),
-    }));
-    const pendingProgress = createExecutorProgressSnapshot({ decide: "active" });
-    panel.state.executorProgress = pendingProgress;
-    panel.state.chatMessages.push(makePendingResponseChatMessage(panel, task, pendingProgress, submitEpoch));
-    panel.state.transcriptMessages = panel.state.chatMessages
-      .map(mutableTranscriptMessage)
-      .filter(Boolean);
-    ensureThreadRenderState(panel).forceScrollOnNextRender = true;
+    // The optimistic user and pending-agent messages were pinned before
+    // serialization so a concurrent rehydrate cannot erase the submitted text.
     pushHistory(panel, "pending", pendingMessage);
     pushTurnStatus(panel, "pending", {
       task,

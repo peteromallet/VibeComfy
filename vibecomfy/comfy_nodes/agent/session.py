@@ -5,9 +5,8 @@ import json
 import logging
 import os
 import re
-import time
 import socket
-import threading
+import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -41,20 +40,24 @@ from .projection_registry_v1 import (
 from .mutation_materialization_v1 import build_mutation_materialization_v1
 from .layout_operation_v1 import build_layout_operation_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
+from ._session_lock import (
+    DEFAULT_LOCK_TIMEOUT_SECONDS,
+    LOCK_FILE_NAME,
+    LOCK_LEASE_SECONDS,
+    LOCK_POLL_SECONDS,
+    SessionStateLock as _SessionStateLock,
+    _process_alive as _lock_process_alive,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 STATE_FILE_NAME = "session_state.json"
-LOCK_FILE_NAME = ".session_state.lock"
 STATE_SCHEMA_VERSION = 1
 # Bumped whenever `structural_graph_projection` changes shape. A baseline hash
 # stored by an older version is recomputed from the on-disk accepted graph on
 # read, so a projection change never strands an open session on a stale baseline
 # it can no longer match (the StaleStateMismatch-on-every-submit failure mode).
 STRUCTURAL_PROJECTION_VERSION = 3
-DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
-LOCK_LEASE_SECONDS = 30.0
-LOCK_POLL_SECONDS = 0.025
 
 # ── Phase 4 transactional storage constants (T19) ───────────────────────────
 # Authoritative per-turn artifacts live under
@@ -95,16 +98,7 @@ _TRANSACTION_RESOLVED_PHASES: frozenset[str] = frozenset(
 
 def _process_alive(pid: int) -> bool:
     """Return ``True`` when a process with *pid* exists on this host."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return True
-    else:
-        return True
+    return _lock_process_alive(pid)
 
 
 OperationScope = Literal["edit", "accept", "reject", "rebaseline"]
@@ -370,6 +364,449 @@ def turn_dir_for(root: Path, session_id: str, turn_id: str) -> Path:
     return candidate
 
 
+def _recover_session_for_workflow(
+    session_root: Path,
+    workflow_id: str,
+) -> dict[str, str | None]:
+    """Find the newest durable turn submitted for ``workflow_id``.
+
+    Browser scope storage is intentionally advisory: a tab switch can abort an
+    in-flight request after the server has durably committed it. This lookup
+    reconstructs the scope-to-session binding from canonical ``request.json``
+    artifacts without making browser state another authority.
+    """
+    if not isinstance(workflow_id, str) or not workflow_id.strip():
+        raise ValueError("workflow_id must be a non-empty string")
+
+    root = Path(session_root)
+    if not root.is_dir():
+        return {"session_id": None, "turn_id": None}
+
+    target = workflow_id.strip()
+    best: tuple[int, str, str] | None = None
+    try:
+        for session_dir in root.iterdir():
+            if session_dir.is_symlink() or not session_dir.is_dir():
+                continue
+            session_id = session_dir.name
+            if normalize_session_id(session_id) != session_id:
+                continue
+            turns_dir = session_dir / "turns"
+            if turns_dir.is_symlink() or not turns_dir.is_dir():
+                continue
+            for turn_dir in turns_dir.iterdir():
+                if turn_dir.is_symlink() or not turn_dir.is_dir():
+                    continue
+                turn_id = turn_dir.name
+                if normalize_path_component(turn_id) != turn_id:
+                    continue
+                request_path = turn_dir / "request.json"
+                if request_path.is_symlink() or not request_path.is_file():
+                    continue
+                try:
+                    request_payload = json.loads(request_path.read_text(encoding="utf-8"))
+                    request_stat = request_path.stat()
+                except (OSError, ValueError, TypeError):
+                    continue
+                if not isinstance(request_payload, Mapping):
+                    continue
+                if request_payload.get("workflow_id") != target:
+                    continue
+                candidate = (request_stat.st_mtime_ns, session_id, turn_id)
+                if best is None or candidate > best:
+                    best = candidate
+    except OSError:
+        return {"session_id": None, "turn_id": None}
+
+    if best is None:
+        return {"session_id": None, "turn_id": None}
+    return {"session_id": best[1], "turn_id": best[2]}
+
+
+# ── Durable orchestration-neutral thread transcript ────────────────────────
+#
+# This store deliberately persists conversation facts, budgets, accepted
+# canonical delta ids, and checkpoints only. The retained VibeWorkflow remains
+# owned by the shared edit kernel; no graph or replay implementation lives here.
+
+_THREAD_TRANSCRIPT_NAME = "threaded_session.jsonl"
+_THREAD_LEASE_NAME = ".threaded_message_lease.json"
+_THREAD_LEASE_SECONDS = 30.0 * 60.0
+
+
+class _ThreadSessionError(RuntimeError):
+    def __init__(
+        self,
+        kind: str,
+        message: str,
+        *,
+        session_id: str | None = None,
+        detail: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.session_id = session_id
+        self.detail = dict(detail or {})
+
+
+def _thread_default_state(session_id: str) -> dict[str, Any]:
+    return {
+        "session_id": session_id,
+        "messages": [],
+        "budget": {},
+        "accepted_delta_ids": [],
+        "fact_ids": [],
+        "evidence_ids": [],
+        "revision": 0,
+        "checkpoint": None,
+        "completed": {},
+        "closed": False,
+        "last_seq": 0,
+        "last_event": None,
+    }
+
+
+def _thread_unique_strings(existing: Any, additions: Any) -> list[str]:
+    values = [str(value) for value in (existing or ()) if value]
+    seen = set(values)
+    for value in additions or ():
+        normalized = str(value)
+        if normalized and normalized not in seen:
+            values.append(normalized)
+            seen.add(normalized)
+    return values
+
+
+def _thread_fold_event(state: dict[str, Any], event: Mapping[str, Any]) -> None:
+    state["last_event"] = dict(event)
+    kind = str(event.get("kind") or "")
+    message = event.get("message")
+    if isinstance(message, Mapping):
+        state["messages"].append(dict(message))
+    elif kind in {"user_message", "assistant_message"}:
+        role = "user" if kind == "user_message" else "assistant"
+        state["messages"].append(
+            {"role": role, "content": str(event.get("content") or "")}
+        )
+
+    budget = event.get("budget")
+    if isinstance(budget, Mapping):
+        state["budget"] = dict(budget)
+    budget_delta = event.get("budget_delta")
+    if isinstance(budget_delta, Mapping):
+        cumulative = dict(state.get("budget") or {})
+        for key, value in budget_delta.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                previous = cumulative.get(str(key), 0)
+                previous = previous if isinstance(previous, (int, float)) else 0
+                cumulative[str(key)] = previous + value
+        state["budget"] = cumulative
+
+    state["accepted_delta_ids"] = _thread_unique_strings(
+        state.get("accepted_delta_ids"),
+        event.get("delta_ids") or (
+            [event.get("delta_id")] if event.get("delta_id") else []
+        ),
+    )
+    state["fact_ids"] = _thread_unique_strings(
+        state.get("fact_ids"), event.get("fact_ids")
+    )
+    state["evidence_ids"] = _thread_unique_strings(
+        state.get("evidence_ids"), event.get("evidence_ids")
+    )
+    revision = event.get("revision")
+    if isinstance(revision, int) and not isinstance(revision, bool):
+        state["revision"] = max(int(state.get("revision") or 0), revision)
+    if kind == "checkpoint" and isinstance(event.get("checkpoint"), Mapping):
+        state["checkpoint"] = dict(event["checkpoint"])
+    if kind == "message_completed":
+        idempotency_key = event.get("idempotency_key")
+        if isinstance(idempotency_key, str) and idempotency_key:
+            state["completed"][idempotency_key] = {
+                "request_hash": event.get("request_hash"),
+                "outcome": event.get("outcome"),
+            }
+        if isinstance(event.get("checkpoint"), Mapping):
+            state["checkpoint"] = dict(event["checkpoint"])
+    if kind == "closed":
+        state["closed"] = True
+    seq = event.get("seq")
+    if isinstance(seq, int) and not isinstance(seq, bool):
+        state["last_seq"] = max(int(state.get("last_seq") or 0), seq)
+
+
+def _thread_session_dir(session_root: Path | str, session_id: str) -> Path:
+    return session_dir_for(Path(session_root), normalize_session_id(session_id))
+
+
+def _thread_transcript_path(session_dir: Path) -> Path:
+    return session_dir / _THREAD_TRANSCRIPT_NAME
+
+
+def _thread_lease_path(session_dir: Path) -> Path:
+    return session_dir / _THREAD_LEASE_NAME
+
+
+def _thread_load_unlocked(session_dir: Path, session_id: str) -> dict[str, Any] | None:
+    path = _thread_transcript_path(session_dir)
+    if not path.is_file():
+        return None
+    state = _thread_default_state(session_id)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    _LOGGER.warning("thread transcript: skipping corrupt line in %s", path)
+                    continue
+                if isinstance(event, Mapping):
+                    _thread_fold_event(state, event)
+    except OSError:
+        return None
+    return state
+
+
+def _thread_load(session_root: Path | str, session_id: str) -> dict[str, Any] | None:
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise _ThreadSessionError("invalid_request", "threaded session_id is required")
+    safe_id = normalize_session_id(session_id)
+    return _thread_load_unlocked(_thread_session_dir(session_root, safe_id), safe_id)
+
+
+def _thread_append_unlocked(
+    session_dir: Path,
+    session_id: str,
+    events: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    state = _thread_load_unlocked(session_dir, session_id) or _thread_default_state(session_id)
+    next_seq = int(state.get("last_seq") or 0) + 1
+    current_revision = int(state.get("revision") or 0)
+    stamped: list[dict[str, Any]] = []
+    for raw_event in events:
+        event = dict(raw_event)
+        revision = event.get("revision")
+        if isinstance(revision, int) and not isinstance(revision, bool):
+            if revision < current_revision:
+                raise _ThreadSessionError(
+                    "stale_message",
+                    "thread event revision is older than durable state",
+                    session_id=session_id,
+                    detail={"expected_at_least": current_revision, "received": revision},
+                )
+            current_revision = revision
+        event["seq"] = next_seq
+        event.setdefault("ts", _now())
+        stamped.append(event)
+        _thread_fold_event(state, event)
+        next_seq += 1
+    session_dir.mkdir(parents=True, exist_ok=True)
+    with _thread_transcript_path(session_dir).open("a", encoding="utf-8") as handle:
+        for event in stamped:
+            handle.write(json.dumps(event, sort_keys=True, ensure_ascii=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return state
+
+
+def _thread_read_lease(session_dir: Path) -> dict[str, Any] | None:
+    payload = _load_json(_thread_lease_path(session_dir))
+    return payload if isinstance(payload, dict) else None
+
+
+def _thread_lease_is_live(lease: Mapping[str, Any]) -> bool:
+    pid = lease.get("pid")
+    hostname = lease.get("hostname")
+    timestamp = lease.get("timestamp")
+    if not (
+        isinstance(pid, int)
+        and not isinstance(pid, bool)
+        and isinstance(hostname, str)
+        and isinstance(timestamp, (int, float))
+        and not isinstance(timestamp, bool)
+    ):
+        return False
+    if hostname == socket.gethostname():
+        return _process_alive(pid)
+    return time.time() - float(timestamp) <= _THREAD_LEASE_SECONDS
+
+
+def _thread_require_lease(session_dir: Path, session_id: str, lease_token: str) -> dict[str, Any]:
+    lease = _thread_read_lease(session_dir)
+    if not isinstance(lease, dict) or lease.get("lease_token") != lease_token:
+        raise _ThreadSessionError(
+            "concurrent_message",
+            "thread message lease is missing or owned by another request",
+            session_id=session_id,
+        )
+    return lease
+
+
+def _thread_begin(
+    *,
+    session_root: Path | str,
+    session_id: str,
+    request_payload: Mapping[str, Any],
+    idempotency_key: str | None = None,
+    expected_revision: int | None = None,
+    lease_token: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise _ThreadSessionError("invalid_request", "threaded session_id is required")
+    safe_id = normalize_session_id(session_id)
+    session_dir = _thread_session_dir(session_root, safe_id)
+    request_digest = payload_hash(request_payload)
+    with SessionStateLock(session_dir):
+        state = _thread_load_unlocked(session_dir, safe_id) or _thread_default_state(safe_id)
+        if state.get("closed") is True:
+            raise _ThreadSessionError(
+                "session_expired", "threaded session is closed", session_id=safe_id
+            )
+        if idempotency_key:
+            completed = state.get("completed", {}).get(idempotency_key)
+            if isinstance(completed, Mapping):
+                if completed.get("request_hash") != request_digest:
+                    raise _ThreadSessionError(
+                        "idempotency_conflict",
+                        "idempotency key was already used for another request",
+                        session_id=safe_id,
+                    )
+                return {
+                    "status": "replay",
+                    "lease_token": None,
+                    "state": state,
+                    "outcome": completed.get("outcome"),
+                }
+        revision = int(state.get("revision") or 0)
+        if expected_revision is not None and expected_revision != revision:
+            raise _ThreadSessionError(
+                "stale_message",
+                "message revision does not match durable thread revision",
+                session_id=safe_id,
+                detail={"expected": expected_revision, "retained": revision},
+            )
+        active = _thread_read_lease(session_dir)
+        if isinstance(active, Mapping) and _thread_lease_is_live(active):
+            raise _ThreadSessionError(
+                "concurrent_message",
+                "another message for this thread is still in flight",
+                session_id=safe_id,
+                detail={"idempotency_key": active.get("idempotency_key")},
+            )
+        if active is not None:
+            try:
+                _thread_lease_path(session_dir).unlink()
+            except FileNotFoundError:
+                pass
+        token = lease_token or uuid.uuid4().hex
+        lease = {
+            "lease_token": token,
+            "idempotency_key": idempotency_key,
+            "request_hash": request_digest,
+            "pid": os.getpid(),
+            "hostname": socket.gethostname(),
+            "timestamp": time.time(),
+        }
+        _write_response_atomic(_thread_lease_path(session_dir), lease)
+        state = _thread_append_unlocked(
+            session_dir,
+            safe_id,
+            [{
+                "kind": "message_started",
+                "idempotency_key": idempotency_key,
+                "request_hash": request_digest,
+                "revision": revision,
+            }],
+        )
+        return {"status": "started", "lease_token": token, "state": state}
+
+
+def _thread_append(
+    *,
+    session_root: Path | str,
+    session_id: str,
+    lease_token: str,
+    events: Mapping[str, Any] | list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+) -> dict[str, Any]:
+    safe_id = normalize_session_id(session_id)
+    session_dir = _thread_session_dir(session_root, safe_id)
+    event_list = [events] if isinstance(events, Mapping) else list(events)
+    with SessionStateLock(session_dir):
+        lease = _thread_require_lease(session_dir, safe_id, lease_token)
+        lease["timestamp"] = time.time()
+        _write_response_atomic(_thread_lease_path(session_dir), lease)
+        return _thread_append_unlocked(session_dir, safe_id, event_list)
+
+
+def _thread_complete(
+    *,
+    session_root: Path | str,
+    session_id: str,
+    lease_token: str,
+    outcome: Mapping[str, Any],
+    checkpoint: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    safe_id = normalize_session_id(session_id)
+    session_dir = _thread_session_dir(session_root, safe_id)
+    with SessionStateLock(session_dir):
+        lease = _thread_require_lease(session_dir, safe_id, lease_token)
+        state = _thread_append_unlocked(
+            session_dir,
+            safe_id,
+            [{
+                "kind": "message_completed",
+                "idempotency_key": lease.get("idempotency_key"),
+                "request_hash": lease.get("request_hash"),
+                "outcome": dict(outcome),
+                "checkpoint": dict(checkpoint) if isinstance(checkpoint, Mapping) else None,
+            }],
+        )
+        try:
+            _thread_lease_path(session_dir).unlink()
+        except FileNotFoundError:
+            pass
+        return state
+
+
+def _thread_abort(
+    *,
+    session_root: Path | str,
+    session_id: str,
+    lease_token: str,
+    reason: str,
+) -> dict[str, Any]:
+    safe_id = normalize_session_id(session_id)
+    session_dir = _thread_session_dir(session_root, safe_id)
+    with SessionStateLock(session_dir):
+        _thread_require_lease(session_dir, safe_id, lease_token)
+        state = _thread_append_unlocked(
+            session_dir,
+            safe_id,
+            [{"kind": "message_aborted", "reason": str(reason)[:512]}],
+        )
+        try:
+            _thread_lease_path(session_dir).unlink()
+        except FileNotFoundError:
+            pass
+        return state
+
+
+def _thread_close(*, session_root: Path | str, session_id: str) -> dict[str, Any]:
+    safe_id = normalize_session_id(session_id)
+    session_dir = _thread_session_dir(session_root, safe_id)
+    with SessionStateLock(session_dir):
+        active = _thread_read_lease(session_dir)
+        if isinstance(active, Mapping) and _thread_lease_is_live(active):
+            raise _ThreadSessionError(
+                "concurrent_message",
+                "cannot close a thread with an in-flight message",
+                session_id=safe_id,
+            )
+        return _thread_append_unlocked(session_dir, safe_id, [{"kind": "closed"}])
+
+
 def canonical_json_bytes(value: Any) -> bytes:
     return _registry_canonical_json_bytes(value, ensure_ascii=False)
 
@@ -382,272 +819,23 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-class SessionStateLock:
-    """Mutual-exclusion lock for per-session state files.
+class SessionStateLock(_SessionStateLock):
+    """Compatibility facade for the extracted session locking subsystem."""
 
-    Structured owner metadata (pid, hostname, timestamp) is stored in the lock
-    file so that dead-owner and stale-lease locks can be recovered safely.
-    """
+    def _lock_file_name(self) -> str:
+        return LOCK_FILE_NAME
 
-    def __init__(
-        self,
-        session_dir: Path,
-        *,
-        timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
-    ) -> None:
-        self.session_dir = session_dir
-        self.lock_path = session_dir / LOCK_FILE_NAME
-        self.timeout_seconds = timeout_seconds
-        self._fd: int | None = None
-        self._lock_id: str | None = None
-        self._heartbeat_stop: threading.Event | None = None
-        self._heartbeat_thread: threading.Thread | None = None
+    def _lease_seconds(self) -> float:
+        return LOCK_LEASE_SECONDS
 
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
+    def _poll_seconds(self) -> float:
+        return LOCK_POLL_SECONDS
 
-    def _read_lock_metadata(self) -> dict[str, Any] | None:
-        """Read structured owner metadata from the lock file.
+    def _process_is_alive(self, pid: int) -> bool:
+        return _process_alive(pid)
 
-        Returns ``None`` for corrupt, unreadable, empty, or legacy-format
-        (non-JSON) locks so the caller can quarantine them.
-        """
-        try:
-            raw = self.lock_path.read_text(encoding="utf-8").strip()
-            if not raw:
-                return None
-            return json.loads(raw)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            return None
-
-    def _write_lock_metadata(self, fd: int) -> None:
-        """Write structured owner metadata into the open file descriptor."""
-        self._lock_id = uuid.uuid4().hex
-        payload = {
-            "pid": os.getpid(),
-            "hostname": socket.gethostname(),
-            "timestamp": time.time(),
-            "lock_id": self._lock_id,
-        }
-        os.write(
-            fd, (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
-        )
-        os.fsync(fd)
-
-    def _refresh_lock_lease(self) -> None:
-        """Atomically renew this owner's cross-host lease."""
-        current = self._read_lock_metadata()
-        if not isinstance(current, dict) or current.get("lock_id") != self._lock_id:
-            raise RuntimeError("session lock ownership changed during lease renewal")
-        current["timestamp"] = time.time()
-        _write_response_atomic(self.lock_path, current)
-
-    def _heartbeat_lock_lease(self) -> None:
-        stop = self._heartbeat_stop
-        if stop is None:
-            return
-        interval = max(0.25, LOCK_LEASE_SECONDS / 3.0)
-        while not stop.wait(interval):
-            try:
-                self._refresh_lock_lease()
-            except Exception:
-                # Ownership verification on exit and competing acquisition
-                # remain fail-closed. A failed renewal must not touch a
-                # successor's lock file.
-                return
-
-    def _start_lock_heartbeat(self) -> None:
-        self._heartbeat_stop = threading.Event()
-        self._heartbeat_thread = threading.Thread(
-            target=self._heartbeat_lock_lease,
-            name=f"vibecomfy-session-lock-{self._lock_id}",
-            daemon=True,
-        )
-        self._heartbeat_thread.start()
-
-    def _quarantine_lock(self, reason: str) -> bool:
-        """Rename *lock_path* to a ``.corrupt-<ts>-...`` sibling.
-
-        Returns ``True`` when the lock is gone after the call (whether we
-        removed it or it disappeared on its own).
-        """
-        ts = int(time.time())
-        dest = self.lock_path.with_name(
-            f".corrupt-{ts}-{self.lock_path.name}-{reason}"
-        )
-        counter = 0
-        while dest.exists():
-            counter += 1
-            dest = self.lock_path.with_name(
-                f".corrupt-{ts}-{counter}-{self.lock_path.name}-{reason}"
-            )
-        try:
-            self.lock_path.rename(dest)
-            return True
-        except FileNotFoundError:
-            return True  # already gone
-        except OSError:
-            try:
-                self.lock_path.unlink()
-                return True
-            except FileNotFoundError:
-                return True
-            except OSError:
-                return False
-
-    # ------------------------------------------------------------------
-    # recovery
-    # ------------------------------------------------------------------
-
-    def _try_recover(self) -> bool:
-        """Attempt to recover a dead-owner or stale-lease lock.
-
-        Recovery rules (conservative):
-
-        * Corrupt / unreadable / legacy-format -> quarantine, retry.
-        * Malformed metadata (missing or wrong-typed fields) -> quarantine, retry.
-        * Same host, pid alive -> **refuse** (live owner).
-        * Same host, pid dead -> recover.
-        * Different host, lease stale (> *LOCK_LEASE_SECONDS*) -> recover.
-        * Different host, lease fresh -> **preserve timeout** (ambiguous).
-
-        Returns ``True`` if the lock was cleared (caller should retry
-        ``O_EXCL`` immediately).  Returns ``False`` if ownership is
-        ambiguous or live (caller should continue waiting).
-        """
-        # Stat *before* reading so we can detect file replacement.
-        try:
-            stat_before = self.lock_path.stat()
-        except FileNotFoundError:
-            return True  # lock vanished, retry O_EXCL
-
-        metadata = self._read_lock_metadata()
-
-        # -- no structured metadata we can act on --
-        if metadata is None:
-            # The lock file may belong to a just-created lock whose
-            # metadata has not been flushed yet (window between O_EXCL
-            # and os.write).  If the file is brand-new, treat it as a
-            # live lock and wait rather than quarantining a valid owner.
-            try:
-                file_age = time.time() - self.lock_path.stat().st_mtime
-                if file_age < 0.1:
-                    return False
-            except FileNotFoundError:
-                return True
-            self._quarantine_lock("corrupt_or_legacy")
-            return True
-
-        pid = metadata.get("pid")
-        hostname = metadata.get("hostname")
-        timestamp = metadata.get("timestamp")
-
-        if not (
-            isinstance(pid, int)
-            and isinstance(hostname, str)
-            and isinstance(timestamp, (int, float))
-        ):
-            self._quarantine_lock("malformed_metadata")
-            return True
-
-        # -- live / ambiguous check --
-        if hostname == socket.gethostname():
-            # Same host -- we can test the process directly.
-            if _process_alive(pid):
-                return False  # live owner, cannot recover
-            # Dead owner -> fall through to quarantine.
-        else:
-            # Different host -- fall back to lease staleness.
-            if time.time() - timestamp <= LOCK_LEASE_SECONDS:
-                return False  # fresh lease, ambiguous
-            # Stale lease -> fall through to quarantine.
-
-        # -- file unchanged since we read it? --
-        try:
-            stat_after = self.lock_path.stat()
-        except FileNotFoundError:
-            return True  # vanished
-
-        if (
-            stat_after.st_ino != stat_before.st_ino
-            or stat_after.st_mtime_ns != stat_before.st_mtime_ns
-        ):
-            # Another process touched the lock -- abort to avoid a race.
-            return False
-
-        # Content-level verification: re-read metadata to confirm the
-        # lock still belongs to the same dead/stale owner we identified
-        # above.  This guards against filesystem edge cases where inode
-        # and mtime alone do not capture a replacement.
-        recheck = self._read_lock_metadata()
-        if recheck is None:
-            # File corrupted between reads — quarantine is still safe.
-            pass
-        else:
-            recheck_pid = recheck.get("pid")
-            recheck_hostname = recheck.get("hostname")
-            recheck_timestamp = recheck.get("timestamp")
-            if not (
-                recheck_pid == pid
-                and recheck_hostname == hostname
-                and recheck_timestamp == timestamp
-            ):
-                # Owner changed — abort, the lock is now live.
-                return False
-
-        self._quarantine_lock("dead_or_stale_owner")
-        return True
-
-    # ------------------------------------------------------------------
-    # context manager
-    # ------------------------------------------------------------------
-
-    def __enter__(self) -> "SessionStateLock":
-        self.session_dir.mkdir(parents=True, exist_ok=True)
-        deadline = time.monotonic() + self.timeout_seconds
-        while True:
-            try:
-                self._fd = os.open(
-                    self.lock_path,
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o600,
-                )
-                self._write_lock_metadata(self._fd)
-                self._start_lock_heartbeat()
-                return self
-            except FileExistsError:
-                if self._try_recover():
-                    continue  # lock cleared, retry O_EXCL immediately
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"Timed out acquiring session lock {self.lock_path}"
-                    )
-                time.sleep(LOCK_POLL_SECONDS)
-
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        if self._heartbeat_stop is not None:
-            self._heartbeat_stop.set()
-        if self._heartbeat_thread is not None:
-            self._heartbeat_thread.join(timeout=max(1.0, LOCK_LEASE_SECONDS / 2.0))
-        self._heartbeat_stop = None
-        self._heartbeat_thread = None
-        if self._fd is not None:
-            os.close(self._fd)
-            self._fd = None
-        # Verify ownership before unlinking: another process may have
-        # recovered and replaced this lock between __enter__ and
-        # __exit__.  Only unlink when the file still carries our
-        # lock_id; otherwise a racing live writer would lose its lock.
-        if self._lock_id is not None:
-            current = self._read_lock_metadata()
-            if isinstance(current, dict) and current.get("lock_id") == self._lock_id:
-                try:
-                    self.lock_path.unlink()
-                except FileNotFoundError:
-                    pass
-            # If lock_id differs or metadata is unreadable the lock
-            # belongs to a successor — leave it alone.
+    def _write_json_atomic(self, path: Path, payload: dict[str, Any]) -> None:
+        _write_response_atomic(path, payload)
 
 
 def default_state() -> dict[str, Any]:

@@ -2436,10 +2436,9 @@ function _renderDurableTurnRow(body, panel, entry, index, deps = {}) {
   if (entry.turn_id && !isPending) {
     appendTextLine(turnCard, `turn ${entry.turn_id}`, "#8d93a1");
   }
-  // While a turn is in progress the user's own message bubble is shown directly
-  // above this row, so echoing entry.task here just repeats it. Only show the
-  // task on terminal rows, where it identifies which past turn the row is.
-  if (entry.task && !isPending) {
+  // Pending rows retain the task as a last-resort durable label even if a
+  // concurrent rehydrate temporarily suppresses the optimistic user bubble.
+  if (entry.task) {
     appendTextLine(turnCard, entry.task, "#edf2f7");
   }
   if (entry.failure_kind) {
