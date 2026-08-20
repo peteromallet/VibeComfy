@@ -18,7 +18,6 @@ Covers the ten named agent-invoked tool calls in the batch protocol:
 from __future__ import annotations
 
 import ast
-import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -936,7 +935,7 @@ class TestR2AgentTrustPromptSurface:
         assert "deterministic validation owns that" in system
         assert "queue blockers" in system
 
-    def test_research_digest_shows_remaining_budget_each_turn(self) -> None:
+    def test_research_digest_shows_only_honest_time_remaining(self) -> None:
         from vibecomfy.executor.agent_research_stage import build_evidence_digest
 
         digest = build_evidence_digest(
@@ -949,15 +948,11 @@ class TestR2AgentTrustPromptSurface:
             turns_left=12,
             seconds_left=200,
         )
-        assert "Remaining budget:" in digest
-        assert "2 search(es)" in digest
-        assert "5 fetch(es)" in digest
-        assert "1 registry lookup(s)" in digest
-        assert "12 turn(s)" in digest
-        assert "~200s" in digest
-        # No counters supplied -> compact digest unchanged (no budget line).
+        assert digest == "Time left: ~200s."
+        assert "search(es)" not in digest
+        assert "turn(s)" not in digest
         plain = build_evidence_digest(question="q", tool_calls=[], artifacts={})
-        assert "Remaining budget:" not in plain
+        assert plain == "(no tool evidence gathered yet)"
 
     def test_research_prompt_carries_full_brief_and_consumer_contract(self) -> None:
         from vibecomfy.executor.agent_research_stage import build_agent_research_messages
@@ -982,19 +977,19 @@ class TestR2AgentTrustPromptSurface:
         # Consumer contract: the implement agent consumes the synthesis.
         assert "IMPLEMENT agent turns your synthesis" in all_text
         assert "fetch every Hivemind record" in all_text
-        # Honest budgets in the research-stage prompt.
-        assert "16 decision turns" in all_text
-        assert "~240s" in all_text
+        # Arbitrary call/turn quotas are absent; the per-turn digest owns the
+        # honest remaining-time display.
+        assert "16 decision turns" not in all_text
+        assert "3 searches" not in all_text
 
     def test_research_stage_budgets_are_honest(self) -> None:
         from vibecomfy.executor import agent_research_stage as stage
 
-        assert stage.TOOL_PHASE_DEADLINE_SECONDS == 240.0
-        assert stage._MAX_TURNS == 16
+        assert stage.TOOL_PHASE_DEADLINE_SECONDS == 450.0
+        assert stage._MAX_TURNS is None
 
-    def test_research_deadline_enforced_after_provider_call(self) -> None:
-        """A slow provider decision turn cannot slip past the deadline and
-        still execute a tool call."""
+    def test_decided_tool_call_executes_after_provider_overruns_deadline(self) -> None:
+        """The deadline bounds the loop, not evidence already requested."""
         from vibecomfy.executor import agent_research_stage as stage
 
         calls: dict[str, int] = {"judge": 0, "tool": 0}
@@ -1027,8 +1022,9 @@ class TestR2AgentTrustPromptSurface:
             max_turns=10,
         )
         assert calls["judge"] == 1
-        assert calls["tool"] == 0, "deadline must stop before executing the tool call"
-        assert any("after the decision turn" in warning for warning in trace.warnings)
+        assert calls["tool"] == 1
+        assert trace.executed_tool_calls == 1
+        assert any("call's evidence is preserved" in warning for warning in trace.warnings)
 
     def test_research_deadline_enforced_after_tool_call(self) -> None:
         """A slow tool execution cannot silently overrun the budget; the
@@ -1070,7 +1066,7 @@ class TestR2AgentTrustPromptSurface:
         assert len(trace.iterations) == 1
 
     @pytest.mark.parametrize("declared", [None, 99.0])
-    def test_hivemind_timeout_is_clamped_to_stage_time_remaining(
+    def test_decided_hivemind_timeout_is_not_rewritten_after_decision(
         self, declared: float | None
     ) -> None:
         from vibecomfy.executor import agent_research_stage as stage
@@ -1101,7 +1097,10 @@ class TestR2AgentTrustPromptSurface:
             deadline_seconds=10.0,
             max_turns=2,
         )
-        assert 0 < seen[0]["timeout"] <= 2.0
+        if declared is None:
+            assert "timeout" not in seen[0]
+        else:
+            assert seen[0]["timeout"] == declared
         assert trace.status == "exhausted"
         assert len(trace.iterations) == 1
         assert trace.iterations[0].tool_calls[0]["status"] == "ok"
