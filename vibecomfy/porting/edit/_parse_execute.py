@@ -170,6 +170,7 @@ class _ParseExecuteMixin:
                     (pre_ir, code, tuple(interpreted.landed_ops))
                 )
                 self.landed_ops.extend(interpreted.landed_ops)
+                self._revision += 1
                 self.resolved_ops = []
                 for op in interpreted.landed_ops:
                     touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
@@ -384,6 +385,7 @@ class _ParseExecuteMixin:
             "last_rendered_source": self.last_rendered_source,
             "last_rendered_workflow": self.last_rendered_workflow,
             "last_render_diagnostics": self.last_render_diagnostics,
+            "revision": self._revision,
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
@@ -402,6 +404,8 @@ class _ParseExecuteMixin:
             self.last_rendered_source = snapshot["last_rendered_source"]
             self.last_rendered_workflow = snapshot["last_rendered_workflow"]
             self.last_render_diagnostics = snapshot["last_render_diagnostics"]
+        if "revision" in snapshot:
+            self._revision = snapshot["revision"]
 
     def _collect_touched_nodes(
         self,

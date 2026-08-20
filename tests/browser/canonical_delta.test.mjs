@@ -58,6 +58,14 @@ const CANONICAL_OP_CASES = Object.freeze([
     op: "remove_link",
     to: ["", "preview-node", "images"],
   },
+  {
+    op: "subgraph_interface",
+    action: "change",
+    name: "Detailer",
+    inputs: [["image", "IMAGE"]],
+    outputs: [["result", "IMAGE"]],
+    id: "detailer-v2",
+  },
 ]);
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -75,7 +83,7 @@ test("CANONICAL_DELTA_OP_NAMES contains exactly 7 supported ops", () => {
     "remove_node",
     "set_mode",
     "set_node_field",
-    "set_title",
+    "subgraph_interface",
     "upsert_link",
   ]);
 });
@@ -164,7 +172,7 @@ test("classifyDeltaShape: empty object (no accepted_batch) → missing", () => {
 
 // ── normalizeDeltaEnvelope — canonical envelope roundtrips ─────────────────
 
-test("normalizeDeltaEnvelope roundtrips all six canonical ops individually", () => {
+test("normalizeDeltaEnvelope roundtrips all seven canonical ops individually", () => {
   for (const opCase of CANONICAL_OP_CASES) {
     const payload = {
       schema_version: DELTA_SCHEMA_VERSION,
@@ -185,13 +193,13 @@ test("normalizeDeltaEnvelope roundtrips all six canonical ops individually", () 
   }
 });
 
-test("normalizeDeltaEnvelope roundtrips all six canonical ops together in one envelope", () => {
+test("normalizeDeltaEnvelope roundtrips all seven canonical ops together in one envelope", () => {
   const payload = {
     schema_version: DELTA_SCHEMA_VERSION,
     ops: [...CANONICAL_OP_CASES],
   };
   const envelope = normalizeDeltaEnvelope(payload, { strict: true });
-  assert.equal(envelope.ops.length, 6);
+  assert.equal(envelope.ops.length, 7);
 
   for (let i = 0; i < CANONICAL_OP_CASES.length; i++) {
     assert.deepEqual(envelope.ops[i], CANONICAL_OP_CASES[i]);
@@ -360,6 +368,47 @@ test("normalizeDeltaEnvelope rejects unknown op types (strict)", () => {
       return true;
     },
   );
+});
+
+test("normalizeDeltaEnvelope rejects retired set_title ops", () => {
+  assert.throws(
+    () =>
+      normalizeDeltaEnvelope(
+        {
+          schema_version: DELTA_SCHEMA_VERSION,
+          ops: [{ op: "set_title", target: ["", "u1"], title: "Retired" }],
+        },
+        { strict: true },
+      ),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      assert.equal(err.code, DELTA_DIAGNOSTIC_MALFORMED);
+      assert.ok(err.message.includes("Unsupported edit op"));
+      return true;
+    },
+  );
+});
+
+test("normalizeDeltaEnvelope validates subgraph_interface structure", () => {
+  for (const op of [
+    { op: "subgraph_interface", action: "rename", name: "Detailer" },
+    { op: "subgraph_interface", action: "add", name: "" },
+    { op: "subgraph_interface", action: "change", name: "Detailer", inputs: "IMAGE" },
+    { op: "subgraph_interface", action: "change", name: "Detailer", outputs: [["", "IMAGE"]] },
+  ]) {
+    assert.throws(
+      () => normalizeDeltaEnvelope(
+        { schema_version: DELTA_SCHEMA_VERSION, ops: [op] },
+        { strict: true },
+      ),
+      (err) => {
+        assert.ok(err instanceof DeltaDiagnosticError);
+        assert.equal(err.code, DELTA_DIAGNOSTIC_MALFORMED);
+        assert.ok(err.message.includes("subgraph_interface"));
+        return true;
+      },
+    );
+  }
 });
 
 test("normalizeDeltaEnvelope rejects unknown op types (lenient)", () => {
@@ -602,7 +651,7 @@ test("normalizeDeltaOpsFromSubmitPayload throws for non-object input", () => {
 
 // ── ensureRootScopedOps ─────────────────────────────────────────────────────
 
-test("ensureRootScopedOps accepts root-scoped ops for all six op types", () => {
+test("ensureRootScopedOps accepts root-scoped ops for all seven op types", () => {
   const ops = [
     { op: "set_node_field", target: ["", "n", "w"], value: 1 },
     { op: "set_mode", target: ["", "n"], mode: 4 },
@@ -610,6 +659,7 @@ test("ensureRootScopedOps accepts root-scoped ops for all six op types", () => {
     { op: "upsert_link", from: ["", "a", "IMAGE"], to: ["", "b", "images"] },
     { op: "remove_node", target: ["", "n"] },
     { op: "remove_link", to: ["", "n", "images"] },
+    { op: "subgraph_interface", action: "remove", name: "Old Detailer", id: "old-detailer" },
   ];
   // Should not throw
   assert.doesNotThrow(() => ensureRootScopedOps(ops));

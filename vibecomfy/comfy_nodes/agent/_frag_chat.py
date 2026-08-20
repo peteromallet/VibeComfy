@@ -676,6 +676,7 @@ def read_session_chat(
             "messages": [],
             "latest_candidate": None,
             "latest_turn_lifecycle": None,
+            "pipeline_mode": "staged",
             **baseline_payload,
         }
 
@@ -689,6 +690,7 @@ def read_session_chat(
 
     all_messages: list[dict[str, Any]] = []
     latest_turn_id: str | None = None
+    latest_pipeline_mode: str | None = None
 
     for turn_id in turn_ids:
         turn_dir = turns_dir / turn_id
@@ -696,6 +698,21 @@ def read_session_chat(
         chat_record: dict[str, Any] | None = None
         response = _read_turn_response_payload(turn_dir)
         fallback_agent_outcome = _stamped_turn_response_outcome(response, stage="submit")
+        request_path = turn_dir / "request.json"
+        if request_path.is_file():
+            try:
+                request_metadata = json.loads(request_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                request_metadata = None
+            if isinstance(request_metadata, dict):
+                raw_pipeline_mode = request_metadata.get("pipeline_mode")
+                if isinstance(raw_pipeline_mode, str):
+                    try:
+                        from vibecomfy.executor.contracts import coerce_orchestration_mode
+
+                        latest_pipeline_mode = coerce_orchestration_mode(raw_pipeline_mode)
+                    except ValueError:
+                        pass
 
         # Try chat.json first.
         if chat_path.is_file():
@@ -816,6 +833,7 @@ def read_session_chat(
         "messages": display_messages,
         "latest_candidate": _latest_session_candidate_payload(session_dir, turn_ids),
         "latest_turn_lifecycle": _latest_turn_lifecycle_payload(session_dir, turn_ids),
+        "pipeline_mode": latest_pipeline_mode or "staged",
         **baseline_payload,
     }
 

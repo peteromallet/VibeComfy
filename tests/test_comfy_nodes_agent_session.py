@@ -235,6 +235,202 @@ class TestRoundTrip:
             shutil.rmtree(root, ignore_errors=True)
 
 
+class TestRecoverSessionForWorkflow:
+    def test_returns_latest_matching_durable_turn(self, tmp_path: Path):
+        from vibecomfy.comfy_nodes.agent import session as S
+
+        workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+        older = tmp_path / "session-old" / "turns" / "0001" / "request.json"
+        newer = tmp_path / "session-new" / "turns" / "0002" / "request.json"
+        other = tmp_path / "session-other" / "turns" / "0003" / "request.json"
+        for path, value in (
+            (older, workflow_id),
+            (newer, workflow_id),
+            (other, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        ):
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"workflow_id": value}), encoding="utf-8")
+        os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+
+        assert S._recover_session_for_workflow(tmp_path, workflow_id) == {
+            "session_id": "session-new",
+            "turn_id": "0002",
+        }
+
+    def test_ignores_malformed_and_symlinked_artifacts(self, tmp_path: Path):
+        from vibecomfy.comfy_nodes.agent import session as S
+
+        workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+        malformed = tmp_path / "malformed" / "turns" / "0001" / "request.json"
+        malformed.parent.mkdir(parents=True)
+        malformed.write_text("{not-json", encoding="utf-8")
+        external = tmp_path / "external-request.json"
+        external.write_text(json.dumps({"workflow_id": workflow_id}), encoding="utf-8")
+        linked = tmp_path / "linked" / "turns" / "0002" / "request.json"
+        linked.parent.mkdir(parents=True)
+        linked.symlink_to(external)
+
+        assert S._recover_session_for_workflow(tmp_path, workflow_id) == {
+            "session_id": None,
+            "turn_id": None,
+        }
+
+    def test_rejects_empty_workflow_identity(self, tmp_path: Path):
+        from vibecomfy.comfy_nodes.agent import session as S
+
+        with pytest.raises(ValueError, match="workflow_id"):
+            S._recover_session_for_workflow(tmp_path, "  ")
+
+
+class TestDurableThreadStore:
+    def test_persists_transcript_budget_delta_ids_checkpoint_and_replay(self, tmp_path: Path):
+        from vibecomfy.comfy_nodes.agent import session as S
+
+        request = {"task": "add a sampler", "graph_hash": "base-0"}
+        started = S._thread_begin(
+            session_root=tmp_path,
+            session_id="thread-1",
+            request_payload=request,
+            idempotency_key="idem-1",
+            expected_revision=0,
+        )
+        assert started["status"] == "started"
+        token = started["lease_token"]
+
+        state = S._thread_append(
+            session_root=tmp_path,
+            session_id="thread-1",
+            lease_token=token,
+            events=[
+                {"kind": "user_message", "content": "add a sampler"},
+                {"kind": "tool_call", "evidence_ids": ["ev-1"]},
+                {"kind": "budget", "budget_delta": {"model_tokens": 120, "tool_calls": 1}},
+                {"kind": "edit_accepted", "delta_id": "delta-1", "revision": 1},
+            ],
+        )
+        assert state["messages"] == [{"role": "user", "content": "add a sampler"}]
+        assert state["budget"] == {"model_tokens": 120, "tool_calls": 1}
+        assert state["accepted_delta_ids"] == ["delta-1"]
+        assert state["evidence_ids"] == ["ev-1"]
+        assert state["revision"] == 1
+
+        completed = S._thread_complete(
+            session_root=tmp_path,
+            session_id="thread-1",
+            lease_token=token,
+            outcome={"ok": True, "reply": "Sampler added."},
+            checkpoint={"delta_ids": ["delta-1"], "evidence_ids": ["ev-1"]},
+        )
+        assert completed["checkpoint"]["delta_ids"] == ["delta-1"]
+        assert not (tmp_path / "thread-1" / S._THREAD_LEASE_NAME).exists()
+
+        replay = S._thread_begin(
+            session_root=tmp_path,
+            session_id="thread-1",
+            request_payload=request,
+            idempotency_key="idem-1",
+            expected_revision=0,
+        )
+        assert replay["status"] == "replay"
+        assert replay["outcome"] == {"ok": True, "reply": "Sampler added."}
+        assert replay["lease_token"] is None
+
+        reloaded = S._thread_load(tmp_path, "thread-1")
+        assert reloaded == replay["state"]
+
+    def test_fences_concurrent_stale_and_idempotency_conflict_messages(self, tmp_path: Path):
+        from vibecomfy.comfy_nodes.agent import session as S
+
+        first = S._thread_begin(
+            session_root=tmp_path,
+            session_id="thread-2",
+            request_payload={"task": "first"},
+            idempotency_key="idem-shared",
+            expected_revision=0,
+        )
+        with pytest.raises(S._ThreadSessionError) as concurrent:
+            S._thread_begin(
+                session_root=tmp_path,
+                session_id="thread-2",
+                request_payload={"task": "second"},
+                idempotency_key="idem-second",
+                expected_revision=0,
+            )
+        assert concurrent.value.kind == "concurrent_message"
+
+        S._thread_append(
+            session_root=tmp_path,
+            session_id="thread-2",
+            lease_token=first["lease_token"],
+            events={"kind": "edit_accepted", "delta_id": "delta-2", "revision": 1},
+        )
+        S._thread_complete(
+            session_root=tmp_path,
+            session_id="thread-2",
+            lease_token=first["lease_token"],
+            outcome={"ok": True},
+        )
+
+        with pytest.raises(S._ThreadSessionError) as conflict:
+            S._thread_begin(
+                session_root=tmp_path,
+                session_id="thread-2",
+                request_payload={"task": "changed request"},
+                idempotency_key="idem-shared",
+                expected_revision=1,
+            )
+        assert conflict.value.kind == "idempotency_conflict"
+
+        with pytest.raises(S._ThreadSessionError) as stale:
+            S._thread_begin(
+                session_root=tmp_path,
+                session_id="thread-2",
+                request_payload={"task": "next"},
+                idempotency_key="idem-next",
+                expected_revision=0,
+            )
+        assert stale.value.kind == "stale_message"
+
+    def test_abort_releases_lease_and_close_is_terminal(self, tmp_path: Path):
+        from vibecomfy.comfy_nodes.agent import session as S
+
+        started = S._thread_begin(
+            session_root=tmp_path,
+            session_id="thread-3",
+            request_payload={"task": "cancel me"},
+        )
+        aborted = S._thread_abort(
+            session_root=tmp_path,
+            session_id="thread-3",
+            lease_token=started["lease_token"],
+            reason="cancelled",
+        )
+        assert aborted["last_event"]["kind"] == "message_aborted"
+
+        second = S._thread_begin(
+            session_root=tmp_path,
+            session_id="thread-3",
+            request_payload={"task": "now continue"},
+            expected_revision=0,
+        )
+        S._thread_abort(
+            session_root=tmp_path,
+            session_id="thread-3",
+            lease_token=second["lease_token"],
+            reason="done",
+        )
+        closed = S._thread_close(session_root=tmp_path, session_id="thread-3")
+        assert closed["closed"] is True
+        with pytest.raises(S._ThreadSessionError) as expired:
+            S._thread_begin(
+                session_root=tmp_path,
+                session_id="thread-3",
+                request_payload={"task": "too late"},
+            )
+        assert expired.value.kind == "session_expired"
+
+
 # ── Phase 4 transactional session tests (T20) ────────────────────────────────
 # These tests cover lease nonce uniqueness, generation monotonicity,
 # duplicate prepare idempotency, supersession, cancellation, and recovery

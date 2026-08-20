@@ -34,6 +34,7 @@ from vibecomfy.executor.tool_contracts import (
     ToolResult,
     ToolStatus,
 )
+from vibecomfy.executor.tool_specs import PHASE_THREADED
 from vibecomfy.porting.edit._parse import (
     _AGENT_TOOL_CALL_NAMES,
     _parse_and_validate_batch,
@@ -852,6 +853,23 @@ class TestPromptSurface:
         assert "research(" not in system
         assert "LEGACY shadow-only" not in system
 
+    def test_threaded_prompt_composes_both_tool_partitions(self) -> None:
+        messages = build_batch_messages(
+            task="research then edit",
+            python_source="x = LoadImage()",
+            tool_phase=PHASE_THREADED,
+        )
+        system = messages[0]["content"]
+
+        assert "threaded research+implement surface" in system
+        assert "hivemind_search" in system
+        assert "hivemind_get" in system
+        assert "node_schema" in system
+        assert "ready_template_load" in system
+        assert "this same durable conversation may gather" in system
+        assert "implement phase has NO external research/search tools" not in system
+        assert "3 searches, 6 fetches, 1 registry lookup" in system
+
     def test_research_only_prompt_grounds_claims_in_workflow_facts(self) -> None:
         """Research-route answers must cite node ids/link ids/exact widget
         keys+values from the provided workflow, never invent parameters, and
@@ -1393,3 +1411,110 @@ class TestEndToEndInterleave:
         assert budgets[0]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1
         assert budgets[1]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1  # not reset
         assert budgets[1]["fetches_remaining"] == TOOL_FETCH_BUDGET - 1
+
+    def test_live_threaded_executor_researches_then_edits_in_one_durable_host(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
+        from vibecomfy.executor import core
+        from vibecomfy.executor.contracts import ExecutorHostPorts, ExecutorRequest
+
+        monkeypatch.setattr(
+            core,
+            "run_classify_turn",
+            lambda *args, **kwargs: pytest.fail("threaded mode must never classify"),
+        )
+        monkeypatch.setattr(
+            "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+            lambda **_kwargs: {"json": {}},
+        )
+
+        import vibecomfy.executor.hivemind_tools as hivemind_tools
+
+        monkeypatch.setattr(
+            hivemind_tools,
+            "hivemind_search",
+            lambda query, **kwargs: _search_hits("hivemind:external_resources:threaded"),
+        )
+
+        observed_prompts: list[str] = []
+
+        def client(messages: list[dict[str, str]]) -> dict[str, str]:
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            observed_prompts.append(system)
+            if len(observed_prompts) == 1:
+                assert "threaded research+implement surface" in system
+                assert "hivemind_search" in system
+                assert "node_schema" in system
+                return {
+                    "message": "Checking precedent.",
+                    "batch": 'hivemind_search("save prefix convention")',
+                }
+            assert "Tool evidence ledger" in user
+            assert "hivemind:external_resources:threaded" in user
+            return {
+                "message": "The researched prefix edit is ready.",
+                "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            }
+
+        def live_edit(payload: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
+            assert payload["pipeline_mode"] == "threaded"
+            return handle_agent_edit(
+                payload,
+                schema_provider=_test_provider(),
+                deepseek_client=client,
+                session_root=tmp_path,
+                **kwargs,
+            )
+
+        failure = SimpleNamespace(
+            kind=SimpleNamespace(value="ValidationError"),
+            user_facing_message="failed",
+        )
+        ports = ExecutorHostPorts(
+            handle_agent_edit=live_edit,
+            payload_hash=lambda payload: "stable-request-hash",
+            classify_failure=lambda *args, **kwargs: failure,
+            failure_envelope=lambda *args, **kwargs: failure,
+            begin_deepseek_usage_capture=lambda: object(),
+            snapshot_deepseek_usage_capture=lambda: ({}, False),
+            end_deepseek_usage_capture=lambda token: None,
+            begin_model_attempt_capture=lambda: object(),
+            snapshot_model_attempt_capture=lambda: (),
+            end_model_attempt_capture=lambda token: None,
+        )
+
+        result = core.run_executor(
+            ExecutorRequest(
+                query="research precedent, then rename the save prefix",
+                graph=_ui_graph(),
+                workflow_id="713b5d5c-87f4-51b6-921a-a9acfa74e43c",
+                session_id="threaded-live-e2e",
+                pipeline_mode="threaded",
+                max_batches=4,
+            ),
+            host_ports=ports,
+        )
+
+        assert result.ok is True
+        assert result.graph is not None
+        assert len(observed_prompts) == 2
+        assert result.report is not None
+        implementation = result.report.implementation
+        assert implementation is not None
+        durable = implementation.durable_response
+        assert durable is not None
+        assert durable["session_id"] == "threaded-live-e2e"
+        assert durable["turn_id"]
+        turns = durable["batch_turns"]
+        assert [turn["batch"] for turn in turns] == [
+            'hivemind_search("save prefix convention")',
+            'saveimage.filename_prefix = "after"\ndone()',
+        ]
+        first_detail = turns[0]["statements"][0]["detail"]
+        assert first_detail["tool_status"] == "ok"
+        assert first_detail["tool_budget"]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1
+        assert durable["accepted_batch"]

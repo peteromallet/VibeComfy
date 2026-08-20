@@ -1801,6 +1801,7 @@ def register_agent_edit_routes(app) -> None:
         finalize_turn_transaction as _session_finalize_turn_transaction,
         normalize_session_id as _safe_session_id,
         prepare_turn_transaction as _session_prepare_turn_transaction,
+        _recover_session_for_workflow,
         rebaseline_session,
         reconcile_turn_transactions as _session_reconcile_turn_transactions,
         rollback_turn_transaction as _session_rollback_turn_transaction,
@@ -2138,6 +2139,28 @@ def register_agent_edit_routes(app) -> None:
                 status=500,
             )
         return _web.json_response(_to_serializable(public_chat_rehydrate_payload(result)))
+
+    @app.routes.get("/vibecomfy/agent-edit/recover")
+    async def _agent_edit_recover_route(request):  # type: ignore[no-untyped-def]
+        workflow_id = request.query.get("workflow_id")
+        if not isinstance(workflow_id, str) or not workflow_id.strip():
+            return _json_error(
+                "Missing required query parameter `workflow_id`.",
+                stage="recover",
+            )
+        try:
+            result = await asyncio.to_thread(
+                _recover_session_for_workflow,
+                _SESSION_ROOT,
+                workflow_id.strip(),
+            )
+        except Exception as exc:
+            failure = _classify_failure("recover", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="recover"),
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result))
 
     @app.routes.get("/vibecomfy/agent-edit/session-bundle")
     async def _agent_edit_session_bundle_route(request):  # type: ignore[no-untyped-def]

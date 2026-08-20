@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "modes": [
+    "staged",
+    "threaded"
+  ],
+  "entries": [
+    {
+      "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
+      "descriptor_sha256": "cace0fcd18209e4aa4197e4f4571bb4de4d15bc8f1b9148edf5b63e2906cbb43",
+      "source_workflow_sha256": "f59807058734a50e245e4d97446e42d378a6589457f9359a05f9b5da09400583",
+      "locked_input_sha256": "ab3ca5a35d1289c327ae69e1b4f695ab3c30b48c8901abd5bcd2bcfcf2e2d51f"
+    },
+    {
+      "id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
+      "descriptor_sha256": "9f7fde490b1dc5d43edf0c322240d2d287bad00bbcdf3a7caa9567fede4ac387",
+      "source_workflow_sha256": "b26e42fc1c8e6b2fa39836107e2161f5d67a35d6e5863a0266ae32f4801a6d4d",
+      "locked_input_sha256": "f8cda517b15b1ddd68e29cbb77ee329c5ce1ada9884143cc733938f4d870e352"
+    },
+    {
+      "id": "image-image-editing-with-qwen-image",
+      "descriptor_sha256": "84fd815360181be85daa88df0078b17bf9e25791ffd71f1318458c5b6b3cb9be",
+      "source_workflow_sha256": "e639739cd84018810243c609441cb8e8f56f7735be2682578d14fdda7c49fff2",
+      "locked_input_sha256": "dc1062c6fd00ef18395d403ce725964c1d68e354ba9ac6ed56278b835fae20f3"
+    },
+    {
+      "id": "live-graph-explanation-smoke",
+      "descriptor_sha256": "86ae51f985d1e24e7478e8d4e1b5c0c18886fb4a04219588085994068bde900e",
+      "source_workflow_sha256": null,
+      "locked_input_sha256": "3eec08ce304a0bf9643f7501fd89345a3974da668a8e7ef6389436c631108408"
+    },
+    {
+      "id": "multi-video-based-character-replacement-using",
+      "descriptor_sha256": "f096cd3491a6d5b5c33ed81dff425360cde4b11a297c2f0c1220dde7f55291f6",
+      "source_workflow_sha256": "4b91ba865e85eec812ff4e57248460d6d71ac9a588e96603a66305d2b93e4c27",
+      "locked_input_sha256": "625ed91eacf070e1d531a806b69b8221bf7a02f1e5c2a42b98502b0ae48ac63d"
+    },
+    {
+      "id": "speed-distillation-research",
+      "descriptor_sha256": "5cd0755b3e83818619ba7e8dd40d360a2e419254b6f5394fd50eaca0de4dca80",
+      "source_workflow_sha256": null,
+      "locked_input_sha256": "52b36af605acb7728c5809ac0961e901c5bc2fecc1f91f167911428a5d2efa7a"
+    }
+  ]
+}

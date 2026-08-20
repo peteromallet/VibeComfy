@@ -9,10 +9,11 @@ canonical ``to_dict()`` serializer so the executor can produce the standard
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy.agent.deepseek_usage import coerce_deepseek_usage
@@ -63,6 +64,100 @@ _MODEL_ATTEMPT_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 # integers are rejected as well so a mistyped budget never silently applies.
 DEFAULT_MAX_BATCHES = 50
 MAX_BATCHES_LIMIT = 250
+
+
+@dataclass(frozen=True)
+class ExecutorHostPorts:
+    """Narrow host boundary used by orchestration-only executor drivers.
+
+    The concrete ComfyUI adapter owns edit-session allocation, provider error
+    classification, request hashing, and model-usage capture. Keeping those
+    operations behind this value lets ``threaded`` reuse the existing durable
+    host lifecycle without recreating its persistence machinery.
+    """
+
+    handle_agent_edit: Callable[..., dict[str, Any]]
+    payload_hash: Callable[[Mapping[str, Any]], str]
+    classify_failure: Callable[..., Any]
+    failure_envelope: Callable[..., Any]
+    begin_deepseek_usage_capture: Callable[[], Any]
+    snapshot_deepseek_usage_capture: Callable[[], tuple[dict[str, int], bool]]
+    end_deepseek_usage_capture: Callable[[Any], None]
+    begin_model_attempt_capture: Callable[[], Any]
+    snapshot_model_attempt_capture: Callable[[], tuple[dict[str, Any], ...]]
+    end_model_attempt_capture: Callable[[Any], None]
+    provider_error_types: tuple[type[BaseException], ...] = ()
+    # Optional durable-thread hooks. The ComfyUI adapter binds its private
+    # session root, so orchestration never imports or reconstructs store paths.
+    thread_load: Callable[..., Any] | None = None
+    thread_begin: Callable[..., Any] | None = None
+    thread_append: Callable[..., Any] | None = None
+    thread_complete: Callable[..., Any] | None = None
+    thread_abort: Callable[..., Any] | None = None
+    thread_close: Callable[..., Any] | None = None
+
+    def is_provider_error(self, exc: BaseException) -> bool:
+        return isinstance(exc, self.provider_error_types)
+
+
+# ── orchestration mode ──────────────────────────────────────────────────────
+
+PIPELINE_MODE_ENV_VAR = "VIBECOMFY_EXECUTOR_PIPELINE_MODE"
+OrchestrationMode = Literal["staged", "threaded"]
+DEFAULT_ORCHESTRATION_MODE: OrchestrationMode = "staged"
+_ORCHESTRATION_MODES = frozenset({"staged", "threaded"})
+_ORCHESTRATION_MODE_ALIASES: Mapping[str, OrchestrationMode] = MappingProxyType(
+    {"full": "staged", "two_step": "threaded"}
+)
+
+
+class OrchestrationModeRequestError(ValueError):
+    """Raised when a request carries an invalid orchestration mode."""
+
+
+class OrchestrationModeConfigurationError(ValueError):
+    """Raised when the executor-mode environment setting is invalid."""
+
+
+def coerce_orchestration_mode(
+    value: Any,
+    *,
+    field_name: str = "pipeline_mode",
+) -> OrchestrationMode | None:
+    """Normalize one boundary mode to the canonical internal vocabulary."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value in _ORCHESTRATION_MODES:
+            return value  # type: ignore[return-value]
+        alias = _ORCHESTRATION_MODE_ALIASES.get(value)
+        if alias is not None:
+            return alias
+    raise OrchestrationModeRequestError(
+        f"`{field_name}` must be one of 'staged' or 'threaded' "
+        f"(legacy aliases: 'full', 'two_step'); got {value!r}."
+    )
+
+
+def resolve_orchestration_mode(
+    request: "ExecutorRequest",
+    environ: Mapping[str, str] | None = None,
+) -> OrchestrationMode:
+    """Resolve request -> environment -> staged default, failing closed."""
+    if request.pipeline_mode is not None:
+        resolved = coerce_orchestration_mode(request.pipeline_mode)
+        assert resolved is not None
+        return resolved
+    environ = os.environ if environ is None else environ
+    raw = environ.get(PIPELINE_MODE_ENV_VAR)
+    if raw is None or raw == "":
+        return DEFAULT_ORCHESTRATION_MODE
+    try:
+        resolved = coerce_orchestration_mode(raw, field_name=PIPELINE_MODE_ENV_VAR)
+    except OrchestrationModeRequestError as exc:
+        raise OrchestrationModeConfigurationError(str(exc)) from exc
+    assert resolved is not None
+    return resolved
 
 
 def coerce_max_batches(value: Any, *, field_name: str = "max_batches") -> int | None:
@@ -991,6 +1086,9 @@ class ExecutorRequest:
     # None = default (DEFAULT_MAX_BATCHES).  Forwarded into the implement
     # payload as ``max_batches`` and enforced again at the edit entrypoint.
     max_batches: int | None = None
+    # Deliberation driver only. Canonical values are staged/threaded; legacy
+    # full/two_step aliases are normalized immediately at this boundary.
+    pipeline_mode: OrchestrationMode | None = None
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
@@ -1008,6 +1106,12 @@ class ExecutorRequest:
         ):
             raise ValueError(
                 "ExecutorRequest `expect_graph_changed` must be a boolean or null."
+            )
+        if self.pipeline_mode is not None:
+            object.__setattr__(
+                self,
+                "pipeline_mode",
+                coerce_orchestration_mode(self.pipeline_mode),
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1038,6 +1142,8 @@ class ExecutorRequest:
             payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
+        if self.pipeline_mode is not None:
+            payload["pipeline_mode"] = self.pipeline_mode
         return payload
 
     @classmethod
@@ -1115,6 +1221,7 @@ class ExecutorRequest:
                 "ExecutorRequest `expect_graph_changed` must be a boolean or null."
             )
         max_batches = coerce_max_batches(payload.get("max_batches"), field_name="max_batches")
+        pipeline_mode = coerce_orchestration_mode(payload.get("pipeline_mode"))
         if expected_baseline_graph_hash is not None and not isinstance(
             expected_baseline_graph_hash, str
         ):
@@ -1137,6 +1244,7 @@ class ExecutorRequest:
             interaction_mode=interaction_mode,
             expect_graph_changed=expect_graph_changed,
             max_batches=max_batches,
+            pipeline_mode=pipeline_mode,
         )
 
 
@@ -1881,6 +1989,9 @@ class Report:
     # Canonical per-call evidence for every successful and failed model attempt
     # observed across classify, implement/batch, and reply.
     model_attempts: tuple[dict[str, Any], ...] = ()
+    # Additive only for non-default orchestration. Omitting it for staged mode
+    # preserves the existing staged wire bytes exactly.
+    orchestration_mode: OrchestrationMode | None = None
 
     def __post_init__(self) -> None:
         if self.research is not None and not callable(getattr(self.research, "to_dict", None)):
@@ -1938,6 +2049,8 @@ class Report:
         inner["model_attempts"] = [
             _thaw_jsonish(item) for item in self.model_attempts
         ]
+        if self.orchestration_mode is not None:
+            inner["orchestration_mode"] = self.orchestration_mode
         return {"executor": inner}
 
 
@@ -2310,7 +2423,10 @@ def validate_reply_change_claims(response: Any) -> list[str]:
     if not isinstance(response, Mapping):
         return ["response must be a mapping"]
     accepted_batch = response.get("accepted_batch")
-    if not isinstance(accepted_batch, list):
+    # ``ImplementationResult`` closes a durable checkpoint by recursively
+    # freezing JSON arrays to tuples. Threaded terminal validation runs after
+    # that boundary, so both wire lists and immutable tuples are canonical.
+    if not isinstance(accepted_batch, (list, tuple)):
         return []
     delta_ops = [
         item.get("op")
@@ -2348,11 +2464,11 @@ def _claim_operations(payload: Any) -> list[Any]:
     if not isinstance(payload, Mapping):
         return []
     operations = payload.get("operations")
-    if isinstance(operations, list):
-        return operations
+    if isinstance(operations, (list, tuple)):
+        return list(operations)
     changes = payload.get("changes")
-    if isinstance(changes, list):
-        return changes
+    if isinstance(changes, (list, tuple)):
+        return list(changes)
     return []
 
 
@@ -2449,6 +2565,8 @@ __all__ = [
     "AgentEvidence",
     "AgentTurnResult",
     "ClassifyDecision",
+    "DEFAULT_ORCHESTRATION_MODE",
+    "ExecutorHostPorts",
     "ExecutorRequest",
     "ExecutorResult",
     "GraphFacts",
@@ -2468,15 +2586,21 @@ __all__ = [
     "ManifestOversized",
     "ManifestValidation",
     "ModelAttemptEvidence",
+    "OrchestrationMode",
+    "OrchestrationModeConfigurationError",
+    "OrchestrationModeRequestError",
+    "PIPELINE_MODE_ENV_VAR",
     "TopologyFindings",
     "TopologyManifest",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
     "build_topology_manifest",
     "coerce_model_attempts",
+    "coerce_orchestration_mode",
     "is_actionable_adaptation_plan",
     "normalize_model_endpoint",
     "redact_model_preview",
+    "resolve_orchestration_mode",
     "validate_reply_change_claims",
     "warning_detail_from_exception",
 ]

@@ -124,6 +124,21 @@ class DoneResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ApplyOpsResult:
+    """Result of one typed-op transaction through :class:`EditSession`."""
+
+    ok: bool
+    reason: str = ""
+    diagnostics: tuple[CompactDiagnostic, ...] = ()
+    workflow: Any = None
+    graph: dict[str, Any] | None = None
+    landed_ops: tuple[Any, ...] = ()
+    delta_id: str | None = None
+    revision: int | None = None
+    retryable: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class _ResolvedGraphName:
     name: str
     uid: str

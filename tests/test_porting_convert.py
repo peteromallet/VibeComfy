@@ -7,6 +7,8 @@ Covers:
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from vibecomfy.porting.convert import (
@@ -132,6 +134,33 @@ def test_port_convert_ready_template_emits_structured_custom_node_refs():
     assert "custom_node_refs" in result.text
     assert "ExamplePack" in result.text
     assert "abc123" in result.text
+
+
+def test_port_convert_does_not_mutate_caller_owned_workflow_or_raw_evidence():
+    wf = _wf("caller-owned")
+    wf.nodes["1"] = VibeNode("1", "PrimitiveInt", inputs={"value": 7})
+    wf.nodes["2"] = VibeNode("2", "Sink")
+    wf.edges = [VibeEdge("1", "0", "2", "value")]
+    raw = {
+        "definitions": {
+            "subgraphs": [
+                {
+                    "nodes": [
+                        {"id": "10", "type": "PrimitiveInt", "widgets_values": [3]}
+                    ],
+                    "links": [],
+                }
+            ]
+        }
+    }
+    workflow_before = wf.copy()
+    raw_before = copy.deepcopy(raw)
+
+    result = port_convert_workflow(wf, raw_workflow=raw, validate=False)
+
+    assert "value=7" in result.text
+    assert wf == workflow_before
+    assert raw == raw_before
 
 
 def _passing_write_result(text: str) -> PortConvertResult:

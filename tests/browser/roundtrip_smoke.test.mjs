@@ -7187,7 +7187,7 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
     recovery: [],
   };
   const deltaOps = [
-    { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "preview-only-intent" },
+    { op: "set_node_field", target: ["", "uid-1", "widgets_values.0"], value: "preview-only-intent" },
   ];
 
   const harness = await createBrowserHarness({
@@ -7220,7 +7220,7 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
           apply_allowed: true,
           queue_allowed: false,
           graph: candidateGraph,
-          delta_ops: deltaOps,
+          accepted_batch: deltaOps.map((op) => ({ op })),
           report: candidateReport,
           submit_graph_hash: sha256HexUtf8(liveGraph),
           candidate_graph_hash: sha256HexUtf8(candidateGraph),
@@ -12317,6 +12317,85 @@ test("VibeComfy agent panel dispatches chat rehydration fetch with stored sessio
       "active session must remain in localStorage after rehydration",
     );
   } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy recovers a lost scoped session binding from durable workflow identity", async () => {
+  const WORKFLOW_ID = "123e4567-e89b-12d3-a456-426614174000";
+  const SESSION_ID = "session-recovered-from-workflow";
+  const RECOVER_URL = `/vibecomfy/agent-edit/recover?workflow_id=${encodeURIComponent(WORKFLOW_ID)}`;
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const graph = {
+    nodes: [{ id: 1, type: "PreviewImage", properties: { vibecomfy_uid: "preview-recover" } }],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      [RECOVER_URL]: {
+        status: 200,
+        body: { session_id: SESSION_ID, turn_id: "0001" },
+      },
+      [CHAT_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          exists: true,
+          session_id: SESSION_ID,
+          latest_turn_id: "0001",
+          messages: [
+            { role: "user", text: "recovered question", turn_id: "0001" },
+            { role: "agent", text: "recovered answer", turn_id: "0001" },
+          ],
+        },
+      },
+    },
+  });
+
+  const originalGlobalApp = globalThis.app;
+  try {
+    harness.app.extensionManager.workflow.activeWorkflow = { id: WORKFLOW_ID };
+    globalThis.app = harness.app;
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const panel = extensionModule.ensureAgentPanel();
+    const scope = extensionModule.resolveActiveCanvasScope();
+    assert.ok(scope?.scopeId);
+    panel.state.chatScopeId = scope.scopeId;
+    panel.state.chatScopeFingerprint = scope.fingerprint;
+
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((request) => request.url === RECOVER_URL));
+    await waitFor(() => harness.requests.some((request) => request.url === CHAT_URL));
+    await waitFor(() => /recovered answer/.test(harness.textDump()));
+
+    assert.equal(
+      extensionModule.resolveScopeSessionId(scope.scopeId),
+      SESSION_ID,
+    );
+    assert.match(harness.textDump(), /recovered question/);
+    assert.match(harness.textDump(), /recovered answer/);
+  } finally {
+    globalThis.app = originalGlobalApp;
     await harness.dispose();
   }
 });

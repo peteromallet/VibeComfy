@@ -17,11 +17,11 @@ export const DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_app
 export const CANONICAL_DELTA_OP_NAMES = Object.freeze([
   "set_node_field",
   "set_mode",
-  "set_title",
   "add_node",
   "upsert_link",
   "remove_node",
   "remove_link",
+  "subgraph_interface",
 ]);
 
 const _CANONICAL_ENVELOPE_KEYS = Object.freeze(
@@ -199,24 +199,6 @@ function _validateCanonicalOpStrict(entry, index) {
       break;
     }
 
-    case "set_title": {
-      if (!Array.isArray(entry.target) || entry.target.length !== 2) {
-        throw new DeltaDiagnosticError(
-          `set_title at index ${index} must have a "target" array of length 2.`,
-          DELTA_DIAGNOSTIC_MALFORMED,
-          { index, op: opName },
-        );
-      }
-      if (!_isNonEmptyString(entry.title)) {
-        throw new DeltaDiagnosticError(
-          `set_title at index ${index} must have a non-empty string "title".`,
-          DELTA_DIAGNOSTIC_MALFORMED,
-          { index, op: opName },
-        );
-      }
-      break;
-    }
-
     case "add_node": {
       if (!_isNonEmptyString(entry.uid)) {
         throw new DeltaDiagnosticError(
@@ -294,6 +276,51 @@ function _validateCanonicalOpStrict(entry, index) {
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
+      }
+      break;
+    }
+
+    case "subgraph_interface": {
+      if (!["add", "remove", "change"].includes(entry.action)) {
+        throw new DeltaDiagnosticError(
+          `subgraph_interface at index ${index} must have "action" one of: add, remove, change.`,
+          DELTA_DIAGNOSTIC_MALFORMED,
+          { index, op: opName, field: "action" },
+        );
+      }
+      if (!_isNonEmptyString(entry.name)) {
+        throw new DeltaDiagnosticError(
+          `subgraph_interface at index ${index} must have a non-empty string "name".`,
+          DELTA_DIAGNOSTIC_MALFORMED,
+          { index, op: opName, field: "name" },
+        );
+      }
+      if (entry.id != null && !_isNonEmptyString(entry.id)) {
+        throw new DeltaDiagnosticError(
+          `subgraph_interface at index ${index} must have a non-empty string "id" when provided.`,
+          DELTA_DIAGNOSTIC_MALFORMED,
+          { index, op: opName, field: "id" },
+        );
+      }
+      for (const field of ["inputs", "outputs"]) {
+        if (!(field in entry)) continue;
+        if (!Array.isArray(entry[field])) {
+          throw new DeltaDiagnosticError(
+            `subgraph_interface.${field} at index ${index} must be a list of [name, type] pairs.`,
+            DELTA_DIAGNOSTIC_MALFORMED,
+            { index, op: opName, field },
+          );
+        }
+        for (let portIndex = 0; portIndex < entry[field].length; portIndex += 1) {
+          const port = entry[field][portIndex];
+          if (!Array.isArray(port) || port.length === 0 || !_isNonEmptyString(port[0])) {
+            throw new DeltaDiagnosticError(
+              `subgraph_interface.${field}[${portIndex}] at index ${index} must be a [name, type] pair.`,
+              DELTA_DIAGNOSTIC_MALFORMED,
+              { index, op: opName, field, port_index: portIndex },
+            );
+          }
+        }
       }
       break;
     }
@@ -504,7 +531,6 @@ export function ensureRootScopedOps(ops) {
     if (
       op.op === "set_node_field" ||
       op.op === "set_mode" ||
-      op.op === "set_title" ||
       op.op === "remove_node"
     ) {
       if (Array.isArray(op.target) && op.target.length >= 2) {

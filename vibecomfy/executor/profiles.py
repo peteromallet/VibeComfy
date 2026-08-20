@@ -17,7 +17,6 @@ Spec-to-provider mapping (executed by ``agent_backend.py``, not here):
 
 from __future__ import annotations
 
-import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +24,9 @@ from typing import Any
 
 # ── canonical stages ─────────────────────────────────────────────────────────
 
-DECLARED_STAGES: frozenset[str] = frozenset({"classify", "research", "implement", "reply"})
+STAGED_STAGES: frozenset[str] = frozenset({"classify", "research", "implement", "reply"})
+THREADED_STAGES: frozenset[str] = frozenset({"execute"})
+DECLARED_STAGES: frozenset[str] = STAGED_STAGES | THREADED_STAGES
 _KNOWN_AGENTS: frozenset[str] = frozenset(
     {"hermes", "openrouter", "codex", "claude", "shannon"}
 )
@@ -106,9 +107,14 @@ _EFFORT_TOKENS: frozenset[str] = frozenset({"low", "medium", "high"})
 
 
 def _validate_stages(stage_map: dict[str, Any]) -> None:
-    """Ensure *stage_map* contains exactly the declared stages."""
+    """Require staged specs and admit the optional threaded execute spec.
+
+    Existing custom profiles remain valid for staged mode. Threaded mode
+    resolves ``execute`` explicitly and fails typed when that optional spec is
+    absent; it never silently borrows ``implement``.
+    """
     stages = frozenset(stage_map.keys())
-    missing = DECLARED_STAGES - stages
+    missing = STAGED_STAGES - stages
     extra = stages - DECLARED_STAGES
     if missing:
         raise ValueError(
@@ -246,7 +252,9 @@ def load_profile(name: str) -> dict[str, AgentSpecShape]:
     _validate_stages(raw)
 
     return {
-        stage: _parse_spec(raw[stage], stage=stage) for stage in DECLARED_STAGES
+        stage: _parse_spec(raw[stage], stage=stage)
+        for stage in DECLARED_STAGES
+        if stage in raw
     }
 
 
@@ -265,6 +273,8 @@ def load_all_profiles() -> dict[str, dict[str, AgentSpecShape]]:
 __all__ = [
     "AgentSpecShape",
     "DECLARED_STAGES",
+    "STAGED_STAGES",
+    "THREADED_STAGES",
     "load_all_profiles",
     "load_profile",
     "set_profile_override_dir",

@@ -53,3 +53,21 @@ For the full boundary matrix, `live=false` versus `dry_run` semantics, dry-run
 CLI invocation, blocked-prerequisite smoke checks, browser e2e commands, and
 subprocess integration contract, see
 `../../docs/testing/headless-agentic-harnesses.md`.
+
+## Staged versus threaded comparison
+
+The compact `threaded_comparison_manifest.json` locks six representative
+scenario descriptors, source workflows, and model-relevant inputs. Validate
+those locks and the IR comparison seam without provider or model calls:
+
+```bash
+python -m tests.live_agentic_harness.compare_pipeline_modes --validate-only
+```
+
+The command succeeds while threaded production wiring is still pending and
+reports that wiring as non-runnable. Once
+`adapter.run_headless_scenario(..., pipeline_mode=...)` is integrated, run the
+paired lane with `--run`; the adapter result must echo the selected mode so a
+silent staged-versus-staged run fails closed. Results compare IR projection,
+canonical accepted delta, typed outcome, evidence integrity, failure family,
+latency, and cost; assistant prose is never an equality signal.
