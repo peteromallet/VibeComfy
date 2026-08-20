@@ -2103,17 +2103,6 @@ function renderWelcomeExamples(body, deps = {}) {
       background: "#0a1628",
       border: "1px solid #1e3355",
     });
-    // Muted hint so users know examples are not free demos: they submit
-    // through the configured provider and consume API/CLI quota.
-    const costHint = el("span", "uses your API key");
-    Object.assign(costHint.style, {
-      fontSize: "9px",
-      color: "#6b7080",
-      marginLeft: "8px",
-      textTransform: "uppercase",
-      letterSpacing: "0.06em",
-    });
-    row.appendChild(costHint);
     row.onclick = () => {
       const panel = currentAgentPanel();
       if (panel?.fields?.prompt) {
@@ -2436,10 +2425,11 @@ function _renderDurableTurnRow(body, panel, entry, index, deps = {}) {
   if (entry.turn_id && !isPending) {
     appendTextLine(turnCard, `turn ${entry.turn_id}`, "#8d93a1");
   }
-  // While a turn is in progress the user's own message bubble is shown directly
-  // above this row, so echoing entry.task here just repeats it. Only show the
-  // task on terminal rows, where it identifies which past turn the row is.
-  if (entry.task && !isPending) {
+  // Show the task on pending rows too: the optimistic user bubble in the
+  // thread is the primary surface for the user's message, but if a rehydrate
+  // ever wipes it mid-submit the turn row must still identify what was sent
+  // (observed: "my message disappeared" — empty thread + empty turn card).
+  if (entry.task) {
     appendTextLine(turnCard, entry.task, "#edf2f7");
   }
   if (entry.failure_kind) {

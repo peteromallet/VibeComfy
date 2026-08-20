@@ -1131,7 +1131,7 @@ def _compile_node_inputs(node: VibeNode) -> dict[str, Any]:
 
 
 def _embedded_api_link_details(workflow: VibeWorkflow) -> list[dict[str, Any]]:
-    """Describe canonical API links illegally embedded in IR node inputs."""
+    """Describe canonical API links illegally embedded in IR node fields."""
     details: list[dict[str, Any]] = []
     edges_by_target: dict[tuple[str, str], list[list[Any]]] = {}
     for edge in workflow.edges:
@@ -1143,26 +1143,28 @@ def _embedded_api_link_details(workflow: VibeWorkflow) -> list[dict[str, Any]]:
         edges_by_target.setdefault(key, []).append([str(edge.from_node), output_slot])
 
     for node_id, node in workflow.nodes.items():
-        for input_name, value in node.inputs.items():
-            if not is_canonical_api_link(value):
-                continue
-            embedded_source = [str(value[0]), int(value[1])]
-            edge_sources = edges_by_target.get((str(node_id), str(input_name)), [])
-            if not edge_sources:
-                collision = "none"
-            elif all(source == embedded_source for source in edge_sources):
-                collision = "identical"
-            else:
-                collision = "conflicting"
-            details.append(
-                {
-                    "node_id": str(node_id),
-                    "input_name": str(input_name),
-                    "embedded_source": embedded_source,
-                    "edge_sources": edge_sources,
-                    "edge_collision": collision,
-                }
-            )
+        for storage, values in (("inputs", node.inputs), ("widgets", node.widgets)):
+            for input_name, value in values.items():
+                if not is_canonical_api_link(value):
+                    continue
+                embedded_source = [str(value[0]), int(value[1])]
+                edge_sources = edges_by_target.get((str(node_id), str(input_name)), [])
+                if not edge_sources:
+                    collision = "none"
+                elif all(source == embedded_source for source in edge_sources):
+                    collision = "identical"
+                else:
+                    collision = "conflicting"
+                details.append(
+                    {
+                        "node_id": str(node_id),
+                        "input_name": str(input_name),
+                        "storage": storage,
+                        "embedded_source": embedded_source,
+                        "edge_sources": edge_sources,
+                        "edge_collision": collision,
+                    }
+                )
     return details
 
 

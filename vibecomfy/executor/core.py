@@ -4,9 +4,9 @@ Implements the full executor pipeline (SD1).  Every request flows through
 classify (always calls the model backend), then optionally research and/or
 implement, then always reply via the model backend.
 
-Failures are converted through the existing failure-envelope classification
-machinery (``classify_failure`` / ``failure_envelope`` from the agent
-contracts module) — raw exceptions never leak out of this module.
+Failures are converted through an injected host port — raw exceptions never
+leak out of this module, and the plain executor does not own ComfyUI provider,
+runtime-capture, edit-entrypoint, or failure-envelope internals.
 """
 
 from __future__ import annotations
@@ -20,26 +20,6 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from vibecomfy.comfy_nodes.agent.contracts import (
-    FailureKind,
-    classify_failure,
-    failure_envelope,
-)
-from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
-from vibecomfy.comfy_nodes.agent.provider import (
-    AuthError,
-    MalformedModelJSON,
-    MissingRequiredField,
-    ProviderError,
-)
-from vibecomfy.comfy_nodes.agent.runtime import (
-    begin_deepseek_usage_capture,
-    begin_model_attempt_capture,
-    end_deepseek_usage_capture,
-    end_model_attempt_capture,
-    snapshot_deepseek_usage_capture,
-    snapshot_model_attempt_capture,
-)
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 from vibecomfy.executor.profiler import (
     new_profile_id,
@@ -62,10 +42,12 @@ from .tool_contracts import ToolStatus
 from .prompts import build_classify_messages
 from .contracts import (
     ClassifyDecision,
+    ExecutorHostPorts,
     ExecutorRequest,
     ExecutorResult,
     ImplementationResult,
     Report,
+    VALIDATION_FAILURE_KIND,
     _ALLOWED_ROUTES,
     coerce_model_attempts,
     warning_detail_from_exception,
@@ -77,6 +59,66 @@ from .profiles import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_HOST_PORTS: ExecutorHostPorts | None = None
+
+
+def _default_host_ports() -> ExecutorHostPorts:
+    """Load the ComfyUI adapter only when a host operation is first needed."""
+    global _DEFAULT_HOST_PORTS
+    if _DEFAULT_HOST_PORTS is None:
+        from vibecomfy.comfy_nodes.agent.executor_adapter import (  # noqa: PLC0415
+            build_executor_host_ports,
+        )
+
+        _DEFAULT_HOST_PORTS = build_executor_host_ports()
+    return _DEFAULT_HOST_PORTS
+
+
+# Compatibility forwarding names: existing callers/tests patch these module
+# attributes.  New hosts should pass ``host_ports=`` to ``run_executor``.
+def handle_agent_edit(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _default_host_ports().handle_agent_edit(*args, **kwargs)
+
+
+def classify_failure(*args: Any, **kwargs: Any) -> Any:
+    return _default_host_ports().classify_failure(*args, **kwargs)
+
+
+def failure_envelope(*args: Any, **kwargs: Any) -> Any:
+    return _default_host_ports().failure_envelope(*args, **kwargs)
+
+
+def begin_deepseek_usage_capture() -> Any:
+    return _default_host_ports().begin_deepseek_usage_capture()
+
+
+def snapshot_deepseek_usage_capture() -> tuple[dict[str, int], bool]:
+    return _default_host_ports().snapshot_deepseek_usage_capture()
+
+
+def end_deepseek_usage_capture(token: Any) -> None:
+    _default_host_ports().end_deepseek_usage_capture(token)
+
+
+def begin_model_attempt_capture() -> Any:
+    return _default_host_ports().begin_model_attempt_capture()
+
+
+def snapshot_model_attempt_capture() -> tuple[dict[str, Any], ...]:
+    return _default_host_ports().snapshot_model_attempt_capture()
+
+
+def end_model_attempt_capture(token: Any) -> None:
+    _default_host_ports().end_model_attempt_capture(token)
+
+
+def _is_provider_error(exc: BaseException) -> bool:
+    return _default_host_ports().is_provider_error(exc)
+
+
+def _payload_hash(payload: Mapping[str, Any]) -> str:
+    return _default_host_ports().payload_hash(payload)
 
 # Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
 # events emitted while the implement phase is running.
@@ -674,6 +716,7 @@ def _run_classify(
     *,
     session_context: dict[str, Any] | None = None,
     graph_reference_map: dict[str, str] | None = None,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> ClassifyDecision:
     """Run the classify model turn.
 
@@ -716,20 +759,18 @@ def _run_classify(
         return run_classify_turn(request.query, **classify_kwargs)
     except _ExecutorPhaseError:
         raise
-    except (ProviderError, AuthError, MalformedModelJSON,
-            MissingRequiredField, TimeoutError) as exc:
-        # Map provider-level errors through the failure envelope machinery.
-        failure = classify_failure("agent_response", exc)
-        failure = _enrich_failure_envelope(failure, exc)
-        raise _ExecutorPhaseError(
-            stage="classify",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
-            model_attempts=_failure_model_attempts(failure),
-        ) from exc
     except Exception as exc:
-        failure = classify_failure("classify", exc)
+        provider_failure = (
+            host_ports.is_provider_error(exc)
+            if host_ports is not None
+            else _is_provider_error(exc)
+        )
+        classify = (
+            host_ports.classify_failure
+            if host_ports is not None
+            else classify_failure
+        )
+        failure = classify("agent_response" if provider_failure else "classify", exc)
         failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="classify",
@@ -856,6 +897,7 @@ def _research_decision_memo(
     trace: AgentResearchTrace,
     *,
     diagnostics: tuple[dict[str, Any], ...],
+    artifacts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     inspected = [
         evidence_id
@@ -868,7 +910,30 @@ def _research_decision_memo(
         for item in diagnostics
         if str(item.get("message") or "").strip()
     )
-    return {
+    # R4: the reply stage must never be able to fabricate an outcome.  Carry
+    # the stage's honest status, the bounded warnings (deadline exhaustion,
+    # tool refusals, hivemind degradation), and the executed-call/evidence
+    # counts so a reply that says "searched and found nothing" is only
+    # possible when that is literally what the stage did.
+    warning_lines = list(trace.warnings)[:6]
+    if trace.status == "exhausted":
+        warning_lines.append(
+            "research did not finish: it ran out of time/turns before the "
+            "agent produced a synthesis; treat any claim that 'no results "
+            "were found' as unsupported unless a tool actually ran"
+        )    # R4b: when the stage ran tools and gathered evidence but never produced
+    # a synthesis (deadline/max-turn exhaustion), the memo MUST still carry a
+    # bounded preview of what was actually found — otherwise the reply stage
+    # can only say "no conclusion", which reads as "found nothing" even when
+    # the corpus hits were on-topic (observed: 3 iterations, 30 artifacts,
+    # reply claiming the search "came back empty").  Gated to exhausted/failed
+    # with executed calls AND tool evidence AND no citations: a successful
+    # synthesis with empty citations is a legitimate outcome and must not get
+    # the "timed out mid-search" preview.
+    evidence_preview = _research_evidence_preview(
+        trace, artifacts=artifacts
+    )
+    memo = {
         "question": trace.question,
         "conclusion": trace.summary or "No supported conclusion was produced.",
         "citations": inspected[:6],
@@ -878,7 +943,98 @@ def _research_decision_memo(
             if trace.final_verdict == "enough"
             else "Refine the unresolved research question before acting on this conclusion."
         ),
+        "research_status": trace.status,
+        "research_warnings": warning_lines,
+        "tool_calls_executed": trace.executed_tool_calls,
+        "evidence_artifacts": trace.evidence_artifact_count,
+        "evidence_preview": evidence_preview,
     }
+    # R4d: a FAILED stage (e.g. an unparseable model decision) must expose the
+    # actual error so the reply stage reports the real cause — never a
+    # fabricated "ran out of time" (observed: malformed decision ValueError,
+    # memo without trace.error, reply inventing a timeout story).  Key is
+    # failure-only so successful-memo dict equality assertions stay stable.
+    if trace.status == "failed" and trace.error:
+        memo["research_error"] = trace.error[:400]
+    return memo
+
+
+def _research_evidence_preview(
+    trace: Any, *, max_chars: int = 900, artifacts: Mapping[str, Any] | None = None
+) -> str:
+    """Bounded preview of what the research tools actually returned.
+
+    Includes BOTH layers of gathered evidence: (1) the compact search-hit
+    conclusions from the trace, and (2) the FETCHED RECORD BODIES from the
+    evidence pack when available — the same content the research agent read.
+    A time-cutoff must not drop the fetched records: they are the substance
+    of the research, and the reply should be able to name what was actually
+    read before the deadline hit (user decision: include everything
+    researched).  ``payload`` (workflow JSON) never enters the preview.
+
+    Only produced when the stage failed to synthesize (exhausted/failed) but
+    DID execute tools and record tool evidence with no citations — a
+    successful no-citation synthesis is a legitimate outcome, not a timed-out
+    search (Codex review P1-6).
+    """
+    if trace.status not in {"exhausted", "failed"}:
+        return ""
+    if not trace.executed_tool_calls:
+        return ""
+    if trace.evidence_artifact_count <= 0:
+        return ""
+    if trace.citations:
+        return ""
+    lines: list[str] = []
+
+    # Layer 2 first (most substantive): fetched record bodies, deduped.
+    seen: set[str] = set()
+    for iteration in getattr(trace, "iterations", ()) or ():
+        for call in getattr(iteration, "tool_calls", ()) or ():
+            if not isinstance(call, dict):
+                continue
+            if str(call.get("tool") or "") != "hivemind_get":
+                continue
+            if str(call.get("status") or "") != "ok":
+                continue
+            for evidence_id in (call.get("evidence_ids") or ()):
+                if evidence_id in seen or not artifacts:
+                    continue
+                seen.add(evidence_id)
+                artifact = artifacts.get(evidence_id)
+                if artifact is None:
+                    continue
+                body = artifact.body if isinstance(artifact.body, Mapping) else {"value": artifact.body}
+                title = str(body.get("title") or body.get("name") or evidence_id)
+                content = str(
+                    body.get("body")
+                    or body.get("description")
+                    or body.get("content")
+                    or ""
+                )
+                # Never payload (workflow JSON); bounded per record.
+                if content:
+                    lines.append(f"[fetched {evidence_id}] {title}: {content[:220]}")
+
+    # Layer 1: search-hit conclusions (titles of what was surfaced).
+    for iteration in getattr(trace, "iterations", ()) or ():
+        for call in getattr(iteration, "tool_calls", ()) or ():
+            if not isinstance(call, dict):
+                continue
+            tool = str(call.get("tool") or "")
+            status = str(call.get("status") or "")
+            if status != "ok" or tool != "hivemind_search":
+                continue
+            conclusion = str(call.get("conclusion") or "").strip()
+            if not conclusion or conclusion.startswith("0 "):
+                continue
+            query = str(call.get("query") or "").strip()
+            prefix = f"[{tool} {query}] " if query else f"[{tool}] "
+            lines.append(prefix + conclusion[:220])
+    preview = "\n".join(lines)
+    if len(preview) > max_chars:
+        preview = preview[: max(0, max_chars - 3)].rstrip() + "..."
+    return preview
 
 
 def _research_stage_package(
@@ -951,11 +1107,35 @@ def _run_agent_owned_research(
     route = _canonical_route_for_plan(plan)
     question, _source_field = form_research_question(request=request, plan=plan)
     brief = build_research_brief(plan=plan, request=request)
+    # Research-only routes get the same wall-clock budget the batch-REPL
+    # research path uses (VIBECOMFY_RESEARCH_PHASE_DEADLINE, default 450s):
+    # a research-only turn has no implement phase, and flash-class decision
+    # turns take 30-150s each — the old 240s starved the agent mid-evidence
+    # (observed: 3 iterations, 30 evidence artifacts, then the deadline
+    # dropped the deciding call that would have finished the synthesis).
+    # ADAPT routes share the same 450s research budget: research + implement
+    # then each get ~half of the panel's 15-min absolute submit deadline
+    # (900s), with implement consuming the remainder after research returns.
+    # The stage coerces float(deadline_seconds) unconditionally, so we only
+    # pass a value for research routes (never None); 0/negative env falls
+    # back to the stage default (450s) rather than an immediate deadline.
+    deadline_seconds: float | None = None
+    if route in ("research", "adapt"):
+        try:
+            configured = float(os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "450") or 0)
+        except ValueError:
+            configured = 450.0
+        if configured > 0:
+            deadline_seconds = configured
+    research_kwargs: dict[str, float] = {}
+    if deadline_seconds is not None:
+        research_kwargs["deadline_seconds"] = deadline_seconds
     trace, pack = run_agent_research_stage(
         route=route,
         question=question,
         research_brief=brief,
         spec=spec,
+        **research_kwargs,
     )
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
@@ -963,7 +1143,11 @@ def _run_agent_owned_research(
             artifacts=pack.artifacts,
             ledger=EvidenceLedger(entries=pack.ledger.entries + policy_entries),
         )
-    memo = _research_decision_memo(trace, diagnostics=diagnostics) if route == "research" else None
+    memo = (
+        _research_decision_memo(trace, diagnostics=diagnostics, artifacts=pack.artifacts)
+        if route == "research"
+        else None
+    )
     return AgentResearchResult(
         route=route,
         trace=trace,
@@ -1034,6 +1218,7 @@ def _run_implement(
     research_result: AgentResearchResult | None = None,
     client_id: str | None = None,
     additive: bool = False,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> ImplementationResult:
     """Run the implement phase via ``handle_agent_edit``.
 
@@ -1057,8 +1242,11 @@ def _run_implement(
         and not _research_package_is_usable(research_result)
     ):
         trace = research_result.trace
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
+        make_failure = (
+            host_ports.failure_envelope if host_ports is not None else failure_envelope
+        )
+        failure = make_failure(
+            VALIDATION_FAILURE_KIND,
             "research",
             agent_failure_context={
                 "explanation": (
@@ -1137,17 +1325,20 @@ def _run_implement(
         payload["on_demand_schemas"] = request.on_demand_schemas
 
     try:
-        from vibecomfy.comfy_nodes.agent.session import payload_hash  # noqa: PLC0415
-
-        result = handle_agent_edit(
+        edit_handler = (
+            host_ports.handle_agent_edit if host_ports is not None else handle_agent_edit
+        )
+        hash_payload = host_ports.payload_hash if host_ports is not None else _payload_hash
+        result = edit_handler(
             payload,
             client_id=client_id,
             # Classifier/research output is server-derived and may vary across
             # retries. Bind deduplication to the stable public submit instead.
-            idempotency_request_hash=payload_hash(request.to_dict()),
+            idempotency_request_hash=hash_payload(request.to_dict()),
         )
     except Exception as exc:
-        failure = classify_failure("implement", exc)
+        classify = host_ports.classify_failure if host_ports is not None else classify_failure
+        failure = classify("implement", exc)
         raise _ExecutorPhaseError(
             stage="implement",
             failure_kind=failure.kind.value,
@@ -1156,8 +1347,11 @@ def _run_implement(
         ) from exc
 
     if not isinstance(result, dict):
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
+        make_failure = (
+            host_ports.failure_envelope if host_ports is not None else failure_envelope
+        )
+        failure = make_failure(
+            VALIDATION_FAILURE_KIND,
             "implement",
             agent_failure_context={
                 "explanation": "handle_agent_edit returned a non-dict result."
@@ -1190,18 +1384,29 @@ def _run_implement(
             value = result.get(key)
             if value is not None:
                 failure_payload[key] = value
-        failure = failure_envelope(
-            FailureKind(fk) if isinstance(fk, str) and fk in {k.value for k in FailureKind} else FailureKind.VALIDATION_ERROR,
-            "implement",
-            agent_failure_context={
-                "explanation": fm,
-                **{
-                    key: value
-                    for key, value in failure_payload.items()
-                    if key not in {"message", "stage", "failure_kind"}
-                },
-            },
+        make_failure = (
+            host_ports.failure_envelope if host_ports is not None else failure_envelope
         )
+        failure_context_payload = {
+            "explanation": fm,
+            **{
+                key: value
+                for key, value in failure_payload.items()
+                if key not in {"message", "stage", "failure_kind"}
+            },
+        }
+        try:
+            failure = make_failure(
+                fk if isinstance(fk, str) else VALIDATION_FAILURE_KIND,
+                "implement",
+                agent_failure_context=failure_context_payload,
+            )
+        except ValueError:
+            failure = make_failure(
+                VALIDATION_FAILURE_KIND,
+                "implement",
+                agent_failure_context=failure_context_payload,
+            )
         raise _ExecutorPhaseError(
             stage="implement",
             failure_kind=failure.kind.value,
@@ -1359,6 +1564,7 @@ def _run_reply(
     research_result: AgentResearchResult | None = None,
     implementation_result: ImplementationResult | None = None,
     graph_inspection: str | None = None,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> str:
     """Run the reply model turn.
 
@@ -1447,8 +1653,11 @@ def _run_reply(
                 value = result.get(key)
                 if isinstance(value, str) and value.strip():
                     return value
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
+        make_failure = (
+            host_ports.failure_envelope if host_ports is not None else failure_envelope
+        )
+        failure = make_failure(
+            VALIDATION_FAILURE_KIND,
             "reply",
             agent_failure_context={
                 "explanation": "Reply phase returned a response without reply text."
@@ -1460,19 +1669,18 @@ def _run_reply(
             message=failure.user_facing_message,
             failure_envelope=failure,
         )
-    except (ProviderError, AuthError, MalformedModelJSON,
-            MissingRequiredField, TimeoutError) as exc:
-        failure = classify_failure("agent_response", exc)
-        failure = _enrich_failure_envelope(failure, exc)
-        raise _ExecutorPhaseError(
-            stage="reply",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
-            model_attempts=_failure_model_attempts(failure),
-        ) from exc
     except Exception as exc:
-        failure = classify_failure("reply", exc)
+        provider_failure = (
+            host_ports.is_provider_error(exc)
+            if host_ports is not None
+            else _is_provider_error(exc)
+        )
+        classify = (
+            host_ports.classify_failure
+            if host_ports is not None
+            else classify_failure
+        )
+        failure = classify("agent_response" if provider_failure else "reply", exc)
         failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="reply",
@@ -1580,6 +1788,7 @@ def run_executor(
     client_id: str | None = None,
     classify_only: bool = False,
     additive: bool = False,
+    host_ports: ExecutorHostPorts | None = None,
 ) -> ExecutorResult:
     """Execute the full classify → research → implement → reply pipeline.
 
@@ -1598,6 +1807,10 @@ def run_executor(
         implement payload so the revise pipeline can relax ONLY the pre-edit
         "input graph has dangling/absent endpoints -> refuse to compound"
         precondition.  All post-edit validation and gates remain enforced.
+    host_ports:
+        Optional host implementation for edit, failure, hashing, and capture
+        operations.  Omit it in ComfyUI, where the compatibility adapter is
+        loaded lazily.
 
     Returns
     -------
@@ -1620,8 +1833,18 @@ def run_executor(
     }
 
     profiler_log(LOGGER, "executor.request", **request_fields)
-    usage_token = begin_deepseek_usage_capture()
-    attempt_token = begin_model_attempt_capture()
+    begin_usage = (
+        host_ports.begin_deepseek_usage_capture
+        if host_ports is not None
+        else begin_deepseek_usage_capture
+    )
+    begin_attempts = (
+        host_ports.begin_model_attempt_capture
+        if host_ports is not None
+        else begin_model_attempt_capture
+    )
+    usage_token = begin_usage()
+    attempt_token = begin_attempts()
 
     def _build_report(
         *,
@@ -1631,8 +1854,18 @@ def run_executor(
         classification_status: str = "",
         fallback_model_attempts: tuple[dict[str, Any], ...] = (),
     ) -> Report:
-        usage, cache_breakout_complete = snapshot_deepseek_usage_capture()
-        model_attempts = snapshot_model_attempt_capture()
+        snapshot_usage = (
+            host_ports.snapshot_deepseek_usage_capture
+            if host_ports is not None
+            else snapshot_deepseek_usage_capture
+        )
+        snapshot_attempts = (
+            host_ports.snapshot_model_attempt_capture
+            if host_ports is not None
+            else snapshot_model_attempt_capture
+        )
+        usage, cache_breakout_complete = snapshot_usage()
+        model_attempts = snapshot_attempts()
         if not model_attempts:
             model_attempts = coerce_model_attempts(fallback_model_attempts)
         est_cost_usd, cost_basis = estimate_deepseek_cost_usd(
@@ -1651,15 +1884,26 @@ def run_executor(
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
-        end_deepseek_usage_capture(usage_token)
-        end_model_attempt_capture(attempt_token)
+        end_usage = (
+            host_ports.end_deepseek_usage_capture
+            if host_ports is not None
+            else end_deepseek_usage_capture
+        )
+        end_attempts = (
+            host_ports.end_model_attempt_capture
+            if host_ports is not None
+            else end_model_attempt_capture
+        )
+        end_usage(usage_token)
+        end_attempts(attempt_token)
         return result
 
     # ── Resolve profile specs ────────────────────────────────────────────
     try:
         classify_spec = _resolve_spec(request.profile, "classify")
     except Exception as exc:
-        failure = classify_failure("profile", exc)
+        classify = host_ports.classify_failure if host_ports is not None else classify_failure
+        failure = classify("profile", exc)
         return _finish(ExecutorResult.failure(
             kind=failure.kind.value,
             stage="profile",
@@ -1700,6 +1944,7 @@ def run_executor(
                 classify_spec,
                 session_context=session_context,
                 graph_reference_map=graph_reference_map,
+                host_ports=host_ports,
             )
             span.update(
                 plan_research=plan.research,
@@ -1810,7 +2055,8 @@ def run_executor(
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
-            failure = classify_failure("profile", exc)
+            classify = host_ports.classify_failure if host_ports is not None else classify_failure
+            failure = classify("profile", exc)
             return _finish(ExecutorResult.failure(
                 kind=failure.kind.value,
                 stage="profile",
@@ -1825,24 +2071,35 @@ def run_executor(
                 status="start",
                 client_id=client_id,
             )
-            with profiler_span(
+            research_span = profiler_span(
                 LOGGER,
                 "executor.phase",
                 **request_fields,
                 phase="research",
                 **_spec_fields(research_spec),
-            ) as span:
+            )
+            research_span.__enter__()
+            try:
                 research_result = _run_agent_owned_research(
                     request,
                     research_spec,
                     plan=plan,
                 )
-                span.update(
+                research_span.update(
                     research_status=research_result.trace.status,
                     research_verdict=research_result.trace.final_verdict,
                     ledger_entries=len(research_result.ledger.entries),
+                    executed_tool_calls=research_result.trace.executed_tool_calls,
+                    evidence_artifacts=research_result.trace.evidence_artifact_count,
                     summary_preview=short_text(research_result.summary),
                 )
+                # The profiler's default phase status is "ok" — override it
+                # with the trace's honest status so exhausted/failed research
+                # is not misreported as a healthy phase (observability).
+                research_span.finish(status=research_result.trace.status)
+            except Exception:
+                research_span.finish(status="error")
+                raise
     else:
         _emit_executor_phase_event(
             request,
@@ -1865,7 +2122,8 @@ def run_executor(
             implement_spec = _resolve_spec(request.profile, "implement")
         except Exception as exc:
             # Profile missing implement spec → failure.
-            failure = classify_failure("profile", exc)
+            classify = host_ports.classify_failure if host_ports is not None else classify_failure
+            failure = classify("profile", exc)
             report = _build_report(plan=plan, research=research_result)
             return _finish(ExecutorResult.failure(
                 kind=failure.kind.value,
@@ -1918,6 +2176,7 @@ def run_executor(
                         research_result=research_result,
                         client_id=client_id,
                         additive=additive,
+                        host_ports=host_ports,
                     )
                 finally:
                     heartbeat_stop.set()
@@ -2013,7 +2272,8 @@ def run_executor(
     try:
         reply_spec = _resolve_spec(request.profile, "reply")
     except Exception as exc:
-        failure = classify_failure("profile", exc)
+        classify = host_ports.classify_failure if host_ports is not None else classify_failure
+        failure = classify("profile", exc)
         report = _build_report(
             plan=plan,
             research=research_result,
@@ -2050,6 +2310,7 @@ def run_executor(
                 graph_inspection=_graph_inspection(effective_graph)
                 if route_behavior.reply_uses_graph_inspection
                 else None,
+                host_ports=host_ports,
             )
             span.update(reply_preview=short_text(reply_text))
     except _ExecutorPhaseError as exc:

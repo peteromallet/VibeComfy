@@ -192,6 +192,11 @@ def maybe_write_executor_only_durable_turn(
             response=stamped,
             route=route,
         )
+        write_executor_only_research_trace(
+            turn_dir=turn_dir,
+            result=result,
+            route=route,
+        )
 
         record_idempotent_response_func(
             session_root=root,
@@ -214,6 +219,38 @@ def maybe_write_executor_only_durable_turn(
             exc_info=True,
         )
         return response
+
+
+def write_executor_only_research_trace(
+    *,
+    turn_dir: Path,
+    result: Any,
+    route: str,
+) -> None:
+    """Best-effort write of ``research_trace.json`` for research-only turns.
+
+    The C1 research trace (per-turn decisions + tool digests + final state)
+    is deliberately NOT in the public envelope (bounded C5 memo only), so the
+    durable turn dir is the one place the actual agent reasoning survives.
+    This gives the panel/report the same ``messages.jsonl``-grade visibility
+    the batch-REPL path has, without leaking evidence bodies.
+    """
+    if route != "research":
+        return
+    report = getattr(result, "report", None)
+    research = getattr(report, "research", None)
+    trace = getattr(research, "trace", None)
+    if trace is None:
+        return
+    try:
+        payload = trace.to_dict()
+        write_json_artifact(turn_dir / "research_trace.json", payload)
+    except (OSError, ValueError, TypeError) as exc:
+        _LOGGER.warning(
+            "research_trace.json write failed for turn %s (best-effort): %s",
+            turn_dir.name,
+            exc,
+        )
 
 
 def write_executor_only_chat_artifact(
@@ -280,6 +317,55 @@ def write_executor_only_chat_artifact(
                     chat_record["research_warnings"] = [
                         str(warning)[:256] for warning in warnings_list[:6]
                     ]
+                # R4: surface the honest stage status + executed-call/evidence
+                # counters so the panel distinguishes "searched, found
+                # nothing" from "research never completed" (deadline/turn
+                # exhaustion drops the agent's synthesis, not the evidence).
+                status_value = research_evidence.get("research_status")
+                if isinstance(status_value, str) and status_value:
+                    chat_record["research_status"] = status_value[:32]
+                for key, out_key in (
+                    ("tool_calls_executed", "research_tool_calls_executed"),
+                    ("evidence_artifacts", "research_evidence_artifacts"),
+                ):
+                    value = research_evidence.get(key)
+                    if isinstance(value, int):
+                        chat_record[out_key] = value
+
+                # The panel's diagnostic-event gate only admits transcript
+                # messages that carry a diagnostics array (or stage /
+                # lifecycle / batch_turns); a bare outcome message reads as
+                # "no recent turn records".  Attach a typed diagnostic so the
+                # research turn is visible in the issue report, carrying the
+                # honest status and warning text.  The memo serializes the
+                # warning list under ``research_warnings`` (not ``warnings``),
+                # and a successful run is "completed", not a warning.
+                if status_value == "ok":
+                    diag_severity = "info"
+                    diag_message = "research stage completed"
+                elif status_value in {"failed", "exhausted"}:
+                    diag_severity = "error"
+                    diag_message = "research stage did not complete"
+                else:
+                    diag_severity = "warning"
+                    diag_message = "research stage status unknown"
+                warnings_list = research_evidence.get("research_warnings")
+                if isinstance(warnings_list, list) and warnings_list:
+                    first_warning = str(warnings_list[0])[:200]
+                    if first_warning:
+                        diag_message = first_warning
+                diagnostics_payload: list[dict[str, str]] = [
+                    {
+                        "code": "research_status",
+                        "severity": diag_severity,
+                        "message": diag_message,
+                        "stage": "research",
+                        "status": status_value if isinstance(status_value, str) else "unknown",
+                    }
+                ]
+                agent_msg["diagnostics"] = diagnostics_payload
+                if isinstance(status_value, str) and status_value:
+                    agent_msg["status"] = status_value[:32]
 
     chat_path = turn_dir / "chat.json"
     try:

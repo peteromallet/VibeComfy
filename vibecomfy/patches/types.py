@@ -119,6 +119,80 @@ def _build_patch_application(
     return entry
 
 
+def _merge_unique_records(
+    existing: list[dict[str, Any]],
+    current: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    for record in (*existing, *current):
+        frozen = _freeze(record)
+        if frozen in seen:
+            continue
+        seen.add(frozen)
+        merged.append(record)
+    return merged
+
+
+def _merge_patch_application(
+    existing: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep one durable telemetry marker per patch name.
+
+    A repeated idempotent call produces a no-op snapshot.  Replacing the first
+    record with that snapshot would erase the useful evidence that the patch
+    originally changed the graph, while appending it would make metadata itself
+    non-idempotent.  Merge any later material change into the original record
+    and otherwise leave the marker byte-for-byte stable.
+    """
+    current_changed = bool(current.get("topology_changed") or current.get("value_changed"))
+    if not current_changed:
+        return existing
+
+    if not (existing.get("topology_changed") or existing.get("value_changed")):
+        return current
+
+    merged = dict(existing)
+    for field in ("nodes_added", "introduced_edges", "rewritten_edges"):
+        old_records = existing.get(field, [])
+        new_records = current.get(field, [])
+        if isinstance(old_records, list) and isinstance(new_records, list):
+            merged[field] = _merge_unique_records(old_records, new_records)
+    merged["topology_changed"] = bool(
+        existing.get("topology_changed") or current.get("topology_changed")
+    )
+    if existing.get("value_changed") or current.get("value_changed"):
+        merged["value_changed"] = True
+    return merged
+
+
+def _upsert_patch_application(metadata: dict[str, Any], entry: dict[str, Any]) -> None:
+    applications = metadata.setdefault("patch_applications", [])
+    if not isinstance(applications, list):
+        applications = []
+        metadata["patch_applications"] = applications
+
+    matching_indexes = [
+        index
+        for index, candidate in enumerate(applications)
+        if isinstance(candidate, dict)
+        and candidate.get("name") == entry["name"]
+        and candidate.get("layer") == entry["layer"]
+    ]
+    if not matching_indexes:
+        applications.append(entry)
+        return
+
+    first_index = matching_indexes[0]
+    merged = applications[first_index]
+    for duplicate_index in matching_indexes[1:]:
+        merged = _merge_patch_application(merged, applications[duplicate_index])
+    applications[first_index] = _merge_patch_application(merged, entry)
+    for duplicate_index in reversed(matching_indexes[1:]):
+        del applications[duplicate_index]
+
+
 @dataclass(frozen=True, slots=True)
 class Patch:
     """A targeted, idempotent decoration of an existing workflow graph.
@@ -152,8 +226,9 @@ class Patch:
             result = original_apply(workflow)
             after = _snapshot_workflow(result)
             stamp_workflow_origin(result, "patch", layer)
-            result.metadata.setdefault("patch_applications", []).append(
-                _build_patch_application(self.name, before, after)
+            _upsert_patch_application(
+                result.metadata,
+                _build_patch_application(self.name, before, after),
             )
             return result
 

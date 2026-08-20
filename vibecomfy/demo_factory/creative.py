@@ -242,8 +242,16 @@ def _call_deepseek(prompt: str, *, temperature: float = 0.7) -> dict[str, Any]:
     if not api_key:
         raise ValueError("DEEPSEEK_API_KEY not found in environment or canonical env file")
 
-    # Use DeepSeek's API directly (matches adapter pattern)
+    # Use DeepSeek's API directly (matches adapter pattern).  Native
+    # api.deepseek.com rejects OpenRouter-only dated aliases
+    # (``deepseek-v4-flash-0731``); send the bare revision name it accepts
+    # (``deepseek-v4-flash``).  VIBECOMFY_OPENROUTER_MODEL is still honored so
+    # a caller pointed at an OpenRouter base URL can override the slug.
     base_url = os.environ.get("VIBECOMFY_OPENROUTER_BASE_URL", "https://api.deepseek.com/v1")
+    model = os.environ.get("VIBECOMFY_OPENROUTER_MODEL", "deepseek-v4-flash")
+    if "api.deepseek.com" in base_url and "-" in model:
+        family = "deepseek-v4-flash" if "flash" in model else "deepseek-v4-pro"
+        model = family
     client = httpx.Client(timeout=120.0)
 
     try:
@@ -254,7 +262,7 @@ def _call_deepseek(prompt: str, *, temperature: float = 0.7) -> dict[str, Any]:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "deepseek-v4-pro",
+                "model": model,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": temperature,
                 "max_tokens": 8000,

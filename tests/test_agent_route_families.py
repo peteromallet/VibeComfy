@@ -421,6 +421,36 @@ def test_both_route_families_emit_the_same_failure_envelope(
         assert legacy[key] == executor[key], f"{key} must match across families"
 
 
+def test_failure_response_contract_error_fails_closed(monkeypatch) -> None:
+    """Malformed internal failures must never escape as unstamped wire data."""
+    from vibecomfy.comfy_nodes.agent.contracts import FailureKind
+
+    routes_mod = _import_routes_headless(monkeypatch)
+
+    def _contract_boom(*_args, **_kwargs):
+        raise RuntimeError("contract enforcement failed")
+
+    monkeypatch.setattr(routes_mod, "ensure_agent_edit_response_contract", _contract_boom)
+
+    response = routes_mod._failure_response(
+        "agent_executor",
+        {
+            "ok": False,
+            "outcome": {"kind": "not-a-public-outcome"},
+            "unvalidated_internal_field": "must-not-escape",
+        },
+    )
+
+    _assert_unified_failure_envelope(response)
+    assert response["kind"] == FailureKind.VALIDATION_ERROR.value
+    assert response["stage"] == "agent_executor"
+    assert response["agent_failure_context"] == {
+        "explanation": "The agent response failed public contract validation.",
+        "contract_error": "RuntimeError",
+    }
+    assert "unvalidated_internal_field" not in response
+
+
 def test_executor_submit_failure_envelope_matches_legacy_reject_envelope(
     monkeypatch,
 ) -> None:
@@ -437,4 +467,3 @@ def test_executor_submit_failure_envelope_matches_legacy_reject_envelope(
     assert set(executor) == set(legacy_reject)
     for key in ("ok", "canvas_apply_allowed", "apply_allowed", "queue_allowed", "contract_version"):
         assert executor[key] == legacy_reject[key], f"{key} must match across families"
-

@@ -64,6 +64,8 @@ export const STAGED_WEB_MODULES = [
   "mutation_materialization_v1.js",
   "legacy_migration_v1.js",
   "journal_durable_v1.js",
+  "_intent_graph_receipt_core.mjs",
+  "_prepared_plan_builder_v1.mjs",
 ];
 
 // Relative imports that intentionally escape the web module directory.  They

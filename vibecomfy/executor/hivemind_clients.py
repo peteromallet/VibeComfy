@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlencode
 
 # R2-B2: reuse the pack resolver's Retry-After parser (seconds or HTTP date)
@@ -390,31 +390,44 @@ def _distinctive_tokens(query: str) -> list[str]:
 
 
 def _hivemind_single_or_phrase_ilike(query: str) -> str | None:
-    """Build ``or=(title.ilike.*Q*,body.ilike.*Q*)`` for this one query.
+    """Build ``or=(title.ilike.*T1*,body.ilike.*T1*,title.ilike.*T2*,…)``.
 
-    ``Q`` is the distinctive tokens joined with a single space (one token
-    if only one remains). Returns None only when no distinctive token remains.
+    One per-token ``ilike`` pattern per distinctive token (title and body),
+    all ORed, so a multi-word query degrades to index-friendly single-token
+    matches instead of one leading-wildcard phrase.  Multi-word phrases
+    (``*minimax distillation*``) force Postgres to scan the large
+    ``unified_feed`` body column and blow its statement budget (HTTP 500 /
+    SQLSTATE 57014) — the messages scope then reads as UNAVAILABLE even when
+    the corpus has relevant rows.  Per-token OR is index-friendly (~0.2s vs
+    7.5s+ phrase timeout) and client-side relevance ranking
+    (``_rank_hivemind_rows``) still favors rows covering multiple tokens.
+    Returns None only when no distinctive token remains.
     """
     tokens = _distinctive_tokens(query)
     if not tokens:
         return None
-    q = " ".join(tokens)
-    return f"(title.ilike.*{q}*,body.ilike.*{q}*)"
     patterns: list[str] = []
-    seen: set[str] = set()
-    for term in search_terms:
-        for raw in term.split():
-            token = re.sub(r"[^a-zA-Z0-9_-]", "", raw)
-            if not token:
-                continue
-            key = token.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            patterns.append(f"title.ilike.*{token}*")
-            patterns.append(f"body.ilike.*{token}*")
-    if not patterns:
+    for token in tokens:
+        patterns.append(f"title.ilike.*{token}*")
+        patterns.append(f"body.ilike.*{token}*")
+    return "(" + ",".join(patterns[:16]) + ")"
+
+
+def _hivemind_message_ilike(query: str) -> str | None:
+    """Build ``or=(content.ilike.*T1*,content.ilike.*T2*,…)`` for message_feed.
+
+    message_feed has no ``title``/``body`` columns — only ``content`` — so
+    the per-token OR must target ``content`` alone (REC-D).  Same token
+    extraction as the view variant: distinctive tokens only, cap 8, so the
+    fast raw table stays fast and stopword-only queries return None (scope
+    skipped rather than flooded).
+    """
+    tokens = _distinctive_tokens(query)
+    if not tokens:
         return None
+    patterns: list[str] = []
+    for token in tokens:
+        patterns.append(f"content.ilike.*{token}*")
     return "(" + ",".join(patterns[:16]) + ")"
 
 
@@ -426,10 +439,14 @@ def _first_text(item: dict[str, Any], *keys: str) -> str:
     return ""
 
 
-def _workflow_semantics(item: dict[str, Any]) -> dict[str, Any]:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+def _workflow_semantics(item: Mapping[str, Any]) -> dict[str, Any]:
+    # Accept any Mapping (plain dict OR the mappingproxy that frozen
+    # ToolResults produce when converting nested dicts) — an
+    # isinstance(..., dict) check silently returns {} for mappingproxy
+    # metadata, which hid every workflow's semantics from the digest.
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
     semantics = metadata.get("workflow_semantics")
-    return semantics if isinstance(semantics, dict) else {}
+    return semantics if isinstance(semantics, Mapping) else {}
 
 
 def _workflow_semantics_text(item: dict[str, Any]) -> str:
@@ -669,17 +686,28 @@ _HIVEMIND_TABLE_ID_COLUMNS = {
 _SOURCE_TYPE_SCOPES: dict[str | None, tuple[tuple[str, str], ...]] = {
     None: (
         ("external_resources", "workflow"),
-        ("unified_feed", "message"),
+        # REC-D: the discord message scope queries the raw ``message_feed``
+        # table, NOT the ``unified_feed`` view.  The view joins
+        # message_feed + external_resources + distillations into one
+        # body-heavy projection, and a leading-wildcard per-token OR over it
+        # with ``kind=eq.message`` repeatedly blew the backend statement
+        # budget (HTTP 500 / SQLSTATE 57014, observed live on 2026-08-19:
+        # every research-phase search failed) even though the identical OR
+        # against the raw ``message_feed`` table answers in ~0.2-0.4s.
+        # message_feed's native columns (``content`` / ``channel_name`` /
+        # ``author_name``) map cleanly onto the hit shape, and its natural id
+        # column (``message_id``) keeps ``hivemind_get`` resolution working.
+        ("message_feed", "message"),
         ("unified_feed", "distillation"),
     ),
     "workflow": (("external_resources", "workflow"),),
-    "discord": (("unified_feed", "message"),),
+    "discord": (("message_feed", "message"),),
     "distillation": (("unified_feed", "distillation"),),
 }
 
 # Candidate pool fetched per scope.  Fixed so pagination (client-side offset
 # over the deterministically ordered pool) is stable across calls.
-_SCOPE_FETCH_LIMIT = 20
+_SCOPE_FETCH_LIMIT = 100
 
 
 def _evidence_id(table: str, row: Mapping[str, Any]) -> str | None:
@@ -759,10 +787,12 @@ def _hivemind_scope_params(
     params: dict[str, str] = {
         "select": "*",
         "limit": str(limit),
-        "order": "created_at.desc",
     }
 
     if table == "external_resources":
+        # external_resources is a small, indexed table: a server-side recency
+        # sort is cheap and gives a stable candidate pool.
+        params["order"] = "created_at.desc"
         if channel or author:
             # external_resources carries no channel/author columns: the scope
             # is skipped rather than guessed at.
@@ -785,8 +815,65 @@ def _hivemind_scope_params(
             containment["has_workflow_json"] = has_workflow
         if containment:
             params["metadata"] = _json_containment(containment)
+    elif table == "message_feed":
+        # REC-D: discord-message scope queries the raw message_feed table
+        # (fast, ~0.2-0.4s for the per-token OR) rather than the unified_feed
+        # view (which repeatedly blew the statement budget — see the scope map
+        # comment).  Native columns: content / channel_name / author_name.
+        # Server-side recency ordering is affordable on this table even
+        # unscoped, so the candidate pool is deterministic (most-recent-first)
+        # instead of an arbitrary LIMIT-100 slice — the search lottery is gone.
+        params["order"] = "created_at.desc"
+        text_or = _hivemind_message_ilike(query)
+        or_groups: list[str] = []
+        if text_or:
+            or_groups.append(text_or)
+        if model_family:
+            aliases = _HIVEMIND_SEMANTIC_FAMILY_TERMS.get(
+                model_family.casefold(), (model_family,)
+            )
+            family_or = _hivemind_message_ilike(
+                " ".join(aliases) if isinstance(aliases, (list, tuple)) else str(aliases)
+            )
+            if family_or:
+                or_groups.append(family_or)
+        if capability:
+            aliases = _HIVEMIND_SEMANTIC_TASK_TERMS.get(
+                capability.casefold(), (capability,)
+            )
+            capability_or = _hivemind_message_ilike(
+                " ".join(aliases) if isinstance(aliases, (list, tuple)) else str(aliases)
+            )
+            if capability_or:
+                or_groups.append(capability_or)
+        if node_class:
+            node_or = _hivemind_message_ilike(node_class)
+            if node_or:
+                or_groups.append(node_or)
+        if len(or_groups) == 1:
+            params["or"] = or_groups[0]
+        elif len(or_groups) > 1:
+            params["and"] = _nested_or_params(or_groups)
+        if channel:
+            params["channel_name"] = f"eq.{channel}"
+        if author:
+            params["author_name"] = f"eq.{author}"
     elif table == "unified_feed":
         params["kind"] = f"eq.{kind}"
+        # REC-C: unified_feed (Discord messages + distillations) is large and
+        # body-heavy. Two query shapes blew the backend statement budget
+        # (HTTP 500 / SQLSTATE 57014), making message-scope searches return
+        # UNAVAILABLE while the workflow scope still worked:
+        #   1. A multi-word leading-wildcard phrase
+        #      (``title.ilike.*minimax distillation*,body.ilike.*…*``) — full
+        #      scan Postgres cannot finish; per-token OR is index-friendlier.
+        #   2. A server-side ``order=created_at.desc`` over the full ILIKE
+        #      match set — sorting the huge result set before LIMIT kills it.
+        #      The transport re-ranks client-side (``_order_hivemind_rows``),
+        #      so server ordering is redundant here and is omitted.
+        # ``_hivemind_single_or_phrase_ilike`` emits the per-token OR and
+        # returns None for stopword-only queries (no distinctive tokens) so
+        # the scope is skipped rather than flooded with a useless broad OR.
         text_or = _hivemind_single_or_phrase_ilike(query)
         or_groups: list[str] = []
         if text_or:
@@ -813,13 +900,12 @@ def _hivemind_scope_params(
             params["or"] = or_groups[0]
         elif len(or_groups) > 1:
             params["and"] = _nested_or_params(or_groups)
-        if channel:
-            params["channel"] = f"eq.{channel}"
-        if author:
-            params["author"] = f"eq.{author}"
+        # unified_feed is now used for the distillation scope only; Discord
+        # message search (with its channel/author filters) lives on the raw
+        # message_feed table (REC-D).  No channel/author mapping here.
         if has_workflow is not None:
             params["metadata"] = _json_containment({"has_workflow": has_workflow})
-    else:  # pragma: no cover - message_feed is not a search scope
+    else:  # pragma: no cover - unknown table
         return None
 
     if date_from and date_to:

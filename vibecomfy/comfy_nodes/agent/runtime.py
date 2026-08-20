@@ -109,7 +109,7 @@ _MODEL_ATTEMPT_CAPTURE: contextvars.ContextVar[list[dict[str, Any]] | None] = co
 
 _CANONICAL_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _NATIVE_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
-_OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-pro")
+_OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-flash-0731")
 _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 # Cluster B: a 2048-token ceiling truncated deepseek-v4-flash classify/reply
 # turns (finish_reason="length" → prose instead of the required JSON). 16K
@@ -466,7 +466,9 @@ def _normalize_native_deepseek_model(model: str) -> str:
     "The supported API model names are deepseek-v4-pro or deepseek-v4-flash, but
     you passed deepseek/deepseek-v4-flash."  Strip both the ``openrouter:``
     route prefix and any ``deepseek/`` provider segment when pointed at the
-    native endpoint.
+    native endpoint.  OpenRouter's dated aliases (``deepseek-v4-flash-0731``)
+    are also OpenRouter-only — the native API has no dated revisions, so the
+    alias is mapped back to the bare revision it pins (``deepseek-v4-flash``).
     """
     stripped = _strip_provider_prefix(model, "openrouter")
     # Drop a leading "deepseek/" provider segment (OpenRouter-format slug).
@@ -474,6 +476,12 @@ def _normalize_native_deepseek_model(model: str) -> str:
         provider_seg, _, model_seg = stripped.partition("/")
         if provider_seg.lower() == "deepseek" and model_seg:
             stripped = model_seg
+    # Map dated OpenRouter aliases to the bare native name they pin.
+    # ``deepseek-v4-<family>-<revision>`` -> ``deepseek-v4-<family>``.
+    for family in ("flash", "pro"):
+        marker = f"deepseek-v4-{family}-"
+        if stripped.startswith(marker) and stripped[len(marker):].isdigit():
+            stripped = f"deepseek-v4-{family}"
     return stripped
 
 

@@ -1450,6 +1450,32 @@ class TestParseClassifyResponse:
         d = parse_classify_response(raw)
         assert d.research is True
 
+    def test_json_with_trailing_prose_containing_braces(self) -> None:
+        """The greedy {.*} fallback matched past the object's closing brace
+        when the model appended prose containing {} (e.g. "the {LoRA}
+        distillation"), so json.loads failed on otherwise-valid JSON and the
+        whole classify turn died with a bogus "workflow validation errors"
+        envelope.  Extraction must stop at the FIRST balanced object."""
+        raw = (
+            '{\n  "research": false,\n  "implement": false,\n  "reply": true,\n'
+            '  "effort": "low",\n  "plan_summary": "Clarify the user\'s request"\n}\n'
+            "Note: the user asked about distillation {LoRA} for Minimax video."
+        )
+        d = parse_classify_response(raw)
+        assert d.research is False
+        assert d.implement is False
+        assert d.reply is True
+        assert d.plan_summary == "Clarify the user's request"
+
+    def test_json_with_braces_inside_string_values(self) -> None:
+        """Braces inside quoted string values must not confuse the scanner."""
+        raw = (
+            '{"research": false, "implement": false, "reply": true, "effort": "low", '
+            '"plan_summary": "Use {Ksampler} with cfg 7"} then done'
+        )
+        d = parse_classify_response(raw)
+        assert d.plan_summary == "Use {Ksampler} with cfg 7"
+
     def test_research_direction_metadata_round_trips(self) -> None:
         raw = json.dumps(
             {

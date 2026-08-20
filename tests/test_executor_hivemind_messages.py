@@ -128,8 +128,10 @@ class TestDistinctiveTokens:
         assert len(tokens) == 8
 
     def test_single_or_phrase_ilike(self) -> None:
+        # REC-C: per-token OR (index-friendly) instead of one multi-word
+        # leading-wildcard phrase, which timed out on unified_feed (57014).
         assert _hivemind_single_or_phrase_ilike("ltx 2.5") == (
-            "(title.ilike.*ltx 2.5*,body.ilike.*ltx 2.5*)"
+            "(title.ilike.*ltx*,body.ilike.*ltx*,title.ilike.*2.5*,body.ilike.*2.5*)"
         )
         assert _hivemind_single_or_phrase_ilike("ltx") == (
             "(title.ilike.*ltx*,body.ilike.*ltx*)"

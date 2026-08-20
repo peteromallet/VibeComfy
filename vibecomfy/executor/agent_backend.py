@@ -102,6 +102,25 @@ def _downstream_failure_type(raw: str | None) -> str:
     return "missing_required_fields" if isinstance(parsed, dict) else "non_json_content"
 
 
+def _classify_retry_messages(
+    messages: list[dict[str, Any]],
+    exc: BaseException,
+) -> list[dict[str, Any]]:
+    """Append the corrective classify retry nudge (with redacted raw preview)
+    to the classify messages, mirroring the research decision seam."""
+    from vibecomfy.executor.prompts import _CLASSIFY_PARSE_RETRY_PROMPT
+
+    prompt = _CLASSIFY_PARSE_RETRY_PROMPT
+    raw_preview = getattr(exc, "raw_response_preview", None)
+    if isinstance(raw_preview, str) and raw_preview.strip():
+        prompt = (
+            f"{prompt}\n\n"
+            "Previous response preview, for correction only:\n"
+            f"{raw_preview.strip()}"
+        )
+    return [*messages, {"role": "system", "content": prompt}]
+
+
 def _record_result_attempts(result: dict[str, Any]) -> None:
     from vibecomfy.comfy_nodes.agent.runtime import record_model_attempts
 
@@ -186,41 +205,56 @@ def run_classify_turn(
     ) as span:
         from vibecomfy.comfy_nodes.agent.provider import run_model_turn
 
-        result = run_model_turn(
-            query,
-            messages,
-            route=route,
-            model=model,
-            effort=effort,
-            response_contract="json",
-            profiling_context={"backend_phase": "classify"},
-        )
-        raw: str | None = None
-        try:
-            raw = _extract_content(result)
-            decision = parse_classify_response(raw)
-        except Exception as exc:  # noqa: BLE001 - attach evidence, then re-raise
-            _mark_last_attempt_failed(
-                result,
-                raw=raw,
-                failure_type=_downstream_failure_type(raw),
-            )
-            _attach_model_turn_evidence(
-                exc,
-                result,
+        # Bounded corrective retry on PARSE failures only: a malformed/empty
+        # classifier reply (or valid JSON plus trailing prose with braces that
+        # breaks extraction) is retried with a corrective system message
+        # carrying the redacted preview — mirroring the research decision
+        # seam.  Provider-level failures (AuthError/TimeoutError/ProviderError)
+        # propagate immediately and are never masked by a retry.
+        attempts = 3
+        current_messages = messages
+        last_exc: ValueError | None = None
+        for attempt_index in range(attempts):
+            if attempt_index > 0 and last_exc is not None:
+                current_messages = _classify_retry_messages(messages, last_exc)
+            result = run_model_turn(
+                query,
+                current_messages,
+                route=route,
                 model=model,
-                phase="classify",
-                raw=raw,
+                effort=effort,
+                response_contract="json",
+                profiling_context={"backend_phase": "classify"},
             )
-            raise
-        _record_result_attempts(result)
-        span.update(
-            content_length=len(raw),
-            plan_research=decision.research,
-            plan_implement=decision.implement,
-            plan_reply=decision.reply,
-        )
-        return decision
+            raw: str | None = None
+            try:
+                raw = _extract_content(result)
+                decision = parse_classify_response(raw)
+                _record_result_attempts(result)
+                span.update(
+                    content_length=len(raw),
+                    plan_research=decision.research,
+                    plan_implement=decision.implement,
+                    plan_reply=decision.reply,
+                )
+                return decision
+            except ValueError as exc:
+                last_exc = exc
+                _mark_last_attempt_failed(
+                    result,
+                    raw=raw,
+                    failure_type=_downstream_failure_type(raw),
+                )
+                _attach_model_turn_evidence(
+                    exc,
+                    result,
+                    model=model,
+                    phase="classify",
+                    raw=raw,
+                )
+                if attempt_index >= attempts - 1:
+                    raise
+        raise last_exc  # pragma: no cover - loop above always returns or raises
 
 
 def run_reply_turn(

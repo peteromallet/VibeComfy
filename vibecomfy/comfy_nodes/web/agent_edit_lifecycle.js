@@ -2270,6 +2270,37 @@ function _handleChatRehydrateNoSession(panel, payload) {
   if (_isStaleChatRehydrate(panel, payload?.requestEpoch)) {
     return { render: false, stale: true };
   }
+  // A fresh-session submit races this rehydrate: SCOPE_SWITCH fires
+  // rehydrateChat while the submit is still pushing its optimistic user
+  // bubble, and the recover fetch can resolve AFTER that push (the turn is
+  // not durable yet, so no session is found).  Wiping chatMessages here
+  // deletes the user's just-painted message mid-submit — the observed
+  // "my sent message disappears".  While SUBMITTING, preserve in-flight
+  // optimistic entries (reconcile with an empty canonical set) instead of
+  // clearing them.
+  if (panel.state.phase === PANEL_STATE.SUBMITTING) {
+    const existingProjection = splitRehydrateProjectionInput({
+      messages: Array.isArray(panel.state.chatMessages) ? panel.state.chatMessages : [],
+    });
+    const reconciled = reconcileChatMessages(
+      existingProjection.normalTranscriptMessage,
+      [],
+      panel.state,
+    );
+    panel.state.chatMessages = reconciled;
+    panel.state.transcriptMessages = reconciled.slice();
+    panel.state.chatLoaded = false;
+    panel.state.chatRehydratePending = false;
+    panel.state.chatError = null;
+    panel.state.chatSessionPath = null;
+    panel.state.chatDetailJsonPath = null;
+    panel.state.chatSessionPathResolved = null;
+    panel.state.chatDetailJsonPathResolved = null;
+    return _obligations({
+      render: false,
+      dirtySections: THREAD_DIRTY_SECTIONS,
+    });
+  }
   panel.state.chatMessages = [];
   Object.assign(panel.state, createAgentStateCompartments());
   panel.state.chatLoaded = false;
@@ -2292,6 +2323,32 @@ function _handleChatRehydrateMissingSession(panel, payload) {
   const confirmedSessionId = typeof payload?.sessionId === "string" ? payload.sessionId : null;
   if (confirmedSessionId && panel.state.sessionId === confirmedSessionId) {
     panel.state.sessionId = null;
+  }
+  // Same submit race guard as _handleChatRehydrateNoSession: never wipe the
+  // in-flight optimistic thread while a submit is painting it.
+  if (panel.state.phase === PANEL_STATE.SUBMITTING) {
+    const existingProjection = splitRehydrateProjectionInput({
+      messages: Array.isArray(panel.state.chatMessages) ? panel.state.chatMessages : [],
+    });
+    const reconciled = reconcileChatMessages(
+      existingProjection.normalTranscriptMessage,
+      [],
+      panel.state,
+    );
+    panel.state.chatMessages = reconciled;
+    panel.state.transcriptMessages = reconciled.slice();
+    panel.state.chatLoaded = true;
+    panel.state.chatRehydratePending = false;
+    panel.state.chatError = null;
+    panel.state.chatSessionPath = null;
+    panel.state.chatDetailJsonPath = null;
+    panel.state.chatSessionPathResolved = null;
+    panel.state.chatDetailJsonPathResolved = null;
+    return _obligations({
+      render: false,
+      dirtySections: confirmedSessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS,
+      forgetSession: true,
+    });
   }
   panel.state.chatMessages = [];
   Object.assign(panel.state, createAgentStateCompartments());

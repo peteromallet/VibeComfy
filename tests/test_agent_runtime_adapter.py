@@ -8,6 +8,7 @@ import sys
 import tempfile
 import textwrap
 import time
+from typing import Any
 
 import pytest
 
@@ -103,7 +104,7 @@ def test_agent_edit_contract_model_uses_openrouter_default(monkeypatch: pytest.M
     )
 
     assert kwargs["provider"] == "openrouter"
-    assert kwargs["model"] == "deepseek/deepseek-v4-pro"
+    assert kwargs["model"] == "deepseek/deepseek-v4-flash-0731"
 
 
 def test_openrouter_readiness_does_not_report_contract_model(
@@ -115,7 +116,7 @@ def test_openrouter_readiness_does_not_report_contract_model(
 
     assert readiness["ready"] is True
     assert readiness["route"] == "openrouter"
-    assert readiness["model"] == "deepseek/deepseek-v4-pro"
+    assert readiness["model"] == "deepseek/deepseek-v4-flash-0731"
 
 
 def test_hermes_route_readiness_maps_to_openrouter(
@@ -127,7 +128,7 @@ def test_hermes_route_readiness_maps_to_openrouter(
 
     assert readiness["ready"] is True
     assert readiness["route"] == "openrouter"
-    assert readiness["model"] == "deepseek/deepseek-v4-pro"
+    assert readiness["model"] == "deepseek/deepseek-v4-flash-0731"
 
 
 def test_normalize_route_maps_hermes_to_openrouter() -> None:
@@ -861,6 +862,66 @@ def test_successful_classify_and_reply_attempts_reach_executor_capture(
     assert all(item["outcome"] == "success" for item in attempts)
 
 
+def test_classify_malformed_first_reply_is_retried_with_corrective_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuinely unparseable first classify reply must be retried with a
+    corrective system message carrying the redacted preview — not fail the
+    whole turn with a bogus validation-error envelope."""
+    calls: list[list[dict[str, Any]]] = []
+
+    def fake_model_turn(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        captured = list(args[1]) if len(args) > 1 else list(kwargs.get("messages") or [])
+        calls.append(captured)
+        if len(calls) == 1:
+            # Genuinely unparseable first reply (prose only) — the retry must
+            # recover it with the corrective nudge.
+            content = "Let me think about the distillation {LoRA} question first."
+        else:
+            content = (
+                '{"research": false, "implement": false, "reply": true, '
+                '"effort": "low", "plan_summary": "Clarify the request"}'
+            )
+        attempt = {**_canonical_success_attempt(), "phase": "classify"}
+        return {"content": content, "json": json.loads(content) if len(calls) > 1 else None, "model_attempts": [attempt]}
+
+    monkeypatch.setattr(agent_provider, "run_model_turn", fake_model_turn)
+    decision = run_classify_turn("Which distillation lora for Minimax should I use???", route="openrouter", model="requested/model")
+
+    # Exactly two provider calls: the malformed first + the corrective retry.
+    assert len(calls) == 2
+    # The retry call carries the corrective nudge with the raw preview.
+    retry_message = calls[1][-1]
+    assert retry_message["role"] == "system"
+    assert "classify contract" in retry_message["content"]
+    assert "Previous response preview" in retry_message["content"]
+    assert "{LoRA}" in retry_message["content"]
+    # The recovered decision is the one from the retry.
+    assert decision.research is False
+    assert decision.implement is False
+    assert decision.reply is True
+
+
+def test_classify_never_retries_provider_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider-level failures (AuthError) must NOT be masked by the
+    corrective retry — they propagate immediately."""
+    from vibecomfy.comfy_nodes.agent.provider import AuthError
+
+    calls = 0
+
+    def fake_model_turn(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nonlocal calls
+        calls += 1
+        raise AuthError("provider rejected credentials")
+
+    monkeypatch.setattr(agent_provider, "run_model_turn", fake_model_turn)
+    with pytest.raises(AuthError):
+        run_classify_turn("hello", route="openrouter", model="requested/model")
+    assert calls == 1  # never retried
+
+
 # ── B07-lite: explicit transport pinning beats ambient credentials ───────────
 
 
@@ -887,7 +948,9 @@ def test_transport_native_pin_overrides_ambient_openrouter_credentials(
     )
     assert kwargs["base_url"] == "https://api.deepseek.com/v1"
     assert kwargs["api_key"] == "sk-native-key"
-    assert kwargs["model"] == "deepseek-v4-pro"
+    # route="unknown" drops the explicit model and resolves the runtime
+    # OpenRouter default, normalized to the bare native slug.
+    assert kwargs["model"] == "deepseek-v4-flash-0731"
 
 
 def test_transport_openrouter_pin_overrides_ambient_native_credentials(
@@ -917,7 +980,9 @@ def test_transport_openrouter_pin_overrides_ambient_native_credentials(
     )
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["api_key"] == "sk-or-ambient"
-    assert kwargs["model"] == "deepseek/deepseek-v4-pro"
+    # route="unknown" drops the explicit model and resolves the runtime
+    # OpenRouter default.
+    assert kwargs["model"] == "deepseek/deepseek-v4-flash-0731"
 
 
 def test_transport_default_is_deterministic_openrouter_ignoring_ambient_base_url(

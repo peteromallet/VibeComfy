@@ -186,9 +186,11 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
         question: str,
         spec: AgentSpecShape,
         research_brief: str = "",
+        deadline_seconds: float | None = None,
     ) -> tuple[AgentResearchTrace, EvidencePack]:
         del research_brief
         del spec
+        del deadline_seconds
         ledger = EvidenceLedger(
             entries=(
                 EvidenceLedgerEntry(
@@ -668,6 +670,11 @@ class TestAgentOwnedResearchFlow:
             "citations": [],
             "uncertainty": "low Requested source 'web' is unavailable in the active C1 research stage; it was not silently substituted or removed.",
             "next_action": "Use this conclusion for the requested next step.",
+            "research_status": "ok",
+            "research_warnings": [],
+            "tool_calls_executed": 0,
+            "evidence_artifacts": 0,
+            "evidence_preview": "",
         }
         wire_research = result.to_dict()["report"]["executor"]["research"]
         assert wire_research["question"] == result.report.research.decision_memo["question"]
@@ -2172,11 +2179,87 @@ def test_research_package_usable_gate_matrix() -> None:
     assert executor_core._research_package_is_usable(ungrounded) is False
 
 
+def test_evidence_preview_on_exhaustion_includes_fetched_record_bodies() -> None:
+    """User decision: when research times out with gathered evidence, the
+    memo's evidence preview must include the FETCHED RECORD BODIES (the
+    substance the agent read), not just search-hit titles — a time cutoff
+    must not drop the research that was actually done."""
+    from vibecomfy.executor.evidence_pack import EvidenceArtifact
+    from vibecomfy.executor.agent_research_stage import AgentResearchIteration
+
+    iterations = (
+        AgentResearchIteration(
+            iteration=1,
+            question="Which distillation LoRA?",
+            tool_calls=(
+                {"tool": "hivemind_search", "status": "ok", "query": "minimax lora",
+                 "conclusion": "10 hit(s): MiniMax H3 Turbo LoRA | ..."},
+            ),
+            synthesis={},
+            verdict="refine",
+        ),
+        AgentResearchIteration(
+            iteration=2,
+            question="Which distillation LoRA?",
+            tool_calls=(
+                {"tool": "hivemind_get", "status": "ok", "query": "hivemind:external_resources:3198",
+                 "evidence_ids": ["hivemind_get:external_resources:3198"],
+                 "conclusion": "workflow record hivemind:external_resources:3198"},
+            ),
+            synthesis={},
+            verdict="refine",
+        ),
+    )
+    trace = AgentResearchTrace(
+        route="research",
+        question="Which distillation LoRA?",
+        iterations=iterations,
+        final_verdict="refine",
+        summary="",
+        citations=(),
+        uncertainty="",
+        status="exhausted",
+        elapsed_seconds=450.0,
+        executed_tool_calls=2,
+        evidence_artifact_count=1,
+        warnings=("research stage stopped without an agent finish",),
+    )
+    artifacts = {
+        "hivemind_get:external_resources:3198": EvidenceArtifact(
+            evidence_id="hivemind_get:external_resources:3198",
+            kind="hivemind_record",
+            body={
+                "title": "MiniMax H3 I2V with Turbo LoRA",
+                "kind": "workflow",
+                "body": "Generates a video using the Turbo LoRA path.",
+                "url": "https://example.com/wf.json",
+            },
+            source="hivemind",
+        ),
+    }
+    preview = executor_core._research_evidence_preview(
+        trace, artifacts=artifacts, max_chars=2000
+    )
+    # The fetched record body is included — the substance of the research.
+    assert "fetched hivemind_get:external_resources:3198" in preview
+    assert "MiniMax H3 I2V with Turbo LoRA" in preview
+    assert "Generates a video using the Turbo LoRA path" in preview
+    # Search-hit titles are still there too.
+    assert "hivemind_search" in preview
+    # Payload never enters the preview.
+    assert "payload" not in preview.lower() or "never" in preview
+
+    # Without artifacts (no fetched bodies available), hits-only still works.
+    hits_only = executor_core._research_evidence_preview(trace, max_chars=2000)
+    assert "hivemind_search" in hits_only
+    assert "fetched hivemind_get" not in hits_only
+
+
 def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Path) -> None:
     """P0-b end-to-end: run_executor with a failing research stage returns a
     research-stage failure and never calls handle_agent_edit."""
-    def failing_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
-        del route, question, spec, research_brief
+    def failing_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "", deadline_seconds: float | None = None) -> tuple[AgentResearchTrace, EvidencePack]:
+        del route, question, spec, research_brief, deadline_seconds
         return _failed_research_trace(), EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=()))
 
     with mock.patch(

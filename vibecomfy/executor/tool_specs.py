@@ -146,10 +146,22 @@ def _hivemind_search_projector(
             source="hivemind",
         )
     ids = tuple(artifacts)
-    titles = [_shorten_query_text(hit.get("title") or hit.get("body") or "", max_chars=80) for hit in hits]
+    # Empty title AND body rows (embeds, image-only Discord messages) must not
+    # leak empty segments into the joined conclusion: ``"a | "`` / ``" | a"``
+    # breaks the compact ledger contract (no leading/trailing whitespace) and
+    # crashes the stage on entry construction.  Filter empties, then rstrip
+    # the slice — the 380-char cut can also land mid-separator.
+    titles = [
+        text
+        for text in (
+            _shorten_query_text(hit.get("title") or hit.get("body") or "", max_chars=80)
+            for hit in hits
+        )
+        if text
+    ]
     conclusion = f"{len(hits)} hit(s)"
     if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
+        conclusion += ": " + " | ".join(titles)[:380].rstrip()
     entry = _ledger_entry_dict(
         decision=f"hivemind_search {_tool_arg_summary(args)}",
         conclusion=conclusion,
@@ -219,10 +231,19 @@ def _web_search_projector(
             source="web",
         )
     ids = tuple(artifacts)
-    titles = [_shorten_query_text(item.get("title") or "", max_chars=80) for item in results]
+    # Same empty-title contract as hivemind_search: never emit a joined
+    # conclusion with leading/trailing whitespace from empty title rows.
+    titles = [
+        text
+        for text in (
+            _shorten_query_text(item.get("title") or "", max_chars=80)
+            for item in results
+        )
+        if text
+    ]
     conclusion = f"{len(results)} result(s)"
     if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
+        conclusion += ": " + " | ".join(titles)[:380].rstrip()
     entry = _ledger_entry_dict(
         decision=f"web_search {_tool_arg_summary(args)}",
         conclusion=conclusion,
@@ -703,7 +724,18 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         phase=PHASE_RESEARCH,
         description=(
             "search the Hivemind corpus (Discord community, external resources, "
-            "curated distillations) for workflow precedents and community knowledge"
+            "curated distillations) for workflow precedents and community knowledge. "
+            "Choose filters.source_type by what you need: \"workflow\" for an exact "
+            "graph precedent (class types, node wiring, settings to preserve); "
+            "\"discord\" for community knowledge and recommendations (what people "
+            "actually use, model/lora recommendations, settings, gotchas); "
+            "\"distillation\" for curated Q&A. For \"discord\", pass "
+            "filters.channel (e.g. \"minimax_h3_chatter\") to scope to a relevant "
+            "channel and get the most recent messages first. "
+            "Terminology: a 'distillation LoRA' (fast/streaming/turbo/speed LoRA) "
+            "is a MODEL type, NOT the 'distillation' source_type (curated Q&A) — "
+            "search discord/workflow for distillation LoRAs, not source_type "
+            "\"distillation\"."
         ),
         positional_names=("query",),
         keywords=("query", "filters", "cursor", "limit", "timeout"),

@@ -936,28 +936,23 @@ class TestR2AgentTrustPromptSurface:
         assert "deterministic validation owns that" in system
         assert "queue blockers" in system
 
-    def test_research_digest_shows_remaining_budget_each_turn(self) -> None:
+    def test_research_digest_shows_time_left_only(self) -> None:
         from vibecomfy.executor.agent_research_stage import build_evidence_digest
 
         digest = build_evidence_digest(
             question="q",
             tool_calls=[],
             artifacts={},
-            searches_left=2,
-            fetches_left=5,
-            registry_left=1,
-            turns_left=12,
             seconds_left=200,
         )
-        assert "Remaining budget:" in digest
-        assert "2 search(es)" in digest
-        assert "5 fetch(es)" in digest
-        assert "1 registry lookup(s)" in digest
-        assert "12 turn(s)" in digest
-        assert "~200s" in digest
-        # No counters supplied -> compact digest unchanged (no budget line).
+        # Minimal-budget plan: time is the ONLY remaining budget shown.
+        assert "Time left: ~200s." in digest
+        assert "Remaining budget:" not in digest
+        assert "search(es)" not in digest
+        assert "fetch(es)" not in digest
+        # No counters supplied -> no time line, still compact.
         plain = build_evidence_digest(question="q", tool_calls=[], artifacts={})
-        assert "Remaining budget:" not in plain
+        assert "Time left:" not in plain
 
     def test_research_prompt_carries_full_brief_and_consumer_contract(self) -> None:
         from vibecomfy.executor.agent_research_stage import build_agent_research_messages
@@ -982,19 +977,23 @@ class TestR2AgentTrustPromptSurface:
         # Consumer contract: the implement agent consumes the synthesis.
         assert "IMPLEMENT agent turns your synthesis" in all_text
         assert "fetch every Hivemind record" in all_text
-        # Honest budgets in the research-stage prompt.
-        assert "16 decision turns" in all_text
-        assert "~240s" in all_text
+        # Minimal-budget prompt: unbounded calls, wall-clock bound only.
+        assert "UNBOUNDED" in all_text
+        assert "Never request or dump workflow JSON payloads" in all_text
+        assert "16 decision turns" not in all_text
+        assert "~240s" not in all_text
 
     def test_research_stage_budgets_are_honest(self) -> None:
         from vibecomfy.executor import agent_research_stage as stage
 
-        assert stage.TOOL_PHASE_DEADLINE_SECONDS == 240.0
-        assert stage._MAX_TURNS == 16
+        # Minimal-budget plan: 7.5-minute wall clock, NO production turn cap.
+        assert stage.TOOL_PHASE_DEADLINE_SECONDS == 450.0
+        assert stage._MAX_TURNS is None
 
     def test_research_deadline_enforced_after_provider_call(self) -> None:
-        """A slow provider decision turn cannot slip past the deadline and
-        still execute a tool call."""
+        """A slow provider decision turn cannot silently overrun the budget —
+        but a decided tool call is never dropped: it executes, its evidence is
+        preserved, and the loop stops after the call."""
         from vibecomfy.executor import agent_research_stage as stage
 
         calls: dict[str, int] = {"judge": 0, "tool": 0}
@@ -1027,8 +1026,11 @@ class TestR2AgentTrustPromptSurface:
             max_turns=10,
         )
         assert calls["judge"] == 1
-        assert calls["tool"] == 0, "deadline must stop before executing the tool call"
-        assert any("after the decision turn" in warning for warning in trace.warnings)
+        # The decided call executes even though the provider call overran;
+        # the loop stops on the next boundary, preserving the call's evidence.
+        assert calls["tool"] == 1, "a decided tool call must never be dropped"
+        assert any("after the tool call" in warning for warning in trace.warnings)
+        assert len(trace.iterations) == 1
 
     def test_research_deadline_enforced_after_tool_call(self) -> None:
         """A slow tool execution cannot silently overrun the budget; the

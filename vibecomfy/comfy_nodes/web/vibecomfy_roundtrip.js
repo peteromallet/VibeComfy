@@ -4245,10 +4245,42 @@ async function _rehydrateChat(panel) {
   const savedId = scopedSessionId || _lsGet(LS_ACTIVE_SESSION_KEY);
 
   if (!savedId) {
-    const noSessionObligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch });
-    fulfillAgentPanelCommitObligations(panel, noSessionObligations, "rehydrate");
-    resetThreadRenderState(panel);
-    return;
+    // ── Scope-switch recovery: the in-flight submit's scope→session binding
+    // may have been lost (a workflow-tab switch aborts the fetch and drops the
+    // stale response, while the server completes the turn and persists it
+    // durably).  Recover the session id from the durable store by the one
+    // identity the client still knows — the workflow UUID it submitted with —
+    // so the completed turn rehydrates instead of showing an empty thread.
+    let recoveredId = null;
+    if (requestScopeId) {
+      try {
+        const activeWorkflowId = resolveActiveWorkflowUuid();
+        if (activeWorkflowId) {
+          const recoverRes = await fetch(
+            `/vibecomfy/agent-edit/recover?workflow_id=${encodeURIComponent(activeWorkflowId)}`,
+          );
+          if (recoverRes.ok) {
+            const recoverPayload = await recoverRes.json();
+            const candidate = recoverPayload && typeof recoverPayload === "object"
+              ? recoverPayload.session_id
+              : null;
+            if (typeof candidate === "string" && candidate && panel.state.chatScopeId === requestScopeId) {
+              setScopedSessionId(requestScopeId, candidate);
+              recoveredId = candidate;
+            }
+          }
+        }
+      } catch (_recoverError) {
+        // Best-effort recovery; fall through to the no-session path.
+      }
+    }
+    if (!recoveredId) {
+      const noSessionObligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch });
+      fulfillAgentPanelCommitObligations(panel, noSessionObligations, "rehydrate");
+      resetThreadRenderState(panel);
+      return;
+    }
+    savedId = recoveredId;
   }
 
   try {
@@ -7940,51 +7972,6 @@ function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
   renderLifecycleTransition(panel, obligations);
 }
 
-// ── Paid-submit confirmation gate ─────────────────────────────────────────
-// The first agent-executor submit in a browser calls a real provider and
-// costs money (API/CLI quota). Ask once, persist the ack in localStorage, and
-// ALWAYS confirm the exact welcome-example prompts — clicking an example is a
-// demo, not a deliberate paid submission. Cancel = do not submit.
-const PAID_SUBMIT_ACK_KEY = "vibecomfy_paid_submit_ack";
-
-async function confirmPaidSubmitGate(panel, task) {
-  const isExamplePrompt = WELCOME_EXAMPLE_PROMPTS.includes(task);
-  if (!isExamplePrompt) {
-    try {
-      if (_lsGet(PAID_SUBMIT_ACK_KEY) === "1") {
-        return true;
-      }
-    } catch (_error) {
-      // Storage unavailable: still ask so the cost is never hidden.
-    }
-  }
-  const route = normalizeRoutePreference(
-    panel?.state?.routeStatus?.requestedRoute || panel?.fields?.route?.value,
-  );
-  const model = (panel?.fields?.model?.value && String(panel.fields.model.value).trim())
-    || panel?.state?.routeStatus?.model
-    || "default";
-  const routeLabel = ROUTE_LABELS[route] || route;
-  let confirmed = true;
-  try {
-    if (typeof globalThis.confirm === "function") {
-      confirmed = globalThis.confirm(
-        `Submit this edit through ${routeLabel} (model: ${model})? This calls the provider and costs money.`,
-      );
-    }
-  } catch (_error) {
-    // Non-interactive contexts (tests/harnesses) proceed without blocking.
-  }
-  if (confirmed && !isExamplePrompt) {
-    try {
-      _lsSet(PAID_SUBMIT_ACK_KEY, "1");
-    } catch (_error) {
-      // Best-effort persistence only.
-    }
-  }
-  return confirmed;
-}
-
 async function submitAgentEdit(panel, { taskOverride } = {}) {
   // A staged demo leaves panel.state.__demoMode set, which routes Apply/Reject
   // to the demo handlers and would mask this real edit with the demo's result.
@@ -8166,13 +8153,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       return;
     }
 
-    // Paid-submit confirmation gate: ask once per browser, and always for the
-    // exact welcome-example prompts. Nothing has been mutated yet, so a cancel
-    // simply aborts the submit and leaves the draft prompt in place.
-    if (!(await confirmPaidSubmitGate(panel, task))) {
-      return;
-    }
-
     // Clear the prompt box immediately on submit — the task is already captured
     // in `task`, and the rebaseline retry resubmits from lastSubmit.task, not here.
     if (promptEl && typeof promptEl.value === "string") {
@@ -8195,6 +8175,36 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       },
     });
     submitEpoch = startObligations.submitEpoch;
+
+    // ── Pin the user's message before ANY await ─────────────────────────
+    // The scope-switch rehydrate (SCOPE_SWITCH → rehydrateChat → recover
+    // fetch) can resolve mid-submit and CHAT_REHYDRATE_NO_SESSION used to
+    // wipe chatMessages — deleting the optimistic bubble the submit had just
+    // painted ("my sent message disappears").  Paint the user line + pending
+    // agent bubble HERE, before buildSubmitSnapshot yields, so the thread
+    // shows the message the instant Submit is hit.  The submit_epoch field
+    // (not the idempotency key) is what reconciliation uses to preserve
+    // in-flight optimistic entries, so a pre-snapshot placeholder key is safe.
+    if (!Array.isArray(panel.state.chatMessages)) {
+      panel.state.chatMessages = [];
+    }
+    clearPendingResponseMessages(panel);
+    panel.state.chatMessages.push(mutableTranscriptMessage({
+      role: "user",
+      text: task,
+      optimistic: true,
+      local_id: `submit-user:${submitEpoch}`,
+      submit_epoch: submitEpoch,
+      timestamp: new Date().toISOString(),
+    }));
+    const pendingProgress = createExecutorProgressSnapshot({ decide: "active" });
+    panel.state.executorProgress = pendingProgress;
+    panel.state.chatMessages.push(makePendingResponseChatMessage(panel, task, pendingProgress, submitEpoch));
+    panel.state.transcriptMessages = panel.state.chatMessages
+      .map(mutableTranscriptMessage)
+      .filter(Boolean);
+    ensureThreadRenderState(panel).forceScrollOnNextRender = true;
+    markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
 
     let snapshot;
     try {
@@ -8252,34 +8262,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     // returns the current epoch when payload.submitEpoch is supplied.
     submitEpoch = panel.state.submitEpoch;
     submitFlow.beginSubmitActivity(panel, submitEpoch);
-    // Optimistically surface the user's message in the chat thread the instant
-    // they hit Submit, instead of waiting for the server round-trip + rehydrate.
-    // Rehydrate replaces chatMessages wholesale and carries the server's own
-    // copy of this message, so there is no duplicate once the turn resolves.
-    if (!Array.isArray(panel.state.chatMessages)) {
-      panel.state.chatMessages = [];
-    }
-    clearPendingResponseMessages(panel);
-    // Stable local identity tied to submit epoch and idempotency key so
-    // rehydrate reconciliation can distinguish in-flight optimistic entries
-    // from stale/cancelled ones without duplicating or resurrecting messages.
-    const idempotencyKey = snapshot?.idempotencyKey || "";
-    panel.state.chatMessages.push(mutableTranscriptMessage({
-      role: "user",
-      text: task,
-      optimistic: true,
-      local_id: `submit-user:${submitEpoch}:${idempotencyKey}`,
-      submit_epoch: submitEpoch,
-      idempotency_key: idempotencyKey || undefined,
-      timestamp: new Date().toISOString(),
-    }));
-    const pendingProgress = createExecutorProgressSnapshot({ decide: "active" });
-    panel.state.executorProgress = pendingProgress;
-    panel.state.chatMessages.push(makePendingResponseChatMessage(panel, task, pendingProgress, submitEpoch));
-    panel.state.transcriptMessages = panel.state.chatMessages
-      .map(mutableTranscriptMessage)
-      .filter(Boolean);
-    ensureThreadRenderState(panel).forceScrollOnNextRender = true;
+    // The optimistic user bubble + pending agent message were already pinned
+    // BEFORE buildSubmitSnapshot (see above) so the user's line is visible the
+    // instant they hit Submit and cannot be raced by a rehydrate wipe.
     pushHistory(panel, "pending", pendingMessage);
     pushTurnStatus(panel, "pending", {
       task,

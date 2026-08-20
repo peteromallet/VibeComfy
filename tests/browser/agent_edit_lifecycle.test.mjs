@@ -3610,6 +3610,83 @@ test("CHAT_REHYDRATE_NO_SESSION clears only thread-visible chat state and leaves
   assert.equal(panel.state.chatDetailJsonPath, null);
 });
 
+test("CHAT_REHYDRATE_NO_SESSION preserves optimistic user bubble while SUBMITTING", () => {
+  // Regression: SCOPE_SWITCH on a fresh-session submit fires rehydrateChat,
+  // whose recover fetch resolves after the submit already painted the
+  // optimistic user bubble.  The old handler wiped chatMessages unconditionally
+  // — deleting the user's just-sent message mid-submit ("my message
+  // disappeared").  While SUBMITTING, in-flight optimistic entries must
+  // survive the no-session rehydrate.
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 7,
+    chatRehydrateEpoch: 4,
+    chatMessages: [
+      { role: "user", text: "Which distillation approach should I use??!", optimistic: true, submit_epoch: 7, local_id: "submit-user:7" },
+      { role: "agent", text: "", pending_response: true, executor_pending: true, optimistic: true, submit_epoch: 7, local_id: "executor-pending:7" },
+    ],
+    transcriptMessages: [
+      { role: "user", text: "Which distillation approach should I use??!", optimistic: true, submit_epoch: 7, local_id: "submit-user:7" },
+    ],
+  });
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", {
+    requestEpoch: 4,
+  });
+
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: THREAD_DIRTY_SECTIONS,
+  });
+  // The optimistic user line and pending agent bubble survive the wipe.
+  const texts = (panel.state.chatMessages || []).map((message) => message.text);
+  assert.ok(texts.includes("Which distillation approach should I use??!"), `got: ${texts.join(" | ")}`);
+  assert.ok(panel.state.chatMessages.some((message) => message.pending_response === true));
+  assert.equal(panel.state.chatLoaded, false);
+});
+
+test("CHAT_REHYDRATE_MISSING_SESSION preserves optimistic user bubble while SUBMITTING", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-old",
+    submitEpoch: 3,
+    chatRehydrateEpoch: 2,
+    chatMessages: [
+      { role: "user", text: "Keep me visible", optimistic: true, submit_epoch: 3, local_id: "submit-user:3" },
+    ],
+  });
+
+  transition(panel, "CHAT_REHYDRATE_MISSING_SESSION", {
+    requestEpoch: 2,
+    sessionId: "sess-old",
+  });
+
+  const texts = (panel.state.chatMessages || []).map((message) => message.text);
+  assert.ok(texts.includes("Keep me visible"), `got: ${texts.join(" | ")}`);
+  // The confirmed (now-forgotten) session id is still dropped.
+  assert.equal(panel.state.sessionId, null);
+});
+
+test("CHAT_REHYDRATE_NO_SESSION clears optimistic bubbles from a STALE submit epoch", () => {
+  // The SUBMITTING guard preserves only the CURRENT epoch's optimistic
+  // entries: stale/cancelled submits must still be wiped by reconcile.
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 9,
+    chatRehydrateEpoch: 4,
+    chatMessages: [
+      { role: "user", text: "stale message", optimistic: true, submit_epoch: 8, local_id: "submit-user:8" },
+      { role: "agent", text: "", pending_response: true, optimistic: true, submit_epoch: 8, local_id: "executor-pending:8" },
+    ],
+  });
+
+  transition(panel, "CHAT_REHYDRATE_NO_SESSION", {
+    requestEpoch: 4,
+  });
+
+  assert.deepEqual(panel.state.chatMessages, []);
+});
+
 test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE is skipped while submit/apply is active or candidate graph is missing", () => {
   const submittingPanel = makePanel({
     phase: PANEL_STATE.SUBMITTING,

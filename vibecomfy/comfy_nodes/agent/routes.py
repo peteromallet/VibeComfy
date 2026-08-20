@@ -1022,8 +1022,22 @@ def _failure_response(stage: str, failure: Any) -> dict[str, Any]:
         serialized.update(product_failure_envelope_fields(failure))
     try:
         stamped = ensure_agent_edit_response_contract(serialized, stage=stage)
-    except Exception:
-        stamped = serialized
+    except Exception as exc:
+        _LOGGER.error(
+            "Agent-edit response contract validation failed for stage %s: %s",
+            stage,
+            type(exc).__name__,
+        )
+        contract_failure = failure_envelope(
+            FailureKind.VALIDATION_ERROR,
+            stage,
+            agent_failure_context={
+                "explanation": "The agent response failed public contract validation.",
+                "contract_error": type(exc).__name__,
+            },
+        )
+        stamped = contract_failure.to_dict()
+        stamped.update(product_failure_envelope_fields(contract_failure))
     return _ensure_stale_recovery(stamped)
 
 
@@ -1804,6 +1818,9 @@ def register_agent_edit_routes(app) -> None:
         reconcile_turn_transactions as _session_reconcile_turn_transactions,
         rollback_turn_transaction as _session_rollback_turn_transaction,
     )
+    from ._frag_session_bundle import (  # noqa: PLC0415
+        recover_session_for_workflow,
+    )
     from .contracts import (
         FailureKind as _FK,
         classify_failure as _classify_failure,
@@ -2137,6 +2154,28 @@ def register_agent_edit_routes(app) -> None:
                 status=500,
             )
         return _web.json_response(_to_serializable(public_chat_rehydrate_payload(result)))
+
+    @app.routes.get("/vibecomfy/agent-edit/recover")
+    async def _agent_edit_recover_route(request):  # type: ignore[no-untyped-def]
+        workflow_id = request.query.get("workflow_id")
+        if not isinstance(workflow_id, str) or not workflow_id.strip():
+            return _json_error(
+                "Missing required query parameter `workflow_id`.",
+                stage="recover",
+            )
+        try:
+            result = await asyncio.to_thread(
+                recover_session_for_workflow,
+                _SESSION_ROOT,
+                workflow_id.strip(),
+            )
+        except Exception as exc:
+            failure = _classify_failure("recover", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="recover"),
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result))
 
     @app.routes.get("/vibecomfy/agent-edit/session-bundle")
     async def _agent_edit_session_bundle_route(request):  # type: ignore[no-untyped-def]

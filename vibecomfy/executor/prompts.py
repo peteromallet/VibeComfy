@@ -32,8 +32,7 @@ _CLASSIFY_SYSTEM = (
     "Analyze the user request and choose exactly one locked route. "
     "The executor will run deterministic safety checks after classification; "
     "your job is to make the semantic route contract explicit.\n"
-    "Return ONLY a JSON object with these keys:\n"
-    '  "research": true/false — whether the executor should search for relevant nodes, '
+    "Return ONLY a JSON object with these keys:\n"    '  "research": true/false — whether the executor should search for relevant nodes, '
     "templates, or techniques.\n"
     '  "implement": true/false — whether the executor should edit the graph.\n'
     '  "reply": true/false — whether the executor should produce a user-facing reply.\n'
@@ -309,6 +308,21 @@ _CLASSIFY_SYSTEM = (
     "the ambiguity."
 )
 
+# Corrective nudge appended to the classify messages when the model's first
+# reply is not a parseable JSON object (empty, prose, or valid JSON plus
+# trailing prose with braces that breaks extraction).  Mirrors the research
+# decision seam's retry: the model gets ONE bounded chance to repair its
+# output with the redacted preview instead of the whole turn dying on a
+# transient malformed response.
+_CLASSIFY_PARSE_RETRY_PROMPT = (
+    "Your previous reply was empty or not valid JSON for the workflow intent "
+    "classifier. Reply with exactly one JSON object and no other markdown or "
+    "prose, using the classify contract: "
+    '{"research": true|false, "implement": true|false, "reply": true|false, '
+    '"effort": "low"|"medium"|"high", "plan_summary": "...", '
+    '"intent": "edit"|"research"|"explain_graph"|"respond"}.'
+)
+
 
 def build_classify_messages(
     query: str,
@@ -509,6 +523,25 @@ _REPLY_SYSTEM = (
     "- For route=\"research\", return the supplied C5 memo: question, conclusion, "
     "resolvable citation IDs, uncertainty/conflicts, and next action. Do not add "
     "sources or claims that are absent from that memo.\n"
+    "- If the memo's research_status is \"exhausted\" or tool_calls_executed "
+    "is 0, say plainly that research did not complete — it ran out of "
+    "time/turns before the agent produced a synthesis — and do NOT claim the "
+    "search \"found nothing\" or \"returned zero results\" — that is only true "
+    "when tool_calls_executed > 0 AND evidence_artifacts == 0 (tools ran but "
+    "returned no records). Empty citations alone are NOT emptiness: citations "
+    "are the agent's synthesis choices, and evidence_artifacts may still be "
+    "non-zero.\n"
+    "- If the memo's research_status is \"failed\", say plainly that research "
+    "failed and report the memo's research_error field as the reason. Do NOT "
+    "describe a failed research stage as having run out of time, and do NOT "
+    "claim the search \"found nothing\" or \"returned zero results\".\n"
+    "- If the memo's evidence_preview is non-empty (research stopped after "
+    "gathering hits and/or fetching records), name the concrete sources it "
+    "lists — e.g. \"the search surfaced Nkd Minimax Ablejones Inpainting and "
+    "fetched the MiniMax-H3 Turbo LoRA workflow before running out of time\" "
+    "— including the fetched-record content when present, then note the "
+    "synthesis was not completed and offer to refine the question. Do NOT "
+    "ignore gathered hits or fetched records and report emptiness.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -720,11 +753,49 @@ def build_reply_messages(
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
+def _first_json_object_span(text: str) -> tuple[int, int] | None:
+    """Return (start, end) of the FIRST balanced JSON object in *text*.
+
+    A greedy ``{.*}`` match is unsafe: model output frequently appends
+    explanatory prose after the JSON, and any ``{``/``}`` in that prose (e.g.
+    "the {LoRA} distillation") extends the span past the object's real closing
+    brace, making json.loads fail on otherwise-valid JSON (observed: classify
+    returning ``{"research": false, ...}`` plus a trailing note).  This scan
+    tracks brace depth from the first ``{`` so the span ends at the matching
+    close — the object alone, never trailing prose.
+    """
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    return None
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     """Extract the first JSON object from potentially noisy model output.
 
     Strips markdown fences, trims surrounding whitespace, and falls back to
-    regex extraction before handing off to ``json.loads``.
+    balanced-brace extraction before handing off to ``json.loads``.
     """
     stripped = text.strip()
     # Strip outermost ``` fences (with or without ``json`` language tag).
@@ -741,11 +812,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Fall back to regex extraction: find the first { ... } span.
-    match = _JSON_OBJECT_RE.search(stripped)
-    if match:
+    # Fall back to balanced-brace extraction: find the first { ... } object
+    # span (brace-depth aware, so trailing prose with braces never extends it).
+    span = _first_json_object_span(stripped)
+    if span is not None:
+        start, end = span
         try:
-            parsed = json.loads(match.group(0))
+            parsed = json.loads(stripped[start:end])
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
