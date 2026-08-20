@@ -146,4 +146,3 @@ def test_executor_only_durable_request_persists_canonical_mode(tmp_path: Path) -
     )
     persisted = json.loads(request_path.read_text(encoding="utf-8"))
     assert persisted["pipeline_mode"] == "threaded"
-

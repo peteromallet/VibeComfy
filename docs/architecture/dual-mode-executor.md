@@ -229,4 +229,3 @@ Before changing either driver, verify:
 5. accepted work survives later reply/projection failure;
 6. claim references are present in the closed checkpoint;
 7. the no-model comparison preflight passes before any paired live run.
-
