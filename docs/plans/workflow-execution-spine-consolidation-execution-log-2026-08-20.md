@@ -984,3 +984,185 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   push, merge to `main`, promotion, live/model/runtime/provider call, secret
   access, or wrapper dispatch occurred in this evidence recording.
 - **Next unblocked card:** `H1-wrapper-survival-stop-marker-precode-review`.
+
+### G1 / H1 — wrapper-survival + stop-marker chain (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-H1` / no gate / `evidence-log H1:
+  pre-code review (v3 continue), implementer a7b18708, post-impl review
+  continue, integration push` / evidence. This is the pre-G1 H1 hardening
+  card. Disposition: **continue / complete**. The H1 chain is recorded
+  without changing implementation, validator, or test code.
+- **Model routes:** Grok `grok-4.6` for the pre-code review chain through
+  v3; Luna `codex:gpt-5.6-luna` (resolved
+  `openai-codex/gpt-5.6-luna`) for the implementer, reviewer, and integration.
+  Wrapper argv, PIDs, timestamps, exits, brief digests, result digests, and
+  receipt digests below are authoritative from the preserved receipts.
+
+#### Ordered H1 receipt register
+
+1. **Pre-code review v1 — `H1-wrapper-survival-stop-marker-precode-review`
+   (Grok).** Receipt
+   `receipts/H1-wrapper-survival-stop-marker-precode-review-receipt.json`,
+   SHA-256
+   `01371b234de0a0523a1b5c30c8a38d3a93b67ed9172af9f520a02de2124cd780`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker-precode-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `34456`; `2026-08-21T11:35:30Z` →
+   `2026-08-21T12:13:23Z`; exit `0`; brief SHA-256
+   `36faf849c6a4cad7ad2c3a4389694c9a3d6e99cddacc6b2ad438a5221fab7e5c`;
+   result SHA-256
+   `19aa66b82426503cc0f2d818d5b4c2f7308e2c8001a097662e8d8a900a9c7c27`.
+   The body was a degenerate `continue` referring to phantom prior binding
+   conditions, so it is recorded as **NO review**, not as a substantive
+   disposition.
+2. **Pre-code review v2 — `H1-wrapper-survival-stop-marker-precode-review-2`
+   (Grok).** Receipt
+   `receipts/H1-wrapper-survival-stop-marker-precode-review-2-receipt.json`,
+   SHA-256
+   `a5118b695940991db2fb1fb0a46dd6755613cc11d43edf881a9e7287b463e4d4`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker-precode-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `35060`; `2026-08-21T12:14:15Z` →
+   `2026-08-21T12:28:11Z`; exit `0`; brief SHA-256
+   `36faf849c6a4cad7ad2c3a4389694c9a3d6e99cddacc6b2ad438a5221fab7e5c`;
+   result SHA-256
+   `4fcf7a1ecce4b40f4967d93b84675f633fccd19a54c5824737b05317af3a431e`.
+   The body again referenced prior binding conditions and is recorded as
+   **NO review**.
+3. **Pre-code adjudication — `H1-wrapper-survival-stop-marker-precode-adjudication`
+   (Grok).** Receipt
+   `receipts/H1-wrapper-survival-stop-marker-precode-adjudication-receipt.json`,
+   SHA-256
+   `48d3ab0f71739d1eadfcb5aaaa1d70d9eca6d928840c310fa8dfc8ced2ccc8d0`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker-precode-adjudication.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `35337`; `2026-08-21T12:29:00Z` →
+   `2026-08-21T12:45:16Z`; exit `0`; brief SHA-256
+   `e4b9afb77c07e21b5b6ae313e6f753894a48d327290d9f450a3655409a84ebb3`;
+   result SHA-256
+   `f9752bcc64dea42db003827e7f960a3a51073622cfa84974750eae97e6c0e2b5`.
+   This was the third degenerate stub dispatch, also treated as **NO review**.
+   The orchestrator's note
+   `receipts/h1-precode-stub-note.json` (SHA-256
+   `d0c3214a16fb16c6c69ebef657106e536d8bb849c9a9ddb7096134f48962a41e`)
+   records the contamination: the briefs pointed the model at prior review
+   artifacts. The three stub responses are superseded by v3; they do not
+   consume the substantive one-review allowance.
+4. **Substantive pre-code review v3 —
+   `H1-wrapper-survival-stop-marker-precode-review-3` (Grok).** Receipt
+   `receipts/H1-wrapper-survival-stop-marker-precode-review-3-receipt.json`,
+   SHA-256
+   `6083de36cfc3ca41f127130431081445150dd4f392d5b14e5ced70fb8c3e218c`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker-precode-review-3.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `35651`; `2026-08-21T12:45:53Z` →
+   `2026-08-21T12:57:42Z`; exit `0`; brief SHA-256
+   `398ca6258f805e0f6e94e5f1e9f823f06ca03f11e7c21f60ce0872dcc08aa5bf`;
+   result SHA-256
+   `890b41e8d94b96214f0ff58be1fd469ed8e7aae08ee8542eeea2b5570d7ce1e2`.
+   Result: **continue**. The seven binding conditions were trap
+   placement/body/exit, a no-clobber guard, partial-receipt fields, literal
+   `_stop_marker`, and the required test coverage (including the exact
+   literal-line-start matching rule). Residual risks were the install window,
+   leaked ignore-probe on `os._exit`, orphaned-child pipes,
+   `TASK_ALREADY_COMPLETED` on interrupted-receipt re-dispatch, column-0
+   markers in code fences, and second-signal reentry. None is a §13 stop.
+5. **Implementer abort — `H1-wrapper-survival-stop-marker` (Luna).** Receipt
+   `receipts/H1-wrapper-survival-stop-marker-receipt.json`, SHA-256
+   `4d20133abfda3523e1bcf35b502856a2a84c1478dd2b1a2a4bc9b092654ba3fd`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `35851`; `2026-08-21T12:58:18Z` →
+   `2026-08-21T12:59:00Z`; exit `0`; brief SHA-256
+   `868b9178d48ae167d7679fb7ba0573f335c53a693c73729a5cc6176c4503f4cb`;
+   result SHA-256
+   `cee8dcce755bb9a782846798f1f37e77a0835642e3193f7b61966df60a0203b9`.
+   The brief claimed immutable base `9a64b35b`, while the actual base was
+   `bef05ff5`; the implementer performed a clean no-mutation abort. The brief
+   was corrected before the rerun.
+6. **Implementer rerun — `H1-wrapper-survival-stop-marker-rerun` (Luna).**
+   Receipt `receipts/H1-wrapper-survival-stop-marker-rerun-receipt.json`,
+   SHA-256
+   `dfecc03f3bfdd4fe7a4abd783a3fa7c5a0f234812727434696716124aae99c4d`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `35960`; `2026-08-21T12:59:25Z` →
+   `2026-08-21T13:07:22Z`; exit `0`; brief SHA-256
+   `cd194c4a7b95015647acd19bc1f11e416b740ff6121bd2b70aa2bfe3b9bf7860`;
+   result SHA-256
+   `da48052390d593b9f13a7f3ba9cae6e2e81e7976a90e946218c8f8e623887bf6`.
+   Commit `a7b187083694090d661c05d6831ccd0f845b990d` was created on base
+   `bef05ff5c5240d0bf30fdeff8a2904e653d70f07`. It changed only
+   `scripts/run_workflow_execution_spine_agent.py` (+65) and
+   `tests/test_run_workflow_execution_spine_agent.py` (+137/−18). The
+   implementation adds SIGTERM/SIGHUP/SIGINT trapping with a partial
+   `status=interrupted` receipt containing `preserved_args`, wrapper/child
+   PIDs, timestamps, and signal, exits with `os._exit(128+signum)`, protects
+   an interrupted receipt from clobbering, best-effort releases the registry,
+   and latches literal `^JUDGMENT_REQUIRED:` / `^STOP:` markers.
+7. **Post-implementation review —
+   `H1-wrapper-survival-stop-marker-review` (Luna).** Receipt
+   `receipts/H1-wrapper-survival-stop-marker-review-receipt.json`, SHA-256
+   `0f13b95f33114a152558daddae98d34d151e388585427f4596bd0561caee1b71`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `36877`; `2026-08-21T13:07:45Z` →
+   `2026-08-21T13:12:27Z`; exit `0`; brief SHA-256
+   `af1dad44dfed02c3eb102e6b4b666ed006a44e81f32bf6904e51373b32825e2b`;
+   result SHA-256
+   `1cd8c999c664443027bc119f37d55d62b7e898d5977b893d49b4f4e677319222`.
+   Result: **continue**. All seven v3 binding conditions were verified
+   against the implementation. The focused shard
+   `python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q`
+   passed `12 passed` under Python 3.11.11; pytest warned about the unknown
+   `timeout` config option, non-blocking.
+8. **Integration — `H1-wrapper-survival-stop-marker-integration` (Luna).**
+   Receipt
+   `receipts/H1-wrapper-survival-stop-marker-integration-receipt.json`,
+   SHA-256
+   `90b94cdf53d6acc19eef0bd5b97480c4330f6bfec1cb200e613b28c9515290ad`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H1-wrapper-survival-stop-marker-integration.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `37186`; `2026-08-21T13:12:52Z` →
+   `2026-08-21T13:16:04Z`; exit `0`; brief SHA-256
+   `018b0f60984e0a5777d11cd184da535602313762410c3d374efb29a0140f1c36`;
+   result SHA-256
+   `ad0aca2ded60e9b3cd17e7f1aa3b063948d1e9c3a219334ad80a9e781b1e13fc`.
+   Integration verified exit `0`, the focused shard once, and fast-forward push
+   `bef05ff5..a7b18708` via
+   `git push origin HEAD:fixer/workflow-execution-spine-consolidation`;
+   remote and local both verified at `a7b18708`.
+
+- **Findings/revisions:** The three degenerate stub dispatches were rejected
+  as reviews; v3 supplied the substantive continue and its seven binding
+  conditions. The immutable-base abort was clean and was followed by the
+  corrected-base rerun. The degenerate-stub failure mode is fixed by
+  contamination-free briefs: review briefs MUST NOT point the model at prior
+  review artifacts.
+- **Tests/evidence:** The reviewer-recorded focused shard passed `12 passed`;
+  no other tests were run. The required read-only evidence validator exits
+  `0` on the committed state with
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+  No validator change was made.
+- **Residual risks and recurrence rules:** H1's accepted residual risks are
+  the install window, leaked ignore-probe on `os._exit`, orphaned-child pipes,
+  `TASK_ALREADY_COMPLETED` on interrupted-receipt re-dispatch, code-fence
+  column-0 markers, and second-signal reentry; none is a §13 stop. Both
+  recurrence rules remain validator-enforced: an execution-log edit requires
+  refreshing `manifest.tasks[5].recovery_note.sha256`; a `test-shards.json`
+  edit requires refreshing every matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256`. The pre-existing validator gap
+  remains tracked per adjudication A: `_iter_digest_refs` silently skips
+  malformed non-64-hex digest strings paired with a path; it is a candidate
+  future XHARD card and does not block G1.
+- **Commit/files/controls:** This evidence append is one coherent commit
+  authored by `POM <peter@omalley.io>` with message prefix
+  `docs(exec-spine):`; the changed files are exactly the three allowed files:
+  this execution log, `evidence/manifest.json`, and
+  `evidence/test-shards.json`. No receipt is committed. No other file,
+  protected state, or branch changed; no push, merge to `main`, promotion,
+  live/model/runtime/provider call, secret access, or wrapper dispatch
+  occurred in this evidence recording. The earlier integration push is
+  recorded above as prior-card evidence.
+- **Next unblocked card:** `H2-dead-pid-sweep-precode-review`.

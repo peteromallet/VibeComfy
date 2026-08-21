@@ -21,13 +21,12 @@
       "receipt": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json"
     },
     {
-      "shard_id": "T1.2_schema_provenance_authority",
-      "command": "/root/.pyenv/shims/python3 -m pytest -q tests/test_schema.py tests/test_porting_provenance.py tests/security/test_provenance.py tests/test_shared_authority_canonicalization.py",
-      "source_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
-      "output_sha256": "c33015d080d6dfb43ad02ed0dd91febf6935d51cc01e3ee555ab1b70d948821e",
+      "shard_id": "H1_wrapper_survival_stop_marker",
+      "command": "python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q",
+      "source_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
       "exit": 0,
       "status": "passed",
-      "receipt": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json"
+      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H1-wrapper-survival-stop-marker-review-receipt.json"
     }
   ],
   "singleton": {
@@ -36,9 +35,8 @@
     "status": "pending"
   },
   "evidence_log": {
-    "task_id": "evidence-log-T1.2-digest-repair",
-    "gate": "G1",
-    "validator_observed_ts": "2026-08-21T11:03:00Z",
+    "task_id": "evidence-log-H1",
+    "gate": "",
     "validator_exit": 0,
     "other_tests_run": false
   }
