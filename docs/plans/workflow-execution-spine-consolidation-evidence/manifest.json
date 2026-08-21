@@ -295,7 +295,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "d1566ea306cfaca2d46e282074f5987ae6be7516e14d387b6d667ced4be106aa",
+        "sha256": "50263ce0f2decf226a3ac0524a224d852bfdece64dcc376a91919e8073522a73",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -440,11 +440,191 @@
         ],
         "push": false
       }
+    },
+    {
+      "task_id": "T1.2",
+      "gate": "G1",
+      "label": "evidence-log T1.2 card sequence and disposition (Immutable SchemaSnapshot)",
+      "role": "evidence",
+      "model_route": "codex:gpt-5.6-luna",
+      "status": "complete",
+      "disposition": "pass",
+      "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1",
+      "implementation_commit": "a109003ff32def89a7cae266e342764ce36562c9",
+      "revision_commit": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
+      "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
+      "integration_target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
+      "acceptance_contract": "Freeze runtime/cache/request identity, content digest, precedence, generation, conflicts, timestamp/version, per-class schema, and missing classes at ingress. Precedence is explicit request snapshot, verified connected /object_info, then configured content-addressed cache. Workflow observation is non-authoritative. Replay cannot perform a fresh ambient lookup.\n\nDefine touched_schema_classes(operation, snapshot) for field, add/remove, link/socket, mode, and layout operations. Unknown untouched nodes remain preserved. Any operation whose validity depends on unknown endpoint/node schema fails closed.\n\nAcceptance: isolated worktrees resolve proven TTS/Qwen schemas; LayerMask stays unsupported until exact pack schema is supplied; no positional alias becomes durable authority without a proven name.",
+      "g1_review_contract": "one graph, one schema snapshot, lossless sidecar, touched-only blocking, and no ambient replay lookup",
+      "receipts": [
+        {"task_id": "T1.2-brief", "path": "receipts/T1.2-brief-receipt.json", "sha256": "9315a45a0ea58d30990ee100cdceb63052c45af22db9f58b4ba83327d1554f6e", "brief_sha256": "39546eaf473e4f2790d4677aa492024abe5e8ee06562f32acb0815cb5e950fbb", "result_sha256": "b999605a3886ebd86367d050f47ad52ec18099336d1e4a44830f67d3b1f1e0ba", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 25737, "start_ts": "2026-08-21T06:15:32Z", "end_ts": "2026-08-21T06:20:36Z", "exit": 0, "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1"},
+        {"task_id": "T1.2-precode-review", "path": "receipts/T1.2-precode-review-receipt.json", "sha256": "1054f6b9e7cb027833a72b02182073d487c1ee7cb4c665a3726007de1a423844", "brief_sha256": "7c5edf0e237ba7aff6fc9668eaa22e75eebec03d78b91d69f2ea08dd1e800113", "result_sha256": "45eaaa99f4a6e185233192611f7d142d60d6178fa383188581f0afdc8483c223", "role": "reviewer", "model_route": "grok-4.6", "pid": 26320, "start_ts": "2026-08-21T06:35:28Z", "end_ts": "2026-08-21T06:45:49Z", "exit": 0, "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1", "disposition": "continue"},
+        {"task_id": "T1.2", "path": "receipts/T1.2-receipt.json", "sha256": "cfa3fc7ec4db632384245bb2a96ee521f3fe299d6c3147dada279da10b37435e", "brief_sha256": "f724436124cad11bb82dabbfa94f8d5450185d040c80235483d89ae66fa3a340", "result_sha256": "8583745400ed26156962d549dfc482aba1be5e44239e419d24d0b43bb3f90a2f", "role": "implementer", "model_route": "grok-4.6", "pid": 26491, "start_ts": "2026-08-21T06:46:01Z", "end_ts": "2026-08-21T07:18:11Z", "exit": 0, "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1", "target_sha": "a109003ff32def89a7cae266e342764ce36562c9", "commits": ["a109003ff32def89a7cae266e342764ce36562c9"], "changed_files": ["tests/test_schema.py", "vibecomfy/comfy_nodes/agent/candidate_transaction.py", "vibecomfy/porting/edit/ops.py", "vibecomfy/porting/edit/schemas/v2/authority_receipt.schema.json", "vibecomfy/schema/__init__.py", "vibecomfy/schema/cache.py", "vibecomfy/schema/provider.py", "vibecomfy/schema/types.py"], "wrapper_stop_or_judgment": "### `JUDGMENT_REQUIRED`"},
+        {"task_id": "T1.2-review-brief-agent", "path": "receipts/T1.2-review-brief-agent-receipt.json", "sha256": "ef1417c7ff89d0a7ed6ebf2679bf72e084a550d040d319af6894e8a3254c08c0", "brief_sha256": "4c89b9e4f60124a23cb71ed294e251d55f9fce7c420b1d263b1f548f89186d15", "result_sha256": "af7f2f6daee8d23ae2acbeba2d71330d44e813a05db34c569b3d6c025180d2da", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 26964, "start_ts": "2026-08-21T07:18:55Z", "end_ts": "2026-08-21T07:21:03Z", "exit": 0, "base_sha": "a109003ff32def89a7cae266e342764ce36562c9"},
+        {"task_id": "T1.2-review", "path": "receipts/T1.2-review-receipt.json", "sha256": "24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0", "brief_sha256": "35c2f8648d046194d8f8bf68ce3079cb5de0d0fa5cada89b7a132f887674ad8c", "result_sha256": "51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c", "role": "reviewer", "model_route": "grok-4.6", "pid": 27062, "start_ts": "2026-08-21T07:21:12Z", "end_ts": "2026-08-21T07:45:39Z", "exit": 0, "base_sha": "a109003ff32def89a7cae266e342764ce36562c9", "target_sha": "a109003ff32def89a7cae266e342764ce36562c9", "disposition": "must-findings-open"},
+        {"task_id": "T1.2-revision-brief-agent", "path": "receipts/T1.2-revision-brief-agent-receipt.json", "sha256": "ce51e014f33c8b9a1143cd9787722c4e61b7512b848af4f490411adaf2f06496", "brief_sha256": "7603ec4e36f847d72bbeb78877767846db63313bcd2ff3a74f2d7dea8c84cc86", "result_sha256": "5dafcc6fb296255f65faaeb47d725c5bfa7bae8a48d6ee74c8f84cb2fe4752ed", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 27385, "start_ts": "2026-08-21T07:46:12Z", "end_ts": "2026-08-21T07:49:13Z", "exit": 0, "base_sha": "a109003ff32def89a7cae266e342764ce36562c9"},
+        {"task_id": "T1.2-revision", "path": "receipts/T1.2-revision-receipt.json", "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec", "brief_sha256": "2932f844ee0b370c1b92f8dda40ca281d73252ca7e91b00493daa669a15e0a20", "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353", "role": "implementer", "model_route": "grok-4.6", "pid": 27487, "start_ts": "2026-08-21T07:49:21Z", "end_ts": "2026-08-21T08:29:10Z", "exit": 0, "base_sha": "a109003ff32def89a7cae266e342764ce36562c9", "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2", "commits": ["0a8e55ff8d0a7412e750237e9623ba147bb152f2"], "changed_files": ["tests/test_schema.py", "vibecomfy/comfy_nodes/agent/candidate_transaction.py", "vibecomfy/porting/edit/ops.py", "vibecomfy/porting/edit/schemas/v2/authority_receipt.schema.json", "vibecomfy/schema/types.py"], "wrapper_stop_or_judgment": "## 7. Residual risks / `JUDGMENT_REQUIRED`"},
+        {"task_id": "T1.2-rereview-brief-agent", "path": "receipts/T1.2-rereview-brief-agent-receipt.json", "sha256": "10a3c68099ea3d3ad5b79b299df1f6a81e27c8e13d8fa10513afe2f30f5e0c82", "brief_sha256": "17117dfd3d1c75988c65706ba985e649acecd9fc64b441b1132226759f03af33", "result_sha256": "5e8d6838fc0cca1824dfa65968ce9e5936ea83fdc3e5a5890cbc3a9521e9c5c1", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 27927, "start_ts": "2026-08-21T08:29:36Z", "end_ts": "2026-08-21T08:31:58Z", "exit": 0, "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2"},
+        {"task_id": "T1.2-revision-rereview", "path": "receipts/T1.2-revision-rereview-receipt.json", "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef", "brief_sha256": "8d76c6c813773071cee42c5038f98fd4b30d113688d258e73d4bf54d69622131", "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965", "role": "reviewer", "model_route": "grok-4.6", "pid": 28408, "start_ts": "2026-08-21T08:45:29Z", "end_ts": "2026-08-21T09:00:24Z", "exit": 0, "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2", "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2", "disposition": "continue"},
+        {"task_id": "T1.2-integration-brief-agent", "path": "receipts/T1.2-integration-brief-agent-receipt.json", "sha256": "b1e0dfd2fed25c41a40f74bb4e82eb8d7251c9d55bec0b44db60afca7e47b24a", "brief_sha256": "eea7d6821f9e8529c024823ccc3d86ccdcd8e480ec8806921ac2df9b270eb044", "result_sha256": "bdc32a9392fdf965aeca5e37f23227fd517af0330e34b22bcbc5e316bd9a69e3", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 28727, "start_ts": "2026-08-21T09:01:39Z", "end_ts": "2026-08-21T09:03:29Z", "exit": 0, "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2"},
+        {"task_id": "T1.2-integration", "path": "receipts/T1.2-integration-receipt.json", "sha256": "a2cfa3e2f595c65f1c24fe925e85b6bcd603bc7c990d53fb0b1d6f92dcbe4fb8", "brief_sha256": "7719384e2473908367bdd3d92d5d0ca33fd8fab42b5909522af5fdb526e6298c", "result_sha256": "f2d32e6b57a0e42d3f2adea3a33e9d90e565bd96b3a263ee9efa6a1949a64139", "role": "integration", "model_route": "codex:gpt-5.6-luna", "pid": 28820, "start_ts": "2026-08-21T09:03:35Z", "end_ts": "2026-08-21T09:06:05Z", "exit": 0, "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2", "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2", "integration_commit": "0a8e55ff8d0a7412e750237e9623ba147bb152f2", "commits": [], "changed_files": [], "disposition": "pass"}
+      ],
+      "focused_evidence": {
+        "shard_id": "T1.2_schema_provenance_authority",
+        "command": "python -m pytest -q tests/test_schema.py tests/test_porting_provenance.py tests/security/test_provenance.py tests/test_shared_authority_canonicalization.py",
+        "runs": [
+          {"phase": "revision-rereview", "disposable_root": "/tmp/t12-rereview-focused-hvwb7cn1", "output_sha256": "6c694cc511d6232d8249e7299a32c7dddccbf6dde9deb3738c50ba96c2fec4d1", "summary": "147 passed, 3 warnings in 0.88s", "exit": 0},
+          {"phase": "integration", "disposable_root": "/tmp/t12-integration-focused-vb3bca3z", "output_sha256": "6de9720460744313f8c8e8aebe95c591a44e7f93fc55c44a348946e73c55b00a", "summary": "147 passed, 3 warnings in 0.93s", "exit": 0}
+        ],
+        "runs_once_per_phase": true,
+        "tests_run_by_evidence_agent": false
+      },
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": true, "sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3", "modified": false},
+      "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
+      "wrapper_death_anomaly": {
+        "task_id": "T1.2-revision-rereview",
+        "receipt_path": "receipts/wrapper-death-note-t12-rereview.json",
+        "sha256": "de6545e38203a27d3b00d315c22252f5aae38f7ec51cad6ede35b7201f08e8dc",
+        "wrapper_pid": 28014,
+        "wrapper_start_ts": "2026-08-21T08:32:01Z",
+        "wrapper_end_ts": "2026-08-21T08:44:38Z",
+        "duration": "12m37s",
+        "receipt_written": false,
+        "review_result_existed": false,
+        "supervisor_recreated_ts": "2026-08-21T08:32:13Z",
+        "recovery": "fresh wrapper-routed re-dispatch of the same permitted re-review phase; not an additional review tier",
+        "classification": "infrastructure anomaly; not a card failure"
+      },
+      "blocked_evidence_disposition": {
+        "task_id": "evidence-log-T1.2",
+        "receipt_path": "receipts/evidence-log-T1.2-receipt.json",
+        "receipt_sha256": "c83e86dbeac453e2c2a0da4f2e64e32bebdc9a6a9aba1a042b7675bcc5af78f1",
+        "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
+        "pid": 29228,
+        "start_ts": "2026-08-21T09:11:14Z",
+        "end_ts": "2026-08-21T09:19:16Z",
+        "exit": 0,
+        "result_sha256": "dd1c76a611bce542201dcf9b15d5ad352fa00b7b362e129fd9f669435d7a82ba",
+        "changed_files": [
+          "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
+          "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md"
+        ],
+        "commits": [],
+        "disposition": "blocked on evidence-validator NameError: _find_task; no product or T1.2 disposition change"
+      },
+      "validator_repair": {
+        "task_id": "T1.2-validator-repair",
+        "receipt_path": "receipts/T1.2-validator-repair-receipt.json",
+        "receipt_sha256": "53822f4498c754fdb526582b36e7564f48c82ae4a441fc8246e27b95da96ad62",
+        "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
+        "commit": "1d8088423030700a4e54bc20608d62e53df7da56",
+        "pid": 29798,
+        "start_ts": "2026-08-21T09:25:21Z",
+        "end_ts": "2026-08-21T09:58:16Z",
+        "exit": 0,
+        "result_sha256": "bad768f5196384320ea1b1fc4e82f620acc1e25d4d2ef1e7d595853fe01ae690",
+        "changed_files": [
+          "scripts/validate_workflow_execution_spine_evidence.py"
+        ],
+        "repair_summary": "_find_task/embedded-receipt finding-chain repair; validator-only change"
+      },
+      "validator_repair_review": {
+        "task_id": "T1.2-validator-repair-review",
+        "receipt_path": "receipts/T1.2-validator-repair-review-receipt.json",
+        "receipt_sha256": "9174f42feacadd450eca2a8139cfed63762d4b3118c4413761fb2a57da534f92",
+        "base_sha": "1d8088423030700a4e54bc20608d62e53df7da56",
+        "pid": 30627,
+        "start_ts": "2026-08-21T10:04:11Z",
+        "end_ts": "2026-08-21T10:15:11Z",
+        "exit": 0,
+        "result_sha256": "9ee239d42257651f7f981f513dacff8620229d9f07bdf6e434c53864124e9256",
+        "changed_files": [],
+        "commits": [],
+        "disposition": "continue",
+        "open_must_findings": 0,
+        "judgment_required": "none",
+        "review_summary": "deterministic non-spoofable reviewer-identity fallback and production sys._getframe(1) path accepted; artifact digest mismatch is evidence-owned and resolved by this finish"
+      },
+      "finish_dispatch": {
+        "task_id": "evidence-log-T1.2-finish",
+        "pid": 31126,
+        "start_ts": "2026-08-21T10:20:32Z",
+        "receipt_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.2-finish-brief-agent-receipt.json"
+      },
+      "findings_closed": ["T1.2-MUST-001", "T1.2-MUST-002"],
+      "residual_risks": ["LayerMask remains unsupported until its exact pack schema is supplied; unknown touched schema remains fail-closed. No open must finding or judgment remains."],
+      "controls": {
+        "merge_to_main": false,
+        "promotion": false,
+        "live_model_runtime_provider_calls": false,
+        "secret_access": false,
+        "protected_state_touched": false,
+        "g1_completion_record": false,
+        "push_by_evidence_agent": false,
+        "product_tests_run_by_evidence_agent": false
+      },
+      "rejected_alternatives": [
+        "Accept UID strings as catalog classes",
+        "Omit layout endpoints from touched-schema closure",
+        "Allow unknown touched schema to proceed",
+        "Trust an unbound witness snapshot",
+        "Validate only mapping presence",
+        "Prefer an unbound snapshot over hashed schemas",
+        "Treat the receipt-root schema_snapshot as authority",
+        "Treat either result-heading JUDGMENT_REQUIRED latch as a card judgment",
+        "Count PID 28014 recovery as a second review",
+        "Invent unavailable receipt fields",
+        "Change test-shards.json",
+        "Modify the prior T1.1 entry"
+      ],
+      "next_unblocked_card": "G1",
+      "evidence_commit": {
+        "required_author": "POM <peter@omalley.io>",
+        "message_prefix": "docs(exec-spine):",
+        "allowed_files": [
+          "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
+          "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json"
+        ],
+        "push": false
+      }
     }
   ],
   "shards": [],
   "live_runs": [],
-  "findings": [],
+  "findings": [
+    {
+      "finding_id": "T1.2-MUST-001",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "UID identities were not resolved to catalog classes for production-shaped identities, and layout identities were omitted from touched-schema closure.",
+      "revision_task_id": "T1.2-revision",
+      "re_review_task_id": "T1.2-revision-rereview",
+      "implementer": "T1.2-revision implementer",
+      "reviewer": "T1.2-review reviewer",
+      "initial_review_receipt": {"path": "receipts/T1.2-review-receipt.json", "sha256": "24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0", "result_sha256": "51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c"},
+      "revision_receipt": {"path": "receipts/T1.2-revision-receipt.json", "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec", "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353"},
+      "rereview_receipt": {"path": "receipts/T1.2-revision-rereview-receipt.json", "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef", "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965"},
+      "closure": "Revision 0a8e55ff uses identity extraction and class-map lookup and fail-closed missing_touched_schema. Complete-diff independent re-review closed the finding."
+    },
+    {
+      "finding_id": "T1.2-MUST-002",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "The witness snapshot was not included in the content hash, and validation/provider authority could prefer an unbound snapshot.",
+      "revision_task_id": "T1.2-revision",
+      "re_review_task_id": "T1.2-revision-rereview",
+      "implementer": "T1.2-revision implementer",
+      "reviewer": "T1.2-review reviewer",
+      "initial_review_receipt": {"path": "receipts/T1.2-review-receipt.json", "sha256": "24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0", "result_sha256": "51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c"},
+      "revision_receipt": {"path": "receipts/T1.2-revision-receipt.json", "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec", "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353"},
+      "rereview_receipt": {"path": "receipts/T1.2-revision-rereview-receipt.json", "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef", "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965"},
+      "closure": "Revision binds schema_snapshot into content_hash, validates mismatch as invalid_schema_snapshot, preserves historic schema_snapshot is None compatibility, and removes the unused receipt-root property. Complete-diff independent re-review closed the finding."
+    }
+  ],
   "g0_finding_chains": [
     {
       "finding_id": "G0-MUST-VALIDATOR-001",

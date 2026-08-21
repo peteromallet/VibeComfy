@@ -578,3 +578,136 @@ model/runtime/provider calls, no secret access, and protected state was
 untouched. The preserved receipts and prior evidence remain unchanged.
 The next unblocked card remains `T1.2 [XHARD]`, after the orchestrator runs the
 evidence validator. `JUDGMENT_REQUIRED`: none.
+
+## G1 / T1.2 — evidence-log T1.2 card sequence and disposition (2026-08-21)
+
+- **Task/gate/label/role:** `T1.2`; `G1`; `evidence-log T1.2 card sequence and disposition (Immutable SchemaSnapshot)`; `evidence`.
+- **Required card disposition:** **T1.2 `[XHARD]` Immutable `SchemaSnapshot`: PASS**.
+- **Model route:** `codex:gpt-5.6-luna` (`openai-codex/gpt-5.6-luna`) for brief preparation, integration brief/integration, and evidence; `grok-4.6` for the XHARD pre-code review, implementation, post-implementation review, revision, and independent re-review.
+- **Input/output SHAs:** immutable implementation-chain base `8c67cf3c78059a3356136e3223750d921bb4b7d1`; original implementation commit `a109003ff32def89a7cae266e342764ce36562c9`; reviewed/revised/integrated target `0a8e55ff8d0a7412e750237e9623ba147bb152f2`. Plan SHA-256 is `475c8480124e25cca7a5f1a1c1f2aad049499b670cd1b994d8d4feaae995a35e`. The evidence commit is based on target `0a8e55ff`.
+- **Card contract:** Freeze runtime/cache/request identity, content digest, precedence, generation, conflicts, timestamp/version, per-class schema, and missing classes at ingress. Precedence is explicit request snapshot, verified connected `/object_info`, then configured content-addressed cache. Workflow observation is non-authoritative. Replay cannot perform a fresh ambient lookup.
+
+  Define `touched_schema_classes(operation, snapshot)` for field, add/remove, link/socket, mode, and layout operations. Unknown untouched nodes remain preserved. Any operation whose validity depends on unknown endpoint/node schema fails closed.
+
+  Acceptance: isolated worktrees resolve proven TTS/Qwen schemas; LayerMask stays unsupported until exact pack schema is supplied; no positional alias becomes durable authority without a proven name.
+- **G1 review contract:** one graph, one schema snapshot, lossless sidecar, touched-only blocking, and no ambient replay lookup.
+
+### Ordered T1.2 sequence and receipt register
+
+Receipt SHA-256 values below are hashes of the preserved repository receipt files. `brief_sha256` and `result_sha256` are the exact wrapper fields recorded in each receipt. No receipt was edited.
+
+1. **Brief preparation — `T1.2-brief`.** Luna brief agent; role `brief`; route `codex:gpt-5.6-luna`; receipt `receipts/T1.2-brief-receipt.json`, SHA-256 `9315a45a0ea58d30990ee100cdceb63052c45af22db9f58b4ba83327d1554f6e`; brief digest `39546eaf473e4f2790d4677aa492024abe5e8ee06562f32acb0815cb5e950fbb`; result digest `b999605a3886ebd86367d050f47ad52ec18099336d1e4a44830f67d3b1f1e0ba`; base `8c67cf3c78059a3356136e3223750d921bb4b7d1`; wrapper PID `25737`; `2026-08-21T06:15:32Z` → `2026-08-21T06:20:36Z`; exit `0`; no commits or changed files. It produced the pre-code and implementer briefs.
+2. **Fresh pre-code contract review — `T1.2-precode-review`.** Grok `grok-4.6`; role `reviewer`; receipt `receipts/T1.2-precode-review-receipt.json`, SHA-256 `1054f6b9e7cb027833a72b02182073d487c1ee7cb4c665a3726007de1a423844`; brief digest `7c5edf0e237ba7aff6fc9668eaa22e75eebec03d78b91d69f2ea08dd1e800113`; result digest `45eaaa99f4a6e185233192611f7d142d60d6178fa383188581f0afdc8483c223`; base `8c67cf3c78059a3356136e3223750d921bb4b7d1`; wrapper PID `26320`; `2026-08-21T06:35:28Z` → `2026-08-21T06:45:49Z`; exit `0`; disposition `continue`; no commits or changed files. Its historical T0.2/G0 `JUDGMENT_REQUIRED` strings are closed false latches, not a T1.2 card judgment.
+3. **Original implementation — `T1.2`.** Grok `[XHARD]`; role `implementer`; receipt `receipts/T1.2-receipt.json`, SHA-256 `cfa3fc7ec4db632384245bb2a96ee521f3fe299d6c3147dada279da10b37435e`; brief digest `f724436124cad11bb82dabbfa94f8d5450185d040c80235483d89ae66fa3a340`; result digest `8583745400ed26156962d549dfc482aba1be5e44239e419d24d0b43bb3f90a2f`; base `8c67cf3c78059a3356136e3223750d921bb4b7d1`; wrapper PID `26491`; `2026-08-21T06:46:01Z` → `2026-08-21T07:18:11Z`; exit `0`; commit `a109003ff32def89a7cae266e342764ce36562c9` (`feat(exec-spine): freeze immutable SchemaSnapshot at ingress`). Changed files were exactly:
+   - `tests/test_schema.py`
+   - `vibecomfy/comfy_nodes/agent/candidate_transaction.py`
+   - `vibecomfy/porting/edit/ops.py`
+   - `vibecomfy/porting/edit/schemas/v2/authority_receipt.schema.json`
+   - `vibecomfy/schema/__init__.py`
+   - `vibecomfy/schema/cache.py`
+   - `vibecomfy/schema/provider.py`
+   - `vibecomfy/schema/types.py`
+   
+   The receipt's `### JUDGMENT_REQUIRED` heading is a result-body heading false latch, not a card-level judgment.
+4. **Post-implementation review brief — `T1.2-review-brief-agent`.** Luna brief agent; role `brief`; route `codex:gpt-5.6-luna`; receipt `receipts/T1.2-review-brief-agent-receipt.json`, SHA-256 `ef1417c7ff89d0a7ed6ebf2679bf72e084a550d040d319af6894e8a3254c08c0`; brief digest `4c89b9e4f60124a23cb71ed294e251d55f9fce7c420b1d263b1f548f89186d15`; result digest `af7f2f6daee8d23ae2acbeba2d71330d44e813a05db34c569b3d6c025180d2da`; base/target `a109003ff32def89a7cae266e342764ce36562c9`; wrapper PID `26964`; `2026-08-21T07:18:55Z` → `2026-08-21T07:21:03Z`; exit `0`; no commits or changed files.
+5. **Independent post-implementation review — `T1.2-review`.** Fresh Grok `grok-4.6`; role `reviewer`; receipt `receipts/T1.2-review-receipt.json`, SHA-256 `24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0`; brief digest `35c2f8648d046194d8f8bf68ce3079cb5de0d0fa5cada89b7a132f887674ad8c`; result digest `51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c`; base/target `a109003ff32def89a7cae266e342764ce36562c9`; wrapper PID `27062`; `2026-08-21T07:21:12Z` → `2026-08-21T07:45:39Z`; exit `0`; no commits or changed files. It found exactly two must findings: `T1.2-MUST-001` (production-shaped UID identities were not resolved to catalog classes and layout identities were omitted from touched-schema closure) and `T1.2-MUST-002` (the immutable witness snapshot was not hash-bound/consistently validated and provider authority could prefer an unbound snapshot).
+6. **Revision brief — `T1.2-revision-brief-agent`.** Luna brief agent; role `brief`; route `codex:gpt-5.6-luna`; receipt `receipts/T1.2-revision-brief-agent-receipt.json`, SHA-256 `ce51e014f33c8b9a1143cd9787722c4e61b7512b848af4f490411adaf2f06496`; brief digest `7603ec4e36f847d72bbeb78877767846db63313bcd2ff3a74f2d7dea8c84cc86`; result digest `5dafcc6fb296255f65faaeb47d725c5bfa7bae8a48d6ee74c8f84cb2fe4752ed`; base `a109003ff32def89a7cae266e342764ce36562c9`; wrapper PID `27385`; `2026-08-21T07:46:12Z` → `2026-08-21T07:49:13Z`; exit `0`; no commits or changed files.
+7. **Revision — `T1.2-revision`.** Grok `[XHARD-REVISION]`; role `implementer`; receipt `receipts/T1.2-revision-receipt.json`, SHA-256 `f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec`; brief digest `2932f844ee0b370c1b92f8dda40ca281d73252ca7e91b00493daa669a15e0a20`; result digest `7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353`; base `a109003ff32def89a7cae266e342764ce36562c9`; wrapper PID `27487`; `2026-08-21T07:49:21Z` → `2026-08-21T08:29:10Z`; exit `0`; commit `0a8e55ff8d0a7412e750237e9623ba147bb152f2` (`fix(exec-spine): bind uid-class schema closure and hashed snapshots`). Changed files were exactly:
+   - `tests/test_schema.py`
+   - `vibecomfy/comfy_nodes/agent/candidate_transaction.py`
+   - `vibecomfy/porting/edit/ops.py`
+   - `vibecomfy/porting/edit/schemas/v2/authority_receipt.schema.json`
+   - `vibecomfy/schema/types.py`
+   
+   The `## 7. Residual risks / JUDGMENT_REQUIRED` section heading is a false latch, not a card-level judgment.
+8. **Re-review brief — `T1.2-rereview-brief-agent`.** Luna brief agent; role `brief`; route `codex:gpt-5.6-luna`; receipt `receipts/T1.2-rereview-brief-agent-receipt.json`, SHA-256 `10a3c68099ea3d3ad5b79b299df1f6a81e27c8e13d8fa10513afe2f30f5e0c82`; brief digest `17117dfd3d1c75988c65706ba985e649acecd9fc64b441b1132226759f03af33`; result digest `5e8d6838fc0cca1824dfa65968ce9e5936ea83fdc3e5a5890cbc3a9521e9c5c1`; base `0a8e55ff8d0a7412e750237e9623ba147bb152f2`; wrapper PID `27927`; `2026-08-21T08:29:36Z` → `2026-08-21T08:31:58Z`; exit `0`; no commits or changed files.
+9. **Prominent wrapper-death anomaly during re-review dispatch.** `receipts/wrapper-death-note-t12-rereview.json`, SHA-256 `de6545e38203a27d3b00d315c22252f5aae38f7ec51cad6ede35b7201f08e8dc`, records the first `T1.2-revision-rereview` wrapper PID `28014`, started `2026-08-21T08:32:01Z`, exited `2026-08-21T08:44:38Z` after `12m37s`, and wrote **no receipt**. The supervisor session was recreated at `2026-08-21T08:32:13Z`; no review result existed. The fresh wrapper-routed dispatch below is the same permitted re-review phase, not an additional review tier. No receipt digest, result digest, exit disposition, or other unavailable wrapper end-state is invented for PID `28014`. This is an infrastructure anomaly, not a card failure.
+10. **Fresh independent complete-diff re-review — `T1.2-revision-rereview`.** Grok `grok-4.6`; role `reviewer`; receipt `receipts/T1.2-revision-rereview-receipt.json`, SHA-256 `a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef`; brief digest `8d76c6c813773071cee42c5038f98fd4b30d113688d258e73d4bf54d69622131`; result digest `cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965`; base/target `0a8e55ff8d0a7412e750237e9623ba147bb152f2`; wrapper PID `28408`; `2026-08-21T08:45:29Z` → `2026-08-21T09:00:24Z`; exit `0`; no commits or changed files; disposition `continue`; `JUDGMENT_REQUIRED: none`. It reviewed complete diff `8c67cf3c..0a8e55ff`, closed both must findings, found no new must findings, and verified touched closure, fail-closed error, all ingress/receipt paths, production-shaped UID proof, snapshot hash binding, validation consistency, historic four-field compatibility, and removal of the unused receipt-root `schema_snapshot` property. The re-review-focused shard ran once separately before integration: `147 passed, 3 warnings in 0.88s`, exit `0`, disposable root `/tmp/t12-rereview-focused-hvwb7cn1`, output digest `6c694cc511d6232d8249e7299a32c7dddccbf6dde9deb3738c50ba96c2fec4d1`.
+11. **Integration brief — `T1.2-integration-brief-agent`.** Luna brief agent; role `brief`; route `codex:gpt-5.6-luna`; receipt `receipts/T1.2-integration-brief-agent-receipt.json`, SHA-256 `b1e0dfd2fed25c41a40f74bb4e82eb8d7251c9d55bec0b44db60afca7e47b24a`; brief digest `eea7d6821f9e8529c024823ccc3d86ccdcd8e480ec8806921ac2df9b270eb044`; result digest `bdc32a9392fdf965aeca5e37f23227fd517af0330e34b22bcbc5e316bd9a69e3`; base `0a8e55ff8d0a7412e750237e9623ba147bb152f2`; wrapper PID `28727`; `2026-08-21T09:01:39Z` → `2026-08-21T09:03:29Z`; exit `0`; no commits or changed files. It produced `g0/t12-integration.md`, digest `7719384e2473908367bdd3d92d5d0ca33fd8fab42b5909522af5fdb526e6298c`, and `g0/t12-integration-allowance.json`, digest `e4ca7ce23860ee9290a465f4c176b63e478edd1bae962beba16570d68e7b4115`.
+12. **Integration — `T1.2-integration`.** Luna integration agent; role `integration`; route `codex:gpt-5.6-luna`; receipt `receipts/T1.2-integration-receipt.json`, SHA-256 `a2cfa3e2f595c65f1c24fe925e85b6bcd603bc7c990d53fb0b1d6f92dcbe4fb8`; brief digest `7719384e2473908367bdd3d92d5d0ca33fd8fab42b5909522af5fdb526e6298c`; result digest `f2d32e6b57a0e42d3f2adea3a33e9d90e565bd96b3a263ee9efa6a1949a64139`; base/applied HEAD/target `0a8e55ff8d0a7412e750237e9623ba147bb152f2`; wrapper PID `28820`; `2026-08-21T09:03:35Z` → `2026-08-21T09:06:05Z`; exit `0`; no repository mutations and no commit created by integration. The focused shard ran once in fresh disposable root `/tmp/t12-integration-focused-vb3bca3z`: `147 passed, 3 warnings in 0.93s`, exit `0`, output digest `6de9720460744313f8c8e8aebe95c591a44e7f93fc55c44a348946e73c55b00a`. The second explicit-refspec branch push exited `0`, fast-forwarded `4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2`, and remote verification was recorded at `2026-08-21T09:05:38Z`. This evidence card did not push.
+
+### Findings, revision chains, and residual-risk adjudication
+
+- **`T1.2-MUST-001` — closed.** Severity `must`; classification `XHARD`; status/disposition `closed`. The review found that production-shaped UID identities were not resolved to catalog classes and layout identities were omitted from closure. Revision task `T1.2-revision` (`0a8e55ff`) uses identity extraction/class-map lookup and fail-closed `missing_touched_schema`; complete-diff independent re-review task `T1.2-revision-rereview` closed the finding. Revision receipt is `receipts/T1.2-revision-receipt.json` (SHA-256 `f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec`, result `7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353`); closing receipt is `receipts/T1.2-revision-rereview-receipt.json` (SHA-256 `a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef`, result `cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965`). The initial review receipt is `receipts/T1.2-review-receipt.json` (SHA-256 `24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0`, result `51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c`).
+- **`T1.2-MUST-002` — closed.** Severity `must`; classification `XHARD`; status/disposition `closed`. The review found that the witness snapshot was not included in the content hash and validation/provider authority were inconsistent. Revision binds `schema_snapshot` into `content_hash`, validates mismatch as `invalid_schema_snapshot`, preserves historic `schema_snapshot is None` compatibility, and removes the unused receipt-root property; complete-diff independent re-review closed the finding. Revision and closing receipt details are the same `T1.2-revision` and `T1.2-revision-rereview` receipts above. No must finding remains open.
+- **False-latch adjudication:** the implementation `### JUDGMENT_REQUIRED` and revision `## 7. Residual risks / JUDGMENT_REQUIRED` headings are result-body headings, not card-level judgments. The successful independent re-review explicitly records `JUDGMENT_REQUIRED: none`.
+- **Residual risk:** LayerMask remains unsupported until its exact pack schema is supplied; unknown touched schema remains fail-closed. This is the required contract, not a hidden pass.
+
+### Controls, rejected alternatives, and handoff
+
+- No merge to `main`, no promotion, no live model/runtime/provider calls, no secret access, and protected state was untouched. The evidence agent did not run the product shard, full suite, wrapper, another agent, or a push.
+- `test-shards.json` was read and byte-compared unchanged at SHA-256 `f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3`; it was not edited or staged.
+- Rejected alternatives/failure proofs: accepting UID strings as catalog classes; omitting layout endpoints from closure; allowing unknown touched schema to proceed; trusting an unbound witness snapshot; validating only mapping presence; preferring an unbound snapshot over hashed `schemas`; treating the receipt-root `schema_snapshot` as authority; treating either result-heading latch as a card judgment; counting PID `28014` recovery as a second review; inventing unavailable receipt fields; changing the shard; or modifying the prior T1.1 entry. The correct response to any inconsistency is stop/fix the evidence, not hide it or widen the allowance.
+- Exactly one canonical top-level `T1.2` task record is added to the machine manifest. Recovery/review phase IDs remain nested receipt/anomaly fields; no `G1` completion record and no non-canonical top-level task record is added.
+- The evidence commit is one coherent commit authored as `POM <peter@omalley.io>` with message prefix `docs(exec-spine):`; it contains only this execution-log append and the manifest update, and is not pushed. No receipt, brief/allowance artifact, source, test, fixture, generated file, protected path, or other evidence-root file is changed.
+- **Card disposition:** **T1.2 `[XHARD]` Immutable `SchemaSnapshot`: PASS**. **Next unblocked card:** `G1 [XHARD-REVIEW]`. `G1` is not marked complete.
+- `JUDGMENT_REQUIRED`: none open.
+ 
+### T1.2 validator-repair continuation and recovery digest finish (2026-08-21)
+
+This append-only continuation completes the already-recorded `T1.2` evidence
+chain. It does not add another `T1.2` entry, a `G1` completion record, or any
+non-canonical top-level task ID.
+
+1. **Blocked evidence disposition — `evidence-log-T1.2`.** The preserved
+   receipt is `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.2-receipt.json`,
+   SHA-256
+   `c83e86dbeac453e2c2a0da4f2e64e32bebdc9a6a9aba1a042b7675bcc5af78f1`.
+   Its base was `0a8e55ff8d0a7412e750237e9623ba147bb152f2`; wrapper PID
+   `29228`; interval `2026-08-21T09:11:14Z` → `2026-08-21T09:19:16Z`;
+   exit `0`; result SHA-256
+   `dd1c76a611bce542201dcf9b15d5ad352fa00b7b362e129fd9f669435d7a82ba`;
+   changed files were exactly the manifest and this execution log; commits
+   were `[]`. It stopped on the validator `NameError: _find_task`; this was
+   an evidence-owned validator gap, not a product or T1.2 disposition change.
+
+2. **Validator repair — `T1.2-validator-repair`.** The accepted receipt is
+   `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T1.2-validator-repair-receipt.json`,
+   SHA-256
+   `53822f4498c754fdb526582b36e7564f48c82ae4a441fc8246e27b95da96ad62`.
+   The repair was based on `0a8e55ff8d0a7412e750237e9623ba147bb152f2`,
+   committed as `1d8088423030700a4e54bc20608d62e53df7da56`; Grok PID `29798`;
+   interval `2026-08-21T09:25:21Z` → `2026-08-21T09:58:16Z`; exit `0`;
+   result SHA-256
+   `bad768f5196384320ea1b1fc4e82f620acc1e25d4d2ef1e7d595853fe01ae690`;
+   changed files were exactly
+   `scripts/validate_workflow_execution_spine_evidence.py`; no other file
+   was changed. The repair fixed the `_find_task`/embedded-receipt
+   finding-chain path. The validator itself remains read-only for this finish.
+
+3. **Independent repair review — `T1.2-validator-repair-review`.** The
+   accepted receipt is
+   `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T1.2-validator-repair-review-receipt.json`,
+   SHA-256
+   `9174f42feacadd450eca2a8139cfed63762d4b3118c4413761fb2a57da534f92`;
+   base `1d8088423030700a4e54bc20608d62e53df7da56`; Grok reviewer PID
+   `30627`; interval `2026-08-21T10:04:11Z` → `2026-08-21T10:15:11Z`;
+   exit `0`; result SHA-256
+   `9ee239d42257651f7f981f513dacff8620229d9f07bdf6e434c53864124e9256`;
+   disposition `continue`; zero must findings; no changed files or commits;
+   `JUDGMENT_REQUIRED: none`. The review accepted the deterministic,
+   non-spoofable reviewer-identity fallback, the production
+   `sys._getframe(1)` path, and the evidence-owned artifact-digest mismatch
+   pending this continuation. No historical false-latch heading is a new
+   judgment.
+
+4. **Finish-card dispatch custody.** The active allowance registry recorded
+   PID `31126`, start `2026-08-21T10:20:32Z`, and this card's expected receipt
+   path
+   `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.2-finish-brief-agent-receipt.json`.
+   No post-exit receipt digest or end timestamp is recorded here because those
+   wrapper facts are unavailable before exit.
+
+The only pre-finish validator failure after the repair was the
+evidence-owned `ARTIFACT_DIGEST` mismatch: current execution-log digest
+`f79d0fd44160e98abf6e49b398816c58a1845267d3cfe7e160a9e8b080036ec9` versus
+stale `tasks[5].recovery_note.sha256`
+`d1566ea306cfaca2d46e282074f5987ae6be7516e14d387b6d667ced4be106aa`.
+The final recovery-note digest is assigned in the manifest only after this
+append. The T1.2 residual risk remains unchanged: LayerMask is unsupported
+until its exact pack schema is supplied, and unknown touched schema remains
+fail-closed.
+
+No product tests, full suite, live/model/runtime/provider calls, secret
+access, or protected-state access occurred. No push, merge to `main`, or
+promotion occurred. `JUDGMENT_REQUIRED`: none.
