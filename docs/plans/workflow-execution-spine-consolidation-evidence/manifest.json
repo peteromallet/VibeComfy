@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "8c2a13a841238234d6fcf3b399e3006e6d0199004d1b627cf395a9ad173560b3",
+        "sha256": "810d3d1b21faaf4cb8ccf4286bb0e323ee73b59bacf25198ff3a676e649760d6",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -436,7 +436,7 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "b66de10259552ff1e8c3bc5053a13ee2fe2bf622ab1bf72d18ce5ed7db60f0ec"},
+        {"path": "test-shards.json", "sha256": "20f9e7d32314ea8ae8006150736b80d74208c33569dffacb404385dd88b0ec47"},
         {"path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"},
         {"path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"},
         {"path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"},
@@ -537,7 +537,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "b66de10259552ff1e8c3bc5053a13ee2fe2bf622ab1bf72d18ce5ed7db60f0ec", "modified": true},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "20f9e7d32314ea8ae8006150736b80d74208c33569dffacb404385dd88b0ec47", "modified": true},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
@@ -1201,6 +1201,70 @@
         ],
         "push": false
       }
+    },
+    {
+      "task_id": "T2.2",
+      "gate": "G2",
+      "label": "evidence-log T2.2 card sequence and disposition",
+      "role": "evidence",
+      "model_route": "codex:gpt-5.6-luna",
+      "status": "complete",
+      "disposition": "pass",
+      "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0",
+      "implementation_commit": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d",
+      "revision_commit": "24a42b14e99dea9f4096fc210fba293e8c901f05",
+      "target_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05",
+      "changed_files": [
+        "tests/_executor_threaded_helpers.py",
+        "tests/test_authority_receipts.py",
+        "tests/test_comfy_nodes_agent_session.py",
+        "tests/test_executor_threaded_edits.py",
+        "tests/test_porting_edit_kernel.py",
+        "tests/test_porting_edit_session.py",
+        "tests/test_terminal_checkpoint.py",
+        "vibecomfy/comfy_nodes/agent/_frag_response_contract.py",
+        "vibecomfy/comfy_nodes/agent/authority_receipts.py",
+        "vibecomfy/comfy_nodes/agent/contracts.py",
+        "vibecomfy/comfy_nodes/agent/session.py",
+        "vibecomfy/executor/core.py",
+        "vibecomfy/executor/threaded.py",
+        "vibecomfy/porting/edit/__init__.py",
+        "vibecomfy/porting/edit/apply_gate.py",
+        "vibecomfy/porting/edit/checkpoint.py"
+      ],
+      "receipts": [
+        {"task_id": "T2.2-precode-review", "path": "receipts/T2.2-precode-review-receipt.json", "sha256": "019b383349515c87930c0693bcaf60b300382ca1097098c13f848074c640a226", "brief_sha256": "24b9ef27f5ed48d3d1b6a68f9dfa8213ab911fbe73a7c68e103adf0cc3f24c29", "result_sha256": "7fc99c4d970efb56dc7126dac59f80e1d9ac9d605ccbf81b2656039e609633cf", "role": "reviewer", "model_route": "grok-4.6", "pid": 50543, "start_ts": "2026-08-21T19:00:37Z", "end_ts": "2026-08-21T19:21:52Z", "exit": 0, "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0", "commits": [], "changed_files": [], "disposition": "continue with binding conditions"},
+        {"task_id": "T2.2", "path": "receipts/T2.2-receipt.json", "sha256": "f714fb5f355168b3f690cd713278b8d6b60c6bbf7f5e298748a83df8f6c73286", "brief_sha256": "0860abb6ae3497e4e8a22182fc8440f2cc529c4e9e2e6bb9392aaae832ff5d5f", "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "role": "implementer", "model_route": "grok-4.6", "pid": 51098, "start_ts": "2026-08-21T19:27:52Z", "end_ts": "2026-08-21T20:27:52Z", "exit": 124, "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0", "commits": [], "disposition": "interrupted F6 wrapper timeout; recovered by T2.2-rerun"},
+        {"task_id": "T2.2-rerun", "path": "receipts/T2.2-rerun-receipt.json", "sha256": "225a00a969f4c094a0bb89e6e49a13227a366beeb2eee4745383dccf3047c5e4", "brief_sha256": "38d94d227a19931af19cae3904d6ddb4570ee18a097ed195006de81172a151b7", "result_sha256": "8e191d314861519ba811ee83a2a3e8b6214ef09caeaf32b9a6930179971852b7", "role": "implementer", "model_route": "grok-4.6", "pid": 52451, "start_ts": "2026-08-21T20:30:51Z", "end_ts": "2026-08-21T21:12:24Z", "exit": 0, "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0", "commits": ["40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d"], "disposition": "commit 40d1f8e5"},
+        {"task_id": "T2.2-review", "path": "receipts/T2.2-review-receipt.json", "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1", "brief_sha256": "2ea3594bbee555b290bffaa07d794d64e7451e12f32c8ed272494ac673a996f6", "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5", "role": "reviewer", "model_route": "grok-4.6", "pid": 53607, "start_ts": "2026-08-21T21:22:17Z", "end_ts": "2026-08-21T21:43:00Z", "exit": 0, "base_sha": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d", "commits": [], "changed_files": [], "disposition": "correct; MUST-001..003 and SHOULD-001..003 open"},
+        {"task_id": "T2.2-revision", "path": "receipts/T2.2-revision-receipt.json", "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8", "brief_sha256": "b40fbd3391ce0bd4df09a4ba6133890d2f3397efdb7603ce2c8a81017302938e", "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740", "role": "implementer", "model_route": "grok-4.6", "pid": 54853, "start_ts": "2026-08-21T21:53:25Z", "end_ts": "2026-08-21T22:37:35Z", "exit": 0, "base_sha": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d", "commits": ["24a42b14e99dea9f4096fc210fba293e8c901f05"], "disposition": "repaired; MUST-001..003 and SHOULD-001..003"},
+        {"task_id": "T2.2-rereview", "path": "receipts/T2.2-rereview-receipt.json", "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe", "brief_sha256": "cb036697525adba61da536782499a78ae767a7f6ebcde815fac440a290501e59", "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081", "role": "reviewer", "model_route": "grok-4.6", "pid": 57135, "start_ts": "2026-08-21T22:38:07Z", "end_ts": "2026-08-21T23:00:43Z", "exit": 0, "base_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05", "commits": [], "changed_files": [], "disposition": "correct; MUST-001..003 closed; SHOULD-001 addressed; SHOULD-002..003 closed"}
+      ],
+      "wrapper_death_recovery": {"task_id": "T2.2", "path": "receipts/wrapper-death-note-t22-implementer.json", "sha256": "44128fb0812dd72ecef370cf8eae69d46d131ad4feeccd20811d2afbc89305e8", "wrapper_pid": 51092, "launcher_pid": 51098, "exit": 124, "classification": "F6 launcher timeout; same phase rerun under T2.2-rerun after partial-path restoration", "receipt_written": true, "result_persisted": false},
+      "focused_evidence": {"shard_id": "T2.2_closed_checkpoint_terminal_projector", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_comfy_nodes_agent_session.py", "source_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05", "summary": "362 passed, 27 failed (pre-existing), 2 skipped", "exit": 1, "status": "pre_existing_failures", "runs_once": true, "tests_run_by_evidence_agent": false},
+      "findings_closed": ["T2.2-MUST-001", "T2.2-MUST-002", "T2.2-MUST-003", "T2.2-SHOULD-001", "T2.2-SHOULD-002", "T2.2-SHOULD-003"],
+      "finding_revisions": [
+        "MUST-001: accepted_batch operations plus receipt recover applied with ops and Apply eligibility.",
+        "MUST-002: _thaw_jsonish before deepcopy makes nested mappingproxy durable responses projector-safe.",
+        "MUST-003: rejected candidate, graph, accepted_batch, candidate_graph, and candidate_transaction are audit-only.",
+        "SHOULD-001: live AdmissionAllowed is threaded when present; otherwise t2.3_persistence_carries_real_admission is explicit and close still requires a token.",
+        "SHOULD-002: infer_terminal_state requires replay or receipt evidence before applied.",
+        "SHOULD-003: eight production-path tests cover stamped durable recovery, freeze-safe projection, row-6 fallback, rejection authority, replay inference, and threaded preservation."
+      ],
+      "residual_risks": [
+        "Execution-log edits require refreshing tasks[5].recovery_note.sha256.",
+        "test-shards.json edits require refreshing matching tasks[5].evidence_links[*].sha256 and tasks[6].shard_integrity.sha256.",
+        "T2.3 owns durable submit/delta/candidate/hash persistence and crash-after-receipt-before-projection; real admit_operations outcome is not on the stamp (t2.3_persistence_carries_real_admission).",
+        "Recover short-circuit core.py:1769-1773 does not thread request_graph; authority_rejected durables lacking original_graph project {} as original graph, public rejected product absent and Apply ineligible.",
+        "Browser apply UI still keys on no_candidate/candidate outside allowance; consumers must tolerate absent public keys after MUST-003.",
+        "The 27 listed-shard failures are pre-existing and unchanged.",
+        "H3-overlap-narrow remains STOPPED pending operator direction (wrapper pre-code JUDGMENT_REQUIRED, de75b418); deferred, with remaining runs serializing batches.",
+        "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings; tracked per adjudication A."
+      ],
+      "validator": {"command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "exit": 0, "stdout": "OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "output_sha256": "1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224"},
+      "controls": {"merge_to_main": false, "promotion": false, "live_model_runtime_provider_calls": false, "secret_access": false, "protected_state_touched": false, "push_by_evidence_agent": false, "product_tests_run_by_evidence_agent": false, "receipts_committed": false},
+      "next_unblocked_card": "PRE-REVIEW-REMAINING after T2.2 integration push",
+      "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false}
     }
   ],
   "shards": [],
@@ -1237,6 +1301,87 @@
       "revision_receipt": {"path": "receipts/T1.2-revision-receipt.json", "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec", "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353"},
       "rereview_receipt": {"path": "receipts/T1.2-revision-rereview-receipt.json", "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef", "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965"},
       "closure": "Revision binds schema_snapshot into content_hash, validates mismatch as invalid_schema_snapshot, preserves historic schema_snapshot is None compatibility, and removes the unused receipt-root property. Complete-diff independent re-review closed the finding."
+    },
+    {
+      "finding_id": "T2.2-MUST-001",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "recover_terminal_checkpoint ignored accepted_batch and receipt-backed applied durables recovered as undetermined without operations.",
+      "revision_task_id": "T2.2-revision",
+      "re_review_task_id": "T2.2-rereview",
+      "implementer": "T2.2-revision implementer",
+      "reviewer": "T2.2-review reviewer",
+      "initial_review_receipt": {"path": "receipts/T2.2-review-receipt.json", "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1", "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5"},
+      "revision_receipt": {"path": "receipts/T2.2-revision-receipt.json", "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8", "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740"},
+      "rereview_receipt": {"path": "receipts/T2.2-rereview-receipt.json", "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe", "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081"},
+      "closure": "Revision extracts accepted_batch operations and receipt evidence; independent re-review confirmed applied recovery with operations and Apply eligibility."
+    },
+    {
+      "finding_id": "T2.2-MUST-002",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "Frozen ImplementationResult durable_response nested mappingproxy values caused the mode-neutral projector to raise TypeError and drop applied work.",
+      "revision_task_id": "T2.2-revision",
+      "re_review_task_id": "T2.2-rereview",
+      "implementer": "T2.2-revision implementer",
+      "reviewer": "T2.2-review reviewer",
+      "initial_review_receipt": {"path": "receipts/T2.2-review-receipt.json", "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1", "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5"},
+      "revision_receipt": {"path": "receipts/T2.2-revision-receipt.json", "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8", "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740"},
+      "rereview_receipt": {"path": "receipts/T2.2-rereview-receipt.json", "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe", "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081"},
+      "closure": "Revision thaws JSON-ish values before deepcopy without mutating executor/contracts.py; independent re-review confirmed pickle-safe projection and preserved applied row 6."
+    },
+    {
+      "finding_id": "T2.2-MUST-003",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "Rejected stamps retained candidate, graph, and accepted_batch in the public product instead of audit-only authority.",
+      "revision_task_id": "T2.2-revision",
+      "re_review_task_id": "T2.2-rereview",
+      "implementer": "T2.2-revision implementer",
+      "reviewer": "T2.2-review reviewer",
+      "initial_review_receipt": {"path": "receipts/T2.2-review-receipt.json", "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1", "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5"},
+      "revision_receipt": {"path": "receipts/T2.2-revision-receipt.json", "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8", "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740"},
+      "rereview_receipt": {"path": "receipts/T2.2-rereview-receipt.json", "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe", "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081"},
+      "closure": "Revision moves rejected candidate data to audit.rejected_candidate and removes public candidate/graph/accepted_batch/candidate_graph/candidate_transaction; independent re-review closed the finding."
+    },
+    {
+      "finding_id": "T2.2-SHOULD-001",
+      "severity": "should",
+      "classification": "XHARD",
+      "status": "addressed",
+      "disposition": "addressed",
+      "summary": "Applied close must use live AdmissionAllowed rather than manufacturing an admission outcome.",
+      "revision_task_id": "T2.2-revision",
+      "re_review_task_id": "T2.2-rereview",
+      "closure": "Live token is threaded when present; otherwise t2.3_persistence_carries_real_admission is explicit and close still requires AdmissionAllowed."
+    },
+    {
+      "finding_id": "T2.2-SHOULD-002",
+      "severity": "should",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "infer_terminal_state must not infer applied from candidate/edit narrative without replay evidence.",
+      "revision_task_id": "T2.2-revision",
+      "re_review_task_id": "T2.2-rereview",
+      "closure": "Revision requires replay or receipt evidence; independent re-review closed the finding."
+    },
+    {
+      "finding_id": "T2.2-SHOULD-003",
+      "severity": "should",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "summary": "Focused tests must exercise the stamped-durable production path.",
+      "revision_task_id": "T2.2-revision",
+      "re_review_task_id": "T2.2-rereview",
+      "closure": "Eight production-path tests were added and independently confirmed; re-review closed the finding."
     }
   ],
   "g0_finding_chains": [

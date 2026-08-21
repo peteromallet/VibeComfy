@@ -1896,3 +1896,251 @@ wrapper-recorded brief and result digests.
   stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests were run by this evidence recorder.
+
+## G2 / T2.2 — evidence-log T2.2 card sequence and disposition (2026-08-21)
+
+### Ordered T2.2 receipt register
+
+1. **Pre-code review — `T2.2-precode-review`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.2 closed checkpoint and typed terminal projector
+   pre-code contract review`; role `reviewer`; model route/resolved model
+   `grok-4.6`; receipt
+   `receipts/T2.2-precode-review-receipt.json`; receipt SHA-256
+   `019b383349515c87930c0693bcaf60b300382ca1097098c13f848074c640a226`;
+   brief SHA-256
+   `24b9ef27f5ed48d3d1b6a68f9dfa8213ab911fbe73a7c68e103adf0cc3f24c29`;
+   result SHA-256
+   `7fc99c4d970efb56dc7126dac59f80e1d9ac9d605ccbf81b2656039e609633cf`;
+   PID `50543`; `2026-08-21T19:00:37Z` →
+   `2026-08-21T19:21:52Z`; exit `0`; base
+   `48f81d64a74885548c5793dffd552eec60d626a0`; no commits or changed files.
+   Wrapper invocation:
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6
+   --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2-precode-review.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record
+   `g0/T2.2-precode-review-dispatch.log`. Disposition `continue` with binding
+   conditions: freeze the seven-row transition table verbatim, use one
+   mode-neutral projector, preserve T2.1's `AdmissionAllowed` authority, and
+   keep H3 outside T2.2.
+
+2. **Implementer first run — `T2.2`.** Gate unset in the receipt; label
+   `T2.2 [XHARD] Closed checkpoint and typed terminal projector`; role
+   `implementer`; model route/resolved model `grok-4.6`; receipt
+   `receipts/T2.2-receipt.json`; receipt SHA-256
+   `f714fb5f355168b3f690cd713278b8d6b60c6bbf7f5e298748a83df8f6c73286`;
+   brief SHA-256
+   `0860abb6ae3497e4e8a22182fc8440f2cc529c4e9e2e6bb9392aaae832ff5d5f`;
+   result SHA-256
+   `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+   (empty stdout); PID `51098`; `2026-08-21T19:27:52Z` →
+   `2026-08-21T20:27:52Z`; exit `124` from the wrapper per-dispatch timeout;
+   base `48f81d64a74885548c5793dffd552eec60d626a0`; no commit. The wrapper
+   invocation was
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.2-dispatch.log`. The
+   `receipts/wrapper-death-note-t22-implementer.json` recovery note
+   (receipt SHA-256
+   `44128fb0812dd72ecef370cf8eae69d46d131ad4feeccd20811d2afbc89305e8`)
+   records F6 `LAUNCHER-TIMEOUT`: wrapper PID `51092`, launcher child PID
+   `51098`, empty result, and 14 modified allowance files left uncommitted.
+   Per the F6 lesson, the same phase was re-dispatched under a new task ID
+   after restoring the partial paths; this was one interrupted run, not a
+   second review or a second card.
+
+3. **Implementer rerun — `T2.2-rerun`.** Gate unset in the receipt; label
+   `T2.2 [XHARD] Closed checkpoint and typed terminal projector (rerun after
+   launcher timeout)`; role `implementer`; model route/resolved model
+   `grok-4.6`; receipt `receipts/T2.2-rerun-receipt.json`; receipt SHA-256
+   `225a00a969f4c094a0bb89e6e49a13227a366beeb2eee4745383dccf3047c5e4`;
+   brief SHA-256
+   `38d94d227a19931af19cae3904d6ddb4570ee18a097ed195006de81172a151b7`;
+   result SHA-256
+   `8e191d314861519ba811ee83a2a3e8b6214ef09caeaf32b9a6930179971852b7`;
+   PID `52451`; `2026-08-21T20:30:51Z` →
+   `2026-08-21T21:12:24Z`; exit `0`; base
+   `48f81d64a74885548c5793dffd552eec60d626a0`; commit
+   `40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d`
+   (`feat(exec-spine): add closed checkpoint and typed terminal projector`);
+   16 files in the frozen implementation allowance. Wrapper invocation:
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6
+   --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2-rerun.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.2-rerun-dispatch.log`.
+   The owned focused subset exited `0` with `57 passed`. The full listed
+   shard was `354 passed, 2 skipped, 27 failed`; sampled failures
+   (`PassThroughImage` `unknown_target`,
+   `_find_link_to_target_in_ledger` missing, and `_fresh_v2_apply_turn`
+   `receipt.is_applyable is False`) reproduced identically at detached base
+   `48f81d64` under `/tmp/t22-rerun/base-48f81d64`, so they are pre-existing
+   T2.1 admit/schema failures outside T2.2.
+
+4. **Post-implementation review — `T2.2-review`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.2 post-implementation review of commit 40d1f8e5
+   (closed checkpoint and typed terminal projector)`; role `reviewer`; model
+   route/resolved model `grok-4.6`; receipt
+   `receipts/T2.2-review-receipt.json`; receipt SHA-256
+   `c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1`;
+   brief SHA-256
+   `2ea3594bbee555b290bffaa07d794d64e7451e12f32c8ed272494ac673a996f6`;
+   result SHA-256
+   `dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5`;
+   PID `53607`; `2026-08-21T21:22:17Z` →
+   `2026-08-21T21:43:00Z`; exit `0`; base
+   `40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d`; no commits or changed files.
+   Wrapper invocation:
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6
+   --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2-review.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.2-review-dispatch.log`.
+   Disposition `correct`, `JUDGMENT_REQUIRED: none`, with three MUST and
+   three SHOULD findings. MUST-001: `recover_terminal_checkpoint` ignored
+   `accepted_batch`, so stamped applied durables recovered as
+   `undetermined` without deltas. MUST-002: the frozen
+   `ImplementationResult.durable_response` nested `mappingproxy` caused the
+   durable projector to raise `TypeError`, dropping row-6 applied work in
+   both modes. MUST-003: rejected stamps left public `candidate`, `graph`,
+   and `accepted_batch` visible instead of audit-only. SHOULD-001 identified
+   manufactured `AdmissionAllowed()` for applied close; SHOULD-002 identified
+   candidate/edit narrative inference without replay proof; SHOULD-003
+   identified that focused tests had not exercised the stamped-durable
+   production path.
+
+5. **Revision — `T2.2-revision`.** Gate unset in the receipt; label
+   `T2.2 [XHARD-REVISION] repair stamped-durable recover, freeze-safety, and
+   rejected-candidate authority (MUST-001..003)`; role `implementer`; model
+   route/resolved model `grok-4.6`; receipt
+   `receipts/T2.2-revision-receipt.json`; receipt SHA-256
+   `c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8`;
+   brief SHA-256
+   `b40fbd3391ce0bd4df09a4ba6133890d2f3397efdb7603ce2c8a81017302938e`;
+   result SHA-256
+   `827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740`;
+   PID `54853`; `2026-08-21T21:53:25Z` →
+   `2026-08-21T22:37:35Z`; exit `0`; base
+   `40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d`; commit
+   `24a42b14e99dea9f4096fc210fba293e8c901f05`
+   (`fix(exec-spine): repair stamped-durable recover, freeze, and authority
+   paths`); 8 files in the frozen allowance. Wrapper invocation:
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6
+   --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2-revision.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.2-revision-dispatch.log`.
+   Per-finding closure: MUST-001 extracts operations from
+   `accepted_batch[*].op` and recovers stamped applied plus receipt as
+   `applied`, with operations and Apply eligibility. MUST-002 thaws
+   JSON-ish `mappingproxy`/tuple values before deepcopy, making the
+   projector pickle-safe without widening to `executor/contracts.py`.
+   MUST-003 moves rejected candidate/graph/accepted-batch data under
+   `audit["rejected_candidate"]` and removes the public keys. SHOULD-001 is
+   addressed as the explicit residual fact
+   `admission_residual=t2.3_persistence_carries_real_admission`, while close
+   still requires an `AdmissionAllowed` token; SHOULD-002 requires replay or
+   receipt evidence before inferring `applied`; SHOULD-003 adds eight
+   production-path tests. The listed shard was `27 failed, 362 passed,
+   2 skipped`, exit `1`, with the same pre-existing failure set.
+
+6. **Revision re-review — `T2.2-rereview`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.2 re-review of the complete card diff
+   48f81d64..24a42b14 after revision`; role `reviewer`; model
+   route/resolved model `grok-4.6`; receipt
+   `receipts/T2.2-rereview-receipt.json`; receipt SHA-256
+   `c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe`;
+   brief SHA-256
+   `cb036697525adba61da536782499a78ae767a7f6ebcde815fac440a290501e59`;
+   result SHA-256
+   `f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081`;
+   PID `57135`; `2026-08-21T22:38:07Z` →
+   `2026-08-21T23:00:43Z`; exit `0`; base
+   `24a42b14e99dea9f4096fc210fba293e8c901f05`; no commits or changed files.
+   Wrapper invocation:
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6
+   --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2-rereview.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.2-rereview-dispatch.log`.
+   Disposition `correct`; `JUDGMENT_REQUIRED: none`. MUST-001..003 are
+   **CLOSED**; SHOULD-001 is **ADDRESSED** with the recorded
+   `t2.3_persistence_carries_real_admission` residual and the required close
+   token; SHOULD-002 and SHOULD-003 are **CLOSED**. The frozen seven-row
+   transition table is verbatim, one mode-neutral projector remains, and
+   the T2.1 gateway is consumed rather than duplicated. This is the one
+   independent re-review allowed after the one revision.
+
+### T2.2 disposition, revision closure, and handoff
+
+- **Card disposition:** `PASS`/complete. The sequence is pre-code
+  `continue`, one interrupted implementer run (exit `124`, F6 wrapper cap),
+  rerun commit `40d1f8e5`, post-implementation `correct` review with three
+  MUST and three SHOULD findings, one revision commit `24a42b14`, and one
+  independent re-review `correct` closing all findings. One review per phase
+  per operator §13/§14/§17 was respected; no stacked adjudication occurred.
+- **Focused evidence and the 27 pre-existing IDs:** the focused T2.2 shard
+  is recorded as `362 passed, 27 failed (pre-existing), 2 skipped`, exit `1`.
+  The 27 failures reproduced at detached base `48f81d64` and are outside
+  T2.2 scope: `test_porting_edit_session.py::TestRenderEditRerenderIdentity::test_session_rerender_keeps_locked_names_after_topology_change`;
+  `TestEditSessionResolution::test_apply_batch_resolves_bare_rhs_when_exactly_one_schema_output_matches`;
+  `TestEditSessionPrimitiveLowering::test_original_link_endpoint_uses_litegraph_origin_slot`;
+  `test_apply_batch_successful_add_and_rewire_still_commits`;
+  `test_apply_batch_lowers_schema_less_dict_widget_assignment_to_set_node_field_op`;
+  `test_apply_batch_upsert_link_removes_stale_duplicate_target_links`;
+  `test_apply_batch_exec_accepts_semantic_io_names_for_new_node_wiring`;
+  `test_apply_batch_exec_accepts_semantic_io_names_for_existing_node_assignments`;
+  `test_apply_batch_infers_true_splice_anchor_from_two_line_rewire`;
+  `test_apply_batch_does_not_treat_simple_new_link_as_splice`;
+  `test_apply_batch_places_five_node_cluster_in_dataflow_order`;
+  `test_near_inherits_group`; `test_pipeline_cluster_shares_group`;
+  `test_splice_prefers_downstream_group`;
+  `test_splice_neither_has_group_ungrouped_with_diagnostic`;
+  `TestDoneGateAByteFaithfulness::test_done_candidate_matches_working_ui_byte_for_byte`;
+  `TestDoneGateAGuardFailure::test_done_detects_missing_landed_ops`;
+  `test_done_detects_external_working_ui_mutation`;
+  `test_done_diagnostics_include_teaching_hints`;
+  `TestDoneGateCSummary::test_summary_gate_failure_includes_error_diagnostics`;
+  `TestSessionDeltaHistory::test_cas_noop_batch_still_records_source_and_diff_stays_minimal`;
+  and the six `test_comfy_nodes_agent_session.py` cases:
+  `test_prepare_cas_records_receipt_without_advancing_baseline`,
+  `test_prepare_rejects_stale_typed_evidence_candidate_plan_and_generation`,
+  `test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_baseline_advance`,
+  `test_finalize_uses_typed_semantic_postcondition_not_raw_native_widget_carriers`,
+  `test_rollback_restores_prepare_time_baseline_from_nonterminal_state`, and
+  `test_reconcile_returns_durable_receipts_and_repairs_index`. Their observed
+  classes are the T2.1 `PassThroughImage`/admit-schema, ledger-link,
+  snapshot/delta-contract, and `_fresh_v2_apply_turn` `receipt.is_applyable`
+  failures; none was introduced by T2.2.
+- **Residual risks and recurrence rules:** execution-log edits require
+  refreshing `manifest.tasks[5].recovery_note.sha256` to the current full-log
+  SHA-256. `test-shards.json` edits require refreshing every matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256` to the current shard-file
+  SHA-256. T2.3 owns durable submit/delta/candidate/hash persistence and the
+  crash-after-receipt-before-projection matrix; the real `admit_operations`
+  outcome is not on the stamp, residual
+  `t2.3_persistence_carries_real_admission`. Recover short-circuit
+  `core.py:1769-1773` does not thread `request_graph`; stamped
+  `authority_rejected` durables lacking `original_graph` project `{}` as
+  original graph, with the public rejected product absent and Apply
+  ineligible. Browser apply UI still keys on `no_candidate`/`candidate`
+  (outside allowance), so consumers must tolerate MUST-003's absent public
+  keys. The 27 pre-existing listed-shard failures are unchanged. H3 overlap
+  narrow remains STOPPED pending operator direction (wrapper pre-code
+  `JUDGMENT_REQUIRED`, `de75b418`); deferred, and the remaining run will
+  serialize batches so H3 is not needed for parallelism. The pre-existing
+  validator gap `_iter_digest_refs` silently skips malformed non-64-hex
+  digest strings; it remains tracked per adjudication A.
+- **Controls:** this evidence append changes only the three allowed evidence
+  files. No receipt, protected state, branch, or other file is changed; no
+  push, merge, promotion, live/model/runtime call, secret access, wrapper
+  dispatch, review, validator change, or product/test run is performed by
+  this evidence recorder.
+- **Next unblocked card:** after the T2.2 integration push, §18 comprehensive
+  pre-review `PRE-REVIEW-REMAINING`: one Grok/stealth `[XHARD-REVIEW]` of
+  the complete remaining plan T2.3→G7 plus the §16 wrapper-timeout raise,
+  §18 finale flow, and §19 validator-routing amendment. It must return
+  `continue` before implementation resumes; subsequent batches follow §18.
