@@ -229,6 +229,162 @@
         "tests/live_agentic_harness/threaded_comparison_manifest_final50.json"
       ],
       "commits": ["b34eb5ad8f6ec70053a2d0a1822122ac02a2b2f9"]
+    },
+    {
+      "task_id": "T1.1",
+      "gate": "G1",
+      "label": "evidence-log T1.1 card sequence and disposition",
+      "role": "evidence",
+      "model_route": "codex:gpt-5.6-luna",
+      "status": "complete",
+      "disposition": "complete",
+      "base_sha": "fbdd5596db7638d62f40def7b534012ebb1a7567",
+      "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
+      "implementation_commit": "4f38adb816effe9440fe3292193aff14bd7dff3d",
+      "integration_commit": "4f38adb816effe9440fe3292193aff14bd7dff3d",
+      "commit_author": "POM <peter@omalley.io>",
+      "changed_files": [
+        "tests/test_graph_inspection.py",
+        "tests/test_ingest_snapshot.py",
+        "tests/test_snapshot_api_workflows.py",
+        "vibecomfy/comfy_nodes/agent/_frag_entrypoint.py",
+        "vibecomfy/comfy_nodes/agent/_frag_ingest.py",
+        "vibecomfy/comfy_nodes/agent/_frag_state.py",
+        "vibecomfy/comfy_nodes/agent/_turn_state_machine.py",
+        "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
+        "vibecomfy/comfy_nodes/agent/executor_durable.py",
+        "vibecomfy/executor/graph_inspection.py",
+        "vibecomfy/ingest/normalize.py",
+        "vibecomfy/ingest/snapshot.py",
+        "vibecomfy/porting/edit/session.py"
+      ],
+      "allowance": {
+        "frozen_file_count": 17,
+        "changed_file_count": 13,
+        "all_changed_files_within_allowance": true
+      },
+      "receipts": [
+        {"task_id": "t11-brief", "path": "receipts/t11-brief-receipt.json", "sha256": "31ae7101172a08d488e378ee7cf77ee4b13466442def6ce83dec74cc65ef3391", "brief_sha256": "e5771f1bf2a1ee4f839087baf64c6802e39b6c88e48b48ceedc877da22b3e747", "result_sha256": "81fc7f29667e6734e6cf6c271d074a21e2117156f6887d018c47245035dbc0e1", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 21101, "start_ts": "2026-08-21T02:50:52Z", "end_ts": "2026-08-21T02:56:53Z", "exit": 0},
+        {"task_id": "T1.1-precode-review", "path": "receipts/T1.1-precode-review-receipt.json", "sha256": "d77e790ca2cbde8591bd0af30a2f47a13147c3f21bc4ced996e80439e15f1249", "brief_sha256": "20997a372921847214050cb911de52929ca74ed79738bd8f7b26b7253b566181", "result_sha256": "919649f7fb4f650840c033e083df4fd48882de6e8d5b486a8824fa536cf4ebb9", "role": "reviewer", "model_route": "grok-4.6", "pid": 21228, "start_ts": "2026-08-21T02:57:01Z", "end_ts": "2026-08-21T03:13:01Z", "exit": 0, "disposition": "continue"},
+        {"task_id": "T1.1", "path": "receipts/T1.1-receipt.json", "sha256": "1509c48d0db93737bcc25449ac92f419e42556ebed3be1d52f1e04d28fbe2494", "brief_sha256": "b7b2d3d1d300b7ffb2d5d326fec42a5a05c44455f0ebdb7220fd16d1a05c4c13", "result_sha256": "0261cad0b01f802811ca1a7ecf51989e63e15735c6ddc2bb12fec3d74f54f04c", "role": "implementer", "model_route": "grok-4.6", "pid": 21429, "start_ts": "2026-08-21T03:13:06Z", "end_ts": "2026-08-21T03:20:36Z", "exit": 0, "base_sha": "fbdd5596db7638d62f40def7b534012ebb1a7567", "commits": [], "changed_files": []},
+        {"task_id": "t11-rerun-brief", "path": "receipts/t11-rerun-brief-receipt.json", "sha256": "fcb2ba9def6af0977a846993a6f66e30f9b3e063ac3d622bd207636867b20dbf", "brief_sha256": "147a5b6a43b79cc2480a0529f958734fb4952895fe3345e91a857e139151441d", "result_sha256": "48199e43c76f1171be818d9528472e2588dd3c12621f44c7646ffc58f0d2c177", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 21695, "start_ts": "2026-08-21T03:21:28Z", "end_ts": "2026-08-21T03:24:04Z", "exit": 0},
+        {"task_id": "T1.1-rerun-verify-brief-agent", "path": "receipts/T1.1-rerun-verify-brief-agent-receipt.json", "sha256": "8397b7cada39c9ed811d785f97ce7fb63af566cc24c8c7d715ba91817b756549", "brief_sha256": "eec0b02717c83e79fa6466099c82ac921f571d803361cccac250a218662ac662", "result_sha256": "2fcd744f94bc28d51041b2be4aef85bf537de3c6cb657c7a91a97e26d1a16946", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 22869, "start_ts": "2026-08-21T04:48:40Z", "end_ts": "2026-08-21T04:50:54Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"},
+        {"task_id": "T1.1-rerun-verify", "path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f", "brief_sha256": "24c49c913466203f90cc81a188239458800035f92d874e33796bedcd73f6d8ec", "result_sha256": "3f85202159d17981a2da1ee15e2c6a043bd191aedc26c29db9158ae1da140d5c", "role": "implementer", "model_route": "grok-4.6", "pid": 22970, "start_ts": "2026-08-21T04:51:01Z", "end_ts": "2026-08-21T05:01:31Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d", "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d", "commits": [], "changed_files": []},
+        {"task_id": "T1.1-review-brief-agent", "path": "receipts/T1.1-review-brief-agent-receipt.json", "sha256": "b96774553b0abd3698329ebeec8218b974a13312b7bcaa7de17fb4e7ea80286d", "brief_sha256": "2d86ea8840eebd37929039379de8a3c0296a7aea28787143d51abd616498f6c1", "result_sha256": "da2b352c0bb77a291c968c1d091eb31ce375fd017c560527e27b665a58164f7d", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 23191, "start_ts": "2026-08-21T05:02:05Z", "end_ts": "2026-08-21T05:03:53Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"},
+        {"task_id": "T1.1-review", "path": "receipts/T1.1-review-receipt.json", "sha256": "03ea2f8a1e163e6609d4324cd75b8d59c449f60d6bff05feb685d638cc559699", "brief_sha256": "c5a7e8698d24b977d85e587d0244a9736e9b13f3466acde493b0185b5d10b41e", "result_sha256": "5748dde6c69477cf3a57ad80606bf7cbd97730261cddab60a2ea5875609e9788", "role": "reviewer", "model_route": "grok-4.6", "pid": 23287, "start_ts": "2026-08-21T05:04:00Z", "end_ts": "2026-08-21T05:22:53Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d", "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d", "disposition": "continue"},
+        {"task_id": "T1.1-integration-brief-agent", "path": "receipts/T1.1-integration-brief-agent-receipt.json", "sha256": "241c2a514b5d48f93f12ff8f96b9b5931dcf4595a70c370dd171b5e1278c0f74", "brief_sha256": "f8b8bb35c56ee89653457c30c4620ff64b8bf045328ea2db16f1d1f2cbee4ca0", "result_sha256": "1d1da210258bce284e66dca0316aac3664d63f28483de8c7b774a5c3fb58fef1", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 23607, "start_ts": "2026-08-21T05:23:46Z", "end_ts": "2026-08-21T05:25:49Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"},
+        {"task_id": "T1.1-integration", "path": "receipts/T1.1-integration-receipt.json", "sha256": "e205cfb9d0e57184349426cf2c707256aea71b2b80f9ac2586eec568c9c06459", "brief_sha256": "a93a5ee5b21dafd83df4508cbee525bdca8f2c6df593eb5e996e2e686abb64bc", "result_sha256": "6c08b3b7a5d3c9a45e4d5cca7c1d1ed1cd98637fbabbfdd730c1ed87cc4c4b5f", "role": "integration", "model_route": "codex:gpt-5.6-luna", "pid": 23705, "start_ts": "2026-08-21T05:25:56Z", "end_ts": "2026-08-21T05:32:14Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d", "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d", "integration_commit": "4f38adb8", "commits": [], "changed_files": []},
+        {"task_id": "evidence-log-T1.1-brief-agent", "path": "receipts/evidence-log-T1.1-brief-agent-receipt.json", "sha256": "8c40db5fe2eaa86540475d73f3ad68b2d62d903563b1eaece03a42d119b2105d", "brief_sha256": "980a869e12cf0f40346e1054c02c4d711dab51c08de9dfa12ba700e6b18f10b3", "result_sha256": "2c7a189616ab8cfcaa02ca3639e332b2d23489824382c5fe04485e619e6af2ce", "role": "brief", "model_route": "codex:gpt-5.6-luna", "pid": 24250, "start_ts": "2026-08-21T05:32:43Z", "end_ts": "2026-08-21T05:38:53Z", "exit": 0, "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"}
+      ],
+      "wrapper_death_anomaly": {
+        "implementer_receipt": "unavailable",
+        "wrapper_pid": "unavailable",
+        "wrapper_start_ts": "unavailable",
+        "wrapper_end_ts": "unavailable",
+        "wrapper_exit": "unavailable",
+        "receipt_sha256": "unavailable",
+        "brief_sha256": "unavailable",
+        "result_sha256": "unavailable",
+        "known_session_prefix": "01a02258-…",
+        "implementer_commit": "4f38adb816effe9440fe3292193aff14bd7dff3d",
+        "implementer_commit_ts": "2026-08-21T04:08:39Z",
+        "detached_session_exit_ts": "2026-08-21T04:09:05Z",
+        "cause": "wrapper died during 03:42Z supervisor relaunch teardown before receipt write",
+        "classification": "infrastructure anomaly; not a card failure"
+      },
+      "focused_evidence": {
+        "disposable_root": "/tmp/t11-integration-fsRm4h",
+        "metadata_path": "/tmp/t11-integration-fsRm4h/metadata.txt",
+        "baseline_classification_path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt",
+        "python": "Python 3.11.11",
+        "executable": "/root/.pyenv/versions/3.11.11/bin/python3",
+        "pytest": "9.1.1",
+        "start_ts": "2026-08-21T05:27:49Z",
+        "end_ts": "2026-08-21T05:29:27Z",
+        "exit": 1,
+        "command": "/root/.pyenv/shims/python3 -m pytest -q tests/test_ingest_snapshot.py tests/test_snapshot_api_workflows.py tests/test_ir_laws.py tests/test_graph_inspection.py",
+        "command_sha256": "56529040a45f9c3438c164d75a6d68df6d10076ad5d196388103faf8618db3c3",
+        "output_sha256": "a7bd04d5f2b8d89775641fb3c68ce54a7ab69dbb67d25d3daba9696200f5bf02",
+        "baseline_source_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+        "baseline_output_sha256": "d93f6f7bf90a9d53b223d0e308c9554674d15cf8e63ae292b017157bfaa52c93",
+        "observed_summary": "6 failed, 173 passed, 1 xfailed",
+        "expected_failure_count": 6,
+        "expected_failures_present": 6,
+        "unexpected_failures": 0,
+        "classification": "baseline-equivalent six failures; no introduced failures",
+        "failure_names": [
+          "test_snapshot_incoming_edge_sig_captured",
+          "test_snapshot_outgoing_edge_sig_captured",
+          "law-3 envelope",
+          "law-3 definitions",
+          "law-3 unknown-schema",
+          "law-5 test_law_5_boundary_has_no_provisional_exceptions"
+        ],
+        "tests_run_by_evidence_agent": false
+      },
+      "shard_integrity": {
+        "path": "test-shards.json",
+        "byte_identical_to_base": true,
+        "current_sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3",
+        "base_sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3",
+        "modified": false
+      },
+      "residual_risks": [
+        "compare_snapshot_authority remains test-only.",
+        "_ensure_ingest_workflow retains an empty-state fallthrough second-ingest door.",
+        "inspect_graph retains a raw-dict first-ingest path.",
+        "Durable replay does not invoke comparison against the persisted artifact.",
+        "from_ui/prompt-API has an intermediate api-snapshot overwrite.",
+        "Baseline edge-signature red tests remain.",
+        "Precode-continue envelope encoding remains."
+      ],
+      "review_adjudication": {
+        "receipt_path": "receipts/T1.1-review-receipt.json",
+        "result_sha256": "5748dde6c69477cf3a57ad80606bf7cbd97730261cddab60a2ea5875609e9788",
+        "disposition": "continue",
+        "open_must_findings": 0,
+        "judgment_required": "none"
+      },
+      "evidence_links": [
+        {"path": "receipts/T1.1-review-receipt.json", "sha256": "03ea2f8a1e163e6609d4324cd75b8d59c449f60d6bff05feb685d638cc559699"},
+        {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
+        {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
+        {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
+        {"path": "test-shards.json", "sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3"}
+      ],
+      "controls": {
+        "merge_to_main": false,
+        "promotion": false,
+        "live_model_runtime_provider_calls": false,
+        "secret_access": false,
+        "protected_state_touched": false,
+        "g1_completion_record": false,
+        "push_by_evidence_agent": false,
+        "product_tests_run_by_evidence_agent": false
+      },
+      "rejected_alternatives": [
+        "Rewrite prior log entries",
+        "Add non-canonical top-level task IDs",
+        "Edit receipts",
+        "Modify test-shards.json",
+        "Relabel or suppress baseline failures",
+        "Invent unavailable wrapper PID/timestamps/digests",
+        "Widen the frozen 17-file allowance",
+        "Run live/model/runtime/provider calls",
+        "Access secrets or protected state",
+        "Merge to main, promote, or push"
+      ],
+      "next_unblocked_card": "T1.2",
+      "evidence_commit": {
+        "required_author": "POM <peter@omalley.io>",
+        "message_prefix": "docs(exec-spine):",
+        "allowed_files": [
+          "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
+          "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
+          "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"
+        ],
+        "push": false
+      }
     }
   ],
   "shards": [],

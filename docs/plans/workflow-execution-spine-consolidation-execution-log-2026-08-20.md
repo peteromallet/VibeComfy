@@ -259,3 +259,275 @@ The goal attachment names laptop launcher paths under `/Users/peteromalley/.code
 - **Residual risks:** Docker is unavailable (`docker ps` exit `127`); `/workspace/omp-replaces-hermes` and structural-cleanup evidence lack comparable T0.0 baselines; current external health/path-list and Arnold state are qualified observations; pre-existing untracked evidence/status noise remains untouched. These are documented custody qualifications, not suppressed findings.
 - **Rejected alternatives:** no new task IDs that would make `CARD_ORDER` reject the manifest; no `test-shards.json` mutation or fabricated live run; no receipt edits; no prior scratch-root reuse; no `HEAD^{tree}` tautological comparison; no textual-similarity substitution for tree identity; no exclusion of any tmux session other than the adjudicated supervisor-created `exec-spine-orchestrator`; no claim of unchanged state without a comparable baseline.
 - **Next unblocked card:** `T1.1`.
+## G1 / T1.1 — evidence-log T1.1 card sequence and disposition (2026-08-21)
+
+- **Task/gate/label/role:** `T1.1` / `G1` / `evidence-log T1.1 card sequence and disposition` / `evidence`.
+- **Model route:** `codex:gpt-5.6-luna` (`openai-codex/gpt-5.6-luna`).
+- **Disposition/status:** complete. This is one canonical `T1.1` evidence entry after G0 and before `T1.2`; no `G1` completion record is created here.
+- **Input/base:** implementation base `fbdd5596db7638d62f40def7b534012ebb1a7567`; reviewed/integrated target `4f38adb816effe9440fe3292193aff14bd7dff3d`.
+- **Plan provenance:** plan SHA-256 `475c8480124e25cca7a5f1a1c1f2aad049499b670cd1b994d8d4feaae995a35e`; prior G0 evidence and receipts were read-only inputs.
+
+### Ordered T1.1 sequence and receipt register
+
+The following is the complete canonical card sequence. Existing receipts and
+briefs are preserved unchanged. Receipt SHA-256 values are hashes of the
+repository receipt files; `brief_sha256` and `result_sha256` are the wrapper
+fields recorded in each receipt.
+
+1. **Brief preparation — `t11-brief`.** Task `t11-brief`; gate unset in the
+   receipt; label `T1.1 brief preparation (pre-code review + implementer)`;
+   role `brief`; route `codex:gpt-5.6-luna`; receipt
+   `receipts/t11-brief-receipt.json`, SHA-256
+   `31ae7101172a08d488e378ee7cf77ee4b13466442def6ce83dec74cc65ef3391`;
+   brief SHA-256
+   `e5771f1bf2a1ee4f839087baf64c6802e39b6c88e48b48ceedc877da22b3e747`;
+   result SHA-256
+   `81fc7f29667e6734e6cf6c271d074a21e2117156f6887d018c47245035dbc0e1`;
+   base `fbdd5596db7638d62f40def7b534012ebb1a7567`; PID `21101`;
+   `2026-08-21T02:50:52Z` → `2026-08-21T02:56:53Z`; exit `0`; no
+   commits/files.
+2. **Pre-code review — `T1.1-precode-review`.** Task `T1.1-precode-review`;
+   gate `G1`; label `G1 [XHARD-REVIEW] T1.1 immutable WorkflowSnapshot
+   pre-code contract review`; role `reviewer`; route `grok-4.6`; receipt
+   `receipts/T1.1-precode-review-receipt.json`, SHA-256
+   `d77e790ca2cbde8591bd0af30a2f47a13147c3f21bc4ced996e80439e15f1249`;
+   brief SHA-256
+   `20997a372921847214050cb911de52929ca74ed79738bd8f7b26b7253b566181`;
+   result SHA-256
+   `919649f7fb4f650840c033e083df4fd48882de6e8d5b486a8824fa536cf4ebb9`;
+   base `fbdd5596db7638d62f40def7b534012ebb1a7567`; PID `21228`;
+   `2026-08-21T02:57:01Z` → `2026-08-21T03:13:01Z`; exit `0`;
+   disposition `continue`; no commits/files.
+3. **Original implementation attempt — `T1.1`.** Task `T1.1`; gate `G1`;
+   label `T1.1 [XHARD] Immutable WorkflowSnapshot`; role `implementer`;
+   route `grok-4.6`; receipt `receipts/T1.1-receipt.json`, SHA-256
+   `1509c48d0db93737bcc25449ac92f419e42556ebed3be1d52f1e04d28fbe2494`;
+   brief SHA-256
+   `b7b2d3d1d300b7ffb2d5d326fec42a5a05c44455f0ebdb7220fd16d1a05c4c13`;
+   result SHA-256
+   `0261cad0b01f802811ca1a7ecf51989e63e15735c6ddc2bb12fec3d74f54f04c`;
+   base `fbdd5596db7638d62f40def7b534012ebb1a7567`; PID `21429`;
+   `2026-08-21T03:13:06Z` → `2026-08-21T03:20:36Z`; exit `0`; no
+   commits/files. The preserved `T1.1-JR-PRECODE-RECEIPT-001` stop was the
+   obsolete `g0/`-path precondition. It is not a card failure and this
+   receipt is not deleted or edited.
+4. **Rerun brief — `t11-rerun-brief`.** Task `t11-rerun-brief`; gate unset in
+   the receipt; label `T1.1-rerun implementer brief preparation`; role
+   `brief`; route `codex:gpt-5.6-luna`; receipt
+   `receipts/t11-rerun-brief-receipt.json`, SHA-256
+   `fcb2ba9def6af0977a846993a6f66e30f9b3e063ac3d622bd207636867b20dbf`;
+   brief SHA-256
+   `147a5b6a43b79cc2480a0529f958734fb4952895fe3345e91a857e139151441d`;
+   result SHA-256
+   `48199e43c76f1171be818d9528472e2588dd3c12621f44c7646ffc58f0d2c177`;
+   base `fbdd5596db7638d62f40def7b534012ebb1a7567`; PID `21695`;
+   `2026-08-21T03:21:28Z` → `2026-08-21T03:24:04Z`; exit `0`; no
+   commits/files.
+5. **Rerun implementation — non-receipted wrapper anomaly.** The canonical
+   task remains `T1.1`; no top-level `T1.1-rerun` task is added. The fresh
+   Grok `grok-4.6` implementer completed normally and authored commit
+   `4f38adb816effe9440fe3292193aff14bd7dff3d` at
+   `2026-08-21T04:08:39Z`. Its detached omp session exited at
+   `2026-08-21T04:09:05Z`, but the wrapper died during the `03:42Z`
+   supervisor relaunch teardown before writing a receipt. Wrapper PID,
+   wrapper start timestamp, wrapper end timestamp, receipt SHA-256,
+   brief SHA-256, result SHA-256, and wrapper exit are **unavailable**;
+   they are not invented. The known launcher-side recovery fact is session
+   identifier prefix `01a02258-…`, not a wrapper receipt substitute. This is
+   an infrastructure anomaly, not a card failure.
+6. **Verification brief — `T1.1-rerun-verify-brief-agent`.** Task
+   `T1.1-rerun-verify-brief-agent`; gate unset in the receipt; label
+   `T1.1 verification brief preparation (wrapper-recovery for preserved
+   commit 4f38adb8)`; role `brief`; route `codex:gpt-5.6-luna`; receipt
+   `receipts/T1.1-rerun-verify-brief-agent-receipt.json`, SHA-256
+   `8397b7cada39c9ed811d785f97ce7fb63af566cc24c8c7d715ba91817b756549`;
+   brief SHA-256
+   `eec0b02717c83e79fa6466099c82ac921f571d803361cccac250a218662ac662`;
+   result SHA-256
+   `2fcd744f94bc28d51041b2be4aef85bf537de3c6cb657c7a91a97e26d1a16946`;
+   base/target `4f38adb816effe9440fe3292193aff14bd7`; PID `22869`;
+   `2026-08-21T04:48:40Z` → `2026-08-21T04:50:54Z`; exit `0`; no
+   commits/files.
+7. **Verification rerun — `T1.1-rerun-verify`.** Task
+   `T1.1-rerun-verify`; gate unset in the receipt; label `T1.1 [XHARD]
+   Immutable WorkflowSnapshot — verification re-dispatch of preserved
+   commit 4f38adb8 (wrapper died before receipt)`; role `implementer`;
+   route `grok-4.6`; receipt
+   `receipts/T1.1-rerun-verify-receipt.json`, SHA-256
+   `37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f`;
+   brief SHA-256
+   `24c49c913466203f90cc81a188239458800035f92d874e33796bedcd73f6d8ec`;
+   result SHA-256
+   `3f85202159d17981a2da1ee15e2c6a043bd191aedc26c29db9158ae1da140d5c`;
+   base/target `4f38adb816effe9440fe3292193aff14bd7`; PID `22970`;
+   `2026-08-21T04:51:01Z` → `2026-08-21T05:01:31Z`; exit `0`; no
+   commits/files. This regenerated machine-record and focused-test
+   evidence for the preserved commit; it was not reimplementation or
+   review.
+8. **Review brief — `T1.1-review-brief-agent`.** Task
+   `T1.1-review-brief-agent`; gate unset in the receipt; label `T1.1
+   post-implementation review brief preparation (commit 4f38adb8)`; role
+   `brief`; route `codex:gpt-5.6-luna`; receipt
+   `receipts/T1.1-review-brief-agent-receipt.json`, SHA-256
+   `b96774553b0abd3698329ebeec8218b974a13312b7bcaa7de17fb4e7ea80286d`;
+   brief SHA-256
+   `2d86ea8840eebd37929039379de8a3c0296a7aea28787143d51abd616498f6c1`;
+   result SHA-256
+   `da2b352c0bb77a291c968c1d091eb31ce375fd017c560527e27b665a58164f7d`;
+   base/target `4f38adb816effe9440fe3292193aff14bd7dff3d`; PID `23191`;
+   `2026-08-21T05:02:05Z` → `2026-08-21T05:03:53Z`; exit `0`; no
+   commits/files.
+9. **Independent post-code review — `T1.1-review`.** Task
+   `T1.1-review`; gate unset in the receipt; label `T1.1 [XHARD-REVIEW]
+   post-implementation review of preserved commit 4f38adb8 (Immutable
+   WorkflowSnapshot)`; role `reviewer`; route `grok-4.6`; receipt
+   `receipts/T1.1-review-receipt.json`, SHA-256
+   `03ea2f8a1e163e6609d4324cd75b8d59c449f60d6bff05feb685d638cc559699`;
+   brief SHA-256
+   `c5a7e8698d24b977d85e587d0244a9736e9b13f3466acde493b0185b5d10b41e`;
+   result SHA-256
+   `5748dde6c69477cf3a57ad80606bf7cbd97730261cddab60a2ea5875609e9788`;
+   base/target `4f38adb816effe9440fe3292193aff14bd7dff3d`; PID `23287`;
+   `2026-08-21T05:04:00Z` → `2026-08-21T05:22:53Z`; exit `0`; no
+   commits/files; disposition `continue`.
+10. **Integration brief — `T1.1-integration-brief-agent`.** Task
+    `T1.1-integration-brief-agent`; gate unset in the receipt; label
+    `T1.1 integration brief preparation (commit 4f38adb8)`; role `brief`;
+    route `codex:gpt-5.6-luna`; receipt
+    `receipts/T1.1-integration-brief-agent-receipt.json`, SHA-256
+    `241c2a514b5d48f93f12ff8f96b9b5931dcf4595a70c370dd171b5e1278c0f74`;
+    brief SHA-256
+    `f8b8bb35c56ee89653457c30c4620ff64b8bf045328ea2db16f1d1f2cbee4ca0`;
+    result SHA-256
+    `1d1da210258bce284e66dca0316aac3664d63f28483de8c7b774a5c3fb58fef1`;
+    base/target `4f38adb816effe9440fe3292193aff14bd7dff3d`; PID `23607`;
+    `2026-08-21T05:23:46Z` → `2026-08-21T05:25:49Z`; exit `0`; no
+    commits/files.
+11. **Integration — `T1.1-integration`.** Task `T1.1-integration`; gate
+    unset in the receipt; label `T1.1 integration of reviewed commit
+    4f38adb8 (Immutable WorkflowSnapshot)`; role `integration`; route
+    `codex:gpt-5.6-luna`; receipt
+    `receipts/T1.1-integration-receipt.json`, SHA-256
+    `e205cfb9d0e57184349426cf2c707256aea71b2b80f9ac2586eec568c9c06459`;
+    brief SHA-256
+    `a93a5ee5b21dafd83df4508cbee525bdca8f2c6df593eb5e996e2e686abb64bc`;
+    result SHA-256
+    `6c08b3b7a5d3c9a45e4d5cca7c1d1ed1cd98637fbabbfdd730c1ed87cc4c4b5f`;
+    base/target `4f38adb816effe9440fe3292193aff14bd7dff3d`; PID `23705`;
+    `2026-08-21T05:25:56Z` → `2026-08-21T05:32:14Z`; exit `0`; no
+    commits/files; applied `4f38adb8`; first branch push succeeded before
+    this evidence card, and this evidence card does not push.
+12. **Evidence brief — `evidence-log-T1.1-brief-agent`.** Task
+    `evidence-log-T1.1-brief-agent`; gate unset in the receipt; label
+    `T1.1 evidence brief preparation`; role `brief`; route
+    `codex:gpt-5.6-luna`; receipt
+    `receipts/evidence-log-T1.1-brief-agent-receipt.json`, SHA-256
+    `8c40db5fe2eaa86540475d73f3ad68b2d62d903563b1eaece03a42d119b2105d`;
+    brief SHA-256
+    `980a869e12cf0f40346e1054c02c4d711dab51c08de9dfa12ba700e6b18f10b3`;
+    result SHA-256
+    `2c7a189616ab8cfcaa02ca3639e332b2d23489824382c5fe04485e619e6af2ce`;
+    base/target `4f38adb816effe9440fe3292193aff14bd7dff3d`; PID `24250`;
+    `2026-08-21T05:32:43Z` → `2026-08-21T05:38:53Z`; exit `0`; no
+    commits/files. Evidence recording itself runs no product tests.
+
+### Integrated implementation and focused evidence
+
+The accepted implementation is commit
+`4f38adb816effe9440fe3292193aff14bd7dff3d`, parent
+`fbdd5596db7638d62f40def7b534012ebb1a7567`, authored by `POM
+<peter@omalley.io>`, message `feat(exec-spine): freeze immutable
+WorkflowSnapshot on ingest door`. The exact 13 changed files are:
+
+- `tests/test_graph_inspection.py`
+- `tests/test_ingest_snapshot.py`
+- `tests/test_snapshot_api_workflows.py`
+- `vibecomfy/comfy_nodes/agent/_frag_entrypoint.py`
+- `vibecomfy/comfy_nodes/agent/_frag_ingest.py`
+- `vibecomfy/comfy_nodes/agent/_frag_state.py`
+- `vibecomfy/comfy_nodes/agent/_turn_state_machine.py`
+- `vibecomfy/comfy_nodes/agent/edit_batch_repl.py`
+- `vibecomfy/comfy_nodes/agent/executor_durable.py`
+- `vibecomfy/executor/graph_inspection.py`
+- `vibecomfy/ingest/normalize.py`
+- `vibecomfy/ingest/snapshot.py`
+- `vibecomfy/porting/edit/session.py`
+
+All 13 files are within the frozen 17-file allowance. Acceptance is the
+reviewed immutable snapshot implementation: UI/API/`{prompt: API}` shape
+detection occurs once; caller inputs are not mutated; one retained immutable
+`WorkflowSnapshot` is semantic authority; canonical `VibeWorkflow`, source
+representation/digest, semantic hash version, layout reference, raw sidecar,
+stable identity/topology, and session/turn lineage are retained; canonical
+JSON/hash behavior reuses existing primitives; model Python, inspection,
+comparison, and replay consume the retained snapshot; and opaque/UI-only/
+unknown-node data survives projection.
+
+Authoritative focused evidence was read from disposable root
+`/tmp/t11-integration-fsRm4h/` and was not regenerated:
+
+- `metadata.txt`: Python `3.11.11` at
+  `/root/.pyenv/versions/3.11.11/bin/python3`, pytest `9.1.1`,
+  `2026-08-21T05:27:49Z` → `2026-08-21T05:29:27Z`, exit `1`;
+  command `/root/.pyenv/shims/python3 -m pytest -q
+  tests/test_ingest_snapshot.py tests/test_snapshot_api_workflows.py
+  tests/test_ir_laws.py tests/test_graph_inspection.py`;
+  command SHA-256
+  `56529040a45f9c3438c164d75a6d68df6d10076ad5d196388103faf8618db3c3`;
+  output SHA-256
+  `a7bd04d5f2b8d89775641fb3c68ce54a7ab69dbb67d25d3daba9696200f5bf02`.
+- `baseline-classification.txt`: baseline source
+  `5fc6be9dbe811df77e43d440ad087440e8bd57b5`; baseline output SHA-256
+  `d93f6f7bf90a9d53b223d0e308c9554674d15cf8e63ae292b017157bfaa52c93`;
+  `6 failed, 173 passed, 1 xfailed`; six expected failures present, no
+  unexpected failures; classification `baseline-equivalent/no introduced
+  failures`.
+- The six baseline failures are `test_snapshot_incoming_edge_sig_captured`,
+  `test_snapshot_outgoing_edge_sig_captured`, law-3 `envelope`, law-3
+  `definitions`, law-3 `unknown-schema`, and law-5
+  `test_law_5_boundary_has_no_provisional_exceptions`. They are identical to
+  the T0.0 baseline; zero were introduced. They are not relabelled as a T1.1
+  failure and are not suppressed.
+- `test-shards.json` was read and byte-compared unchanged:
+  current and base SHA-256 are both
+  `f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3`.
+  It was not edited.
+
+### Residual-risk adjudication
+
+The independent post-code review result
+`5748dde6c69477cf3a57ad80606bf7cbd97730261cddab60a2ea5875609e9788`
+returned disposition `continue`. It adjudicated all seven verifier-listed
+items as residual risks, not open must findings:
+
+1. `compare_snapshot_authority` remains test-only.
+2. `_ensure_ingest_workflow` retains an empty-state fallthrough second-ingest door.
+3. `inspect_graph` retains a raw-dict first-ingest path.
+4. Durable replay does not invoke comparison against the persisted artifact.
+5. `from_ui`/prompt-API has an intermediate api-snapshot overwrite.
+6. Baseline edge-signature red tests remain.
+7. Precode-continue envelope encoding remains.
+
+There is no open must finding, no new `JUDGMENT_REQUIRED`, and no unresolved
+judgment. The original pre-code false stop remains historical evidence only.
+
+### Controls, rejected alternatives, and handoff
+
+- No merge to `main`, no promotion, no live model/runtime/provider calls, no
+  secret access, and protected state was untouched. No wrapper was run and no
+  agent was dispatched by this evidence recording.
+- No product tests or full suite were run by this evidence agent; the focused
+  result above is authoritative integration evidence only.
+- Rejected alternatives: rewriting prior log entries; adding top-level
+  `T1.1-rerun`, `T1.1-rerun-verify`, or other non-canonical task IDs; editing
+  any receipt; modifying `test-shards.json`; relabelling baseline failures;
+  suppressing failures; inventing the dead wrapper PID/timestamps/digests;
+  widening the 17-file allowance; running a live/model/runtime/provider call;
+  accessing secrets or protected state; pushing from this evidence card; or
+  marking `G1` complete.
+- Exactly one canonical `T1.1` task record is inserted in the machine
+  manifest. The evidence commit is authored as `POM
+  <peter@omalley.io>`, has message prefix `docs(exec-spine):`, contains only
+  the three allowance files, and is not pushed.
+- **Next unblocked card:** `T1.2 [XHARD]`. Handoff is validator execution by
+  the orchestrator, then dispatch of canonical `T1.2`.
