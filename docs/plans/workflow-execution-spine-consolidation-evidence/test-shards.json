@@ -53,8 +53,8 @@
     "status": "pending"
   },
   "evidence_log": {
-    "task_id": "evidence-log-H3-stop",
-    "gate": "",
+    "task_id": "evidence-log-G1",
+    "gate": "G1",
     "validator_exit": 0,
     "other_tests_run": false
   }

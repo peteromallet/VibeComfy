@@ -1542,3 +1542,87 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   review of T1.1/T1.2. H3-overlap-narrow remains STOPPED pending operator
   direction and is deferred to before the T3.1/T3.2 read-only windows per
   operator §15/Grok ordering.
+### G1 — fresh Grok gate review disposition (2026-08-21)
+
+- **Task/gate/label/role:** `G1-gate-review` / `G1` /
+  `evidence-log G1: fresh Grok gate review continue — T1 phase
+  (WorkflowSnapshot + SchemaSnapshot) passes` / reviewer.
+- **Model route and receipt:** Grok `grok-4.6`; receipt
+  `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G1-gate-review-receipt.json`.
+  The receipt records base `f36ed7ed783e757403d05381c4c57e65ff48e81e`,
+  exit `0`, no commits, no changed files, and an empty `stop_or_judgment`.
+  The wrapper invocation was
+  `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+  --model=grok-4.6
+  --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/G1-gate-review.md
+  --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+  --timeout=3600`; wrapper PID `45863`, launcher child PID `45869`;
+  `2026-08-21T15:44:09Z` → `2026-08-21T15:55:34Z`; exit `0`; brief
+  SHA-256 `a2171f832567d3b3bafea5856e12b51767b665b289d4394a855abc513b40a5e4`;
+  result SHA-256
+  `acec07fab0b858d9273ba4bd85c41caf08e157b812615111bff0978591262a36`.
+- **Review scope:** T1 product diff
+  `fbdd5596db7638d62f40def7b534012ebb1a7567..0a8e55ff8d0a7412e750237e9623ba147bb152f2`
+  at review HEAD `f36ed7ed783e757403d05381c4c57e65ff48e81e`.
+  The scope includes `4f38adb8` (T1.1 WorkflowSnapshot) and
+  `a109003f` plus `0a8e55ff` (T1.2 SchemaSnapshot).
+- **Disposition:** **continue**. Open must findings: **none**.
+  `T1.2-MUST-001` (UID/layout-touched unknown schema would proceed) and
+  `T1.2-MUST-002` (`schema_snapshot` unbound from `content_hash`, allowing
+  replay to accept a swapped snapshot) were confirmed closed by `0a8e55ff`
+  and the independent `T1.2-revision-rereview`, which also returned
+  `continue`.
+- **G1 acceptance points verified:** UI, API, and `{prompt: API}` inputs
+  produce one canonical graph per input shape; the immutable retained
+  snapshot is consumed by model Python, inspection, comparison, and replay;
+  opaque unknown-node data survives projection; sidecar, layout, and
+  lineage data remain lossless; schema precedence is request snapshot,
+  verified connected `/object_info`, then content-addressed cache, with
+  workflow observation non-authoritative; `touched_schema_classes` covers
+  field, add/remove, link/socket, mode, and layout changes with fail-closed
+  unknown-touched handling; replay performs no ambient lookup.
+- **Accepted residual risks (not must findings):**
+  `from_ui` builds the API snapshot and attaches the UI snapshot over it,
+  so the final retained snapshot is UI; `compare_snapshot_authority` is
+  used in tests and mixed-shape rejection but durable replay does not
+  re-invoke it against persisted artifacts (T2 scope);
+  `_ensure_ingest_workflow` retains an empty-state second-ingest door
+  (first-ingest only); and `parse_edit_delta` schema-snapshot threading is
+  deferred to the T2.1 gateway rather than being a G1 must.
+- **Rejected alternatives:** treating prior T1.1/T1.2 `continue` receipts
+  as the G1 authority; treating delta-threading as a G1 must; and treating
+  the H3 stop (`de75b418`, wrapper overlap-narrow pre-code) as a T1
+  replan or stop. H3 is outside T1 product scope and does not reopen the
+  T1.1/T1.2 must findings.
+- **T1 disposition and next card:** T1 is complete: T1.1 and T1.2 each
+  completed pre-code continue → implementation → review →
+  MUST-001/002 revision → independent re-review continue → integration,
+  and G1 was the missing gate now supplied by this review. The next
+  unblocked card is `T2.1` `[XHARD]`, one operation-admission gateway
+  `admit_operation(snapshot, canonical_operation)`, with a Grok
+  implementer and Grok pre-code `[XHARD-REVIEW]` under plan §6 G2,
+  §8 lifecycle, and operator §§13–14.
+- **Residual recurrence rules:** An execution-log edit requires refreshing
+  `manifest.tasks[5].recovery_note.sha256`. A `test-shards.json` edit
+  requires refreshing every matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256`; both rules are
+  validator-enforced. The pre-existing validator gap remains tracked per
+  adjudication A: `_iter_digest_refs` silently skips malformed
+  non-64-hex digest strings paired with a path; it is a candidate future
+  XHARD card and does not block T2.x.
+- **H3 control:** H3-overlap-narrow remains STOPPED pending operator
+  direction (`JUDGMENT_REQUIRED`, `de75b418`), outside T1/G1, and is
+  deferred to before the T3.1/T3.2 read-only windows per operator §15/Grok
+  ordering.
+- **Controls:** This evidence recording changes no receipt, protected
+  state, source, validator, runtime/test implementation, or branch.
+  No push, merge to `main`, promotion, live/model/runtime/provider call,
+  secret access, or wrapper dispatch occurred in this evidence recording.
+  The required read-only evidence validator is to be run after this
+  evidence commit; no tests are run.
+- **Commit/files:** This evidence append is one coherent commit authored by
+  `POM <peter@omalley.io>` with message prefix `docs(exec-spine):`;
+  the changed files are exactly the three allowed files: this execution
+  log, `evidence/manifest.json`, and `evidence/test-shards.json`. No
+  receipt is committed.

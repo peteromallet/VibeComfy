@@ -60,6 +60,37 @@
       ],
       "finding_closure": ["G0-MUST-VALIDATOR-001", "G0-MUST-MANIFEST-001", "G0-MUST-CUSTODY-001", "G0-MUST-CUSTODY-001.A", "G0-MUST-CUSTODY-001.B", "G0-MUST-CUSTODY-001.C", "G0-MUST-CUSTODY-001.D", "G0-MUST-RECERT-001", "G0-JR-RECERT-001"]
     }
+    ,
+    {
+      "gate_id": "G1",
+      "status": "passed",
+      "disposition": "continue",
+      "label": "G1 [XHARD-REVIEW] gate review of T1.1/T1.2 (WorkflowSnapshot + SchemaSnapshot)",
+      "model_route": "grok-4.6",
+      "exit": 0,
+      "input_sha": "a2171f832567d3b3bafea5856e12b51767b665b289d4394a855abc513b40a5e4",
+      "output_sha": "acec07fab0b858d9273ba4bd85c41caf08e157b812615111bff0978591262a36",
+      "next_unblocked_card": "T2.1",
+      "launcher_command": [
+        "/root/.codex/skills/subagent-launcher/launch_omp_agent.py",
+        "--model=grok-4.6",
+        "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/G1-gate-review.md",
+        "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine",
+        "--timeout=3600"
+      ],
+      "evidence_sequence": [
+        {
+          "sequence": 1,
+          "canonical_slot": "G1",
+          "task_id": "G1-gate-review",
+          "receipt_path": "receipts/G1-gate-review-receipt.json",
+          "sha256": "7dfb205fea7c201799560e98c931fd0b7d733ec4615af1a7be8a9fa16a947a85",
+          "result_sha256": "acec07fab0b858d9273ba4bd85c41caf08e157b812615111bff0978591262a36",
+          "disposition": "continue"
+        }
+      ],
+      "finding_closure": ["T1.2-MUST-001", "T1.2-MUST-002"]
+    }
   ],
   "tasks": [
     {
@@ -295,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "5ccfdcd554297a385fb936d26d03da914ae4004ee7af0300e9d24f0cb1372239",
+        "sha256": "ee08c371dc78026a15a261ba0bc514eeda36ab4ac51150ebf797735828b2b6fd",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -405,7 +436,7 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "e0b2f750ab984e9d93a94a614caeceb15774d4afb9dce3c1689fa807dc8b718b"},
+        {"path": "test-shards.json", "sha256": "50077811145a23a4d5cb139b50be5e6d9b3927a6ebfbfe1ecc4958613982e474"},
         {"path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"},
         {"path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"},
         {"path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"},
@@ -506,7 +537,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "e0b2f750ab984e9d93a94a614caeceb15774d4afb9dce3c1689fa807dc8b718b", "modified": true},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "50077811145a23a4d5cb139b50be5e6d9b3927a6ebfbfe1ecc4958613982e474", "modified": true},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
