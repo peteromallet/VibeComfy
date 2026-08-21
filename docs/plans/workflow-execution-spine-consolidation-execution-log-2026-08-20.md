@@ -150,3 +150,53 @@ The goal attachment names laptop launcher paths under `/Users/peteromalley/.code
 - T0.4 is an intentional out-of-sequence operator insert; the G0 graph remains `T0.0 → T0.1 → T0.3 → T0.2 → G0`.
 - Test shards were already consistent with the plan (focused T1.x–T6.2 shards plus singleton `broad_suite_once_v1`); no shard changes were required.
 - **Next unblocked card:** `T0.2-recertification` — fresh Grok XHARD review of the contract/overlap freeze on then-reviewed SHA `b34eb5ad`, with a regenerated brief referencing the amended plan and final50 identity; then G0 gate.
+
+## G0 custody re-proof — 2026-08-21
+
+- **Disposition:** custody re-proof complete; commit and independent complete-diff review are the only remaining closure steps for `G0-MUST-CUSTODY-001` at entry time. This is the adjudicated rerun of `G0-revision-custody`, whose no-commit result digest was `2d885fba20ba473d03212ab99367025864d2b94cb2407722eb61ef03a421583c`.
+- **Task/gate/label/role:** `G0-revision-custody-rerun`; `G0`; `G0 [HARD-REVISION] re-run base and protected-state custody proof with adjudicated re-baseline`; implementer; route `codex:gpt-5.6-luna`.
+- **Binding adjudication:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G0-custody-stop-adjudication-receipt.json`; adjudication `correct`; result digest `221f5ba2528ac2b324f77130ffa3f3807a8e9032fbf28e61615b749c3ccce242`. It establishes that `exec-spine-orchestrator` is this orchestrator's supervisor-created hosting session, matching the `supervisor.log` relaunch at `2026-08-20T23:41:06Z`, and is excluded from the §3.2/§13 protected-state boundary. No other tmux session receives that exclusion.
+
+### Base custody and ancestry
+
+- **Worktree/branch:** `/workspace/vibecomfy-exec-spine-20260820/exec-spine`; `fixer/workflow-execution-spine-consolidation`.
+- **Immutable input/base and pre-commit HEAD:** `ac0b84c214d9219f70039f5070781689340dafd9`; `git rev-parse HEAD` exit `0`, result `ac0b84c214d9219f70039f5070781689340dafd9`.
+- **Planning commit/tree:** `5fc6be9dbe811df77e43d440ad087440e8bd57b5`; plan SHA-256 `475c8480124e25cca7a5f1a1c1f2aad049499b670cd1b994d8d4feaae995a35e`.
+- **Authorized remote:** `git ls-remote origin refs/heads/main` exit `0`, observed `054bce5bdc9c63d68ac7e6141063e1f029a70dcb`, matching the authorized SHA. No fetch was needed and no worktree ref was changed.
+- **Ancestry exits:** `git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`; `git merge-base --is-ancestor 054bce5b HEAD` exit `1` as expected.
+- **Complete ancestry chain (forward):** `5fc6be9d → 80e60329 → 3629a8d8 → d1dfd8ad → d427f7f6 → 1c2eb90c → b34eb5ad → 337debc5 → ceba112b → f8abb577 → a653d0d2 → d8b406da → ac0b84c2`.
+- **History/ref custody:** pre-commit reflog showed the existing chain ending at `ac0b84c2`; no reset, stash, merge, ref mutation, history rewrite, amend, push, or integration occurred. HEAD remained `ac0b84c2` until the single permitted log commit.
+
+### Tree-identical merge proof
+
+- **Required simulation:** remote `054bce5bdc9c63d68ac7e6141063e1f029a70dcb` with plan `5fc6be9dbe811df77e43d440ad087440e8bd57b5`.
+- **Primary command/result:** `git merge-tree --write-tree 054bce5bdc9c63d68ac7e6141063e1f029a70dcb 5fc6be9dbe811df77e43d440ad087440e8bd57b5` returned exit `128` because this Git does not support `--write-tree` (`fatal: unknown rev --write-tree`); this read-only command did not mutate the worktree.
+- **Equivalent disposable-clone command:** `git clone --no-local --no-hardlinks "$PWD" /tmp/g0-revision-custody-rerun/merge/disposable-clone`; `git checkout --detach 5fc6be9dbe811df77e43d440ad087440e8bd57b5`; `git merge --no-commit --no-ff 054bce5bdc9c63d68ac7e6141063e1f029a70dcb`. Clone/checkout/merge exits were `0/0/0`; merge output was `Automatic merge went well; stopped before committing as requested`; conflict status was clean.
+- **Trees:** simulation merge tree `38cc90e21d4710863032d4246fee6a115655c269`; `git rev-parse 5fc6be9d^{tree}` planning tree `38cc90e21d4710863032d4246fee6a115655c269`; `git diff --quiet 5fc6be9d^{tree} HEAD^{tree}` in the disposable simulation exit `0` (`tree_diff_exit=0`).
+- **Normalized proof:** `/tmp/g0-revision-custody-rerun/merge/normalized-proof.txt`; SHA-256 `8c7d3c3357bb1f0dbac02d7498868a80496d35f8fbfc3a251bb8fa5f5f8354de`. Raw merge output, exit codes, both tree OIDs, status, and tree-diff evidence are under `/tmp/g0-revision-custody-rerun/merge/`.
+
+### Protected cleanup and manifest comparison
+
+- **T0.0 comparable cleanup bytes:** current SHA-256 equals the T0.0 values for `docs/plans/codebase-structural-cleanup-master-plan.md` (`9c2f692f9f9d2d4bf146603075c1812be011340ae70b098a99c48928547a8e73`), `docs/plans/goal-codebase-structural-cleanup-2026-08-20.md` (`90c1cd0284a7a872cbbe91c8bc7c37e1c6516cd759718d058d41fe1589967890`), and `docs/plans/codebase-structural-cleanup-execution-log-2026-08-20.md` (`01ecd89b4d25f1e289b637a222662c6994a4a7fb645bd4b8ac55c1e45c9e2490`). These are qualified byte comparisons only for paths with an available T0.0 digest.
+- **Six-entry manifest:** `tests/live_agentic_harness/threaded_comparison_manifest.json` current SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`, equal to the T0.0 six-entry manifest digest.
+- **Index/current scope evidence:** `git ls-files -s --` for the four protected paths and the current SHA outputs are in `/tmp/g0-revision-custody-rerun/protected/`; no validator, manifest, receipt, plan, goal, or evidence file was written. The only permitted repository path for this card is this execution log.
+- **Structural cleanup evidence:** `docs/plans/codebase-structural-cleanup-evidence/` is absent. T0.0 supplied no digest for this path; this is not an unchanged-path claim.
+
+### Qualified environmental re-baseline
+
+- **tmux:** current `tmux ls` exit `0`: `exec-spine-orchestrator: 1 windows`; `tmux list-windows -a -F '#{session_name}|#{window_index}|#{window_name}'` exit `0`: `exec-spine-orchestrator|0|bash`. The adjudication records the supervisor-hosting purpose and historical creation/relaunch `2026-08-20T23:41:06Z` and excludes this one session from §3.2/§13. Current identity/window count is recorded, not asserted unchanged from T0.0. No other tmux session was present; the exclusion does not cover any other session.
+- **`/workspace/omp-replaces-hermes`:** exists=yes; `git -C ... rev-parse --is-inside-work-tree` exit `128` (`not a git repository`). Current sorted path-list SHA-256 is `d40c3af0eb8ddc53a058f3b29d0df2ea3b06299ee7f18f5f8686660a290b4f6c`, re-observed equal to prior evidence but with no comparable T0.0 baseline. Current `health.log` stat is `type=regular file|size=256813|mtime=1787276593|inode=913082`; current digest is `578651c5e3cbf6462fa80539f2bd604b49cb18a0ac7f52d0e4eccf5083c517db`, versus prior sentinel `size=256318|mtime=1787274793|inode=913082|digest=84527b83a2d6e07a44bd5dde91f7c86e2dedc24a3a3e19b81f504b6bdf062815`. T0.0 recorded only present/untouched, so no byte-identity or unchanged-state claim is made.
+- **`/workspace/arnold`:** current `HEAD` `3299a4f076c9d811314ef081bfb594cdf8c084a6`, branch `main`, dirty count `9`; current `git status --short` is captured at `/tmp/g0-revision-custody-rerun/environment/arnold-status.txt`. This is a current baseline, not an unchanged-path proof.
+- **Docker:** `docker ps` exit `127`; command unavailable (`error: command not found: docker`).
+- **r5 comparison:** expected `/workspace/omp-replaces-hermes/Astrid/.megaplan/bakeoffs/phase-5-20260505/comparison.json` is absent; no current digest is invented; absence is recorded against T0.0 digest `94f47ceba5496129e3b0d6604283ac180db37baf110ee9fe3369d84df88fec14`.
+
+### Command/evidence register and custody controls
+
+- **UTC interval:** start `2026-08-21T01:47:21Z`; all command timestamps and outputs are under `/tmp/g0-revision-custody-rerun/`, with separate `preflight/`, `merge/`, `ancestry/`, `protected/`, and `environment/` paths. End time is recorded by the implementer handoff after commit/review.
+- **Read-only command results:** base/branch/status/reflog: `/tmp/g0-revision-custody-rerun/preflight/`; remote/merge/trees: `merge/`; ancestry and expected exits: `ancestry/`; protected hashes/index/absence: `protected/`; tmux/docker/Arnold/omp/r5: `environment/`. The initial two unsupported/syntax-invalid probes (`merge-tree --write-tree`, exit `128`; `rev-list --ancestry-path base HEAD`, exit `128`) are preserved; the permitted equivalent merge and corrected ancestry-range commands passed.
+- **Non-mutation:** validator, wrapper, manifest, receipts, plan, goal, cleanup files, protected state, and every repository path other than this execution log were untouched. No tests, full suite, focused product tests, live model/runtime calls, secret access, push, merge/integration, or network operation other than the prescribed `git ls-remote` occurred.
+- **Rejected alternatives:** no worktree fetch, no merge commit, no textual-similarity substitution for tree identity, no claim of unchanged state where T0.0 lacks a comparable baseline, and no STOP on the adjudicated hosting-session signal.
+- **Residual risks:** Docker remains unavailable; `/workspace/omp-replaces-hermes` and structural-cleanup evidence lack T0.0 comparable baselines; the external health log changed relative to its prior non-baseline sentinel; the execution worktree contains pre-existing untracked evidence/status noise that was not touched.
+- **Next unblocked card:** `T0.2-recertification` — fresh Grok XHARD review of the contract/overlap freeze, then G0 gate review; no integration follows this custody card.
+- **JUDGMENT_REQUIRED:** none.
+- **Required handoff:** one author-correct commit containing only this appended entry, followed by a fresh independent review of the complete base-to-commit diff to close `G0-MUST-CUSTODY-001`.
