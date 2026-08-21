@@ -147,6 +147,11 @@
           "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-allowance-adjudication-receipt.json",
           "sha256": "5f55e8aa670a378b4505756f591affbf5832a59fb678a94a0211d5c7065af920",
           "result_sha256": "fb21fabb395adbf5e39ae36df3fa472794c7e43ba77ef8f2bbccc1afc277242d"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-receipt.json",
+          "sha256": "6fa792c2d12ab9f0c86b2488badb7bf9db1c80a6ebeddc5d13305302e69c0bf0",
+          "result_sha256": "1ae4169797dd11f2c8c58c6dec5ae1c581a75c7e72467172cc7b6fc0dd00d883"
         }
       ],
       "changed_files": [
