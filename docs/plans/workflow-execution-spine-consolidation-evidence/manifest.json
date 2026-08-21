@@ -7,7 +7,60 @@
     "multi-video-based-character-replacement-using": "625ed91eacf070e1d531a806b69b8221bf7a02f1e5c2a42b98502b0ae48ac63d",
     "speed-distillation-research": "52b36af605acb7728c5809ac0961e901c5bc2fecc1f91f167911428a5d2efa7a"
   },
-  "gates": [],
+  "gates": [
+    {
+      "gate_id": "G0",
+      "status": "passed",
+      "disposition": "pass",
+      "label": "G0 [HARD] complete post-T0.4 evidence gate",
+      "model_route": "codex:gpt-5.6-luna",
+      "exit": 0,
+      "input_sha": "b34eb5ad8f6ec70053a2d0a1822122ac02a2b2f9",
+      "output_sha": "ea3bf7a6a441763c17f6c3718cdf7de3d1cb58b4",
+      "next_unblocked_card": "T1.1",
+      "launcher_command": [
+        "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py",
+        "--model=codex:gpt-5.6-luna",
+        "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/g0-gate-review-brief.md",
+        "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine",
+        "--timeout=3600"
+      ],
+      "evidence_sequence": [
+        {"sequence": 1, "canonical_slot": "T0.2", "task_id": "T0.2-recertification", "receipt_path": "receipts/T0.2-recertification-receipt.json", "sha256": "83ca1deabbd53715d0efd096f79151f0d4d22ac99603f39ea42d1589dc372397", "result_sha256": "8dcecaaf6ef05eda47a2032e5d92b45b929d3e00fe2d0fb5509ecda84ad8b251", "disposition": "continue"},
+        {"sequence": 2, "canonical_slot": "T0.2", "task_id": "G0-recert-adjudication", "receipt_path": "receipts/G0-recert-adjudication-receipt.json", "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646", "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38", "disposition": "continue"},
+        {"sequence": 3, "canonical_slot": "T0.2", "task_id": "G0-gate-review", "receipt_path": "receipts/G0-gate-review-receipt.json", "sha256": "f598ed112ba08b5c7b11f2c7164102ac98d75eb55a10da6770dece734770cb49", "result_sha256": "4a9dce6f82d4df3e2302a4c48591099e0eb05300da489a2f2ee39ebdfb535877", "disposition": "findings-opened"},
+        {"sequence": 4, "canonical_slot": "T0.3", "task_id": "G0-revision-validator-brief", "receipt_path": "receipts/G0-revision-validator-brief-receipt.json", "sha256": "d4e838c497d92bf0aaf73d71ecc8571b1b39eeec2e3b2caa38cb89877b8e6a5f", "result_sha256": "642a5ca16fbe3ac6fb26958068488e8c10d5f41d14464ddf16e644b7e0903b33"},
+        {"sequence": 5, "canonical_slot": "T0.3", "task_id": "G0-revision-validator", "receipt_path": "receipts/G0-revision-validator-receipt.json", "sha256": "20cc62834124c0b8a1b215ca525e8ab99999036c341439e05b2efacf43d4f5d2", "result_sha256": "79fe0467b2a802c01377eb6ac26a441d9805c16a1ad450deed68f868506890f8", "commit": "ceba112bee6d45893e8b016412c895be3696d8a1", "changed_files": ["scripts/validate_workflow_execution_spine_evidence.py", "tests/test_workflow_execution_spine_evidence.py"]},
+        {"sequence": 6, "canonical_slot": "T0.3", "task_id": "G0-revision-validator-violation", "receipt_path": "receipts/G0-revision-validator-violation.json", "sha256": "6aded1fe342faf22c750b78a61d6d9b7780bb34a6e1ed0c91283cbc8955808a6", "disposition": "allowance-violation"},
+        {"sequence": 7, "canonical_slot": "T0.3", "task_id": "G0-revision-validator-adjudication", "receipt_path": "receipts/G0-revision-validator-adjudication-receipt.json", "sha256": "65482c74d1746c624b31b99f9759a3dcbf4b81c03a2d847faed38c9eb7f9cab3", "result_sha256": "df3afa345af8aac6f0326c7850e115c794283199c850e568a4671c11c81015c9", "disposition": "correct"},
+        {"sequence": 8, "canonical_slot": "T0.2", "task_id": "G0-revision-validator-rereview", "receipt_path": "receipts/G0-revision-validator-rereview-receipt.json", "sha256": "5ee08c60d9125249fd07b72e979b9a5f4f89cf478085cb26413f149e7a412929", "result_sha256": "5055de55d77fb3d4ec00db1ef538fd11874822e064e96de8441a55821bad984b", "disposition": "closed"},
+        {"sequence": 9, "canonical_slot": "T0.3", "task_id": "G0-revision-wrapper-brief", "receipt_path": "receipts/G0-revision-wrapper-brief-receipt.json", "sha256": "003e93ea29f23bc7bb7c7f83c75def8c94a81c3e19f3759ca8e984bba918cd8b", "result_sha256": "8b0ad66f24fd6e0bdd39633c22bc7e965ee5238e44065208f9c409c844362681"},
+        {"sequence": 10, "canonical_slot": "T0.3", "task_id": "G0-revision-wrapper", "receipt_path": "receipts/G0-revision-wrapper-receipt.json", "sha256": "b248f73b34b95a242efef431616774c109e72409e0c6a25e5a13a27e51804c80", "result_sha256": "0083bc9a8adf26244ee41a7dc0dec1ee85604724b8317b6ba6cd9a0c21b61bbc", "commit": "f8abb57731162b29619164f919a37d72f53cf2ac"},
+        {"sequence": 11, "canonical_slot": "T0.2", "task_id": "G0-revision-wrapper-rereview", "receipt_path": "receipts/G0-revision-wrapper-rereview-receipt.json", "sha256": "4df9af7a44993a93e396d03b46d4f6d616e5bf79bda6d3f4778a42176bff15c5", "result_sha256": "b0e52a42371546532b760d32263484c055669e457c9148192ed830ab6d7b8f51", "disposition": "closed"},
+        {"sequence": 12, "canonical_slot": "T0.3", "task_id": "G0-revision-wrapper-revision2-brief", "receipt_path": "receipts/G0-revision-wrapper-revision2-brief-receipt.json", "sha256": "1a9b2484d3bfcbb554572dad98b35e3d66e9a64516e6c141149a58145cf9dfac", "result_sha256": "eb08f503028922277c6159917866131b01e9547dd3e290031d6675cae1372db4"},
+        {"sequence": 13, "canonical_slot": "T0.3", "task_id": "G0-revision-wrapper-revision2", "receipt_path": "receipts/G0-revision-wrapper-revision2-receipt.json", "sha256": "43898d2de35a6e7d810f2ed2e0665935c14649d87f0ccd5452567246e8956f01", "result_sha256": "5b0bfc058555e47701f76feb51d1905793cdd1d552bcc990d8cb81f9b3c4e48d", "commit": "a653d0d2ac8643af85708cd99ca12f12d8a7523e"},
+        {"sequence": 14, "canonical_slot": "T0.2", "task_id": "G0-revision-wrapper-revision2-rereview", "receipt_path": "receipts/G0-revision-wrapper-revision2-rereview-receipt.json", "sha256": "983de5d73129682f9b0917596af747634516d0b15806f2f6a40aa22b95036319", "result_sha256": "26638c3e050c963799308ec285999bdd28f701d9777759bc9d08c91707da9bf5", "disposition": "closed"},
+        {"sequence": 15, "canonical_slot": "T0.3", "task_id": "G0-revision-manifest-brief", "receipt_path": "receipts/G0-revision-manifest-brief-receipt.json", "sha256": "5a489e98e554a223964c1cbfff45b879a027d9531f059e464ab0dee553504787", "result_sha256": "f39063837bc9a9850bb6600896a30e1e4998608325d813f13706108dc9305737"},
+        {"sequence": 16, "canonical_slot": "T0.3", "task_id": "G0-revision-manifest", "receipt_path": "receipts/G0-revision-manifest-receipt.json", "sha256": "7cfcd4413075fcbcfdebab2e762f6b210487965887b05aa13ba57d3d6d843582", "result_sha256": "5e0b99a325e6f153cedf9d57d1addb251debf84ecc458a9ccb73af138e3d6fc0", "commit": "d8b406da6b1a4f924c7c66c84966b1269936a28a"},
+        {"sequence": 17, "canonical_slot": "T0.2", "task_id": "G0-revision-manifest-rereview", "receipt_path": "receipts/G0-revision-manifest-rereview-receipt.json", "sha256": "6e3895ba6cfb3c3d62463db275dfa41f593b2bfdea270ef2323ce458d54fd089", "result_sha256": "d41046b178429776018c6d797a0a495946ffb3dcebc5668b655eafab7ff6ddbe", "disposition": "closed"},
+        {"sequence": 18, "canonical_slot": "T0.3", "task_id": "G0-revision-manifest-revision2-brief", "receipt_path": "receipts/G0-revision-manifest-revision2-brief-receipt.json", "sha256": "1ff4ca7397c7c9d1577a97a725f63f7b368a2d0062155f9cd57d10d1b4e2932c", "result_sha256": "e19e3c6fad2049d40daa0e886a0c0e5e3d6d632aba1c59dc9e03452b9a403789"},
+        {"sequence": 19, "canonical_slot": "T0.3", "task_id": "G0-revision-manifest-revision2", "receipt_path": "receipts/G0-revision-manifest-revision2-receipt.json", "sha256": "389675070fc184e0e50d93de169264065c717ebc159edc8062abae814e1e9c35", "result_sha256": "bca96ae4e96f5e9534d32e1eb26f4403fb45eea828b67c4fbd05c428e9854a5b", "commit": "ac0b84c214d9219f70039f5070781689340dafd9"},
+        {"sequence": 20, "canonical_slot": "T0.2", "task_id": "G0-revision-manifest-revision2-rereview", "receipt_path": "receipts/G0-revision-manifest-revision2-rereview-receipt.json", "sha256": "dde6a2e688180aed21317c211896a4bcb825da63cf1d1dbe29da84aa7b707fbd", "result_sha256": "76f334a13a02b732081540c0dc9c4f4f15455f3bd1f6396adefcf4845d43f5f8", "disposition": "closed"},
+        {"sequence": 21, "canonical_slot": "T0.3", "task_id": "G0-revision-custody-brief", "receipt_path": "receipts/G0-revision-custody-brief-receipt.json", "sha256": "749bad3d4af488419543bb0bb18ea3e3159fc125cc03ef3e2f2832b874624813", "result_sha256": "28508842f3b8413b413496a5fcc15604e31916bd7aa7557e8e64a72d5ad57d75"},
+        {"sequence": 22, "canonical_slot": "T0.3", "task_id": "G0-revision-custody", "receipt_path": "receipts/G0-revision-custody-receipt.json", "sha256": "afc220db9574fe76d94a88371fff47723fd7c43a984e143ba7ef7672303f1738", "result_sha256": "2d885fba20ba473d03212ab99367025864d2b94cb2407722eb61ef03a421583"},
+        {"sequence": 23, "canonical_slot": "T0.2", "task_id": "G0-custody-stop-adjudication", "receipt_path": "receipts/G0-custody-stop-adjudication-receipt.json", "sha256": "f12255a97fab591c2a128c75a998f386b737f15e6dc7f5328851bb8366b0c989", "result_sha256": "221f5ba2528ac2b324f77130ffa3f3807a8e9032fbf28e61615b749c3ccce242", "disposition": "correct"},
+        {"sequence": 24, "canonical_slot": "T0.3", "task_id": "G0-revision-custody-rerun-brief", "receipt_path": "receipts/G0-revision-custody-rerun-brief-receipt.json", "sha256": "c6dcaca2133b5a6cc4b14f13c9e21a76b6a418502376581c6a23f985accf814e", "result_sha256": "1b2ff502219387ff9d94ca14cb3f29bef3b3f89cdcafdd56cb3d704f54e48c76"},
+        {"sequence": 25, "canonical_slot": "T0.3", "task_id": "G0-revision-custody-rerun", "receipt_path": "receipts/G0-revision-custody-rerun-receipt.json", "sha256": "2ebd9801fcc44ed11541acfad0ea8291993b429a32472c07225d6f147891ba3f", "result_sha256": "c471dc8f19010f2a2885519d11b0e0e479bf1eac40ffdfcb02bbe68b6b5996c8", "commit": "16c38d362492a53ffec97944ca77925c15a475f9"},
+        {"sequence": 26, "canonical_slot": "T0.2", "task_id": "G0-revision-custody-rerun-rereview-brief", "receipt_path": "receipts/G0-revision-custody-rerun-rereview-brief-receipt.json", "sha256": "c671096636714350dd4c42ff4581fff18292ffbf41d5f7c72a76a48a8f1d878a", "result_sha256": "154647743f9484079c9e59cdd7b4c46f0c1bd3d9690825a101c678b967d08cd0"},
+        {"sequence": 27, "canonical_slot": "T0.2", "task_id": "G0-revision-custody-rerun-rereview", "receipt_path": "receipts/G0-revision-custody-rerun-rereview-receipt.json", "sha256": "1c14f5cce69e4dc7b3ec352d636a80d03677e58680c67767541eaacd163bb26f", "result_sha256": "90d1c5cd8841a9079fe541c85323d8723fb7e7f436afc1096dbbde4ddbde5e41", "disposition": "closed"},
+        {"sequence": 28, "canonical_slot": "T0.3", "task_id": "G0-revision-custody-rerun-2-brief", "receipt_path": "receipts/G0-revision-custody-rerun-2-brief-receipt.json", "sha256": "65a7d65224db2a33e3b64d16ece62c6295dcca58a602f034639de596d6696ab3", "result_sha256": "d7ff80c296c1862a59bb69651cc40cbf548eee30aa3dea8e351d9ef6112c4ac3"},
+        {"sequence": 29, "canonical_slot": "T0.3", "task_id": "G0-revision-custody-rerun-2", "receipt_path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da", "result_sha256": "6538da770349978698110cc9e96549c201c963ad959ef07fc5ea3d9e51af9dcd", "commit": "ea3bf7a6a441763c17f6c3718cdf7de3d1cb58b4"},
+        {"sequence": 30, "canonical_slot": "T0.2", "task_id": "G0-revision-custody-rerun-2-rereview-brief", "receipt_path": "receipts/G0-revision-custody-rerun-2-rereview-brief-receipt.json", "sha256": "29f945e6936a70ac800da1c22245325dd3b94593a36f23415c39b3945e77bee4", "result_sha256": "2e2cc15e983936e192baccd81b1dcfa0d5fb2eef0e3779de382fb388f2c8413c"},
+        {"sequence": 31, "canonical_slot": "T0.2", "task_id": "G0-revision-custody-rerun-2-rereview", "receipt_path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4", "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc", "disposition": "closed"}
+      ],
+      "finding_closure": ["G0-MUST-VALIDATOR-001", "G0-MUST-MANIFEST-001", "G0-MUST-CUSTODY-001", "G0-MUST-CUSTODY-001.A", "G0-MUST-CUSTODY-001.B", "G0-MUST-CUSTODY-001.C", "G0-MUST-CUSTODY-001.D", "G0-MUST-RECERT-001", "G0-JR-RECERT-001"]
+    }
+  ],
   "tasks": [
     {
       "task_id": "T0.0",
@@ -76,7 +129,15 @@
         "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json",
         "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md"
       ],
-      "commits": ["24bf3384b1f85e6ca31e4538d04daa2a506ec737"]
+      "commits": ["24bf3384b1f85e6ca31e4538d04daa2a506ec737"],
+      "status": "completed",
+      "evidence_link": [
+        {"path": "receipts/G0-revision-validator-receipt.json", "sha256": "20cc62834124c0b8a1b215ca525e8ab99999036c341439e05b2efacf43d4f5d2"},
+        {"path": "receipts/G0-revision-wrapper-revision2-receipt.json", "sha256": "43898d2de35a6e7d810f2ed2e0665935c14649d87f0ccd5452567246e8956f01"},
+        {"path": "receipts/G0-revision-manifest-revision2-receipt.json", "sha256": "389675070fc184e0e50d93de169264065c717ebc159edc8062abae814e1e9c35"},
+        {"path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da"},
+        {"path": "receipts/G0-recert-adjudication-receipt.json", "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646"}
+      ]
     },
     {
       "task_id": "T0.2",
@@ -116,7 +177,14 @@
       "changed_files": [],
       "commits": [],
       "disposition": "continue",
-      "reviewer": "grok-4.6"
+      "status": "completed",
+      "reviewer": "g0-final-independent-rereviewer",
+      "evidence_link": [
+        {"path": "receipts/G0-revision-validator-rereview-receipt.json", "sha256": "5ee08c60d9125249fd07b72e979b9a5f4f89cf478085cb26413f149e7a412929"},
+        {"path": "receipts/G0-revision-wrapper-revision2-rereview-receipt.json", "sha256": "983de5d73129682f9b0917596af747634516d0b15806f2f6a40aa22b95036319"},
+        {"path": "receipts/G0-revision-manifest-revision2-rereview-receipt.json", "sha256": "dde6a2e688180aed21317c211896a4bcb825da63cf1d1dbe29da84aa7b707fbd"},
+        {"path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4"}
+      ]
     },
     {
       "task_id": "T0.4",
@@ -165,5 +233,124 @@
   ],
   "shards": [],
   "live_runs": [],
-  "findings": []
+  "findings": [],
+  "g0_finding_chains": [
+    {
+      "finding_id": "G0-MUST-VALIDATOR-001",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-validator-receipt.json", "sha256": "20cc62834124c0b8a1b215ca525e8ab99999036c341439e05b2efacf43d4f5d2", "result_sha256": "79fe0467b2a802c01377eb6ac26a441d9805c16a1ad450deed68f868506890f8"},
+      "rereview_receipt": {"path": "receipts/G0-revision-validator-rereview-receipt.json", "sha256": "5ee08c60d9125249fd07b72e979b9a5f4f89cf478085cb26413f149e7a412929", "result_sha256": "5055de55d77fb3d4ec00db1ef538fd11874822e064e96de8441a55821bad984b"}
+    },
+    {
+      "finding_id": "G0-MUST-MANIFEST-001",
+      "severity": "must",
+      "classification": "HARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-manifest-revision2-receipt.json", "sha256": "389675070fc184e0e50d93de169264065c717ebc159edc8062abae814e1e9c35", "result_sha256": "bca96ae4e96f5e9534d32e1eb26f4403fb45eea828b67c4fbd05c428e9854a5b"},
+      "rereview_receipt": {"path": "receipts/G0-revision-manifest-revision2-rereview-receipt.json", "sha256": "dde6a2e688180aed21317c211896a4bcb825da63cf1d1dbe29da84aa7b707fbd", "result_sha256": "76f334a13a02b732081540c0dc9c4f4f15455f3bd1f6396adefcf4845d43f5f8"}
+    },
+    {
+      "finding_id": "G0-MUST-CUSTODY-001",
+      "severity": "must",
+      "classification": "HARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da", "result_sha256": "6538da770349978698110cc9e96549c201c963ad959ef07fc5ea3d9e51af9dcd"},
+      "rereview_receipt": {"path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4", "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc"}
+    },
+    {
+      "finding_id": "G0-MUST-CUSTODY-001.A",
+      "severity": "must",
+      "classification": "HARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da", "result_sha256": "6538da770349978698110cc9e96549c201c963ad959ef07fc5ea3d9e51af9dcd"},
+      "rereview_receipt": {"path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4", "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc"}
+    },
+    {
+      "finding_id": "G0-MUST-CUSTODY-001.B",
+      "severity": "must",
+      "classification": "HARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da", "result_sha256": "6538da770349978698110cc9e96549c201c963ad959ef07fc5ea3d9e51af9dcd"},
+      "rereview_receipt": {"path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4", "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc"}
+    },
+    {
+      "finding_id": "G0-MUST-CUSTODY-001.C",
+      "severity": "must",
+      "classification": "HARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da", "result_sha256": "6538da770349978698110cc9e96549c201c963ad959ef07fc5ea3d9e51af9dcd"},
+      "rereview_receipt": {"path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4", "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc"}
+    },
+    {
+      "finding_id": "G0-MUST-CUSTODY-001.D",
+      "severity": "must",
+      "classification": "HARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-revision-custody-rerun-2-receipt.json", "sha256": "2dac4e9f15b98a15be275b64ee9f2ade66fc3040fe425e5b3e7f6b63a882b0da", "result_sha256": "6538da770349978698110cc9e96549c201c963ad959ef07fc5ea3d9e51af9dcd"},
+      "rereview_receipt": {"path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json", "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4", "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc"}
+    },
+    {
+      "finding_id": "G0-MUST-RECERT-001",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "closed",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/G0-recert-adjudication-receipt.json", "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646", "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38"},
+      "rereview_receipt": {"path": "receipts/G0-recert-adjudication-receipt.json", "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646", "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38"}
+    },
+    {
+      "finding_id": "G0-JR-RECERT-001",
+      "severity": "judgment",
+      "classification": "XHARD",
+      "status": "closed",
+      "disposition": "correct",
+      "revision_task_id": "T0.3",
+      "re_review_task_id": "T0.2",
+      "implementer": "g0-revision-implementer",
+      "reviewer": "g0-gate-review-luna",
+      "revision_receipt": {"path": "receipts/T0.2-recertification-receipt.json", "sha256": "83ca1deabbd53715d0efd096f79151f0d4d22ac99603f39ea42d1589dc372397", "result_sha256": "8dcecaaf6ef05eda47a2032e5d92b45b929d3e00fe2d0fb5509ecda84ad8b251"},
+      "rereview_receipt": {"path": "receipts/G0-recert-adjudication-receipt.json", "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646", "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38"}
+    }
+  ]
 }
