@@ -2268,3 +2268,220 @@ def test_conversion_schema_provider_rejects_stale_object_info_cache_fingerprint(
     assert provider._rejected_object_info_cache.hash == "stale-fingerprint"
     assert any("rejected_stale_object_info_cache" in item for item in provider._rejected_object_info_cache.conflicts)
     assert "cache_runtime_fingerprint_mismatch" in caplog.text
+
+
+def test_schema_snapshot_request_beats_verified_object_info_and_cache(tmp_path) -> None:
+    from vibecomfy.schema import (
+        SCHEMA_SNAPSHOT_PRECEDENCE,
+        SchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_snapshot_from_payload,
+        schema_snapshot_to_payload,
+    )
+
+    request = capture_schema_snapshot(
+        class_types=["PromptNode"],
+        connected_object_info={
+            "PromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+        generation=3,
+        timestamp="2026-08-21T00:00:00Z",
+        runtime_fingerprint="request-runtime",
+        server_url="http://request.test",
+    )
+    write_object_info_cache(
+        tmp_path / "object_info.cache-runtime.json",
+        {
+            "PromptNode": {
+                "input": {"required": {"fallback": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        runtime_fingerprint="cache-runtime",
+        server_url="http://cache.test",
+        metadata={"generation": 1, "captured_at": "2026-01-01T00:00:00Z"},
+    )
+    cache_payload = load_object_info_cache(tmp_path / "object_info.cache-runtime.json")
+    provider = SchemaSnapshotProvider(
+        request_snapshot=request,
+        connected_object_info={
+            "PromptNode": {
+                "input": {"required": {"connected": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+        cache_payload=cache_payload,
+        runtime_fingerprint="cache-runtime",
+        class_types=["PromptNode"],
+        workflow_observation={"PromptNode": {"guess": True}},
+    )
+
+    assert provider.snapshot.selected_source == "explicit_request_snapshot"
+    assert provider.snapshot.precedence == SCHEMA_SNAPSHOT_PRECEDENCE
+    assert provider.snapshot.generation == 3
+    assert provider.snapshot.timestamp == "2026-08-21T00:00:00Z"
+    assert provider.snapshot.workflow_observation_authoritative is False
+    assert "prompt" in provider.get_schema("PromptNode").inputs
+    assert "connected" not in provider.get_schema("PromptNode").inputs
+    reconstructed = schema_snapshot_from_payload(schema_snapshot_to_payload(provider.snapshot))
+    assert reconstructed.content_digest == provider.snapshot.content_digest
+    with pytest.raises(Exception, match="ambient"):
+        provider.lookup_ambient("PromptNode")
+
+
+def test_schema_snapshot_verified_object_info_beats_cache(tmp_path) -> None:
+    from vibecomfy.schema import SchemaSnapshotProvider
+
+    write_object_info_cache(
+        tmp_path / "object_info.cache-runtime.json",
+        {
+            "PromptNode": {
+                "input": {"required": {"cache_prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        runtime_fingerprint="cache-runtime",
+    )
+    provider = SchemaSnapshotProvider(
+        connected_object_info={
+            "PromptNode": {
+                "input": {"required": {"live_prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+        cache_payload=load_object_info_cache(tmp_path / "object_info.cache-runtime.json"),
+        runtime_fingerprint="cache-runtime",
+        class_types=["PromptNode"],
+        workflow_observation={"PromptNode": {"from_graph": True}},
+    )
+    assert provider.snapshot.selected_source == "verified_connected_object_info"
+    assert "live_prompt" in provider.get_schema("PromptNode").inputs
+    assert "cache_prompt" not in provider.get_schema("PromptNode").inputs
+
+
+def test_schema_snapshot_unverified_object_info_does_not_beat_cache(tmp_path) -> None:
+    from vibecomfy.schema import SchemaSnapshotProvider
+
+    write_object_info_cache(
+        tmp_path / "object_info.cache-runtime.json",
+        {
+            "PromptNode": {
+                "input": {"required": {"cache_prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        runtime_fingerprint="cache-runtime",
+        metadata={"generation": 9, "captured_at": "2026-02-02T00:00:00Z"},
+    )
+    provider = SchemaSnapshotProvider(
+        connected_object_info={
+            "PromptNode": {
+                "input": {"required": {"live_prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=False,
+        cache_payload=load_object_info_cache(tmp_path / "object_info.cache-runtime.json"),
+        runtime_fingerprint="cache-runtime",
+        class_types=["PromptNode"],
+    )
+    assert provider.snapshot.selected_source == "configured_content_addressed_cache"
+    assert provider.snapshot.generation == 9
+    assert provider.snapshot.timestamp == "2026-02-02T00:00:00Z"
+    assert "cache_prompt" in provider.get_schema("PromptNode").inputs
+
+
+def test_touched_schema_classes_fail_closed_and_preserve_untouched() -> None:
+    from vibecomfy.porting.edit.ops import EditOpParseError, require_known_schema_for_operation
+    from vibecomfy.schema import (
+        SchemaSnapshotError,
+        capture_schema_snapshot,
+        require_known_touched_schema,
+        schema_snapshot_to_payload,
+        touched_schema_classes,
+    )
+
+    snapshot = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "LayerMask: SegmentAnythingUltra V3", "UntouchedUnknownNode"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+    )
+    field_op = {"op": "set_node_field", "target": ["", "KnownPromptNode", "prompt"], "value": "red"}
+    add_op = {"op": "add_node", "class_type": "LayerMask: SegmentAnythingUltra V3", "uid": "34"}
+    link_op = {"op": "upsert_link", "from": ["", "KnownPromptNode", 0], "to": ["", "LayerMask: SegmentAnythingUltra V3", "image"]}
+    mode_op = {"op": "set_mode", "target": ["", "KnownPromptNode"], "mode": 0}
+    layout_op = {"op": "set_node_geometry", "uid": "KnownPromptNode", "pos": [0, 0], "size": [10, 10]}
+    untouched = {"op": "set_node_field", "target": ["", "UntouchedUnknownNode", "x"], "value": 1}
+
+    assert "KnownPromptNode" in touched_schema_classes(field_op, snapshot)
+    require_known_touched_schema(field_op, snapshot)
+    require_known_touched_schema(mode_op, snapshot)
+    require_known_touched_schema(layout_op, snapshot)
+    with pytest.raises(SchemaSnapshotError, match="missing_touched_schema"):
+        require_known_touched_schema(add_op, snapshot)
+    with pytest.raises(SchemaSnapshotError, match="missing_touched_schema"):
+        require_known_touched_schema(link_op, snapshot)
+    with pytest.raises(SchemaSnapshotError, match="missing_touched_schema"):
+        require_known_touched_schema(untouched, snapshot)
+    with pytest.raises(EditOpParseError, match="missing_touched_schema"):
+        require_known_schema_for_operation(add_op, schema_snapshot_to_payload(snapshot))
+    assert "UntouchedUnknownNode" in snapshot.missing_classes
+    assert "KnownPromptNode" not in snapshot.missing_classes
+
+
+def test_positional_alias_is_not_durable_schema_authority() -> None:
+    from vibecomfy.schema import capture_schema_snapshot, node_schema_from_payload
+
+    snapshot = capture_schema_snapshot(
+        class_types=["IndexTTSEngineNode"],
+        request_snapshot={
+            "contract_version": "schema-snapshot-v1",
+            "schemas": {
+                "IndexTTSEngineNode": {
+                    "class_type": "IndexTTSEngineNode",
+                    "pack": "index-tts",
+                    "inputs": {
+                        "widget_0": {"type": "STRING", "required": False},
+                        "emotion_control": {"type": "STRING", "required": False},
+                    },
+                    "input_order": ["widget_0", "emotion_control"],
+                    "outputs": [],
+                    "provenance": {"source_provider": "explicit_request_snapshot"},
+                }
+            },
+            "missing_classes": [],
+        },
+    )
+    reconstructed = node_schema_from_payload(
+        "IndexTTSEngineNode",
+        snapshot.schemas["IndexTTSEngineNode"],
+    )
+    assert "emotion_control" in reconstructed.inputs
+    assert "widget_0" not in reconstructed.inputs
+
+
+def test_write_object_info_cache_freezes_generation_and_timestamp(tmp_path) -> None:
+    cache = tmp_path / "object_info.runtime-id.json"
+    write_object_info_cache(
+        cache,
+        {"CacheNode": {"input": {"required": {"image": ["IMAGE", {}]}}}},
+        runtime_fingerprint="runtime-id",
+        metadata={"generation": 4, "captured_at": "2026-08-21T01:02:03Z"},
+    )
+    data = load_object_info_cache(cache)
+    assert data is not None
+    metadata = data[CACHE_METADATA_KEY]
+    assert metadata["generation"] == 4
+    assert metadata["captured_at"] == "2026-08-21T01:02:03Z"
+

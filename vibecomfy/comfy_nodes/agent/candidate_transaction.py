@@ -14,7 +14,18 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, schema_for
+from vibecomfy.schema import (
+    FrozenSchemaSnapshotProvider,
+    InputSpec,
+    NodeSchema,
+    OutputSpec,
+    SchemaSnapshot,
+    capture_schema_snapshot,
+    schema_for,
+    schema_payload_from_node_schema,
+    schema_snapshot_to_payload,
+    touched_schema_classes,
+)
 from .layout_operation_v1 import (
     compute_layout_operation_digest as _compute_layout_operation_digest,
     normalize_layout_operation_v1 as _normalize_layout_operation_v1,
@@ -299,7 +310,19 @@ def missing_touched_class_types(
         if identity in by_identity
     }
     touched.update(_delta_class_types(delta_envelope))
+    snapshot = schema_witness.get("schema_snapshot") if isinstance(schema_witness, Mapping) else None
+    ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
+    if isinstance(ops, list):
+        catalog = snapshot if isinstance(snapshot, Mapping) else schema_witness
+        for op in ops:
+            if not isinstance(op, Mapping):
+                continue
+            for class_type in touched_schema_classes(op, catalog):
+                if class_type in missing:
+                    touched.add(class_type)
     return tuple(sorted(touched & missing))
+
+
 
 
 def _json_safe(value: Any) -> Any:
@@ -328,47 +351,7 @@ def _output_spec_payload(spec: Any) -> dict[str, Any]:
 
 
 def _schema_payload(class_type: str, schema: Any) -> dict[str, Any]:
-    inputs = getattr(schema, "inputs", {})
-    outputs = getattr(schema, "outputs", [])
-    provenance_fields = (
-        "source_provider",
-        "source_path",
-        "source_cache_path",
-        "source_server_url",
-        "source_package",
-        "source_version",
-        "source_hash",
-        "confidence",
-        "conflicts",
-        "ignored_evidence",
-    )
-    return {
-        "class_type": class_type,
-        "pack": getattr(schema, "pack", None),
-        "inputs": {
-            str(name): _input_spec_payload(spec)
-            for name, spec in sorted(
-                inputs.items() if isinstance(inputs, Mapping) else (),
-                key=lambda item: str(item[0]),
-            )
-        },
-        # JSON object key order is not authority: durable writers and other
-        # languages may sort it. LiteGraph widget materialization, however,
-        # follows the provider's declared input order, so preserve that order
-        # as explicit replay evidence.
-        "input_order": [
-            str(name)
-            for name in (inputs.keys() if isinstance(inputs, Mapping) else ())
-        ],
-        "outputs": [
-            _output_spec_payload(spec)
-            for spec in outputs if spec is not None
-        ],
-        "provenance": {
-            field: _json_safe(getattr(schema, field, None))
-            for field in provenance_fields
-        },
-    }
+    return schema_payload_from_node_schema(class_type, schema)
 
 
 def build_schema_witness(
@@ -378,27 +361,69 @@ def build_schema_witness(
     candidate_payload: Mapping[str, Any] | None,
     delta_envelope: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Freeze every schema that can affect replay of this candidate."""
+    """Freeze every schema that can affect replay of this candidate.
+
+    The witness carries an ingress-bound SchemaSnapshot so replay reconstructs
+    from the persisted snapshot and cannot perform a fresh ambient lookup.
+    """
     class_types = (
         _graph_class_types(submit_graph)
         | _graph_class_types(candidate_payload)
         | _delta_class_types(delta_envelope)
     )
-    schemas: dict[str, Any] = {}
-    missing: list[str] = []
-    for class_type in sorted(class_types):
-        schema = schema_for(schema_provider, class_type)
-        if schema is None:
-            missing.append(class_type)
-            continue
-        schemas[class_type] = _schema_payload(class_type, schema)
+    request_snapshot = None
+    if isinstance(schema_provider, FrozenSchemaSnapshotProvider):
+        request_snapshot = schema_provider.snapshot
+    elif isinstance(schema_provider, SchemaSnapshot):
+        request_snapshot = schema_provider
+    elif hasattr(schema_provider, "snapshot") and isinstance(getattr(schema_provider, "snapshot"), SchemaSnapshot):
+        request_snapshot = schema_provider.snapshot
+
+    snapshot = capture_schema_snapshot(
+        class_types=sorted(class_types),
+        request_snapshot=request_snapshot,
+    )
+    schemas: dict[str, Any] = dict(snapshot.schemas)
+    missing: list[str] = list(snapshot.missing_classes)
+    if request_snapshot is None:
+        schemas = {}
+        missing = []
+        for class_type in sorted(class_types):
+            schema = schema_for(schema_provider, class_type)
+            if schema is None:
+                missing.append(class_type)
+                continue
+            schemas[class_type] = _schema_payload(class_type, schema)
+        snapshot = capture_schema_snapshot(
+            class_types=sorted(class_types),
+            request_snapshot={
+                "contract_version": "schema-snapshot-v1",
+                "schemas": schemas,
+                "missing_classes": missing,
+                "generation": snapshot.generation,
+                "timestamp": snapshot.timestamp,
+                "version": snapshot.version,
+                "conflicts": list(snapshot.conflicts),
+            },
+        )
+        schemas = dict(snapshot.schemas)
+        missing = list(snapshot.missing_classes)
+        for class_type in sorted(class_types):
+            if class_type not in schemas and class_type not in missing:
+                missing.append(class_type)
     body = {
         "contract_version": SCHEMA_WITNESS_CONTRACT_VERSION,
         "provider_mode": "none" if schema_provider is None else "frozen",
         "schemas": schemas,
         "missing_class_types": missing,
+        "schema_snapshot": schema_snapshot_to_payload(snapshot),
     }
-    return {**body, "witness_hash": content_hash(body)}
+    return {**body, "witness_hash": content_hash({
+        "contract_version": body["contract_version"],
+        "provider_mode": body["provider_mode"],
+        "schemas": body["schemas"],
+        "missing_class_types": body["missing_class_types"],
+    })}
 
 
 def validate_schema_witness(witness: Any) -> tuple[bool, str | None]:
@@ -420,74 +445,48 @@ def validate_schema_witness(witness: Any) -> tuple[bool, str | None]:
         return False, "malformed_schema_provider_mode"
     if witness.get("witness_hash") != content_hash(body):
         return False, "schema_witness_hash_mismatch"
+    snapshot_payload = witness.get("schema_snapshot")
+    if snapshot_payload is not None:
+        if not isinstance(snapshot_payload, Mapping):
+            return False, "malformed_schema_snapshot"
+        try:
+            FrozenSchemaSnapshotProvider(snapshot_payload)
+        except Exception:
+            return False, "invalid_schema_snapshot"
     return True, None
 
 
 class FrozenSchemaProvider:
-    """Schema provider reconstructed exclusively from a persisted witness."""
+    """Schema provider reconstructed exclusively from a persisted witness.
+
+    When a SchemaSnapshot is present, reconstruction uses that snapshot and
+    forbids ambient lookup. Otherwise the historic per-class witness payload
+    is used.
+    """
 
     def __init__(self, witness: Mapping[str, Any]) -> None:
         ok, error = validate_schema_witness(witness)
         if not ok:
             raise ValueError(error or "invalid_schema_witness")
-        self._schemas: dict[str, NodeSchema] = {}
+        snapshot_payload = witness.get("schema_snapshot")
+        if isinstance(snapshot_payload, Mapping):
+            frozen = FrozenSchemaSnapshotProvider(snapshot_payload)
+            self._snapshot = frozen.snapshot
+            self._schemas = frozen.schemas()
+            self._frozen_snapshot_provider = frozen
+            return
+        self._snapshot = None
+        self._frozen_snapshot_provider = None
+        from vibecomfy.schema.types import node_schema_from_payload
+
+        self._schemas = {}
         raw_schemas = witness.get("schemas")
         for class_type, raw in (
             raw_schemas.items() if isinstance(raw_schemas, Mapping) else ()
         ):
             if not isinstance(class_type, str) or not isinstance(raw, Mapping):
                 continue
-            raw_inputs = raw.get("inputs")
-            inputs: dict[str, InputSpec] = {}
-            raw_input_order = raw.get("input_order")
-            ordered_names = (
-                [name for name in raw_input_order if isinstance(name, str)]
-                if isinstance(raw_input_order, list)
-                else []
-            )
-            if isinstance(raw_inputs, Mapping):
-                ordered_names.extend(
-                    str(name) for name in raw_inputs if str(name) not in ordered_names
-                )
-            for name in ordered_names:
-                spec = raw_inputs.get(name) if isinstance(raw_inputs, Mapping) else None
-                if not isinstance(spec, Mapping):
-                    continue
-                choices = spec.get("choices")
-                inputs[str(name)] = InputSpec(
-                    type=spec.get("type") if isinstance(spec.get("type"), str) else None,
-                    required=spec.get("required") is True,
-                    default=spec.get("default"),
-                    choices=list(choices) if isinstance(choices, list) else None,
-                    min=spec.get("min") if isinstance(spec.get("min"), (int, float)) else None,
-                    max=spec.get("max") if isinstance(spec.get("max"), (int, float)) else None,
-                )
-            raw_outputs = raw.get("outputs")
-            outputs = [
-                OutputSpec(
-                    type=item.get("type") if isinstance(item.get("type"), str) else None,
-                    name=item.get("name") if isinstance(item.get("name"), str) else None,
-                )
-                for item in raw_outputs if isinstance(item, Mapping)
-            ] if isinstance(raw_outputs, list) else []
-            provenance = raw.get("provenance")
-            provenance = provenance if isinstance(provenance, Mapping) else {}
-            self._schemas[class_type] = NodeSchema(
-                class_type=class_type,
-                pack=raw.get("pack") if isinstance(raw.get("pack"), str) else None,
-                inputs=inputs,
-                outputs=outputs,
-                source_provider=str(provenance.get("source_provider") or "persisted_witness"),
-                source_path=provenance.get("source_path") if isinstance(provenance.get("source_path"), str) else None,
-                source_cache_path=provenance.get("source_cache_path") if isinstance(provenance.get("source_cache_path"), str) else None,
-                source_server_url=None,
-                source_package=provenance.get("source_package") if isinstance(provenance.get("source_package"), str) else None,
-                source_version=provenance.get("source_version") if isinstance(provenance.get("source_version"), str) else None,
-                source_hash=provenance.get("source_hash") if isinstance(provenance.get("source_hash"), str) else None,
-                confidence=float(provenance.get("confidence", 1.0)) if isinstance(provenance.get("confidence"), (int, float)) else 1.0,
-                conflicts=tuple(str(item) for item in provenance.get("conflicts", []) if isinstance(item, str)),
-                ignored_evidence=tuple(str(item) for item in provenance.get("ignored_evidence", []) if isinstance(item, str)),
-            )
+            self._schemas[class_type] = node_schema_from_payload(class_type, raw)
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)
@@ -498,6 +497,11 @@ class FrozenSchemaProvider:
     def schemas(self) -> dict[str, NodeSchema]:
         return dict(self._schemas)
 
+    def lookup_ambient(self, *args: Any, **kwargs: Any) -> None:
+        if self._frozen_snapshot_provider is not None:
+            self._frozen_snapshot_provider.lookup_ambient(*args, **kwargs)
+        raise RuntimeError("replay cannot perform a fresh ambient schema lookup")
+
 
 def schema_provider_from_witness(witness: Mapping[str, Any]) -> Any:
     """Reconstruct the exact provider mode used when the plan was authored."""
@@ -507,6 +511,7 @@ def schema_provider_from_witness(witness: Mapping[str, Any]) -> Any:
     if witness.get("provider_mode") == "none":
         return None
     return FrozenSchemaProvider(witness)
+
 
 
 def schema_provenance_summary(witness: Mapping[str, Any]) -> dict[str, Any]:

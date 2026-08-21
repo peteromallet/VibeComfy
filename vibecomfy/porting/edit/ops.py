@@ -494,10 +494,45 @@ def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
         normalized["id"] = normalized["link_id"]
     return normalized
 
+def _schema_snapshot_from_payload(payload: Mapping[str, Any] | None) -> Any | None:
+    if payload is None:
+        return None
+    snapshot = payload.get("schema_snapshot") if "schema_snapshot" in payload else payload
+    if snapshot is None:
+        return None
+    from vibecomfy.schema import SchemaSnapshot, schema_snapshot_from_payload
 
-def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
+    if isinstance(snapshot, SchemaSnapshot):
+        return snapshot
+    if isinstance(snapshot, Mapping) and snapshot.get("contract_version") == "schema-snapshot-v1":
+        return schema_snapshot_from_payload(snapshot)
+    return snapshot
+
+
+def require_known_schema_for_operation(
+    operation: Mapping[str, Any] | EditOp,
+    schema_snapshot: Mapping[str, Any] | None,
+) -> None:
+    """Fail closed when an operation depends on unknown endpoint/node schema."""
+    snapshot = _schema_snapshot_from_payload(schema_snapshot if isinstance(schema_snapshot, Mapping) else None)
+    if snapshot is None:
+        return
+    from vibecomfy.schema import SchemaSnapshotError, require_known_touched_schema
+
+    try:
+        require_known_touched_schema(operation, snapshot)
+    except SchemaSnapshotError as exc:
+        raise EditOpParseError(str(exc), code=exc.code, detail={"op": getattr(operation, "op", None)}) from exc
+
+
+
+
+def parse_edit_op(payload: Mapping[str, Any], *, schema_snapshot: Mapping[str, Any] | None = None) -> EditOp:
     data = _normalize_link_wire_names(payload)
     op_name = _require_string(data.get("op"), path="op")
+    if schema_snapshot is not None:
+        require_known_schema_for_operation(data, schema_snapshot)
+
 
     if op_name == "set_node_field":
         return SetNodeFieldOp(
@@ -1181,6 +1216,7 @@ __all__ = [
     "op_to_dict",
     "parse_edit_delta",
     "parse_edit_op",
+    "require_known_schema_for_operation",
     "validate_apply_delta_evidence",
     "validate_delta_envelope_structure",
     "validate_delta_replay_equality",

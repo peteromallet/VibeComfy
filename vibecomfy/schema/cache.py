@@ -5,10 +5,10 @@ import json
 import os
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
-
 from vibecomfy.comfy_command import comfyui_command, has_comfyui_runtime
 
 
@@ -102,6 +102,8 @@ def build_object_info_cache_metadata(
     metadata: dict[str, Any] = {
         "format_version": OBJECT_INFO_CACHE_FORMAT_VERSION,
         "checksum": object_info_payload_checksum(data),
+        "generation": 0,
+        "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     if runtime_fingerprint:
         metadata["runtime_fingerprint"] = runtime_fingerprint
@@ -131,6 +133,10 @@ def build_object_info_cache_metadata(
         )
         metadata["format_version"] = OBJECT_INFO_CACHE_FORMAT_VERSION
         metadata["checksum"] = object_info_payload_checksum(data)
+        if "generation" not in extra:
+            metadata["generation"] = metadata.get("generation", 0)
+        if "captured_at" not in extra:
+            metadata.setdefault("captured_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     return metadata
 
 

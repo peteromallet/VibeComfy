@@ -4,6 +4,7 @@ import asyncio
 import ast
 import json
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -21,7 +22,14 @@ from .cache import (
     validate_object_info_cache,
     write_object_info_cache,
 )
-from .types import InputSpec, OutputSpec
+from .types import (
+    FrozenSchemaSnapshotProvider,
+    InputSpec,
+    OutputSpec,
+    SchemaSnapshot,
+    capture_schema_snapshot,
+    schema_snapshot_from_payload,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -133,6 +141,65 @@ def schema_for(provider: object | None, class_type: str) -> object | None:
     if not callable(getter):
         return None
     return getter(class_type)
+
+class SchemaSnapshotProvider:
+    """Ingress-bound provider: explicit request, verified object_info, then cache.
+
+    Workflow observation is never selected. After capture, lookups are frozen
+    and cannot perform a fresh ambient provider/cache fetch.
+    """
+
+    def __init__(
+        self,
+        *,
+        request_snapshot: Mapping[str, Any] | SchemaSnapshot | None = None,
+        connected_object_info: Mapping[str, Any] | None = None,
+        connected_object_info_verified: bool = False,
+        cache_payload: Mapping[str, Any] | None = None,
+        cache_path: str | Path | None = None,
+        runtime_fingerprint: str | None = None,
+        server_url: str | None = None,
+        class_types: Sequence[str] | None = None,
+        timestamp: str | None = None,
+        generation: int | None = None,
+        workflow_observation: Mapping[str, Any] | None = None,
+    ) -> None:
+        self._snapshot = capture_schema_snapshot(
+            class_types=class_types,
+            request_snapshot=request_snapshot,
+            connected_object_info=connected_object_info,
+            connected_object_info_verified=connected_object_info_verified,
+            cache_payload=cache_payload,
+            cache_path=cache_path,
+            runtime_fingerprint=runtime_fingerprint,
+            server_url=server_url,
+            timestamp=timestamp,
+            generation=generation,
+            workflow_observation=workflow_observation,
+        )
+        self._frozen = FrozenSchemaSnapshotProvider(self._snapshot)
+
+    @property
+    def snapshot(self) -> SchemaSnapshot:
+        return self._snapshot
+
+    def get(self, class_type: str) -> NodeSchema | None:
+        return self._frozen.get(class_type)
+
+    def get_schema(self, class_type: str) -> NodeSchema | None:
+        return self.get(class_type)
+
+    def schemas(self) -> dict[str, NodeSchema]:
+        return self._frozen.schemas()
+
+    def lookup_ambient(self, *args: Any, **kwargs: Any) -> None:
+        self._frozen.lookup_ambient(*args, **kwargs)
+
+
+def schema_snapshot_provider_from_payload(payload: Mapping[str, Any]) -> FrozenSchemaSnapshotProvider:
+    """Reconstruct the frozen provider from a persisted snapshot. No ambient lookup."""
+    return FrozenSchemaSnapshotProvider(schema_snapshot_from_payload(payload))
+
 
 
 def _builtin_schema(class_type: str) -> NodeSchema | None:
