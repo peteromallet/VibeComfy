@@ -480,6 +480,31 @@ def _thread_unique_strings(existing: Any, additions: Any) -> list[str]:
     return values
 
 
+def recover_thread_terminal_checkpoint(state: Mapping[str, Any] | None) -> Any:
+    """Row 7: recover typed terminal state from persisted lifecycle/receipt only."""
+    from vibecomfy.porting.edit.checkpoint import recover_terminal_checkpoint
+
+    if not isinstance(state, Mapping):
+        return recover_terminal_checkpoint(None)
+    evidence = {
+        "checkpoint": state.get("checkpoint"),
+        "accepted_delta_ids": state.get("accepted_delta_ids"),
+        "authority_receipt": (
+            (state.get("checkpoint") or {}).get("authority_receipt")
+            if isinstance(state.get("checkpoint"), Mapping)
+            else None
+        ),
+        "lineage": {
+            "session_id": str(state.get("session_id") or ""),
+            "turn_id": str((state.get("checkpoint") or {}).get("turn_id") or ""),
+            "scenario_id": str((state.get("checkpoint") or {}).get("scenario_id") or ""),
+            "baseline_id": str((state.get("checkpoint") or {}).get("baseline_id") or ""),
+        },
+    }
+    return recover_terminal_checkpoint(evidence, lineage=evidence["lineage"])
+
+
+
 def _thread_fold_event(state: dict[str, Any], event: Mapping[str, Any]) -> None:
     state["last_event"] = dict(event)
     kind = str(event.get("kind") or "")

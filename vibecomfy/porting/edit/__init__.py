@@ -75,6 +75,22 @@ _EXPORT_MODULES = {
     "TerminalProjection": "vibecomfy.porting.edit.checkpoint",
     "accepted_delta_id": "vibecomfy.porting.edit.checkpoint",
     "close_terminal_checkpoint": "vibecomfy.porting.edit.checkpoint",
+    "CheckpointLineage": "vibecomfy.porting.edit.checkpoint",
+    "LineageError": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATES": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_APPLIED": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_AUTHORITY_REJECTED": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_CLARIFY": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_INFRA_FAILURE": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_NO_CANDIDATE": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_NO_OP": "vibecomfy.porting.edit.checkpoint",
+    "TERMINAL_STATE_UNDETERMINED": "vibecomfy.porting.edit.checkpoint",
+    "TerminalCloseError": "vibecomfy.porting.edit.checkpoint",
+    "checkpoint_to_evidence": "vibecomfy.porting.edit.checkpoint",
+    "coerce_lineage": "vibecomfy.porting.edit.checkpoint",
+    "infer_terminal_state": "vibecomfy.porting.edit.checkpoint",
+    "project_terminal_checkpoint": "vibecomfy.porting.edit.checkpoint",
+    "recover_terminal_checkpoint": "vibecomfy.porting.edit.checkpoint",
 }
 
 __all__ = list(_EXPORT_MODULES)

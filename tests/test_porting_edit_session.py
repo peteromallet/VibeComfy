@@ -6325,3 +6325,22 @@ class TestSessionDeltaHistory:
         assert pi_edit(final) == pi_edit(session.workflow)
         replayed = interpret(pre, "widget.seed = 42\n")
         assert pi_edit(replayed.workflow) == pi_edit(session.workflow)
+
+
+def test_session_close_projects_one_typed_terminal() -> None:
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.porting.edit.checkpoint import (
+        project_terminal_checkpoint,
+        close_terminal_checkpoint,
+    )
+
+    session = EditSession(json.loads(_FLAT_PATH.read_text(encoding="utf-8")))
+    result = session.apply_batch("ksampler.steps = 25\n")
+    assert result.ok
+    checkpoint = close_terminal_checkpoint(session)
+    projection = project_terminal_checkpoint(checkpoint)
+    assert projection.terminal_state == "applied"
+    assert projection.accepted is True
+    assert checkpoint.project(mode="staged").authority_fields() == checkpoint.project(
+        mode="threaded"
+    ).authority_fields()

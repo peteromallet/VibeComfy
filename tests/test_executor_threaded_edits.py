@@ -94,6 +94,27 @@ def test_accepted_delta_and_graph_survive_later_terminal_failure() -> None:
     assert projection.landed_count == 1
     assert projection.graph == accepted.graph
     assert projection.failure == "terminal reply failed"
+    assert projection.terminal_state == "applied"
+    staged = checkpoint.project(
+        failure="terminal reply failed",
+        claims={
+            "delta_ids": [checkpoint.delta_ids[0]],
+            "fact_ids": ["fact:prompt"],
+            "evidence_ids": ["evidence:LawNodeC"],
+        },
+        mode="staged",
+    )
+    threaded = checkpoint.project(
+        failure="terminal reply failed",
+        claims={
+            "delta_ids": [checkpoint.delta_ids[0]],
+            "fact_ids": ["fact:prompt"],
+            "evidence_ids": ["evidence:LawNodeC"],
+        },
+        mode="threaded",
+    )
+    assert staged.authority_fields() == threaded.authority_fields()
+
 
 
 def test_terminal_checkpoint_isolated_from_later_session_mutation() -> None:
@@ -250,3 +271,29 @@ def test_narrated_change_claims_are_grounded_to_the_exact_accepted_field() -> No
     assert len(violations) == 1
     assert "(law-c-uid, seed)" in violations[0]
     assert "not in the accepted Δ" in violations[0]
+
+
+def test_threaded_fallback_consumes_closed_checkpoint_projection() -> None:
+    from vibecomfy.executor import threaded as threaded_mod
+    from vibecomfy.porting.edit.checkpoint import (
+        close_terminal_checkpoint,
+        project_terminal_checkpoint,
+    )
+
+    checkpoint = close_terminal_checkpoint(
+        terminal_state="applied",
+        original_graph={"nodes": [], "links": []},
+        graph={"nodes": [{"id": 1}], "links": []},
+        ops=({"op": "set_node_field", "target": ["", "u", "prompt"], "value": "after"},),
+        admitted=__import__("vibecomfy.porting.edit.admit", fromlist=["AdmissionAllowed"]).AdmissionAllowed(),
+        replay_verified=True,
+    )
+    projection = project_terminal_checkpoint(checkpoint, failure="reply boom")
+    prose = threaded_mod._durable_projection_fallback(
+        landed=False,
+        reason="should-be-ignored",
+        delta_ops=(),
+        projection=projection,
+    )
+    assert projection.terminal_state == "applied"
+    assert "landed" in prose.lower()

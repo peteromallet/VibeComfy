@@ -449,3 +449,50 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
 
     assert frozen_replay.replay_ok is True
     assert frozen_replay.candidate_matches is True
+
+
+def test_stamp_response_maps_replay_mismatch_to_authority_rejected() -> None:
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        AuthorityReceipt,
+        ReplayReceipt,
+        ResponseMetadataHashes,
+        stamp_response_with_authority,
+    )
+
+    receipt = AuthorityReceipt(
+        schema_version="2.0.0",
+        session_id="sess",
+        turn_id="turn",
+        submit_graph_hash="a" * 64,
+        submit_graph_bytes_sha256="b" * 64,
+        accepted_batch_digest="c" * 64,
+        cumulative_delta_hash="c" * 64,
+        candidate_hash="d" * 64,
+        schema_witness=None,
+        schema_witness_hash=None,
+        replay=ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash="d" * 64,
+            error="replay_mismatch",
+        ),
+        response_metadata=ResponseMetadataHashes(None, None, None),
+        created_at="2026-08-21T00:00:00Z",
+    )
+    stamped = stamp_response_with_authority(
+        {
+            "ok": True,
+            "apply_eligible": True,
+            "outcome": {"kind": "candidate"},
+            "candidate": {"graph": {"nodes": [{"id": 1}]}, "state": "ready"},
+            "message": "Edit landed.",
+        },
+        receipt,
+    )
+    assert stamped["terminal_state"] == "authority_rejected"
+    assert stamped["outcome"]["kind"] != "clarify"
+    assert stamped["apply_eligible"] is False
+    assert stamped["candidate"]["state"] == "rejected"
+    assert stamped["audit"]["rejected_candidate"]["state"] == "rejected"
+    assert stamped.get("accepted_delta_ids") in ((), [], None) or list(stamped.get("accepted_delta_ids") or ()) == []

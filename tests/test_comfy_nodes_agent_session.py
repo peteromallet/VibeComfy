@@ -338,6 +338,11 @@ class TestDurableThreadStore:
 
         reloaded = S._thread_load(tmp_path, "thread-1")
         assert reloaded == replay["state"]
+        recovered = S.recover_thread_terminal_checkpoint(reloaded)
+        # Crash-guess without a typed receipt/lifecycle terminal_state is undetermined.
+        assert recovered.terminal_state == "undetermined"
+        assert recovered.eligibility["applyable"] is False
+
 
     def test_fences_concurrent_stale_and_idempotency_conflict_messages(self, tmp_path: Path):
         from vibecomfy.comfy_nodes.agent import session as S

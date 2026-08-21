@@ -145,6 +145,17 @@ def test_closed_checkpoint_preserves_accepted_delta_on_later_failure() -> None:
     assert projection.landed_count == 1
     assert projection.graph == accepted.graph
     assert projection.failure == "reply continuation failed"
+    assert projection.terminal_state == "applied"
+    retry = checkpoint.project(
+        failure="reply continuation failed",
+        claims={
+            "delta_ids": [checkpoint.delta_ids[0]],
+            "fact_ids": ["fact:steps"],
+            "evidence_ids": ["evidence:node-schema:KSampler"],
+        },
+    )
+    assert retry.authority_fields() == projection.authority_fields()
+
 
 
 @pytest.mark.parametrize(
@@ -523,4 +534,16 @@ def test_consumer_routing_is_behavioral_not_substring() -> None:
     assert python.landed_ops == ()
     assert tuple(session.landed_ops) == before_ops
 
+
+def test_close_without_gateway_or_replay_is_rejected() -> None:
+    from vibecomfy.porting.edit.checkpoint import TerminalCloseError
+
+    with pytest.raises(TerminalCloseError):
+        close_terminal_checkpoint(
+            terminal_state="applied",
+            original_graph={"nodes": [], "links": []},
+            ops=({"op": "set_node_field"},),
+            admitted=None,
+            replay_verified=True,
+        )
 

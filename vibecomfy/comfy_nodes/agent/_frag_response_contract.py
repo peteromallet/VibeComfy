@@ -1490,6 +1490,12 @@ def _build_batch_repl_response(
             "queue_allowed": context.queue_allowed if has_candidate else False,
         }
     )
+    from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
+    from vibecomfy.porting.edit.checkpoint import infer_terminal_state
+
+    inferred = infer_terminal_state(durable=built_response)
+    if inferred is not None:
+        built_response = stamp_terminal_state(built_response, terminal_state=inferred)
     if unresolved_schema_terminal:
         return _strip_clarify_forbidden_response_fields(built_response)
     return _sanitize_pure_clarify_response(built_response)

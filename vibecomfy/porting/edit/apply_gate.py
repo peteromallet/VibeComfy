@@ -156,6 +156,19 @@ def apply_eligible_for(result: ApplyGateResult) -> bool:
     return bool(result.ok and result.apply_eligible)
 
 
+def apply_eligible_from_projection(projection: Any) -> bool:
+    """Apply eligibility is a projection of gateway-verified accepted delta + replay.
+
+    Consumes the one T2.2 ``TerminalProjection``. Audit/prose never authorize Apply.
+    """
+    if projection is None:
+        return False
+    eligibility = getattr(projection, "eligibility", None)
+    if isinstance(eligibility, Mapping):
+        return bool(eligibility.get("applyable")) and getattr(projection, "terminal_state", None) == "applied"
+    return False
+
+
 def _reject(reason: str, diagnostics: Sequence[CompactDiagnostic]) -> ApplyGateResult:
     return ApplyGateResult(
         ok=False,

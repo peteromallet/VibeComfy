@@ -149,8 +149,27 @@ def _durable_projection_fallback(
     landed: bool,
     reason: str | None,
     delta_ops: tuple[dict[str, Any], ...],
+    projection: Any = None,
 ) -> str:
-    """Project truthful prose after a fallible post-checkpoint failure."""
+    """Narrative helper after a fallible post-checkpoint failure.
+
+    Not a second projector: when ``projection`` is supplied, prose comes from
+    the one closed-checkpoint projection (row 6 keeps ``applied``).
+    """
+    if projection is not None:
+        projected = getattr(projection, "reply", None)
+        if isinstance(projected, str) and projected:
+            return projected
+        landed = getattr(projection, "terminal_state", None) == "applied"
+        reason = getattr(projection, "reason", reason)
+        accepted = getattr(projection, "accepted_delta", ()) or ()
+        extracted: list[dict[str, Any]] = []
+        for delta in accepted:
+            for op in getattr(delta, "ops", ()) or ():
+                if isinstance(op, Mapping):
+                    extracted.append(dict(op))
+        if extracted:
+            delta_ops = tuple(extracted)
     if landed:
         if delta_ops:
             count = len(delta_ops)
@@ -166,7 +185,6 @@ def _durable_projection_fallback(
         )
     suffix = f" Reason: {reason}." if reason else ""
     return f"No workflow edit was applied.{suffix}"
-
 
 def run_threaded_executor(
     request: ExecutorRequest,
@@ -318,6 +336,29 @@ def run_threaded_executor(
     delta_ops = kernel.accepted_delta_ops(implementation)
     reason = kernel.no_candidate_reason(implementation)
 
+    from vibecomfy.executor.core import _durable_terminal_projection
+
+    projection = _durable_terminal_projection(
+        implementation,
+        request_graph=graph or request.graph,
+        reply=implementation.message,
+        mode="threaded",
+    )
+    if getattr(projection, "graph", None) is not None and getattr(projection, "terminal_state", None) == "applied":
+        graph = projection.graph
+    elif getattr(projection, "terminal_state", None) != "applied":
+        # Non-applied rows: original graph remains authoritative; do not
+        # publish a rejected candidate as the product graph.
+        if getattr(projection, "terminal_state", None) in {
+            "authority_rejected",
+            "infra_failure",
+            "clarify",
+            "no_candidate",
+            "no_op",
+            "undetermined",
+        }:
+            graph = projection.graph if getattr(projection, "graph", None) is not None else request.graph
+
     # The same execute-agent conversation supplies the prose. Projection runs
     # only now, after the durable response closed, and deterministically checks
     # it against the accepted delta/final graph.
@@ -333,6 +374,7 @@ def run_threaded_executor(
             graph=graph or request.graph,
             reason=reason,
             delta_ops=delta_ops,
+            projection=projection,
         )
         if isinstance(durable, Mapping):
             claim_violations = validate_reply_change_claims(durable)
@@ -345,7 +387,16 @@ def run_threaded_executor(
                     graph=graph or request.graph,
                     reason=reason,
                     delta_ops=delta_ops,
+                    projection=projection,
                 )
+    except TypeError:
+        reply = kernel.enforce_reply_grounding(
+            reply,
+            landed=landed,
+            graph=graph or request.graph,
+            reason=reason,
+            delta_ops=delta_ops,
+        )
     except Exception:
         # The accepted delta predates narration/projection. Preserve that
         # durable success with prose derived only from checkpoint facts.
@@ -353,10 +404,18 @@ def run_threaded_executor(
             "threaded terminal projection failed after durable checkpoint; "
             "using accepted-delta fallback"
         )
+        failed = _durable_terminal_projection(
+            implementation,
+            request_graph=graph or request.graph,
+            failure="threaded terminal projection failed",
+            reply=implementation.message,
+            mode="threaded",
+        )
         reply = _durable_projection_fallback(
             landed=landed,
             reason=reason,
             delta_ops=delta_ops,
+            projection=failed,
         )
 
     kernel.emit_phase(

@@ -59,6 +59,16 @@ APPLY_ELIGIBILITY_REASONS: tuple[str, ...] = (
     "queue_blocked_warning",
 )
 
+TERMINAL_STATES: tuple[str, ...] = (
+    "applied",
+    "no_op",
+    "clarify",
+    "no_candidate",
+    "authority_rejected",
+    "infra_failure",
+    "undetermined",
+)
+
 TURN_OUTCOME_KINDS: tuple[str, ...] = (
     "edit",
     "clarify",
@@ -1781,6 +1791,72 @@ def turn_envelope(
     }
 
 
+def stamp_terminal_state(
+    payload: Mapping[str, Any],
+    *,
+    terminal_state: str,
+    eligibility: Mapping[str, Any] | None = None,
+    reason: str | None = None,
+    evidence_refs: Sequence[str] | None = None,
+    accepted_delta_ids: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Attach typed ``terminal_state`` without overloading ``TurnOutcome.kind``.
+
+    Wire ``outcome.kind`` is kept only when it cannot contradict the table.
+    ``clarify``/``no_candidate`` stay distinct from ``authority_rejected``.
+    """
+    from vibecomfy.porting.edit.checkpoint import TERMINAL_STATES as CHECKPOINT_STATES
+
+    if terminal_state not in CHECKPOINT_STATES and terminal_state not in TERMINAL_STATES:
+        raise ValueError(f"unknown terminal_state {terminal_state!r}")
+    stamped = dict(payload)
+    stamped["terminal_state"] = terminal_state
+    if reason is not None:
+        stamped["terminal_reason"] = reason
+    if evidence_refs is not None:
+        stamped["evidence_refs"] = list(evidence_refs)
+    if accepted_delta_ids is not None:
+        stamped["accepted_delta_ids"] = list(accepted_delta_ids)
+    if eligibility is not None:
+        eligibility_payload = dict(eligibility)
+        stamped["eligibility"] = eligibility_payload
+        applyable = bool(eligibility_payload.get("applyable"))
+        stamped["apply_eligible"] = applyable
+        if terminal_state != "applied":
+            stamped["apply_eligible"] = False
+            stamped["canvas_apply_allowed"] = False
+            stamped["apply_allowed"] = False
+            stamped["queue_allowed"] = False
+    outcome = stamped.get("outcome")
+    if isinstance(outcome, Mapping):
+        outcome = dict(outcome)
+        # Never let a replay-mismatch masquerade as clarify on the public wire.
+        if terminal_state == "authority_rejected" and outcome.get("kind") == "clarify":
+            outcome["kind"] = "error"
+            outcome["failure_kind"] = outcome.get("failure_kind") or "ValidationError"
+            outcome["stage"] = outcome.get("stage") or "authority"
+            outcome["retryable"] = False if outcome.get("retryable") is None else outcome.get("retryable")
+            outcome["next_action"] = outcome.get("next_action") or "none"
+            outcome["graph_unchanged"] = True
+        if terminal_state == "infra_failure" and outcome.get("kind") in {"clarify", "noop"}:
+            outcome["kind"] = "error"
+            outcome["failure_kind"] = outcome.get("failure_kind") or "ProviderError"
+            outcome["stage"] = outcome.get("stage") or "implement"
+            outcome["retryable"] = True if outcome.get("retryable") is None else outcome.get("retryable")
+            outcome["next_action"] = outcome.get("next_action") or "retry"
+            outcome["graph_unchanged"] = True
+        if terminal_state == "no_op" and outcome.get("kind") not in {"noop", "error"}:
+            outcome["kind"] = "noop"
+        if terminal_state == "no_candidate" and outcome.get("kind") == "clarify":
+            # Distinct labels: keep no_candidate off the clarify wire.
+            outcome["kind"] = "noop"
+            outcome["reason"] = outcome.get("reason") or "no_candidate"
+        if terminal_state == "applied" and outcome.get("kind") in {"clarify", "noop", "error"}:
+            outcome["kind"] = "candidate"
+        stamped["outcome"] = outcome
+    return stamped
+
+
 def ensure_agent_edit_response_contract(
     response: Mapping[str, Any],
     *,
@@ -2710,6 +2786,7 @@ __all__ = [
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
     "StageSnapshot",
+    "TERMINAL_STATES",
     "TURN_OUTCOME_KINDS",
     "TransactionFinalizeRequest",
     "TransactionPrepareRequest",
@@ -2740,6 +2817,7 @@ __all__ = [
     "public_transcript_message",
     "product_failure_envelope_fields",
     "repair_field_changes",
+    "stamp_terminal_state",
     "success_envelope",
     "turn_envelope",
 ]

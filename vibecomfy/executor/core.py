@@ -1671,7 +1671,7 @@ def _run_implement(
     if isinstance(result.get("message"), str):
         message = result["message"]
 
-    if executor_route == "research" or _implementation_response_is_terminal_no_candidate(result):
+    if executor_route == "research" or _implementation_response_is_non_applied(result):
         graph_out = None
 
     return ImplementationResult(
@@ -1681,35 +1681,170 @@ def _run_implement(
     )
 
 
+def _implementation_response_typed_terminal(result: dict[str, Any]) -> str | None:
+    """Return the frozen-table terminal state for a durable implement response."""
+    from vibecomfy.porting.edit.checkpoint import infer_terminal_state
+
+    return infer_terminal_state(durable=result)
+
+
+def _implementation_response_is_non_applied(result: dict[str, Any]) -> bool:
+    """True for every typed non-apply row. Distinct from generic no-candidate."""
+    from vibecomfy.porting.edit.checkpoint import (
+        TERMINAL_STATE_APPLIED,
+        TERMINAL_STATE_UNDETERMINED,
+    )
+
+    state = _implementation_response_typed_terminal(result)
+    if state is None:
+        return False
+    return state not in {TERMINAL_STATE_APPLIED, TERMINAL_STATE_UNDETERMINED}
+
+
 def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) -> bool:
-    """Return true when agent-edit succeeded by declining an applyable candidate."""
+    """True only for intentional no-candidate (row 3), never the other table rows.
+
+    ``authority_rejected``, ``infra_failure``, ``clarify``, and ``no_op`` stay
+    distinct. Do not collapse them into generic no-candidate.
+    """
+    from vibecomfy.porting.edit.checkpoint import TERMINAL_STATE_NO_CANDIDATE
+
+    terminal_state = _implementation_response_typed_terminal(result)
+    if terminal_state is not None:
+        return terminal_state == TERMINAL_STATE_NO_CANDIDATE
+
     outcome = result.get("outcome")
     outcome_kind = outcome.get("kind") if isinstance(outcome, dict) else None
-    apply_eligible = result.get("apply_eligible")
-    if not isinstance(apply_eligible, bool):
-        eligibility = result.get("apply_eligibility")
-        if isinstance(eligibility, dict):
-            apply_eligible = bool(
-                eligibility.get("applyable")
-                if "applyable" in eligibility
-                else eligibility.get("apply_eligible")
-            )
-
     no_candidate_reason = result.get("no_candidate_reason")
+    if no_candidate_reason == "authority_replay_mismatch":
+        return False
+    if no_candidate_reason in {
+        "implementation_failed",
+        "implementation_skipped",
+    }:
+        return False
+    if outcome_kind in {"clarify", "noop"}:
+        return False
     if no_candidate_reason in {
         "route_not_applyable",
         "no_graph",
-        "implementation_skipped",
-        "implementation_failed",
-        "no_changes",
         "unknown_route",
+        "no_candidate",
     }:
         return result.get("graph_unchanged") is not False
-    if outcome_kind in {"clarify", "requires_custom_nodes"}:
+    if outcome_kind == "requires_custom_nodes":
         return True
-    if outcome_kind == "noop":
-        return result.get("graph_unchanged") is not False
-    return result.get("graph_unchanged") is True and apply_eligible is not True
+    return False
+
+
+def _durable_terminal_projection(
+    implementation_result: ImplementationResult | None,
+    *,
+    request_graph: Mapping[str, Any] | None = None,
+    failure: str | None = None,
+    reply: str | None = None,
+    mode: str | None = None,
+) -> Any:
+    """Build the one closed-checkpoint projection for staged and threaded."""
+    from vibecomfy.porting.edit.checkpoint import (
+        TERMINAL_STATE_APPLIED,
+        TERMINAL_STATE_AUTHORITY_REJECTED,
+        TERMINAL_STATE_NO_CANDIDATE,
+        TERMINAL_STATE_UNDETERMINED,
+        LineageError,
+        TerminalCloseError,
+        close_terminal_checkpoint,
+        infer_terminal_state,
+        project_terminal_checkpoint,
+        recover_terminal_checkpoint,
+    )
+    from vibecomfy.porting.edit.admit import AdmissionAllowed
+
+    durable = (
+        implementation_result.durable_response
+        if implementation_result is not None
+        else None
+    )
+    durable_map = dict(durable) if isinstance(durable, Mapping) else {}
+    if "checkpoint" in durable_map or "terminal_state" in durable_map:
+        recovered = recover_terminal_checkpoint(durable_map)
+        return project_terminal_checkpoint(
+            recovered, reply=reply, failure=failure, mode=mode
+        )
+    inferred = infer_terminal_state(durable=durable_map)
+    original = request_graph if isinstance(request_graph, Mapping) else {}
+    graph = None
+    if implementation_result is not None and isinstance(implementation_result.graph, Mapping):
+        graph = implementation_result.graph
+    ops = _accepted_delta_ops(implementation_result)
+    replay_ok = None
+    receipt = durable_map.get("authority_receipt")
+    if isinstance(receipt, Mapping):
+        replay_ok = bool(receipt.get("replay_ok")) and bool(receipt.get("candidate_matches"))
+    if inferred == TERMINAL_STATE_APPLIED or (
+        inferred is None and ops and (replay_ok is not False)
+    ):
+        if replay_ok is False:
+            inferred = TERMINAL_STATE_AUTHORITY_REJECTED
+        elif not ops:
+            inferred = TERMINAL_STATE_UNDETERMINED
+        else:
+            inferred = TERMINAL_STATE_APPLIED
+    if inferred is None:
+        inferred = TERMINAL_STATE_NO_CANDIDATE if not ops else TERMINAL_STATE_APPLIED
+    if inferred == TERMINAL_STATE_APPLIED and (not ops or replay_ok is False):
+        inferred = (
+            TERMINAL_STATE_AUTHORITY_REJECTED
+            if replay_ok is False
+            else TERMINAL_STATE_UNDETERMINED
+        )
+    rejected = None
+    candidate = durable_map.get("candidate")
+    if inferred == TERMINAL_STATE_AUTHORITY_REJECTED and isinstance(candidate, Mapping):
+        rejected = dict(candidate)
+    try:
+        checkpoint = close_terminal_checkpoint(
+            terminal_state=inferred,
+            original_graph=original,
+            graph=graph if inferred == TERMINAL_STATE_APPLIED else original,
+            ops=ops if inferred == TERMINAL_STATE_APPLIED else (),
+            admitted=AdmissionAllowed() if inferred == TERMINAL_STATE_APPLIED and ops else None,
+            replay_verified=True if inferred == TERMINAL_STATE_APPLIED else bool(replay_ok),
+            rejected_candidate=rejected,
+            reason=inferred,
+            evidence_refs=tuple(durable_map.get("evidence_refs") or ()),
+            lineage={
+                "session_id": str(durable_map.get("session_id") or ""),
+                "turn_id": str(durable_map.get("turn_id") or ""),
+                "scenario_id": str(durable_map.get("scenario_id") or ""),
+                "baseline_id": str(
+                    durable_map.get("baseline_turn_id") or durable_map.get("baseline_id") or ""
+                ),
+            },
+        )
+    except (TerminalCloseError, LineageError, ValueError):
+        checkpoint = close_terminal_checkpoint(
+            terminal_state=TERMINAL_STATE_UNDETERMINED,
+            original_graph=original,
+            reason="close_refused",
+            replay_verified=False,
+        )
+    return project_terminal_checkpoint(
+        checkpoint, reply=reply, failure=failure, mode=mode
+    )
+
+
+def _projection_reply(
+    projection: Any,
+    *,
+    fallback: str | None = None,
+) -> str:
+    if projection is None:
+        return fallback or ""
+    if isinstance(getattr(projection, "reply", None), str) and projection.reply:
+        return projection.reply
+    return fallback or ""
+
 
 
 def _dedupe_nonempty(values: Any) -> tuple[str, ...]:
@@ -2158,24 +2293,29 @@ def _enforce_reply_grounding(
     graph: dict[str, Any] | None,
     reason: str | None = None,
     delta_ops: tuple[dict[str, Any], ...] = (),
+    projection: Any = None,
 ) -> str:
-    """Enforce the reply fidelity + node-id grounding guards.
+    """Narrative helper. Authority comes from the one closed-checkpoint projection.
 
-    1. Fidelity: when *landed* is False (no accepted Δ / graph unchanged), a
-       reply that claims an edit landed is a false success and is replaced
-       with a deterministic no-change reply — it never passes through.
-    2. Inverse fidelity: when an accepted delta exists, narration that says
-       the graph stayed unchanged is replaced by that canonical delta.
-    3. Node ids: when *graph* is present, every node id/uid cited by the
-       reply must exist in the graph; hallucinated ids are corrected to the
-       real id of a uniquely named node class or stripped.
-    4. Census: a reply may not call a graph empty or claim zero nodes/edges
-       when deterministic inspection proves a non-empty census. Contradictory
-       prose is replaced by a bounded deterministic census fallback.
-
-    The reply's claims therefore always agree with the accepted Δ / landed
-    operations (v5-batch-3 #3, v5-batch-4 #1).
+    When ``projection`` is supplied, landed/graph/reason/delta_ops are taken
+    from it. This is not a second projector.
     """
+    if projection is not None:
+        landed = getattr(projection, "terminal_state", None) == "applied"
+        graph = getattr(projection, "graph", graph)
+        reason = getattr(projection, "reason", reason)
+        accepted = getattr(projection, "accepted_delta", ()) or ()
+        extracted: list[dict[str, Any]] = []
+        for delta in accepted:
+            for op in getattr(delta, "ops", ()) or ():
+                if isinstance(op, Mapping):
+                    extracted.append(dict(op))
+        if extracted:
+            delta_ops = tuple(extracted)
+        if getattr(projection, "failure", None) and landed:
+            projected_reply = getattr(projection, "reply", None)
+            if isinstance(projected_reply, str) and projected_reply:
+                reply = projected_reply
     if not landed and _reply_claims_landed_edit(reply):
         return _no_change_reply(reason=reason)
     if landed and delta_ops and _NO_LANDED_EDIT_CLAIM_RE.search(reply or ""):
@@ -2342,15 +2482,21 @@ def _run_reply(
                 message=failure.user_facing_message,
                 failure_envelope=failure,
             )
-        # Fidelity + node-id grounding: the reply's claims must match the
-        # accepted Δ / landed operations, and cited node ids must exist in
-        # the graph (v5-batch-3 #3, v5-batch-4 #1).
+        # Fidelity + node-id grounding consumes the one closed-checkpoint
+        # projection. This is not a second projector.
+        projection = _durable_terminal_projection(
+            implementation_result,
+            request_graph=effective_graph,
+            reply=reply,
+            mode="staged",
+        )
         return _enforce_reply_grounding(
             reply,
             landed=landed_edit,
             graph=effective_graph,
             reason=_no_candidate_reason(implementation_result),
             delta_ops=delta_ops,
+            projection=projection,
         )
     except Exception as exc:
         provider_failure = (
@@ -2917,15 +3063,20 @@ def _run_staged_executor(
                 research=research_result,
                 implementation=implementation_result,
             )
-            # Fidelity guard (v5-batch-3 #3): the terminal no-candidate path
-            # passes the implement message straight through as the reply, so
-            # a message that claims a landed edit while graph_unchanged=true
-            # would be a false success.  Enforce grounding here as well.
+            # Consume the one closed-checkpoint projection; do not collapse
+            # typed terminals into generic no-candidate.
+            projection = _durable_terminal_projection(
+                implementation_result,
+                request_graph=effective_graph,
+                reply=implementation_result.message,
+                mode="staged",
+            )
             reply_text = _enforce_reply_grounding(
                 implementation_result.message,
                 landed=_implementation_landed_edit(implementation_result),
                 graph=effective_graph,
                 reason=_no_candidate_reason(implementation_result),
+                projection=projection,
             )
             profiler_log(
                 LOGGER,
@@ -3027,9 +3178,19 @@ def _run_staged_executor(
                 implementation=implementation_result,
                 fallback_model_attempts=exc.model_attempts,
             )
-            fallback_reply = (
-                implementation_result.message
-                or "Edit completed. The candidate is ready to review."
+            projection = _durable_terminal_projection(
+                implementation_result,
+                request_graph=result_graph,
+                failure=str(exc),
+                reply=implementation_result.message,
+                mode="staged",
+            )
+            fallback_reply = _projection_reply(
+                projection,
+                fallback=(
+                    implementation_result.message
+                    or "Edit completed. The candidate is ready to review."
+                ),
             )
             fallback_reply = _enforce_reply_grounding(
                 fallback_reply,
@@ -3037,6 +3198,7 @@ def _run_staged_executor(
                 graph=result_graph,
                 reason=_no_candidate_reason(implementation_result),
                 delta_ops=_accepted_delta_ops(implementation_result),
+                projection=projection,
             )
             return _finish(ExecutorResult.success(
                 report=report,

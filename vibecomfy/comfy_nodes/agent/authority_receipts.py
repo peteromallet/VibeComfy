@@ -743,21 +743,31 @@ def stamp_response_with_authority(
         else ()
     )
     if not receipt.is_applyable:
-        # Fail closed: force applyability fields to False.
+        # Fail closed: force applyability fields to False. Row 4, not row 3:
+        # candidate or replay rejected is authority_rejected. Rejected
+        # candidate is audit-only; original graph remains authoritative.
+        from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
+        from vibecomfy.porting.edit.checkpoint import (
+            TERMINAL_STATE_AUTHORITY_REJECTED,
+        )
+
         stamped["canvas_apply_allowed"] = False
         stamped["queue_allowed"] = False
         stamped["apply_allowed"] = False
         stamped["apply_eligible"] = False
         stamped["graph_unchanged"] = True
         stamped["no_candidate_reason"] = "authority_replay_mismatch"
+        eligibility_payload = {
+            "applyable": False,
+            "reason": TERMINAL_STATE_AUTHORITY_REJECTED,
+            "message": (
+                "Server replay verification failed; candidate is not authoritative."
+            ),
+        }
         for eligibility_field in ("eligibility", "apply_eligibility"):
             eligibility = stamped.get(eligibility_field)
             eligibility = dict(eligibility) if isinstance(eligibility, Mapping) else {}
-            eligibility["applyable"] = False
-            eligibility["reason"] = "authority_replay_mismatch"
-            eligibility["message"] = (
-                "Server replay verification failed; candidate is not authoritative."
-            )
+            eligibility.update(eligibility_payload)
             stamped[eligibility_field] = eligibility
         if missing_touched:
             classes = ", ".join(missing_touched)
@@ -765,48 +775,54 @@ def stamp_response_with_authority(
                 "I couldn't safely prepare this edit because authoritative node "
                 f"schema evidence is unavailable for: {classes}. The graph is unchanged."
             )
-            # The candidate and accepted batch remain available as rejected
-            # audit evidence, but no success narration may be published.
             stamped["message"] = message
             stamped["schema_witness_error"] = {
                 "code": "missing_touched_schema",
                 "class_types": list(missing_touched),
-            }
-            stamped["outcome"] = {
-                "kind": "clarify",
-                "question": message,
-                "clarification": {"message": message},
-            }
-            stamped["internal_outcome"] = {
-                "kind": "clarify",
-                "question": message,
             }
         else:
             message = (
                 "I couldn't safely prepare this edit because server replay "
                 "verification failed. The graph is unchanged."
             )
-            # Never publish the model's success narration for a candidate
-            # that failed the immutable replay receipt.  The rejected graph
-            # and accepted batch below remain intact for diagnostics/audit.
             stamped["message"] = message
-            stamped["outcome"] = {
-                "kind": "clarify",
-                "question": message,
-                "clarification": {"message": message},
-            }
-            stamped["internal_outcome"] = {
-                "kind": "clarify",
-                "question": message,
-            }
-        # Mark the candidate as rejected but do NOT remove the graph.
-        # Downstream consumers (accept path, audit) may still need to
-        # inspect the candidate; the applyability fields prevent Apply.
+        stamped["outcome"] = {
+            "kind": "error",
+            "failure_kind": "ValidationError",
+            "stage": "authority",
+            "retryable": False,
+            "next_action": "none",
+            "graph_unchanged": True,
+            "question": message,
+            "clarification": {"message": message},
+        }
+        stamped["internal_outcome"] = {
+            "kind": "failure",
+            "failure_kind": "ValidationError",
+            "stage": "authority",
+            "retryable": False,
+            "next_action": "none",
+            "graph_unchanged": True,
+        }
         candidate = stamped.get("candidate")
+        rejected_candidate = None
         if isinstance(candidate, dict):
             candidate = dict(candidate)
             candidate["state"] = "rejected"
+            rejected_candidate = candidate
             stamped["candidate"] = candidate
+        audit = dict(stamped.get("audit") or {}) if isinstance(stamped.get("audit"), Mapping) else {}
+        if rejected_candidate is not None:
+            audit["rejected_candidate"] = rejected_candidate
+        stamped["audit"] = audit
+        stamped = stamp_terminal_state(
+            stamped,
+            terminal_state=TERMINAL_STATE_AUTHORITY_REJECTED,
+            eligibility=eligibility_payload,
+            reason=TERMINAL_STATE_AUTHORITY_REJECTED,
+            evidence_refs=("authority_receipt",),
+            accepted_delta_ids=(),
+        )
 
     return stamped
 
