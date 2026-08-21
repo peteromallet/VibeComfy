@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "810d3d1b21faaf4cb8ccf4286bb0e323ee73b59bacf25198ff3a676e649760d6",
+        "sha256": "04eefeb0209331424f80998ec232929c2363c888535b6f73e6e483cea0c0c3ee",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -436,7 +436,7 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "20f9e7d32314ea8ae8006150736b80d74208c33569dffacb404385dd88b0ec47"},
+        {"path": "test-shards.json", "sha256": "8138d296385c03e0a74dfc3e828831b4599b51101c561ced860ac46a86ae6e6a"},
         {"path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"},
         {"path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"},
         {"path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"},
@@ -537,7 +537,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "20f9e7d32314ea8ae8006150736b80d74208c33569dffacb404385dd88b0ec47", "modified": true},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "8138d296385c03e0a74dfc3e828831b4599b51101c561ced860ac46a86ae6e6a", "modified": true},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
@@ -1238,10 +1238,11 @@
         {"task_id": "T2.2-rerun", "path": "receipts/T2.2-rerun-receipt.json", "sha256": "225a00a969f4c094a0bb89e6e49a13227a366beeb2eee4745383dccf3047c5e4", "brief_sha256": "38d94d227a19931af19cae3904d6ddb4570ee18a097ed195006de81172a151b7", "result_sha256": "8e191d314861519ba811ee83a2a3e8b6214ef09caeaf32b9a6930179971852b7", "role": "implementer", "model_route": "grok-4.6", "pid": 52451, "start_ts": "2026-08-21T20:30:51Z", "end_ts": "2026-08-21T21:12:24Z", "exit": 0, "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0", "commits": ["40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d"], "disposition": "commit 40d1f8e5"},
         {"task_id": "T2.2-review", "path": "receipts/T2.2-review-receipt.json", "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1", "brief_sha256": "2ea3594bbee555b290bffaa07d794d64e7451e12f32c8ed272494ac673a996f6", "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5", "role": "reviewer", "model_route": "grok-4.6", "pid": 53607, "start_ts": "2026-08-21T21:22:17Z", "end_ts": "2026-08-21T21:43:00Z", "exit": 0, "base_sha": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d", "commits": [], "changed_files": [], "disposition": "correct; MUST-001..003 and SHOULD-001..003 open"},
         {"task_id": "T2.2-revision", "path": "receipts/T2.2-revision-receipt.json", "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8", "brief_sha256": "b40fbd3391ce0bd4df09a4ba6133890d2f3397efdb7603ce2c8a81017302938e", "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740", "role": "implementer", "model_route": "grok-4.6", "pid": 54853, "start_ts": "2026-08-21T21:53:25Z", "end_ts": "2026-08-21T22:37:35Z", "exit": 0, "base_sha": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d", "commits": ["24a42b14e99dea9f4096fc210fba293e8c901f05"], "disposition": "repaired; MUST-001..003 and SHOULD-001..003"},
-        {"task_id": "T2.2-rereview", "path": "receipts/T2.2-rereview-receipt.json", "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe", "brief_sha256": "cb036697525adba61da536782499a78ae767a7f6ebcde815fac440a290501e59", "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081", "role": "reviewer", "model_route": "grok-4.6", "pid": 57135, "start_ts": "2026-08-21T22:38:07Z", "end_ts": "2026-08-21T23:00:43Z", "exit": 0, "base_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05", "commits": [], "changed_files": [], "disposition": "correct; MUST-001..003 closed; SHOULD-001 addressed; SHOULD-002..003 closed"}
+        {"task_id": "T2.2-rereview", "path": "receipts/T2.2-rereview-receipt.json", "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe", "brief_sha256": "cb036697525adba61da536782499a78ae767a7f6ebcde815fac440a290501e59", "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081", "role": "reviewer", "model_route": "grok-4.6", "pid": 57135, "start_ts": "2026-08-21T22:38:07Z", "end_ts": "2026-08-21T23:00:43Z", "exit": 0, "base_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05", "commits": [], "changed_files": [], "disposition": "correct; MUST-001..003 closed; SHOULD-001 addressed; SHOULD-002..003 closed"},
+        {"task_id": "T2.2-integration", "path": "receipts/T2.2-integration-receipt.json", "sha256": "332c21d81d7c33ba1d8f74aec5639768f55f57c21b0760e8e41e303cda6284c8", "brief_sha256": "20a369b6b061161f7c91bfe64dee0940092c3c171e2d8fad3fae384017a0136f", "result_sha256": "33546317d52e8b0c2c6f485a1968a1d5463c750e55e01e3315fa74d61c51dc92", "role": "integration", "model_route": "stealth/ox-alpha", "resolved_model": "stealth/ox-alpha", "pid": 58438, "start_ts": "2026-08-21T23:17:13Z", "end_ts": "2026-08-21T23:28:11Z", "exit": 0, "base_sha": "c83d2e59cae670c056564f297061062b0a880763", "commits": [], "changed_files": [], "disposition": "pass"}
       ],
       "wrapper_death_recovery": {"task_id": "T2.2", "path": "receipts/wrapper-death-note-t22-implementer.json", "sha256": "44128fb0812dd72ecef370cf8eae69d46d131ad4feeccd20811d2afbc89305e8", "wrapper_pid": 51092, "launcher_pid": 51098, "exit": 124, "classification": "F6 launcher timeout; same phase rerun under T2.2-rerun after partial-path restoration", "receipt_written": true, "result_persisted": false},
-      "focused_evidence": {"shard_id": "T2.2_closed_checkpoint_terminal_projector", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_comfy_nodes_agent_session.py", "source_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05", "summary": "362 passed, 27 failed (pre-existing), 2 skipped", "exit": 1, "status": "pre_existing_failures", "runs_once": true, "tests_run_by_evidence_agent": false},
+      "focused_evidence": {"shard_id": "T2.2_closed_checkpoint_terminal_projector", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_comfy_nodes_agent_session.py", "source_sha": "c83d2e59cae670c056564f297061062b0a880763", "summary": "362 passed, 27 failed (pre-existing), 2 skipped", "exit": 1, "status": "pre_existing_failures", "runs_once": true, "tests_run_by_evidence_agent": false},
       "findings_closed": ["T2.2-MUST-001", "T2.2-MUST-002", "T2.2-MUST-003", "T2.2-SHOULD-001", "T2.2-SHOULD-002", "T2.2-SHOULD-003"],
       "finding_revisions": [
         "MUST-001: accepted_batch operations plus receipt recover applied with ops and Apply eligibility.",
@@ -1251,6 +1252,13 @@
         "SHOULD-002: infer_terminal_state requires replay or receipt evidence before applied.",
         "SHOULD-003: eight production-path tests cover stamped durable recovery, freeze-safe projection, row-6 fallback, rejection authority, replay inference, and threaded preservation."
       ],
+      "integration_push": {
+        "exit": 0,
+        "fast_forward": "993cadd3..c83d2e59",
+        "refspec": "HEAD:fixer/workflow-execution-spine-consolidation",
+        "remote_after": "c83d2e59cae670c056564f297061062b0a880763",
+        "performed_by_evidence_agent": false
+      },
       "residual_risks": [
         "Execution-log edits require refreshing tasks[5].recovery_note.sha256.",
         "test-shards.json edits require refreshing matching tasks[5].evidence_links[*].sha256 and tasks[6].shard_integrity.sha256.",
@@ -1259,11 +1267,12 @@
         "Browser apply UI still keys on no_candidate/candidate outside allowance; consumers must tolerate absent public keys after MUST-003.",
         "The 27 listed-shard failures are pre-existing and unchanged.",
         "H3-overlap-narrow remains STOPPED pending operator direction (wrapper pre-code JUDGMENT_REQUIRED, de75b418); deferred, with remaining runs serializing batches.",
-        "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings; tracked per adjudication A."
+        "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings; tracked per adjudication A.",
+        "Directive-20 wrapper route fix 5399a5aa8ae441f55410f30db4b4aae7faa3a98f is part of the pushed lineage, operator-authorized; its review is folded into the §18 comprehensive pre-review (PRE-REVIEW-REMAINING) scope."
       ],
       "validator": {"command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "exit": 0, "stdout": "OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "output_sha256": "1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224"},
       "controls": {"merge_to_main": false, "promotion": false, "live_model_runtime_provider_calls": false, "secret_access": false, "protected_state_touched": false, "push_by_evidence_agent": false, "product_tests_run_by_evidence_agent": false, "receipts_committed": false},
-      "next_unblocked_card": "PRE-REVIEW-REMAINING after T2.2 integration push",
+      "next_unblocked_card": "PRE-REVIEW-REMAINING",
       "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false}
     }
   ],

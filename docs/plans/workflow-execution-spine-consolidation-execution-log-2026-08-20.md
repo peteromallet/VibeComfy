@@ -2144,3 +2144,117 @@ wrapper-recorded brief and result digests.
   the complete remaining plan T2.3→G7 plus the §16 wrapper-timeout raise,
   §18 finale flow, and §19 validator-routing amendment. It must return
   `continue` before implementation resumes; subsequent batches follow §18.
+
+### T2.2 integration disposition, closure, and handoff
+
+- **Integration register entry 7 — `T2.2-integration`.** Gate unset in the
+  receipt; label `T2.2-integration: apply reviewed chain, run T2.2 focused
+  shard once, fast-forward push`; role `integration`; model route/resolved
+  model `stealth/ox-alpha`; receipt
+  `receipts/T2.2-integration-receipt.json`; receipt SHA-256
+  `332c21d81d7c33ba1d8f74aec5639768f55f57c21b0760e8e41e303cda6284c8`;
+  brief SHA-256
+  `20a369b6b061161f7c91bfe64dee0940092c3c171e2d8fad3fae384017a0136f`;
+  result SHA-256
+  `33546317d52e8b0c2c6f485a1968a1d5463c750e55e01e3315fa74d61c51dc92`;
+  wrapper PID `58438`; `2026-08-21T23:17:13Z` →
+  `2026-08-21T23:28:11Z`; exit `0`; base
+  `c83d2e59cae670c056564f297061062b0a880763`; no commits and zero changed
+  files under the read-only allowance. Wrapper invocation:
+  `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+  --model=stealth/ox-alpha
+  --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.2-integration.md
+  --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+  --timeout=3600`; dispatch record `g0/T2.2-integration-dispatch.log`.
+- **Lineage verified, then pushed atomically:** the parent chain is
+  `993cadd3cfa7760c4ef4954f9afaa44e48bf8898` →
+  `48f81d64a74885548c5793dffd552eec60d626a0` →
+  `40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d` →
+  `24a42b14e99dea9f4096fc210fba293e8c901f05` →
+  `5399a5aa8ae441f55410f30db4b4aae7faa3a98f` →
+  `c83d2e59cae670c056564f297061062b0a880763`; all six objects report type
+  `commit` via `git cat-file -t`; `git rev-list` showed exactly five commits
+  ahead of the remote (`48f81d64`, `40d1f8e5`, `24a42b14`, `5399a5aa`,
+  `c83d2e59`); `git merge-base --is-ancestor` proved the push a
+  fast-forward.
+- **Focused shard ran exactly once at the integrated state:** command
+  `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider
+  tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py
+  tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py
+  tests/test_authority_receipts.py
+  tests/test_comfy_nodes_agent_session.py`; exit `1` with
+  `27 failed, 362 passed, 2 skipped, 136 warnings in 203.85s`; stdout
+  SHA-256
+  `e27ebc030da3ad6918f70737ab43770767cdd6114bf7dbbf6bb42fb5484edd08`;
+  stderr SHA-256
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+  (empty); scratch preserved at `/tmp/t22-integration/shard.stdout` and
+  `/tmp/t22-integration/shard.stderr`. The 27 FAILED nodeids were
+  `comm -3`-identical against the recorded pre-existing set (review table
+  at `g0/T2.2-review-dispatch.log`, independently confirmed at base
+  `48f81d64`), and assertion classes match row-for-row: 21
+  `test_porting_edit_session.py` admit/schema/done-gate cousins and six
+  `test_comfy_nodes_agent_session.py` `receipt.is_applyable is False`
+  cases. No new or different failure appeared.
+- **Fast-forward push:** `git push origin
+  HEAD:fixer/workflow-execution-spine-consolidation` advanced the remote
+  with fast-forward range notation `993cadd3..c83d2e59` and no force; the
+  post-push `git ls-remote` returned
+  `remote_after == c83d2e59cae670c056564f297061062b0a880763`. The
+  integration SHA is `c83d2e59cae670c056564f297061062b0a880763`.
+- **Card CLOSED end-to-end:** pre-code review returned `continue`; the
+  implementer first run was interrupted (exit `124`, wrapper-death-note
+  `t22-implementer`); rerun commit `40d1f8e5`; post-implementation review
+  opened MUST-001..003 plus SHOULD-001..003; revision commit `24a42b14`;
+  re-review `correct` closed all findings; evidence commit `c83d2e59`;
+  integration pushed to remote `c83d2e59`. No phase of T2.2 remains open.
+- **Directive-20 route-fix lineage note:** commit
+  `5399a5aa8ae441f55410f30db4b4aae7faa3a98f`
+  (`fix(exec-spine): route all wrapper model routes to stealth/ox-alpha
+  (operator directive 20)`) is part of the pushed lineage and is
+  operator-authorized; its review is folded into the §18 comprehensive
+  pre-review scope rather than dispatched as a separate review. Cherry-
+  picking or reordering any of the six commits, or excluding `5399a5aa`,
+  was forbidden and was not done.
+- **Residual risks:** the 27 listed-shard failures remain open upstream
+  debt owned outside T2.2 (the T2.1 admit/schema cousins), with counts
+  reconfirmed by the integration run. The pushed lineage is immutable
+  history: no commit may be cherry-picked out of order or dropped. The
+  carried T2.2 residuals stand unchanged: recover short-circuit
+  `core.py:1769-1773` does not thread `request_graph`; browser apply UI
+  still keys on `no_candidate`/`candidate` outside the allowance;
+  `t2.3_persistence_carries_real_admission`; H3-overlap-narrow remains
+  STOPPED pending operator direction (`de75b418`) with remaining batches
+  serialized; the validator gap `_iter_digest_refs` silently skipping
+  malformed non-64-hex digest strings remains tracked per adjudication A;
+  execution-log edits require refreshing
+  `manifest.tasks[5].recovery_note.sha256`, and `test-shards.json` edits
+  require refreshing matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256`.
+- **Controls:** this evidence append changes only the three allowed
+  evidence files in one coherent commit authored by
+  `POM <peter@omalley.io>`. No receipt, protected state, branch, or other
+  file is changed; no push, merge, promotion, live/model/runtime call,
+  secret access, wrapper dispatch, review, validator change, or product/
+  test run is performed by this evidence recorder; no receipt is
+  committed. The lineage verification, focused shard run, and push above
+  are historical `T2.2-integration` evidence.
+- **Next unblocked card:** `PRE-REVIEW-REMAINING` — the §18 comprehensive
+  pre-review (`stealth/ox-alpha` `[XHARD-REVIEW]`) of the complete
+  remaining plan T2.3→G7 plus the §16 wrapper-timeout raise (3600→7200),
+  the finale amendment (validator 100→50 leg receipts; T7.2/G7 wording:
+  50 scenarios split 25 staged + 25 threaded = 50 legs at concurrency 10;
+  smoke = final-five ×2 modes = 10 legs pre-finale), and the directive-20
+  route-fix review. It must return `continue` before implementation
+  resumes; subsequent batches follow §18.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.

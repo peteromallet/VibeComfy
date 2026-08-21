@@ -58,11 +58,11 @@
     {
       "shard_id": "T2.2_closed_checkpoint_terminal_projector",
       "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_comfy_nodes_agent_session.py",
-      "source_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05",
+      "source_sha": "c83d2e59cae670c056564f297061062b0a880763",
       "summary": "362 passed, 27 failed (pre-existing), 2 skipped",
       "exit": 1,
       "status": "pre_existing_failures",
-      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T2.2-revision-receipt.json"
+      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T2.2-integration-receipt.json"
     }
   ],
   "singleton": {
@@ -71,7 +71,7 @@
     "status": "pending"
   },
   "evidence_log": {
-    "task_id": "evidence-log-T2.2",
+    "task_id": "evidence-log-T2.2-integration",
     "gate": "G2",
     "validator_exit": 0,
     "other_tests_run": false
