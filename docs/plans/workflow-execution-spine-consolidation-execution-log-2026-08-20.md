@@ -1166,3 +1166,150 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   occurred in this evidence recording. The earlier integration push is
   recorded above as prior-card evidence.
 - **Next unblocked card:** `H2-dead-pid-sweep-precode-review`.
+ 
+### G1 / H2 — dead-PID sweep chain (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-H2` / no gate /
+  `evidence-log H2: pre-code continue, implementer da959d56, review continue,
+  integration push` / evidence.
+- **Disposition:** `continue`. This is the pre-G1 hardening card directed by
+  operator directive 2026-08-21 §15 item 2. The H2 chain is recorded from the
+  five preserved receipts below; receipt files are evidence inputs only and
+  are not committed.
+- **Model routes:** Grok `grok-4.6` for the substantive pre-code review;
+  Luna `codex:gpt-5.6-luna` for the implementer, corrected rerun, post-
+  implementation review, and integration.
+
+#### Ordered H2 receipt register
+
+1. **Pre-code review — `H2-dead-pid-sweep-precode-review` (Grok).** Receipt
+   `receipts/H2-dead-pid-sweep-precode-review-receipt.json`, SHA-256
+   `5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H2-dead-pid-sweep-precode-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `37818`; `2026-08-21T13:27:34Z` →
+   `2026-08-21T13:40:43Z`; exit `0`; brief SHA-256
+   `80a48110cfbf10b60f5b5eb1d81b1803f7b1a0fac51065309474f303e855193c`;
+   result SHA-256
+   `ed6e7c57e9a36c8526020914586479d4de318b888bcb4b23d839c8a108f253e8`.
+   Result: **continue** with five binding conditions: retain the existing
+   flock and guard-time-only sweep; clear only an integer dead PID whose
+   `now - start_ts_epoch` is strictly greater than the 60-second grace;
+   keep missing/non-integer PIDs on the existing six-hour path and never
+   clear live PIDs; preserve `now - start_ts_epoch` as the age basis with no
+   death timestamp; preserve the exact
+   `stale-allowance-cleared.json` keys and put class distinctions only in
+   `reason`; and inject epochs/PIDs in deterministic tests without sleeping.
+   The review also required the protected behaviors to remain unchanged:
+   `_pid_exists`, overlap/candidate logic, registry and lock paths, receipt
+   schema, signal handling, child launch, and no timers or threads.
+   Accepted residual risks were PID reuse, EPERM being classified as dead by
+   the unchanged PID probe and therefore clearing at 60 seconds, the
+   same-host PID-namespace assumption, the pre-existing in-memory sweep then
+   overlap failure not persisting the registry, no-dispatch-no-sweep, and the
+   absence of `wrapper-death-note-t12-precode.json`.
+2. **Implementer gate abort — `H2-dead-pid-sweep` (Luna).** Receipt
+   `receipts/H2-dead-pid-sweep-receipt.json`, SHA-256
+   `bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H2-dead-pid-sweep.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `38082`; `2026-08-21T13:41:10Z` →
+   `2026-08-21T13:43:19Z`; exit `0`; brief SHA-256
+   `86e45b302c50c921d057db0c127dfa6bbfc924bd480743e7ca6b8f806bd040fd`;
+   result SHA-256
+   `9df630c0782cebb962a73a008895280beab41d8ac3542c184cd9514e6369cdff`.
+   Mutation stopped cleanly with no changed files or commits: the receipt
+   stores only `result_sha256`, not the result body, so the strict gate could
+   not verify `continue`. The brief gate was fixed by recording the
+   orchestrator-verified disposition and embedding the binding conditions
+   before rerun.
+3. **Implementer rerun — `H2-dead-pid-sweep-rerun` (Luna).** Receipt
+   `receipts/H2-dead-pid-sweep-rerun-receipt.json`, SHA-256
+   `3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H2-dead-pid-sweep.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `38209`; `2026-08-21T13:43:43Z` →
+   `2026-08-21T13:52:53Z`; exit `0`; brief SHA-256
+   `3b0fba52c2b1e328af1df3c605a6c715b6a7a75bbf36f35498a1ac9f40369817`;
+   result SHA-256
+   `e168388fb50d3d67e81efa08f9c4746987bb08e53367650877c1bf284ac86c16`.
+   Commit `da959d56631eb219721a2c06bc8cb66e404f94b5` was created on base
+   `28aa48af801d35c48d7ff4668bf9f2e0fe4520ed`, changing only
+   `scripts/run_workflow_execution_spine_agent.py` (+27/−2) and
+   `tests/test_run_workflow_execution_spine_agent.py` (+179). The repair
+   adds `DEAD_PID_GRACE_SECONDS = 60`; clears dead integer PIDs only when
+   age is greater than 60 seconds under the existing flock and guard-time
+   sweep; keeps missing/non-integer PIDs on the six-hour path; never clears
+   live PIDs; and preserves the exact `stale-allowance-cleared.json` keys.
+4. **Post-implementation review — `H2-dead-pid-sweep-review` (Luna).**
+   Receipt `receipts/H2-dead-pid-sweep-review-receipt.json`, SHA-256
+   `a73a85af51cd8dc878ccad211e8fc81d9fcfdbc7324e8617f6c1b98f96b9389b`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H2-dead-pid-sweep-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `39145`; `2026-08-21T13:53:26Z` →
+   `2026-08-21T13:56:02Z`; exit `0`; brief SHA-256
+   `5b063fdd89eff333eaf87889abfc408ab44f56e96cb37616a975974e7a259a89`;
+   result SHA-256
+   `1f2d20140feecb642c9ca091ee9f8f5e61249f4c6a8f90226cc1051a246618f6`.
+   Result: **continue**, with no must findings. All five pre-code conditions
+   were verified against wrapper lines 182–215 and tests lines 114–283.
+   The focused shard
+   `python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q`
+   passed `20 passed` with one pre-existing unknown-`timeout` pytest
+   configuration warning.
+5. **Integration — `H2-dead-pid-sweep-integration` (Luna).** Receipt
+   `receipts/H2-dead-pid-sweep-integration-receipt.json`, SHA-256
+   `04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H2-dead-pid-sweep-integration.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `39463`; `2026-08-21T13:56:19Z` →
+   `2026-08-21T13:59:05Z`; exit `0`; brief SHA-256
+   `76d3f32ce48f09ff8a4ab27839996f3350a7f6d3f2f199e0a350e83824e78519`;
+   result SHA-256
+   `af7ccb133108993aeb0816a3f8b1fecddeb31663f9ae7e00fc1e833e2f833b91`.
+   Integration ran the focused shard exactly once with exit `0` and
+   `20 passed, 1 warning`, then fast-forward pushed
+   `a7b187083694090d661c05d6831ccd0f845b990d` →
+   `da959d56631eb219721a2c06bc8cb66e404f94b5` using
+   `git push origin HEAD:fixer/workflow-execution-spine-consolidation`.
+   Remote and local were both verified at `da959d56`.
+
+- **Findings/revisions:** The first implementer attempt was a clean gate abort
+  because the receipt exposed only `result_sha256`; no mutation occurred.
+  The corrected brief recorded the orchestrator-verified `continue` and
+  embedded all five conditions, after which the rerun created `da959d56`.
+  The post-implementation review found no must findings. This brief-gate
+  lesson is binding for future implementer gates: receipts contain only the
+  result digest, never the result body; briefs must embed binding conditions
+  or explicitly state an orchestrator-verified disposition. The two H1/H2
+  gate aborts each cost approximately two minutes.
+- **Tests/evidence:** The H2 reviewer-recorded focused shard passed
+  `20 passed` with one pre-existing unknown-`timeout` warning, and the
+  integration agent ran it exactly once. No other tests were run by the H2
+  chain. The required read-only evidence validator exits `0` on the
+  committed state with
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+  No validator or test change was made by this evidence recording.
+- **Residual risks and recurrence rules:** Accepted H2 risks are PID reuse;
+  EPERM-PID semantics clearing at 60 seconds through the unchanged
+  `_pid_exists`; the same-host PID-namespace assumption; the pre-existing
+  in-memory sweep/overlap failure not persisting the registry; and
+  no-dispatch-no-sweep. The absence of
+  `wrapper-death-note-t12-precode.json` remains explicit. Both recurrence
+  rules are validator-enforced: an execution-log edit requires refreshing
+  `manifest.tasks[5].recovery_note.sha256`; a `test-shards.json` edit
+  requires refreshing every matching `manifest.tasks[5].evidence_links[*].sha256`
+  and `manifest.tasks[6].shard_integrity.sha256`. The pre-existing validator
+  gap remains tracked per adjudication A:
+  `_iter_digest_refs` silently skips malformed non-64-hex digest strings
+  paired with a path; it is a candidate future XHARD card and does not block
+  G1.
+- **Commit/files/controls:** This evidence append is one coherent commit
+  authored by `POM <peter@omalley.io>` with message prefix
+  `docs(exec-spine):`; the changed files are exactly the three allowed files:
+  this execution log, `evidence/manifest.json`, and `evidence/test-shards.json`.
+  No receipt is committed. No other file, protected state, or branch changed;
+  no push, merge to `main`, promotion, live/model/runtime/provider call,
+  secret access, or wrapper dispatch occurred in this evidence recording. The
+  earlier H2 integration push is recorded above as prior-card evidence.
+- **Next unblocked card:** `H3-overlap-narrow-precode-review`.

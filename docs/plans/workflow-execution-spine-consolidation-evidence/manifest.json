@@ -295,7 +295,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "073dd9e84f737d309369f4dba4b4e875c255df02b5acd2e867352b161f61ae64",
+        "sha256": "6917bc5d7b73c68961623c3cd9ca6ce48d398c1b5a0b0b994dfb114fa5e7abfe",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -405,7 +405,12 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "a534da31ff7a62b315db0a6f7402dee7f2c01cbe112b2d48e5833078132b00a9"}
+        {"path": "test-shards.json", "sha256": "b57a52870c340257356b24a4918a184ddc42985cc70bcddc7067d0844dce1dc6"},
+        {"path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"},
+        {"path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"},
+        {"path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"},
+        {"path": "receipts/H2-dead-pid-sweep-review-receipt.json", "sha256": "a73a85af51cd8dc878ccad211e8fc81d9fcfdbc7324e8617f6c1b98f96b9389b"},
+        {"path": "receipts/H2-dead-pid-sweep-integration-receipt.json", "sha256": "04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7"}
       ],
       "controls": {
         "merge_to_main": false,
@@ -498,7 +503,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "a534da31ff7a62b315db0a6f7402dee7f2c01cbe112b2d48e5833078132b00a9", "modified": true},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "b57a52870c340257356b24a4918a184ddc42985cc70bcddc7067d0844dce1dc6", "modified": true},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
@@ -634,6 +639,36 @@
           "receipts_committed": false
         },
         "next_unblocked_card": "H2-dead-pid-sweep-precode-review"
+      },
+      "h2_chain": {
+        "task_id": "evidence-log-H2",
+        "gate": "",
+        "label": "evidence-log H2: pre-code continue, implementer da959d56, review continue, integration push",
+        "role": "evidence",
+        "status": "complete",
+        "disposition": "continue",
+        "base_sha": "28aa48af801d35c48d7ff4668bf9f2e0fe4520ed",
+        "implementation_commit": "da959d56631eb219721a2c06bc8cb66e404f94b5",
+        "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
+        "integration_commit": "da959d56631eb219721a2c06bc8cb66e404f94b5",
+        "commit_author": "POM <peter@omalley.io>",
+        "changed_files": ["scripts/run_workflow_execution_spine_agent.py", "tests/test_run_workflow_execution_spine_agent.py"],
+        "receipts": [
+          {"task_id": "H2-dead-pid-sweep-precode-review", "path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67", "result_sha256": "ed6e7c57e9a36c8526020914586479d4de318b888bcb4b23d839c8a108f253e8", "role": "pre-code-review", "model_route": "grok-4.6", "pid": 37818, "start_ts": "2026-08-21T13:27:34Z", "end_ts": "2026-08-21T13:40:43Z", "exit": 0, "disposition": "continue"},
+          {"task_id": "H2-dead-pid-sweep", "path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0", "result_sha256": "9df630c0782cebb962a73a008895280beab41d8ac3542c184cd9514e6369cdff", "role": "implementer", "model_route": "codex:gpt-5.6-luna", "pid": 38082, "start_ts": "2026-08-21T13:41:10Z", "end_ts": "2026-08-21T13:43:19Z", "exit": 0, "base_sha": "28aa48af801d35c48d7ff4668bf9f2e0fe4520ed", "commits": [], "changed_files": [], "disposition": "immutable-gate abort; clean stop; receipt body unavailable"},
+          {"task_id": "H2-dead-pid-sweep-rerun", "path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249", "result_sha256": "e168388fb50d3d67e81efa08f9c4746987bb08e53367650877c1bf284ac86c16", "role": "implementer", "model_route": "codex:gpt-5.6-luna", "pid": 38209, "start_ts": "2026-08-21T13:43:43Z", "end_ts": "2026-08-21T13:52:53Z", "exit": 0, "base_sha": "28aa48af801d35c48d7ff4668bf9f2e0fe4520ed", "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5", "commits": ["da959d56631eb219721a2c06bc8cb66e404f94b5"], "changed_files": ["scripts/run_workflow_execution_spine_agent.py", "tests/test_run_workflow_execution_spine_agent.py"], "disposition": "pass"},
+          {"task_id": "H2-dead-pid-sweep-review", "path": "receipts/H2-dead-pid-sweep-review-receipt.json", "sha256": "a73a85af51cd8dc878ccad211e8fc81d9fcfdbc7324e8617f6c1b98f96b9389b", "result_sha256": "1f2d20140feecb642c9ca091ee9f8f5e61249f4c6a8f90226cc1051a246618f6", "role": "reviewer", "model_route": "codex:gpt-5.6-luna", "pid": 39145, "start_ts": "2026-08-21T13:53:26Z", "end_ts": "2026-08-21T13:56:02Z", "exit": 0, "base_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5", "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5", "disposition": "continue", "open_must_findings": 0},
+          {"task_id": "H2-dead-pid-sweep-integration", "path": "receipts/H2-dead-pid-sweep-integration-receipt.json", "sha256": "04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7", "result_sha256": "af7ccb133108993aeb0816a3f8b1fecddeb31663f9ae7e00fc1e833e2f833b91", "role": "integration", "model_route": "codex:gpt-5.6-luna", "pid": 39463, "start_ts": "2026-08-21T13:56:19Z", "end_ts": "2026-08-21T13:59:05Z", "exit": 0, "base_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5", "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5", "integration_commit": "da959d56631eb219721a2c06bc8cb66e404f94b5", "commits": [], "changed_files": [], "disposition": "pass; remote == local"}
+        ],
+        "review_binding_conditions": ["flock and guard-time-only sweep", "dead integer PID with age > 60 seconds clears", "missing/non-integer PID keeps six-hour path and live PID never clears", "start_ts_epoch age basis without death timestamp", "exact stale-allowance-cleared.json keys and reason-only class distinction", "deterministic PID/epoch injection without sleeping", "protected PID/overlap/registry/receipt/signal/launch behavior unchanged"],
+        "findings_revisions": ["implementer gate abort because receipt stored only result_sha256 and not the body; rerun after orchestrator-verified continue and embedded conditions", "post-implementation review found no must findings"],
+        "residual_risks": ["PID reuse", "EPERM-PID semantics clear at 60 seconds through unchanged _pid_exists", "same-host PID namespace assumption", "in-memory sweep then overlap failure does not persist registry", "no-dispatch-no-sweep", "wrapper-death-note-t12-precode.json absent"],
+        "focused_evidence": {"shard_id": "H2_dead_pid_sweep", "command": "python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q", "summary": "20 passed, 1 warning", "exit": 0, "interpreter": "Python 3.11.11", "output_sha256": "cc5b9a99373e2bd7386105ba65ff7906f35ef2974ca2bf19e6c98847fd904d50", "runs_once": true, "tests_run_by_evidence_agent": false},
+        "validator": {"command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "exit": 0, "stdout": "OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json"},
+        "recurrence_rules": ["execution-log edits require refreshing tasks[5].recovery_note.sha256", "test-shards.json edits require refreshing every matching tasks[5].evidence_links[*].sha256 and tasks[6].shard_integrity.sha256"],
+        "pre_existing_validator_gap": "_iter_digest_refs silently skips malformed non-64-hex digest strings paired with a path; tracked per adjudication A as a candidate future XHARD card and does not block G1",
+        "controls": {"merge_to_main": false, "promotion": false, "live_model_runtime_provider_calls": false, "secret_access": false, "protected_state_touched": false, "push_by_evidence_agent": false, "product_tests_run_by_evidence_agent": false, "receipts_committed": false},
+        "next_unblocked_card": "H3-overlap-narrow-precode-review"
       },
       "findings_closed": ["T1.2-MUST-001", "T1.2-MUST-002"],
       "residual_risks": ["LayerMask remains unsupported until its exact pack schema is supplied; unknown touched schema remains fail-closed. No open must finding or judgment remains.", "Every future append to the execution log changes its digest; every evidence agent that appends MUST refresh manifest.tasks[5].recovery_note.sha256 to the new log digest (validator-enforced).", "Every future edit to test-shards.json changes its digest; every evidence agent that edits it MUST refresh every matching manifest.tasks[5].evidence_links[*].sha256 reference and manifest.tasks[6].shard_integrity.sha256 to the new test-shards.json digest (validator-enforced).", "Pre-existing validator gap: _iter_digest_refs silently skips malformed (non-64-hex) digest strings paired with a path; such a ref passes unchecked. Tracked per adjudication A as a candidate future XHARD validator-hardening card; does not block G1."],

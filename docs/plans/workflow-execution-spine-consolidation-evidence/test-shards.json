@@ -27,6 +27,15 @@
       "exit": 0,
       "status": "passed",
       "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H1-wrapper-survival-stop-marker-review-receipt.json"
+    },
+    {
+      "shard_id": "H2_dead_pid_sweep",
+      "command": "python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q",
+      "source_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
+      "output_sha256": "cc5b9a99373e2bd7386105ba65ff7906f35ef2974ca2bf19e6c98847fd904d50",
+      "exit": 0,
+      "status": "passed",
+      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H2-dead-pid-sweep-review-receipt.json"
     }
   ],
   "singleton": {
