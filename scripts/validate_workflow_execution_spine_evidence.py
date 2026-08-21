@@ -182,28 +182,74 @@ def check_reviewer_independence(manifest: dict[str, Any]) -> None:
 
 
 def check_finding_chains(manifest: dict[str, Any]) -> None:
-    tasks = _as_records(manifest.get("tasks"))
+    digest = re.compile(r"[0-9a-fA-F]{64}").fullmatch
+    caller = sys._getframe(1)
+    raw_path = caller.f_locals.get("path", caller.f_locals.get("manifest_path"))
+    manifest_path = Path(raw_path) if raw_path is not None else Path("manifest.json")
+
     for finding in _as_records(manifest.get("findings")):
         if str(finding.get("severity", "")).lower() != "must":
             continue
         finding_id = finding.get("finding_id", finding.get("id"))
         classification = finding.get("classification")
-        revision_id = finding.get("revision_task_id", finding.get("revision"))
-        rereview_id = finding.get("re_review_task_id", finding.get("rereview"))
         if not isinstance(classification, str) or classification not in {"HARD", "XHARD"}:
             _fail("FINDING_CHAIN", f"must finding {finding_id} lacks HARD/XHARD classification")
-        revision = _find_task(tasks, str(revision_id)) if revision_id else None
-        rereview = _find_task(tasks, str(rereview_id)) if rereview_id else None
-        if revision is None or not revision.get("evidence_link"):
+        revision_receipt = finding.get("revision_receipt")
+        if (
+            not isinstance(revision_receipt, dict)
+            or not isinstance(revision_receipt.get("path"), str)
+            or not revision_receipt["path"]
+            or not isinstance(revision_receipt.get("sha256"), str)
+            or not digest(revision_receipt["sha256"])
+            or not isinstance(revision_receipt.get("result_sha256"), str)
+            or not digest(revision_receipt["result_sha256"])
+        ):
             _fail("FINDING_CHAIN", f"must finding {finding_id} lacks evidence-linked revision")
-        if rereview is None or str(rereview.get("role", "")) != "reviewer" or not _complete(rereview):
+        rereview_receipt = finding.get("rereview_receipt")
+        if (
+            not isinstance(rereview_receipt, dict)
+            or not isinstance(rereview_receipt.get("path"), str)
+            or not rereview_receipt["path"]
+            or not isinstance(rereview_receipt.get("sha256"), str)
+            or not digest(rereview_receipt["sha256"])
+            or not isinstance(rereview_receipt.get("result_sha256"), str)
+            or not digest(rereview_receipt["result_sha256"])
+        ):
             _fail("FINDING_CHAIN", f"must finding {finding_id} lacks closed independent re-review")
-        original = finding.get("implementer", finding.get("implementer_agent_id"))
-        reviewer = rereview.get("reviewer", rereview.get("reviewer_agent_id"))
-        if _same_identity(original, reviewer):
+        context = dict(rereview_receipt)
+        receipt_path = _path_from_record(rereview_receipt["path"], manifest_path)
+        if receipt_path.is_file():
+            try:
+                payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = None
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    context.setdefault(key, value)
+        if str(context.get("role", "")) != "reviewer":
+            _fail("FINDING_CHAIN", f"must finding {finding_id} lacks closed independent re-review")
+        if "disposition" in rereview_receipt:
+            closed = isinstance(rereview_receipt.get("disposition"), str) and rereview_receipt["disposition"].lower() in {"continue", "pass"}
+        else:
+            closed = (
+                (isinstance(context.get("disposition"), str) and context["disposition"].lower() in {"continue", "pass"})
+                or context.get("exit") == 0
+                or _complete(context)
+            )
+        if not closed:
+            _fail("FINDING_CHAIN", f"must finding {finding_id} lacks closed independent re-review")
+        original = _identity_values(finding, "implementer", "implementer_agent_id")
+        initial_reviewer = _identity_values(finding, "reviewer", "reviewer_agent_id")
+        rereviewers = _identity_values(context, "reviewer", "reviewer_agent_id", "reviewer_email")
+        if not rereviewers and context.get("model_route") is not None:
+            rereviewers.append(context["model_route"])
+        elif not rereviewers and context.get("role") is not None:
+            rereviewers.append(context["role"])
+        if not rereviewers:
+            _fail("FINDING_CHAIN", f"must finding {finding_id} lacks closed independent re-review")
+        if any(_same_identity(left, right) for left in original for right in rereviewers):
             _fail("FINDING_CHAIN", f"must finding {finding_id} is re-reviewed by original implementer")
-        initial_reviewer = finding.get("reviewer", finding.get("reviewer_agent_id"))
-        if _same_identity(initial_reviewer, reviewer):
+        if any(_same_identity(left, right) for left in initial_reviewer for right in rereviewers):
             _fail("FINDING_CHAIN", f"must finding {finding_id} was re-reviewed by the same reviewer")
 
 
