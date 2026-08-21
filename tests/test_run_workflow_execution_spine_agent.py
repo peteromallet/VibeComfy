@@ -103,6 +103,185 @@ def _invoke(
     return runner(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
+def _load_wrapper(name: str = "workflow_execution_wrapper_sweep"):
+    spec = importlib.util.spec_from_file_location(name, WRAPPER)
+    assert spec is not None and spec.loader is not None
+    wrapper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper)
+    return wrapper
+
+
+def _dead_pid(wrapper) -> int:
+    candidate = os.getpid() + 1
+    while wrapper._pid_exists(candidate):
+        candidate += 1
+    return candidate
+
+
+def _write_registry(evidence: Path, task_id: str, entry: dict) -> None:
+    (evidence / "active-allowances.json").write_text(json.dumps({task_id: entry}))
+
+
+def test_dead_pid_grace_clears_synthetic_dead_wrapper_and_writes_note(tmp_path: Path) -> None:
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper()
+    dead_pid = _dead_pid(wrapper)
+    _write_registry(evidence, "T1.2-precode-dead-wrapper", {
+        "task_id": "T1.2-precode-dead-wrapper",
+        "allowance_file": str(allowance),
+        "worktree": str(project),
+        "start_ts_epoch": time.time() - wrapper.DEAD_PID_GRACE_SECONDS - 120,
+        "pid": dead_pid,
+        "allowed": ["allowed.txt"],
+    })
+
+    lock_handle, registry, _candidate = wrapper._registry_guard(
+        evidence, "next-dispatch", allowance, project, ["allowed.txt"]
+    )
+    try:
+        assert "T1.2-precode-dead-wrapper" not in registry
+        assert "next-dispatch" in registry
+    finally:
+        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+
+    note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
+    assert set(note) == {"cleared_task_ids", "cleared_ts", "reason"}
+    assert note["cleared_task_ids"] == ["T1.2-precode-dead-wrapper"]
+    assert "dead-PID grace" in note["reason"]
+    assert not json.loads((evidence / "active-allowances.json").read_text())
+
+
+def test_dead_pid_younger_than_grace_is_retained_then_cleared_later(tmp_path: Path) -> None:
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_dead_pid_grace_boundary")
+    dead_pid = _dead_pid(wrapper)
+    task_id = "dead-young"
+    entry = {
+        "task_id": task_id,
+        "allowance_file": str(allowance),
+        "worktree": str(project),
+        "start_ts_epoch": time.time() - 1,
+        "pid": dead_pid,
+        "allowed": ["allowed.txt"],
+    }
+    _write_registry(evidence, task_id, entry)
+
+    first = _invoke(project, evidence, _brief, allowance, _fake)
+    assert first.returncode == 2
+    assert "ALLOWANCE_OVERLAP" in first.stderr
+    assert task_id in json.loads((evidence / "active-allowances.json").read_text())
+    assert not (evidence / "stale-allowance-cleared.json").exists()
+
+    entry["start_ts_epoch"] = time.time() - wrapper.DEAD_PID_GRACE_SECONDS - 120
+    _write_registry(evidence, task_id, entry)
+    lock_handle, registry, _candidate = wrapper._registry_guard(
+        evidence, "next-dispatch", allowance, project, ["allowed.txt"]
+    )
+    try:
+        assert task_id not in registry
+    finally:
+        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+    note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
+    assert note["cleared_task_ids"] == [task_id]
+
+
+def test_live_pid_is_retained_regardless_of_age(tmp_path: Path) -> None:
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_live_pid")
+    task_id = "live-old"
+    _write_registry(evidence, task_id, {
+        "task_id": task_id,
+        "allowance_file": str(allowance),
+        "worktree": str(project.parent / "other-worktree"),
+        "start_ts_epoch": time.time() - wrapper.STALE_SECONDS - 120,
+        "pid": os.getpid(),
+        "allowed": ["live.txt"],
+    })
+
+    lock_handle, registry, _candidate = wrapper._registry_guard(
+        evidence, "next-dispatch", allowance, project, ["allowed.txt"]
+    )
+    try:
+        assert task_id in registry
+    finally:
+        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+    assert task_id in json.loads((evidence / "active-allowances.json").read_text())
+    assert not (evidence / "stale-allowance-cleared.json").exists()
+
+
+@pytest.mark.parametrize("pid", [None, "1234"])
+@pytest.mark.parametrize("age,cleared", [
+    (1, False),
+    (6 * 60 * 60 + 120, True),
+])
+def test_missing_or_non_int_pid_uses_six_hour_path(
+    tmp_path: Path, pid, age: float, cleared: bool
+) -> None:
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_missing_pid")
+    task_id = f"missing-pid-{pid}-{age}"
+    _write_registry(evidence, task_id, {
+        "task_id": task_id,
+        "allowance_file": str(allowance),
+        "worktree": str(project.parent / "other-worktree"),
+        "start_ts_epoch": time.time() - age,
+        "pid": pid,
+        "allowed": ["missing.txt"],
+    })
+
+    lock_handle, registry, _candidate = wrapper._registry_guard(
+        evidence, "next-dispatch", allowance, project, ["allowed.txt"]
+    )
+    try:
+        assert (task_id not in registry) is cleared
+    finally:
+        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+    if cleared:
+        note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
+        assert note["cleared_task_ids"] == [task_id]
+        assert "six-hour missing/non-int PID" in note["reason"]
+    else:
+        assert not (evidence / "stale-allowance-cleared.json").exists()
+
+
+def test_mixed_sweep_note_names_dead_and_six_hour_classes(tmp_path: Path) -> None:
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_mixed_sweep")
+    dead_pid = _dead_pid(wrapper)
+    now = time.time()
+    _write_registry(evidence, "dead-entry", {
+        "task_id": "dead-entry",
+        "allowance_file": str(allowance),
+        "worktree": str(project),
+        "start_ts_epoch": now - wrapper.DEAD_PID_GRACE_SECONDS - 120,
+        "pid": dead_pid,
+        "allowed": ["allowed.txt"],
+    })
+    registry_path = evidence / "active-allowances.json"
+    registry = json.loads(registry_path.read_text())
+    registry["missing-entry"] = {
+        "task_id": "missing-entry",
+        "allowance_file": str(allowance),
+        "worktree": str(project.parent / "other-worktree"),
+        "start_ts_epoch": now - wrapper.STALE_SECONDS - 120,
+        "allowed": ["missing.txt"],
+    }
+    registry_path.write_text(json.dumps(registry))
+
+    lock_handle, active, _candidate = wrapper._registry_guard(
+        evidence, "next-dispatch", allowance, project, ["allowed.txt"]
+    )
+    try:
+        assert "dead-entry" not in active
+        assert "missing-entry" not in active
+    finally:
+        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+    note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
+    assert note["cleared_task_ids"] == ["dead-entry", "missing-entry"]
+    assert "dead-PID grace" in note["reason"]
+    assert "six-hour missing/non-int PID" in note["reason"]
+
+
 def test_receipt_shape_with_fake_launcher(tmp_path: Path) -> None:
     project, evidence, brief, allowance, fake = _setup(tmp_path)
     result = _invoke(project, evidence, brief, allowance, fake)

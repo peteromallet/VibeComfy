@@ -24,6 +24,7 @@ from pathlib import Path
 HERMES_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py"
 GROK_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_omp_agent.py"
 STALE_SECONDS = 6 * 60 * 60
+DEAD_PID_GRACE_SECONDS = 60
 ROUTE_LAUNCHERS = {
     "codex:gpt-5.6-luna": (HERMES_LAUNCHER, "codex:gpt-5.6-luna"),
     "grok-4.6": (GROK_LAUNCHER, "grok-4.6"),
@@ -180,17 +181,39 @@ def _registry_guard(evidence_dir: Path, task_id: str, allowance_file: Path, work
             raise WrapperError("ALLOWANCE_REGISTRY_INVALID: active-allowances.json must be an object")
         now = time.time()
         stale: list[str] = []
+        dead_pid_stale = False
+        long_threshold_stale = False
         for active_id, entry in list(registry.items()):
             if not isinstance(entry, dict):
                 continue
             started = entry.get("start_ts_epoch")
             pid = entry.get("pid")
-            if isinstance(started, (int, float)) and now - started > STALE_SECONDS and (not isinstance(pid, int) or not _pid_exists(pid)):
+            if not isinstance(started, (int, float)):
+                continue
+            age = now - started
+            if isinstance(pid, int):
+                pid_alive = _pid_exists(pid)
+                if not pid_alive and age > DEAD_PID_GRACE_SECONDS:
+                    stale.append(active_id)
+                    dead_pid_stale = True
+                    del registry[active_id]
+                continue
+            if age > STALE_SECONDS:
                 stale.append(active_id)
+                long_threshold_stale = True
                 del registry[active_id]
         if stale:
             note = evidence_dir / "stale-allowance-cleared.json"
-            _json_write(note, {"cleared_task_ids": stale, "cleared_ts": utc_now(), "reason": "older than six hours with missing PID"})
+            classes = []
+            if dead_pid_stale:
+                classes.append("dead-PID grace")
+            if long_threshold_stale:
+                classes.append("six-hour missing/non-int PID")
+            _json_write(note, {
+                "cleared_task_ids": stale,
+                "cleared_ts": utc_now(),
+                "reason": f"{' and '.join(classes)} allowance entries cleared",
+            })
         candidate = {"task_id": task_id, "allowance_file": str(allowance_file), "worktree": str(worktree), "start_ts": utc_now(), "start_ts_epoch": now, "pid": os.getpid(), "allowed": allowed}
         for active_id, entry in registry.items():
             if isinstance(entry, dict) and _allowances_overlap(candidate, entry):
