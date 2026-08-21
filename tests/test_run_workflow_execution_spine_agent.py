@@ -14,7 +14,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DISPOSABLE_ROOT = Path("/workspace/vibecomfy-exec-spine-20260820/artifacts/t03-revision2-fixtures")
 
 WRAPPER = ROOT / "scripts" / "run_workflow_execution_spine_agent.py"
 
@@ -24,8 +23,7 @@ def _git(project: Path, *args: str) -> None:
 
 
 def _setup(_tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
-    DISPOSABLE_ROOT.mkdir(parents=True, exist_ok=True)
-    case_root = Path(tempfile.mkdtemp(prefix="wrapper-", dir=DISPOSABLE_ROOT))
+    case_root = Path(tempfile.mkdtemp(prefix="wrapper-", dir=_tmp_path))
     project = case_root / "project"
     evidence = case_root / "evidence"
     project.mkdir()
@@ -296,6 +294,22 @@ def test_mixed_sweep_note_names_dead_and_six_hour_classes(tmp_path: Path) -> Non
     [
         "Record your own end_ts in the evidence result.",
         "Record this run's receipt digest and result_sha256.",
+        "Do not record the receipt PATH; record your own end_ts.",
+        "The wrapper writes its own end_ts post-exit; record your own end_ts.",
+        "Your own end_ts is required in the result.",
+        "Your own receipt digest is required in the result.",
+        "Your own result_sha256 is required in the result.",
+        "The result must contain your own end_ts.",
+        "The result must contain your own receipt digest.",
+        "The result must contain your own result_sha256.",
+        "Your own end_ts is mandatory in the result.",
+        "Your own receipt digest is mandatory in the result.",
+        "Your own result_sha256 is mandatory in the result.",
+        "The result must include your own end_ts.",
+        "The result must include your own receipt digest.",
+        "The result must include your own result_sha256.",
+        "Your own receipt digest is needed in the result.",
+        "Your own result_sha256 is expected in the result.",
     ],
 )
 def test_evidence_self_referential_brief_rejects_before_launch(tmp_path: Path, brief_text: str) -> None:
@@ -346,6 +360,8 @@ def test_compliant_evidence_brief_launches_and_records_normal_receipt(tmp_path: 
 @pytest.mark.parametrize(
     "brief_text",
     [
+        "Do not record your own end_ts.",
+        "The wrapper writes its own end_ts post-exit.",
         "Do not record your own end_ts; the wrapper writes it post-exit.",
         "The wrapper writes its own end_ts and receipt digest post-exit.",
     ],

@@ -65,6 +65,19 @@ _EVIDENCE_BRIEF_DIRECTIVE = re.compile(
     rf"[^.!?;\n]{{0,100}}\b{_EVIDENCE_BRIEF_ITEM}\b",
     re.IGNORECASE,
 )
+_EVIDENCE_BRIEF_OWN_FIELD = (
+    rf"(?:\b(?:your\s+own|its\s+own|(?:the\s+)?agent['’]s\s+own|"
+    rf"this\s+run['’]s)\s+{_EVIDENCE_BRIEF_ITEM}\b)"
+)
+_EVIDENCE_BRIEF_REQUIREMENT = re.compile(
+    rf"(?:{_EVIDENCE_BRIEF_OWN_FIELD}[^.!?;\n]{{0,100}}\b"
+    rf"(?:is\s+required|is\s+mandatory|must\s+(?:contain|include)|"
+    rf"needed\s+in\s+(?:the\s+)?result|expected\s+in\s+(?:the\s+)?result)\b|"
+    rf"\b(?:is\s+required|is\s+mandatory|must\s+(?:contain|include)|"
+    rf"needed\s+in\s+(?:the\s+)?result|expected\s+in\s+(?:the\s+)?result)\b"
+    rf"[^.!?;\n]{{0,100}}{_EVIDENCE_BRIEF_OWN_FIELD})",
+    re.IGNORECASE,
+)
 _EVIDENCE_BRIEF_NEGATION = re.compile(
     r"\b(?:do\s+not|don't|must\s+not|should\s+not|never|"
     r"not\s+(?:ask|instruct|tell|require|request))\b",
@@ -80,13 +93,16 @@ _EVIDENCE_BRIEF_WRAPPER_EXPLANATION = re.compile(
 
 def _evidence_brief_self_referential(brief_text: str) -> bool:
     """Return whether an evidence brief directs the agent to record a post-exit field."""
-    for clause in re.split(r"[\n.!?]+", brief_text):
+    for clause in re.split(r"[\n.!?;]+", brief_text):
         clause = clause.strip()
         if not clause or _EVIDENCE_BRIEF_NEGATION.search(clause):
             continue
         if _EVIDENCE_BRIEF_WRAPPER_EXPLANATION.search(clause):
             continue
-        if _EVIDENCE_BRIEF_DIRECTIVE.search(clause):
+        if (
+            _EVIDENCE_BRIEF_DIRECTIVE.search(clause)
+            or _EVIDENCE_BRIEF_REQUIREMENT.search(clause)
+        ):
             return True
     return False
 
