@@ -711,3 +711,94 @@ fail-closed.
 No product tests, full suite, live/model/runtime/provider calls, secret
 access, or protected-state access occurred. No push, merge to `main`, or
 promotion occurred. `JUDGMENT_REQUIRED`: none.
+
+### T1.2 post-repair integration recovery and adjudication finish (2026-08-21)
+
+- **Task/gate/dispositions:** `T1.2-post-repair-integration` / `G1`
+  completed in the original child; its wrapper death is the fifth `F1`
+  wrapper-survival occurrence and is classified as an infrastructure anomaly,
+  not a card failure. The recovery re-dispatch completed no work because the
+  remote already matched the local head and correctly returned a genuine
+  `JUDGMENT_REQUIRED`; that stop is closed by the adjudication. The
+  `T1.2-integration-adjudication` disposition is **SATISFIED**. This
+  `evidence-log-T1.2-repair-finish` append records those dispositions; no
+  T1.2 product finding or revision remains open.
+- **Original-child proof:** The durable pinned proof is
+  `receipts/t12-post-repair-integration-original-child-proof.json`
+  (SHA-256
+  `ff9a62101ee141d37571448e49ca7ad76d6e2847fae01010629f874cad3258a2`).
+  The codex child invoked the validator exactly once at
+  `2026-08-21T10:30:52Z`, exit `0`, with stdout
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  and stdout digest
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  It then pushed the genuine fast-forward
+  `0a8e55ff..9a64b35b`; remote verification completed at
+  `2026-08-21T10:32:09Z`. The child changed no files and created no commit.
+- **Original wrapper-death anomaly:** The wrapper for
+  `T1.2-post-repair-integration` was PID `31443`, started
+  `2026-08-21T10:28:20Z`, and died at approximately
+  `2026-08-21T10:33:10Z` before writing a receipt. Receipt
+  `receipts/wrapper-death-note-t12-post-repair-integration.json` is pinned
+  with SHA-256
+  `ed8a62e5437625354d60df57c9b6cdb4a9f427d27749ecd690bc395ad4268799`.
+  Registry state was clean at observation; the child work had already landed.
+  This is `F1` infrastructure evidence, not a failed T1.2 card; `H1` remains
+  the fix.
+- **Recovery re-dispatch:** `T1.2-post-repair-integration` used
+  `codex:gpt-5.6-luna`, wrapper PID `31866` (child `31860`), interval
+  `2026-08-21T10:34:44Z` → `2026-08-21T10:38:00Z`, exit `0`; receipt
+  `receipts/T1.2-post-repair-integration-receipt.json`, SHA-256
+  `4f2af18973686af46113dc701d4cd5368aee6cd1c0ee450984451931620cbef1`,
+  brief digest
+  `e04e9b4bed31f01de204fa293addda22effa75176e86bc473ef4fda7a3a48b9e`,
+  result digest
+  `36bd962e5f3dccff1d3d1a5c8ea82550c4eba13f013f27116f365e79d039230e`.
+  It found remote `9a64b35b` already equal to local `9a64b35b`, so it
+  performed no push, no validator invocation, no commit, and no file change.
+  The genuine `JUDGMENT_REQUIRED` is preserved in the pinned original-child
+  proof's `preflight_failure` record and is not an open integration failure.
+- **Grok adjudication:** `T1.2-integration-adjudication` used `grok-4.6`,
+  wrapper PID `32081`, interval `2026-08-21T10:38:52Z` →
+  `2026-08-21T10:42:43Z`, exit `0`; receipt
+  `receipts/T1.2-integration-adjudication-receipt.json`, SHA-256
+  `af70776336b1e9be3681af20163d5ab44745af1379da73e1e5b9934fe8c7a666`,
+  brief digest
+  `33e5e62bb3ef7e7fee6e9ca15d81b10c30af743c611565019bb973d31cfde07a`,
+  result digest
+  `4eae20d2b0e9ad7d32c48bed465734f4d0f7abfced3cc3380e62201754e23ba5`.
+  Result body line 1 is **SATISFIED**: T1.2 integration is complete at
+  `9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e`. It required no corrective
+  push, validator re-run, or re-dispatch.
+- **§15 stop-marker policy:** Record the genuine recovery
+  `JUDGMENT_REQUIRED` and the adjudication's **SATISFIED** decision. The
+  receipt `stop_or_judgment` fields are old-wrapper substring latches, not
+  judgments, and are not used as dispositions.
+- **Current batch evidence:** The orchestrator's validator invocation at
+  `2026-08-21T10:44Z` exited `0` with
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+  No product tests, full suite, or other test runs occurred; no validator
+  change was made in this evidence finish.
+- **Input/output SHAs:** `9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e` in;
+  `9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e` out. The manifest now records
+  this integration SHA in both nested `target_sha` fields and nests the four
+  post-repair receipt records using the existing receipt array schema.
+- **Commit/files:** one coherent evidence commit, authored by
+  `POM <peter@omalley.io>` with message prefix `docs(exec-spine):`; its
+  changed files are exactly the execution log and manifest below, both within
+  the three-file allowance:
+  `docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md`
+  and
+  `docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+  The third allowed file,
+  `docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json`,
+  remains byte-identical and is not edited or staged. No receipt is committed.
+- **Findings/revisions and controls:** No T1.2 finding remains open. The
+  wrapper-death is `F1` infrastructure risk; `H1` is pending. No protected
+  state, source, validator, test, receipt, or other branch was changed; no
+  merge to `main`, promotion, push, live/model/runtime call, or secret access
+  occurred in this evidence finish.
+- **Residual risks / handoff:** `F1` wrapper-survival remains open;
+  `G1 [XHARD-REVIEW]` remains pending; the original-child proof is now pinned
+  under the evidence receipts directory. Next unblocked card:
+  `H1-wrapper-survival-stop-marker-precode-review`.
