@@ -44,8 +44,9 @@ GROK_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_omp_agent.py"
 STALE_SECONDS = 6 * 60 * 60
 DEAD_PID_GRACE_SECONDS = 60
 ROUTE_LAUNCHERS = {
-    "codex:gpt-5.6-luna": (HERMES_LAUNCHER, "codex:gpt-5.6-luna"),
-    "grok-4.6": (GROK_LAUNCHER, "grok-4.6"),
+    "codex:gpt-5.6-luna": (HERMES_LAUNCHER, "stealth/ox-alpha"),
+    "grok-4.6": (HERMES_LAUNCHER, "stealth/ox-alpha"),
+    "stealth/ox-alpha": (HERMES_LAUNCHER, "stealth/ox-alpha"),
 }
 GATE_BY_TASK = {
     "T0.0": "G0", "T0.1": "G0", "T0.2": "G0", "T0.3": "G0",
