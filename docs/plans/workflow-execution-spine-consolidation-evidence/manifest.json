@@ -405,7 +405,7 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3"}
+        {"path": "test-shards.json", "sha256": "d96861fbd1743ef9597897e6751f37d8359974fb2b5a127b7f937ace0642e570"}
       ],
       "controls": {
         "merge_to_main": false,
@@ -487,7 +487,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": true, "sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3", "modified": false},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": true, "sha256": "d96861fbd1743ef9597897e6751f37d8359974fb2b5a127b7f937ace0642e570", "modified": false},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
