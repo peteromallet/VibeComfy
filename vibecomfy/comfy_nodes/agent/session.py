@@ -489,10 +489,11 @@ def recover_thread_terminal_checkpoint(state: Mapping[str, Any] | None) -> Any:
     evidence = {
         "checkpoint": state.get("checkpoint"),
         "accepted_delta_ids": state.get("accepted_delta_ids"),
+        "accepted_batch": state.get("accepted_batch"),
         "authority_receipt": (
             (state.get("checkpoint") or {}).get("authority_receipt")
             if isinstance(state.get("checkpoint"), Mapping)
-            else None
+            else state.get("authority_receipt")
         ),
         "lineage": {
             "session_id": str(state.get("session_id") or ""),
@@ -501,6 +502,14 @@ def recover_thread_terminal_checkpoint(state: Mapping[str, Any] | None) -> Any:
             "baseline_id": str((state.get("checkpoint") or {}).get("baseline_id") or ""),
         },
     }
+    checkpoint = evidence.get("checkpoint")
+    if isinstance(checkpoint, Mapping) and "accepted_batch" not in checkpoint and evidence.get("accepted_batch") is not None:
+        merged = dict(checkpoint)
+        merged["accepted_batch"] = evidence["accepted_batch"]
+        if evidence.get("authority_receipt") is not None and "authority_receipt" not in merged:
+            merged["authority_receipt"] = evidence["authority_receipt"]
+        evidence["checkpoint"] = merged
+
     return recover_terminal_checkpoint(evidence, lineage=evidence["lineage"])
 
 

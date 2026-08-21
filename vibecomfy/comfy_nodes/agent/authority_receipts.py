@@ -806,15 +806,28 @@ def stamp_response_with_authority(
         }
         candidate = stamped.get("candidate")
         rejected_candidate = None
-        if isinstance(candidate, dict):
-            candidate = dict(candidate)
-            candidate["state"] = "rejected"
-            rejected_candidate = candidate
-            stamped["candidate"] = candidate
+        if isinstance(candidate, Mapping):
+            rejected_candidate = dict(candidate)
+            rejected_candidate["state"] = "rejected"
+        elif stamped.get("graph") is not None or stamped.get("accepted_batch") is not None:
+            rejected_candidate = {
+                "graph": dict(stamped["graph"]) if isinstance(stamped.get("graph"), Mapping) else stamped.get("graph"),
+                "accepted_batch": list(stamped["accepted_batch"])
+                if isinstance(stamped.get("accepted_batch"), (list, tuple))
+                else stamped.get("accepted_batch"),
+                "state": "rejected",
+            }
         audit = dict(stamped.get("audit") or {}) if isinstance(stamped.get("audit"), Mapping) else {}
         if rejected_candidate is not None:
             audit["rejected_candidate"] = rejected_candidate
         stamped["audit"] = audit
+        # Row 4: rejected product is audit-only. Public keys must not carry it.
+        stamped.pop("candidate", None)
+        stamped.pop("graph", None)
+        stamped.pop("accepted_batch", None)
+        stamped.pop("candidate_graph", None)
+        stamped.pop("candidate_transaction", None)
+
         stamped = stamp_terminal_state(
             stamped,
             terminal_state=TERMINAL_STATE_AUTHORITY_REJECTED,
@@ -823,8 +836,33 @@ def stamp_response_with_authority(
             evidence_refs=("authority_receipt",),
             accepted_delta_ids=(),
         )
+    elif receipt.replay.replay_ok and receipt.replay.candidate_matches:
+        from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
+        from vibecomfy.porting.edit.checkpoint import TERMINAL_STATE_APPLIED
+
+        eligibility_payload = stamped.get("eligibility")
+        if not isinstance(eligibility_payload, Mapping):
+            eligibility_payload = stamped.get("apply_eligibility")
+        if not isinstance(eligibility_payload, Mapping):
+            eligibility_payload = {
+                "applyable": True,
+                "reason": TERMINAL_STATE_APPLIED,
+                "message": "Gateway-admitted accepted delta with verified replay.",
+            }
+        else:
+            eligibility_payload = dict(eligibility_payload)
+            eligibility_payload.setdefault("applyable", True)
+            eligibility_payload.setdefault("reason", TERMINAL_STATE_APPLIED)
+        stamped = stamp_terminal_state(
+            stamped,
+            terminal_state=TERMINAL_STATE_APPLIED,
+            eligibility=eligibility_payload,
+            reason=TERMINAL_STATE_APPLIED,
+            evidence_refs=("authority_receipt",),
+        )
 
     return stamped
+
 
 
 def build_and_persist_authority_receipt(

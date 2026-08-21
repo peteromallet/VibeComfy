@@ -297,3 +297,80 @@ def test_threaded_fallback_consumes_closed_checkpoint_projection() -> None:
     )
     assert projection.terminal_state == "applied"
     assert "landed" in prose.lower()
+
+
+def _stamped_applied_implementation():
+    from vibecomfy.executor.contracts import ImplementationResult
+
+    original = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    graph = {"nodes": [{"id": 1, "type": "KSampler", "widgets_values": [25]}], "links": []}
+    op = {"op": "set_node_field", "target": ["", "u", "steps"], "value": 25}
+    durable = {
+        "terminal_state": "applied",
+        "accepted_batch": [{"statement_index": 1, "op": op}],
+        "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+        "graph": graph,
+        "original_graph": original,
+        "apply_eligible": True,
+        "eligibility": {"applyable": True, "reason": "applied"},
+        "outcome": {"kind": "candidate"},
+        "message": "The edit landed.",
+    }
+    result = ImplementationResult(graph=graph, message="The edit landed.", durable_response=durable)
+    return original, graph, result
+
+
+def test_threaded_project_on_stamped_applied_durable_does_not_raise() -> None:
+    from vibecomfy.executor.core import _durable_terminal_projection
+
+    original, graph, result = _stamped_applied_implementation()
+    projection = _durable_terminal_projection(
+        result, request_graph=original, reply=result.message, mode="threaded"
+    )
+    assert projection.terminal_state == "applied"
+    assert projection.accepted is True
+    assert projection.eligibility["applyable"] is True
+    assert projection.graph == graph
+
+
+def test_threaded_run_preserves_applied_on_projection_exception() -> None:
+    from vibecomfy.executor.contracts import ExecutorRequest
+    from vibecomfy.executor import threaded as threaded_mod
+    from vibecomfy.executor import core as core_mod
+    from tests._executor_threaded_helpers import host_ports
+
+    original, graph, implementation = _stamped_applied_implementation()
+
+    class _Spec:
+        agent = "edit"
+
+    def _raise_project(*_args, **_kwargs):
+        raise TypeError("cannot pickle 'mappingproxy' object")
+
+    kernel = threaded_mod.ThreadedKernel(
+        resolve_spec=lambda *_args, **_kwargs: _Spec(),
+        run_implement=lambda *_args, **_kwargs: implementation,
+        emit_phase=lambda *_args, **_kwargs: None,
+        enforce_reply_grounding=lambda reply, **_kwargs: reply,
+        accepted_delta_ops=core_mod._accepted_delta_ops,
+        implementation_landed_edit=lambda _result: True,
+        no_candidate_reason=lambda _result: None,
+    )
+    request = ExecutorRequest(query="edit steps", graph=original, pipeline_mode="threaded")
+    ports = host_ports()
+    original_project = core_mod._durable_terminal_projection
+    core_mod._durable_terminal_projection = _raise_project
+    try:
+        result = threaded_mod.run_threaded_executor(
+            request,
+            kernel=kernel,
+            host_ports=ports,
+            executor_id="exec-t22",
+        )
+    finally:
+        core_mod._durable_terminal_projection = original_project
+    assert result.ok is True
+    assert result.graph == graph or result.graph == original
+    assert "landed" in (result.reply or "").lower()
+
+

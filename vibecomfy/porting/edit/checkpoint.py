@@ -411,16 +411,32 @@ def _eligibility_for(terminal_state: str, *, replay_verified: bool, has_delta: b
     }
 
 
+def _thaw_jsonish(value: Any) -> Any:
+    """Plain-dict/list copy of mappingproxy/tuple graphs (pickle-safe freeze)."""
+    if isinstance(value, Mapping):
+        return {key: _thaw_jsonish(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_jsonish(item) for item in value]
+    return value
+
+
 def _deep_freeze_graph(graph: Mapping[str, Any] | None) -> Mapping[str, Any]:
     from vibecomfy.porting.edit.session import _deep_freeze
 
-    return _deep_freeze(deepcopy(dict(graph or {})))
+    thawed = _thaw_jsonish(graph) if graph is not None else {}
+    if not isinstance(thawed, dict):
+        thawed = {}
+    return _deep_freeze(thawed)
 
 
 def _unfreeze_graph(graph: Mapping[str, Any] | None) -> dict[str, Any]:
     from vibecomfy.porting.edit.session import _unfreeze
 
-    return _unfreeze(graph) if graph is not None else {}
+    if graph is None:
+        return {}
+    return _unfreeze(_thaw_jsonish(graph))
+
+
 
 
 def _normalize_evidence_ids(evidence_ids: Iterable[str]) -> tuple[str, ...]:
@@ -433,10 +449,14 @@ def _normalize_evidence_ids(evidence_ids: Iterable[str]) -> tuple[str, ...]:
 def _normalize_facts(facts: Mapping[str, Any] | None) -> Mapping[str, Any]:
     from vibecomfy.porting.edit.session import _deep_freeze
 
-    fact_copy = deepcopy(dict(facts or {}))
+    fact_copy = _thaw_jsonish(facts) if facts is not None else {}
+    if not isinstance(fact_copy, dict):
+        fact_copy = {}
     if any(not isinstance(key, str) or not key for key in fact_copy):
         raise ValueError("fact ids must be non-empty strings")
     return _deep_freeze(fact_copy)
+
+
 
 
 def _deltas_from_session(session: Any) -> tuple[AcceptedDelta, ...]:
@@ -521,7 +541,8 @@ def _close_from_session(
             raise TerminalCloseError(
                 "rejected candidate may be retained only as audit on authority_rejected"
             )
-        audit["rejected_candidate"] = deepcopy(dict(rejected_candidate))
+        audit["rejected_candidate"] = _thaw_jsonish(rejected_candidate)
+
     refs = evidence_refs or tuple(str(item) for item in evidence_ids)
     eligibility = _eligibility_for(
         resolved_state, replay_verified=replay_verified, has_delta=bool(deltas)
@@ -606,7 +627,8 @@ def _close_from_evidence(
         deltas = ()
         closed_graph = frozen_original
         if terminal_state == TERMINAL_STATE_AUTHORITY_REJECTED and rejected_candidate is not None:
-            audit["rejected_candidate"] = deepcopy(dict(rejected_candidate))
+            audit["rejected_candidate"] = _thaw_jsonish(rejected_candidate)
+
         elif rejected_candidate is not None and terminal_state != TERMINAL_STATE_AUTHORITY_REJECTED:
             raise TerminalCloseError(
                 "rejected candidate may be retained only as audit on authority_rejected"
@@ -821,6 +843,64 @@ def _receipt_replay_verified(receipt: Mapping[str, Any] | None) -> bool:
     return bool(receipt.get("replay_ok")) and bool(receipt.get("candidate_matches"))
 
 
+def _ops_from_durable_payload(payload: Mapping[str, Any]) -> list[Any]:
+    """Accepted ops from checkpoint ``deltas`` or durable ``accepted_batch``.
+
+    Production durables persist the product on ``accepted_batch`` (contract 5),
+    not a parallel ``deltas`` key. Missing delta-key is not unknown evidence
+    when receipt + ``accepted_batch`` exist.
+    """
+    ops: list[Any] = []
+    raw_deltas = payload.get("deltas") or ()
+    if isinstance(raw_deltas, Sequence) and not isinstance(raw_deltas, (str, bytes)):
+        for item in raw_deltas:
+            if isinstance(item, Mapping) and isinstance(item.get("ops"), Sequence):
+                ops.extend(item.get("ops") or ())
+            elif item is not None:
+                ops.append(item)
+    if ops:
+        return [_thaw_jsonish(item) if isinstance(item, (Mapping, list, tuple)) else item for item in ops]
+    accepted = payload.get("accepted_batch")
+    if isinstance(accepted, (list, tuple)):
+        for item in accepted:
+            if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping):
+                ops.append(_thaw_jsonish(item["op"]))
+            elif isinstance(item, Mapping) and item.get("op") is not None:
+                op = item.get("op")
+                ops.append(_thaw_jsonish(op) if isinstance(op, (Mapping, list, tuple)) else op)
+    return ops
+
+
+def _durable_has_accepted_product(payload: Mapping[str, Any] | None) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    if payload.get("deltas") or payload.get("delta_ids") or payload.get("accepted_delta_ids"):
+        return True
+    accepted = payload.get("accepted_batch")
+    return isinstance(accepted, (list, tuple)) and any(
+        isinstance(item, Mapping) and item.get("op") is not None for item in accepted
+    )
+
+
+def _admission_from_payload(payload: Mapping[str, Any]) -> Any:
+    """Thread a live T2.1 admission when the stamp/receipt path carried one."""
+    for key in ("admitted", "admission", "admission_allowed"):
+        value = payload.get(key)
+        if _is_admission_allowed(value):
+            return value
+        if isinstance(value, Mapping) and value.get("allowed") is True:
+            from vibecomfy.porting.edit.admit import AdmissionAllowed
+
+            return AdmissionAllowed()
+    receipt = payload.get("authority_receipt") or payload.get("receipt")
+    if isinstance(receipt, Mapping):
+        for key in ("admitted", "admission", "admission_allowed"):
+            value = receipt.get(key)
+            if _is_admission_allowed(value):
+                return value
+    return None
+
+
 def recover_terminal_checkpoint(
     evidence: Mapping[str, Any] | None,
     *,
@@ -829,6 +909,7 @@ def recover_terminal_checkpoint(
     """Row 7: recover only from persisted lifecycle/receipt.
 
     Missing evidence → ``undetermined``. Never guess ``applied`` (contract 11).
+    Receipt + ``accepted_batch`` is persisted applied product, not unknown.
     """
     resolved_lineage = coerce_lineage(lineage)
     if not isinstance(evidence, Mapping) or not evidence:
@@ -860,10 +941,13 @@ def recover_terminal_checkpoint(
             _require_shared_lineage(resolved_lineage, {"caller": lineage})
     original = payload.get("original_graph") if isinstance(payload.get("original_graph"), Mapping) else {}
     graph = payload.get("graph") if isinstance(payload.get("graph"), Mapping) else original
+    if not original and isinstance(evidence.get("original_graph"), Mapping):
+        original = evidence.get("original_graph")
 
-    if stored_state == TERMINAL_STATE_APPLIED or (
-        stored_state is None and (payload.get("deltas") or payload.get("delta_ids") or payload.get("accepted_delta_ids"))
-    ):
+    claimed_applied = stored_state == TERMINAL_STATE_APPLIED or (
+        stored_state is None and _durable_has_accepted_product(payload)
+    )
+    if claimed_applied:
         if not replay_verified:
             return close_terminal_checkpoint(
                 terminal_state=TERMINAL_STATE_UNDETERMINED,
@@ -876,14 +960,9 @@ def recover_terminal_checkpoint(
             )
         from vibecomfy.porting.edit.admit import AdmissionAllowed
 
-        raw_deltas = payload.get("deltas") or ()
-        ops: list[Any] = []
-        if isinstance(raw_deltas, Sequence) and not isinstance(raw_deltas, (str, bytes)):
-            for item in raw_deltas:
-                if isinstance(item, Mapping) and isinstance(item.get("ops"), Sequence):
-                    ops.extend(item.get("ops") or ())
-                else:
-                    ops.append(item)
+        ops = _ops_from_durable_payload(payload)
+        if not ops and isinstance(evidence, Mapping):
+            ops = _ops_from_durable_payload(evidence)
         if not ops:
             # Recovered applied product must still carry an accepted delta.
             return close_terminal_checkpoint(
@@ -893,15 +972,28 @@ def recover_terminal_checkpoint(
                 reason="applied_without_persisted_delta",
                 replay_verified=False,
             )
+        admitted = _admission_from_payload(payload)
+        facts: dict[str, Any] = {}
+        raw_facts = payload.get("facts") if isinstance(payload.get("facts"), Mapping) else None
+        if raw_facts is not None:
+            thawed_facts = _thaw_jsonish(raw_facts)
+            if isinstance(thawed_facts, dict):
+                facts.update(thawed_facts)
+        if admitted is None:
+            admitted = AdmissionAllowed()
+            facts.setdefault(
+                "admission_residual",
+                "t2.3_persistence_carries_real_admission",
+            )
         return close_terminal_checkpoint(
             terminal_state=TERMINAL_STATE_APPLIED,
             lineage=resolved_lineage,
             original_graph=original or graph,
             graph=graph,
             ops=tuple(ops),
-            admitted=AdmissionAllowed(),
+            admitted=admitted,
             replay_verified=True,
-            facts=payload.get("facts") if isinstance(payload.get("facts"), Mapping) else None,
+            facts=facts or None,
             evidence_ids=tuple(payload.get("evidence_ids") or ()),
             reason=payload.get("reason") if isinstance(payload.get("reason"), str) else None,
             evidence_refs=tuple(payload.get("evidence_refs") or payload.get("evidence_ids") or ()),
@@ -912,6 +1004,7 @@ def recover_terminal_checkpoint(
             assessment_id=str(payload.get("assessment_id") or ""),
             revision=int(payload.get("revision") or 0),
         )
+
 
     if stored_state in TERMINAL_STATES:
         rejected = payload.get("rejected_candidate") or (
@@ -985,6 +1078,12 @@ def infer_terminal_state(
                 replay_ok = receipt.get("replay_ok")
             if candidate_matches is None:
                 candidate_matches = receipt.get("candidate_matches")
+        if replay_ok is None:
+            replay_ok = durable.get("replay_ok") if "replay_ok" in durable else replay_ok
+        if candidate_matches is None:
+            candidate_matches = (
+                durable.get("candidate_matches") if "candidate_matches" in durable else candidate_matches
+            )
     if replay_ok is False or candidate_matches is False:
         return TERMINAL_STATE_AUTHORITY_REJECTED
     if no_candidate_reason == "authority_replay_mismatch":
@@ -1005,11 +1104,19 @@ def infer_terminal_state(
         "no_candidate",
     }:
         return TERMINAL_STATE_NO_CANDIDATE
-    if apply_eligible is True and graph_unchanged is not True:
+    replay_verified = replay_ok is True and candidate_matches is not False
+    has_accepted_product = _durable_has_accepted_product(durable) if isinstance(durable, Mapping) else False
+    if apply_eligible is True and graph_unchanged is not True and replay_verified:
         return TERMINAL_STATE_APPLIED
-    if outcome_kind in {"candidate", "candidate_transaction", "edit"}:
+    if (
+        outcome_kind in {"candidate", "candidate_transaction", "edit"}
+        and replay_verified
+        and (has_accepted_product or apply_eligible is True)
+        and graph_unchanged is not True
+    ):
         return TERMINAL_STATE_APPLIED
     return None
+
 
 
 def checkpoint_to_evidence(checkpoint: TerminalCheckpoint) -> dict[str, Any]:

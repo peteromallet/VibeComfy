@@ -493,6 +493,10 @@ def test_stamp_response_maps_replay_mismatch_to_authority_rejected() -> None:
     assert stamped["terminal_state"] == "authority_rejected"
     assert stamped["outcome"]["kind"] != "clarify"
     assert stamped["apply_eligible"] is False
-    assert stamped["candidate"]["state"] == "rejected"
+    assert "candidate" not in stamped or stamped.get("candidate") in (None, {})
+    assert "graph" not in stamped or stamped.get("graph") in (None, {})
+    assert "accepted_batch" not in stamped or stamped.get("accepted_batch") in (None, [], ())
     assert stamped["audit"]["rejected_candidate"]["state"] == "rejected"
+    assert stamped["audit"]["rejected_candidate"]["graph"] == {"nodes": [{"id": 1}]}
     assert stamped.get("accepted_delta_ids") in ((), [], None) or list(stamped.get("accepted_delta_ids") or ()) == []
+

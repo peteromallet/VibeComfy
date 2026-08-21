@@ -338,12 +338,32 @@ def run_threaded_executor(
 
     from vibecomfy.executor.core import _durable_terminal_projection
 
-    projection = _durable_terminal_projection(
-        implementation,
-        request_graph=graph or request.graph,
-        reply=implementation.message,
-        mode="threaded",
-    )
+    projection = None
+    try:
+        projection = _durable_terminal_projection(
+            implementation,
+            request_graph=graph or request.graph,
+            reply=implementation.message,
+            mode="threaded",
+        )
+    except Exception:
+        LOGGER.exception(
+            "threaded terminal projection failed after durable checkpoint; "
+            "preserving applied work"
+        )
+        try:
+            projection = _durable_terminal_projection(
+                implementation,
+                request_graph=graph or request.graph,
+                failure="threaded terminal projection failed",
+                reply=implementation.message,
+                mode="threaded",
+            )
+        except Exception:
+            LOGGER.exception(
+                "threaded terminal projection retry failed; using accepted-delta fallback"
+            )
+            projection = None
     if getattr(projection, "graph", None) is not None and getattr(projection, "terminal_state", None) == "applied":
         graph = projection.graph
     elif getattr(projection, "terminal_state", None) != "applied":
@@ -368,6 +388,8 @@ def run_threaded_executor(
         else "No workflow edit was applied."
     )
     try:
+        if projection is None:
+            raise RuntimeError("threaded terminal projection unavailable")
         reply = kernel.enforce_reply_grounding(
             reply,
             landed=landed,
@@ -404,19 +426,25 @@ def run_threaded_executor(
             "threaded terminal projection failed after durable checkpoint; "
             "using accepted-delta fallback"
         )
-        failed = _durable_terminal_projection(
-            implementation,
-            request_graph=graph or request.graph,
-            failure="threaded terminal projection failed",
-            reply=implementation.message,
-            mode="threaded",
-        )
+        failed = projection
+        if failed is None:
+            try:
+                failed = _durable_terminal_projection(
+                    implementation,
+                    request_graph=graph or request.graph,
+                    failure="threaded terminal projection failed",
+                    reply=implementation.message,
+                    mode="threaded",
+                )
+            except Exception:
+                failed = None
         reply = _durable_projection_fallback(
             landed=landed,
             reason=reason,
             delta_ops=delta_ops,
             projection=failed,
         )
+
 
     kernel.emit_phase(
         bounded_request,

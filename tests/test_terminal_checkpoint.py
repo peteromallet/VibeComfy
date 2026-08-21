@@ -1,8 +1,9 @@
 """T2.2 closed checkpoint + one mode-neutral typed terminal projector.
 
-Disposable roots live under ``/tmp/t22-rerun/``. Counterexamples inject and
+Disposable roots live under ``/tmp/t22-revision/``. Counterexamples inject and
 fail closed at every binding-condition attack listed in the pre-code review.
 """
+
 
 from __future__ import annotations
 
@@ -341,3 +342,209 @@ def test_disposable_root_is_outside_checkout() -> None:
     assert str(marker).startswith("/tmp/t22-rerun/")
     assert "exec-spine" not in str(marker)
     marker.unlink()
+
+
+def _applied_op() -> dict:
+    return {"op": "set_node_field", "target": ["", "u", "steps"], "value": 25}
+
+
+def _stamped_applied_durable(*, original: dict | None = None, graph: dict | None = None) -> dict:
+    original = original or _original_graph()
+    graph = graph or {"nodes": [{"id": 1, "type": "KSampler", "widgets_values": [25]}], "links": []}
+    return {
+        "terminal_state": TERMINAL_STATE_APPLIED,
+        "accepted_batch": [{"statement_index": 1, "op": _applied_op()}],
+        "authority_receipt": {
+            "replay_ok": True,
+            "candidate_matches": True,
+            "verification_kind": "canonical_delta",
+        },
+        "graph": graph,
+        "original_graph": original,
+        "candidate": {"graph": graph, "state": "ready"},
+        "apply_eligible": True,
+        "eligibility": {"applyable": True, "reason": TERMINAL_STATE_APPLIED},
+        "outcome": {"kind": "candidate"},
+        "session_id": "sess-t22",
+        "turn_id": "turn-t22",
+    }
+
+
+def test_stamped_applied_durable_recovers_accepted_batch_not_undetermined() -> None:
+    """MUST-001: receipt + accepted_batch recover applied, never empty undetermined."""
+    durable = _stamped_applied_durable()
+    recovered = recover_terminal_checkpoint(durable, lineage=_lineage())
+    projection = project_terminal_checkpoint(recovered)
+    assert recovered.terminal_state == TERMINAL_STATE_APPLIED
+    assert recovered.reason != "applied_without_persisted_delta"
+    assert recovered.terminal_state != TERMINAL_STATE_UNDETERMINED
+    assert recovered.deltas
+    assert recovered.deltas[0].ops
+    assert projection.accepted is True
+    assert projection.eligibility["applyable"] is True
+    assert projection.graph == durable["graph"]
+    landed_ops = [op if isinstance(op, dict) else op for op in recovered.deltas[0].ops]
+    assert any(
+        (item.get("op") if isinstance(item, dict) else None) == "set_node_field"
+        or (isinstance(item, dict) and item.get("target"))
+        for item in landed_ops
+    )
+
+
+def test_stamped_applied_implementation_result_projects_without_raising() -> None:
+    """MUST-002: nested mappingproxy durables freeze/project without TypeError."""
+    from vibecomfy.executor.contracts import ImplementationResult
+    from vibecomfy.executor.core import _durable_terminal_projection
+
+    original = _original_graph()
+    graph = {"nodes": [{"id": 1, "type": "KSampler", "widgets_values": [25]}], "links": []}
+    result = ImplementationResult(
+        graph=graph,
+        message="The edit landed.",
+        durable_response=_stamped_applied_durable(original=original, graph=graph),
+    )
+    projection = _durable_terminal_projection(
+        result, request_graph=original, reply=result.message, mode="staged"
+    )
+    threaded = _durable_terminal_projection(
+        result, request_graph=original, reply=result.message, mode="threaded"
+    )
+    assert projection.terminal_state == TERMINAL_STATE_APPLIED
+    assert projection.accepted is True
+    assert projection.eligibility["applyable"] is True
+    assert projection.authority_fields() == threaded.authority_fields()
+    recovered = recover_terminal_checkpoint(result.durable_response, lineage=_lineage())
+    assert recovered.terminal_state == TERMINAL_STATE_APPLIED
+    assert recovered.eligibility["applyable"] is True
+
+
+def test_stamped_applied_row6_projection_exception_preserves_applied() -> None:
+    """MUST-002/row 6: projection-time exception keeps applied + grounded fallback."""
+    from vibecomfy.executor.contracts import ImplementationResult
+    from vibecomfy.executor.core import _durable_terminal_projection
+
+    original = _original_graph()
+    graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    result = ImplementationResult(
+        graph=graph,
+        message="The edit landed.",
+        durable_response=_stamped_applied_durable(original=original, graph=graph),
+    )
+    projection = _durable_terminal_projection(
+        result,
+        request_graph=original,
+        failure="cannot pickle 'mappingproxy' object",
+        reply=result.message,
+        mode="staged",
+    )
+    assert projection.terminal_state == TERMINAL_STATE_APPLIED
+    assert projection.accepted is True
+    assert projection.eligibility["applyable"] is True
+    assert projection.failure == "cannot pickle 'mappingproxy' object"
+    assert "landed" in (projection.reply or "").lower()
+    assert "fallback" in (projection.reply or "").lower()
+
+
+def test_rejected_stamped_envelope_is_audit_only() -> None:
+    """MUST-003: authority_rejected public keys do not carry the rejected product."""
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        AuthorityReceipt,
+        ReplayReceipt,
+        ResponseMetadataHashes,
+        stamp_response_with_authority,
+    )
+
+    receipt = AuthorityReceipt(
+        schema_version="2.0.0",
+        session_id="sess",
+        turn_id="turn",
+        submit_graph_hash="a" * 64,
+        submit_graph_bytes_sha256="b" * 64,
+        accepted_batch_digest="c" * 64,
+        cumulative_delta_hash="c" * 64,
+        candidate_hash="d" * 64,
+        schema_witness=None,
+        schema_witness_hash=None,
+        replay=ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash="d" * 64,
+            error="replay_mismatch",
+        ),
+        response_metadata=ResponseMetadataHashes(None, None, None),
+        created_at="2026-08-21T00:00:00Z",
+    )
+    rejected_graph = {"nodes": [{"id": 99}], "links": []}
+    stamped = stamp_response_with_authority(
+        {
+            "ok": True,
+            "apply_eligible": True,
+            "outcome": {"kind": "candidate"},
+            "candidate": {"graph": rejected_graph, "state": "ready"},
+            "graph": rejected_graph,
+            "accepted_batch": [{"statement_index": 1, "op": _applied_op()}],
+            "message": "Edit landed.",
+        },
+        receipt,
+    )
+    assert stamped["terminal_state"] == TERMINAL_STATE_AUTHORITY_REJECTED
+    assert stamped.get("candidate") in (None, {})
+    assert "candidate" not in stamped or stamped.get("candidate") in (None, {})
+    assert stamped.get("graph") in (None, {})
+    assert "graph" not in stamped or stamped.get("graph") in (None, {})
+    assert stamped.get("accepted_batch") in (None, [], ())
+    assert "accepted_batch" not in stamped or stamped.get("accepted_batch") in (None, [], ())
+    audit_rejected = stamped["audit"]["rejected_candidate"]
+    assert audit_rejected["state"] == "rejected"
+    assert audit_rejected["graph"] == rejected_graph
+
+
+def test_infer_applied_requires_replay_or_receipt_evidence() -> None:
+    """SHOULD-002: outcome.kind candidate/edit is not applied without replay proof."""
+    assert (
+        infer_terminal_state(durable={"outcome": {"kind": "candidate"}})
+        is None
+    )
+    assert infer_terminal_state(durable={"outcome": {"kind": "edit"}}) is None
+    assert (
+        infer_terminal_state(
+            durable={
+                "outcome": {"kind": "candidate"},
+                "apply_eligible": True,
+                "accepted_batch": [{"op": _applied_op()}],
+            }
+        )
+        is None
+    )
+    assert (
+        infer_terminal_state(
+            durable={
+                "outcome": {"kind": "candidate"},
+                "apply_eligible": True,
+                "accepted_batch": [{"op": _applied_op()}],
+                "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+            }
+        )
+        == TERMINAL_STATE_APPLIED
+    )
+    assert (
+        infer_terminal_state(
+            durable={
+                "terminal_state": TERMINAL_STATE_APPLIED,
+                "outcome": {"kind": "candidate"},
+            }
+        )
+        == TERMINAL_STATE_APPLIED
+    )
+
+
+def test_revision_disposable_root_is_outside_checkout() -> None:
+    root = Path("/tmp/t22-revision")
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / "counterexample.json"
+    marker.write_text("{}", encoding="utf-8")
+    assert str(marker).startswith("/tmp/t22-revision/")
+    assert "exec-spine" not in str(marker)
+    marker.unlink()
+

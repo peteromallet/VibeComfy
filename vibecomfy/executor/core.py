@@ -1757,8 +1757,8 @@ def _durable_terminal_projection(
         infer_terminal_state,
         project_terminal_checkpoint,
         recover_terminal_checkpoint,
+        _admission_from_payload,
     )
-    from vibecomfy.porting.edit.admit import AdmissionAllowed
 
     durable = (
         implementation_result.durable_response
@@ -1799,19 +1799,34 @@ def _durable_terminal_projection(
             else TERMINAL_STATE_UNDETERMINED
         )
     rejected = None
-    candidate = durable_map.get("candidate")
-    if inferred == TERMINAL_STATE_AUTHORITY_REJECTED and isinstance(candidate, Mapping):
-        rejected = dict(candidate)
+    audit = durable_map.get("audit")
+    if inferred == TERMINAL_STATE_AUTHORITY_REJECTED:
+        if isinstance(audit, Mapping) and isinstance(audit.get("rejected_candidate"), Mapping):
+            rejected = dict(audit.get("rejected_candidate"))
+        else:
+            candidate = durable_map.get("candidate")
+            if isinstance(candidate, Mapping):
+                rejected = dict(candidate)
+    facts: dict[str, Any] = {}
+    admitted = None
+    if inferred == TERMINAL_STATE_APPLIED and ops:
+        admitted = _admission_from_payload(durable_map)
+        if admitted is None:
+            facts["admission_residual"] = "t2.3_persistence_carries_real_admission"
+            from vibecomfy.porting.edit.admit import AdmissionAllowed
+
+            admitted = AdmissionAllowed()
     try:
         checkpoint = close_terminal_checkpoint(
             terminal_state=inferred,
             original_graph=original,
             graph=graph if inferred == TERMINAL_STATE_APPLIED else original,
             ops=ops if inferred == TERMINAL_STATE_APPLIED else (),
-            admitted=AdmissionAllowed() if inferred == TERMINAL_STATE_APPLIED and ops else None,
+            admitted=admitted,
             replay_verified=True if inferred == TERMINAL_STATE_APPLIED else bool(replay_ok),
             rejected_candidate=rejected,
             reason=inferred,
+            facts=facts or None,
             evidence_refs=tuple(durable_map.get("evidence_refs") or ()),
             lineage={
                 "session_id": str(durable_map.get("session_id") or ""),
@@ -1832,6 +1847,7 @@ def _durable_terminal_projection(
     return project_terminal_checkpoint(
         checkpoint, reply=reply, failure=failure, mode=mode
     )
+
 
 
 def _projection_reply(
@@ -2483,13 +2499,40 @@ def _run_reply(
                 failure_envelope=failure,
             )
         # Fidelity + node-id grounding consumes the one closed-checkpoint
-        # projection. This is not a second projector.
-        projection = _durable_terminal_projection(
-            implementation_result,
-            request_graph=effective_graph,
-            reply=reply,
-            mode="staged",
-        )
+        # projection. This is not a second projector. A projection-time
+        # exception after a durable applied product is row 6: keep applied.
+        try:
+            projection = _durable_terminal_projection(
+                implementation_result,
+                request_graph=effective_graph,
+                reply=reply,
+                mode="staged",
+            )
+        except Exception:
+            LOGGER.exception(
+                "staged terminal projection failed after durable checkpoint; "
+                "preserving applied work with grounded fallback"
+            )
+            try:
+                projection = _durable_terminal_projection(
+                    implementation_result,
+                    request_graph=effective_graph,
+                    failure="staged terminal projection failed",
+                    reply=reply,
+                    mode="staged",
+                )
+            except Exception:
+                LOGGER.exception(
+                    "staged terminal projection retry failed; using accepted-delta fallback"
+                )
+                if landed_edit:
+                    return _accepted_delta_reply(delta_ops) if delta_ops else (
+                        "The workflow edit landed. "
+                        "the candidate and accepted change evidence are authoritative. "
+                        "Later reply narration failed; this fallback is grounded in the "
+                        "closed checkpoint, not in model prose."
+                    )
+                raise
         return _enforce_reply_grounding(
             reply,
             landed=landed_edit,
@@ -2498,6 +2541,8 @@ def _run_reply(
             delta_ops=delta_ops,
             projection=projection,
         )
+
+
     except Exception as exc:
         provider_failure = (
             host_ports.is_provider_error(exc)
