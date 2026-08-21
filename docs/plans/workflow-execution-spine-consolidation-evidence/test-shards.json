@@ -34,5 +34,12 @@
     "shard_id": "broad_suite_once_v1",
     "command": "python -m pytest -q",
     "status": "pending"
+  },
+  "evidence_log": {
+    "task_id": "evidence-log-T1.2-digest-repair",
+    "gate": "G1",
+    "validator_observed_ts": "2026-08-21T11:03:00Z",
+    "validator_exit": 0,
+    "other_tests_run": false
   }
 }

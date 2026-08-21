@@ -802,3 +802,107 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   `G1 [XHARD-REVIEW]` remains pending; the original-child proof is now pinned
   under the evidence receipts directory. Next unblocked card:
   `H1-wrapper-survival-stop-marker-precode-review`.
+
+### G1 / T1.2 digest-repair chain and adjudication close (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-T1.2-digest-repair` / `G1` /
+  `evidence-log T1.2 digest-repair chain: repair, review findings,
+  adjudication A, integration, recurrence rule` / evidence.
+- **Disposition:** **A. CLOSE-AND-TRACK**. The digest-repair card integrates
+  as-is. The review's two findings are recorded below; finding 1 remains a
+  tracked pre-existing validator gap, and finding 2 is satisfied by this
+  disposition's recurrence rule and finding record.
+- **Input/base and integrated commit:** `d1aa492921fc5f3aee2b2ef3efc275aedbbc2226`;
+  the digest-repair implementation commit is `d1aa492921fc5f3aee2b2ef3efc275aedbbc2226`.
+- **Model routes:** Luna (`codex:gpt-5.6-luna`, resolved
+  `openai-codex/gpt-5.6-luna`) for implementer, reviewer, and integration;
+  Grok (`grok-4.6`) for adjudication. Wrapper argv, PID, timestamps, and
+  exits below are authoritative from the preserved receipts.
+
+#### Ordered digest-repair receipt register
+
+1. **Repair — `T1.2-evidence-digest-repair` (implementer, Luna).** Receipt
+   `receipts/T1.2-evidence-digest-repair-receipt.json`, SHA-256
+   `7a20d0056735f8b3ea6153a9812938c0032cec18ac711b060e43ea34996f301a`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T1.2-evidence-digest-repair.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `32560`; `2026-08-21T10:51:05Z` → `2026-08-21T10:53:06Z`;
+   exit `0`; brief SHA-256
+   `7f575ee6a3dd8f60ea3911fb7b5830f47d6e8562ba7000e11130709b2a9a1746`;
+   result SHA-256
+   `2b3968f82d921578b69a9ab7a6896cb4398b49b9ccab84edc62dcfb3bec901cb`.
+   It refreshed `tasks[5].recovery_note.sha256` from `50263ce0…` to
+   `d71d7935…`, changed only `manifest.json`, committed
+   `d1aa492921fc5f3aee2b2ef3efc275aedbbc2226`, and its validator exited `0`.
+2. **Review — `T1.2-evidence-digest-repair-review` (reviewer, Luna).** Receipt
+   `receipts/T1.2-evidence-digest-repair-review-receipt.json`, SHA-256
+   `c809190676e552178f2ff20f4a59fe9f2cd5a4dccf1ca76e99a2407ecf2fd167`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T1.2-evidence-digest-repair-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `32723`; `2026-08-21T10:53:32Z` → `2026-08-21T10:56:22Z`;
+   exit `0`; brief SHA-256
+   `b6c7f00760a7f2435aef2380076e6a6da59f9ed33abaf34e7d1ee3012c3c7d6b`;
+   result SHA-256
+   `687869a7e879f957df009e7e4db0b1a197058e4b9286d03a872976b7db4ee4b2`.
+   The repair itself was confirmed correct by an independent digest check and
+   minimal diff; the review recorded `JUDGMENT_REQUIRED:` with two findings:
+   (1) pre-existing validator gap: `_iter_digest_refs` /
+   `check_artifact_digests` (approximately validator lines 256–276) silently
+   skips a string `path` paired with malformed, non-64-hex `sha256`/`digest`;
+   (2) the repair receipt lacked a `residual_risks` entry containing the
+   recurrence rule. Author verification was `POM <peter@omalley.io>` and the
+   one-commit chain was confirmed.
+3. **Adjudication — `T1.2-evidence-digest-repair-adjudication`
+   (adjudication, Grok).** Receipt
+   `receipts/T1.2-evidence-digest-repair-adjudication-receipt.json`, SHA-256
+   `dbd15895e496eafdca530b890675b43f039eb8800eb365d7946e46123ef93861`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_omp_agent.py --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T1.2-evidence-digest-repair-adjudication.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `32858`; `2026-08-21T10:56:57Z` → `2026-08-21T10:59:39Z`;
+   exit `0`; brief SHA-256
+   `6ba13e21d451f6d4d469b0d58a44326134402ee59db6eb83ddb85822158710eb`;
+   result SHA-256
+   `08040d3ae232f1d6e7be72b35d3f7a6c7cde3c3d16257e8459daea4aa19411d3`.
+   Decision **A. CLOSE-AND-TRACK**: integrate the repair as-is; track finding
+   1 as the pre-existing validator gap; satisfy finding 2 by recording both
+   findings and the recurrence rule in this evidence disposition.
+4. **Integration — `T1.2-evidence-digest-repair-integration` (integration,
+   Luna).** Receipt
+   `receipts/T1.2-evidence-digest-repair-integration-receipt.json`, SHA-256
+   `fb09914933ee1d122ace7acbed7d6fc67ced799eafe0ae52e3b5f5c28accbe96`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T1.2-evidence-digest-repair-integration.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `32962`; `2026-08-21T11:00:06Z` → `2026-08-21T11:02:52Z`;
+   exit `0`; brief SHA-256
+   `55ac29511046dd44635a4841400cef4e9d39439fb9be43859a0a015334fcdcf6`;
+   result SHA-256
+   `fde50d9309e2f0e6b35e3483be590dd8c386550483e8286455857e2fdd5c69a6`.
+   Integration verified fast-forward push `9a64b35b..d1aa4929` via
+   `git push origin HEAD:fixer/workflow-execution-spine-consolidation`;
+   remote and local both verified at `d1aa4929`. The integration receipt
+   changed no files and created no commit.
+
+- **Tests/evidence:** the orchestrator's post-batch validator invocation at
+  `2026-08-21T11:03Z` exited `0`. No other tests were run; no validator or
+  implementation change was made in this evidence disposition.
+- **Changed files and commit controls:** the digest-repair chain itself
+  changed only `manifest.json`; review, adjudication, and integration changed
+  no files. This evidence append is one coherent commit authored by
+  `POM <peter@omalley.io>`, with message prefix `docs(exec-spine):`, and
+  contains exactly the three allowed files: this execution log,
+  `evidence/manifest.json`, and `evidence/test-shards.json`. No receipt is
+  committed.
+- **Residual risks / recurrence rule:** every future append to this execution
+  log changes its digest; every evidence agent that appends MUST refresh
+  `manifest.tasks[5].recovery_note.sha256` to the new log digest, as enforced
+  by the validator. Finding 1 remains a pre-existing validator gap:
+  `_iter_digest_refs` silently skips malformed (non-64-hex) digest strings
+  paired with a path, so such a reference passes unchecked. It is tracked per
+  adjudication A as a candidate future XHARD validator-hardening card and does
+  not block G1.
+- **Controls:** no product tests, full suite, live/model/runtime/provider
+  calls, secret access, protected-state access, merge to `main`, promotion, or
+  push occurred in this evidence append. The earlier integration push is
+  recorded above as prior-card evidence. No branch other than the current
+  branch was changed.
+- **Next unblocked card:** `H1-wrapper-survival-stop-marker-precode-review`.
