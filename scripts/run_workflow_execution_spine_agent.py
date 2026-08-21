@@ -351,9 +351,17 @@ def _allowed(path: str, patterns: list[str]) -> bool:
 
 def _stop_marker(result_text: str) -> str:
     for line in result_text.splitlines():
-        if line.startswith("STOP:") or "JUDGMENT_REQUIRED" in line:
+        if line.startswith("JUDGMENT_REQUIRED:") or line.startswith("STOP:"):
             return line.strip()
     return ""
+
+
+def _receipt_is_interrupted(path: Path) -> bool:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(value, dict) and value.get("status") == "interrupted"
 
 
 def _evidence_paths(evidence_dir: Path) -> list[str]:
@@ -403,7 +411,7 @@ def _record_finalization_failure(
         failure["evidence_path"] = str(failure_path)
         failure["receipt"] = str(receipt_path)
         _json_write(failure_path, failure)
-        if receipt is not None:
+        if receipt is not None and not _receipt_is_interrupted(receipt_path):
             receipt["finalization"] = failure
             receipt["evidence"] = _evidence_paths(evidence_dir)
             _json_write(receipt_path, receipt)
@@ -489,6 +497,51 @@ def run(args: argparse.Namespace) -> int:
     ignore_probe: tempfile.TemporaryDirectory[str] | None = None
     receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
     receipt: dict[str, Any] | None = None
+    interrupted = False
+
+    def handle_interrupt(signum: int, _frame: Any) -> None:
+        nonlocal interrupted
+        if interrupted:
+            os._exit(128 + signum)
+        interrupted = True
+        partial_receipt = {
+            "task_id": args.task_id,
+            "status": "interrupted",
+            "role": args.role,
+            "label": args.label,
+            "model_route": args.model_route,
+            "gate": args.gate or GATE_BY_TASK.get(args.task_id) or (re.search(r"G\d+", args.label) or [""])[0],
+            "preserved_args": {
+                "task_id": args.task_id,
+                "role": args.role,
+                "label": args.label,
+                "model_route": args.model_route,
+                "gate": args.gate,
+                "query_file": str(args.query_file),
+                "project_dir": str(args.project_dir),
+                "allowance_file": str(args.allowance_file),
+                "evidence_dir": str(args.evidence_dir),
+                "timeout": args.timeout,
+            },
+            "wrapper_pid": os.getpid(),
+            "child_pid": child_pid,
+            "start_ts": start_ts,
+            "interrupted_ts": utc_now(),
+            "signal": signal.Signals(signum).name,
+        }
+        try:
+            _json_write(receipt_path, partial_receipt)
+        except BaseException:
+            pass
+        try:
+            if not getattr(lock_handle, "closed", True):
+                _registry_release(evidence_dir, args.task_id, lock_handle)
+        except BaseException:
+            pass
+        os._exit(128 + signum)
+
+    for interrupt_signal in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(interrupt_signal, handle_interrupt)
     try:
         launcher_path, resolved_requested = ROUTE_LAUNCHERS[args.model_route]
         executable = os.environ.get("VCSPINE_FAKE_LAUNCHER", launcher_path)
@@ -565,9 +618,11 @@ def run(args: argparse.Namespace) -> int:
                 "forbidden": forbidden,
                 "receipt": str(receipt_path),
             })
-        _json_write(receipt_path, receipt)
-        receipt["evidence"] = _evidence_paths(evidence_dir)
-        _json_write(receipt_path, receipt)
+        if not _receipt_is_interrupted(receipt_path):
+            _json_write(receipt_path, receipt)
+        if not _receipt_is_interrupted(receipt_path):
+            receipt["evidence"] = _evidence_paths(evidence_dir)
+            _json_write(receipt_path, receipt)
         if violation_paths:
             raise WrapperError(f"ALLOWANCE_VIOLATION: changed files outside allowance: {', '.join(violation_paths)}")
         return exit_code
