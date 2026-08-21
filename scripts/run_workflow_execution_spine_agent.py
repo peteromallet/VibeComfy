@@ -13,10 +13,11 @@ import fcntl
 import hashlib
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
+import re
+import tempfile
 import time
 from pathlib import Path
 
@@ -264,10 +265,45 @@ def _path_state(path: Path) -> tuple[str, int, str] | None:
     return "other", mode, ""
 
 
-def _repo_snapshot(project_dir: Path, evidence_dir: Path) -> dict[str, tuple[str, int, str]]:
-    """Capture every worktree path while excluding repository internals/evidence."""
+def _capture_ignore_baseline(project_dir: Path) -> tempfile.TemporaryDirectory[str]:
+    """Copy repository ignore files so post-child checks use pre-child rules."""
     root = project_dir.resolve()
-    snapshot: dict[str, tuple[str, int, str]] = {}
+    probe = tempfile.TemporaryDirectory(prefix="vcspine-ignore-")
+    probe_root = Path(probe.name)
+    subprocess.run(["git", "init", "-q"], cwd=probe_root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for directory, directories, files in os.walk(root, topdown=True, followlinks=False):
+        directories[:] = sorted(name for name in directories if name != ".git")
+        if ".gitignore" not in files:
+            continue
+        source = Path(directory) / ".gitignore"
+        relative = source.relative_to(root)
+        target = probe_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    source_exclude = root / ".git" / "info" / "exclude"
+    target_exclude = probe_root / ".git" / "info" / "exclude"
+    target_exclude.write_bytes(source_exclude.read_bytes() if source_exclude.is_file() else b"")
+    return probe
+
+
+def _baseline_ignored(probe_root: Path, paths: list[str]) -> set[str]:
+    if not paths:
+        return set()
+    result = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--stdin", "-z"],
+        cwd=probe_root,
+        input=b"\0".join(os.fsencode(path) for path in paths),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return {os.fsdecode(path).rstrip("/") for path in result.stdout.split(b"\0") if path}
+
+
+def _repo_snapshot(project_dir: Path, evidence_dir: Path, ignore_probe: Path | None = None) -> dict[str, tuple[str, int, str]]:
+    """Capture worktree paths, applying ignore rules from before the child ran."""
+    root = project_dir.resolve()
+    snapshot: list[tuple[str, tuple[str, int, str]]] = []
     for directory, directories, files in os.walk(root, topdown=True, followlinks=False):
         directories[:] = sorted(directories)
         files = sorted(files)
@@ -284,8 +320,17 @@ def _repo_snapshot(project_dir: Path, evidence_dir: Path) -> dict[str, tuple[str
                 continue
             state = _path_state(path)
             if state is not None:
-                snapshot[relative] = state
-    return snapshot
+                snapshot.append((relative, state))
+    tracked = set(_git(root, ["ls-files"]).splitlines())
+    ignored = _baseline_ignored(
+        ignore_probe,
+        [relative + "/" if state[0] == "directory" else relative for relative, state in snapshot],
+    ) if ignore_probe else set()
+    return {
+        relative: state
+        for relative, state in snapshot
+        if relative in tracked or relative not in ignored
+    }
 
 
 def _changed_files(before: dict[str, tuple[str, int, str]], after: dict[str, tuple[str, int, str]]) -> list[str]:
@@ -368,6 +413,7 @@ def run(args: argparse.Namespace) -> int:
     stdout_bytes = b""
     stderr_bytes = b""
     exit_code = 125
+    ignore_probe: tempfile.TemporaryDirectory[str] | None = None
     try:
         launcher_path, resolved_requested = ROUTE_LAUNCHERS[args.model_route]
         executable = os.environ.get("VCSPINE_FAKE_LAUNCHER", launcher_path)
@@ -378,7 +424,8 @@ def run(args: argparse.Namespace) -> int:
             f"--project-dir={project_dir}",
             f"--timeout={args.timeout}",
         ]
-        before_snapshot = _repo_snapshot(project_dir, evidence_dir)
+        ignore_probe = _capture_ignore_baseline(project_dir)
+        before_snapshot = _repo_snapshot(project_dir, evidence_dir, Path(ignore_probe.name))
         child = subprocess.Popen(command, cwd=project_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         child_pid = child.pid
         try:
@@ -406,7 +453,7 @@ def run(args: argparse.Namespace) -> int:
         result_text = stdout_bytes.decode("utf-8", errors="replace")
         changed = _changed_files(
             before_snapshot,
-            _repo_snapshot(project_dir, evidence_dir),
+            _repo_snapshot(project_dir, evidence_dir, Path(ignore_probe.name)),
         )
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
         receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
@@ -451,6 +498,8 @@ def run(args: argparse.Namespace) -> int:
             raise WrapperError(f"ALLOWANCE_VIOLATION: changed files outside allowance: {', '.join(violation_paths)}")
         return exit_code
     finally:
+        if ignore_probe is not None:
+            ignore_probe.cleanup()
         _registry_release(evidence_dir, args.task_id, lock_handle)
 
 

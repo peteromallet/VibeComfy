@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -12,6 +18,143 @@ spec = importlib.util.spec_from_file_location("vcspine_validator", VALIDATOR_PAT
 assert spec and spec.loader
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
+
+DISPOSABLE_ROOT = Path("/tmp/g0-revision-wrapper")
+WRAPPER_PATH = ROOT / "scripts" / "run_workflow_execution_spine_agent.py"
+
+
+def _git(project: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _run_wrapper_case(
+    mode: str,
+    *,
+    ignore_rules: str = "",
+    allowed: list[str],
+    forbidden: list[str],
+) -> tuple[subprocess.CompletedProcess[str], dict, dict | None]:
+    DISPOSABLE_ROOT.mkdir(parents=True, exist_ok=True)
+    case_root = Path(tempfile.mkdtemp(prefix="case-", dir=DISPOSABLE_ROOT))
+    project = case_root / "project"
+    evidence = case_root / "evidence"
+    project.mkdir()
+    evidence.mkdir()
+    _git(project, "init", "-q")
+    _git(project, "config", "user.email", "test@example.invalid")
+    _git(project, "config", "user.name", "G0 wrapper test")
+    (project / "seed.txt").write_text("seed\n", encoding="utf-8")
+    if ignore_rules:
+        (project / ".gitignore").write_text(ignore_rules, encoding="utf-8")
+    _git(project, "add", "-A")
+    _git(project, "commit", "-qm", "seed")
+    brief = case_root / "brief.md"
+    brief.write_text("brief\n", encoding="utf-8")
+    allowance = case_root / "allowance.json"
+    allowance.write_text(json.dumps({"allowed": allowed, "forbidden": forbidden}), encoding="utf-8")
+    fake = case_root / "fake_launcher.py"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib\n"
+        "import sys\n"
+        "project = pathlib.Path(next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--project-dir=')))\n"
+        f"mode = {mode!r}\n"
+        "if mode == 'cache':\n"
+        "    (project / '.pytest_cache' / 'v' / 'cache').mkdir(parents=True)\n"
+        "    (project / '.pytest_cache' / 'v' / 'cache' / 'nodeids').write_text('[]')\n"
+        "    (project / '__pycache__').mkdir()\n"
+        "    (project / '__pycache__' / 'module.pyc').write_bytes(b'pyc')\n"
+        "elif mode == 'tracked':\n"
+        "    (project / 'seed.txt').write_text('child update')\n"
+        "elif mode == 'untracked':\n"
+        "    (project / 'untracked.txt').write_text('child create')\n"
+        "elif mode == 'hidden':\n"
+        "    (project / '.gitignore').write_text('hidden-created/\\n')\n"
+        "    (project / 'hidden-created').mkdir()\n"
+        "    (project / 'hidden-created' / 'secret.txt').write_text('hidden')\n"
+        "print('fake result')\n"
+        "print('resolved=fake-model', file=sys.stderr)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    env = os.environ.copy()
+    env["VCSPINE_FAKE_LAUNCHER"] = str(fake)
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(WRAPPER_PATH),
+                "--task-id=G0-wrapper-test",
+                "--role=implementer",
+                "--label=G0 [HARD-REVISION] wrapper accounting test",
+                "--model-route=codex:gpt-5.6-luna",
+                f"--query-file={brief}",
+                f"--project-dir={project}",
+                f"--allowance-file={allowance}",
+                f"--evidence-dir={evidence}",
+                "--timeout=30",
+            ],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        receipt_path = evidence / "G0-wrapper-test-receipt.json"
+        assert receipt_path.exists(), f"wrapper failed: {result.returncode} {result.stderr}"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        violation_path = evidence / "G0-wrapper-test-violation.json"
+        violation = json.loads(violation_path.read_text(encoding="utf-8")) if violation_path.exists() else None
+        return result, receipt, violation
+    finally:
+        shutil.rmtree(case_root)
+
+
+def test_preexisting_ignore_rules_exclude_pytest_cache_artifacts() -> None:
+    result, receipt, violation = _run_wrapper_case(
+        "cache",
+        ignore_rules=".pytest_cache/\n__pycache__/\n*.pyc\n",
+        allowed=["allowed.txt"],
+        forbidden=["*"],
+    )
+    assert result.returncode == 0, result.stderr
+    assert receipt["changed_files"] == []
+    assert violation is None
+
+
+def test_tracked_mutation_is_reported_and_rejected() -> None:
+    result, receipt, violation = _run_wrapper_case(
+        "tracked",
+        allowed=["allowed.txt"],
+        forbidden=["seed.txt"],
+    )
+    assert result.returncode == 2
+    assert "ALLOWANCE_VIOLATION" in result.stderr
+    assert receipt["changed_files"] == ["seed.txt"]
+    assert violation and violation["violations"] == ["seed.txt"]
+
+
+def test_nonignored_untracked_create_is_reported_and_rejected() -> None:
+    result, receipt, violation = _run_wrapper_case(
+        "untracked",
+        allowed=["allowed.txt"],
+        forbidden=["untracked.txt"],
+    )
+    assert result.returncode == 2
+    assert "ALLOWANCE_VIOLATION" in result.stderr
+    assert receipt["changed_files"] == ["untracked.txt"]
+    assert violation and violation["violations"] == ["untracked.txt"]
+
+
+def test_child_created_path_under_new_ignore_rule_is_reported_and_rejected() -> None:
+    result, receipt, violation = _run_wrapper_case(
+        "hidden",
+        allowed=["*"],
+        forbidden=["hidden-created/**"],
+    )
+    assert result.returncode == 2
+    assert "ALLOWANCE_VIOLATION" in result.stderr
+    assert "hidden-created/secret.txt" in receipt["changed_files"]
+    assert violation and "hidden-created/secret.txt" in violation["violations"]
 
 
 def _manifest() -> dict:
