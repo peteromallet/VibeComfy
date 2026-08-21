@@ -36,6 +36,15 @@
       "exit": 0,
       "status": "passed",
       "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H2-dead-pid-sweep-review-receipt.json"
+    },
+    {
+      "shard_id": "H4_evidence_brief_guard",
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py",
+      "source_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+      "summary": "46 passed, 1 warning",
+      "exit": 0,
+      "status": "passed",
+      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H4-evidence-brief-integration-receipt.json"
     }
   ],
   "singleton": {

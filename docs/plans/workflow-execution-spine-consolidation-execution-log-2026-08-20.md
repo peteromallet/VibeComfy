@@ -1392,3 +1392,153 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   changed files are exactly the three allowed files: this execution log,
   `evidence/manifest.json`, and `evidence/test-shards.json`. No receipt is
   committed, and no other file, protected state, branch, or ref changes.
+
+### G1 / H4 — evidence-brief guard chain (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-H4` / no gate /
+  `evidence-log H4: implementer 4cdabf5d, review (MUST-001/002), revision
+  acec7cc1, re-review continue, integration push acec7cc1` / evidence.
+- **Disposition:** **continue / complete**. This is the pre-G1 hardening card
+  directed by operator directive 2026-08-21 §15 item 5. The H4 chain is
+  recorded from the five preserved receipts below; receipt files are evidence
+  inputs only and are not committed.
+- **Model route:** Luna (`codex:gpt-5.6-luna`, resolved
+  `openai-codex/gpt-5.6-luna`) for implementer, reviewer, revision,
+  re-review, and integration. Wrapper commands, PIDs, timestamps, exits,
+  brief digests, result digests, and receipt digests below are authoritative
+  from the preserved receipts.
+
+#### Ordered H4 receipt register
+
+1. **Implementer — `H4-evidence-brief` (Luna).** Receipt
+   `receipts/H4-evidence-brief-receipt.json`, SHA-256
+   `0d44b3e23bc9e5fc5cb6212037d91bbb10b8eb7db2febf297896a77ca17947d4`;
+   wrapper `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H4-evidence-brief.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   wrapper PID `41424`, launcher child PID `41430`;
+   `2026-08-21T15:03:06Z` → `2026-08-21T15:12:24Z`; exit `0`; brief
+   SHA-256 `465a6549ecbbe6e4f5c0625b4769a94c3738f1261e74c43cb35ffcb818d3cba2`;
+   result SHA-256
+   `7be9266ad948a7239bd109bd56c7e65c1249946f99fd09cac4a07b01bcb06d2f`.
+   Commit `4cdabf5dda30c53b84462c10279f6107a63afd80`
+   (`fix(exec-spine): guard evidence briefs against self-referential receipt
+   fields`) was based on `de75b418`; changed exactly
+   `scripts/run_workflow_execution_spine_agent.py` and
+   `tests/test_run_workflow_execution_spine_agent.py`.
+2. **Post-implementation review — `H4-evidence-brief-review` (Luna).**
+   Receipt `receipts/H4-evidence-brief-review-receipt.json`, SHA-256
+   `4b9bb4471886a2898bba451ec232762996baf372f2ea03b9b46262e0a6132be8`;
+   wrapper `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H4-evidence-brief-review.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   wrapper PID `42661`, launcher child PID `42667`;
+   `2026-08-21T15:13:31Z` → `2026-08-21T15:18:57Z`; exit `0`; brief
+   SHA-256 `e255d3de79257d2333f1ef4d594a7b2e29fdcbb7d56c1eefd1b3eef34fa7556c`;
+   result SHA-256
+   `dc3a4902424b7509643ea1a0b4864b0e18bf3b51de48b1e4e358a6dbadc80599`.
+   Disposition: **correct**, with exactly two must findings, both
+   **mechanical**. `H4-MUST-001` identified compound-negation/explanation
+   fail-open behavior when contradictory instructions remained in one
+   semicolon-separated clause. `H4-MUST-002` identified missed requirement-form
+   instructions such as `is required`, `must contain`, and `is mandatory`
+   naming the evidence agent's own post-exit fields. Guard ordering, complete
+   docstring guidance, and non-evidence-role behavior were correct; the
+   reviewer did not run pytest.
+3. **Revision — `H4-evidence-brief-revision` (Luna).** Receipt
+   `receipts/H4-evidence-brief-revision-receipt.json`, SHA-256
+   `224b4d7a61a84ebfbd75a33e8b47b204c5cecf0ff1493e7d86e2afa7d5b6abc7`;
+   wrapper `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H4-evidence-brief-revision.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   wrapper PID `42849`, launcher child PID `42855`;
+   `2026-08-21T15:20:04Z` → `2026-08-21T15:25:40Z`; exit `0`; brief
+   SHA-256 `4415fff3e282ee905f8673a79b891affcbbac101f18010972def0d8c6c44a0a1`;
+   result SHA-256
+   `f04674530370d52607bc425b24d1c4657ca46101dc7f1da04d9d9ead761a8823`.
+   Commit `acec7cc1b2c68dcadb33851947202d5adc04f672`
+   (`fix(exec-spine): repair evidence-brief fail-open guard bypasses`) was
+   based on `4cdabf5d`; it changed exactly the same two implementation/test
+   files. The repair applies per-clause instruction-scope evaluation with
+   semicolon splitting, adds requirement-form detection for
+   `is required`/`must contain`/`is mandatory`/`must include`/`needed in the
+   result`/`expected in the result`, and adds tests for all review
+   counterexamples with a side-effect-free harness.
+4. **Independent re-review — `H4-evidence-brief-rereview` (Luna).** Receipt
+   `receipts/H4-evidence-brief-rereview-receipt.json`, SHA-256
+   `51a55fb0e84ab3855502e2aa5ec8baabef30b17889278f19d62482f8dc04983c`;
+   wrapper `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H4-evidence-brief-rereview.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   wrapper PID `44245`, launcher child PID `44251`;
+   `2026-08-21T15:26:18Z` → `2026-08-21T15:31:20Z`; exit `0`; brief
+   SHA-256 `fdf27bace0c5577fe85d7fcd5b782d25d73fad28405584c4333ee85107a11f0e`;
+   result SHA-256
+   `60e4a2a9add256de6fa5c3f9988447fe2a38a409427b3136f20ed6c044a3a03e`.
+   Disposition: **continue**, `findings: []`. `H4-MUST-001` and
+   `H4-MUST-002` are closed; every supplied counterexample was verified
+   rejected or passed as intended, and no new must or should finding was
+   raised. The bounded phrase set leaves future synonyms such as
+   `finished_at`, `completion timestamp`, `receipt SHA-256`, and
+   `receipt checksum` as acknowledged residual risk, not an open finding.
+5. **Integration — `H4-evidence-brief-integration` (Luna).** Receipt
+   `receipts/H4-evidence-brief-integration-receipt.json`, SHA-256
+   `46cff743b746c3c22ca901d14338a9c6bbaa2d407650cc9aa79fa5a889d99cc1`;
+   wrapper `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/H4-evidence-brief-integration.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   wrapper PID `44884`, launcher child PID `44890`;
+   `2026-08-21T15:32:02Z` → `2026-08-21T15:34:04Z`; exit `0`; brief
+   SHA-256 `768d0d285497a6c11c652ebe992bd1bc5f7f2769df2f845f3ff51bbd11801151`;
+   result SHA-256
+   `1f6ee1b6d8c045a9779f5b5efce1ed12393e2215dc049e9f3acb27e5f5df8644`.
+   The focused wrapper shard ran exactly once:
+   `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider
+   tests/test_run_workflow_execution_spine_agent.py` → `46 passed, 1 warning`,
+   exit `0`. Worktree status was identical before and after. Integration
+   created no commit and fast-forward pushed `da959d56..acec7cc1` via
+   `git push origin HEAD:fixer/workflow-execution-spine-consolidation`;
+   remote, local, and integration target were all verified at `acec7cc1`.
+
+- **Findings/revision/re-review:** The review raised exactly
+  `H4-MUST-001` and `H4-MUST-002`, both mechanical. One revision,
+  `acec7cc1`, repaired per-clause scope and requirement-form detection; the
+  one independent re-review returned `continue` and closed both findings.
+  This satisfies operator §13/§14: exactly one substantive review, exactly
+  one revision, and exactly one re-review.
+- **Tests/evidence:** The integration-recorded focused wrapper shard passed
+  `46 passed, 1 warning`, exit `0`, and ran once. The required read-only
+  evidence validator exits `0` on the committed state with
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+  No other tests were run; no validator or implementation change was made.
+- **Residual risks and recurrence rules:** An execution-log edit requires
+  refreshing `manifest.tasks[5].recovery_note.sha256`. A `test-shards.json`
+  edit requires refreshing every matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256`; both rules are
+  validator-enforced. The pre-existing validator gap remains tracked per
+  adjudication A: `_iter_digest_refs` silently skips malformed non-64-hex
+  digest strings paired with a path; it is a candidate future XHARD card and
+  does not block G1. H4's guard phrase set is intentionally bounded:
+  `finished_at`, `completion timestamp`, `receipt SHA-256`, and
+  `receipt checksum` need deliberate future coverage, while ownership
+  scoping between historical receipt facts and the current evidence agent's
+  own post-exit fields must be preserved. H4 was dispatched while H3 was
+  STOPPED: operator §15 ordering put G1 after the landed H1/H2 micro-patches
+  and defers H3 overlap-narrow to before the T3.1/T3.2 read-only windows;
+  H3 remains escalated pending operator direction.
+- **Controls:** This evidence recording changed no receipt, protected state,
+  source, validator, or runtime/test implementation. No other file, receipt,
+  protected state, branch, or ref changed; no push, merge to `main`,
+  promotion, live/model/runtime/provider call, secret access, or wrapper
+  dispatch occurred in this evidence recording. The earlier H4 integration
+  push is recorded above as prior-card evidence.
+- **Commit/files:** This evidence append is one coherent commit authored by
+  `POM <peter@omalley.io>` with message prefix `docs(exec-spine):`; the
+  changed files are exactly the three allowed files: this execution log,
+  `evidence/manifest.json`, and `evidence/test-shards.json`. No receipt is
+  committed.
+- **Next unblocked card:** `G1-gate-review` — Grok `[XHARD-REVIEW]` gate
+  review of T1.1/T1.2. H3-overlap-narrow remains STOPPED pending operator
+  direction and is deferred to before the T3.1/T3.2 read-only windows per
+  operator §15/Grok ordering.

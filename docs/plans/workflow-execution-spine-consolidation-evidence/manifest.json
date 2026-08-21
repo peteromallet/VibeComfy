@@ -295,7 +295,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "16bed4902c2840932514e98ed1636d455fb01ed6a8fb88bdbf931bad2d16a384",
+        "sha256": "5ccfdcd554297a385fb936d26d03da914ae4004ee7af0300e9d24f0cb1372239",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -405,7 +405,7 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "3bff66145948237de0e44c122beb59a907b9293ae047dc4e8d711d9b688fdee7"},
+        {"path": "test-shards.json", "sha256": "e0b2f750ab984e9d93a94a614caeceb15774d4afb9dce3c1689fa807dc8b718b"},
         {"path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"},
         {"path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"},
         {"path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"},
@@ -506,7 +506,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "3bff66145948237de0e44c122beb59a907b9293ae047dc4e8d711d9b688fdee7", "modified": true},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "e0b2f750ab984e9d93a94a614caeceb15774d4afb9dce3c1689fa807dc8b718b", "modified": true},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
@@ -708,6 +708,168 @@
         "controls": {"merge_to_main": false, "promotion": false, "live_model_runtime_provider_calls": false, "secret_access": false, "protected_state_touched": false, "push_by_evidence_agent": false, "product_tests_run_by_evidence_agent": false, "receipts_committed": false},
         "next_unblocked_action": "operator direction on H3"
       },
+      "h4_chain": {
+        "task_id": "evidence-log-H4",
+        "gate": "",
+        "label": "evidence-log H4: implementer 4cdabf5d, review (MUST-001/002), revision acec7cc1, re-review continue, integration push acec7cc1",
+        "role": "evidence",
+        "status": "complete",
+        "disposition": "continue",
+        "base_sha": "de75b4187fa442147a494be5411ffd0cbc2eab8d",
+        "implementation_commit": "4cdabf5dda30c53b84462c10279f6107a63afd80",
+        "revision_commit": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+        "target_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+        "integration_commit": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+        "changed_files": [
+          "scripts/run_workflow_execution_spine_agent.py",
+          "tests/test_run_workflow_execution_spine_agent.py"
+        ],
+        "receipts": [
+          {
+            "task_id": "H4-evidence-brief",
+            "path": "receipts/H4-evidence-brief-receipt.json",
+            "sha256": "0d44b3e23bc9e5fc5cb6212037d91bbb10b8eb7db2febf297896a77ca17947d4",
+            "brief_sha256": "465a6549ecbbe6e4f5c0625b4769a94c3738f1261e74c43cb35ffcb818d3cba2",
+            "result_sha256": "7be9266ad948a7239bd109bd56c7e65c1249946f99fd09cac4a07b01bcb06d2f",
+            "role": "implementer",
+            "model_route": "codex:gpt-5.6-luna",
+            "wrapper_pid": 41424,
+            "pid": 41430,
+            "start_ts": "2026-08-21T15:03:06Z",
+            "end_ts": "2026-08-21T15:12:24Z",
+            "exit": 0,
+            "base_sha": "de75b4187fa442147a494be5411ffd0cbc2eab8d",
+            "commits": ["4cdabf5dda30c53b84462c10279f6107a63afd80"]
+          },
+          {
+            "task_id": "H4-evidence-brief-review",
+            "path": "receipts/H4-evidence-brief-review-receipt.json",
+            "sha256": "4b9bb4471886a2898bba451ec232762996baf372f2ea03b9b46262e0a6132be8",
+            "brief_sha256": "e255d3de79257d2333f1ef4d594a7b2e29fdcbb7d56c1eefd1b3eef34fa7556c",
+            "result_sha256": "dc3a4902424b7509643ea1a0b4864b0e18bf3b51de48b1e4e358a6dbadc80599",
+            "role": "reviewer",
+            "model_route": "codex:gpt-5.6-luna",
+            "wrapper_pid": 42661,
+            "pid": 42667,
+            "start_ts": "2026-08-21T15:13:31Z",
+            "end_ts": "2026-08-21T15:18:57Z",
+            "exit": 0,
+            "base_sha": "4cdabf5dda30c53b84462c10279f6107a63afd80",
+            "disposition": "correct",
+            "findings": ["H4-MUST-001", "H4-MUST-002"]
+          },
+          {
+            "task_id": "H4-evidence-brief-revision",
+            "path": "receipts/H4-evidence-brief-revision-receipt.json",
+            "sha256": "224b4d7a61a84ebfbd75a33e8b47b204c5cecf0ff1493e7d86e2afa7d5b6abc7",
+            "brief_sha256": "4415fff3e282ee905f8673a79b891affcbbac101f18010972def0d8c6c44a0a1",
+            "result_sha256": "f04674530370d52607bc425b24d1c4657ca46101dc7f1da04d9d9ead761a8823",
+            "role": "implementer",
+            "model_route": "codex:gpt-5.6-luna",
+            "wrapper_pid": 42849,
+            "pid": 42855,
+            "start_ts": "2026-08-21T15:20:04Z",
+            "end_ts": "2026-08-21T15:25:40Z",
+            "exit": 0,
+            "base_sha": "4cdabf5dda30c53b84462c10279f6107a63afd80",
+            "commits": ["acec7cc1b2c68dcadb33851947202d5adc04f672"],
+            "changed_files": [
+              "scripts/run_workflow_execution_spine_agent.py",
+              "tests/test_run_workflow_execution_spine_agent.py"
+            ],
+            "disposition": "pass"
+          },
+          {
+            "task_id": "H4-evidence-brief-rereview",
+            "path": "receipts/H4-evidence-brief-rereview-receipt.json",
+            "sha256": "51a55fb0e84ab3855502e2aa5ec8baabef30b17889278f19d62482f8dc04983c",
+            "brief_sha256": "fdf27bace0c5577fe85d7fcd5b782d25d73fad28405584c4333ee85107a11f0e",
+            "result_sha256": "60e4a2a9add256de6fa5c3f9988447fe2a38a409427b3136f20ed6c044a3a03e",
+            "role": "reviewer",
+            "model_route": "codex:gpt-5.6-luna",
+            "wrapper_pid": 44245,
+            "pid": 44251,
+            "start_ts": "2026-08-21T15:26:18Z",
+            "end_ts": "2026-08-21T15:31:20Z",
+            "exit": 0,
+            "base_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+            "disposition": "continue",
+            "findings": [],
+            "findings_closed": ["H4-MUST-001", "H4-MUST-002"]
+          },
+          {
+            "task_id": "H4-evidence-brief-integration",
+            "path": "receipts/H4-evidence-brief-integration-receipt.json",
+            "sha256": "46cff743b746c3c22ca901d14338a9c6bbaa2d407650cc9aa79fa5a889d99cc1",
+            "brief_sha256": "768d0d285497a6c11c652ebe992bd1bc5f7f2769df2f845f3ff51bbd11801151",
+            "result_sha256": "1f6ee1b6d8c045a9779f5b5efce1ed12393e2215dc049e9f3acb27e5f5df8644",
+            "role": "integration",
+            "model_route": "codex:gpt-5.6-luna",
+            "wrapper_pid": 44884,
+            "pid": 44890,
+            "start_ts": "2026-08-21T15:32:02Z",
+            "end_ts": "2026-08-21T15:34:04Z",
+            "exit": 0,
+            "base_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+            "integration_commit": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+            "commits": [],
+            "changed_files": [],
+            "disposition": "pass",
+            "focused_evidence": {
+              "shard_id": "H4_evidence_brief_guard",
+              "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py",
+              "summary": "46 passed, 1 warning",
+              "exit": 0,
+              "runs_once": true
+            },
+            "integration_push": {
+              "exit": 0,
+              "fast_forward": "da959d56631eb219721a2c06bc8cb66e404f94b5..acec7cc1b2c68dcadb33851947202d5adc04f672",
+              "remote_after": "acec7cc1b2c68dcadb33851947202d5adc04f672",
+              "performed_by_evidence_agent": false
+            }
+          }
+        ],
+        "focused_evidence": {
+          "shard_id": "H4_evidence_brief_guard",
+          "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py",
+          "summary": "46 passed, 1 warning",
+          "exit": 0,
+          "runs_once": true,
+          "tests_run_by_evidence_agent": false
+        },
+        "findings_revisions": [
+          "H4-MUST-001 closed by per-clause instruction-scope evaluation and semicolon splitting.",
+          "H4-MUST-002 closed by requirement-form detection for direct post-exit field requirements.",
+          "Exactly one review, one revision, and one re-review were used per operator §13/§14."
+        ],
+        "residual_risks": [
+          "Guard phrase set is intentionally bounded; finished_at, completion timestamp, receipt SHA-256, and receipt checksum need deliberate future coverage.",
+          "Future evidence briefs must preserve ownership scoping between historical receipt facts and the current evidence agent's own post-exit fields.",
+          "Execution-log edits require refreshing tasks[5].recovery_note.sha256.",
+          "test-shards.json edits require refreshing matching tasks[5].evidence_links[*].sha256 and tasks[6].shard_integrity.sha256.",
+          "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings paired with a path; candidate future XHARD card, not blocking G1.",
+          "H3 remains STOPPED pending operator direction and is deferred to before the T3.1/T3.2 read-only windows per operator §15/Grok ordering."
+        ],
+        "validator": {
+          "command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
+          "exit": 0,
+          "stdout": "OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
+          "output_sha256": "1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224"
+        },
+        "controls": {
+          "merge_to_main": false,
+          "promotion": false,
+          "live_model_runtime_provider_calls": false,
+          "secret_access": false,
+          "protected_state_touched": false,
+          "push_by_evidence_agent": false,
+          "product_tests_run_by_evidence_agent": false,
+          "receipts_committed": false
+        },
+        "next_unblocked_card": "G1-gate-review",
+        "h3_status": "STOPPED pending operator direction; deferred to before the T3.1/T3.2 read-only windows per operator §15/Grok ordering"
+      },
       "findings_closed": ["T1.2-MUST-001", "T1.2-MUST-002"],
       "residual_risks": ["LayerMask remains unsupported until its exact pack schema is supplied; unknown touched schema remains fail-closed.", "H3 is stopped with JUDGMENT_REQUIRED on the contradictory overlap predicate; findings 1 and 3 remain real hazards outside H3's frozen repair.", "Every future append to the execution log changes its digest; every evidence agent that appends MUST refresh manifest.tasks[5].recovery_note.sha256 to the new log digest (validator-enforced).", "Every future edit to test-shards.json changes its digest; every evidence agent that edits it MUST refresh every matching manifest.tasks[5].evidence_links[*].sha256 reference and manifest.tasks[6].shard_integrity.sha256 to the new test-shards.json digest (validator-enforced).", "Pre-existing validator gap: _iter_digest_refs silently skips malformed (non-64-hex) digest strings paired with a path; such a ref passes unchecked. Tracked per adjudication A as a candidate future XHARD validator-hardening card; does not block G1.", "Grok H3 pre-code substantive review body was not persisted; only coherent final-message-only stub tails were available, so this is recorded as JUDGMENT_REQUIRED, not continue.", "H1/H2 residual risks remain unchanged."],
       "controls": {
@@ -734,7 +896,7 @@
         "Change test-shards.json",
         "Modify the prior T1.1 entry"
       ],
-      "next_unblocked_card": "operator-direction-on-H3",
+      "next_unblocked_card": "G1-gate-review",
       "evidence_commit": {
         "required_author": "POM <peter@omalley.io>",
         "message_prefix": "docs(exec-spine):",
