@@ -361,6 +361,79 @@ def _evidence_paths(evidence_dir: Path) -> list[str]:
         return []
     return sorted(path.relative_to(evidence_dir).as_posix() for path in evidence_dir.rglob("*") if path.is_file())
 
+def _finalization_failure_payload(
+    task_id: str,
+    cleanup_attempted: bool,
+    cleanup_error: BaseException | None,
+    release_error: BaseException | None,
+) -> dict[str, Any]:
+    def describe(error: BaseException | None) -> dict[str, str] | None:
+        if error is None:
+            return None
+        return {
+            "type": type(error).__name__,
+            "message": str(error) or repr(error),
+        }
+
+    return {
+        "type": "WRAPPER_FINALIZATION_FAILURE",
+        "task_id": task_id,
+        "cleanup": {
+            "attempted": cleanup_attempted,
+            "succeeded": cleanup_attempted and cleanup_error is None,
+            "error": describe(cleanup_error),
+        },
+        "registry_release": {
+            "attempted": True,
+            "succeeded": release_error is None,
+            "error": describe(release_error),
+        },
+    }
+
+
+def _record_finalization_failure(
+    evidence_dir: Path,
+    receipt_path: Path,
+    receipt: dict[str, Any] | None,
+    failure: dict[str, Any],
+) -> BaseException | None:
+    """Retain finalization failure evidence without hiding the typed failure."""
+    try:
+        failure_path = evidence_dir / f"{failure['task_id']}-finalization-failure.json"
+        failure["evidence_path"] = str(failure_path)
+        failure["receipt"] = str(receipt_path)
+        _json_write(failure_path, failure)
+        if receipt is not None:
+            receipt["finalization"] = failure
+            receipt["evidence"] = _evidence_paths(evidence_dir)
+            _json_write(receipt_path, receipt)
+    except Exception as exc:
+        return exc
+    return None
+
+
+def _finalization_error_message(
+    failure: dict[str, Any],
+    evidence_error: BaseException | None,
+) -> str:
+    parts = ["FINALIZATION_FAILED"]
+    cleanup_error = failure["cleanup"]["error"]
+    release_error = failure["registry_release"]["error"]
+    in_flight_error = failure.get("in_flight_error")
+    if cleanup_error is not None:
+        parts.append(f"ignore probe cleanup failed: {cleanup_error['message']}")
+    if release_error is not None:
+        parts.append(f"registry release failed: {release_error['message']}")
+    if in_flight_error is not None:
+        parts.append(f"in-flight failure: {in_flight_error['message']}")
+    if evidence_error is not None:
+        parts.append(f"failure evidence recording failed: {evidence_error}")
+    return "; ".join(parts)
+
+
+
+
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -414,6 +487,8 @@ def run(args: argparse.Namespace) -> int:
     stderr_bytes = b""
     exit_code = 125
     ignore_probe: tempfile.TemporaryDirectory[str] | None = None
+    receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
+    receipt: dict[str, Any] | None = None
     try:
         launcher_path, resolved_requested = ROUTE_LAUNCHERS[args.model_route]
         executable = os.environ.get("VCSPINE_FAKE_LAUNCHER", launcher_path)
@@ -456,7 +531,6 @@ def run(args: argparse.Namespace) -> int:
             _repo_snapshot(project_dir, evidence_dir, Path(ignore_probe.name)),
         )
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
-        receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
         resolved_match = re.search(r"(?:^|\s)resolved=([^\s]+)", stderr_bytes.decode("utf-8", errors="replace"), re.MULTILINE)
         receipt = {
             "task_id": args.task_id,
@@ -498,10 +572,36 @@ def run(args: argparse.Namespace) -> int:
             raise WrapperError(f"ALLOWANCE_VIOLATION: changed files outside allowance: {', '.join(violation_paths)}")
         return exit_code
     finally:
-        if ignore_probe is not None:
-            ignore_probe.cleanup()
-        _registry_release(evidence_dir, args.task_id, lock_handle)
-
+        in_flight_error = sys.exc_info()[1]
+        cleanup_attempted = False
+        cleanup_error: BaseException | None = None
+        release_error: BaseException | None = None
+        try:
+            try:
+                if ignore_probe is not None:
+                    cleanup_attempted = True
+                    ignore_probe.cleanup()
+            except Exception as exc:
+                cleanup_error = exc
+        finally:
+            try:
+                _registry_release(evidence_dir, args.task_id, lock_handle)
+            except Exception as exc:
+                release_error = exc
+        if cleanup_error is not None or release_error is not None:
+            failure = _finalization_failure_payload(
+                args.task_id,
+                cleanup_attempted,
+                cleanup_error,
+                release_error,
+            )
+            if in_flight_error is not None:
+                failure["in_flight_error"] = {
+                    "type": type(in_flight_error).__name__,
+                    "message": str(in_flight_error) or repr(in_flight_error),
+                }
+            evidence_error = _record_finalization_failure(evidence_dir, receipt_path, receipt, failure)
+            raise WrapperError(_finalization_error_message(failure, evidence_error))
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)

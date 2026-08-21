@@ -19,9 +19,13 @@ assert spec and spec.loader
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
 
-DISPOSABLE_ROOT = Path("/tmp/g0-revision-wrapper")
 WRAPPER_PATH = ROOT / "scripts" / "run_workflow_execution_spine_agent.py"
+wrapper_spec = importlib.util.spec_from_file_location("vcspine_wrapper", WRAPPER_PATH)
+assert wrapper_spec and wrapper_spec.loader
+wrapper = importlib.util.module_from_spec(wrapper_spec)
+wrapper_spec.loader.exec_module(wrapper)
 
+DISPOSABLE_ROOT = Path("/tmp/g0-revision-wrapper-revision2")
 
 def _git(project: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -155,6 +159,83 @@ def test_child_created_path_under_new_ignore_rule_is_reported_and_rejected() -> 
     assert "ALLOWANCE_VIOLATION" in result.stderr
     assert "hidden-created/secret.txt" in receipt["changed_files"]
     assert violation and "hidden-created/secret.txt" in violation["violations"]
+
+
+def test_probe_cleanup_failure_releases_registry_and_returns_typed_failure(monkeypatch, capsys) -> None:
+    DISPOSABLE_ROOT.mkdir(parents=True, exist_ok=True)
+    case_root = Path(tempfile.mkdtemp(prefix="cleanup-failure-", dir=DISPOSABLE_ROOT))
+    project = case_root / "project"
+    evidence = case_root / "evidence"
+    project.mkdir()
+    evidence.mkdir()
+    _git(project, "init", "-q")
+    _git(project, "config", "user.email", "test@example.invalid")
+    _git(project, "config", "user.name", "G0 cleanup failure test")
+    (project / "seed.txt").write_text("seed\n", encoding="utf-8")
+    _git(project, "add", "-A")
+    _git(project, "commit", "-qm", "seed")
+    brief = case_root / "brief.md"
+    brief.write_text("brief\n", encoding="utf-8")
+    allowance = case_root / "allowance.json"
+    allowance.write_text(json.dumps({"allowed": ["allowed.txt"], "forbidden": []}), encoding="utf-8")
+    fake = case_root / "fake_launcher.py"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('fake result')\n"
+        "print('resolved=fake-model', file=__import__('sys').stderr)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+
+    real_probe = wrapper._capture_ignore_baseline(project)
+    probe_path = Path(real_probe.name)
+
+    class FailingProbe:
+        name = real_probe.name
+
+        def cleanup(self) -> None:
+            real_probe.cleanup()
+            raise RuntimeError("simulated ignore-probe cleanup failure")
+
+    monkeypatch.setattr(wrapper, "_capture_ignore_baseline", lambda _project: FailingProbe())
+    monkeypatch.setenv("VCSPINE_FAKE_LAUNCHER", str(fake))
+    task_id = "G0-wrapper-cleanup-failure"
+    result = wrapper.main([
+        f"--task-id={task_id}",
+        "--role=implementer",
+        "--label=G0 [HARD-REVISION] cleanup failure test",
+        "--model-route=codex:gpt-5.6-luna",
+        f"--query-file={brief}",
+        f"--project-dir={project}",
+        f"--allowance-file={allowance}",
+        f"--evidence-dir={evidence}",
+        "--timeout=30",
+    ])
+    captured = capsys.readouterr()
+
+    try:
+        receipt_path = evidence / f"{task_id}-receipt.json"
+        failure_path = evidence / f"{task_id}-finalization-failure.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        registry = json.loads((evidence / "active-allowances.json").read_text(encoding="utf-8"))
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+        assert result == 2
+        assert "FINALIZATION_FAILED" in captured.err
+        assert "Traceback" not in captured.err
+        assert receipt["finalization"]["type"] == "WRAPPER_FINALIZATION_FAILURE"
+        assert receipt["finalization"]["cleanup"] == {
+            "attempted": True,
+            "succeeded": False,
+            "error": {
+                "type": "RuntimeError",
+                "message": "simulated ignore-probe cleanup failure",
+            },
+        }
+        assert failure == receipt["finalization"]
+        assert task_id not in registry
+        assert not probe_path.exists()
+    finally:
+        shutil.rmtree(case_root)
 
 
 def _manifest() -> dict:
