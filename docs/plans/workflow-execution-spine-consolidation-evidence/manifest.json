@@ -91,12 +91,71 @@
         {
           "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-receipt.json",
           "sha256": "2c3b4ad3f8d64a072b22190e9468db1d5cf5e3355b4ba9c95178e5c506c47e06"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-recertification-brief-receipt.json",
+          "sha256": "2defe34899e31dcdf2f225f766f3d454e12cfbb318bd64ae92f0fc22aa470eb5",
+          "result_sha256": "dd82f64ae48d300b40d2e10e60de2c70aa633a2f1e17d18aa04fdfddd40c5166"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-recertification-brief2-receipt.json",
+          "sha256": "4149e3cedd4174c78c9f9a79205ce85ded6826a448f804398a3c11951f627fb8",
+          "result_sha256": "c281935e1b1e3887cf455c3dd07daf629da58657dc270a4e1369df7dbc0e0da8"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-recertification-receipt.json",
+          "sha256": "83ca1deabbd53715d0efd096f79151f0d4d22ac99603f39ea42d1589dc372397",
+          "result_sha256": "8dcecaaf6ef05eda47a2032e5d92b45b929d3e00fe2d0fb5509ecda84ad8b251"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G0-recert-adjudication-receipt.json",
+          "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646",
+          "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38"
         }
       ],
       "changed_files": [],
       "commits": [],
       "disposition": "continue",
       "reviewer": "grok-4.6"
+    },
+    {
+      "task_id": "T0.4",
+      "gate": "G0",
+      "role": "implementer",
+      "label": "T0.4 [XHARD] plan amendment to 50x2/100-leg finale (operator directive)",
+      "model_route": "grok-4.6",
+      "exit": 0,
+      "base_sha": "337debc5e92c63e1aa049b8bc04015738b98d01f",
+      "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-receipt.json",
+      "artifacts": [
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-brief-receipt.json",
+          "sha256": "5f104321dd2f553c381e002a6506a86ac0b3c98cf0393162877aaddb8c308a81",
+          "result_sha256": "1d1c8ac424aa5b78d8cdea9e24ed3c4615e70db9736ee052fd3b0d9d1dc8dc9b"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-review-receipt.json",
+          "sha256": "ea93563e5ee15e08b86822fb426d278d11d9bcf8d945e91baa8d0678a09c58ea",
+          "result_sha256": "d26b080e2e3a46f6127c9908bf71b05bb3f5469b53e463a81ebf639a62b1da91"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-postcommit-review-receipt.json",
+          "sha256": "c69b7c3fe8dfbe3e6d90f8fad2ea3d0b41e9e1732d5b53d4eaf91febdfead64e",
+          "result_sha256": "a658f716f758636642817ee100c885ef4642b23a72b027c343f95b7787c4aa75"
+        },
+        {
+          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-allowance-adjudication-receipt.json",
+          "sha256": "5f55e8aa670a378b4505756f591affbf5832a59fb678a94a0211d5c7065af920",
+          "result_sha256": "fb21fabb395adbf5e39ae36df3fa472794c7e43ba77ef8f2bbccc1afc277242d"
+        }
+      ],
+      "changed_files": [
+        "docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md",
+        "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
+        "docs/plans/workflow-execution-spine-consolidation-plan-2026-08-20.md",
+        "tests/live_agentic_harness/threaded_comparison_manifest_final50.json"
+      ],
+      "commits": ["b34eb5ad8f6ec70053a2d0a1822122ac02a2b2f9"]
     }
   ],
   "shards": [],
