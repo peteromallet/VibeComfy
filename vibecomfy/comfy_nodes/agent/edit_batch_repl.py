@@ -311,9 +311,24 @@ def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
     """Validate the retained-IR candidate through the canonical UI emit door."""
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operations,
+    )
+
     workflow = getattr(session, "last_rendered_workflow", None)
     if workflow is None:
         return
+    landed = tuple(getattr(session, "landed_ops", ()) or ())
+    if landed:
+        admitted = admit_operations(
+            admission_snapshot_for(workflow, getattr(state, "schema_provider", None)),
+            landed,
+            working_workflow=getattr(session, "workflow", None),
+        )
+        if isinstance(admitted, AdmissionRejected):
+            return
     state.edited_workflow = workflow
     _emit_ui_json(
         workflow,

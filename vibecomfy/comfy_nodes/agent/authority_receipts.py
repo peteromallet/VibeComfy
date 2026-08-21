@@ -318,6 +318,19 @@ def recompute_apply(
 
     try:
         workflow = from_ui(dict(submit_graph), schema_provider=schema_provider)
+        from vibecomfy.porting.edit.admit import (
+            AdmissionRejected,
+            admission_snapshot_for,
+            admit_operations,
+        )
+
+        admitted = admit_operations(
+            admission_snapshot_for(workflow, schema_provider),
+            ops,
+            working_workflow=workflow,
+        )
+        if isinstance(admitted, AdmissionRejected):
+            return False, None, admitted.typed_reason, len(ops)
         for op in ops:
             step = interpret(workflow, (op,), schema_provider=schema_provider)
             if not step.ok:

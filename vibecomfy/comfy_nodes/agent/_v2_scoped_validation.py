@@ -128,6 +128,11 @@ def _load_turn_delta_ops(
         return None
     try:
         parse_edit_delta(list(ops))
+        from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+
+        admitted = admit_operations(None, list(ops))
+        if isinstance(admitted, AdmissionRejected):
+            return None
     except ValueError:
         return None
     return ops
@@ -238,6 +243,18 @@ def _load_turn_delta_ops_diagnostic(
         if ops:
             try:
                 parse_edit_delta(ops)
+                from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+
+                admitted = admit_operations(None, ops)
+                if isinstance(admitted, AdmissionRejected):
+                    return {
+                        "shape": "canonical",
+                        "code": "canonical_accepted_batch_malformed_ops",
+                        "detail": {
+                            "reason": admitted.typed_reason,
+                            "op_count": len(ops),
+                        },
+                    }
             except ValueError:
                 return {
                     "shape": "canonical",

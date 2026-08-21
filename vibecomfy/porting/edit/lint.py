@@ -1265,7 +1265,30 @@ def lint_delta(
         except Exception:
             dependency_index = index
 
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+    )
+
+    admission_pair = admission_snapshot_for(None, schema_provider)
     for i, op in enumerate(delta):
+        admitted = admit_operation(admission_pair, op)
+        if isinstance(admitted, AdmissionRejected) and admitted.typed_reason in {
+            "missing_touched_schema",
+            "unsupported_op",
+        }:
+            issue = _make_issue(
+                admitted.typed_reason,
+                admitted.typed_reason,
+                op_index=i,
+                op_kind=getattr(op, "op", None),
+            )
+            issues.append(issue)
+            normalizations.append(
+                LintNormalization(op_index=i, op=op, disposition="rejected", issue=issue)
+            )
+            continue
         linter = _LINTERS.get(op.op)  # type: ignore[union-attr]
         if linter is None:
             issue = _make_issue(

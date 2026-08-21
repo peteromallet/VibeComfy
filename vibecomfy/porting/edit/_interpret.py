@@ -216,8 +216,14 @@ def _interpret_ops(
             # sequential validator before each COW step.  This preserves
             # add-then-link batches while keeping invalid batches atomic.
             if not _op_has_scoped_target(op):
+                from vibecomfy.porting.edit.admit import admission_snapshot_for, admit_operation
                 from vibecomfy.porting.edit._op_validate import _validate_one
 
+                admit_operation(
+                    admission_snapshot_for(post, schema_provider),
+                    op,
+                    working_workflow=post,
+                )
                 _validate_one(post, op, schema_provider)
             # Typed-op callers carry their channel contract in the op (and,
             # for AddNodeOp, its explicit widget_field_names), while Python

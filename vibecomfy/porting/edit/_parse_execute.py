@@ -71,6 +71,17 @@ class _ParseExecuteMixin:
                 cas_old=cas_old,
                 name_hints=self._transient_name_index,
             )
+            if interpreted.ok and interpreted.landed_ops:
+                from vibecomfy.porting.edit.admit import (
+                    admission_snapshot_for,
+                    admit_operations,
+                )
+
+                admit_operations(
+                    admission_snapshot_for(pre_ir, self.schema_provider),
+                    interpreted.landed_ops,
+                    working_workflow=pre_ir,
+                )
             statement_results = [
                 self._statement_result_from_outcome(outcome)
                 for outcome in interpreted.statements

@@ -63,6 +63,33 @@ def verify_apply(
         raise TypeError("verify_apply requires VibeWorkflow pre and post")
 
     claimed_ops = tuple(landed_ops)
+    if claimed_ops:
+        from vibecomfy.porting.edit.admit import (
+            AdmissionRejected,
+            admission_snapshot_for,
+            admit_operations,
+        )
+
+        admitted = admit_operations(
+            admission_snapshot_for(pre, schema_provider),
+            claimed_ops,
+            working_workflow=pre,
+        )
+        if isinstance(admitted, AdmissionRejected) and admitted.typed_reason in {
+            "missing_touched_schema",
+            "unsupported_op",
+        }:
+            return _reject(
+                admitted.typed_reason,
+                (
+                    CompactDiagnostic(
+                        code=admitted.typed_reason,
+                        message=admitted.typed_reason,
+                        severity="error",
+                        detail={"evidence_refs": list(admitted.evidence_refs)},
+                    ),
+                ),
+            )
     diagnostics: list[CompactDiagnostic] = []
 
     self_loop_diag = _new_self_loop_diagnostic(pre, post)

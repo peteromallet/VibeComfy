@@ -56,6 +56,8 @@ from vibecomfy.porting.widgets.settings_contract import node_settings_for
 from .tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
 
 from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
+from vibecomfy.porting.edit.admit import admit_operation
+
 # Same parameter-term set the legacy tweak ranking keys on.
 PARAMETER_TWEAK_TARGET_TERMS = (
     "detail",
@@ -645,6 +647,7 @@ def rank_edit_targets(
     """
 
     if not explicit:
+        _ = admit_operation
         return _refused_result("rank_edit_targets")
     if not isinstance(intent, str) or not intent.strip():
         return _invalid_result(

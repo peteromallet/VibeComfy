@@ -527,6 +527,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         from vibecomfy.porting.edit._diff import diff
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
         from vibecomfy.porting.edit._op_validate import ApplyOpsError, validate_typed_ops
+        from vibecomfy.porting.edit.admit import (
+            AdmissionRejected,
+            admission_snapshot_for,
+            admit_operations,
+        )
         from vibecomfy.porting.edit.apply_gate import verify_apply
         from vibecomfy.porting.emit.ui import guard_exit_ui
 
@@ -565,6 +570,19 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         snapshot = self._snapshot_mutable_state()
         try:
             pre = _cow_workflow_copy(self.workflow)
+            admitted = admit_operations(
+                admission_snapshot_for(pre, self.schema_provider),
+                batch,
+                working_workflow=pre,
+            )
+            if isinstance(admitted, AdmissionRejected):
+                return ApplyOpsResult(
+                    ok=False,
+                    reason=admitted.typed_reason,
+                    diagnostics=(_diag(admitted.typed_reason, admitted.typed_reason, severity="error"),),
+                    revision=self._revision,
+                    retryable=True,
+                )
             try:
                 post = validate_typed_ops(
                     pre, batch, schema_provider=self.schema_provider

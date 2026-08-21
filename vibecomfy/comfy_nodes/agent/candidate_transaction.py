@@ -339,8 +339,26 @@ def missing_touched_class_types(
 
     unknown: set[str] = set()
     ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
+    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
+
     for op in ops if isinstance(ops, list) else ():
         if not isinstance(op, Mapping):
+            continue
+        admitted = admit_operation(catalog, op)
+        if isinstance(admitted, AdmissionRejected) and admitted.typed_reason == "missing_touched_schema":
+            try:
+                require_known_touched_schema(op, catalog)
+            except SchemaSnapshotError:
+                unknown.update(touched_schema_classes(op, catalog))
+                class_type = op.get("class_type")
+                if isinstance(class_type, str) and class_type and (class_type in missing or class_type not in known):
+                    unknown.add(class_type)
+                for identity in _delta_touched_node_identities({"ops": [op]}):
+                    resolved = by_identity.get(identity)
+                    if resolved is None:
+                        unknown.add(identity)
+                    elif resolved in missing or resolved not in known:
+                        unknown.add(resolved)
             continue
         try:
             require_known_touched_schema(op, catalog)

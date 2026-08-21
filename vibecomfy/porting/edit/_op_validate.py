@@ -318,11 +318,25 @@ def validate_typed_ops(
     """Validate *and simulate* an op batch, returning its post-state copy.
 
     The input IR is never mutated. Any invalid operation aborts the whole batch.
-    Sequential simulation is important for add-then-wire batches.
+    Sequential simulation is important for add-then-wire batches. Admission is
+    the T2.1 ``admit_operation`` gateway.
     """
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operations,
+    )
+
+    snapshot = admission_snapshot_for(workflow, schema_provider)
+    result = admit_operations(snapshot, ops, working_workflow=workflow)
+    if isinstance(result, AdmissionRejected):
+        message = next(
+            (ref.split(":", 1)[1] for ref in result.evidence_refs if ref.startswith("reason:")),
+            result.typed_reason,
+        )
+        raise ApplyOpsError(result.typed_reason, message)
     working = workflow
     for op in ops:
-        _validate_one(working, op, schema_provider)
         try:
             working = apply_edit_cow(working, op, schema_provider=schema_provider)
         except ApplyOpsError:

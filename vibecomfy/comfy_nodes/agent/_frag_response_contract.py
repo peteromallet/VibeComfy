@@ -765,6 +765,16 @@ def _validate_delta_evidence_for_apply(
         cumulative,
         allow_absent=allow_absent,
     )
+    if valid and isinstance(cumulative, Mapping):
+        from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+
+        ops = cumulative.get("ops")
+        if isinstance(ops, list) and ops:
+            admitted = admit_operations(None, ops)
+            if isinstance(admitted, AdmissionRejected):
+                valid = False
+                code = admitted.typed_reason
+                detail = {"evidence_refs": list(admitted.evidence_refs)}
     diagnostics["delta_evidence_valid"] = valid
     diagnostics["delta_evidence_code"] = code
     if detail:

@@ -40,6 +40,9 @@ from .projection_registry_v1 import (
 from .mutation_materialization_v1 import build_mutation_materialization_v1
 from .layout_operation_v1 import build_layout_operation_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
+from vibecomfy.porting.edit.admit import admit_operation as _admit_operation
+
+_ = (_admit_operation, parse_edit_delta)
 from ._session_lock import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     LOCK_FILE_NAME,
@@ -3727,12 +3730,28 @@ def record_idempotent_response(
             layout_operation_envelope = build_layout_operation_envelope(
                 submit_graph, candidate_graph
             )
+            from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+
+            layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
+            if isinstance(layout_ops, list) and layout_ops:
+                admitted_layout = admit_operations(None, layout_ops)
+                if isinstance(admitted_layout, AdmissionRejected):
+                    applyable = False
+                    layout_operation_envelope = None
         from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
 
         accepted_batch = stamped_response.get("accepted_batch")
         if not isinstance(accepted_batch, list):
             accepted_batch = []
         accepted_ops = list(_ops_from_accepted_batch(stamped_response))
+        if accepted_ops:
+            from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+
+            admitted_ops = admit_operations(None, accepted_ops)
+            if isinstance(admitted_ops, AdmissionRejected):
+                applyable = False
+                accepted_batch = []
+                accepted_ops = []
         transaction = build_candidate_transaction(
             workflow_id=workflow_id,
             session_id=session_id,

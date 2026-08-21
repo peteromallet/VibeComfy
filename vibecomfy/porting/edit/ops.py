@@ -521,6 +521,7 @@ def require_known_schema_for_operation(
     schema_snapshot: Mapping[str, Any] | SchemaSnapshot | None,
 ) -> None:
     """Fail closed when an operation depends on unknown endpoint/node schema."""
+    from vibecomfy.porting.edit.admit import admit_operation
     from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError, require_known_touched_schema
 
     snapshot = schema_snapshot if isinstance(schema_snapshot, SchemaSnapshot) else _schema_snapshot_from_payload(
@@ -528,6 +529,7 @@ def require_known_schema_for_operation(
     )
     if snapshot is None:
         return
+    admit_operation(snapshot, operation)
     try:
         require_known_touched_schema(operation, snapshot)
     except SchemaSnapshotError as exc:

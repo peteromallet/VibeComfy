@@ -138,6 +138,20 @@ def _normalize_layout_op(raw: Any) -> dict[str, Any]:
             op=op_name,
         )
 
+    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
+
+    admitted = admit_operation(None, raw)
+    if isinstance(admitted, AdmissionRejected) and admitted.typed_reason in {
+        "missing_touched_schema",
+        "unsupported_op",
+        "malformed_layout_op",
+        "missing_identity",
+        "unknown_target",
+        "duplicate_identity",
+    }:
+        raise _fail(admitted.typed_reason, admitted.typed_reason)
+
+
     if op_name == "set_node_geometry":
         extras = sorted(k for k in raw if k not in _SET_NODE_GEOMETRY_KEYS)
         if extras:

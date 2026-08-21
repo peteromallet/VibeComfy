@@ -239,10 +239,27 @@ def apply_edit_tool_call(
     expected_revision: int | None = None,
 ) -> Any:
     """Lower and atomically apply a typed call through ``EditSession``."""
-    return session.apply_ops(
-        lower_edit_tool_call(session, tool, args),
-        expected_revision=expected_revision,
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operations,
     )
+    from vibecomfy.porting.edit._session_types import ApplyOpsResult, _diag
+
+    ops = lower_edit_tool_call(session, tool, args)
+    admitted = admit_operations(
+        admission_snapshot_for(getattr(session, "workflow", None), getattr(session, "schema_provider", None)),
+        ops,
+        working_workflow=getattr(session, "workflow", None),
+    )
+    if isinstance(admitted, AdmissionRejected):
+        return ApplyOpsResult(
+            ok=False,
+            reason=admitted.typed_reason,
+            diagnostics=(_diag(admitted.typed_reason, admitted.typed_reason, severity="error"),),
+            revision=getattr(session, "revision", 0),
+        )
+    return session.apply_ops(ops, expected_revision=expected_revision)
 
 
 __all__ = [
