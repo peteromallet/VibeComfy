@@ -292,6 +292,61 @@
         "cause": "wrapper died during 03:42Z supervisor relaunch teardown before receipt write",
         "classification": "infrastructure anomaly; not a card failure"
       },
+      "recovery_note": {
+        "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
+        "section": "### T1.1 wrapper-death recovery verification-3",
+        "sha256": "d1566ea306cfaca2d46e282074f5987ae6be7516e14d387b6d667ced4be106aa",
+        "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
+      },
+      "wrapper_death_recovery": {
+        "original_wrapper_death": {
+          "task_id": "evidence-log-T1.1",
+          "wrapper_pid": 24373,
+          "wrapper_start_ts": "2026-08-21T05:39:01Z",
+          "child_commit": "f86e6a2afd6e62d5d9113d642c9c66a8469e38b6",
+          "child_commit_ts": "2026-08-21T05:47:21Z",
+          "receipt_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-receipt.json",
+          "receipt_written": false,
+          "result_persisted": false,
+          "allowance_registry_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/active-allowances.json",
+          "allowance_release_state": "{}",
+          "allowance_release_mtime": "2026-08-21T05:48:32Z",
+          "classification": "infrastructure anomaly; not a card failure"
+        },
+        "attempts": [
+          {
+            "task_id": "evidence-log-T1.1-verify",
+            "wrapper_pid": 24931,
+            "start_ts": "2026-08-21T05:54:17Z",
+            "end_ts": "2026-08-21T05:55:06Z",
+            "exit": 0,
+            "result_sha256": "8b1bf05d19386d76eb4e6a148a9bf9d24b126f9437d13a386383eea0620de1db",
+            "changed_files": [],
+            "commits": [],
+            "receipt_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-verify-receipt.json",
+            "disposition": "brief defect; hard-stopped because the brief omitted the three known pre-existing dirty-state exceptions; not a card failure"
+          },
+          {
+            "task_id": "evidence-log-T1.1-verify-2",
+            "wrapper_pid": 25171,
+            "start_ts": "2026-08-21T05:59:46Z",
+            "end_ts": "2026-08-21T06:04:15Z",
+            "exit": 0,
+            "base_sha": "f86e6a2afd6e62d5d9113d642c9c66a8469e38b6",
+            "result_sha256": "33f3903ec37abea56eba03869931a4e1147501d3d78305c0822fa9ed85b267ef",
+            "changed_files": [],
+            "commits": [],
+            "receipt_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-verify-2-receipt.json",
+            "disposition": "brief defect; passed every verification gate but hard-stopped on the self-referential own-receipt-digest/end-timestamp requirement; not a card failure"
+          },
+          {
+            "task_id": "evidence-log-T1.1-verify-3",
+            "wrapper_pid": 25455,
+            "start_ts": "2026-08-21T06:08:21Z",
+            "receipt_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-verify-3-receipt.json"
+          }
+        ]
+      },
       "focused_evidence": {
         "disposable_root": "/tmp/t11-integration-fsRm4h",
         "metadata_path": "/tmp/t11-integration-fsRm4h/metadata.txt",

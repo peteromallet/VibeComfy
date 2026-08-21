@@ -531,3 +531,50 @@ judgment. The original pre-code false stop remains historical evidence only.
   the three allowance files, and is not pushed.
 - **Next unblocked card:** `T1.2 [XHARD]`. Handoff is validator execution by
   the orchestrator, then dispatch of canonical `T1.2`.
+
+### T1.1 wrapper-death recovery verification-3
+
+This append-only recovery note records an infrastructure anomaly and the three
+verification recovery attempts for the preserved evidence commit
+`f86e6a2afd6e62d5d9113d642c9c66a8469e38b6`. It does not re-implement or
+re-review T1.1, and it does not mark `G1` complete.
+
+1. **Original wrapper-death anomaly — `evidence-log-T1.1`.** Wrapper PID
+   `24373` started at `2026-08-21T05:39:01Z`. The child completed and
+   committed `f86e6a2a` at `2026-08-21T05:47:21Z`, but the wrapper died before
+   writing `evidence-log-T1.1-receipt.json`; the result body was not persisted.
+   The allowance was released when `active-allowances.json` became `{}` at
+   mtime `2026-08-21T05:48:32Z`; no receipt exists. This is an infrastructure
+   anomaly, not a card failure.
+2. **First verification recovery attempt — `evidence-log-T1.1-verify`.**
+   Wrapper PID `24931`; interval
+   `2026-08-21T05:54:17Z` → `2026-08-21T05:55:06Z`; exit `0`; result digest
+   `8b1bf05d19386d76eb4e6a148a9bf9d24b126f9437d13a386383eea0620de1db`;
+   `changed_files: []`; `commits: []`. It hard-stopped because its brief
+   omitted the three known pre-existing dirty-state exceptions. This is a
+   brief defect, not a card failure. Its receipt is preserved unchanged at
+   `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-verify-receipt.json`.
+3. **Second verification recovery attempt — `evidence-log-T1.1-verify-2`.**
+   Wrapper PID `25171`; interval
+   `2026-08-21T05:59:46Z` → `2026-08-21T06:04:15Z`; exit `0`; base
+   `f86e6a2a`; result digest
+   `33f3903ec37abea56eba03869931a4e1147501d3d78305c0822fa9ed85b267ef`;
+   `changed_files: []`; `commits: []`. It passed every verification gate but
+   hard-stopped on the self-referential requirement to record its own receipt
+   digest and end timestamp before wrapper exit. This is a brief defect, not a
+   card failure. Its receipt is preserved unchanged at
+   `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-verify-2-receipt.json`.
+4. **Third corrected verification dispatch — `evidence-log-T1.1-verify-3`.**
+   The live registry entry records task ID
+   `evidence-log-T1.1-verify-3`, wrapper PID `25455`, and wrapper start
+   `2026-08-21T06:08:21Z`. Its receipt path is
+   `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-T1.1-verify-3-receipt.json`.
+   This note intentionally records no receipt digest, end timestamp, exit,
+   final commit SHA, or other post-exit wrapper fact; the wrapper writes those
+   after the child exits, and the next evidence agent records them.
+
+Across this recovery sequence: no merge to `main`, no promotion, no live
+model/runtime/provider calls, no secret access, and protected state was
+untouched. The preserved receipts and prior evidence remain unchanged.
+The next unblocked card remains `T1.2 [XHARD]`, after the orchestrator runs the
+evidence validator. `JUDGMENT_REQUIRED`: none.
