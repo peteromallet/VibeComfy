@@ -21,7 +21,10 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from vibecomfy.schema import SchemaSnapshot
 
 from vibecomfy.comfy_nodes.agent.provider import (
     MalformedModelJSON,
@@ -494,14 +497,18 @@ def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
         normalized["id"] = normalized["link_id"]
     return normalized
 
-def _schema_snapshot_from_payload(payload: Mapping[str, Any] | None) -> Any | None:
+def _schema_snapshot_from_payload(payload: Mapping[str, Any] | SchemaSnapshot | None) -> Any | None:
+    from vibecomfy.schema import SchemaSnapshot, schema_snapshot_from_payload
+
     if payload is None:
+        return None
+    if isinstance(payload, SchemaSnapshot):
+        return payload
+    if not isinstance(payload, Mapping):
         return None
     snapshot = payload.get("schema_snapshot") if "schema_snapshot" in payload else payload
     if snapshot is None:
         return None
-    from vibecomfy.schema import SchemaSnapshot, schema_snapshot_from_payload
-
     if isinstance(snapshot, SchemaSnapshot):
         return snapshot
     if isinstance(snapshot, Mapping) and snapshot.get("contract_version") == "schema-snapshot-v1":
@@ -511,23 +518,27 @@ def _schema_snapshot_from_payload(payload: Mapping[str, Any] | None) -> Any | No
 
 def require_known_schema_for_operation(
     operation: Mapping[str, Any] | EditOp,
-    schema_snapshot: Mapping[str, Any] | None,
+    schema_snapshot: Mapping[str, Any] | SchemaSnapshot | None,
 ) -> None:
     """Fail closed when an operation depends on unknown endpoint/node schema."""
-    snapshot = _schema_snapshot_from_payload(schema_snapshot if isinstance(schema_snapshot, Mapping) else None)
+    from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError, require_known_touched_schema
+
+    snapshot = schema_snapshot if isinstance(schema_snapshot, SchemaSnapshot) else _schema_snapshot_from_payload(
+        schema_snapshot if isinstance(schema_snapshot, Mapping) else None
+    )
     if snapshot is None:
         return
-    from vibecomfy.schema import SchemaSnapshotError, require_known_touched_schema
-
     try:
         require_known_touched_schema(operation, snapshot)
     except SchemaSnapshotError as exc:
         raise EditOpParseError(str(exc), code=exc.code, detail={"op": getattr(operation, "op", None)}) from exc
 
 
-
-
-def parse_edit_op(payload: Mapping[str, Any], *, schema_snapshot: Mapping[str, Any] | None = None) -> EditOp:
+def parse_edit_op(
+    payload: Mapping[str, Any],
+    *,
+    schema_snapshot: Mapping[str, Any] | SchemaSnapshot | None = None,
+) -> EditOp:
     data = _normalize_link_wire_names(payload)
     op_name = _require_string(data.get("op"), path="op")
     if schema_snapshot is not None:

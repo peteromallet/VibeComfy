@@ -2398,7 +2398,10 @@ def test_schema_snapshot_unverified_object_info_does_not_beat_cache(tmp_path) ->
 
 
 def test_touched_schema_classes_fail_closed_and_preserve_untouched() -> None:
-    from vibecomfy.porting.edit.ops import EditOpParseError, require_known_schema_for_operation
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        missing_touched_class_types,
+    )
+    from vibecomfy.porting.edit.ops import EditOpParseError, parse_edit_op, require_known_schema_for_operation
     from vibecomfy.schema import (
         SchemaSnapshotError,
         capture_schema_snapshot,
@@ -2416,28 +2419,196 @@ def test_touched_schema_classes_fail_closed_and_preserve_untouched() -> None:
             }
         },
         connected_object_info_verified=True,
+        node_classes={
+            "3": "KnownPromptNode",
+            "34": "LayerMask: SegmentAnythingUltra V3",
+            "99": "UntouchedUnknownNode",
+        },
     )
-    field_op = {"op": "set_node_field", "target": ["", "KnownPromptNode", "prompt"], "value": "red"}
+    field_op = {"op": "set_node_field", "target": ["", "3", "prompt"], "value": "red"}
     add_op = {"op": "add_node", "class_type": "LayerMask: SegmentAnythingUltra V3", "uid": "34"}
-    link_op = {"op": "upsert_link", "from": ["", "KnownPromptNode", 0], "to": ["", "LayerMask: SegmentAnythingUltra V3", "image"]}
-    mode_op = {"op": "set_mode", "target": ["", "KnownPromptNode"], "mode": 0}
-    layout_op = {"op": "set_node_geometry", "uid": "KnownPromptNode", "pos": [0, 0], "size": [10, 10]}
-    untouched = {"op": "set_node_field", "target": ["", "UntouchedUnknownNode", "x"], "value": 1}
+    link_op = {"op": "upsert_link", "from": ["", "3", 0], "to": ["", "34", "image"]}
+    mode_op = {"op": "set_mode", "target": ["", "3"], "mode": 0}
+    layout_op = {"op": "set_node_geometry", "uid": "3", "pos": [0, 0], "size": [10, 10]}
+    layout_unknown = {"op": "set_node_geometry", "uid": "34", "pos": [1, 1], "size": [10, 10]}
+    group_layout = {"op": "set_group_geometry", "id": "g1", "bounding": [0, 0, 1, 1]}
+    subgraph_layout = {"op": "subgraph_interface", "action": "change", "name": "inner", "id": "sg1", "inputs": [], "outputs": []}
+    remove_op = {"op": "remove_node", "target": ["", "3"]}
+    unrelated = {"op": "set_node_field", "target": ["", "3", "prompt"], "value": "ok"}
 
     assert "KnownPromptNode" in touched_schema_classes(field_op, snapshot)
+    assert "KnownPromptNode" in touched_schema_classes(mode_op, snapshot)
+    assert "KnownPromptNode" in touched_schema_classes(layout_op, snapshot)
+    assert "KnownPromptNode" in touched_schema_classes(remove_op, snapshot)
+    assert "KnownPromptNode" in touched_schema_classes(link_op, snapshot)
+    assert "LayerMask: SegmentAnythingUltra V3" in touched_schema_classes(link_op, snapshot)
+    assert "UntouchedUnknownNode" not in touched_schema_classes(unrelated, snapshot)
     require_known_touched_schema(field_op, snapshot)
     require_known_touched_schema(mode_op, snapshot)
     require_known_touched_schema(layout_op, snapshot)
+    require_known_touched_schema(remove_op, snapshot)
+    require_known_touched_schema(group_layout, snapshot)
+    require_known_touched_schema(subgraph_layout, snapshot)
+    parse_edit_op(field_op, schema_snapshot=snapshot)
     with pytest.raises(SchemaSnapshotError, match="missing_touched_schema"):
         require_known_touched_schema(add_op, snapshot)
     with pytest.raises(SchemaSnapshotError, match="missing_touched_schema"):
         require_known_touched_schema(link_op, snapshot)
     with pytest.raises(SchemaSnapshotError, match="missing_touched_schema"):
-        require_known_touched_schema(untouched, snapshot)
+        require_known_touched_schema(layout_unknown, snapshot)
     with pytest.raises(EditOpParseError, match="missing_touched_schema"):
         require_known_schema_for_operation(add_op, schema_snapshot_to_payload(snapshot))
+    with pytest.raises(EditOpParseError, match="missing_touched_schema"):
+        parse_edit_op(layout_unknown, schema_snapshot=snapshot)
     assert "UntouchedUnknownNode" in snapshot.missing_classes
     assert "KnownPromptNode" not in snapshot.missing_classes
+
+    graph = {
+        "nodes": [
+            {"id": "3", "type": "KnownPromptNode"},
+            {"id": "34", "type": "LayerMask: SegmentAnythingUltra V3"},
+            {"id": "99", "type": "UntouchedUnknownNode"},
+        ]
+    }
+    witness = {
+        "contract_version": "candidate_schema_witness_v1",
+        "provider_mode": "frozen",
+        "schemas": dict(snapshot.schemas),
+        "missing_class_types": list(snapshot.missing_classes),
+        "schema_snapshot": schema_snapshot_to_payload(snapshot),
+    }
+    assert missing_touched_class_types(
+        schema_witness=witness,
+        submit_graph=graph,
+        candidate_payload=graph,
+        delta_envelope={"ops": [layout_unknown, group_layout, subgraph_layout]},
+    ) == ("LayerMask: SegmentAnythingUltra V3",)
+    assert missing_touched_class_types(
+        schema_witness=witness,
+        submit_graph=graph,
+        candidate_payload=graph,
+        delta_envelope={"ops": [unrelated]},
+    ) == ()
+
+
+def test_schema_witness_binds_snapshot_and_rejects_tamper() -> None:
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        FrozenSchemaProvider,
+        SCHEMA_WITNESS_CONTRACT_VERSION,
+        build_schema_witness,
+        content_hash,
+        validate_schema_witness,
+    )
+    from vibecomfy.schema import capture_schema_snapshot, schema_snapshot_to_payload
+
+    snapshot = capture_schema_snapshot(
+        class_types=["KnownPromptNode"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+        node_classes={"3": "KnownPromptNode"},
+    )
+
+    class _Provider:
+        def __init__(self, frozen):
+            self.snapshot = frozen
+
+        def get_schema(self, class_type):
+            return None
+
+    graph = {"nodes": [{"id": "3", "type": "KnownPromptNode"}]}
+    witness = build_schema_witness(
+        schema_provider=_Provider(snapshot),
+        submit_graph=graph,
+        candidate_payload=graph,
+        delta_envelope={"ops": [{"op": "set_node_field", "target": ["", "3", "prompt"], "value": "red"}]},
+    )
+    assert witness["schema_snapshot"] is not None
+    original_hash = witness["witness_hash"]
+    mutated_snapshot = dict(witness["schema_snapshot"])
+    mutated_snapshot["schemas"] = {
+        "EvilNode": {
+            "class_type": "EvilNode",
+            "pack": None,
+            "inputs": {},
+            "input_order": [],
+            "outputs": [],
+            "provenance": {"source_provider": "tamper"},
+        }
+    }
+    tampered = dict(witness)
+    tampered["schema_snapshot"] = mutated_snapshot
+    tampered["witness_hash"] = original_hash
+    ok, error = validate_schema_witness(tampered)
+    assert ok is False
+    assert error in {"invalid_schema_snapshot", "schema_witness_hash_mismatch"}
+    replay = FrozenSchemaProvider(witness)
+    assert list(replay.schemas()) == ["KnownPromptNode"]
+    with pytest.raises(Exception, match="ambient"):
+        replay.lookup_ambient("KnownPromptNode")
+
+    disagreeing = dict(witness)
+    disagreeing["schemas"] = dict(witness["schemas"])
+    disagreeing["schemas"]["ExtraNode"] = {
+        "class_type": "ExtraNode",
+        "pack": None,
+        "inputs": {},
+        "input_order": [],
+        "outputs": [],
+        "provenance": {},
+    }
+    disagreeing["witness_hash"] = content_hash({
+        "contract_version": disagreeing["contract_version"],
+        "provider_mode": disagreeing["provider_mode"],
+        "schemas": disagreeing["schemas"],
+        "missing_class_types": disagreeing["missing_class_types"],
+        "schema_snapshot": disagreeing["schema_snapshot"],
+    })
+    ok, error = validate_schema_witness(disagreeing)
+    assert ok is False
+    assert error == "invalid_schema_snapshot"
+
+    historic_body = {
+        "contract_version": SCHEMA_WITNESS_CONTRACT_VERSION,
+        "provider_mode": "frozen",
+        "schemas": dict(snapshot.schemas),
+        "missing_class_types": [],
+    }
+    historic = {
+        **historic_body,
+        "schema_snapshot": None,
+        "witness_hash": content_hash(historic_body),
+    }
+    ok, error = validate_schema_witness(historic)
+    assert ok is True
+    assert error is None
+    historic_replay = FrozenSchemaProvider(historic)
+    assert list(historic_replay.schemas()) == ["KnownPromptNode"]
+    with pytest.raises(Exception, match="ambient"):
+        historic_replay.lookup_ambient("KnownPromptNode")
+
+    rebuilt = capture_schema_snapshot(
+        class_types=["KnownPromptNode"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+        node_classes={"3": "KnownPromptNode"},
+    )
+    payload_a = schema_snapshot_to_payload(snapshot)
+    payload_b = schema_snapshot_to_payload(rebuilt)
+    assert payload_a["node_classes"] == {"3": "KnownPromptNode"}
+    hash_with = content_hash({**historic_body, "schema_snapshot": payload_a})
+    hash_without = content_hash(historic_body)
+    assert hash_with != hash_without
+    assert payload_a["content_digest"] == payload_b["content_digest"]
 
 
 def test_positional_alias_is_not_durable_schema_authority() -> None:

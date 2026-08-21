@@ -241,7 +241,7 @@ def _graph_node_class_by_identity(
 def _delta_touched_node_identities(
     delta_envelope: Mapping[str, Any] | None,
 ) -> set[str]:
-    """Return node uids referenced by canonical delta operations."""
+    """Return node uids referenced by canonical delta and layout operations."""
     touched: set[str] = set()
     ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
     for op in ops if isinstance(ops, list) else ():
@@ -257,6 +257,13 @@ def _delta_touched_node_identities(
                 and ref[1] is not None
             ):
                 touched.add(str(ref[1]))
+            elif isinstance(ref, Mapping):
+                for key in ("uid", "id", "node_id"):
+                    value = ref.get(key)
+                    if value is not None and str(value):
+                        touched.add(str(value))
+            elif isinstance(ref, (str, int)) and str(ref):
+                touched.add(str(ref))
 
         if op_name in {"set_node_field", "set_mode", "remove_node"}:
             add_ref(op.get("target"))
@@ -277,6 +284,10 @@ def _delta_touched_node_identities(
                 if isinstance(between, Sequence) and not isinstance(between, (str, bytes)):
                     for ref in between:
                         add_ref(ref)
+        elif op_name in {"set_node_geometry", "add_group", "set_group_geometry", "remove_group", "subgraph_interface"}:
+            add_ref(op.get("uid"))
+            add_ref(op.get("id"))
+            add_ref(op.get("node_id"))
     return touched
 
 
@@ -294,33 +305,61 @@ def missing_touched_class_types(
     classes cannot be authoritative without its schema, so it must fail before
     publication rather than falling back to positional widget semantics.
     """
+    from vibecomfy.schema import require_known_touched_schema
+    from vibecomfy.schema.types import SchemaSnapshotError
+
     raw_missing = schema_witness.get("missing_class_types")
     missing = {
         str(class_type)
         for class_type in raw_missing if isinstance(class_type, str) and class_type
     } if isinstance(raw_missing, list) else set()
-    if not missing:
-        return ()
+    snapshot = schema_witness.get("schema_snapshot") if isinstance(schema_witness, Mapping) else None
+    snapshot_missing = snapshot.get("missing_classes") if isinstance(snapshot, Mapping) else None
+    if isinstance(snapshot_missing, list):
+        missing.update(str(item) for item in snapshot_missing if isinstance(item, str) and item)
+    raw_schemas = snapshot.get("schemas") if isinstance(snapshot, Mapping) else schema_witness.get("schemas")
+    known = set(str(name) for name in raw_schemas) if isinstance(raw_schemas, Mapping) else set()
 
     by_identity = _graph_node_class_by_identity(submit_graph)
     by_identity.update(_graph_node_class_by_identity(candidate_payload))
-    touched = {
-        by_identity[identity]
-        for identity in _delta_touched_node_identities(delta_envelope)
-        if identity in by_identity
-    }
-    touched.update(_delta_class_types(delta_envelope))
-    snapshot = schema_witness.get("schema_snapshot") if isinstance(schema_witness, Mapping) else None
+    if isinstance(snapshot, Mapping):
+        node_classes = snapshot.get("node_classes")
+        if isinstance(node_classes, Mapping):
+            for uid, class_type in node_classes.items():
+                if str(uid) and isinstance(class_type, str) and class_type:
+                    by_identity[str(uid)] = class_type
+
+    catalog: dict[str, Any]
+    if isinstance(snapshot, Mapping):
+        catalog = dict(snapshot)
+    else:
+        catalog = dict(schema_witness)
+        catalog.setdefault("missing_classes", list(missing))
+    catalog["node_classes"] = by_identity
+
+    unknown: set[str] = set()
     ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
-    if isinstance(ops, list):
-        catalog = snapshot if isinstance(snapshot, Mapping) else schema_witness
-        for op in ops:
-            if not isinstance(op, Mapping):
-                continue
+    for op in ops if isinstance(ops, list) else ():
+        if not isinstance(op, Mapping):
+            continue
+        try:
+            require_known_touched_schema(op, catalog)
+        except SchemaSnapshotError:
+            unknown.update(touched_schema_classes(op, catalog))
+            class_type = op.get("class_type")
+            if isinstance(class_type, str) and class_type and (class_type in missing or class_type not in known):
+                unknown.add(class_type)
+            for identity in _delta_touched_node_identities({"ops": [op]}):
+                resolved = by_identity.get(identity)
+                if resolved is None:
+                    unknown.add(identity)
+                elif resolved in missing or resolved not in known:
+                    unknown.add(resolved)
+        else:
             for class_type in touched_schema_classes(op, catalog):
-                if class_type in missing:
-                    touched.add(class_type)
-    return tuple(sorted(touched & missing))
+                if class_type in missing or class_type not in known:
+                    unknown.add(class_type)
+    return tuple(sorted(unknown))
 
 
 
@@ -382,6 +421,8 @@ def build_schema_witness(
     snapshot = capture_schema_snapshot(
         class_types=sorted(class_types),
         request_snapshot=request_snapshot,
+        node_classes=_graph_node_class_by_identity(submit_graph)
+        | _graph_node_class_by_identity(candidate_payload),
     )
     schemas: dict[str, Any] = dict(snapshot.schemas)
     missing: list[str] = list(snapshot.missing_classes)
@@ -404,25 +445,29 @@ def build_schema_witness(
                 "timestamp": snapshot.timestamp,
                 "version": snapshot.version,
                 "conflicts": list(snapshot.conflicts),
+                "node_classes": dict(snapshot.node_classes),
             },
+            node_classes=snapshot.node_classes,
         )
         schemas = dict(snapshot.schemas)
         missing = list(snapshot.missing_classes)
         for class_type in sorted(class_types):
             if class_type not in schemas and class_type not in missing:
                 missing.append(class_type)
+    snapshot_payload = schema_snapshot_to_payload(snapshot)
     body = {
         "contract_version": SCHEMA_WITNESS_CONTRACT_VERSION,
         "provider_mode": "none" if schema_provider is None else "frozen",
         "schemas": schemas,
         "missing_class_types": missing,
-        "schema_snapshot": schema_snapshot_to_payload(snapshot),
+        "schema_snapshot": snapshot_payload,
     }
     return {**body, "witness_hash": content_hash({
         "contract_version": body["contract_version"],
         "provider_mode": body["provider_mode"],
         "schemas": body["schemas"],
         "missing_class_types": body["missing_class_types"],
+        "schema_snapshot": body["schema_snapshot"],
     })}
 
 
@@ -431,12 +476,15 @@ def validate_schema_witness(witness: Any) -> tuple[bool, str | None]:
         return False, "missing_schema_witness"
     if witness.get("contract_version") != SCHEMA_WITNESS_CONTRACT_VERSION:
         return False, "unsupported_schema_witness"
-    body = {
+    snapshot_payload = witness.get("schema_snapshot")
+    body: dict[str, Any] = {
         "contract_version": witness.get("contract_version"),
         "provider_mode": witness.get("provider_mode"),
         "schemas": witness.get("schemas"),
         "missing_class_types": witness.get("missing_class_types"),
     }
+    if snapshot_payload is not None:
+        body["schema_snapshot"] = snapshot_payload
     if not isinstance(body["schemas"], Mapping) or not isinstance(
         body["missing_class_types"], list
     ):
@@ -444,14 +492,23 @@ def validate_schema_witness(witness: Any) -> tuple[bool, str | None]:
     if body["provider_mode"] not in {"none", "frozen"}:
         return False, "malformed_schema_provider_mode"
     if witness.get("witness_hash") != content_hash(body):
+        if snapshot_payload is not None:
+            return False, "invalid_schema_snapshot"
         return False, "schema_witness_hash_mismatch"
-    snapshot_payload = witness.get("schema_snapshot")
     if snapshot_payload is not None:
         if not isinstance(snapshot_payload, Mapping):
             return False, "malformed_schema_snapshot"
         try:
-            FrozenSchemaSnapshotProvider(snapshot_payload)
+            frozen = FrozenSchemaSnapshotProvider(snapshot_payload)
         except Exception:
+            return False, "invalid_schema_snapshot"
+        snapshot_schemas = set(str(name) for name in frozen.snapshot.schemas)
+        snapshot_missing = set(frozen.snapshot.missing_classes)
+        witness_schemas = set(str(name) for name in body["schemas"])
+        witness_missing = {
+            str(item) for item in body["missing_class_types"] if isinstance(item, str)
+        }
+        if snapshot_schemas != witness_schemas or snapshot_missing != witness_missing:
             return False, "invalid_schema_snapshot"
     return True, None
 
@@ -459,24 +516,15 @@ def validate_schema_witness(witness: Any) -> tuple[bool, str | None]:
 class FrozenSchemaProvider:
     """Schema provider reconstructed exclusively from a persisted witness.
 
-    When a SchemaSnapshot is present, reconstruction uses that snapshot and
-    forbids ambient lookup. Otherwise the historic per-class witness payload
-    is used.
+    Replay reconstructs from the hashed per-class payload. A bound
+    ``schema_snapshot`` must agree with that payload; historic witnesses
+    without a snapshot stay on the per-class path. Ambient lookup is forbidden.
     """
 
     def __init__(self, witness: Mapping[str, Any]) -> None:
         ok, error = validate_schema_witness(witness)
         if not ok:
             raise ValueError(error or "invalid_schema_witness")
-        snapshot_payload = witness.get("schema_snapshot")
-        if isinstance(snapshot_payload, Mapping):
-            frozen = FrozenSchemaSnapshotProvider(snapshot_payload)
-            self._snapshot = frozen.snapshot
-            self._schemas = frozen.schemas()
-            self._frozen_snapshot_provider = frozen
-            return
-        self._snapshot = None
-        self._frozen_snapshot_provider = None
         from vibecomfy.schema.types import node_schema_from_payload
 
         self._schemas = {}
@@ -487,6 +535,14 @@ class FrozenSchemaProvider:
             if not isinstance(class_type, str) or not isinstance(raw, Mapping):
                 continue
             self._schemas[class_type] = node_schema_from_payload(class_type, raw)
+        snapshot_payload = witness.get("schema_snapshot")
+        if isinstance(snapshot_payload, Mapping):
+            frozen = FrozenSchemaSnapshotProvider(snapshot_payload)
+            self._snapshot = frozen.snapshot
+            self._frozen_snapshot_provider = frozen
+        else:
+            self._snapshot = None
+            self._frozen_snapshot_provider = None
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)

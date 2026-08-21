@@ -86,6 +86,7 @@ class SchemaSnapshot:
     schemas: Mapping[str, Any]
     missing_classes: tuple[str, ...]
     input_order: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    node_classes: Mapping[str, str] = field(default_factory=dict)
     workflow_observation_authoritative: bool = False
     ambient_lookup_forbidden: bool = True
 
@@ -238,7 +239,7 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
 
 
 def schema_snapshot_to_payload(snapshot: SchemaSnapshot) -> dict[str, Any]:
-    return {
+    payload = {
         "contract_version": SCHEMA_SNAPSHOT_VERSION,
         "identity": {
             "runtime_fingerprint": snapshot.identity.runtime_fingerprint,
@@ -261,6 +262,14 @@ def schema_snapshot_to_payload(snapshot: SchemaSnapshot) -> dict[str, Any]:
         "workflow_observation_authoritative": False,
         "ambient_lookup_forbidden": True,
     }
+    node_classes = {
+        str(uid): str(class_type)
+        for uid, class_type in snapshot.node_classes.items()
+        if str(uid) and str(class_type)
+    }
+    if node_classes:
+        payload["node_classes"] = node_classes
+    return payload
 
 
 def schema_snapshot_from_payload(payload: Mapping[str, Any]) -> SchemaSnapshot:
@@ -286,6 +295,12 @@ def schema_snapshot_from_payload(payload: Mapping[str, Any]) -> SchemaSnapshot:
         if isinstance(names, list)
     }
     missing = payload.get("missing_classes")
+    node_classes_raw = payload.get("node_classes")
+    node_classes = {
+        str(uid): str(class_type)
+        for uid, class_type in (node_classes_raw.items() if isinstance(node_classes_raw, Mapping) else ())
+        if str(uid) and isinstance(class_type, str) and class_type
+    }
     snapshot = SchemaSnapshot(
         identity=SchemaSnapshotIdentity(
             runtime_fingerprint=identity_raw.get("runtime_fingerprint")
@@ -309,6 +324,7 @@ def schema_snapshot_from_payload(payload: Mapping[str, Any]) -> SchemaSnapshot:
         schemas=schemas,
         missing_classes=tuple(str(item) for item in missing if isinstance(item, str)) if isinstance(missing, list) else (),
         input_order=input_order,
+        node_classes=node_classes,
         workflow_observation_authoritative=False,
         ambient_lookup_forbidden=True,
     )
@@ -319,7 +335,7 @@ def schema_snapshot_from_payload(payload: Mapping[str, Any]) -> SchemaSnapshot:
 
 
 def _digest_body(snapshot: SchemaSnapshot) -> dict[str, Any]:
-    return {
+    body = {
         "contract_version": SCHEMA_SNAPSHOT_VERSION,
         "identity": {
             "runtime_fingerprint": snapshot.identity.runtime_fingerprint,
@@ -341,6 +357,14 @@ def _digest_body(snapshot: SchemaSnapshot) -> dict[str, Any]:
         "workflow_observation_authoritative": False,
         "ambient_lookup_forbidden": True,
     }
+    node_classes = {
+        str(uid): str(class_type)
+        for uid, class_type in snapshot.node_classes.items()
+        if str(uid) and str(class_type)
+    }
+    if node_classes:
+        body["node_classes"] = node_classes
+    return body
 
 
 def capture_schema_snapshot(
@@ -356,6 +380,7 @@ def capture_schema_snapshot(
     timestamp: str | None = None,
     generation: int | None = None,
     workflow_observation: Mapping[str, Any] | None = None,
+    node_classes: Mapping[str, str] | None = None,
 ) -> SchemaSnapshot:
     """Freeze schema authority at ingress.
 
@@ -503,6 +528,29 @@ def capture_schema_snapshot(
             if class_type not in schemas and class_type not in missing:
                 missing.append(class_type)
 
+    frozen_node_classes: dict[str, str] = {}
+    inherited = None
+    if isinstance(request_snapshot, SchemaSnapshot):
+        inherited = request_snapshot.node_classes
+    elif isinstance(request_snapshot, Mapping):
+        inherited = request_snapshot.get("node_classes")
+    if inherited is None:
+        inherited = node_classes
+    if isinstance(inherited, Mapping):
+        frozen_node_classes = {
+            str(uid): str(class_type)
+            for uid, class_type in inherited.items()
+            if str(uid) and isinstance(class_type, str) and class_type
+        }
+    if isinstance(node_classes, Mapping):
+        frozen_node_classes.update(
+            {
+                str(uid): str(class_type)
+                for uid, class_type in node_classes.items()
+                if str(uid) and isinstance(class_type, str) and class_type
+            }
+        )
+
     snapshot = SchemaSnapshot(
         identity=identity,
         content_digest="",
@@ -515,6 +563,7 @@ def capture_schema_snapshot(
         schemas=schemas,
         missing_classes=tuple(dict.fromkeys(missing)),
         input_order=input_order,
+        node_classes=frozen_node_classes,
         workflow_observation_authoritative=False,
         ambient_lookup_forbidden=True,
     )
@@ -531,6 +580,7 @@ def capture_schema_snapshot(
         schemas=snapshot.schemas,
         missing_classes=snapshot.missing_classes,
         input_order=snapshot.input_order,
+        node_classes=snapshot.node_classes,
         workflow_observation_authoritative=False,
         ambient_lookup_forbidden=True,
     )
@@ -564,70 +614,115 @@ def _add_identity(bucket: set[str], ref: Any) -> None:
         bucket.add(ref)
 
 
-def touched_schema_classes(operation: Any, snapshot: SchemaSnapshot | Mapping[str, Any] | None) -> tuple[str, ...]:
-    """Return schema classes whose validity is required by *operation*.
+def _snapshot_node_class_map(snapshot: SchemaSnapshot | Mapping[str, Any] | None) -> dict[str, str]:
+    """Return uid/id -> class_type from a snapshot. Never treats uid as class."""
+    if isinstance(snapshot, SchemaSnapshot):
+        return {
+            str(uid): str(class_type)
+            for uid, class_type in snapshot.node_classes.items()
+            if str(uid) and str(class_type)
+        }
+    if not isinstance(snapshot, Mapping):
+        return {}
+    raw = snapshot.get("node_classes")
+    if not isinstance(raw, Mapping):
+        return {}
+    return {
+        str(uid): str(class_type)
+        for uid, class_type in raw.items()
+        if str(uid) and isinstance(class_type, str) and class_type
+    }
 
-    Covers field, add/remove, link/socket, mode, and layout operations.
-    Unknown untouched nodes are not returned and remain preserved.
-    Identities are returned only when they are themselves class types present
-    in the snapshot's known or missing sets, or when the operation names a
-    class_type directly.
+
+def _snapshot_known_and_missing(
+    snapshot: SchemaSnapshot | Mapping[str, Any] | None,
+) -> tuple[set[str], set[str]]:
+    if isinstance(snapshot, SchemaSnapshot):
+        known = set(str(name) for name in snapshot.schemas)
+        missing = set(snapshot.missing_classes)
+        return known, missing
+    if isinstance(snapshot, Mapping):
+        schemas = snapshot.get("schemas")
+        known = set(str(name) for name in schemas) if isinstance(schemas, Mapping) else set()
+        raw_missing = snapshot.get("missing_classes") or snapshot.get("missing_class_types")
+        missing = (
+            {str(item) for item in raw_missing if isinstance(item, str)}
+            if isinstance(raw_missing, list)
+            else set()
+        )
+        return known, missing
+    return set(), set()
+
+
+def _operation_schema_endpoints(
+    operation: Mapping[str, Any],
+    snapshot: SchemaSnapshot | Mapping[str, Any] | None = None,
+) -> tuple[set[str], set[str], set[str]]:
+    """Return (required identities, optional identities, explicit class types).
+
+    Required identities fail closed when unmapped. Optional identities
+    (group/subgraph layout records) contribute a class only when mapped.
     """
-    op = _operation_mapping(operation)
-    op_name = str(op.get("op") or "")
-    identities: set[str] = set()
+    op_name = str(operation.get("op") or "")
+    required: set[str] = set()
+    optional: set[str] = set()
     explicit_classes: set[str] = set()
-
-    class_type = op.get("class_type")
+    class_type = operation.get("class_type")
     if isinstance(class_type, str) and class_type:
         explicit_classes.add(class_type)
 
     if op_name in {"set_node_field", "set_mode", "remove_node"}:
-        _add_identity(identities, op.get("target"))
+        _add_identity(required, operation.get("target"))
     elif op_name in {"upsert_link", "remove_link"}:
-        _add_identity(identities, op.get("from") or op.get("source"))
-        _add_identity(identities, op.get("to") or op.get("target"))
+        _add_identity(required, operation.get("from") or operation.get("source"))
+        _add_identity(required, operation.get("to") or operation.get("target"))
     elif op_name == "add_node":
-        if isinstance(op.get("uid"), (str, int)):
-            identities.add(str(op.get("uid")))
-        inputs = op.get("inputs")
+        inputs = operation.get("inputs")
         if isinstance(inputs, Mapping):
             for source in inputs.values():
-                _add_identity(identities, source)
-        anchor = op.get("anchor")
+                _add_identity(required, source)
+        anchor = operation.get("anchor")
         if isinstance(anchor, Mapping):
-            _add_identity(identities, anchor.get("near"))
+            _add_identity(required, anchor.get("near"))
             between = anchor.get("between")
             if isinstance(between, Sequence) and not isinstance(between, (str, bytes)):
                 for ref in between:
-                    _add_identity(identities, ref)
-    elif op_name in {"set_node_geometry", "add_group", "set_group_geometry", "remove_group"}:
-        if isinstance(op.get("uid"), (str, int)):
-            identities.add(str(op.get("uid")))
-        if isinstance(op.get("id"), (str, int)):
-            identities.add(str(op.get("id")))
-    elif op_name == "subgraph_interface":
-        if isinstance(op.get("uid"), (str, int)):
-            identities.add(str(op.get("uid")))
+                    _add_identity(required, ref)
+    elif op_name == "set_node_geometry":
+        if isinstance(operation.get("uid"), (str, int)):
+            required.add(str(operation.get("uid")))
+        if isinstance(operation.get("id"), (str, int)):
+            required.add(str(operation.get("id")))
+        if isinstance(operation.get("node_id"), (str, int)):
+            required.add(str(operation.get("node_id")))
+    elif op_name in {"set_group_geometry", "remove_group", "subgraph_interface"}:
+        node_classes = _snapshot_node_class_map(snapshot)
+        for key in ("uid", "id", "node_id"):
+            value = operation.get(key)
+            if isinstance(value, (str, int)) and str(value):
+                identity = str(value)
+                if identity in node_classes:
+                    optional.add(identity)
+    return required, optional, explicit_classes
 
-    known: set[str] = set()
-    missing: set[str] = set()
-    if isinstance(snapshot, SchemaSnapshot):
-        known = set(str(name) for name in snapshot.schemas)
-        missing = set(snapshot.missing_classes)
-    elif isinstance(snapshot, Mapping):
-        schemas = snapshot.get("schemas")
-        if isinstance(schemas, Mapping):
-            known = set(str(name) for name in schemas)
-        raw_missing = snapshot.get("missing_classes") or snapshot.get("missing_class_types")
-        if isinstance(raw_missing, list):
-            missing = {str(item) for item in raw_missing if isinstance(item, str)}
 
+def touched_schema_classes(operation: Any, snapshot: SchemaSnapshot | Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Return schema classes whose validity is required by *operation*.
+
+    Covers field, add/remove, link/socket, mode, and layout operations.
+    Node uids are resolved through the snapshot node-class map; a uid is never
+    treated as a class type merely because it is a string. Unknown untouched
+    nodes are not returned and remain preserved.
+    """
+    op = _operation_mapping(operation)
+    required, optional, explicit_classes = _operation_schema_endpoints(op, snapshot)
+    node_classes = _snapshot_node_class_map(snapshot)
     classes = set(explicit_classes)
-    catalog = known | missing
-    for identity in identities:
-        if identity in catalog:
-            classes.add(identity)
+    for identity in required | optional:
+        resolved = node_classes.get(identity)
+        if resolved is None:
+            continue
+        classes.add(resolved)
     return tuple(sorted(classes))
 
 
@@ -636,29 +731,23 @@ def require_known_touched_schema(
     snapshot: SchemaSnapshot | Mapping[str, Any] | None,
 ) -> tuple[str, ...]:
     """Fail closed when a touched operation depends on unknown schema."""
-    classes = touched_schema_classes(operation, snapshot)
-    if isinstance(snapshot, SchemaSnapshot):
-        known = set(snapshot.schemas)
-        missing = set(snapshot.missing_classes)
-    elif isinstance(snapshot, Mapping):
-        schemas = snapshot.get("schemas")
-        known = set(str(name) for name in schemas) if isinstance(schemas, Mapping) else set()
-        raw_missing = snapshot.get("missing_classes") or snapshot.get("missing_class_types")
-        missing = {str(item) for item in raw_missing if isinstance(item, str)} if isinstance(raw_missing, list) else set()
-    else:
-        known = set()
-        missing = set()
-    unknown = tuple(
+    op = _operation_mapping(operation)
+    required, _optional, _explicit = _operation_schema_endpoints(op, snapshot)
+    node_classes = _snapshot_node_class_map(snapshot)
+    known, missing = _snapshot_known_and_missing(snapshot)
+    classes = list(touched_schema_classes(operation, snapshot))
+    unresolved = [identity for identity in sorted(required) if identity not in node_classes]
+    unknown = [
         class_type
         for class_type in classes
         if class_type not in known or class_type in missing
-    )
-    if unknown:
+    ]
+    if unresolved or unknown:
         raise SchemaSnapshotError(
-            "missing_touched_schema:" + ",".join(unknown),
+            "missing_touched_schema:" + ",".join([*unresolved, *unknown]),
             code="missing_touched_schema",
         )
-    return classes
+    return tuple(classes)
 
 
 

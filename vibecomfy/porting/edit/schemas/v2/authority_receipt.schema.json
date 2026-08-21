@@ -68,10 +68,6 @@
       "pattern": "^[0-9a-f]{64}$",
       "description": "Digest binding the frozen schema witness."
     },
-    "schema_snapshot": {
-      "type": ["object", "null"],
-      "description": "Immutable SchemaSnapshot frozen at ingress. Replay reconstructs from this object and cannot perform a fresh ambient lookup."
-    },
     "replay": {
       "$ref": "#/$defs/ReplayReceipt",
       "description": "Replay verification result from re-applying the cumulative delta to the submit graph."
