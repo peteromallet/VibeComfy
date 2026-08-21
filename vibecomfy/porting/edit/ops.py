@@ -521,19 +521,33 @@ def require_known_schema_for_operation(
     schema_snapshot: Mapping[str, Any] | SchemaSnapshot | None,
 ) -> None:
     """Fail closed when an operation depends on unknown endpoint/node schema."""
-    from vibecomfy.porting.edit.admit import admit_operation
+    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
     from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError, require_known_touched_schema
 
     snapshot = schema_snapshot if isinstance(schema_snapshot, SchemaSnapshot) else _schema_snapshot_from_payload(
         schema_snapshot if isinstance(schema_snapshot, Mapping) else None
     )
     if snapshot is None:
+        admitted = admit_operation(None, operation)
+        if isinstance(admitted, AdmissionRejected):
+            raise EditOpParseError(
+                admitted.typed_reason,
+                code=admitted.typed_reason,
+                detail={"evidence_refs": list(admitted.evidence_refs), "op": getattr(operation, "op", None)},
+            )
         return
-    admit_operation(snapshot, operation)
+    admitted = admit_operation(snapshot, operation)
+    if isinstance(admitted, AdmissionRejected):
+        raise EditOpParseError(
+            admitted.typed_reason,
+            code=admitted.typed_reason,
+            detail={"evidence_refs": list(admitted.evidence_refs), "op": getattr(operation, "op", None)},
+        )
     try:
         require_known_touched_schema(operation, snapshot)
     except SchemaSnapshotError as exc:
         raise EditOpParseError(str(exc), code=exc.code, detail={"op": getattr(operation, "op", None)}) from exc
+
 
 
 def parse_edit_op(

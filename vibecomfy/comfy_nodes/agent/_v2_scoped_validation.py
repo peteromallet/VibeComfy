@@ -110,6 +110,30 @@ def _load_turn_candidate_graph(
     return None
 
 
+def _admission_snapshot_for_turn(*, session_dir: Path, turn_id: str):
+    """Bind a verified admission snapshot from persisted turn authority."""
+
+    from vibecomfy.porting.edit.admit import snapshot_from_schema_witness
+
+    try:
+        from vibecomfy.comfy_nodes.agent.authority_receipts import load_authority_receipt
+
+        receipt = load_authority_receipt(session_dir / "turns" / turn_id)
+    except Exception:
+        receipt = None
+    witness = getattr(receipt, "schema_witness", None) if receipt is not None else None
+    submit_graph = _load_turn_request_graph(session_dir=session_dir, turn_id=turn_id)
+    workflow = None
+    if isinstance(submit_graph, Mapping):
+        try:
+            from vibecomfy.ingest.normalize import from_ui
+
+            workflow = from_ui(dict(submit_graph))
+        except Exception:
+            workflow = None
+    return snapshot_from_schema_witness(witness, submit_graph=submit_graph, workflow=workflow), workflow
+
+
 def _load_turn_delta_ops(
     *, session_dir: Path, turn_id: str
 ) -> tuple[dict[str, Any], ...] | None:
@@ -130,12 +154,14 @@ def _load_turn_delta_ops(
         parse_edit_delta(list(ops))
         from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
 
-        admitted = admit_operations(None, list(ops))
+        snapshot, workflow = _admission_snapshot_for_turn(session_dir=session_dir, turn_id=turn_id)
+        admitted = admit_operations(snapshot, list(ops), working_workflow=workflow)
         if isinstance(admitted, AdmissionRejected):
             return None
     except ValueError:
         return None
     return ops
+
 
 
 def _iter_legacy_field_changes(payload: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
@@ -245,7 +271,8 @@ def _load_turn_delta_ops_diagnostic(
                 parse_edit_delta(ops)
                 from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
 
-                admitted = admit_operations(None, ops)
+                snapshot, workflow = _admission_snapshot_for_turn(session_dir=session_dir, turn_id=turn_id)
+                admitted = admit_operations(snapshot, ops, working_workflow=workflow)
                 if isinstance(admitted, AdmissionRejected):
                     return {
                         "shape": "canonical",

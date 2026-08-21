@@ -63,11 +63,14 @@ def verify_apply(
         raise TypeError("verify_apply requires VibeWorkflow pre and post")
 
     claimed_ops = tuple(landed_ops)
+    diagnostics: list[CompactDiagnostic] = []
+    admission_reason: str | None = None
     if claimed_ops:
         from vibecomfy.porting.edit.admit import (
             AdmissionRejected,
             admission_snapshot_for,
             admit_operations,
+            rejected_ops_are_invisible,
         )
 
         admitted = admit_operations(
@@ -75,22 +78,17 @@ def verify_apply(
             claimed_ops,
             working_workflow=pre,
         )
-        if isinstance(admitted, AdmissionRejected) and admitted.typed_reason in {
-            "missing_touched_schema",
-            "unsupported_op",
-        }:
-            return _reject(
-                admitted.typed_reason,
-                (
-                    CompactDiagnostic(
-                        code=admitted.typed_reason,
-                        message=admitted.typed_reason,
-                        severity="error",
-                        detail={"evidence_refs": list(admitted.evidence_refs)},
-                    ),
-                ),
+        if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
+            admission_reason = admitted.typed_reason
+            diagnostics.append(
+                CompactDiagnostic(
+                    code=admitted.typed_reason,
+                    message=admitted.typed_reason,
+                    severity="error",
+                    detail={"evidence_refs": list(admitted.evidence_refs)},
+                )
             )
-    diagnostics: list[CompactDiagnostic] = []
+
 
     self_loop_diag = _new_self_loop_diagnostic(pre, post)
     if self_loop_diag is not None:
@@ -114,7 +112,10 @@ def verify_apply(
     claimed_edit = bool(claimed_ops) or bool(delta)
 
     if not claimed_edit or editable_signature(pre) == editable_signature(post):
+        if admission_reason is not None:
+            return _reject(admission_reason, diagnostics)
         return ApplyGateResult(ok=True, apply_eligible=False, reason="empty_delta")
+
 
     from vibecomfy.porting.edit._diff import diff
 
@@ -145,6 +146,8 @@ def verify_apply(
         diagnostics.append(reconstruct_diag)
         return _reject("replay_mismatch", diagnostics)
 
+    if admission_reason is not None:
+        return _reject(admission_reason, diagnostics)
     return ApplyGateResult(ok=True, apply_eligible=True)
 
 

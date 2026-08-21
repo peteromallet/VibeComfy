@@ -766,11 +766,22 @@ def _validate_delta_evidence_for_apply(
         allow_absent=allow_absent,
     )
     if valid and isinstance(cumulative, Mapping):
-        from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+        from vibecomfy.porting.edit.admit import (
+            AdmissionRejected,
+            admission_snapshot_for,
+            admit_operations,
+        )
 
         ops = cumulative.get("ops")
         if isinstance(ops, list) and ops:
-            admitted = admit_operations(None, ops)
+            admitted = admit_operations(
+                admission_snapshot_for(
+                    getattr(state, "workflow", None) or getattr(state, "workflow_snapshot", None),
+                    getattr(state, "schema_provider", None),
+                ),
+                ops,
+                working_workflow=getattr(state, "workflow", None),
+            )
             if isinstance(admitted, AdmissionRejected):
                 valid = False
                 code = admitted.typed_reason

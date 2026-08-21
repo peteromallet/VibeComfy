@@ -681,7 +681,13 @@ def build_candidate_transaction(
             raise ValueError(
                 "Layout (layout_structural_noop) verification requires a layout_operation_envelope."
             )
-        normalized_layout = _normalize_layout_operation_v1(layout_operation_envelope)
+        from vibecomfy.porting.edit.admit import snapshot_from_schema_witness
+
+        layout_snapshot = snapshot_from_schema_witness(schema_witness, submit_graph=submit_graph)
+        normalized_layout = _normalize_layout_operation_v1(
+            layout_operation_envelope,
+            snapshot=layout_snapshot,
+        )
         layout_digest = normalized_layout["digest"]
         operation["layout_operation"] = normalized_layout
         operation["layout_operation_digest"] = layout_digest

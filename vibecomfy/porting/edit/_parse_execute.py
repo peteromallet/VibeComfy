@@ -73,15 +73,114 @@ class _ParseExecuteMixin:
             )
             if interpreted.ok and interpreted.landed_ops:
                 from vibecomfy.porting.edit.admit import (
+                    AdmissionRejected,
                     admission_snapshot_for,
                     admit_operations,
                 )
 
-                admit_operations(
+                admitted = admit_operations(
                     admission_snapshot_for(pre_ir, self.schema_provider),
                     interpreted.landed_ops,
                     working_workflow=pre_ir,
                 )
+                if isinstance(admitted, AdmissionRejected):
+                    rejection = _diag(
+                        admitted.typed_reason,
+                        admitted.typed_reason,
+                        severity="error",
+                        detail={
+                            "evidence_refs": list(admitted.evidence_refs),
+                            "atomic": True,
+                        },
+                    )
+                    return BatchResult(
+                        ok=False,
+                        statements=tuple(
+                            StatementResult(
+                                statement_index=item.statement_index,
+                                source=item.source,
+                                ok=False,
+                                landed=False,
+                                op_kind=item.op_kind,
+                                diagnostics=item.diagnostics + (rejection,),
+                                detail=dict(item.detail),
+                                touched_uids=item.touched_uids,
+                                dependency_cause=item.dependency_cause,
+                                teaching_hint=item.teaching_hint,
+                                status="rejected",
+                                reason=admitted.typed_reason,
+                            )
+                            for item in (
+                                self._statement_result_from_outcome(outcome)
+                                for outcome in interpreted.statements
+                            )
+                        ),
+                        diagnostics=interpreted.diagnostics + (rejection,),
+                        landed_ops=(),
+                        apply_eligible=False,
+                    )
+            if not interpreted.ok:
+                rejected_ops = tuple(
+                    outcome.op
+                    for outcome in interpreted.statements
+                    if getattr(outcome, "op", None) is not None
+                    and getattr(outcome, "op_kind", None) not in {None, "query", "done", "statement"}
+                )
+                if rejected_ops:
+                    from vibecomfy.porting.edit._ir_utils import apply_edit_cow
+                    from vibecomfy.porting.edit.apply_gate import verify_apply
+
+                    candidate = _cow_workflow_copy(pre_ir)
+                    for op in rejected_ops:
+                        try:
+                            candidate = apply_edit_cow(
+                                candidate, op, schema_provider=self.schema_provider
+                            )
+                        except Exception:
+                            continue
+                    gate = verify_apply(
+                        pre_ir,
+                        candidate,
+                        delta=code,
+                        landed_ops=rejected_ops,
+                        schema_provider=self.schema_provider,
+                        name_hints=self._transient_name_index,
+                    )
+                    if gate.diagnostics:
+                        interpreted_diagnostics = interpreted.diagnostics + gate.diagnostics
+                    else:
+                        interpreted_diagnostics = interpreted.diagnostics
+                    statement_results = [
+                        self._statement_result_from_outcome(outcome)
+                        for outcome in interpreted.statements
+                    ]
+                    if not gate.ok:
+                        rejected = tuple(
+                            StatementResult(
+                                statement_index=item.statement_index,
+                                source=item.source,
+                                ok=False,
+                                landed=False,
+                                op_kind=item.op_kind,
+                                diagnostics=item.diagnostics + gate.diagnostics,
+                                detail=dict(item.detail),
+                                touched_uids=item.touched_uids,
+                                dependency_cause=item.dependency_cause,
+                                teaching_hint=item.teaching_hint,
+                                status="rejected",
+                                reason=item.reason or gate.reason or "apply_gate_rejected",
+                            )
+                            if item.op_kind not in {None, "query", "done"}
+                            else item
+                            for item in statement_results
+                        )
+                        return BatchResult(
+                            ok=False,
+                            statements=rejected,
+                            diagnostics=interpreted_diagnostics,
+                            landed_ops=(),
+                            apply_eligible=False,
+                        )
             statement_results = [
                 self._statement_result_from_outcome(outcome)
                 for outcome in interpreted.statements

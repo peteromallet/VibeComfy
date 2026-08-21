@@ -310,13 +310,12 @@ def test_rejected_proposal_never_enters_accepted_delta_or_visible_candidate() ->
 
 
 def test_layout_ops_use_the_same_admit_operation_gateway() -> None:
-    import inspect
-
     from vibecomfy.comfy_nodes.agent import layout_operation_v1
     from vibecomfy.porting.edit.admit import (
         AdmissionAllowed,
         AdmissionRejected,
         admit_operation,
+        rejected_ops_are_invisible,
     )
 
     session = _session()
@@ -334,12 +333,20 @@ def test_layout_ops_use_the_same_admit_operation_gateway() -> None:
     missing_group = admit_operation(pair, ops[2], working_workflow=session.workflow)
     assert isinstance(missing_group, AdmissionRejected)
     assert missing_group.typed_reason == "unknown_target"
+    assert rejected_ops_are_invisible(missing_group) is True
+    assert rejected_ops_are_invisible(allowed) is False
 
-    source = inspect.getsource(layout_operation_v1._normalize_layout_op)
-    assert "admit_operation" in source
+    normalized = layout_operation_v1._normalize_layout_op(ops[0], snapshot=pair, working_workflow=session.workflow)
+    assert normalized["op"] == "set_node_geometry"
+    try:
+        layout_operation_v1._normalize_layout_op(ops[2], snapshot=pair, working_workflow=session.workflow)
+        raise AssertionError("missing group must be rejected by the one gateway")
+    except layout_operation_v1.LayoutOperationError as exc:
+        assert exc.code == "unknown_target"
+
     admit_fns = [
         name
-        for name, obj in inspect.getmembers(layout_operation_v1, inspect.isfunction)
+        for name, obj in __import__("inspect").getmembers(layout_operation_v1, __import__("inspect").isfunction)
         if "admit" in name.lower()
     ]
     assert admit_fns == []
@@ -362,50 +369,158 @@ def test_admit_operation_does_not_mutate_snapshots() -> None:
     assert dict(pair.schema.node_classes) == before_classes
 
 
-def test_consumer_routing_resolves_through_one_gateway() -> None:
+def test_rejected_typed_dsl_op_does_not_land_or_commit() -> None:
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    session = _session()
+    pair, _uid = _schema_pair(session)
+    session.schema_provider = pair.schema
+    before = {node.uid: dict(node.widgets) for node in session.workflow.nodes.values()}
+    rejected = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "missing-uid", "steps"),
+        value=99,
+    )
+    result = interpret(session.workflow, (rejected,), schema_provider=session.schema_provider)
+    assert result.ok is False
+    assert result.landed_ops == ()
+    after = {node.uid: dict(node.widgets) for node in session.workflow.nodes.values()}
+    assert after == before
+
+
+def test_python_source_dsl_rejected_op_mutates_nothing() -> None:
+    session = _session()
+    pair, _uid = _schema_pair(session)
+    session.schema_provider = pair.schema
+    before_sig = editable_signature(session.workflow)
+    before_ops = tuple(session.landed_ops)
+    result = session.apply_batch("missing_node.steps = 99\n")
+    assert result.ok is False
+    assert result.landed_ops == ()
+    assert tuple(session.landed_ops) == before_ops
+    assert editable_signature(session.workflow) == before_sig
+    assert session.history == []
+
+
+def test_apply_and_lint_block_every_typed_rejection() -> None:
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.lint import LintIndex, lint_delta
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    session = _session()
+    pair, _uid = _schema_pair(session)
+    malformed = SetNodeFieldOp(op="set_node_field", target=NodeFieldTarget("", "missing-uid", "steps"), value=1)
+    unknown_layout = {"op": "set_node_geometry", "uid": "34", "pos": [0, 0], "size": [8, 8]}
+    from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+    post = _cow_workflow_copy(session.workflow)
+    gate = verify_apply(
+        session.workflow,
+        post,
+        landed_ops=(malformed,),
+        schema_provider=pair.schema,
+    )
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert gate.reason in {"unknown_target", "missing_touched_schema", "malformed_op"}
+
+    index = LintIndex.build(session.working_ui)
+    lint = lint_delta([malformed], index, schema_provider=pair.schema)
+    assert lint.surviving == ()
+    assert any(issue.code for issue in lint.issues)
+
+    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
+
+    rejected = admit_operation(pair, unknown_layout, working_workflow=session.workflow)
+    assert isinstance(rejected, AdmissionRejected)
+    layout_gate = verify_apply(
+        session.workflow,
+        post,
+        landed_ops=(unknown_layout,),
+        schema_provider=pair.schema,
+    )
+    assert layout_gate.ok is False
+
+
+def test_snapshot_none_fails_closed_on_semantic_and_layout_paths() -> None:
+    from vibecomfy.comfy_nodes.agent import layout_operation_v1
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+        admit_operations,
+    )
+    from vibecomfy.porting.edit.ops import EditOpParseError, require_known_schema_for_operation
+
+    unknown = {"op": "add_node", "class_type": "LayerMask: SegmentAnythingUltra V3", "uid": "34"}
+    field = {"op": "set_node_field", "target": ["", "5", "steps"], "value": 25}
+    geometry = {"op": "set_node_geometry", "uid": "5", "pos": [1, 2]}
+
+    for op in (unknown, field, geometry):
+        result = admit_operation(None, op)
+        assert isinstance(result, AdmissionRejected)
+        assert result.typed_reason == "missing_touched_schema"
+        assert result.evidence_refs
+
+    batch = admit_operations(None, [field])
+    assert isinstance(batch, AdmissionRejected)
+
+    try:
+        layout_operation_v1._normalize_layout_op(geometry)
+        raise AssertionError("layout envelope must fail closed without a snapshot")
+    except layout_operation_v1.LayoutOperationError as exc:
+        assert exc.code == "missing_touched_schema"
+
+    admitted = admit_operations(admission_snapshot_for(None, None), [unknown])
+    assert isinstance(admitted, AdmissionRejected)
+    assert admitted.typed_reason == "missing_touched_schema"
+
+    try:
+        require_known_schema_for_operation(unknown, None)
+        raise AssertionError("None snapshot must fail closed for semantic ops")
+    except EditOpParseError as exc:
+        assert exc.code == "missing_touched_schema"
+
+
+
+
+def test_consumer_routing_is_behavioral_not_substring() -> None:
     import inspect
 
-    from vibecomfy.comfy_nodes.agent import (
-        _frag_response_contract,
-        _v2_scoped_validation,
-        authority_receipts,
-        candidate_transaction,
-        edit as agent_edit,
-        edit_batch_repl,
-        layout_operation_v1,
-        session as agent_session,
-    )
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit
     from vibecomfy.executor import edit_suggestion_tools
-    from vibecomfy.porting.edit import (
-        _interpret,
-        _op_validate,
-        _parse_execute,
-        apply_gate,
-        lint,
-        ops,
-        session as edit_session,
-        typed_tools,
-    )
+    from vibecomfy.porting.edit import _interpret
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
 
-    consumers = [
-        _op_validate.validate_typed_ops,
-        _interpret._interpret_ops,
-        _parse_execute._ParseExecuteMixin.apply_batch,
-        typed_tools.apply_edit_tool_call,
-        lint.lint_delta,
-        apply_gate.verify_apply,
-        edit_session.EditSession.apply_ops,
-        ops.require_known_schema_for_operation,
-        candidate_transaction.missing_touched_class_types,
-        authority_receipts.recompute_apply,
-        _frag_response_contract._validate_delta_evidence_for_apply,
-        edit_batch_repl._publish_session_candidate,
-        agent_session.record_idempotent_response,
-        _v2_scoped_validation._load_turn_delta_ops,
-        layout_operation_v1._normalize_layout_op,
-        agent_edit._admit_operation,
-        edit_suggestion_tools.rank_edit_targets,
-    ]
-    for consumer in consumers:
-        source = inspect.getsource(consumer)
-        assert "admit_operation" in source or "admit_operations" in source, consumer
+    assert not hasattr(agent_edit, "_admit_operation")
+    rank_source = inspect.getsource(edit_suggestion_tools.rank_edit_targets)
+    assert "_ = admit_operation" not in rank_source
+    apply_source = inspect.getsource(_interpret._InterpretRunner._apply)
+    assert "admit_operation" in apply_source
+
+    session = _session()
+    pair, _uid = _schema_pair(session)
+    session.schema_provider = pair.schema
+    before_ops = tuple(session.landed_ops)
+    before_sig = editable_signature(session.workflow)
+    rejected = session.apply_ops(
+        [
+            SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget("", "missing-uid", "steps"),
+                value=1,
+            )
+        ]
+    )
+    assert rejected.ok is False
+    assert rejected.landed_ops == ()
+    assert tuple(session.landed_ops) == before_ops
+    assert editable_signature(session.workflow) == before_sig
+
+    python = session.apply_batch(f"ksampler.made_up = 1\n")
+    assert python.ok is False
+    assert python.landed_ops == ()
+    assert tuple(session.landed_ops) == before_ops
+
+

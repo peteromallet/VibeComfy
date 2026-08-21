@@ -1269,15 +1269,20 @@ def lint_delta(
         AdmissionRejected,
         admission_snapshot_for,
         admit_operation,
+        rejected_ops_are_invisible,
     )
 
-    admission_pair = admission_snapshot_for(None, schema_provider)
+    lint_workflow = None
+    try:
+        from vibecomfy.ingest.normalize import from_ui
+
+        lint_workflow = from_ui(dict(index.graph), schema_provider=schema_provider)
+    except Exception:
+        lint_workflow = None
+    admission_pair = admission_snapshot_for(lint_workflow, schema_provider)
     for i, op in enumerate(delta):
-        admitted = admit_operation(admission_pair, op)
-        if isinstance(admitted, AdmissionRejected) and admitted.typed_reason in {
-            "missing_touched_schema",
-            "unsupported_op",
-        }:
+        admitted = admit_operation(admission_pair, op, working_workflow=lint_workflow)
+        if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
             issue = _make_issue(
                 admitted.typed_reason,
                 admitted.typed_reason,

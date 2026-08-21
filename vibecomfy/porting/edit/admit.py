@@ -115,6 +115,28 @@ def _freeze_snapshot_pair(snapshot: Any) -> AdmissionSnapshot:
     return AdmissionSnapshot()
 
 
+def _bind_schema_from_provider(schema_provider: Any) -> SchemaSnapshot | None:
+    """Bind a frozen SchemaSnapshot from a live provider, or None.
+
+    Live providers that expose ``snapshot`` as a SchemaSnapshot are bound.
+    Providers that expose ``schemas()``/``get_schema`` without a frozen
+    snapshot are not silently treated as schema-complete: callers must
+    either pass a verified SchemaSnapshot or the gateway fails closed.
+    """
+
+    if schema_provider is None:
+        return None
+    candidate = getattr(schema_provider, "snapshot", None)
+    if callable(candidate):
+        try:
+            candidate = candidate()
+        except Exception:
+            candidate = None
+    if isinstance(candidate, SchemaSnapshot):
+        return candidate
+    return None
+
+
 def admission_snapshot_for(
     workflow: Any = None,
     schema_provider: Any = None,
@@ -131,14 +153,42 @@ def admission_snapshot_for(
         except SchemaSnapshotError:
             schema = None
     if schema is None and schema_provider is not None:
-        candidate = getattr(schema_provider, "snapshot", None)
-        if isinstance(candidate, SchemaSnapshot):
-            schema = candidate
+        schema = _bind_schema_from_provider(schema_provider)
     return AdmissionSnapshot(
         workflow=workflow_snapshot if isinstance(workflow_snapshot, WorkflowSnapshot) else None,
         schema=schema if isinstance(schema, SchemaSnapshot) else None,
         schema_provider=schema_provider,
     )
+
+
+def _schema_catalog_for(pair: AdmissionSnapshot, snapshot: Any) -> SchemaSnapshot | Mapping[str, Any] | None:
+    """Verified schema catalog for require_known_touched_schema.
+
+    Only a frozen SchemaSnapshot or an explicit mapping catalog counts.
+    A live schema_provider with no frozen snapshot is not a catalog.
+    """
+
+    if pair.schema is not None:
+        return pair.schema
+    if isinstance(snapshot, Mapping) and (
+        "schemas" in snapshot or "node_classes" in snapshot or "missing_classes" in snapshot
+    ):
+        return snapshot
+    return None
+
+
+def _needs_schema_knowledge(operation: Mapping[str, Any]) -> bool:
+    """True when the op's touched closure is schema-dependent (T1.2 MUST-001)."""
+
+    op_name = str(operation.get("op") or "")
+    if op_name in _SEMANTIC_OPERATION_NAMES:
+        return True
+    if op_name == "set_node_geometry":
+        return True
+    return False
+
+
+
 
 
 def snapshot_from_schema_witness(
@@ -400,26 +450,41 @@ def admit_operation(
     ``snapshot`` or ``canonical_operation``.  ``working_workflow`` is a
     sequential simulation handle for add-then-wire batches; it is not an
     authority and is never written by this function.
+
+    ``snapshot=None`` (or any pair with no verified SchemaSnapshot/catalog)
+    fails closed for operations whose touched closure needs schema knowledge.
     """
 
     pair = _freeze_snapshot_pair(snapshot)
     operation = _operation_mapping(canonical_operation)
     op_name = str(operation.get("op") or "")
+    schema_catalog = _schema_catalog_for(pair, snapshot)
     touched = _touched_scope(canonical_operation, pair.schema)
+    if schema_catalog is not None and pair.schema is None and isinstance(schema_catalog, Mapping):
+        classes = touched_schema_classes(canonical_operation, schema_catalog)
+        if not classes:
+            class_type = operation.get("class_type")
+            classes = (str(class_type),) if isinstance(class_type, str) and class_type else ()
+        touched = TouchedScope(identities=_touched_identities(operation), class_types=tuple(classes))
     workflow = working_workflow
     if workflow is None and pair.workflow is not None:
         workflow = pair.workflow.workflow
 
-    schema_catalog: SchemaSnapshot | Mapping[str, Any] | None = pair.schema
-    if schema_catalog is None and isinstance(snapshot, Mapping) and (
-        "schemas" in snapshot or "node_classes" in snapshot or "missing_classes" in snapshot
-    ):
-        schema_catalog = snapshot
     if schema_catalog is not None:
         try:
             require_known_touched_schema(canonical_operation, schema_catalog)
         except SchemaSnapshotError as exc:
             return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)
+    elif _needs_schema_knowledge(operation) and workflow is None:
+        return _reject(
+            pair,
+            operation,
+            "missing_touched_schema",
+            extra=("schema_catalog:absent",),
+            touched=touched,
+        )
+
+
 
     if not op_name:
         return _reject(pair, operation, "unsupported_op", touched=touched)
@@ -456,6 +521,8 @@ def admit_operation(
     except ApplyOpsError as exc:
         return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
     return AdmissionAllowed(touched_scope=touched)
+
+
 
 
 def admit_operations(
@@ -496,9 +563,15 @@ def admit_operations(
 
 
 def rejected_ops_are_invisible(result: AdmissionResult) -> bool:
-    """Rejected ops must not enter accepted delta or visible candidates."""
+    """True only when a rejected op is excluded from accepted/visible surfaces.
 
-    return isinstance(result, AdmissionRejected) or result.allowed is True
+    Allowed results are not invisible. Rejected results are invisible: they
+    must not enter an accepted delta, landed_ops, Apply ok=True, lint
+    surviving, preview evidence, or durable session apply.
+    """
+
+    return isinstance(result, AdmissionRejected)
+
 
 
 __all__ = [

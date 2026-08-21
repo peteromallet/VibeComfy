@@ -39,10 +39,6 @@ from .projection_registry_v1 import (
 )
 from .mutation_materialization_v1 import build_mutation_materialization_v1
 from .layout_operation_v1 import build_layout_operation_envelope
-from vibecomfy.porting.edit.ops import parse_edit_delta
-from vibecomfy.porting.edit.admit import admit_operation as _admit_operation
-
-_ = (_admit_operation, parse_edit_delta)
 from ._session_lock import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     LOCK_FILE_NAME,
@@ -3730,11 +3726,19 @@ def record_idempotent_response(
             layout_operation_envelope = build_layout_operation_envelope(
                 submit_graph, candidate_graph
             )
-            from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+            from vibecomfy.porting.edit.admit import (
+                AdmissionRejected,
+                admit_operations,
+                snapshot_from_schema_witness,
+            )
 
+            admission_snapshot = snapshot_from_schema_witness(
+                authority_receipt.schema_witness,
+                submit_graph=submit_graph,
+            )
             layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
             if isinstance(layout_ops, list) and layout_ops:
-                admitted_layout = admit_operations(None, layout_ops)
+                admitted_layout = admit_operations(admission_snapshot, layout_ops)
                 if isinstance(admitted_layout, AdmissionRejected):
                     applyable = False
                     layout_operation_envelope = None
@@ -3745,9 +3749,19 @@ def record_idempotent_response(
             accepted_batch = []
         accepted_ops = list(_ops_from_accepted_batch(stamped_response))
         if accepted_ops:
-            from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operations
+            from vibecomfy.porting.edit.admit import (
+                AdmissionRejected,
+                admit_operations,
+                snapshot_from_schema_witness,
+            )
 
-            admitted_ops = admit_operations(None, accepted_ops)
+            admitted_ops = admit_operations(
+                snapshot_from_schema_witness(
+                    authority_receipt.schema_witness,
+                    submit_graph=submit_graph,
+                ),
+                accepted_ops,
+            )
             if isinstance(admitted_ops, AdmissionRejected):
                 applyable = False
                 accepted_batch = []

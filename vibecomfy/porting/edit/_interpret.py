@@ -212,18 +212,25 @@ def _interpret_ops(
     diagnostics: list[CompactDiagnostic] = []
     for index, op in enumerate(ops):
         try:
-            # Typed deltas bypass the Python parser, so run the shared
-            # sequential validator before each COW step.  This preserves
-            # add-then-link batches while keeping invalid batches atomic.
-            if not _op_has_scoped_target(op):
-                from vibecomfy.porting.edit.admit import admission_snapshot_for, admit_operation
-                from vibecomfy.porting.edit._op_validate import _validate_one
+            from vibecomfy.porting.edit.admit import (
+                AdmissionRejected,
+                admission_snapshot_for,
+                admit_operation,
+            )
+            from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
 
-                admit_operation(
-                    admission_snapshot_for(post, schema_provider),
-                    op,
-                    working_workflow=post,
+            admitted = admit_operation(
+                admission_snapshot_for(post, schema_provider),
+                op,
+                working_workflow=post,
+            )
+            if isinstance(admitted, AdmissionRejected):
+                message = next(
+                    (ref.split(":", 1)[1] for ref in admitted.evidence_refs if ref.startswith("reason:")),
+                    admitted.typed_reason,
                 )
+                raise ApplyOpsError(admitted.typed_reason, message)
+            if not _op_has_scoped_target(op):
                 _validate_one(post, op, schema_provider)
             # Typed-op callers carry their channel contract in the op (and,
             # for AddNodeOp, its explicit widget_field_names), while Python
@@ -1428,6 +1435,34 @@ class _InterpretRunner:
 
     def _apply(self, item: _ExpandedStatement, op: EditOp) -> StatementOutcome | None:
         try:
+            from vibecomfy.porting.edit.admit import (
+                AdmissionRejected,
+                admission_snapshot_for,
+                admit_operation,
+            )
+
+            admitted = admit_operation(
+                admission_snapshot_for(self.workflow, self.schema_provider),
+                op,
+                working_workflow=self.workflow,
+            )
+            if isinstance(admitted, AdmissionRejected):
+                return StatementOutcome(
+                    statement_index=item.statement_index,
+                    source=item.source,
+                    status="rejected",
+                    reason=admitted.typed_reason,
+                    op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
+                    diagnostics=(
+                        _diag(
+                            admitted.typed_reason,
+                            admitted.typed_reason,
+                            severity="error",
+                            detail={"evidence_refs": list(admitted.evidence_refs)},
+                        ),
+                    ),
+                    op=op,
+                )
             before = self.workflow
             # Add-node reconstruction matches from_ui: named literals land in
             # inputs, widget_* names in widgets.  Passing the catalog would

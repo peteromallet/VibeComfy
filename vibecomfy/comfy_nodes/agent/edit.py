@@ -14,7 +14,6 @@ from importlib import import_module
 # import_module to avoid a cycle: the REPL builds EditBatchReplDeps from
 # this product-entry namespace at call time.
 _edit_batch_repl = import_module(f"{__package__ or 'vibecomfy.comfy_nodes.agent'}.edit_batch_repl")
-from vibecomfy.porting.edit.admit import admit_operation as _admit_operation
 
 
 from ._frag_state import (

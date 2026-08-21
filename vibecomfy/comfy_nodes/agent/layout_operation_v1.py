@@ -122,7 +122,7 @@ def _build_op(op_name: str, raw: Mapping[str, Any], *, keys: frozenset[str]) -> 
     return result
 
 
-def _normalize_layout_op(raw: Any) -> dict[str, Any]:
+def _normalize_layout_op(raw: Any, *, snapshot: Any = None, working_workflow: Any = None) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise _fail("layout op must be an object", "malformed_layout_op")
     op_name = raw.get("op")
@@ -138,29 +138,18 @@ def _normalize_layout_op(raw: Any) -> dict[str, Any]:
             op=op_name,
         )
 
-    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admit_operation,
+        rejected_ops_are_invisible,
+    )
 
-    admitted = admit_operation(None, raw)
-    if isinstance(admitted, AdmissionRejected) and admitted.typed_reason in {
-        "missing_touched_schema",
-        "unsupported_op",
-        "malformed_layout_op",
-        "missing_identity",
-        "unknown_target",
-        "duplicate_identity",
-    }:
+    admitted = admit_operation(snapshot, raw, working_workflow=working_workflow)
+    if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
         raise _fail(admitted.typed_reason, admitted.typed_reason)
 
-
     if op_name == "set_node_geometry":
-        extras = sorted(k for k in raw if k not in _SET_NODE_GEOMETRY_KEYS)
-        if extras:
-            raise _fail(
-                f"Unknown layout op key(s): {', '.join(extras)}",
-                "malformed_layout_op",
-                keys=extras,
-            )
-        uid = _require_nonempty_str(raw.get("uid"), "node uid")
+        uid = str(raw.get("uid") or "")
         pos = _geometry_vector(raw.get("pos"), 2, "pos")
         normalized: dict[str, Any] = {"op": op_name, "uid": uid, "pos": pos}
         if "size" in raw and raw.get("size") is not None:
@@ -168,85 +157,28 @@ def _normalize_layout_op(raw: Any) -> dict[str, Any]:
         return normalized
 
     if op_name == "add_group":
-        extras = sorted(k for k in raw if k not in _ADD_GROUP_KEYS)
-        if extras:
-            raise _fail(
-                f"Unknown layout op key(s): {', '.join(extras)}",
-                "malformed_layout_op",
-                keys=extras,
-            )
-        group_id = _require_nonempty_str(raw.get("id"), "group id")
         bounding = _geometry_vector(raw.get("bounding"), 4, "bounding")
-        title = raw.get("title")
-        if not isinstance(title, str):
-            raise _fail(
-                "add_group title must be a string",
-                "malformed_layout_op",
-                field="title",
-            )
-        color = raw.get("color")
-        if color is not None and not isinstance(color, str):
-            raise _fail(
-                "add_group color must be a string or null",
-                "malformed_layout_op",
-                field="color",
-            )
         return {
             "op": op_name,
-            "id": group_id,
+            "id": str(raw.get("id") or ""),
             "bounding": bounding,
-            "title": title,
-            "color": color,
+            "title": raw.get("title"),
+            "color": raw.get("color"),
         }
 
     if op_name == "set_group_geometry":
-        extras = sorted(k for k in raw if k not in _SET_GROUP_GEOMETRY_KEYS)
-        if extras:
-            raise _fail(
-                f"Unknown layout op key(s): {', '.join(extras)}",
-                "malformed_layout_op",
-                keys=extras,
-            )
-        group_id = _require_nonempty_str(raw.get("id"), "group id")
-        changed = sorted(k for k in _GROUP_CHANGEABLE_KEYS if k in raw)
-        if not changed:
-            raise _fail(
-                "set_group_geometry must change at least one of bounding/title/color",
-                "malformed_layout_op",
-            )
-        result: dict[str, Any] = {"op": op_name, "id": group_id}
+        result: dict[str, Any] = {"op": op_name, "id": str(raw.get("id") or "")}
         if "bounding" in raw:
             result["bounding"] = _geometry_vector(raw.get("bounding"), 4, "bounding")
         if "title" in raw:
-            title = raw.get("title")
-            if not isinstance(title, str):
-                raise _fail(
-                    "set_group_geometry title must be a string",
-                    "malformed_layout_op",
-                    field="title",
-                )
-            result["title"] = title
+            result["title"] = raw.get("title")
         if "color" in raw:
-            color = raw.get("color")
-            if color is not None and not isinstance(color, str):
-                raise _fail(
-                    "set_group_geometry color must be a string or null",
-                    "malformed_layout_op",
-                    field="color",
-                )
-            result["color"] = color
+            result["color"] = raw.get("color")
         return result
 
-    # remove_group
-    extras = sorted(k for k in raw if k not in _REMOVE_GROUP_KEYS)
-    if extras:
-        raise _fail(
-            f"Unknown layout op key(s): {', '.join(extras)}",
-            "malformed_layout_op",
-            keys=extras,
-        )
-    group_id = _require_nonempty_str(raw.get("id"), "group id")
-    return {"op": op_name, "id": group_id}
+    return {"op": op_name, "id": str(raw.get("id") or "")}
+
+
 
 
 def _identity_for_op(normalized: Mapping[str, Any]) -> str:
@@ -256,10 +188,18 @@ def _identity_for_op(normalized: Mapping[str, Any]) -> str:
     return normalized["id"]
 
 
-def _normalize_ops(raw_ops: Any) -> list[dict[str, Any]]:
+def _normalize_ops(
+    raw_ops: Any,
+    *,
+    snapshot: Any = None,
+    working_workflow: Any = None,
+) -> list[dict[str, Any]]:
     if not isinstance(raw_ops, list):
         raise _fail("layout ops must be an array", "malformed_layout_operation")
-    normalized_ops = [_normalize_layout_op(op) for op in raw_ops]
+    normalized_ops = [
+        _normalize_layout_op(op, snapshot=snapshot, working_workflow=working_workflow)
+        for op in raw_ops
+    ]
     # Within-class duplicate identity is a conflict (cross-class sequences such
     # as add_group -> set_group_geometry on the same id remain legal).
     seen: set[tuple[str, str]] = set()
@@ -276,13 +216,18 @@ def _normalize_ops(raw_ops: Any) -> list[dict[str, Any]]:
     return normalized_ops
 
 
-def compute_layout_operation_digest(ops: Any) -> str:
+def compute_layout_operation_digest(
+    ops: Any,
+    *,
+    snapshot: Any = None,
+    working_workflow: Any = None,
+) -> str:
     """Canonical SHA-256 of ``{contract_version, wire_version, ops}``.
 
     ``ops`` are validated and numerically normalised before hashing so the
     preimage is byte-identical to the JS mirror.
     """
-    normalized_ops = _normalize_ops(ops)
+    normalized_ops = _normalize_ops(ops, snapshot=snapshot, working_workflow=working_workflow)
     preimage = {
         "contract_version": LAYOUT_OPERATION_CONTRACT_V1,
         "wire_version": LAYOUT_OPERATION_WIRE_VERSION,
@@ -291,7 +236,13 @@ def compute_layout_operation_digest(ops: Any) -> str:
     return _hash(preimage)
 
 
-def normalize_layout_operation_v1(envelope: Any) -> dict[str, Any]:
+
+def normalize_layout_operation_v1(
+    envelope: Any,
+    *,
+    snapshot: Any = None,
+    working_workflow: Any = None,
+) -> dict[str, Any]:
     """Validate shape + ops and return the canonical frozen envelope.
 
     The returned ``digest`` is always the *recomputed* canonical digest; the
@@ -320,7 +271,9 @@ def normalize_layout_operation_v1(envelope: Any) -> dict[str, Any]:
             "Unsupported layout operation wire version",
             "unsupported_wire_version",
         )
-    normalized_ops = _normalize_ops(envelope.get("ops"))
+    normalized_ops = _normalize_ops(
+        envelope.get("ops"), snapshot=snapshot, working_workflow=working_workflow
+    )
     digest = _hash(
         {
             "contract_version": LAYOUT_OPERATION_CONTRACT_V1,
@@ -334,6 +287,7 @@ def normalize_layout_operation_v1(envelope: Any) -> dict[str, Any]:
         "ops": normalized_ops,
         "digest": digest,
     }
+
 
 
 def assert_layout_operation_envelope(value: Any) -> dict[str, Any]:
@@ -455,11 +409,25 @@ def build_layout_operation_envelope(
         if gid not in candidate_groups:
             ops.append({"op": "remove_group", "id": gid})
 
+    snapshot = None
+    working_workflow = None
+    if isinstance(submit_ui, Mapping):
+        try:
+            from vibecomfy.ingest.normalize import from_ui
+            from vibecomfy.porting.edit.admit import admission_snapshot_for
+
+            working_workflow = from_ui(dict(submit_ui))
+            snapshot = admission_snapshot_for(working_workflow)
+        except Exception:
+            snapshot = None
+            working_workflow = None
     return {
         "contract_version": LAYOUT_OPERATION_CONTRACT_V1,
         "wire_version": LAYOUT_OPERATION_WIRE_VERSION,
         "ops": ops,
-        "digest": compute_layout_operation_digest(ops),
+        "digest": compute_layout_operation_digest(
+            ops, snapshot=snapshot, working_workflow=working_workflow
+        ),
     }
 
 
