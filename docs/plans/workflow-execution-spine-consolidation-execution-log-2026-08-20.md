@@ -906,3 +906,81 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   recorded above as prior-card evidence. No branch other than the current
   branch was changed.
 - **Next unblocked card:** `H1-wrapper-survival-stop-marker-precode-review`.
+
+### G1 / T1.2 evidence-log shards-digest-repair revision (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-T1.2-shards-digest-repair` / `G1` /
+  `evidence-log T1.2 shards-digest-repair chain + MUST-001 recurrence-rule
+  recording (revision)` / evidence.
+- **Disposition:** The shards digest-repair chain is recorded as **PASS**.
+  The repair receipt's refreshed pins were independently confirmed correct.
+  The review's `T1.2-MUST-001` is closed by this revision: the test-shards
+  recurrence rule is now durably recorded in this evidence disposition and the
+  execution log. The pre-authorized Grok adjudication path is
+  `receipts/T1.2-evidence-digest-repair-adjudication-receipt.json`: receipts
+  remain wrapper-written and immutable; the durable recording path is this
+  evidence disposition.
+- **Input/base and repair commit:** the shards repair was based on
+  `27e65c47acf2dddfebf863ba5d17ae94eaef399b`, committed as
+  `16990debf038379ace30b6b6d18dc91c66a7ba58`, and changed only
+  `docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+  The current recording is the authorized revision on that commit.
+- **Model route:** Luna (`codex:gpt-5.6-luna`, resolved
+  `openai-codex/gpt-5.6-luna`) for repair and independent review. Wrapper argv,
+  PIDs, timestamps, exits, brief digests, and result digests below are
+  authoritative from the preserved receipts.
+
+#### Ordered shards-digest-repair receipt register
+
+1. **Repair — `T1.2-evidence-shards-digest-repair` (implementer, Luna).**
+   Receipt `receipts/T1.2-evidence-shards-digest-repair-receipt.json`, SHA-256
+   `8ebc292c02bb75f8db70e00de189107f8782d25fdfee09f952865fd7bc22497e`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T1.2-evidence-shards-digest-repair.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `33414`; `2026-08-21T11:10:54Z` → `2026-08-21T11:14:27Z`;
+   exit `0`; brief SHA-256
+   `00f4e0c7089396001bef89fd8c92c1f3a1c2906c9913fe6782c915acb8b6f1dd`;
+   result SHA-256
+   `018a4cfd30ad6eb160a59002035acb6bab0f7e1e07256b31a507105de6328ef8`.
+   It refreshed the `test-shards.json` pins to
+   `d96861fbd1743ef9597897e6751f37d8359974fb2b5a127b7f937ace0642e570`;
+   validator exit was `0`.
+2. **Review — `T1.2-evidence-shards-digest-repair-review` (reviewer, Luna).**
+   Receipt `receipts/T1.2-evidence-shards-digest-repair-review-receipt.json`,
+   SHA-256
+   `fb58e2a2eac96802851f8d5a908fce67856c678436ee1c6f1488685e9aef2a7c`;
+   wrapper
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T1.2-evidence-shards-digest-repair-review.md --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine --timeout=3600`;
+   PID `33604`; `2026-08-21T11:14:50Z` → `2026-08-21T11:18:38Z`;
+   exit `0`; brief SHA-256
+   `d38b586b4a6c377ca1dee41f1121d42f6c9bb8c4afae07300062ff9a37c6de24`;
+   result SHA-256
+   `056b66ba5625fa3c4edb1cce7515f4a2685cf84427b72e6fac748756caeba6a9`.
+   The review independently verified both live pins, the minimal repair diff,
+   and author `POM <peter@omalley.io>`, then raised `MUST-001` because the
+   test-shards recurrence rule was not yet durable. This revision records it.
+
+- **Findings/revision and recording path:** `MUST-001` is closed by explicitly
+  recording both validator-enforced recurrence rules: an execution-log edit
+  requires refreshing `manifest.tasks[5].recovery_note.sha256`; a
+  `test-shards.json` edit requires refreshing every
+  `manifest.tasks[5].evidence_links[*].sha256` reference to that file and
+  `manifest.tasks[6].shard_integrity.sha256`. The receipts are immutable and
+  are nested in the manifest's existing T1.2 receipt register; this
+  disposition is the durable recording path authorized by adjudication A.
+- **Tests/evidence:** the required read-only evidence validator exits `0` on
+  the committed state. No product tests, full suite, validator changes, or
+  other tests were run.
+- **Residual risks:** the two recurrence rules above remain validator-enforced
+  obligations for future evidence edits. The pre-existing validator gap
+  remains tracked per adjudication A: `_iter_digest_refs` silently skips
+  malformed (non-64-hex) digest strings paired with a path; this is a
+  candidate future XHARD validator-hardening card and does not block G1.
+- **Changed files and controls:** this revision changes only the execution log
+  and manifest; `test-shards.json` remains byte-identical at digest
+  `d96861fbd1743ef9597897e6751f37d8359974fb2b5a127b7f937ace0642e570`.
+  The evidence commit contains only the three allowed files, with no receipt
+  committed. No other file, receipt, protected state, or branch changed; no
+  push, merge to `main`, promotion, live/model/runtime/provider call, secret
+  access, or wrapper dispatch occurred in this evidence recording.
+- **Next unblocked card:** `H1-wrapper-survival-stop-marker-precode-review`.
