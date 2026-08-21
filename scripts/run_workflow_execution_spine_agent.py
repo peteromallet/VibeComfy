@@ -3,6 +3,24 @@
 
 The wrapper is deliberately dependency-free. It is the sole post-bootstrap
 launch surface, so all policy checks happen before the child launcher starts.
+
+Evidence-role briefs must tell the agent to record only its own wrapper PID
+and wrapper start timestamp from ``active-allowances.json``, plus the receipt
+path. They must not ask the agent to record its own ``end_ts`` or receipt
+digest. Dirty-state exception lists must enumerate
+``docs/plans/workflow-execution-spine-consolidation-evidence/receipts/``,
+``docs/plans/._*`` artifacts, and the known pre-existing documents:
+``docs/plans/codebase-structural-cleanup-execution-log-2026-08-20.md``,
+``docs/plans/goal-codebase-structural-cleanup-2026-08-20.md``, and
+``docs/plans/._goal-workflow-execution-spine-consolidation-2026-08-20.md``.
+
+Evidence briefs also follow validator-enforced digest-pin discipline. An
+evidence agent that appends to the execution log must refresh
+``manifest.tasks[5].recovery_note.sha256`` to the new log digest. An agent
+that edits ``test-shards.json`` must refresh every manifest pin referencing
+it: ``tasks[5].evidence_links[*].sha256`` and
+``tasks[6].shard_integrity.sha256``. Every evidence brief must require the
+read-only validator and prove exit 0 on the committed state before finishing.
 """
 from __future__ import annotations
 
@@ -37,6 +55,56 @@ GATE_BY_TASK = {
 
 class WrapperError(RuntimeError):
     """A typed pre-launch or post-launch policy violation."""
+_EVIDENCE_BRIEF_ITEM = (
+    r"(?:end[_\s-]*ts|end\s+timestamp|end\s+time|"
+    r"receipt\s+(?:digest|hash)|result[_\s-]*sha256)"
+)
+_EVIDENCE_BRIEF_DIRECTIVE = re.compile(
+    r"\b(?:record|write|populate|set|include|report|provide|capture|"
+    r"calculate|compute|supply|document|add)\b"
+    rf"[^.!?;\n]{{0,100}}\b{_EVIDENCE_BRIEF_ITEM}\b",
+    re.IGNORECASE,
+)
+_EVIDENCE_BRIEF_NEGATION = re.compile(
+    r"\b(?:do\s+not|don't|must\s+not|should\s+not|never|"
+    r"not\s+(?:ask|instruct|tell|require|request))\b",
+    re.IGNORECASE,
+)
+_EVIDENCE_BRIEF_WRAPPER_EXPLANATION = re.compile(
+    r"\bwrapper\b[^.!?;\n]{0,120}\b(?:writes|records|populates|sets|"
+    r"adds|computes|persists)\b[^.!?;\n]{0,80}\b(?:post[-\s]?exit|"
+    r"after\s+(?:the\s+)?child|after\s+exit)\b",
+    re.IGNORECASE,
+)
+
+
+def _evidence_brief_self_referential(brief_text: str) -> bool:
+    """Return whether an evidence brief directs the agent to record a post-exit field."""
+    for clause in re.split(r"[\n.!?]+", brief_text):
+        clause = clause.strip()
+        if not clause or _EVIDENCE_BRIEF_NEGATION.search(clause):
+            continue
+        if _EVIDENCE_BRIEF_WRAPPER_EXPLANATION.search(clause):
+            continue
+        if _EVIDENCE_BRIEF_DIRECTIVE.search(clause):
+            return True
+    return False
+
+
+def _evidence_brief_guard(args: argparse.Namespace) -> None:
+    """Reject self-referential evidence instructions before registry mutation."""
+    if str(args.role).casefold() != "evidence":
+        return
+    try:
+        brief_text = args.query_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WrapperError(f"EVIDENCE_BRIEF_INVALID: cannot read query file: {args.query_file}") from exc
+    if _evidence_brief_self_referential(brief_text):
+        raise WrapperError(
+            "EVIDENCE_BRIEF_SELF_REFERENTIAL: evidence briefs must not instruct "
+            "the agent to record its own end_ts or receipt digest"
+        )
+
 
 
 def utc_now() -> str:
@@ -506,6 +574,7 @@ def run(args: argparse.Namespace) -> int:
         raise WrapperError(f"MODEL_ROUTE_UNSUPPORTED: {args.model_route}")
     if args.timeout <= 0:
         raise WrapperError("TIMEOUT_INVALID: timeout must be positive")
+    _evidence_brief_guard(args)
     allowance = load_json(args.allowance_file, "allowance file")
     if not isinstance(allowance, dict):
         raise WrapperError("ALLOWANCE_INVALID: allowance must be an object")

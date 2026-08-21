@@ -45,6 +45,7 @@ def _setup(_tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
         "#!/usr/bin/env python3\n"
         "import json, os, pathlib, sys, time\n"
         "project = pathlib.Path(next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--project-dir=')))\n"
+        "if os.environ.get('VCSPINE_FAKE_SENTINEL'): pathlib.Path(os.environ['VCSPINE_FAKE_SENTINEL']).write_text('launched')\n"
         "mode = os.environ.get('VCSPINE_FAKE_WRITE')\n"
         "if os.environ.get('VCSPINE_FAKE_INTERRUPT_RECEIPT'):\n"
         "    pathlib.Path(os.environ['VCSPINE_FAKE_INTERRUPT_RECEIPT']).write_text(json.dumps({'task_id': 'T9.1', 'status': 'interrupted', 'sentinel': 'preserve'}))\n"
@@ -75,7 +76,12 @@ def _invoke(
     fake: Path,
     *extra: str,
     wait: bool = True,
+    role: str = "implementer",
+    brief_text: str | None = None,
+    sentinel: Path | None = None,
 ) -> subprocess.CompletedProcess[str] | subprocess.Popen[str]:
+    if brief_text is not None:
+        brief.write_text(brief_text)
     env = os.environ.copy()
     env["VCSPINE_FAKE_LAUNCHER"] = str(fake)
     env["VCSPINE_FAKE_WRITE"] = (
@@ -87,13 +93,16 @@ def _invoke(
     env.pop("VCSPINE_FAKE_MODE", None)
     env.pop("VCSPINE_FAKE_HANDSHAKE", None)
     env.pop("VCSPINE_FAKE_INTERRUPT_RECEIPT", None)
+    env.pop("VCSPINE_FAKE_SENTINEL", None)
+    if sentinel is not None:
+        env["VCSPINE_FAKE_SENTINEL"] = str(sentinel)
     if "--sleep" in extra:
         env["VCSPINE_FAKE_MODE"] = "sleep"
         env["VCSPINE_FAKE_HANDSHAKE"] = str(evidence / "child-handshake")
     if "--interrupt-receipt" in extra:
         env["VCSPINE_FAKE_INTERRUPT_RECEIPT"] = str(evidence / "T9.1-receipt.json")
     command = [
-        sys.executable, str(WRAPPER), "--task-id=T9.1", "--role=implementer",
+        sys.executable, str(WRAPPER), "--task-id=T9.1", f"--role={role}",
         "--label=T9.1 [HARD] wrapper test", "--model-route=codex:gpt-5.6-luna",
         f"--query-file={brief}", f"--project-dir={project}",
         f"--allowance-file={allowance}", f"--evidence-dir={evidence}",
@@ -280,6 +289,107 @@ def test_mixed_sweep_note_names_dead_and_six_hour_classes(tmp_path: Path) -> Non
     assert note["cleared_task_ids"] == ["dead-entry", "missing-entry"]
     assert "dead-PID grace" in note["reason"]
     assert "six-hour missing/non-int PID" in note["reason"]
+
+
+@pytest.mark.parametrize(
+    "brief_text",
+    [
+        "Record your own end_ts in the evidence result.",
+        "Record this run's receipt digest and result_sha256.",
+    ],
+)
+def test_evidence_self_referential_brief_rejects_before_launch(tmp_path: Path, brief_text: str) -> None:
+    project, evidence, brief, allowance, fake = _setup(tmp_path)
+    sentinel = evidence / "launcher-started"
+
+    result = _invoke(
+        project,
+        evidence,
+        brief,
+        allowance,
+        fake,
+        role="evidence",
+        brief_text=brief_text,
+        sentinel=sentinel,
+    )
+
+    assert result.returncode == 2
+    assert "EVIDENCE_BRIEF_SELF_REFERENTIAL" in result.stderr
+    assert not sentinel.exists()
+    assert not (evidence / "active-allowances.json").exists()
+    assert not (evidence / "T9.1-receipt.json").exists()
+
+
+def test_compliant_evidence_brief_launches_and_records_normal_receipt(tmp_path: Path) -> None:
+    project, evidence, brief, allowance, fake = _setup(tmp_path)
+    sentinel = evidence / "launcher-started"
+
+    result = _invoke(
+        project,
+        evidence,
+        brief,
+        allowance,
+        fake,
+        role="evidence",
+        brief_text="Record the receipt PATH, wrapper PID, and wrapper start timestamp only.",
+        sentinel=sentinel,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert sentinel.read_text() == "launched"
+    receipt = json.loads((evidence / "T9.1-receipt.json").read_text())
+    assert receipt["role"] == "evidence"
+    assert receipt["exit"] == 0
+    assert not json.loads((evidence / "active-allowances.json").read_text())
+
+
+@pytest.mark.parametrize(
+    "brief_text",
+    [
+        "Do not record your own end_ts; the wrapper writes it post-exit.",
+        "The wrapper writes its own end_ts and receipt digest post-exit.",
+    ],
+)
+def test_evidence_brief_negation_and_wrapper_explanation_pass(
+    tmp_path: Path, brief_text: str
+) -> None:
+    project, evidence, brief, allowance, fake = _setup(tmp_path)
+    sentinel = evidence / "launcher-started"
+
+    result = _invoke(
+        project,
+        evidence,
+        brief,
+        allowance,
+        fake,
+        role="evidence",
+        brief_text=brief_text,
+        sentinel=sentinel,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert sentinel.read_text() == "launched"
+
+
+@pytest.mark.parametrize("role", ["implementer", "reviewer", "integration"])
+def test_self_referential_phrases_do_not_guard_non_evidence_roles(tmp_path: Path, role: str) -> None:
+    project, evidence, brief, allowance, fake = _setup(tmp_path)
+    sentinel = evidence / "launcher-started"
+
+    result = _invoke(
+        project,
+        evidence,
+        brief,
+        allowance,
+        fake,
+        role=role,
+        brief_text="Record your own end_ts and receipt digest.",
+        sentinel=sentinel,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert sentinel.read_text() == "launched"
+    assert json.loads((evidence / "T9.1-receipt.json").read_text())["role"] == role
 
 
 def test_receipt_shape_with_fake_launcher(tmp_path: Path) -> None:
