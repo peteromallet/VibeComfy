@@ -45,6 +45,15 @@
       "exit": 0,
       "status": "passed",
       "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H4-evidence-brief-integration-receipt.json"
+    },
+    {
+      "shard_id": "T2.1_operation_admission_gateway",
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_porting_edit_kernel.py tests/test_porting_edit_apply.py tests/test_porting_edit_ops.py tests/test_porting_edit_delta_contract.py",
+      "source_sha": "993cadd3cfa7760c4ef4954f9afaa44e48bf8898",
+      "summary": "102 passed, 3 failed (pre-existing), 57 warnings",
+      "exit": 1,
+      "status": "pre_existing_failures",
+      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T2.1-integration-receipt.json"
     }
   ],
   "singleton": {
@@ -53,8 +62,8 @@
     "status": "pending"
   },
   "evidence_log": {
-    "task_id": "evidence-log-G1",
-    "gate": "G1",
+    "task_id": "evidence-log-T2.1",
+    "gate": "G2",
     "validator_exit": 0,
     "other_tests_run": false
   }

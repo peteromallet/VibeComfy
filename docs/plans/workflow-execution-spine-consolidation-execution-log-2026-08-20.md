@@ -1626,3 +1626,273 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   the changed files are exactly the three allowed files: this execution
   log, `evidence/manifest.json`, and `evidence/test-shards.json`. No
   receipt is committed.
+## G2 / T2.1 — evidence-log T2.1 card sequence and disposition (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-T2.1` / `G2` /
+  `evidence-log T2.1 card sequence and disposition` / evidence.
+- **Disposition:** **PASS/complete**. T2.1 is a closed card. The complete
+  sequence is pre-code stop → JR resolution → pre-code continue →
+  implementation → post-implementation review → one revision → one
+  independent revision re-review → integration. The operator §13/§14 rule is
+  satisfied: one pre-code review phase (with the recorded JR escalation), one
+  post-implementation review, and one revision re-review; no stacked
+  adjudication was added.
+- **Card contract and custody:** the card input/base was
+  `fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7`; implementation commit
+  `0716a8bcc829b8a18149c1c39cfd8bbb05a39087`; revision and integrated target
+  `993cadd3cfa7760c4ef4954f9afaa44e48bf8898`. The implementation allowance
+  contained 20 files under `vibecomfy/porting/edit/**` plus the named agent,
+  executor, and test files; its recorded allowance digest begins
+  `7b656c3b`. The revision contained 14 files within that frozen allowance.
+  Receipts, the validator, implementation, runtime, and protected state were
+  read-only inputs to this evidence record.
+
+### Ordered T2.1 receipt register
+
+The following seven receipts are the complete canonical T2.1 sequence.
+Receipt files remain unchanged. Receipt SHA-256 values below are hashes of
+the repository receipt files; `brief_sha256` and `result_sha256` are the
+wrapper-recorded brief and result digests.
+
+1. **Pre-code review — `T2.1-precode-review`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.1 one operation-admission gateway pre-code contract
+   review`; role reviewer; route/resolved model `grok-4.6`; receipt
+   `receipts/T2.1-precode-review-receipt.json`; receipt SHA-256
+   `54df416198b3f265257b13fc72f99b12f3d71b7143b293915e981003b28bc088`;
+   PID `46420`; `2026-08-21T16:02:49Z` → `2026-08-21T16:17:42Z`; exit `0`;
+   base `fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7`; no target, commits, or
+   changed files; brief SHA-256
+   `15c71f842e28f4163cce1cc45020043f4871a7f6efdf2054083fcdc0fb411a9f`;
+   result SHA-256
+   `d5ceed095aade1f78e742fa6b682f9aa3ed4a6d55d15e41e84e50219208b4c5f`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1-precode-review.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record
+   `g0/T2.1-precode-review-dispatch.log` ends with the
+   `launch_omp_agent` marker. Disposition `stop` with
+   `T2.1-JR-001` (allowance freeze: resolve by freezing the concrete
+   allowance list, `forbidden: []`) and `T2.1-JR-002` (all layout operations
+   route through the same gateway, not a second layout admission function).
+   The allowance freeze was applied; this was not an unhandled judgment.
+
+2. **Pre-code re-review — `T2.1-precode-review-2`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.1 pre-code re-review after allowance freeze
+   (T2.1-JR-001/JR-002)`; role reviewer; route/resolved model `grok-4.6`;
+   receipt `receipts/T2.1-precode-review-2-receipt.json`; receipt SHA-256
+   `b9a08b2191c31f448f1a1e009216b34f803cf29fc2fd2ee3262461bf165ba753`;
+   PID `46775`; `2026-08-21T16:18:54Z` → `2026-08-21T16:29:58Z`; exit `0`;
+   base `fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7`; no target, commits, or
+   changed files; brief SHA-256
+   `91a973ebfccb504a7d124323eb787ef3525f559410ed2c8802d2a1e9a1b588df`;
+   result SHA-256
+   `2aacf08a2d24c3bbe1cc1c81ccb262d0e99c58e411927b016f40e842e21e3295`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1-precode-review-2.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record
+   `g0/T2.1-precode-review-2-dispatch.log`. Disposition `continue`.
+   Binding pre-code conditions were recorded; the later post-implementation
+   review found that the commit did not fully meet MUST-001..004, which the
+   single revision fixed.
+
+3. **Implementation — `T2.1`.** Gate `G2`; label
+   `T2.1 [XHARD] One operation-admission gateway (admit_operation)`; role
+   implementer; route/resolved model `grok-4.6`; receipt
+   `receipts/T2.1-receipt.json`; receipt SHA-256
+   `2024e881515216a0c6a805e7dac34de3036ac20675e027f6300602418c913ed0`;
+   PID `47099`; `2026-08-21T16:30:37Z` → `2026-08-21T17:07:36Z`; exit `0`;
+   base `fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7`; commit
+   `0716a8bcc829b8a18149c1c39cfd8bbb05a39087`
+   (`feat(exec-spine): add one operation-admission gateway`); 20 changed
+   files within the frozen allowance; brief SHA-256
+   `e8e9a19045880f43739e0c51ed6e7fab8e488d001a07772eeffaebb695071001`;
+   result SHA-256
+   `cd1f639efc25cf4559e37ac2250417737ed28665ba003cb001f19e6be8c4364f`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.1-dispatch.log`.
+   The focused shard result was `98 passed, 3 failed, 57 warnings`, exit `1`.
+   The three failures were claimed and later independently confirmed
+   pre-existing on `fec6cb12`: envelope
+   (`test_agent_delta_turn_result_produces_accepted_batch_only`),
+   LawNode port (`test_diff_inverse_over_field_mode_link_and_node_edits`),
+   and add_node replay
+   (`test_diff_cumulative_replay_and_undo_roundtrip`).
+
+4. **Post-implementation review — `T2.1-review`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.1 post-implementation review of commit 0716a8bc
+   (one operation-admission gateway)`; role reviewer; route/resolved model
+   `grok-4.6`; receipt `receipts/T2.1-review-receipt.json`; receipt SHA-256
+   `1f4c9267942dd00657c501335b8d7efa31437b9bfb146115917e03a74f12a2de`;
+   PID `48033`; `2026-08-21T17:08:29Z` → `2026-08-21T17:22:23Z`; exit `0`;
+   base `0716a8bcc829b8a18149c1c39cfd8bbb05a39087`; no target, commits, or
+   changed files; brief SHA-256
+   `d65f7c9933ef33c87db69f1c05ab4d0ee3499c0d24d92ccc75bafb4ee92538d4`;
+   result SHA-256
+   `3c003d5a360c0979c08f058bb89529515b64c983c72727d05fbf5e46533e6d3e`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1-review.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.1-review-dispatch.log`.
+   Disposition `correct`. Findings were:
+   `T2.1-MUST-001` authority: `_interpret_ops`, `apply_batch`, and
+   `require_known_schema_for_operation` discarded the gateway result, so
+   rejected proposals could enter the accepted delta;
+   `T2.1-MUST-002` authority: `verify_apply`/`lint_delta` honored only
+   `missing_touched_schema`/`unsupported_op`, allowing other typed reasons
+   to produce `ok=True`/`surviving`;
+   `T2.1-MUST-003` schema: `snapshot=None` failed open, so
+   layout/preview/session/accepted-batch-parse callers skipped
+   `require_known_touched_schema`;
+   `T2.1-MUST-004` authority: Python-source DSL `_InterpretRunner` bypassed
+   the gateway;
+   `T2.1-MUST-005` mechanical: routing proof was cosmetic (unused
+   `_admit_operation` import, `_ = admit_operation`, and an
+   `inspect.getsource` substring test);
+   `T2.1-SHOULD-001` mechanical: `rejected_ops_are_invisible` was tautological
+   and a second layout validator remained after the gateway.
+   The focused-shard failures were independently classified pre-existing via
+   a `git archive fec6cb12` base copy: HEAD `98 passed/3 failed`, base
+   `93 passed/3 failed`, with the same three failure IDs.
+
+5. **Revision — `T2.1-revision`.** Gate unset in the receipt; label
+   `T2.1 [XHARD-REVISION] enforce the one operation-admission gateway on all
+   consumers (MUST-001..005)`; role implementer; route/resolved model
+   `grok-4.6`; receipt `receipts/T2.1-revision-receipt.json`; receipt SHA-256
+   `b4ab06ce7b8590136b6fa58f0065d42047f2abd02b5dbf1f5dbc4978eb7291f0`;
+   PID `48352`; `2026-08-21T17:23:24Z` → `2026-08-21T18:20:29Z`; exit `0`;
+   base `0716a8bcc829b8a18149c1c39cfd8bbb05a39087`; commit
+   `993cadd3cfa7760c4ef4954f9afaa44e48bf8898`
+   (`fix(exec-spine): enforce admit_operation as sole admission authority`);
+   14 changed files within the frozen allowance; brief SHA-256
+   `437a9bf94d986e6690a77cca6098b694f47d8a60c7a5e1fce0c8b755aa831be1`;
+   result SHA-256
+   `2e639f263f7b91cd4da26c7497a42dfc06e2657af288b74d6c1a974f82b5a618`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1-revision.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.1-revision-dispatch.log`.
+   Per-finding closure: MUST-001 binds `AdmissionRejected`, preventing IR
+   and `landed_ops` commits while propagating `typed_reason` and
+   `evidence_refs`; MUST-002 blocks `ok=True` and lint `surviving` for any
+   typed rejection; MUST-003 fails closed on absent catalogs for
+   schema-dependent operations and passes real snapshots from callers;
+   MUST-004 makes `_InterpretRunner._apply` admit before
+   `apply_edit_cow`; MUST-005 removes the unused import/binding and replaces
+   cosmetic proof with behavioral consumption tests; SHOULD-001 makes
+   `rejected_ops_are_invisible` a meaningful gate and removes the second
+   layout admission validator. The focused shard was `102 passed, 3 failed,
+   57 warnings`, exit `1`, with the same three pre-existing failure IDs.
+
+6. **Revision re-review — `T2.1-revision-rereview`.** Gate `G2`; label
+   `G2 [XHARD-REVIEW] T2.1 revision re-review of the complete card diff
+   fec6cb12..993cadd3`; role reviewer; route/resolved model `grok-4.6`;
+   receipt `receipts/T2.1-revision-rereview-receipt.json`; receipt SHA-256
+   `b998fed83c9f6a24ea890341dbdf286dff650fbbdb1c02577661b5f5f20fc9cb`;
+   PID `49532`; `2026-08-21T18:23:38Z` → `2026-08-21T18:40:35Z`; exit `0`;
+   base `993cadd3cfa7760c4ef4954f9afaa44e48bf8898`; no target, commits, or
+   changed files; brief SHA-256
+   `c330febc0e5a280904a276815030f6528594a96f3af7ff2435029ddffbd52053`;
+   result SHA-256
+   `506c6a1fd2d65c16df4065a4d9a006ab1a0c79cbdd8eb34262b7815cf0a6a9dd`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_omp_agent.py
+   --model=grok-4.6 --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1-revision-rereview.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record
+   `g0/T2.1-revision-rereview-dispatch.log`. Disposition `continue`;
+   MUST-001..005 and SHOULD-001 are all **CLOSED**, findings are none, and
+   `JUDGMENT_REQUIRED: none`. The focused shard was independently
+   re-classified pre-existing on `fec6cb12`: HEAD `102 passed/3 failed`,
+   base `93 passed/3 failed`, same three failure IDs.
+
+7. **Integration — `T2.1-integration`.** Gate unset in the receipt; label
+   `T2.1-integration: apply reviewed 0716a8bc + 993cadd3, run T2.1 focused
+   shard once, fast-forward push`; role integration; route
+   `codex:gpt-5.6-luna`, resolved model `openai-codex/gpt-5.6-luna`; receipt
+   `receipts/T2.1-integration-receipt.json`; receipt SHA-256
+   `dd99e49257f8e28686dd1a184502ff65b9f6e3d8e131c508e5a69c03daf98059`;
+   PID `49993`; `2026-08-21T18:45:29Z` → `2026-08-21T18:48:33Z`; exit `0`;
+   base `993cadd3cfa7760c4ef4954f9afaa44e48bf8898`; no commits or changed
+   files; brief SHA-256
+   `7533ed37240fcd4db96cd3d3de35b37889d8d0cb6725dff6b1628a571160dd6b`;
+   result SHA-256
+   `63f513dfe33fe16af38336d1cc72a9c9376752315bd0a23420cd69f3f2d369a8`.
+   Wrapper invocation: `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=codex:gpt-5.6-luna --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/T2.1-integration.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record `g0/T2.1-integration-dispatch.log`.
+   Verified lineage `acec7cc1 → f36ed7ed → fec6cb12 → 0716a8bc →
+   993cadd3`. The T2.1 focused shard ran exactly once:
+   `102 passed, 3 failed, 57 warnings`, exit `1`, same three pre-existing
+   failure IDs; stdout digest `82f110ac…`. Integration fast-forward pushed
+   `acec7cc1..993cadd3` via
+   `git push origin HEAD:fixer/workflow-execution-spine-consolidation`;
+   `remote_after == 993cadd3cfa7760c4ef4954f9afaa44e48bf8898`.
+
+### T2.1 disposition, revision closure, and handoff
+
+- **JR resolution:** `T2.1-JR-001` was resolved by freezing the concrete
+  allowance list with `forbidden: []`; `T2.1-JR-002` was resolved by routing
+  layout operations through the same `admit_operation` gateway rather than
+  creating a second layout admission function. The pre-code stop was
+  therefore handled and followed by the recorded re-review `continue`.
+- **Finding closure:** the single revision closed MUST-001 (gateway result is
+  authoritative), MUST-002 (all typed reasons reject), MUST-003 (missing
+  catalog/schema-dependent operations fail closed and callers pass snapshots),
+  MUST-004 (Python-source DSL admits first), MUST-005 (behavioral routing
+  proof), and SHOULD-001 (meaningful rejected-invisibility gate and no second
+  layout admission validator). The independent re-review found none open.
+- **Focused evidence:** the three pre-existing delta-contract failures remain
+  tracked in `test-shards.json`: envelope,
+  `test_agent_delta_turn_result_produces_accepted_batch_only`; LawNode port,
+  `test_diff_inverse_over_field_mode_link_and_node_edits`; and add_node
+  replay, `test_diff_cumulative_replay_and_undo_roundtrip`. They are outside
+  T2.x mutation scope and are not relabeled as T2.1 regressions.
+- **Integration proof:** the integrated local and remote target are both
+  `993cadd3cfa7760c4ef4954f9afaa44e48bf8898`; the only prior-card push was
+  the integration fast-forward above. This evidence recording does not push.
+- **Residual risks and recurrence rules:** every execution-log edit requires
+  refreshing `manifest.tasks[5].recovery_note.sha256`; every
+  `test-shards.json` edit requires refreshing every matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256`. Both rules are
+  validator-enforced. The layout digest helpers
+  `assert_layout_operation_envelope` and `compute_layout_operation_digest`
+  still default `snapshot=None` but are integrity paths; `set_node_geometry`
+  without a snapshot fails closed. `add_group`, `set_group_geometry`, and
+  `remove_group` remain shape-admitted without a catalog because T1.2 treats
+  group IDs as optional. Live providers without a frozen `.snapshot` skip
+  `require_known_touched_schema` when working IR is present, although
+  `_validate_one` still runs; layout group identity is checked only when a
+  working IR is supplied. H3-overlap-narrow remains STOPPED pending operator
+  direction (wrapper pre-code `JUDGMENT_REQUIRED`, `de75b418`), outside T2.x
+  and deferred until before the T3.1/T3.2 read-only windows per §15/Grok
+  ordering. The pre-existing validator gap
+  `_iter_digest_refs` silently skips malformed non-64-hex digest strings;
+  it remains tracked per adjudication A as a candidate future XHARD card.
+- **Controls:** no other file, receipt, protected state, branch, or ref
+  changed in this evidence recording; no push, merge to `main`, promotion,
+  live/model/runtime/provider call, secret access, wrapper dispatch, review,
+  validator change, or product/test run occurred here. No receipt is
+  committed. The integration push and focused-shard run above are historical
+  T2.1 integration evidence.
+- **Next unblocked card:** `T2.2` `[XHARD]` Closed checkpoint and typed
+  terminal projector (freeze the transition table before implementation;
+  both modes use one projector). Grok implementer with Grok pre-code
+  `[XHARD-REVIEW]` per plan §6 G2 / §8 lifecycle; one review per phase per
+  §13/§14.
+- **Evidence commit:** one coherent commit authored by
+  `POM <peter@omalley.io>` with message prefix `docs(exec-spine):`; exactly
+  the three allowed files are changed. The required read-only evidence
+  validator runs after this append; no tests are run by the evidence agent.
+
+- **Validator proof:** The required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  exited `0` and emitted
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`;
+  stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests were run by this evidence recorder.
