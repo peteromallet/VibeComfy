@@ -1313,3 +1313,82 @@ promotion occurred. `JUDGMENT_REQUIRED`: none.
   secret access, or wrapper dispatch occurred in this evidence recording. The
   earlier H2 integration push is recorded above as prior-card evidence.
 - **Next unblocked card:** `H3-overlap-narrow-precode-review`.
+
+### G1 / H3 — PLAN §9 STOP — H3-overlap-narrow (2026-08-21)
+
+- **Task/gate/label/role:** `evidence-log-H3-stop` / no gate / `H3
+  [XHARD-REVIEW] pre-code contract review of read-only overlap narrowing
+  (OVERLAP-NARROW)` / evidence.
+- **Disposition:** **STOP — `JUDGMENT_REQUIRED`**. This is the H3 pre-code
+  gate STOP required by plan §9: an XHARD pre-code review that does not return
+  `continue` stops the affected card. No H3 mutation occurred.
+- **Input/base:** `6eb55a7e98ad8f0c45c69acc0702373b4cc73074`; H1 and H2 are
+  complete, and H2's implementation/integration commit was pushed as
+  `da959d56631eb219721a2c06bc8cb66e404f94b5`. At this stop the local
+  evidence-recording HEAD is `6eb55a7e98ad8f0c45c69acc0702373b4`; the
+  remote implementation SHA remains `da959d56`.
+
+#### Ordered H3 pre-code dispatch register
+
+1. **`H3-overlap-narrow-precode-review` (Grok).** Wrapper PID `40141`;
+   `2026-08-21T14:09:27Z` → `2026-08-21T14:22:57Z`; exit `0`; receipt
+   `receipts/H3-overlap-narrow-precode-review-receipt.json`, receipt SHA-256
+   `d52b395552e3c4cbce20b2bbc492b22a21c62c3823ece4afbafb651bb04bdd9c`;
+   result SHA-256
+   `9e84b047b70ce57fbfc8de55f419e47711c79e648892e8766ef516df1b8d270a`.
+   The wrapper captured a degenerate 301-byte final-message-only stub:
+   “Disposition is unchanged: `JUDGMENT_REQUIRED` on must 1–3 (lock hold,
+   contradictory overlap predicate, read-only + mutator snapshot hazard).”
+2. **`H3-overlap-narrow-precode-adjudication` (Grok).** Wrapper PID
+   `40379`; `2026-08-21T14:23:38Z` → `2026-08-21T14:41:36Z`; exit `0`;
+   receipt `receipts/H3-overlap-narrow-precode-adjudication-receipt.json`,
+   receipt SHA-256
+   `0032f2f82ad19b77c2a9eb0ab0fb510eb22986e6ccf9f05f7f985ca4de86cee3`;
+   result SHA-256
+   `21fd413af6fe0b6e9600bfd05a12d54bef9f5ba4a2b938280531afd2b380580e`.
+   The wrapper captured a degenerate 291-byte final-message-only stub:
+   “The H3 pre-code verdict stands: `JUDGMENT_REQUIRED` on the
+   contradictory overlap predicate (finding 2). Findings 1 and 3 are real
+   hazards but out of this card's frozen repair.”
+
+- **Coherent verdict:** Both Grok dispatches returned degenerate stub-tail
+  captures because the launcher persisted only the final message; the
+  substantive review body was not persisted. Treat the coherent stub core
+  as the verdict, not as `continue`: `JUDGMENT_REQUIRED` on the contradictory
+  overlap predicate (finding 2). Findings 1 (lock hold) and 3 (read-only +
+  mutator snapshot hazard) are real hazards but outside H3's frozen repair.
+  Neither dispatch returned `continue`.
+- **Stop note:** the orchestrator-recorded coherent core and stop rule are
+  preserved at
+  `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/h3-precode-stop-note.json`.
+- **Operator escalation:** operator direction is required on (a) whether
+  read-only + mutating concurrency must remain overlapping, meaning
+  OVERLAP-NARROW applies only to read-only pairs, and (b) whether the
+  snapshot hazard requires a wrapper-guard card before any read-only parallel
+  window is used.
+- **Queue impact:** H3 is STOPPED. Per operator §15 ordering, H4
+  (evidence-brief, no pre-code review) and G1 remain queued behind this H3
+  stop. The next unblocked action is operator direction on H3; no further
+  Grok dispatches will be made for H3 until the operator resolves the
+  contract contradiction.
+- **Residual risks and recurrence rules:** Every execution-log edit requires
+  refreshing `manifest.tasks[5].recovery_note.sha256` to the current log
+  digest. Every `test-shards.json` edit requires refreshing every matching
+  `manifest.tasks[5].evidence_links[*].sha256` and
+  `manifest.tasks[6].shard_integrity.sha256` to the current shard digest;
+  both rules are validator-enforced. The pre-existing validator gap remains
+  tracked and adjudicated A: `_iter_digest_refs` silently skips malformed
+  non-64-hex digest strings paired with a path. The H3 pre-code gate exposed
+  stub-tail captures from the Grok review capability (final-message-only
+  capture); the substantive body was not persisted, so the coherent stub
+  core is recorded as `JUDGMENT_REQUIRED`, never as `continue`. H1 and H2
+  residual risks already recorded above remain unchanged.
+- **Controls:** no H3 mutation, no further H3 Grok dispatch, no tests,
+  implementation, validator change, receipt edit, live/model/runtime call,
+  secret access, push, merge to `main`, promotion, or wrapper dispatch
+  occurred in this evidence recording.
+- **Commit/files:** this STOP record is to be one coherent commit authored by
+  `POM <peter@omalley.io>` with message prefix `docs(exec-spine):`; the
+  changed files are exactly the three allowed files: this execution log,
+  `evidence/manifest.json`, and `evidence/test-shards.json`. No receipt is
+  committed, and no other file, protected state, branch, or ref changes.

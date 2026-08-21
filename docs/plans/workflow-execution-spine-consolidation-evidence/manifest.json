@@ -295,7 +295,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "6917bc5d7b73c68961623c3cd9ca6ce48d398c1b5a0b0b994dfb114fa5e7abfe",
+        "sha256": "16bed4902c2840932514e98ed1636d455fb01ed6a8fb88bdbf931bad2d16a384",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -405,12 +405,15 @@
         {"path": "receipts/T1.1-rerun-verify-receipt.json", "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"},
         {"path": "/tmp/t11-integration-fsRm4h/metadata.txt", "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"},
         {"path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt", "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"},
-        {"path": "test-shards.json", "sha256": "b57a52870c340257356b24a4918a184ddc42985cc70bcddc7067d0844dce1dc6"},
+        {"path": "test-shards.json", "sha256": "3bff66145948237de0e44c122beb59a907b9293ae047dc4e8d711d9b688fdee7"},
         {"path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json", "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"},
         {"path": "receipts/H2-dead-pid-sweep-receipt.json", "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"},
         {"path": "receipts/H2-dead-pid-sweep-rerun-receipt.json", "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"},
         {"path": "receipts/H2-dead-pid-sweep-review-receipt.json", "sha256": "a73a85af51cd8dc878ccad211e8fc81d9fcfdbc7324e8617f6c1b98f96b9389b"},
-        {"path": "receipts/H2-dead-pid-sweep-integration-receipt.json", "sha256": "04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7"}
+        {"path": "receipts/H2-dead-pid-sweep-integration-receipt.json", "sha256": "04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7"},
+        {"path": "receipts/H3-overlap-narrow-precode-review-receipt.json", "sha256": "d52b395552e3c4cbce20b2bbc492b22a21c62c3823ece4afbafb651bb04bdd9c"},
+        {"path": "receipts/H3-overlap-narrow-precode-adjudication-receipt.json", "sha256": "0032f2f82ad19b77c2a9eb0ab0fb510eb22986e6ccf9f05f7f985ca4de86cee3"},
+        {"path": "receipts/h3-precode-stop-note.json", "sha256": "66ee4a955cf8d5a9fbfa95f9468d8b11e4b7841aa4b09c021bd50f017493bdfc"}
       ],
       "controls": {
         "merge_to_main": false,
@@ -503,7 +506,7 @@
         "runs_once_per_phase": true,
         "tests_run_by_evidence_agent": false
       },
-      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "b57a52870c340257356b24a4918a184ddc42985cc70bcddc7067d0844dce1dc6", "modified": true},
+      "shard_integrity": {"path": "test-shards.json", "byte_identical_to_base": false, "sha256": "3bff66145948237de0e44c122beb59a907b9293ae047dc4e8d711d9b688fdee7", "modified": true},
       "integration_push_evidence": {"description": "second explicit-refspec branch push", "exit": 0, "fast_forward": "4f38adb816effe9440fe3292193aff14bd7dff3d -> 0a8e55ff8d0a7412e750237e9623ba147bb152f2", "remote_verified_ts": "2026-08-21T09:05:38Z", "performed_by_evidence_agent": false},
       "wrapper_death_anomaly": {
         "task_id": "T1.2-revision-rereview",
@@ -670,8 +673,43 @@
         "controls": {"merge_to_main": false, "promotion": false, "live_model_runtime_provider_calls": false, "secret_access": false, "protected_state_touched": false, "push_by_evidence_agent": false, "product_tests_run_by_evidence_agent": false, "receipts_committed": false},
         "next_unblocked_card": "H3-overlap-narrow-precode-review"
       },
+      "h3_stop": {
+        "task_id": "evidence-log-H3-stop",
+        "gate": "",
+        "label": "PLAN §9 STOP — H3-overlap-narrow pre-code gate",
+        "role": "evidence",
+        "status": "stopped",
+        "disposition": "JUDGMENT_REQUIRED",
+        "base_sha": "6eb55a7e98ad8f0c45c69acc0702373b4cc73074",
+        "changed_files": [],
+        "commits": [],
+        "receipts": [
+          {"task_id": "H3-overlap-narrow-precode-review", "path": "receipts/H3-overlap-narrow-precode-review-receipt.json", "sha256": "d52b395552e3c4cbce20b2bbc492b22a21c62c3823ece4afbafb651bb04bdd9c", "result_sha256": "9e84b047b70ce57fbfc8de55f419e47711c79e648892e8766ef516df1b8d270a", "role": "pre-code-review", "model_route": "grok-4.6", "wrapper_pid": 40141, "start_ts": "2026-08-21T14:09:27Z", "end_ts": "2026-08-21T14:22:57Z", "exit": 0, "disposition": "JUDGMENT_REQUIRED"},
+          {"task_id": "H3-overlap-narrow-precode-adjudication", "path": "receipts/H3-overlap-narrow-precode-adjudication-receipt.json", "sha256": "0032f2f82ad19b77c2a9eb0ab0fb510eb22986e6ccf9f05f7f985ca4de86cee3", "result_sha256": "21fd413af6fe0b6e9600bfd05a12d54bef9f5ba4a2b938280531afd2b380580e", "role": "adjudication", "model_route": "grok-4.6", "wrapper_pid": 40379, "start_ts": "2026-08-21T14:23:38Z", "end_ts": "2026-08-21T14:41:36Z", "exit": 0, "disposition": "JUDGMENT_REQUIRED"}
+        ],
+        "stop_note": {"path": "receipts/h3-precode-stop-note.json", "sha256": "66ee4a955cf8d5a9fbfa95f9468d8b11e4b7841aa4b09c021bd50f017493bdfc"},
+        "coherent_core": "JUDGMENT_REQUIRED on the contradictory overlap predicate (finding 2); findings 1 and 3 are real hazards outside H3's frozen repair.",
+        "stub_capture": "Both dispatches exposed only degenerate final-message-only tails (301 bytes and 291 bytes); the substantive review body was not persisted.",
+        "stop_rule": "plan §9: an XHARD pre-code review that does not return continue stops the affected card",
+        "operator_questions": [
+          "Whether read-only + mutating concurrency must remain overlapping, or OVERLAP-NARROW applies only to read-only pairs",
+          "Whether the snapshot hazard requires a wrapper-guard card before any read-only parallel window"
+        ],
+        "queue_blocked": ["H4-evidence-brief", "G1"],
+        "no_h3_mutation": true,
+        "no_further_h3_grok_dispatches_until_operator_direction": true,
+        "residual_risks": [
+          "Execution-log edits require refreshing tasks[5].recovery_note.sha256.",
+          "test-shards.json edits require refreshing matching tasks[5].evidence_links[*].sha256 and tasks[6].shard_integrity.sha256.",
+          "Pre-existing validator gap tracked and adjudicated A: _iter_digest_refs silently skips malformed non-64-hex digest strings paired with a path.",
+          "H1/H2 residual risks remain unchanged."
+        ],
+        "validator": {"command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "exit": 0, "stdout": "OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json"},
+        "controls": {"merge_to_main": false, "promotion": false, "live_model_runtime_provider_calls": false, "secret_access": false, "protected_state_touched": false, "push_by_evidence_agent": false, "product_tests_run_by_evidence_agent": false, "receipts_committed": false},
+        "next_unblocked_action": "operator direction on H3"
+      },
       "findings_closed": ["T1.2-MUST-001", "T1.2-MUST-002"],
-      "residual_risks": ["LayerMask remains unsupported until its exact pack schema is supplied; unknown touched schema remains fail-closed. No open must finding or judgment remains.", "Every future append to the execution log changes its digest; every evidence agent that appends MUST refresh manifest.tasks[5].recovery_note.sha256 to the new log digest (validator-enforced).", "Every future edit to test-shards.json changes its digest; every evidence agent that edits it MUST refresh every matching manifest.tasks[5].evidence_links[*].sha256 reference and manifest.tasks[6].shard_integrity.sha256 to the new test-shards.json digest (validator-enforced).", "Pre-existing validator gap: _iter_digest_refs silently skips malformed (non-64-hex) digest strings paired with a path; such a ref passes unchecked. Tracked per adjudication A as a candidate future XHARD validator-hardening card; does not block G1."],
+      "residual_risks": ["LayerMask remains unsupported until its exact pack schema is supplied; unknown touched schema remains fail-closed.", "H3 is stopped with JUDGMENT_REQUIRED on the contradictory overlap predicate; findings 1 and 3 remain real hazards outside H3's frozen repair.", "Every future append to the execution log changes its digest; every evidence agent that appends MUST refresh manifest.tasks[5].recovery_note.sha256 to the new log digest (validator-enforced).", "Every future edit to test-shards.json changes its digest; every evidence agent that edits it MUST refresh every matching manifest.tasks[5].evidence_links[*].sha256 reference and manifest.tasks[6].shard_integrity.sha256 to the new test-shards.json digest (validator-enforced).", "Pre-existing validator gap: _iter_digest_refs silently skips malformed (non-64-hex) digest strings paired with a path; such a ref passes unchecked. Tracked per adjudication A as a candidate future XHARD validator-hardening card; does not block G1.", "Grok H3 pre-code substantive review body was not persisted; only coherent final-message-only stub tails were available, so this is recorded as JUDGMENT_REQUIRED, not continue.", "H1/H2 residual risks remain unchanged."],
       "controls": {
         "merge_to_main": false,
         "promotion": false,
@@ -696,7 +734,7 @@
         "Change test-shards.json",
         "Modify the prior T1.1 entry"
       ],
-      "next_unblocked_card": "H2-dead-pid-sweep-precode-review",
+      "next_unblocked_card": "operator-direction-on-H3",
       "evidence_commit": {
         "required_author": "POM <peter@omalley.io>",
         "message_prefix": "docs(exec-spine):",
