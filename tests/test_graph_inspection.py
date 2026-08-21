@@ -1329,3 +1329,49 @@ class TestRenderInspectMarkdown:
         md = render_inspect_markdown(evidence)
         assert "**Outputs (1):**" in md
         assert "[7] SaveImage" in md
+
+
+class TestRetainedSnapshotInspection:
+    def test_inspect_graph_consumes_retained_snapshot_not_raw(self) -> None:
+        from vibecomfy.executor.graph_inspection import inspect_graph, inspect_workflow
+        from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+        from vibecomfy.ingest.snapshot import snapshot_of
+
+        api = {
+            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+            "2": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": "portrait"},
+            },
+            "3": {
+                "class_type": "KSampler",
+                "inputs": {"model": ["1", 0], "positive": ["2", 0]},
+            },
+        }
+        workflow, _canonical = ingest_workflow_and_ui(api)
+        snapshot = snapshot_of(workflow)
+        from_snapshot = inspect_graph(snapshot)
+        from_retained_ir = inspect_workflow(snapshot.workflow)
+        assert from_snapshot.node_count == 3
+        assert from_snapshot.node_count == from_retained_ir.node_count
+        assert {node.class_type for node in from_snapshot.nodes} == {
+            "CheckpointLoaderSimple",
+            "CLIPTextEncode",
+            "KSampler",
+        }
+
+    def test_inspect_graph_does_not_mutate_caller_and_unknown_fails_closed(self) -> None:
+        from copy import deepcopy
+
+        from vibecomfy.executor.graph_inspection import inspect_graph
+
+        graph = {
+            "1": {"class_type": "LoadImage", "inputs": {"image": "x.png"}},
+        }
+        before = deepcopy(graph)
+        evidence = inspect_graph(graph)
+        graph["1"]["inputs"]["image"] = "mutated.png"
+        assert before["1"]["inputs"]["image"] == "x.png"
+        assert evidence.node_count == 1
+        unknown = inspect_graph({"not": "a-graph", "nodes": "nope"})
+        assert unknown.node_count == 0

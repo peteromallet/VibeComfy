@@ -183,6 +183,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         max_for_iterations: int = 100,
         value_default_context: ValueDefaultContext | None = None,
         initial_workflow: VibeWorkflow | None = None,
+        workflow_snapshot: Any | None = None,
     ) -> None:
         # raw_ui_json is door input only: the named ingest builds the retained
         # IR once.  The ingest snapshot is deep-frozen emit prior_ui furniture,
@@ -219,10 +220,17 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.last_render_diagnostics: tuple[CompactDiagnostic, ...] = ()
         # The ingest IR is constructed once by the named door and retained
         # here.  Renders ALWAYS come from this IR.  Any UI the session
-        # exposes is derived through the emit door.
+        # exposes is derived through the emit door.  The frozen
+        # WorkflowSnapshot is the ingest authority; never re-decode raw.
+        from vibecomfy.ingest.snapshot import snapshot_of
+
+        self.workflow_snapshot = workflow_snapshot or snapshot_of(initial_workflow)
+        if self.workflow_snapshot is not None and initial_workflow is None:
+            initial_workflow = self.workflow_snapshot.workflow
         self.workflow: VibeWorkflow | None = initial_workflow
         if self.workflow is None:
             self.workflow = self._workflow_from_ui(_unfreeze(self._ingest_ui))
+            self.workflow_snapshot = snapshot_of(self.workflow)
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
@@ -422,6 +430,21 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             for name, value in {**node.inputs, **node.widgets}.items():
                 snapshot[(uid, str(name))] = value
         return snapshot
+
+    def _workflow_from_ui(self, ui_json: Mapping[str, Any]) -> VibeWorkflow:
+        snapshot = getattr(self, "workflow_snapshot", None)
+        if snapshot is not None:
+            return snapshot.workflow
+        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.ingest.snapshot import snapshot_of
+
+        workflow = from_ui(
+            dict(ui_json),
+            schema_provider=self.schema_provider,
+            use_comfy_converter=False,
+        )
+        self.workflow_snapshot = snapshot_of(workflow)
+        return workflow
 
     def _emit_working_snapshot(
         self,

@@ -996,43 +996,38 @@ def inspect_workflow(wf: VibeWorkflow) -> GraphEvidence:
 
 
 def _ingest_raw_graph(graph: dict[str, Any]) -> VibeWorkflow:
-    """Enter a raw dict through the named ingest doors."""
-    from vibecomfy.ingest.normalize import (
-        detect_workflow_shape,
-        from_api,
-        from_envelope,
-        from_ui,
-    )
+    """Enter a raw dict through the named ingest door once.
 
-    # Dispatch by the named shape detector.  Trial-calling ``from_ui`` first
-    # is unsafe because a flat API graph can be accepted as an empty UI graph,
-    # silently turning a populated census into zero nodes.
-    shape = detect_workflow_shape(graph)
-    if shape == "api":
-        # Standard ComfyUI queue/request envelopes wrap the actual API graph
-        # under ``prompt``. The shape detector intentionally sees through
-        # that wrapper, so the matching ingest door must do the same; passing
-        # the outer envelope to ``from_api`` creates a single ``Unknown`` node.
-        prompt = graph.get("prompt")
-        return from_api(dict(prompt) if isinstance(prompt, dict) else graph)
-    if shape == "ui":
-        return from_ui(graph, use_comfy_converter=False)
-    if shape == "vibe":
-        return from_envelope(graph)
-    raise ValueError(f"unsupported workflow shape for inspection: {shape}")
+    Prefer a retained :class:`WorkflowSnapshot` when the caller already
+    ingested. Never re-decode raw after that ingest.
+    """
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.ingest.snapshot import snapshot_of
+
+    snapshot = snapshot_of(graph)
+    if snapshot is not None:
+        return snapshot.workflow
+    workflow, _canonical = ingest_workflow_and_ui(graph)
+    retained = snapshot_of(workflow)
+    return retained.workflow if retained is not None else workflow
 
 
 def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:
-    """Extract structured evidence from a raw workflow dict.
+    """Extract structured evidence from a raw workflow or retained snapshot.
 
-    Ingests *graph* through the named doors (``from_envelope`` /
-    ``from_ui`` / ``from_api``) and projects via :func:`inspect_workflow`.
-    ``None``, empty, or uningestible input yields empty evidence.
+    Ingests *graph* through the named door once (or consumes a retained
+    :class:`WorkflowSnapshot`) and projects via :func:`inspect_workflow`.
+    ``None``, empty, or uningestible input yields empty evidence. Unknown
+    shape stays unknown and fails closed to empty evidence.
     """
+    from vibecomfy.ingest.snapshot import WorkflowSnapshot
+
+    if isinstance(graph, WorkflowSnapshot):
+        return inspect_workflow(graph.workflow)
     if not graph:
         return GraphEvidence(node_count=0)
     try:
-        workflow = _ingest_raw_graph(dict(graph))
+        workflow = _ingest_raw_graph(graph)
     except (TypeError, ValueError):
         return GraphEvidence(node_count=0)
     return inspect_workflow(workflow)

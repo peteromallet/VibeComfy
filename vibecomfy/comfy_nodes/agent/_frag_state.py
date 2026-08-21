@@ -175,6 +175,7 @@ class AgentEditState:
     execution_plan_path: Path = Path("execution_plan.json")
     plan_evaluation_path: Path = Path("plan_evaluation.json")
     workflow: Any = None
+    workflow_snapshot: Any = None
     edited_workflow: Any = None
     original_intent_workflow: VibeWorkflow | None = None
     prior_store: Any = None

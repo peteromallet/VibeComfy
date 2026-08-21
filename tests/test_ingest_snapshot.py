@@ -5,14 +5,24 @@ public_input_binding, and the _ingest_snapshot stash on VibeWorkflow.metadata.
 """
 from __future__ import annotations
 
+import copy
+import dataclasses
 import json
 from pathlib import Path
 
 import pytest
 
-from vibecomfy.ingest.normalize import from_api, from_ui
-from vibecomfy.ingest.snapshot import capture_ingest_snapshot
-
+from vibecomfy.ingest.normalize import detect_workflow_shape, from_api, from_ui, ingest_workflow_and_ui
+from vibecomfy.ingest.snapshot import (
+    SEMANTIC_HASH_VERSION,
+    SnapshotAuthorityError,
+    WorkflowLineage,
+    WorkflowSnapshot,
+    bind_snapshot_lineage,
+    capture_ingest_snapshot,
+    compare_snapshot_authority,
+    snapshot_of,
+)
 
 _R5_FIXTURES = Path(__file__).parent / "fixtures" / "workflow_execution_spine_r5"
 
@@ -166,3 +176,235 @@ def test_snapshot_survives_ir_mutation():
     wf.nodes["1"].widgets["seed"] = 999
     # The stored snapshot is unchanged
     assert wf.metadata["_ingest_snapshot"]["ksampler-uid"]["widget_values_sig"] == snap_before["ksampler-uid"]["widget_values_sig"]
+
+
+def _ui_graph() -> dict:
+    return {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "pos": [0, 0],
+                "size": [200, 100],
+                "widgets_values": ["example.png"],
+                "properties": {"vibecomfy_uid": "load-uid", "frontend_only": {"keep": True}},
+                "opaque_custom": {"pack": "UnknownCustomNode", "payload": [1, 2, 3]},
+            },
+            {
+                "id": 2,
+                "type": "SaveImage",
+                "pos": [300, 0],
+                "size": [200, 100],
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 1}],
+                "widgets_values": ["out/"],
+                "properties": {"vibecomfy_uid": "save-uid"},
+            },
+            {
+                "id": 99,
+                "type": "UnknownCustomNode",
+                "pos": [600, 0],
+                "size": [180, 80],
+                "widgets_values": [{"secret": "opaque"}],
+                "properties": {"vibecomfy_uid": "unknown-uid", "customUI": {"tab": "extra"}},
+                "opaque_custom": {"pack": "UnknownCustomNode", "payload": [1, 2, 3]},
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+        "extra": {"ui_only": {"sidebar": True}},
+    }
+
+
+def test_shape_dispatch_detects_ui_api_and_prompt_api_once() -> None:
+    ui = _ui_graph()
+    api = _simple_api()
+    wrapped = {"prompt": api, "client_id": "c1"}
+    unknown = {"not": "a-graph", "nodes": "nope"}
+
+    assert detect_workflow_shape(ui) == "ui"
+    assert detect_workflow_shape(api) == "api"
+    assert detect_workflow_shape(wrapped) == "prompt_api"
+    assert detect_workflow_shape(unknown) == "unknown"
+
+    ingest_workflow_and_ui(ui)
+    ingest_workflow_and_ui(api)
+    ingest_workflow_and_ui(wrapped)
+    with pytest.raises(ValueError, match="unsupported workflow shape"):
+        ingest_workflow_and_ui(unknown)
+
+
+def test_ingest_never_mutates_caller_inputs() -> None:
+    ui = _ui_graph()
+    before_ui = copy.deepcopy(ui)
+    workflow, detached = ingest_workflow_and_ui(ui)
+    ui["nodes"][0]["widgets_values"][0] = "mutated-by-caller.png"
+    ui["nodes"][0]["opaque_custom"]["payload"].append(4)
+    assert ui != before_ui
+    assert detached["nodes"][0]["widgets_values"][0] == "example.png"
+    assert list(snapshot_of(workflow).raw_sidecar["nodes"][0]["opaque_custom"]["payload"]) == [1, 2, 3]
+
+    api = _simple_api()
+    before_api = copy.deepcopy(api)
+    ingest_workflow_and_ui(api)
+    api["1"]["inputs"]["image"] = "mutated.png"
+    assert api != before_api
+    assert before_api["1"]["inputs"]["image"] == "example.png"
+
+    wrapped = {"prompt": _simple_api(), "client_id": "keep-me"}
+    before_wrapped = copy.deepcopy(wrapped)
+    ingest_workflow_and_ui(wrapped)
+    wrapped["prompt"]["1"]["inputs"]["image"] = "mutated.png"
+    wrapped["client_id"] = "changed"
+    assert wrapped != before_wrapped
+
+
+def test_workflow_snapshot_is_frozen_copy_with_canonical_hash() -> None:
+    import hashlib
+
+    from vibecomfy.comfy_nodes.agent._canonical_contract_primitives import canonical_json_bytes_v1
+    from vibecomfy.ingest.snapshot import _semantic_preimage
+
+    ui = _ui_graph()
+    workflow, _detached = ingest_workflow_and_ui(ui)
+    snapshot = snapshot_of(workflow)
+    assert isinstance(snapshot, WorkflowSnapshot)
+    assert snapshot.semantic_hash_version == SEMANTIC_HASH_VERSION
+    assert snapshot.source_representation == "ui"
+    assert snapshot.layout.kind == "ingest_geometry_ref"
+    assert snapshot.layout.digest
+    assert "load-uid" in snapshot.identity
+    assert any(edge[0] == "load-uid" and edge[2] == "save-uid" for edge in snapshot.topology)
+    assert snapshot.workflow is not workflow
+    workflow.nodes["1"].widgets["image"] = "live-mutated.png"
+    assert snapshot.workflow.nodes["1"].widgets.get("image") != "live-mutated.png"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        snapshot.source_representation = "mutated"  # type: ignore[misc]
+    recomputed = hashlib.sha256(
+        canonical_json_bytes_v1(
+            _semantic_preimage(
+                identity=snapshot.identity,
+                topology=snapshot.topology,
+                field_snapshot=snapshot.field_snapshot,
+            ),
+            ensure_ascii=False,
+        )
+    ).hexdigest()
+    assert snapshot.semantic_digest == recomputed
+    second, _ = ingest_workflow_and_ui(copy.deepcopy(ui))
+    assert snapshot_of(second).semantic_digest == snapshot.semantic_digest
+    assert snapshot_of(second).source_digest == snapshot.source_digest
+    layout_changed = copy.deepcopy(ui)
+    layout_changed["nodes"][0]["pos"] = [99, 99]
+    laid, _ = ingest_workflow_and_ui(layout_changed)
+    laid_snap = snapshot_of(laid)
+    assert laid_snap.layout.digest != snapshot.layout.digest
+    assert laid_snap.semantic_digest == snapshot.semantic_digest
+
+
+def test_prompt_api_wrapper_is_retained_as_sidecar() -> None:
+    wrapped = {"prompt": _simple_api(), "client_id": "c1", "extra_meta": {"keep": 1}}
+    workflow, _canonical = ingest_workflow_and_ui(wrapped)
+    snapshot = snapshot_of(workflow)
+    assert snapshot.source_representation == "prompt_api"
+    assert snapshot.raw_sidecar["client_id"] == "c1"
+    assert snapshot.raw_sidecar["extra_meta"]["keep"] == 1
+    assert "1" in snapshot.raw_sidecar["prompt"]
+
+
+def test_unknown_node_opaque_data_survives_unrelated_projection() -> None:
+    from vibecomfy.porting.emit.ui import pin_untouched_ui
+
+    ui = _ui_graph()
+    workflow, detached = ingest_workflow_and_ui(ui)
+    snapshot = snapshot_of(workflow)
+    unknown = next(node for node in detached["nodes"] if node["id"] == 99)
+    assert unknown["type"] == "UnknownCustomNode"
+    assert unknown["properties"]["customUI"]["tab"] == "extra"
+    assert unknown["widgets_values"][0]["secret"] == "opaque"
+    sidecar_unknown = next(
+        node
+        for node in snapshot.raw_sidecar["nodes"]
+        if str(node.get("id")) == "99"
+    )
+    assert sidecar_unknown["properties"]["customUI"]["tab"] == "extra"
+    assert sidecar_unknown["opaque_custom"]["pack"] == "UnknownCustomNode"
+    sidecar_load = next(
+        node
+        for node in snapshot.raw_sidecar["nodes"]
+        if str(node.get("id")) == "1"
+    )
+    assert sidecar_load["opaque_custom"]["pack"] == "UnknownCustomNode"
+
+    candidate = copy.deepcopy(detached)
+    save = next(node for node in candidate["nodes"] if node["id"] == 2)
+    save["widgets_values"] = ["edited-prefix/"]
+    pinned = pin_untouched_ui(detached, candidate, ops=())
+    pinned_unknown = next(node for node in pinned["nodes"] if node["id"] == 99)
+    assert pinned_unknown["properties"]["customUI"] == {"tab": "extra"}
+    assert pinned_unknown["widgets_values"][0]["secret"] == "opaque"
+
+
+def test_session_turn_lineage_and_mixed_representation_reject() -> None:
+    ui_wf, _ = ingest_workflow_and_ui(_ui_graph())
+    api_wf, _ = ingest_workflow_and_ui(_simple_api())
+    ui_snap = bind_snapshot_lineage(ui_wf, session_id="sess-a", turn_id="0001", baseline_id="b1")
+    api_snap = bind_snapshot_lineage(api_wf, session_id="sess-a", turn_id="0002", baseline_id="b1")
+    assert ui_snap.lineage == WorkflowLineage(session_id="sess-a", turn_id="0001", baseline_id="b1")
+    with pytest.raises(SnapshotAuthorityError) as mixed:
+        compare_snapshot_authority(ui_snap, api_snap)
+    assert mixed.value.code == "mixed_representation"
+    later = bind_snapshot_lineage(ui_wf, session_id="sess-a", turn_id="0002")
+    with pytest.raises(SnapshotAuthorityError) as cross_turn:
+        compare_snapshot_authority(ui_snap, later)
+    assert cross_turn.value.code == "cross_turn_lineage"
+    prompt_wf, _ = ingest_workflow_and_ui({"prompt": _simple_api(), "client_id": "x"})
+    compare_snapshot_authority(snapshot_of(api_wf), snapshot_of(prompt_wf))
+
+
+def test_model_python_render_uses_retained_snapshot_ir() -> None:
+    from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
+
+    workflow, _ = ingest_workflow_and_ui(_ui_graph())
+    snapshot = snapshot_of(workflow)
+    rendered = emit_agent_edit_python(snapshot.workflow)
+    assert "LoadImage" in rendered
+    assert "SaveImage" in rendered
+    assert "UnknownCustomNode" in rendered
+    workflow.nodes["1"].class_type = "MutatedLive"
+    again = emit_agent_edit_python(snapshot.workflow)
+    assert "MutatedLive" not in again
+    assert "LoadImage" in again
+
+
+def test_recovered_ensure_ingest_uses_retained_snapshot() -> None:
+    from vibecomfy.comfy_nodes.agent._frag_ingest import _ensure_ingest_workflow
+    from vibecomfy.comfy_nodes.agent._frag_state import AgentEditState
+
+    workflow, graph = ingest_workflow_and_ui(_ui_graph())
+    snapshot = snapshot_of(workflow)
+    state = AgentEditState(
+        task="edit",
+        graph={"nodes": "poisoned-raw-must-not-be-redecoded"},
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=Path("/tmp/unused"),
+        turn_dir=Path("/tmp/unused"),
+        request_path=Path("/tmp/unused"),
+        original_ui_path=Path("/tmp/unused"),
+        before_py_path=Path("/tmp/unused"),
+        after_py_path=Path("/tmp/unused"),
+        projection_path=Path("/tmp/unused"),
+        model_request_path=Path("/tmp/unused"),
+        model_response_path=Path("/tmp/unused"),
+        candidate_ui_path=Path("/tmp/unused"),
+        messages_path=Path("/tmp/unused"),
+        workflow=None,
+        workflow_snapshot=snapshot,
+    )
+    recovered = _ensure_ingest_workflow(state)
+    assert recovered is snapshot.workflow
+    assert state.graph == {"nodes": "poisoned-raw-must-not-be-redecoded"}

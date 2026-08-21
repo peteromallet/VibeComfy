@@ -86,8 +86,20 @@ def _ensure_ingest_workflow(state: AgentEditState) -> Any:
     callers and recovered states fall through here, which performs the SINGLE
     named-door conversion (``ingest_workflow_and_ui`` — the only shape
     dispatcher) and stores both the canonical graph and the retained
-    ``VibeWorkflow`` on state.
+    ``VibeWorkflow`` on state.  Recovered states consume the retained
+    :class:`WorkflowSnapshot` and never re-decode raw after that ingest.
     """
+    from vibecomfy.ingest.snapshot import bind_snapshot_lineage, snapshot_of
+
+    existing = snapshot_of(state.workflow) if state.workflow is not None else None
+    if existing is not None:
+        state.workflow_snapshot = existing
+        return state.workflow
+    if getattr(state, "workflow_snapshot", None) is not None:
+        snapshot = state.workflow_snapshot
+        if state.workflow is None:
+            state.workflow = snapshot.workflow
+        return state.workflow
     if state.workflow is None:
         from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 
@@ -97,6 +109,16 @@ def _ensure_ingest_workflow(state: AgentEditState) -> Any:
         )
         state.graph = graph
         state.workflow = workflow
+        snapshot = snapshot_of(workflow)
+        if snapshot is not None:
+            session_id = getattr(getattr(state, "session_dir", None), "name", None)
+            turn_id = getattr(getattr(state, "turn_dir", None), "name", None)
+            state.workflow_snapshot = bind_snapshot_lineage(
+                workflow,
+                session_id=str(session_id) if session_id else None,
+                turn_id=str(turn_id) if turn_id else None,
+                baseline_id=state.baseline_graph_hash,
+            )
     return state.workflow
 
 

@@ -203,6 +203,16 @@ def handle_agent_edit(
         and isinstance(turn_record.get("submitted_client_structural_graph_hash"), str)
         else None
     )
+    from vibecomfy.ingest.snapshot import bind_snapshot_lineage, snapshot_of
+
+    retained_snapshot = snapshot_of(retained_workflow)
+    if retained_snapshot is not None:
+        retained_snapshot = bind_snapshot_lineage(
+            retained_workflow,
+            session_id=session_id,
+            turn_id=context.turn_id,
+            baseline_id=context.baseline_turn_id,
+        )
     state = AgentEditState(
         task=task,
         graph=graph,
@@ -210,6 +220,7 @@ def handle_agent_edit(
         # door above) is authoritative at allocation; ingest stages reuse it
         # instead of re-deriving from raw JSON.
         workflow=retained_workflow,
+        workflow_snapshot=retained_snapshot,
         request_payload=payload,
         schema_provider=schema_provider,
         baseline_graph_hash=baseline_graph_hash,

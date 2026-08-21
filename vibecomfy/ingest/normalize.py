@@ -414,10 +414,14 @@ def detect_workflow_shape(raw: dict[str, Any]) -> str:
     Callers that know their input should use :func:`from_envelope`,
     :func:`from_ui`, or :func:`from_api`. This remains for
     :func:`normalize_to_api` and a few internal tags that still need a shape
-    label.
+    label. ``{prompt: API}`` is detected as ``prompt_api`` once; the wrapper
+    is retained as sidecar by :func:`ingest_workflow_and_ui`.
     """
     if "prompt" in raw and isinstance(raw["prompt"], dict):
-        return detect_workflow_shape(raw["prompt"])
+        inner = detect_workflow_shape(raw["prompt"])
+        if inner == "api":
+            return "prompt_api"
+        return inner
     # ``compiled_api`` is optional execution evidence.  A versioned rich
     # envelope remains a Vibe envelope even when that evidence is absent or
     # malformed; structural shape is established by the rich nodes mapping.
@@ -433,6 +437,31 @@ def detect_workflow_shape(raw: dict[str, Any]) -> str:
     if raw and all(isinstance(value, dict) and "class_type" in value for value in raw.values()):
         return "api"
     return "unknown"
+
+
+def _attach_workflow_snapshot(
+    workflow: "VibeWorkflow",
+    raw: Mapping[str, Any] | None,
+    *,
+    source_representation: str,
+) -> "VibeWorkflow":
+    """Freeze a copy/handle of *workflow* as the retained ingest authority."""
+    from vibecomfy.ingest.snapshot import (
+        WORKFLOW_SNAPSHOT_METADATA_KEY,
+        capture_workflow_snapshot,
+    )
+
+    workflow.metadata[WORKFLOW_SNAPSHOT_METADATA_KEY] = capture_workflow_snapshot(
+        raw,
+        workflow,
+        source_representation=source_representation,
+    )
+    return workflow
+
+
+def _ingest_unknown_shape(raw: Mapping[str, Any]) -> "VibeWorkflow":
+    """Unknown shape stays unknown and fails closed."""
+    raise ValueError("unsupported workflow shape for ingest: unknown")
 
 
 def normalize_to_api(
@@ -1173,6 +1202,7 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 
     workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(raw, workflow)
+    _attach_workflow_snapshot(workflow, raw, source_representation="vibe")
     # Law 1: stash the raw envelope bytes at the door so the envelope
     # serializer (``to_envelope``) reproduces them byte-for-byte for an
     # untouched envelope (``to_envelope(from_envelope(J)) == J``).
@@ -1201,6 +1231,7 @@ def from_ui(
     comfy_converter_strict: bool = True,
 ) -> VibeWorkflow:
     """Ingest a LiteGraph list-nodes graph into a :class:`VibeWorkflow`."""
+    raw = deepcopy(raw)
     api = _ui_graph_to_api(
         raw,
         schema_provider=schema_provider,
@@ -1229,6 +1260,7 @@ def from_ui(
     workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(
         raw, workflow, use_comfy_converter=use_comfy_converter
     )
+    _attach_workflow_snapshot(workflow, raw, source_representation="ui")
     return workflow
 
 
@@ -1432,6 +1464,7 @@ def _from_api_impl(
     # Captured once here so downstream delta computation can detect edits.
     from vibecomfy.ingest.snapshot import capture_ingest_snapshot  # local to avoid circular at module level
     workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(api_workflow, workflow)
+    _attach_workflow_snapshot(workflow, api_workflow, source_representation="api")
 
     # ``workflow.metadata`` is ``dict[str, Any]`` and transparently accepts
     # any extra keys.  In particular, ``summary`` (a ``WorkflowSummary`` dict)
@@ -1668,26 +1701,54 @@ def ingest_workflow_and_ui(
     *,
     schema_provider: SchemaProvider | None = None,
 ) -> tuple[VibeWorkflow, dict[str, Any]]:
-    """Named door: convert any supported graph shape once and retain the IR.
+    """Named door: detect shape once, never mutate caller inputs, retain IR.
 
-    List-nodes UI graphs keep object identity. Envelope/API graphs are
-    converted and re-emitted as canonical UI JSON.
+    UI list-nodes are deep-copied at the door so caller inputs stay immutable.
+    ``{prompt: API}`` unwraps once; the wrapper is retained as snapshot sidecar.
+    Envelope/API graphs are converted and re-emitted as canonical UI JSON.
+    Unknown shape stays unknown and fails closed.
     """
     from vibecomfy.porting.emit.ui import emit_ui_json
 
-    entries = graph.get("nodes")
-    if isinstance(entries, list):
-        return from_ui(graph, schema_provider=schema_provider), graph
-    if isinstance(entries, dict) and any(not isinstance(entry, dict) for entry in entries.values()):
-        raise ValueError("nodes must contain only node objects")
-    if isinstance(entries, dict):
-        workflow = from_envelope(graph)
-    else:
-        workflow = from_api(graph, schema_provider=schema_provider)
+    if not isinstance(graph, dict):
+        raise ValueError("graph must be a mapping")
+    shape = detect_workflow_shape(graph)
+    if shape == "unknown":
+        return _ingest_unknown_shape(graph), graph
+    if shape == "ui":
+        detached = deepcopy(graph)
+        workflow = from_ui(detached, schema_provider=schema_provider)
+        return workflow, detached
+    if shape == "vibe":
+        detached = deepcopy(graph)
+        workflow = from_envelope(detached)
+        return workflow, emit_ui_json(
+            workflow,
+            schema_provider=schema_provider,
+            guard_original_ui=detached,
+        )
+    if shape == "prompt_api":
+        prompt = graph.get("prompt")
+        if not isinstance(prompt, dict):
+            raise ValueError("prompt_api wrapper must contain a mapping prompt")
+        detached_prompt = deepcopy(prompt)
+        workflow = from_api(detached_prompt, schema_provider=schema_provider)
+        _attach_workflow_snapshot(
+            workflow,
+            deepcopy(graph),
+            source_representation="prompt_api",
+        )
+        return workflow, emit_ui_json(
+            workflow,
+            schema_provider=schema_provider,
+            guard_original_ui=detached_prompt,
+        )
+    detached = deepcopy(graph)
+    workflow = from_api(detached, schema_provider=schema_provider)
     return workflow, emit_ui_json(
         workflow,
         schema_provider=schema_provider,
-        guard_original_ui=graph,
+        guard_original_ui=detached,
     )
 
 

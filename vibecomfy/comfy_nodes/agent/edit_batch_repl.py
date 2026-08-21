@@ -842,6 +842,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         schema_provider=state.schema_provider,
         value_default_context=value_default_context,
         initial_workflow=state.workflow,
+        workflow_snapshot=getattr(state, "workflow_snapshot", None),
     )
     session.research_only = research_only_route
     session.tool_phase = (

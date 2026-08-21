@@ -45,3 +45,21 @@ def test_snapshot_sidecars_match_compiled_workflow(stem: str) -> None:
     assert regenerated_widget_values == committed_widget_values, (
         f"widget_values drift for {ready_id}: regenerate with `python -m tools.regenerate_snapshots --write`."
     )
+
+
+def test_api_ingest_snapshot_is_retained_authority_for_ready_template() -> None:
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.ingest.snapshot import SEMANTIC_HASH_VERSION, snapshot_of
+
+    stem = sorted(STEM_TO_READY_ID.keys())[0]
+    workflow = load_workflow_any(STEM_TO_READY_ID[stem])
+    api = workflow.compile("api")
+    retained, _canonical = ingest_workflow_and_ui(api)
+    snapshot = snapshot_of(retained)
+    assert snapshot is not None
+    assert snapshot.source_representation == "api"
+    assert snapshot.semantic_hash_version == SEMANTIC_HASH_VERSION
+    assert snapshot.identity
+    assert snapshot.workflow is not retained
+    retained.nodes[next(iter(retained.nodes))].class_type = "MutatedAfterIngest"
+    assert snapshot.workflow.nodes[next(iter(snapshot.workflow.nodes))].class_type != "MutatedAfterIngest"

@@ -376,9 +376,34 @@ def _mutate_turn_state(
                     diagnostics=action_diagnostics,
                 )
             else:
+                from vibecomfy.ingest.normalize import detect_workflow_shape
+                from vibecomfy.ingest.snapshot import SnapshotAuthorityError
+
+                submit_graph = v2_evidence["submit_graph"]
+                live_graph = request_payload["live_graph"]
+                if (
+                    isinstance(submit_graph, dict)
+                    and isinstance(live_graph, dict)
+                    and detect_workflow_shape(submit_graph) != detect_workflow_shape(live_graph)
+                ):
+                    return failure_envelope(
+                        FailureKind.STALE_STATE_MISMATCH,
+                        scope,
+                        context,
+                        agent_failure_context={
+                            "explanation": "comparison/replay cannot mix raw representations",
+                            "code": SnapshotAuthorityError(
+                                "mixed_representation",
+                                "comparison/replay cannot mix raw representations",
+                            ).code,
+                            "submit_shape": detect_workflow_shape(submit_graph),
+                            "live_shape": detect_workflow_shape(live_graph),
+                            "turn_id": turn_id,
+                        },
+                    )
                 scoped_plan = _build_scoped_validation_plan(
-                    submit_graph=v2_evidence["submit_graph"],
-                    live_graph=request_payload["live_graph"],
+                    submit_graph=submit_graph,
+                    live_graph=live_graph,
                     candidate_graph=v2_evidence.get("candidate_graph"),
                     delta_ops=v2_evidence["delta_ops"],
                 )

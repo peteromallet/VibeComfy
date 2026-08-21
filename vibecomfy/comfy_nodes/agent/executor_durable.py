@@ -67,19 +67,23 @@ def maybe_write_executor_only_durable_turn(
     try:
         query_text_raw = getattr(request, "query", "") or payload.get("query") or payload.get("task") or ""
         query_text = query_text_raw if isinstance(query_text_raw, str) else ""
-        # Normalize any dict request graph to the canonical Agent Edit
-        # (LiteGraph) shape BEFORE building the artifact payload and calling
-        # allocate_turn_func, so allocation hashing/state and request.json
-        # persistence all see the SAME canonical graph. List-node UI graphs
-        # pass through unchanged. Failures fall through to the outer
-        # best-effort handler — a raw graph is never allocated or persisted.
+        # Normalize any dict request graph through the named ingest door
+        # BEFORE building the artifact payload and calling allocate_turn_func,
+        # so allocation hashing/state and request.json persistence all see the
+        # SAME canonical graph. The retained WorkflowSnapshot is the replay
+        # authority; raw is never re-decoded after this ingest. Failures fall
+        # through to the outer best-effort handler — a raw graph is never
+        # allocated or persisted.
         request_graph = getattr(request, "graph", None)
+        retained_snapshot = None
         if isinstance(request_graph, dict):
             from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+            from vibecomfy.ingest.snapshot import snapshot_of
 
-            _workflow, request_graph = ingest_workflow_and_ui(
+            retained_workflow, request_graph = ingest_workflow_and_ui(
                 request_graph, schema_provider=None
             )
+            retained_snapshot = snapshot_of(retained_workflow)
         request_artifact_payload: dict[str, Any] = {
             "query": query_text,
             "task": query_text,
@@ -112,6 +116,15 @@ def maybe_write_executor_only_durable_turn(
             replayed = dict(allocation.replay.response)
             if idempotency_key is not None and "idempotency_key" not in replayed:
                 replayed["idempotency_key"] = idempotency_key
+            if retained_snapshot is not None:
+                from vibecomfy.ingest.snapshot import bind_snapshot_lineage
+
+                bind_snapshot_lineage(
+                    retained_workflow,
+                    session_id=session_id,
+                    turn_id=allocation.context.turn_id,
+                    baseline_id=allocation.context.baseline_turn_id,
+                )
             return replayed
         if allocation.conflict is not None:
             return response
@@ -135,6 +148,18 @@ def maybe_write_executor_only_durable_turn(
         stamped = dict(response)
         stamped["session_id"] = context.session_id
         stamped["turn_id"] = context.turn_id
+        if retained_snapshot is not None:
+            from vibecomfy.ingest.snapshot import bind_snapshot_lineage
+
+            retained_snapshot = bind_snapshot_lineage(
+                retained_workflow,
+                session_id=context.session_id,
+                turn_id=context.turn_id,
+                baseline_id=context.baseline_turn_id,
+            )
+            stamped["workflow_source_digest"] = retained_snapshot.source_digest
+            stamped["workflow_semantic_digest"] = retained_snapshot.semantic_digest
+            stamped["workflow_semantic_hash_version"] = retained_snapshot.semantic_hash_version
         stamped["session_path"] = str(session_dir_for(root, context.session_id))
         stamped["session_path_resolved"] = str(session_dir_for(root, context.session_id).resolve())
         stamped["detail_json_path"] = str(response_path)
