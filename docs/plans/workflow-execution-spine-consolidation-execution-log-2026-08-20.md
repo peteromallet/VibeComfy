@@ -3471,3 +3471,168 @@ here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## B3 implementer disposition — T4.1 + T4.2 + T4.3 (2026-08-22)
+
+### B3-IMPLEMENTER register
+
+- **Task/label/role/route:** `B3-IMPLEMENTER` / `B3 implementer: T4.1
+  [XHARD] shared research evidence contract + T4.2 [HARD] staged adapter
+  + T4.3 [HARD] threaded adapter` / implementer / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/B3-IMPLEMENTER-receipt.json` (file
+  SHA-256
+  `209db6f99a61663267149c7f5f8d716049f753a95e57bbe3baa03c4cebe39781`);
+  window `2026-08-22T05:18:30Z` → `2026-08-22T06:30:59Z`, launcher exit
+  `0`; base `69b6fcf17cf081d7726c882740462f51e5229d24`; commit
+  `160042304761fbb6069ee0bc46b134c25625c071` — single batch commit (the
+  three cards interlock through the shared contract layer; permitted per
+  brief); 16 changed files, all within allowance (+1008/−106, zero
+  violations verified programmatically against the machine allowance);
+  result SHA-256
+  `db1fd034b15c2fc339ade5fe8c8208538b01a11d81389d0b4570fc7ad07447a7`;
+  `stop_or_judgment` empty (`JUDGMENT_REQUIRED: none`); full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER-dispatch.log`.
+
+### T4.1 PASS — shared research evidence contract
+
+- **Shared field set pinned:** `RESEARCH_EVIDENCE_SHARED_KEYS`
+  (`contracts.py:2171`) = {mode, route, research_attempt, status,
+  decision_turns, tool_calls_executed, tool_call_statuses,
+  evidence_artifacts, citations, budget, diagnostics, ledger}; both
+  carriers project every key (counts/bytes may differ).
+- **Budget/deadline persisted:** staged trace budget snapshot
+  (`agent_research_stage.py:1897`: deadline_seconds/turns_used/
+  deadline_reached) and threaded `_durable_research_budget`
+  (`contracts.py:2380`); also persisted on `StagePackage.budget` with
+  additive-with-omission serialization verified byte-stable for legacy
+  packages.
+- **Unsupported-source parity:** policy moved to shared
+  `contracts.source_policy_entries:2129`, applied by the threaded
+  projection to the host-authored plan, plus a typed
+  `research_phase_deadline` diagnostic on deadline exhaustion.
+- **Typed per-entry status:** optional `EvidenceLedgerEntry.tool_status`
+  (`evidence_pack.py:181`, additive emission at `:224`) stamped for
+  executed AND refused calls at the single seam
+  `tool_specs.project_tool_evidence:946`; status-prefixed prose
+  conclusions unchanged.
+- Cross-mode equality tests added
+  (`tests/test_executor_threaded_mode.py:575-673`). Count bases frozen
+  as a documented designed difference (staged counts network executions
+  excluding cached replay; threaded counts any statement with an
+  executed status incl. cached) rather than behaviorally unified —
+  unifying would change RC2-gate inputs and live-harness attestation
+  semantics for zero consumer value.
+
+### T4.2 PASS — staged adapter freeze; deadline unified on 450s
+
+- **Deadline decision (recorded): one canonical default.**
+  `RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS = 450.0`
+  (`tool_contracts.py:32`); both readers (`core.py:1364`,
+  `edit_batch_repl.py:999`) read this single name — the batch-REPL's
+  undocumented 600s outlier is gone. Rationale: core.py's own comment
+  claimed parity with the batch-REPL path; three prior sites already
+  said 450; the stage constant now aliases the same value.
+- Five seams untouched and mode-neutral; wire bytes preserved
+  additive-with-omission (`Report.to_dict` keeps orchestration_mode
+  omission for staged); reply stays a separate spec'd provider call;
+  new evidence fields are additive inside `report.research` only
+  (envelope-level bytes stable). Wire tests added
+  (`test_pipeline_mode_surface.py`: staged omission + envelope
+  stability + both-carrier round-trip through
+  `serialize_executor_result`; one updated pin
+  `test_executor_flows.py:766` — the C5 "no ledger on research route"
+  assertion became "compact typed ledger present, no bodies", the
+  deliberate T4.1 alignment).
+
+### T4.3 PASS — threaded adapter obligations; two decisions recorded
+
+- **Continuation substrate DECISION: chat-artifact continuation frozen
+  canonical.** `THREADED_CONTINUATION_SUBSTRATE = "chat_artifacts"`
+  (`threaded.py:49`). Reasoning: the agent-edit host is the single
+  session/turn/checkpoint/replay authority and single durable writer;
+  wiring `host_ports.thread_*` into the driver would create a second
+  write path with no reader (model memory comes from
+  `read_session_chat`+PROMPT_MEMORY_MESSAGES below the kernel seam),
+  adding lease-conflict failure surface over an already-proven carrier.
+  Tests: poisoned-hook two-turn drive proves the driver never consumes
+  thread_* hooks + substrate constant pinned
+  (`test_executor_threaded_sessions.py`); Row-7 recovery
+  (receipt+accepted_batch ⇒ applied, else undetermined) proven
+  mode-identical (`test_executor_threaded_edits.py`).
+- **Budget-reserve DECISION: advisory-only.** Reserves validate the
+  ceiling partition but are not subtracted from host `max_batches` —
+  enforcement would break the pinned 24-ceiling contract and duplicate
+  the edit kernel's own atomic limits. Docstring records it; validation
+  test passes again (the implementer initially dropped
+  `ThreadedPurposeBudget.__post_init__` in an edit; restored and
+  re-pinned).
+- Classifier-free sentinels pass (no threaded request reaches
+  `_run_classify`); graphless research via shared ToolSpec registry;
+  answer-only inspect returns graph=None; terminal projection parity
+  across modes tested directly.
+
+### Focused command results and pre-existing-failure verification
+
+| Command | Result |
+|---|---|
+| pytest focused batch (7 files) | **255 passed, 5 failed**, exit 1 |
+| node --test (2 browser files) | **20/20 pass**, exit 0 |
+
+The 5 pytest failures were verified IDENTICAL at base HEAD `69b6fcf1`
+in a disposable worktree (removed afterward) — pre-existing, not
+regressions: 3× `test_executor_flows.py` (rollback-graph promotion ×2,
+pure-clarify narration text), 2× `test_executor_threaded_mode.py`
+(graph identity-after-projection ×2); owned by T6.2 classification.
+Disclosed per run-at-most-once: the pytest batch was iterated more than
+once during development before the final quoted run.
+
+### Residual risks
+
+- Staged wire bytes gain additive keys inside `report.research`
+  (budget/tool_call_statuses/etc.) when data exists — any external
+  consumer doing exact-dict equality on that sub-object would notice;
+  envelope-level bytes stable.
+- Threaded `status` derivation keys off the host's typed
+  `report.phase_deadline_seconds`/findings-budget marker; if the batch
+  host ever stops writing those, threaded falls back to `"ok"`
+  (fail-toward-ok on that one field, bounded by explicit
+  `deadline_reached=False`).
+- The 5 pre-existing base failures remain unfixed (outside card scope;
+  files touched only where required).
+
+### Next unblocked card
+
+G4 batch review: ONE stealth review of the whole B3 diff (commit
+`16004230`), doubling as the G4 gate per C10; attack surface: typed
+route, graph/schema identity, accepted delta validity, terminal state,
+failure family, evidence, idempotency, cost — never prose as
+correctness. Then integration push (`d564de9e..HEAD`), then
+G3-RESIDUAL-RG21-ASYMMETRY card, then B4 (T5.1→T5.5), then G5.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution log
++ manifest; test-shards.json untouched) in one coherent commit authored
+by `POM <peter@omalley.io>`. No receipt, protected state, branch, or
+other file is changed; no push, merge, promotion, live/model/runtime
+call, secret access, wrapper dispatch, review, validator change, or
+product/test run is performed by this evidence recorder; the recorded
+B3 implementation was executed by the B3-IMPLEMENTER agent, not by this
+recorder. No receipt is committed; the reviewed receipts stay untracked
+run artifacts. This evidence recorder's own wrapper PID is `80240`,
+start `2026-08-22T06:31:49Z` per `active-allowances.json`; this
+recorder's own receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-B3-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.

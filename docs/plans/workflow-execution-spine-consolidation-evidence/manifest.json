@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "14e6e05961babbaaa143eda64ad983304d6473e2d27bda6b9ec044b9ba4adc85",
+        "sha256": "09aeb384ef6218837ccdf0a73ec931f303261a9a43c184ca33d2da7bb73b6197",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1408,7 +1408,7 @@
         "push_by_implementer": false,
         "receipts_committed": false
       },
-      "next_unblocked_card": "B3-IMPLEMENTER (T4.1 + T4.2 + T4.3; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER.md and -allowance.json), then G4 batch review; also queued (non-blocking for B3): G3-RESIDUAL-RG21-ASYMMETRY follow-up production card before T7.2",
+      "next_unblocked_card": "G4 batch review (ONE stealth review of the whole B3 diff 16004230; doubles as the G4 gate per C10; attack surface: typed route, graph/schema identity, accepted delta validity, terminal state, failure family, evidence, idempotency, cost - never prose as correctness), then integration push (d564de9e..HEAD), then G3-RESIDUAL-RG21-ASYMMETRY card, then B4 (T5.1->T5.5), then G5",
       "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false},
       "g2_batch_review": {
         "task_id": "G2-BATCH1-REVIEW",
@@ -1889,6 +1889,71 @@
         },
         "follow_on_cards_queued": ["G3-RESIDUAL-RG21-ASYMMETRY"],
         "next_unblocked_card": "B3-IMPLEMENTER (T4.1 + T4.2 + T4.3; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER.md and -allowance.json), then G4 batch review"
+      },
+      "b3_implementer": {
+        "task_id": "B3-IMPLEMENTER",
+        "gate": "",
+        "label": "B3 implementer: T4.1 [XHARD] shared research evidence contract + T4.2 [HARD] staged adapter + T4.3 [HARD] threaded adapter",
+        "role": "implementer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "landed-pending-g4-batch-review",
+        "base_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
+        "wrapper_pid": 78414,
+        "start_ts": "2026-08-22T05:18:30Z",
+        "end_ts": "2026-08-22T06:30:59Z",
+        "exit": 0,
+        "commits": ["160042304761fbb6069ee0bc46b134c25625c071"],
+        "commit_author": "POM <peter@omalley.io>",
+        "changed_files": [
+          "tests/test_agent_research_shadow.py",
+          "tests/test_executor_flows.py",
+          "tests/test_executor_threaded_edits.py",
+          "tests/test_executor_threaded_mode.py",
+          "tests/test_executor_threaded_sessions.py",
+          "tests/test_pipeline_mode_surface.py",
+          "vibecomfy/comfy_nodes/agent/_frag_response_contract.py",
+          "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
+          "vibecomfy/executor/agent_research_stage.py",
+          "vibecomfy/executor/contracts.py",
+          "vibecomfy/executor/core.py",
+          "vibecomfy/executor/evidence_pack.py",
+          "vibecomfy/executor/stage_contracts.py",
+          "vibecomfy/executor/threaded.py",
+          "vibecomfy/executor/tool_contracts.py",
+          "vibecomfy/executor/tool_specs.py"
+        ],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/B3-IMPLEMENTER-receipt.json", "sha256": "209db6f99a61663267149c7f5f8d716049f753a95e57bbe3baa03c4cebe39781"},
+        "brief_sha256": "476ca65b30c61f464f5ae170ad41ff3b23bb65ea33b090a9be2e20a748d4cfbe",
+        "result_sha256": "db1fd034b15c2fc339ade5fe8c8208538b01a11d81389d0b4570fc7ad07447a7",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER-dispatch.log",
+        "t41_shared_evidence_contract": "RESEARCH_EVIDENCE_SHARED_KEYS pinned (contracts.py:2171) = {mode, route, research_attempt, status, decision_turns, tool_calls_executed, tool_call_statuses, evidence_artifacts, citations, budget, diagnostics, ledger}; both carriers project every key (counts/bytes may differ); budget/deadline persisted (staged trace budget snapshot agent_research_stage.py:1897 {deadline_seconds, turns_used, deadline_reached}, threaded _durable_research_budget contracts.py:2380, StagePackage.budget additive-with-omission byte-stable for legacy packages); unsupported-source parity via shared contracts.source_policy_entries:2129 applied to the host-authored plan + typed research_phase_deadline diagnostic on deadline exhaustion; typed per-entry status EvidenceLedgerEntry.tool_status (evidence_pack.py:181, additive emission :224) stamped for executed AND refused calls at the single seam tool_specs.project_tool_evidence:946, status-prefixed prose conclusions unchanged; cross-mode equality tests test_executor_threaded_mode.py:575-673",
+        "count_bases_decision": "Frozen as a documented designed difference - staged counts network executions excluding cached replay, threaded counts any statement with an executed status incl. cached; behavioral unification would change RC2-gate inputs and live-harness attestation semantics for zero consumer value",
+        "deadline_decision": "Unified on one canonical default RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS=450.0 (tool_contracts.py:32) read by both core.py:1364 and edit_batch_repl.py:999 - the batch-REPL undocumented 600s outlier is gone (core.py comment claimed parity with the batch-REPL path; three prior sites already said 450); five seams untouched and mode-neutral; wire bytes preserved additive-with-omission (Report.to_dict keeps orchestration_mode omission for staged); reply stays a separate spec'd provider call; new evidence fields additive inside report.research only (envelope-level bytes stable); wire tests added in test_pipeline_mode_surface.py plus one updated pin test_executor_flows.py:766 (C5 'no ledger on research route' -> 'compact typed ledger present, no bodies', deliberate T4.1 alignment)",
+        "continuation_substrate_decision": "Chat-artifact continuation frozen canonical - THREADED_CONTINUATION_SUBSTRATE='chat_artifacts' (threaded.py:49); the agent-edit host is the single session/turn/checkpoint/replay authority and single durable writer; wiring host_ports.thread_* into the driver would create a second write path with no reader (model memory comes from read_session_chat+PROMPT_MEMORY_MESSAGES below the kernel seam), adding lease-conflict failure surface over an already-proven carrier; poisoned-hook two-turn drive proves the driver never consumes thread_* hooks + substrate constant pinned (test_executor_threaded_sessions.py); Row-7 recovery (receipt+accepted_batch => applied, else undetermined) proven mode-identical (test_executor_threaded_edits.py)",
+        "budget_reserve_decision": "Advisory-only - reserves validate the ceiling partition but are not subtracted from host max_batches; enforcement would break the pinned 24-ceiling contract and duplicate the edit kernel's own atomic limits; docstring records it; disclosed defect: implementer initially dropped ThreadedPurposeBudget.__post_init__ in an edit, restored and re-pinned (validation test passes again)",
+        "threaded_obligations": "Classifier-free sentinels pass (no threaded request reaches _run_classify); graphless research via shared ToolSpec registry; answer-only inspect returns graph=None; terminal projection parity across modes tested directly",
+        "focused_commands": {
+          "pytest_focused_batch": "255 passed, 5 failed, exit 1 (7 files)",
+          "node_browser": "node --test 2 browser files: 20/20 pass, exit 0"
+        },
+        "pre_existing_failure_verification": "The 5 pytest failures verified IDENTICAL at base HEAD 69b6fcf1 in a disposable worktree (removed afterward): 3x test_executor_flows.py (rollback-graph promotion x2, pure-clarify narration text), 2x test_executor_threaded_mode.py (graph identity-after-projection x2) - pre-existing, not regressions; owned by T6.2 classification",
+        "disclosed_iteration": "Pytest batch iterated more than once during development before the final quoted run (disclosed per run-at-most-once)",
+        "residual_risks": [
+          "Staged wire bytes gain additive keys inside report.research (budget/tool_call_statuses/etc.) when data exists - external consumers doing exact-dict equality on that sub-object would notice; envelope-level bytes stable.",
+          "Threaded status derivation keys off the host's typed report.phase_deadline_seconds/findings-budget marker; if the batch host ever stops writing those, threaded falls back to 'ok' (fail-toward-ok on that one field, bounded by explicit deadline_reached=False).",
+          "The 5 pre-existing base failures remain unfixed (outside card scope; files touched only where required; owned by T6.2 classification)."
+        ],
+        "rejected_alternatives": [
+          "Wiring thread_* hooks into run_threaded_executor (dual-write/no-read, boundary violation of host authority).",
+          "Enforcing purpose reserves by shrinking host max_batches (changes the pinned production ceiling, duplicates kernel limits).",
+          "Unifying deadline to 600s or keeping divergent defaults (contradicts recorded intent in core.py, leaves knob drift).",
+          "Changing staged executed-call counting to include cached replays (mutates RC2 gate inputs).",
+          "Behaviorally unifying count bases across modes (would change RC2-gate inputs and live-harness attestation semantics)."
+        ],
+        "protected_state_unchanged": "Protected base 5fc6be9dbe811df77e43d440ad087440e8bd57b5 remains ancestor of HEAD; wrapper, validator, plan docs, receipts, manifests, T2.x/T3.x authority/replay/retry/batch-protocol files, and vibecomfy/porting/edit/session.py/_gates.py untouched."
       }
     }
   ],
