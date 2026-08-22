@@ -14,6 +14,7 @@ import hashlib
 import inspect
 import json
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -32,6 +33,17 @@ DEFAULT_OUTPUT_BASE = Path("out") / "compare-pipeline-modes"
 PIPELINE_MODES = ("staged", "threaded")
 SOURCE_COMMIT_ENV_VAR = "VIBECOMFY_SOURCE_COMMIT"
 
+
+# T5.4 concurrent-leg isolation. With ``leg_isolation="process"`` every
+# scenario/mode leg runs in its OWN PROCESS (no shared interpreter state:
+# os.environ, schema caches, capture ContextVars, usage ledgers, and artifact
+# roots are process-scoped by construction), while the parent still submits
+# every leg before awaiting any result and reconstructs results in manifest
+# order. The in-process thread pool remains available for dry lanes.
+LEG_ISOLATION_MODES = ("thread", "process")
+LEG_TIMEOUT_SECONDS = 1200  # matches runner DEFAULT_PER_SCENARIO_TIMEOUT
+LEG_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
+_ENV_WRITE_LOCK = threading.Lock()
 # Resolved once per comparison, before any leg thread starts (T5.1: every
 # leg's lineage manifest links the same source commit; T5.4: written before
 # concurrent workers exist, read-only afterwards).
@@ -825,14 +837,21 @@ def run_comparison(
     tag: str = "staged-threaded",
     transport: str | None = None,
     concurrency: int = 1,
+    leg_isolation: str = "thread",
 ) -> dict[str, Any]:
     """Run the locked comparison lane once threaded adapter wiring is ready.
+
 
     ``concurrency=1`` retains the historical scenario-major,
     staged-then-threaded execution order.  Higher values submit every
     scenario/mode leg before awaiting any result, then compare and serialize
     results on the parent thread in manifest order.
     """
+    if leg_isolation not in LEG_ISOLATION_MODES:
+        raise ComparisonManifestError(
+            f"leg_isolation must be one of {LEG_ISOLATION_MODES!r}"
+        )
+
     if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
         raise ComparisonManifestError("concurrency must be a positive integer")
     validate_only(manifest_path)
@@ -872,39 +891,47 @@ def run_comparison(
 
         # Submit all legs before awaiting any result.  Deep-copy at submission
         # time so workers cannot share mutable descriptor state.
-        leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
-        with ThreadPoolExecutor(
-            max_workers=min(concurrency, len(descriptors)),
-            thread_name_prefix="compare-pipeline-leg",
-        ) as executor:
-            futures = [
-                executor.submit(
-                    _run_mode,
-                    copy.deepcopy(descriptor),
-                    mode=mode,
-                    locked_input_sha256=lock,
-                    output_base=base,
-                    tag=tag,
-                    transport=transport,
-                )
-                for _scenario_id, mode, descriptor, lock in descriptors
-            ]
-            # Await in submission order for deterministic reconstruction while
-            # allowing every submitted future to run concurrently.
-            for index, (future, (scenario_id, mode, _descriptor, lock)) in enumerate(
-                zip(futures, descriptors)
-            ):
-                try:
-                    leg_results[index] = future.result()
-                except Exception as exc:  # noqa: BLE001
-                    leg_results[index] = _leg_exception_summary(
-                        scenario_id,
+        if leg_isolation == "process":
+            leg_results = _run_legs_in_processes(
+                descriptors,
+                output_base=base,
+                tag=tag,
+                transport=transport,
+            )
+        else:
+            leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
+            with ThreadPoolExecutor(
+                max_workers=min(concurrency, len(descriptors)),
+                thread_name_prefix="compare-pipeline-leg",
+            ) as executor:
+                futures = [
+                    executor.submit(
+                        _run_mode,
+                        copy.deepcopy(descriptor),
                         mode=mode,
                         locked_input_sha256=lock,
                         output_base=base,
                         tag=tag,
-                        error=exc,
+                        transport=transport,
                     )
+                    for _scenario_id, mode, descriptor, lock in descriptors
+                ]
+                # Await in submission order for deterministic reconstruction
+                # while allowing every submitted future to run concurrently.
+                for index, (future, (scenario_id, mode, _descriptor, lock)) in enumerate(
+                    zip(futures, descriptors)
+                ):
+                    try:
+                        leg_results[index] = future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        leg_results[index] = _leg_exception_summary(
+                            scenario_id,
+                            mode=mode,
+                            locked_input_sha256=lock,
+                            output_base=base,
+                            tag=tag,
+                            error=exc,
+                        )
 
         # No comparison or IR projection occurs until every leg has finished.
         ordered: dict[str, dict[str, dict[str, Any]]] = {}
@@ -960,6 +987,188 @@ def run_comparison(
     return payload
 
 
+def _write_leg_spec(
+    spec_path: Path,
+    *,
+    scenario: Mapping[str, Any],
+    mode: str,
+    locked_input_sha256: str,
+    output_base: Path,
+    tag: str,
+    transport: str | None,
+) -> None:
+    """Persist one leg's full execution spec (the subprocess's only input)."""
+    spec = {
+        "scenario": dict(scenario),
+        "mode": mode,
+        "locked_input_sha256": locked_input_sha256,
+        "output_base": str(output_base),
+        "tag": tag,
+        "transport": transport,
+        "source_commit": _SOURCE_COMMIT[0] if _SOURCE_COMMIT else "",
+    }
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = spec_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(spec), encoding="utf-8")
+    tmp.replace(spec_path)
+
+
+def run_leg_from_spec(spec_path: str | Path, out_path: str | Path) -> int:
+    """Child entry: execute exactly one leg and atomically persist its summary.
+
+    Runs in a fresh interpreter — no parent module state is shared. The child
+    re-pins the source-commit env from its spec so the T5.1 lineage rows match
+    the parent comparison.
+    """
+    import tempfile  # noqa: PLC0415
+
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    commit = str(spec.get("source_commit") or "")
+    if commit:
+        os.environ[SOURCE_COMMIT_ENV_VAR] = commit
+    try:
+        summary = _run_mode(
+            dict(spec["scenario"]),
+            mode=str(spec["mode"]),
+            locked_input_sha256=str(spec["locked_input_sha256"]),
+            output_base=Path(str(spec["output_base"])),
+            tag=str(spec["tag"]),
+            transport=spec.get("transport"),
+        )
+        payload = {"ok": True, "summary": summary}
+    except BaseException as exc:  # noqa: BLE001 - the child reports, never crashes silently
+        payload = {
+            "ok": False,
+            "error": str(exc),
+            "exception_type": type(exc).__name__,
+        }
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(Path(out_path).parent), suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, default=str)
+        os.replace(tmp_name, str(out_path))
+        tmp_name = None
+    finally:
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+    return 0
+
+
+def _run_legs_in_processes(
+    descriptors: Sequence[tuple[str, str, Mapping[str, Any], str]],
+    *,
+    output_base: Path,
+    tag: str,
+    transport: str | None,
+) -> list[dict[str, Any] | None]:
+    """Run every leg in its own process; submit all, await in order.
+
+    Submission is simultaneous (every Popen starts before any result is
+    awaited); reconstruction follows the submission/manifest order, so no
+    serialization is introduced and no state is shared between legs.
+    """
+    import signal  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+
+    specs_dir = output_base / "_legs"
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    handles: list[subprocess.Popen[Any]] = []
+    out_paths: list[Path] = []
+    for index, (scenario_id, mode, scenario, lock) in enumerate(descriptors):
+        spec_path = specs_dir / f"leg_{index:04d}_{scenario_id}_{mode}.json"
+        out_path = specs_dir / f"result_{index:04d}_{scenario_id}_{mode}.json"
+        _write_leg_spec(
+            spec_path,
+            scenario=dict(scenario),
+            mode=mode,
+            locked_input_sha256=lock,
+            output_base=output_base,
+            tag=tag,
+            transport=transport,
+        )
+        command = [
+            os.sys.executable,
+            "-m",
+            "tests.live_agentic_harness.compare_pipeline_modes",
+            "--run-leg",
+            str(spec_path),
+            "--leg-out",
+            str(out_path),
+        ]
+        env = dict(os.environ)
+        env["VIBECOMFY_HEADLESS"] = "1"
+        if _SOURCE_COMMIT:
+            env[SOURCE_COMMIT_ENV_VAR] = _SOURCE_COMMIT[0]
+        handles.append(
+            subprocess.Popen(
+                command,
+                cwd=str(REPO),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        )
+        out_paths.append(out_path)
+
+    leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
+    deadline_by_index = [time.monotonic() + LEG_TIMEOUT_SECONDS] * len(descriptors)
+    pending = set(range(len(descriptors)))
+    while pending:
+        finished_now: list[int] = []
+        for index in sorted(pending):
+            code = handles[index].poll()
+            if code is not None or time.monotonic() > deadline_by_index[index]:
+                finished_now.append(index)
+        if not finished_now:
+            time.sleep(0.05)
+            continue
+        for index in finished_now:
+            pending.discard(index)
+            scenario_id, mode, _scenario, lock = descriptors[index]
+            timed_out = time.monotonic() > deadline_by_index[index]
+            if timed_out and handles[index].poll() is None:
+                try:
+                    os.killpg(os.getpgid(handles[index].pid), signal.SIGTERM)
+                    handles[index].wait(timeout=LEG_KILL_GRACE_SECONDS)
+                except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
+                    try:
+                        os.killpg(os.getpgid(handles[index].pid), signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+            payload = _load_json(out_paths[index]) if out_paths[index].is_file() else None
+            if isinstance(payload, Mapping) and payload.get("ok") is True and isinstance(
+                payload.get("summary"), Mapping
+            ):
+                leg_results[index] = dict(payload["summary"])
+                continue
+            error_text = (
+                str(payload.get("error"))
+                if isinstance(payload, Mapping) and payload.get("error")
+                else (
+                    f"leg process timed out after {LEG_TIMEOUT_SECONDS}s"
+                    if timed_out
+                    else f"leg process exited with code {handles[index].poll()}"
+                )
+            )
+            leg_results[index] = _leg_exception_summary(
+                scenario_id,
+                mode=mode,
+                locked_input_sha256=lock,
+                output_base=output_base,
+                tag=tag,
+                error=RuntimeError(error_text),
+            )
+    return leg_results
+
+
+
+
 def _render_markdown(payload: Mapping[str, Any]) -> str:
     aggregate = payload["aggregate"]
     lines = [
@@ -1012,11 +1221,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Maximum concurrent scenario/mode legs (default: %(default)s).",
     )
+    parser.add_argument(
+        "--leg-isolation",
+        choices=LEG_ISOLATION_MODES,
+        default=None,
+        help=(
+            "Concurrent-leg isolation (T5.4). 'process' runs every leg in its "
+            "own interpreter (no shared state; the finale lane default for "
+            "concurrency > 1); 'thread' keeps the historical in-process pool."
+        ),
+    )
+    parser.add_argument("--run-leg", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--leg-out", type=Path, default=None, help=argparse.SUPPRESS)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.run_leg is not None:
+        # Child leg entry (T5.4 process isolation): one spec in, one summary out.
+        if args.leg_out is None:
+            print(json.dumps({"ok": False, "error": "--run-leg requires --leg-out"}))
+            return 2
+        return run_leg_from_spec(args.run_leg, args.leg_out)
     try:
         if args.validate_only:
             payload = validate_only(args.manifest)
@@ -1026,12 +1253,18 @@ def main(argv: list[str] | None = None) -> int:
             # from local authoritative sources before any leg starts.
             # VIBECOMFY_OBLIGATION_SCHEMA_CHECK=0 explicitly defers.
             os.environ.setdefault(SCHEMA_RESOLUTION_ENV_VAR, "1")
+            # T5.4: the paid-call CLI defaults to full process isolation when
+            # running legs concurrently.
+            leg_isolation = args.leg_isolation or (
+                "process" if args.concurrency > 1 else "thread"
+            )
             payload = run_comparison(
                 args.manifest,
                 output_base=args.output_base,
                 tag=args.tag,
                 transport=args.transport,
                 concurrency=args.concurrency,
+                leg_isolation=leg_isolation,
             )
         else:
             print("choose --validate-only or --run")
@@ -1041,6 +1274,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(json.dumps(payload, indent=2, default=str))
     return 0
+
+
 
 
 if __name__ == "__main__":

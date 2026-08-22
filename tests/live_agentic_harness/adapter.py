@@ -12,9 +12,18 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+import threading
+
+_ENV_PIN_LOCK = threading.Lock()
+
 
 def _ensure_headless_env() -> None:
-    os.environ["VIBECOMFY_HEADLESS"] = "1"
+    # T5.4: comparison legs run concurrently in one process (thread lane);
+    # all legs write the SAME value, so pin it once under a lock and never
+    # downgrade a correct value.
+    with _ENV_PIN_LOCK:
+        if os.environ.get("VIBECOMFY_HEADLESS") != "1":
+            os.environ["VIBECOMFY_HEADLESS"] = "1"
 
 
 def _load_credential_env_file(path: Path | str | None = None) -> None:
@@ -114,8 +123,9 @@ def _ensure_transport_env(transport: str | None = None) -> str:
             f"Unsupported transport {resolved!r}; expected one of "
             f"{sorted(_TRANSPORT_BASE_URLS)}."
         )
-    os.environ["VIBECOMFY_TRANSPORT"] = resolved
-    os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] = _TRANSPORT_BASE_URLS[resolved]
+    with _ENV_PIN_LOCK:
+        os.environ["VIBECOMFY_TRANSPORT"] = resolved
+        os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] = _TRANSPORT_BASE_URLS[resolved]
     return resolved
 
 

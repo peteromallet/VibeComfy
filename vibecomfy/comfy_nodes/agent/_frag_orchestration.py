@@ -14,6 +14,7 @@ from pathlib import Path
 import dataclasses
 import json
 import os
+import threading
 from typing import Any, Mapping
 
 
@@ -289,7 +290,7 @@ def _run_batch_repl_product_path(
 
 
 _RUNTIME_OBJECT_INFO_PATH: list[str] = []
-
+_RUNTIME_OBJECT_INFO_LOCK = threading.Lock()
 
 def _build_object_info_in_process() -> dict[str, Any] | None:
     """Build ComfyUI /object_info IN-PROCESS from the live node registry.
@@ -350,15 +351,19 @@ def _default_runtime_schema_provider(on_demand_schemas: bool | None = None) -> A
     from vibecomfy.schema import get_authoring_schema_provider, get_schema_provider
 
     try:
-        if not (_RUNTIME_OBJECT_INFO_PATH and Path(_RUNTIME_OBJECT_INFO_PATH[0]).is_file()):
-            data = _build_object_info_in_process()
-            if data:
-                import tempfile
+        # T5.4: concurrent executor turns (comparison legs, batch REPLs) must
+        # not race the one-shot temp-file build; mkstemp names are unique so a
+        # lost race only wastes work — the lock removes even that.
+        with _RUNTIME_OBJECT_INFO_LOCK:
+            if not (_RUNTIME_OBJECT_INFO_PATH and Path(_RUNTIME_OBJECT_INFO_PATH[0]).is_file()):
+                data = _build_object_info_in_process()
+                if data:
+                    import tempfile
 
-                fd, path = tempfile.mkstemp(prefix="vibecomfy_object_info_", suffix=".json")
-                with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                    json.dump(data, fh)
-                _RUNTIME_OBJECT_INFO_PATH[:] = [path]
+                    fd, path = tempfile.mkstemp(prefix="vibecomfy_object_info_", suffix=".json")
+                    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                        json.dump(data, fh)
+                    _RUNTIME_OBJECT_INFO_PATH[:] = [path]
         if _RUNTIME_OBJECT_INFO_PATH:
             from vibecomfy.schema.provider import ObjectInfoSchemaProvider
 
