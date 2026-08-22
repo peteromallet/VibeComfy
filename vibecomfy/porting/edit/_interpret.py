@@ -231,13 +231,55 @@ def _interpret_ops(
                 )
                 raise ApplyOpsError(admitted.typed_reason, message)
             if not _op_has_scoped_target(op):
-                _validate_one(post, op, schema_provider)
+                try:
+                    _validate_one(post, op, schema_provider)
+                except ApplyOpsError as exc:
+                    from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp
+                    if getattr(exc, "code", None) in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
+                        # Allow provisional add or wiring to provisional node present in post
+                        allowed = False
+                        if isinstance(op, _AddNodeOp):
+                            try:
+                                from vibecomfy.schema.types import _snapshot_known_and_missing
+                                from vibecomfy.porting.edit.admit import admission_snapshot_for, _schema_catalog_for
+                                pair = admission_snapshot_for(post, schema_provider)
+                                catalog = _schema_catalog_for(pair, pair)
+                                # catalog may be None; treat as unknown
+                                if catalog is None:
+                                    allowed = True
+                                else:
+                                    known, missing = _snapshot_known_and_missing(catalog if not isinstance(catalog, type(None)) else pair.schema)
+                                    # for AddNode, check its own class
+                                    if op.class_type not in known or op.class_type in missing:
+                                        allowed = True
+                            except Exception:
+                                allowed = True
+                        if not allowed:
+                            # check if touching provisional node in post
+                            try:
+                                from vibecomfy.porting.edit.admit import _is_provisional_touched, _operation_mapping
+                                from vibecomfy.porting.edit.admit import admission_snapshot_for, _schema_catalog_for
+                                pair2 = admission_snapshot_for(post, schema_provider)
+                                catalog2 = _schema_catalog_for(pair2, pair2)
+                                cat = catalog2 if catalog2 is not None else pair2.schema
+                                if _is_provisional_touched(_operation_mapping(op), post, cat):
+                                    allowed = True
+                            except Exception:
+                                pass
+                        if allowed:
+                            pass
+                        else:
+                            raise
+                    else:
+                        raise
             # Typed-op callers carry their channel contract in the op (and,
             # for AddNodeOp, its explicit widget_field_names), while Python
             # source batches are replayed from source by apply_gate. Keep the
             # typed-op interpreter aligned with typed validation here.
             before = post
-            post = apply_edit_cow(post, op, schema_provider=schema_provider)
+            from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp2
+            _apply_provider = None if isinstance(op, _AddNodeOp2) else schema_provider
+            post = apply_edit_cow(post, op, schema_provider=_apply_provider)
             diagnostics.extend(_apply_diagnostics(before, post, op))
         except Exception as exc:
             code = getattr(exc, "code", "apply_failed")

@@ -5369,6 +5369,8 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
         requested_model=None,
         effort=None,
         profiling_context=None,
+        deadline: float | None = None,
+        **kwargs,
     ):
         calls.append(
             {
@@ -5407,8 +5409,6 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
 def test_runtime_json_model_turn_retries_malformed_worker_json(monkeypatch) -> None:
     calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
-
     def _fake_run_worker(
         agent_kwargs,
         system_msg,
@@ -5420,6 +5420,8 @@ def test_runtime_json_model_turn_retries_malformed_worker_json(monkeypatch) -> N
         requested_model=None,
         effort=None,
         profiling_context=None,
+        deadline: float | None = None,
+        **kwargs,
     ):
         calls.append(
             {

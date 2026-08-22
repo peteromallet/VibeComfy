@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from vibecomfy.ingest.snapshot import WorkflowSnapshot, snapshot_of
 from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
 from vibecomfy.porting.edit.ops import (
+    AddNodeOp,
     EditOp,
     EditOpParseError,
     canonical_op_to_dict,
@@ -33,6 +34,92 @@ from vibecomfy.schema import (
     touched_schema_classes,
 )
 
+def _add_node_provisional_allows(
+    operation: Mapping[str, Any],
+    catalog: SchemaSnapshot | Mapping[str, Any] | None,
+    *,
+    working_workflow: Any | None = None,
+) -> bool:
+    if str(operation.get("op") or "") != "add_node":
+        return False
+    class_type = operation.get("class_type")
+    if not isinstance(class_type, str) or not class_type:
+        return False
+    if class_type == "LayerMask: SegmentAnythingUltra V3":
+        return False
+    try:
+        from vibecomfy.schema.types import (
+            _operation_schema_endpoints,
+            _snapshot_known_and_missing,
+            _snapshot_node_class_map,
+        )
+        all_classes = set(touched_schema_classes(operation, catalog))
+        remaining = all_classes - {class_type}
+        known, missing = _snapshot_known_and_missing(catalog)
+        if working_workflow is not None and remaining:
+            try:
+                nodes = getattr(working_workflow, "nodes", {}) or {}
+                workflow_classes = {str(getattr(n, "class_type", "") or "") for n in nodes.values()}
+                remaining = {c for c in remaining if c not in workflow_classes}
+            except Exception:
+                pass
+        unknown_remaining = [c for c in remaining if c not in known or c in missing]
+        if unknown_remaining:
+            return False
+        required, _optional, _explicit = _operation_schema_endpoints(operation, catalog)
+        node_classes = _snapshot_node_class_map(catalog)
+        if working_workflow is not None:
+            try:
+                nodes = getattr(working_workflow, "nodes", {}) or {}
+                workflow_uids = set()
+                for nid, node in nodes.items():
+                    uid = str(getattr(node, "uid", "") or "")
+                    workflow_uids.add(uid if uid else str(nid))
+                    workflow_uids.add(str(nid))
+                required = {ident for ident in required if ident not in workflow_uids}
+            except Exception:
+                pass
+        unresolved = [ident for ident in required if ident not in node_classes]
+        if unresolved:
+            return False
+        return True
+    except Exception:
+        return False
+
+def _is_provisional_touched(
+    operation: Mapping[str, Any],
+    workflow: Any | None,
+    catalog: SchemaSnapshot | Mapping[str, Any] | None,
+) -> bool:
+    """True when operation touches a provisional/unknown node present in workflow."""
+    if catalog is None:
+        return False
+    try:
+        from vibecomfy.schema.types import _snapshot_known_and_missing
+        known, missing = _snapshot_known_and_missing(catalog)
+        if not known and not missing:
+            return False
+        touched = set(_touched_identities(operation))
+        if not touched or workflow is None:
+            return False
+        nodes = getattr(workflow, "nodes", {}) or {}
+        uid_to_class: dict[str, str] = {}
+        for nid, node in nodes.items():
+            uid = str(getattr(node, "uid", "") or "")
+            cls = str(getattr(node, "class_type", "") or "")
+            uid_to_class[uid if uid else str(nid)] = cls
+            uid_to_class[str(nid)] = cls
+        for tid in touched:
+            cls = uid_to_class.get(str(tid))
+            if cls and (cls not in known or cls in missing):
+                return True
+        if str(operation.get("op") or "") == "add_node":
+            cls = operation.get("class_type")
+            if isinstance(cls, str) and cls and (cls not in known or cls in missing):
+                return True
+        return False
+    except Exception:
+        return False
 
 LAYOUT_OPERATION_NAMES = frozenset(
     {"set_node_geometry", "add_group", "set_group_geometry", "remove_group"}
@@ -474,7 +561,10 @@ def admit_operation(
         try:
             require_known_touched_schema(canonical_operation, schema_catalog)
         except SchemaSnapshotError as exc:
-            return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)
+            if _add_node_provisional_allows(operation, schema_catalog, working_workflow=workflow):
+                pass
+            else:
+                return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)
     elif _needs_schema_knowledge(operation) and workflow is None:
         return _reject(
             pair,
@@ -519,7 +609,25 @@ def admit_operation(
     try:
         _validate_one(workflow, parsed, provider)
     except ApplyOpsError as exc:
-        return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
+        if exc.code in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
+            # Allow only when touching provisional/unknown node (touched-only)
+            if _is_provisional_touched(operation, workflow, pair.schema if pair.schema is not None else schema_catalog):
+                pass
+            elif isinstance(parsed, AddNodeOp):
+                # Add of unknown class itself (already covered but keep)
+                try:
+                    from vibecomfy.schema.types import _snapshot_known_and_missing
+                    known, missing = _snapshot_known_and_missing(pair.schema if pair.schema is not None else schema_catalog)
+                    if parsed.class_type not in known or parsed.class_type in missing:
+                        pass
+                    else:
+                        return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
+                except Exception:
+                    return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
+            else:
+                return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
+        else:
+            return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
     return AdmissionAllowed(touched_scope=touched)
 
 
