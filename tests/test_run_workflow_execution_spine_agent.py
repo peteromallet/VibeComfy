@@ -639,29 +639,88 @@ def test_registry_critical_section_ends_after_candidate_write(tmp_path: Path) ->
     assert not json.loads((evidence / "active-allowances.json").read_text())
 
 
+def test_registry_guard_publishes_active_lock_for_interrupt_reuse(tmp_path: Path) -> None:
+    """The guard's lock handle reaches the module global so an interrupt landing
+    inside the critical section takes _registry_release's reuse branch instead
+    of deadlocking on a second flock acquisition.
+    """
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_active_lock_global")
+    observed: dict[str, object] = {}
+    real_json_write = wrapper._json_write
+
+    def spy_json_write(path: Path, value: object) -> None:
+        if Path(path).name == "active-allowances.json":
+            handle = wrapper._ACTIVE_REGISTRY_LOCK
+            # Liveness must be observed at write time: the guard closes the
+            # descriptor before returning, so a post-return check would lie.
+            observed["published_path"] = None if handle is None else Path(getattr(handle, "name"))
+            observed["published_open"] = handle is not None and not getattr(handle, "closed")
+        real_json_write(path, value)
+
+    wrapper._json_write = spy_json_write
+    try:
+        wrapper._registry_guard(evidence, "task-a", allowance, project, ["allowed.txt"])
+    finally:
+        wrapper._json_write = real_json_write
+    assert observed["published_open"] is True
+    assert observed["published_path"] == evidence / ".active-allowances.lock"
+    # Success path hands the descriptor back: global cleared, lock released.
+    assert wrapper._ACTIVE_REGISTRY_LOCK is None
+
+    # Simulate the interrupt window: a live held descriptor, then release.
+    held = (evidence / ".active-allowances.lock").open("r+")
+    try:
+        wrapper._ACTIVE_REGISTRY_LOCK = held
+        wrapper._registry_release(evidence, "task-a")
+        # Reuse branch taken: entry removed via the held descriptor, which stays
+        # open and exclusively locked (release neither closes nor unlocks it).
+        assert not held.closed
+        assert wrapper._ACTIVE_REGISTRY_LOCK is held
+        probe = (evidence / ".active-allowances.lock").open("r+")
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            probe.close()
+        assert "task-a" not in json.loads((evidence / "active-allowances.json").read_text())
+    finally:
+        fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+        held.close()
+        wrapper._ACTIVE_REGISTRY_LOCK = None
+
+
 def test_concurrent_registry_release_preserves_both_deletions(tmp_path: Path) -> None:
     """Releases take LOCK_EX around their read-modify-write so neither deletion is lost."""
     project, evidence, _brief, allowance, _fake = _setup(tmp_path)
     wrapper = _load_wrapper("workflow_execution_wrapper_concurrent_release")
     other_project = project.parent / "worktree-b"
     other_project.mkdir()
-    wrapper._registry_guard(evidence, "task-a", allowance, project, ["allowed.txt"])
-    wrapper._registry_guard(evidence, "task-b", allowance, other_project, ["other.txt"])
-    failures: list[BaseException] = []
+    registry_path = evidence / "active-allowances.json"
 
-    def release(task_id: str) -> None:
+    def release(task_id: str, failures: list[BaseException]) -> None:
         try:
             wrapper._registry_release(evidence, task_id)
         except BaseException as exc:  # surfaced via the assertion below
             failures.append(exc)
 
-    threads = [threading.Thread(target=release, args=("task-a",)), threading.Thread(target=release, args=("task-b",))]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(10)
-        assert not thread.is_alive()
-    assert not failures
+    for _round in range(25):
+        wrapper._registry_guard(evidence, "task-a", allowance, project, ["allowed.txt"])
+        wrapper._registry_guard(evidence, "task-b", allowance, other_project, ["other.txt"])
+        failures: list[BaseException] = []
+        threads = [
+            threading.Thread(target=release, args=("task-a", failures)),
+            threading.Thread(target=release, args=("task-b", failures)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+            assert not thread.is_alive()
+        assert not failures
+        # Post-state: BOTH deletions persisted. Dropping LOCK_EX interleaves the
+        # two read-modify-writes and resurrects one entry as a zombie allowance.
+        assert json.loads(registry_path.read_text()) == {}
 
 
 def test_second_wrapper_completes_while_first_child_still_sleeping(tmp_path: Path) -> None:

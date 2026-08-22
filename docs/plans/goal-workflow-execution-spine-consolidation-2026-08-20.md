@@ -142,7 +142,7 @@ python "$INTEGRATION_WORKTREE/scripts/run_workflow_execution_spine_agent.py" \
   --query-file="$BRIEF_PATH" \
   --project-dir="$TASK_WORKTREE" \
   --allowance-file="$ALLOWANCE_PATH" \
-  --evidence-dir="$EVIDENCE_DIR" --timeout=3600
+  --evidence-dir="$EVIDENCE_DIR" --timeout=7200
 ```
 
 The wrapper must invoke the absolute launchers and record their process/model

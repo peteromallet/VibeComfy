@@ -259,6 +259,7 @@ _ACTIVE_REGISTRY_LOCK: Any = None
 
 
 def _registry_guard(evidence_dir: Path, task_id: str, allowance_file: Path, worktree: Path, allowed: list[str]) -> tuple[dict[str, Any], dict[str, Any]]:
+    global _ACTIVE_REGISTRY_LOCK
     evidence_dir.mkdir(parents=True, exist_ok=True)
     registry_path, lock_path = _registry_paths(evidence_dir)
     lock_path.touch(exist_ok=True)
