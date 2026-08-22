@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "3e6f6fc433853bef52fac240b7d96860fcf4785dae7391b52ae271d07b48f9c6",
+        "sha256": "14e6e05961babbaaa143eda64ad983304d6473e2d27bda6b9ec044b9ba4adc85",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1408,7 +1408,7 @@
         "push_by_implementer": false,
         "receipts_committed": false
       },
-      "next_unblocked_card": "Integration push b9c23c92..HEAD (incl. evidence commit 63d4d153), then evidence-log-integration, then B3-IMPLEMENTER (T4.1 + T4.2 + T4.3; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER.md and -allowance.json), then G4 batch review",
+      "next_unblocked_card": "B3-IMPLEMENTER (T4.1 + T4.2 + T4.3; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER.md and -allowance.json), then G4 batch review; also queued (non-blocking for B3): G3-RESIDUAL-RG21-ASYMMETRY follow-up production card before T7.2",
       "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false},
       "g2_batch_review": {
         "task_id": "G2-BATCH1-REVIEW",
@@ -1840,6 +1840,55 @@
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T4.3-INVENTORY-dispatch.log",
         "surface": "Threaded-adapter surface: classifier-free routing (sole _run_classify caller proven staged-only, dispatch tests forbid threaded entry); graphless research; answer-only; attached-graph authority (pipeline_mode is boundary marker only); continuation; terminal projection (mode-neutral frozen table); threaded test coverage with gaps (no two-turn continuation e2e, thread store undriven, research deadline tested without pipeline_mode=threaded)",
         "ambiguous_areas": "Thread store fully built + production-bound but zero production callers (driver uses session-chat memory) - T4.3 brief must pick/freeze one; ThreadedPurposeBudget reserves validated but unenforced at _bounded_request; shared VIBECOMFY_RESEARCH_PHASE_DEADLINE defaults 600s (batch REPL) vs 450s (staged C1)"
+      },
+      "b2_integration": {
+        "task_id": "B2-INTEGRATION",
+        "gate": "G3",
+        "label": "B2-INTEGRATION: apply reviewed chain, run named batch shard once, fast-forward push",
+        "role": "integration",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "pass",
+        "base_sha": "d564de9e146dd69a08d5aaf9530efc4186d7fad2",
+        "wrapper_pid": 77808,
+        "start_ts": "2026-08-22T04:59:23Z",
+        "end_ts": "2026-08-22T05:04:31Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/B2-INTEGRATION-receipt.json", "sha256": "8de10fc04f8362d8a8f1bb9accddf5d01ddcb701a5aae968a82e6336143d31d6"},
+        "brief_sha256": "1fe86e5d0a8c0ffb5840f980b3ec27617f41b98ef7bf812a25842f898bfc021c",
+        "result_sha256": "0847ce49b73ad7af57f97d78e16aa951b1c6b06954767809d45c21a611fc0a52",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B2-INTEGRATION-dispatch.log",
+        "push": {
+          "command": "git push origin HEAD:fixer/workflow-execution-spine-consolidation",
+          "remote_before": "b9c23c92cdf3b132f8baa0376910baf0a5b09018",
+          "remote_after": "d564de9e146dd69a08d5aaf9530efc4186d7fad2",
+          "fast_forward": true,
+          "forced": false,
+          "pushed_commits": [
+            "ed50918c6e979a05706907fa1ef9719ea12a460c",
+            "2e384645786cb287ee121764125de3c85bda15d4",
+            "b8891ee010fa90d1d8148002d1959ddd39c25606",
+            "903f6099f0c16c6cfe0c435ba33066a33956e28d",
+            "5396123eb7a955e0753e0b47a4f4516a773c66f8",
+            "63d4d15389fbf7d661277be007e03cce9e85e77b",
+            "d564de9e146dd69a08d5aaf9530efc4186d7fad2"
+          ]
+        },
+        "named_batch_shard": {
+          "run_count": 1,
+          "expected": "358 passed",
+          "observed": "358 passed, 1 warning in 1.59s",
+          "exit": 0,
+          "failures": [],
+          "new_failures": 0,
+          "matches_g3_review_record": true
+        },
+        "follow_on_cards_queued": ["G3-RESIDUAL-RG21-ASYMMETRY"],
+        "next_unblocked_card": "B3-IMPLEMENTER (T4.1 + T4.2 + T4.3; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER.md and -allowance.json), then G4 batch review"
       }
     }
   ],
