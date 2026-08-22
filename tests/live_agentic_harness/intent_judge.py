@@ -890,11 +890,50 @@ def judge_edit_intent(
     from vibecomfy.schema import get_schema_provider  # late import: judge stays light
 
     schema_provider = get_schema_provider("auto")
-    try:
-        pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
-        post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
-    except Exception as exc:
-        return {"pass_": None, "error": f"failed to canonicalize UI through ingest: {exc}"}
+
+    # T5.2: when the run carries a typed artifact lineage manifest, the judge
+    # takes the canonical path — every carrier passes the common constructor
+    # (mixed UI/API pairs decode per side), and no edit is ever synthesized.
+    # Legacy artifacts without lineage keep the historical behavior below,
+    # including the RC12b product-diff seed (frozen compatibility surface).
+    from .lineage_check import load_artifact_lineage  # noqa: PLC0415
+
+    lineage_manifest, _lineage_provenance = load_artifact_lineage(output_dir, response)
+    canonical_mode = lineage_manifest is not None
+    if canonical_mode:
+        from .semantic_assessor import canonical_semantic_view  # noqa: PLC0415
+
+        pair_lineage = (
+            lineage_manifest.get("lineage")
+            if isinstance(lineage_manifest, Mapping)
+            else None
+        )
+        try:
+            pre_view = canonical_semantic_view(
+                pre_ir,
+                lineage=pair_lineage if isinstance(pair_lineage, Mapping) else None,
+                schema_provider=schema_provider,
+                use_comfy_converter=False,
+            )
+            post_view = canonical_semantic_view(
+                post_ir,
+                lineage=pair_lineage if isinstance(pair_lineage, Mapping) else None,
+                schema_provider=schema_provider,
+                use_comfy_converter=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - undecodable evidence stays undetermined
+            return {
+                "pass_": None,
+                "error": f"undetermined: carrier rejected by common constructor ({exc})",
+            }
+        pre_wf = pre_view.workflow
+        post_wf = post_view.workflow
+    else:
+        try:
+            pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
+            post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
+        except Exception as exc:
+            return {"pass_": None, "error": f"failed to canonicalize UI through ingest: {exc}"}
 
     queue_gate_failed = False
     if isinstance(response, Mapping):
@@ -902,20 +941,75 @@ def judge_edit_intent(
         queue_gate_failed = isinstance(gates, Mapping) and gates.get("queue_validate_ok") is False
 
     if not delta_ops or queue_gate_failed:
-        # Same-door Δ: never re-diff raw original.ui vs final.ui shapes (RC4).
-        # RC12b: a withheld accepted_batch (queue_validate_ok=false) is not
-        # the product — seed from diff(pre_wf, post_wf) even if a stale
-        # batch exists.
-        from vibecomfy.porting.edit._diff import diff
-        from vibecomfy.porting.edit.ops import op_to_dict
+        if canonical_mode:
+            from .semantic_assessor import judge_graph_pair, load_accepted_batch_ops  # noqa: PLC0415
 
-        derived = diff(pre_wf, post_wf, schema_provider=schema_provider)
-        if derived:
-            delta_ops = [op_to_dict(op) for op in derived]
-            delta_envelope = {
-                "ops": list(delta_ops),
-                "seed": "canonical_diff",
-            }
+            accepted_ops, gate_failed = load_accepted_batch_ops(response)
+            if gate_failed:
+                return {
+                    "pass_": None,
+                    "error": "undetermined: withheld_accepted_batch (queue_validate_ok=false)",
+                    "metadata": {"verdict": "withheld_accepted_batch"},
+                }
+            pair_verdict = judge_graph_pair(
+                pre_view,
+                post_view,
+                accepted_ops,
+                schema_provider=schema_provider,
+            )
+            if pair_verdict.outcome == "no_edit":
+                return {
+                    "pass_": False,
+                    "criteria": {
+                        "correct_node_targeted": False,
+                        "correct_parameter_changed": False,
+                        "value_semantically_matches_intent": False,
+                        "no_orphaned_wiring": False,
+                    },
+                    "rationale": (
+                        "no accepted delta/candidate and the product is "
+                        "unchanged; no edit exists to satisfy the intent"
+                    ),
+                    "metadata": {"verdict": "no_edit", **pair_verdict.detail},
+                }
+            if pair_verdict.outcome == "undetermined":
+                return {
+                    "pass_": None,
+                    "error": f"undetermined: {pair_verdict.reason}",
+                    "metadata": {"verdict_detail": dict(pair_verdict.detail)},
+                }
+            if pair_verdict.outcome == "delta_replay_mismatch":
+                return {
+                    "pass_": False,
+                    "criteria": {
+                        "correct_node_targeted": False,
+                        "correct_parameter_changed": False,
+                        "value_semantically_matches_intent": False,
+                        "no_orphaned_wiring": False,
+                    },
+                    "rationale": f"delta replay mismatch: {pair_verdict.reason}",
+                    "metadata": {"verdict_detail": dict(pair_verdict.detail)},
+                }
+            # applied_edit: grade against the authoritative accepted batch only.
+            delta_ops = [dict(op) for op in accepted_ops]
+            delta_envelope = {"ops": list(delta_ops), "seed": "accepted_batch"}
+        else:
+            # Same-door Δ: never re-diff raw original.ui vs final.ui shapes (RC4).
+            # RC12b: a withheld accepted_batch (queue_validate_ok=false) is not
+            # the product — seed from diff(pre_wf, post_wf) even if a stale
+            # batch exists.  [RETAINED-SHIM ledger T5.5-LS-01: legacy artifacts
+            # without a T5.1 lineage manifest only; removal condition = RC12b
+            # fixtures regenerated with typed lineage.]
+            from vibecomfy.porting.edit._diff import diff
+            from vibecomfy.porting.edit.ops import op_to_dict
+
+            derived = diff(pre_wf, post_wf, schema_provider=schema_provider)
+            if derived:
+                delta_ops = [op_to_dict(op) for op in derived]
+                delta_envelope = {
+                    "ops": list(delta_ops),
+                    "seed": "canonical_diff",
+                }
 
     from vibecomfy.porting.edit.apply_gate import verify_apply
     from vibecomfy.porting.edit.ops import parse_edit_delta
