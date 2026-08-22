@@ -2216,3 +2216,45 @@ class TestClassifyRoundtrip:
         # effective properties still work
         assert parsed.effective_route == "revise"
         assert parsed.effective_task == "edit_graph"
+
+
+# ── T3.1: research-tool / durable-path retry ownership freeze ────────────────
+
+
+def test_t31_research_tool_retry_budgets_are_frozen() -> None:
+    """D2 freeze: hivemind retries once inside the shared phase deadline;
+    the research stage corrects malformed decisions at most twice."""
+    from vibecomfy.executor import agent_research_stage, hivemind_clients
+
+    assert hivemind_clients._HIVEMIND_STATEMENT_TIMEOUT_RETRIES == 1
+    assert hivemind_clients._HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS <= 0.5
+    assert agent_research_stage.MAX_RESEARCH_DECISION_TURNS == 8
+    assert agent_research_stage.MAX_RESEARCH_TOOL_CALLS == 12
+    assert agent_research_stage.HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD == 3
+    assert agent_research_stage.TOOL_PHASE_DEADLINE_SECONDS == 450.0
+    assert agent_research_stage._RESEARCH_DECISION_MAX_ATTEMPTS == 3
+
+
+def test_t31_hivemind_deadline_is_checked_before_any_attempt() -> None:
+    """The shared operation deadline wins before the first (and any retry)
+    attempt: a spent deadline raises a typed timeout with no network call."""
+    import time as _time
+
+    from vibecomfy.executor.hivemind_clients import HivemindError, _hivemind_get_table
+
+    with pytest.raises(HivemindError) as raised:
+        _hivemind_get_table(
+            "external_resources",
+            {"select": "id"},
+            timeout=5.0,
+            deadline=_time.monotonic() - 1.0,
+        )
+    assert raised.value.reason == "timeout"
+
+
+def test_t31_durable_path_stays_retry_free_with_bounded_lock() -> None:
+    """D4 freeze: recovery on the durable path is pure replay — the only
+    bounded wait is the session lock's 10s acquire bound."""
+    from vibecomfy.comfy_nodes.agent import _session_lock
+
+    assert _session_lock.DEFAULT_LOCK_TIMEOUT_SECONDS == 10.0

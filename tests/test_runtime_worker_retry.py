@@ -334,3 +334,145 @@ def test_iteration_exhaustion_does_not_retry_typed_empty_without_raw(
 
     assert result == inconsistent
     assert len(calls) == 1
+
+# ── T3.1: nested-retry ownership freeze ──────────────────────────────────────
+
+
+class _FakeTime:
+    """Deterministic stand-in for the ``time`` module inside runtime."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _empty_error_result() -> dict:
+    return {
+        "error": "empty",
+        "error_type": "ValueError",
+        "model_attempts": [
+            _attempt(
+                outcome="failure",
+                failure_type="empty_response",
+                completion_tokens=0,
+            )
+        ],
+    }
+
+
+def test_composed_wall_clock_budget_fails_closed_typed(monkeypatch) -> None:
+    """Once the composed turn budget is spent, no further spawn starts and a
+    truthful typed exhaustion raises even though transport-retry slots remain."""
+    fake_time = _FakeTime()
+    monkeypatch.setattr(runtime, "time", fake_time)
+    calls: list = []
+
+    def fake_once(*args, **kwargs):
+        calls.append((args, kwargs))
+        fake_time.now += 400.0  # one spawn burns past the whole 300s budget
+        return _empty_error_result()
+
+    monkeypatch.setattr(runtime, "_run_worker_once", fake_once)
+
+    with pytest.raises(TimeoutError) as raised:
+        runtime._run_worker(
+            {"api_key": "k"},
+            "sys",
+            "usr",
+            deadline=fake_time.monotonic() + 300.0,
+            **_common_kwargs(),
+        )
+
+    ownership = raised.value.retry_ownership  # type: ignore[attr-defined]
+    assert ownership["reason"] == "composed_turn_budget_exhausted"
+    assert ownership["retry_owner"] == "harness_infrastructure"
+    assert ownership["retry_disposition"] == "not_safe_to_retry_same_identity"
+    assert ownership["remote_uncertainty"] == "no_remote_request_issued"
+    assert ownership["durable_side_effect_free"] is True
+    assert ownership["request_idempotency_key"] is None
+    # Fail-closed: only ONE spawn happened although 3 retry slots existed.
+    assert len(calls) == 1
+
+
+def test_timeout_attempt_carries_480s_not_safe_to_retry_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D6 freeze: an in-attempt batch-stage (480s floor) timeout ends with the
+    truthful typed exhaustion; the harness alone may retry it, new identity."""
+    calls = _stub_once(monkeypatch, [TimeoutError])
+
+    with pytest.raises(TimeoutError) as raised:
+        runtime._run_worker(
+            {"api_key": "k"},
+            "sys",
+            "usr",
+            response_contract="batch_repl",
+            agent_id="hermes",
+            model="openrouter:deepseek/deepseek-v4-pro",
+            effort="low",
+            profiling_context={"backend_phase": "batch", "model_turn_id": "t480"},
+        )
+
+    exc = raised.value
+    ownership = exc.retry_ownership  # type: ignore[attr-defined]
+    assert ownership == {
+        "reason": "in_attempt_timeout_not_retried_in_loop",
+        "retry_owner": "harness_infrastructure",
+        "attempt_deadline_seconds": 480.0,
+        "remote_uncertainty": "timeout_before_response",
+        "retry_disposition": "not_safe_to_retry_same_identity",
+        "durable_side_effect_free": True,
+        "request_idempotency_key": None,
+    }
+    row = exc.model_attempts[0]  # type: ignore[attr-defined]
+    assert row["failure_type"] == "timeout"
+    assert row["retry_owner"] == "harness_infrastructure"
+    assert row["retry_disposition"] == "not_safe_to_retry_same_identity"
+    assert row["attempt_deadline_seconds"] == 480.0
+    assert len(calls) == 1  # never retried in-loop
+
+
+def test_retry_rows_record_identity_nesting_deadline_and_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every attempt records owner/nesting/deadline/cost/uncertainty/side-effect
+    evidence; the disposition mirrors what the loop actually did."""
+    good = {"content": "ok", "model_attempts": [_attempt(outcome="success")]}
+    calls = _stub_once(monkeypatch, [_empty_error_result(), good])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert len(calls) == 2
+    first, second = result["model_attempts"]
+    assert first["failure_type"] == "empty_response"
+    assert first["retry_owner"] == "runtime_worker_transport"
+    assert first["nesting_depth"] == 1
+    assert first["attempt_deadline_seconds"] == 240.0
+    assert first["remote_uncertainty"] == "response_received"
+    assert first["retry_disposition"] == "retry_fresh_subprocess_same_call"
+    assert first["durable_side_effect_free"] is True
+    assert first["request_idempotency_key"] is None
+    assert first["token_usage"]["completion_tokens"] == 0
+    assert second["retry_disposition"] == "success_terminal"
+    assert second["token_usage"]["total_tokens"] == 11
+
+
+def test_retry_ownership_vocabulary_is_frozen() -> None:
+    """The fixture vocabulary and layer constants are a frozen contract."""
+    assert runtime._TURN_TOTAL_BUDGET_SECONDS > 0
+    assert runtime._JSON_CONTRACT_MAX_ATTEMPTS == 3
+    assert runtime._RETRY_OWNER_WORKER_TRANSPORT == "runtime_worker_transport"
+    assert runtime._RETRY_OWNER_HARNESS_INFRASTRUCTURE == "harness_infrastructure"
+    assert (
+        runtime._RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY
+        == "not_safe_to_retry_same_identity"
+    )
+    assert (
+        runtime._REMOTE_UNCERTAINTY_TIMEOUT_BEFORE_RESPONSE
+        == "timeout_before_response"
+    )

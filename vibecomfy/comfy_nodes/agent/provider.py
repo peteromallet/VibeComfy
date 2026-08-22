@@ -52,6 +52,11 @@ _BATCH_REPL_PARSE_RETRY_PROMPT = (
     'clarify("...") inside the batch block. Do not include any other markdown.'
 )
 
+# T3.1 (D3 freeze): the provider batch seam retries ONLY canonical typed-empty
+# attempts, at most this many total spawns per call — de-facto value promoted
+# to a named constant. Malformed non-empty content re-raises immediately.
+_BATCH_REPL_EMPTY_ATTEMPTS = 3
+
 # User-facing readiness reason shown verbatim in the agent panel when the
 # Arnold/Hermes runtime cannot be loaded. Never leak raw import tracebacks:
 # the detailed cause is logged, and this sentence tells the user how to fix it.
@@ -200,6 +205,10 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
+# T3.2 fence seam (frozen): this is the SINGLE stripping seam for batch_repl
+# responses. ``extract_batch_fence`` is fail-closed on it — zero fences raises
+# ``parse_reason="missing_batch_fence"``, more than one raises
+# ``parse_reason="multiple_batch_fences"`` (never merged, never rerun).
 _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
 
 
@@ -1467,6 +1476,11 @@ def _normalize_batch_response(
         content = payload.get("content")
         if isinstance(content, str) and "batch" not in payload:
             text = content
+        # T3.2 native-structured seam (frozen): a mapping carrying a string
+        # ``batch`` key IS the structured-response entry point — it bypasses
+        # fence parsing entirely, so a transport that supports native
+        # structured output plugs in here without touching the fail-closed
+        # exactly-one-fence path below. Never merged with fence text.
         elif isinstance(payload.get("batch"), str):
             batch_code = payload["batch"]
             message = normalize_user_markdown_message(payload.get("message", ""))
@@ -1570,6 +1584,37 @@ def _batch_failure_type(exc: BaseException) -> str:
     return "malformed_json"
 
 
+_BATCH_REPL_RETRY_OWNER = "provider_batch_empty"
+
+
+def _preserve_t31_evidence(canonical: dict[str, Any], original: Mapping[str, Any]) -> dict[str, Any]:
+    """Carry T3.1 retry-ownership keys through canonical re-normalization."""
+    try:
+        from vibecomfy.comfy_nodes.agent.runtime import _preserve_retry_evidence
+
+        return _preserve_retry_evidence(canonical, original)
+    except Exception:  # noqa: BLE001 - evidence capture is additive
+        return canonical
+
+
+def _stamp_provider_batch_owner(row: dict[str, Any], *, retryable_empty: bool) -> dict[str, Any]:
+    """T3.1: stamp provider batch-empty layer ownership onto one attempt row.
+
+    Rows entering the provider attempt log failed the batch parse at THIS
+    layer, so the provider owns their (bounded) retry decision; nesting depth 2
+    = worker transport (1) enclosed by the provider loop.
+    """
+    stamped = dict(row)
+    stamped["retry_owner"] = _BATCH_REPL_RETRY_OWNER
+    stamped["nesting_depth"] = 2
+    stamped.setdefault("retry_disposition", (
+        "retry_fresh_subprocess_same_call" if retryable_empty
+        else "terminal_not_retried_in_loop"
+    ))
+    stamped.setdefault("remote_uncertainty", "response_received")
+    return stamped
+
+
 def _revise_failed_runtime_attempt(
     response: Any,
     exc: BaseException,
@@ -1578,7 +1623,8 @@ def _revise_failed_runtime_attempt(
 ) -> tuple[dict[str, Any], ...]:
     if not isinstance(response, Mapping):
         return ()
-    attempts = list(coerce_model_attempts(response.get("model_attempts")))
+    raw_attempts = response.get("model_attempts")
+    attempts = list(coerce_model_attempts(raw_attempts))
     if not attempts:
         return ()
     latest = dict(attempts[-1])
@@ -1589,10 +1635,22 @@ def _revise_failed_runtime_attempt(
     })
     attempts[-1] = latest
     revised_attempts: list[dict[str, Any]] = []
+    raw_rows = list(raw_attempts) if isinstance(raw_attempts, (list, tuple)) else []
     for local_index, attempt in enumerate(attempts, start=1):
         numbered = dict(attempt)
         numbered["attempt"] = attempt_offset + local_index
-        revised_attempts.append(ModelAttemptEvidence.from_mapping(numbered).to_dict())
+        canonical = ModelAttemptEvidence.from_mapping(numbered).to_dict()
+        original = raw_rows[local_index - 1] if local_index <= len(raw_rows) else {}
+        canonical = _preserve_t31_evidence(
+            canonical,
+            original if isinstance(original, Mapping) else {},
+        )
+        revised_attempts.append(canonical)
+    retryable_empty = _typed_empty_attempt(tuple(revised_attempts))
+    revised_attempts = [
+        _stamp_provider_batch_owner(row, retryable_empty=retryable_empty)
+        for row in revised_attempts
+    ]
     try:
         from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
 
@@ -1655,75 +1713,83 @@ def run_agent_turn_batch(
         "response_contract": "batch_repl",
     }
     try:
-        attempts = 3
-        retry_count = 0
-        last_exc: MalformedModelJSON | MissingRequiredField | None = None
-        current_messages = messages
-        attempt_log: list[dict[str, Any]] = []
-        for attempt_index in range(attempts):
-            if attempt_index > 0 and last_exc is not None:
-                current_messages = _batch_retry_messages(messages, last_exc)
-            response = _call_batch_runtime(
-                runtime,
-                task=task,
-                messages=current_messages,
-                route=dispatch_route,
-                model=selected_model,
-                effort=effort,
-            )
-            try:
-                result = _normalize_batch_response(
-                    response,
+        # T3.1: ONE composed wall-clock budget spans every batch-empty attempt
+        # of this call, including the nested runtime worker spawns — instead of
+        # the historical 3 × (per-spawn budget) multiplication.
+        from vibecomfy.comfy_nodes.agent.runtime import composed_model_call_budget
+
+        with composed_model_call_budget():
+            attempts = _BATCH_REPL_EMPTY_ATTEMPTS
+            retry_count = 0
+            last_exc: MalformedModelJSON | MissingRequiredField | None = None
+            current_messages = messages
+            attempt_log: list[dict[str, Any]] = []
+            for attempt_index in range(attempts):
+                if attempt_index > 0 and last_exc is not None:
+                    current_messages = _batch_retry_messages(messages, last_exc)
+                response = _call_batch_runtime(
+                    runtime,
+                    task=task,
+                    messages=current_messages,
                     route=dispatch_route,
                     model=selected_model,
-                    audit_metadata=audit_metadata,
+                    effort=effort,
                 )
-            except (MalformedModelJSON, MissingRequiredField) as exc:
-                failed_attempts = _revise_failed_runtime_attempt(
-                    response,
-                    exc,
-                    attempt_offset=len(attempt_log),
-                )
-                attempt_log.extend(failed_attempts)
-                last_exc = exc
-                if attempt_index >= attempts - 1 or not _typed_empty_attempt(failed_attempts):
-                    raise
-                retry_count += 1
-                continue
-            current_attempts = list(
-                coerce_model_attempts((result.audit_metadata or {}).get("model_attempts"))
-            )
-            numbered_current_attempts: list[dict[str, Any]] = []
-            for local_index, current_attempt in enumerate(current_attempts, start=1):
-                numbered = dict(current_attempt)
-                numbered["attempt"] = len(attempt_log) + local_index
-                numbered_current_attempts.append(
-                    ModelAttemptEvidence.from_mapping(numbered).to_dict()
-                )
-            if numbered_current_attempts:
                 try:
-                    from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
+                    result = _normalize_batch_response(
+                        response,
+                        route=dispatch_route,
+                        model=selected_model,
+                        audit_metadata=audit_metadata,
+                    )
+                except (MalformedModelJSON, MissingRequiredField) as exc:
+                    failed_attempts = _revise_failed_runtime_attempt(
+                        response,
+                        exc,
+                        attempt_offset=len(attempt_log),
+                    )
+                    attempt_log.extend(failed_attempts)
+                    last_exc = exc
+                    if attempt_index >= attempts - 1 or not _typed_empty_attempt(failed_attempts):
+                        raise
+                    retry_count += 1
+                    continue
+                current_attempts = list(
+                    coerce_model_attempts((result.audit_metadata or {}).get("model_attempts"))
+                )
+                numbered_current_attempts: list[dict[str, Any]] = []
+                for local_index, current_attempt in enumerate(current_attempts, start=1):
+                    numbered = dict(current_attempt)
+                    numbered["attempt"] = len(attempt_log) + local_index
+                    canonical = ModelAttemptEvidence.from_mapping(numbered).to_dict()
+                    numbered_current_attempts.append(
+                        _preserve_t31_evidence(canonical, numbered)
+                    )
+                if numbered_current_attempts:
+                    try:
+                        from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
 
-                    replace_last_model_attempts(numbered_current_attempts)
-                except Exception:  # noqa: BLE001 - evidence capture is additive
-                    pass
-            if attempt_log or numbered_current_attempts != current_attempts:
-                metadata = dict(result.audit_metadata or {})
-                metadata["model_attempts"] = [*attempt_log, *numbered_current_attempts]
-                result = dataclasses.replace(result, audit_metadata=metadata)
-            if retry_count:
-                metadata = dict(result.audit_metadata or {})
-                metadata["batch_repl_retry"] = {
-                    "count": retry_count,
-                    "reason": str(last_exc) if last_exc is not None else "",
-                    "parse_reason": getattr(last_exc, "parse_reason", None),
-                    "raw_response_preview": getattr(last_exc, "raw_response_preview", None),
-                }
-                result = dataclasses.replace(result, audit_metadata=metadata)
-            return result
-        if last_exc is not None:
-            raise last_exc
-        raise ProviderError("Agent batch_repl provider exited without a response.")
+                        replace_last_model_attempts(numbered_current_attempts)
+                    except Exception:  # noqa: BLE001 - evidence capture is additive
+                        pass
+                if attempt_log or numbered_current_attempts != current_attempts:
+                    metadata = dict(result.audit_metadata or {})
+                    metadata["model_attempts"] = [*attempt_log, *numbered_current_attempts]
+                    result = dataclasses.replace(result, audit_metadata=metadata)
+                if retry_count:
+                    metadata = dict(result.audit_metadata or {})
+                    metadata["batch_repl_retry"] = {
+                        "count": retry_count,
+                        "reason": str(last_exc) if last_exc is not None else "",
+                        "parse_reason": getattr(last_exc, "parse_reason", None),
+                        "raw_response_preview": getattr(last_exc, "raw_response_preview", None),
+                        "retry_owner": _BATCH_REPL_RETRY_OWNER,
+                    }
+                    result = dataclasses.replace(result, audit_metadata=metadata)
+                return result
+            if last_exc is not None:
+                raise last_exc
+            raise ProviderError("Agent batch_repl provider exited without a response.")
     except PermissionError as exc:
         raise AuthError(str(exc)) from exc
     except TimeoutError:

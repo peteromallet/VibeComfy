@@ -2896,3 +2896,42 @@ def test_change_details_operations_derive_from_accepted_delta() -> None:
     operations = payload["operations"]
     assert [op["uid"] for op in operations] == ["a"]
     assert all(op["field_path"] == "x" for op in operations)
+
+
+# ── T3.1: harness sole-timeout-retry-owner freeze ────────────────────────────
+
+
+def test_t31_harness_is_sole_timeout_retry_owner_with_fresh_identity() -> None:
+    """D5+D6 freeze: cap = 1 infra retry, 1200s per attempt; every live attempt
+    record carries the fixture vocabulary (owner/deadline/remote_uncertainty/
+    retry_disposition) and never retries under the same identity."""
+    from tests.live_agentic_harness import runner as harness_runner
+
+    assert harness_runner.DEFAULT_INFRA_RETRIES == 1
+    assert harness_runner.DEFAULT_PER_SCENARIO_TIMEOUT == 1200
+    assert harness_runner.HARNESS_RETRY_OWNER == "harness_infrastructure"
+    assert harness_runner._RETRYABLE_INFRA_CLASSES == frozenset(
+        {"infra_empty_response", "infra_timeout"}
+    )
+
+    summary = {
+        "failure_class": "infra_timeout",
+        "killed_before_first_attempt": True,
+        "model_attempts": [],
+        "guard": {},
+    }
+    assert harness_runner._is_retryable_infra_summary(summary) is True
+    record = harness_runner._attempt_record(
+        summary,
+        attempt=2,
+        attempt_identity="tag/attempts/sid/attempt_2",
+        attempt_deadline_seconds=1200.0,
+    )
+    ownership = record["retry_ownership"]
+    assert ownership["owner"] == "harness_infrastructure"
+    assert ownership["attempt_identity"] == "tag/attempts/sid/attempt_2"
+    assert ownership["attempt_deadline_seconds"] == 1200.0
+    assert ownership["same_identity_retry"] is False
+    assert ownership["retry_disposition"] == "not_safe_to_retry_same_identity"
+    assert ownership["remote_uncertainty"] == "timeout_before_response"
+    assert ownership["request_idempotency_key"] is None

@@ -54,6 +54,9 @@ DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenari
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
 _RETRYABLE_INFRA_CLASSES = frozenset({"infra_empty_response", "infra_timeout"})
+# T3.1/D5+D6 freeze: the harness is the SOLE timeout-retry owner (cap 1, fresh
+# attempt identity); the vocabulary matches the 480s fixture and runtime stamps.
+HARNESS_RETRY_OWNER = "harness_infrastructure"
 _SCENARIO_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
 REPO = Path(__file__).resolve().parents[2]
 
@@ -337,7 +340,34 @@ def _attempt_tag(tag: str, scenario_id: str, attempt: int) -> str:
     return f"{tag}/attempts/{scenario_id}/attempt_{attempt}"
 
 
-def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
+def _attempt_record(
+    summary: dict[str, Any],
+    *,
+    attempt: int,
+    attempt_identity: str,
+    attempt_deadline_seconds: float,
+) -> dict[str, Any]:
+    failure_class = (
+        summary.get("failure_class")
+        or (summary.get("guard") or {}).get("failure_class")
+        or "product_or_assessment_failure"
+    )
+    # T3.1/D6 freeze: the harness is the SOLE owner that may retry a timed-out
+    # scenario, exactly once, always under a NEW attempt identity (fresh tag +
+    # output dir). Same-identity retry is never safe: completion requests carry
+    # no request-level idempotency key, so a timed-out request's remote state
+    # is unknowable. The fixture vocabulary
+    # (owner/deadline/remote_uncertainty/retry_disposition) is recorded on
+    # every live attempt below.
+    if failure_class == "infra_timeout":
+        retry_disposition = "not_safe_to_retry_same_identity"
+        remote_uncertainty = "timeout_before_response"
+    elif summary.get("retryable_infra") is True:
+        retry_disposition = "retry_new_identity_only"
+        remote_uncertainty = None
+    else:
+        retry_disposition = "terminal"
+        remote_uncertainty = None
     return {
         "attempt": attempt,
         "scenario_id": summary.get("scenario_id"),
@@ -345,9 +375,7 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "ok": summary.get("ok"),
         "output_dir": summary.get("output_dir"),
         "error": summary.get("error"),
-        "failure_class": summary.get("failure_class")
-        or (summary.get("guard") or {}).get("failure_class")
-        or "product_or_assessment_failure",
+        "failure_class": failure_class,
         "score_class": summary.get("score_class") or (summary.get("guard") or {}).get("score_class"),
         "retryable_infra": bool(summary.get("retryable_infra")),
         "agent_exercised": summary.get("agent_exercised"),
@@ -356,6 +384,17 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "model_attempts": summary.get("model_attempts", []),
         "killed_before_first_attempt": summary.get("killed_before_first_attempt") is True,
         "pre_attempt_reason": summary.get("pre_attempt_reason"),
+        "retry_ownership": {
+            "owner": HARNESS_RETRY_OWNER,
+            "attempt_identity": attempt_identity,
+            "attempt_deadline_seconds": attempt_deadline_seconds,
+            "same_identity_retry": False,
+            "retry_disposition": retry_disposition,
+            "remote_uncertainty": remote_uncertainty,
+            # Model completions are side-effect-free but unkeyed; recorded so
+            # evidence consumers never have to assume it.
+            "request_idempotency_key": None,
+        },
     }
 
 
@@ -995,7 +1034,12 @@ def run_tag(
                         )
 
                     retryable_infra = _is_retryable_infra_summary(final_summary)
-                    attempts.append(_attempt_record(final_summary, attempt=attempt))
+                    attempts.append(_attempt_record(
+                        final_summary,
+                        attempt=attempt,
+                        attempt_identity=attempt_run_tag,
+                        attempt_deadline_seconds=float(per_scenario_timeout),
+                    ))
                     if not retryable_infra:
                         break
 
@@ -1009,7 +1053,12 @@ def run_tag(
                         attempt=1,
                         expect_graph_changed=expect_graph_changed,
                     )
-                    attempts.append(_attempt_record(final_summary, attempt=1))
+                    attempts.append(_attempt_record(
+                        final_summary,
+                        attempt=1,
+                        attempt_identity=_attempt_tag(tag, sid, 1),
+                        attempt_deadline_seconds=float(per_scenario_timeout),
+                    ))
 
                 final_summary["attempts"] = attempts
                 final_summary["attempt_count"] = len(attempts)

@@ -19099,3 +19099,323 @@ def test_entrypoint_enforces_max_batches_bounds_and_ignores_invalid(
             assert "max_batches must be an integer in 1..250" in str(exc)
             continue
         raise AssertionError(f"invalid max_batches {bad!r} was not rejected")
+
+
+# ── T3.2: batch protocol / accepted-batch authority freezes ─────────────────
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_reason"),
+    [
+        ("", "empty"),
+        ("no fences here at all", "missing_batch_fence"),
+        (
+            "prose\n```batch\na = 1\n```\nmid\n```batch\nb = 2\n```\n",
+            "multiple_batch_fences",
+        ),
+    ],
+)
+def test_batch_protocol_fence_parsing_fail_closed(raw: str, expected_reason: str) -> None:
+    """No fence / malformed-empty / multiple fences all fail closed with the
+    frozen parse_reason vocabulary; fences are never merged."""
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    with pytest.raises(provider_mod.MalformedModelJSON) as raised:
+        provider_mod.extract_batch_fence(raw)
+    assert raised.value.parse_reason == expected_reason
+
+
+def test_batch_protocol_valid_batch_with_prose_keeps_both_parts() -> None:
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    batch, prose = provider_mod.extract_batch_fence(
+        'Hello.\n```batch\nsaveimage.filename_prefix = "x"\n```\nDone.'
+    )
+    assert batch == 'saveimage.filename_prefix = "x"'
+    assert prose.startswith("Hello.")
+    assert prose.endswith("Done.")
+
+
+def test_batch_protocol_empty_fence_is_valid_identity_batch() -> None:
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    batch, prose = provider_mod.extract_batch_fence("```batch\n```")
+    assert batch == ""
+    assert prose == ""
+
+
+def test_batch_protocol_native_structured_mapping_bypasses_fence() -> None:
+    """The frozen native-structured seam: a mapping with a string ``batch``
+    key never touches fence parsing (and can never merge with fence text)."""
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    result = provider_mod._normalize_batch_response(
+        {"batch": 'saveimage.filename_prefix = "after"', "message": "Changed it."},
+        route="openrouter",
+        model="test-model",
+    )
+    assert result.batch == 'saveimage.filename_prefix = "after"'
+    assert result.message == "Changed it."
+
+
+def _slot_state(tmp_path: Path) -> "AgentEditState":
+    return AgentEditState(
+        task="change the save prefix to after",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+
+
+def test_batch_protocol_correction_slot_reserved_then_unused(tmp_path: Path) -> None:
+    """The single correction opportunity is persisted (reserved) BEFORE the
+    first call; a clean first response finalizes it as unused."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+
+    state = _slot_state(tmp_path)
+    context = TurnContext(session_id="slot-unused", turn_id="0001")
+    calls: list[list[dict[str, str]]] = []
+
+    def _client(messages: list[dict[str, str]]) -> dict[str, str]:
+        calls.append(messages)
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Changed the save prefix.",
+        }
+
+    result = agent_edit_module._stage_agent_batch_repl(
+        state, context, deepseek_client=_client
+    )
+
+    assert result.ok is True
+    assert len(calls) == 1
+    request_turns = json.loads(state.model_request_path.read_text(encoding="utf-8"))[
+        "turns"
+    ]
+    assert len(request_turns) == 1
+    assert request_turns[0]["correction_slot"] == {
+        "opportunity": "pre_first_call",
+        "bound": 1,
+        "disposition": "reserved",
+    }
+    response_turns = json.loads(
+        state.model_response_path.read_text(encoding="utf-8")
+    )["turns"]
+    metadata = response_turns[0]["batch_result"]["provider_metadata"]
+    assert metadata["correction_slot"]["disposition"] == "unused"
+
+
+def test_batch_protocol_correction_slot_consumed_and_recovered(tmp_path: Path) -> None:
+    """First call malformed → the reserved slot is consumed (persisted before
+    the second call); recovery stamps consumed_recovered without touching the
+    frozen protocol_retry shape."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    state = _slot_state(tmp_path)
+    context = TurnContext(session_id="slot-consumed", turn_id="0001")
+    calls: list[list[dict[str, str]]] = []
+
+    def _client(messages: list[dict[str, str]]) -> dict[str, str]:
+        calls.append(messages)
+        if len(calls) == 1:
+            raise provider_mod.MalformedModelJSON(
+                "Agent response does not contain a ```batch fenced block.",
+                raw_response="I need a concrete schema before editing.",
+                parse_reason="missing_batch_fence",
+            )
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Changed the save prefix.",
+        }
+
+    result = agent_edit_module._stage_agent_batch_repl(
+        state, context, deepseek_client=_client
+    )
+
+    assert result.ok is True
+    assert len(calls) == 2
+    request_turns = json.loads(state.model_request_path.read_text(encoding="utf-8"))[
+        "turns"
+    ]
+    assert [entry["correction_slot"]["disposition"] for entry in request_turns] == [
+        "reserved",
+        "consumed",
+    ]
+    # The frozen protocol_retry shape is untouched by the sibling slot record.
+    assert request_turns[1]["protocol_retry"] == {
+        "attempt": 2,
+        "reason": "missing_batch_fence",
+        "message": "Agent response does not contain a ```batch fenced block.",
+    }
+    response_turns = json.loads(
+        state.model_response_path.read_text(encoding="utf-8")
+    )["turns"]
+    metadata = response_turns[-1]["batch_result"]["provider_metadata"]
+    assert metadata["correction_slot"]["disposition"] == "consumed_recovered"
+    assert state.provider_metadata["correction_slot"]["disposition"] == (
+        "consumed_recovered"
+    )
+
+
+def test_batch_protocol_correction_slot_exhausted_after_second_malformed(
+    tmp_path: Path,
+) -> None:
+    """Second malformed response: disposition consumed_exhausted, protocol
+    failure abort — exactly one correction ever, reserved up front."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    state = _slot_state(tmp_path)
+    context = TurnContext(session_id="slot-exhausted", turn_id="0001")
+
+    def _always_malformed(messages: list[dict[str, str]]) -> dict[str, str]:
+        raise provider_mod.MalformedModelJSON(
+            "Agent response does not contain a ```batch fenced block.",
+            raw_response="still no fence",
+            parse_reason="missing_batch_fence",
+        )
+
+    with pytest.raises(provider_mod.MalformedModelJSON):
+        agent_edit_module._stage_agent_batch_repl(
+            state, context, deepseek_client=_always_malformed
+        )
+
+    assert state.batch_exit_mode == "protocol_failure"
+    request_turns = json.loads(state.model_request_path.read_text(encoding="utf-8"))[
+        "turns"
+    ]
+    assert [entry["correction_slot"]["disposition"] for entry in request_turns] == [
+        "reserved",
+        "consumed",
+    ]
+    response_turns = json.loads(
+        state.model_response_path.read_text(encoding="utf-8")
+    )["turns"]
+    terminal = response_turns[-1]["error"]
+    assert terminal["retrying"] is False
+    diagnostic = terminal["diagnostics"][0]
+    assert diagnostic["code"] == "malformed_batch_response"
+    assert diagnostic["correction_slot"]["disposition"] == "consumed_exhausted"
+
+
+
+def test_accepted_batch_admission_rule_ok_and_landed_only() -> None:
+    """The sole durable Δ admits a statement iff ok AND landed, matching the
+    typed op from statement.op or detail.edit_op; the derived envelope is the
+    apply-binding view of exactly those ops."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent._frag_state import (
+        _accepted_batch_statements,
+        _ops_from_accepted_batch,
+        derived_accepted_delta_envelope,
+    )
+
+    state = SimpleNamespace(
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "statement_index": 0,
+                        "ok": True,
+                        "landed": True,
+                        "op_kind": "set_field",
+                        "op": {"op": "set_node_field", "uid": "a"},
+                    },
+                    {"statement_index": 1, "ok": True, "landed": False},
+                    {"statement_index": 2, "ok": False, "landed": True},
+                    {
+                        "statement_index": 3,
+                        "ok": True,
+                        "landed": True,
+                        "detail": {"edit_op": {"op": "upsert_link"}},
+                    },
+                ]
+            }
+        ]
+    )
+    accepted = _accepted_batch_statements(state)
+    assert len(accepted) == 2
+    assert accepted[0]["op"] == {"op": "set_node_field", "uid": "a"}
+    assert accepted[1]["op"] == {"op": "upsert_link"}
+
+    # Persisted turn responses deserialize accepted_batch as a JSON list —
+    # the envelope derives from exactly that list shape.
+    envelope = derived_accepted_delta_envelope({"accepted_batch": list(accepted)})
+    assert envelope["schema_version"] == "2.0.0"
+    assert [op["op"] for op in envelope["ops"]] == ["set_node_field", "upsert_link"]
+
+    # Non-mapping statements/ops never become durable ops (fail-closed).
+    assert _ops_from_accepted_batch({"accepted_batch": [{"nope": 1}, "junk"]}) == ()
+
+def test_protocol_duplicate_submit_replays_then_conflicts_by_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    """Duplicate submit with the same idempotency key + request hash replays
+    the stored response; the same key with a different request conflicts."""
+    from vibecomfy.comfy_nodes.agent.session import (
+        allocate_turn,
+        record_idempotent_response,
+    )
+
+    payload = {"graph": _ui_graph(), "task": "change the save prefix"}
+    first = allocate_turn(
+        session_root=tmp_path,
+        session_id="dup-protocol",
+        request_payload=payload,
+        idempotency_key="dup-key-1",
+    )
+    assert first.replay is None
+    assert first.conflict is None
+
+    record_idempotent_response(
+        session_root=tmp_path,
+        session_id="dup-protocol",
+        scope="edit",
+        idempotency_key="dup-key-1",
+        request_hash=first.request_hash,
+        response={
+            "ok": True,
+            "turn_id": str(first.context.turn_id),
+            "message": "done",
+        },
+        response_path=first.turn_dir / "response.json",
+        operation="edit",
+        turn_id=str(first.context.turn_id),
+    )
+
+    replay = allocate_turn(
+        session_root=tmp_path,
+        session_id="dup-protocol",
+        request_payload=dict(payload),
+        idempotency_key="dup-key-1",
+    )
+    assert replay.conflict is None
+    assert replay.replay is not None
+    assert replay.replay.response["ok"] is True
+    assert replay.context.turn_id == first.context.turn_id
+
+    conflict = allocate_turn(
+        session_root=tmp_path,
+        session_id="dup-protocol",
+        request_payload=dict(payload, task="a different edit"),
+        idempotency_key="dup-key-1",
+    )
+    assert conflict.conflict.failure.kind == FailureKind.STALE_STATE_MISMATCH

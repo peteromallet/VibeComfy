@@ -603,6 +603,12 @@ def _mutate_turn_state(
                 "entries": _scoped_accept_result["entries"],
                 "ok": _scoped_accept_result["ok"],
             }
+        # T3.2 provenance freeze: this accept-response echo is DERIVED, never
+        # authoritative. ``_delta_ops_echo`` is reconstructed from the turn's
+        # persisted v2 evidence, whose source of truth is the landed
+        # accepted_batch; Apply authority stays exclusively with
+        # plan.accepted_batch (ops-by-digest). The echo only restates the
+        # durable Δ for response consumers and is skipped if one is present.
         if _delta_ops_echo is not None and "accepted_batch" not in response:
             response["accepted_batch"] = [{"op": op} for op in _delta_ops_echo]
         if key is not None and response_writer is not None:

@@ -31,6 +31,7 @@ real ``AIAgent`` backend; this file is intentionally thin.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import json
 import os
@@ -108,6 +109,65 @@ _ITERATION_EXHAUSTION_MAX_CORRECTIONS = max(
 # errors and malformed content do not retry here.
 _WORKER_TRANSIENT_MAX_ATTEMPTS = max(1, int(os.getenv("VIBECOMFY_AGENT_TURN_RETRIES", "3")))
 _WORKER_TRANSIENT_BACKOFF_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_RETRY_BACKOFF", "2.0"))
+_TURN_TOTAL_BUDGET_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TOTAL_BUDGET", "600"))
+
+# ── T3.1 nested-retry ownership freeze ────────────────────────────────────────
+# ONE owner per retry domain, and every nested loop of ONE logical model call
+# composes into ONE total wall-clock budget (``_TURN_TOTAL_BUDGET_SECONDS``):
+#   * runtime_worker_transport — typed-empty transport retries + the iteration
+#     exhaustion correction, inside ``_run_worker`` (innermost layer).
+#   * runtime_json_correction  — JSONDecodeError/ValueError nudges in
+#     ``run_model_turn`` (middle layer).
+#   * provider_batch_empty     — typed-empty retries in provider
+#     ``run_agent_turn_batch`` (middle layer, composes through
+#     ``composed_model_call_budget`` so its ≤3 attempts share one budget).
+#   * harness_infrastructure   — the SOLE owner that may retry a TIMEOUT:
+#     exactly once, under a NEW attempt identity (runner
+#     ``DEFAULT_INFRA_RETRIES == 1``). A timeout is never retried in-loop:
+#     completion requests carry NO request-level idempotency key, so the remote
+#     state of a timed-out request is unknowable and a same-identity retry is
+#     unsafe. The attempt ends with the truthful typed exhaustion below and the
+#     fixture vocabulary (owner/deadline/remote_uncertainty/retry_disposition)
+#     stamped onto live evidence.
+_RETRY_OWNER_WORKER_TRANSPORT = "runtime_worker_transport"
+_RETRY_OWNER_JSON_CORRECTION = "runtime_json_correction"
+_RETRY_OWNER_PROVIDER_BATCH_EMPTY = "provider_batch_empty"
+_RETRY_OWNER_HARNESS_INFRASTRUCTURE = "harness_infrastructure"
+_REMOTE_UNCERTAINTY_TIMEOUT_BEFORE_RESPONSE = "timeout_before_response"
+_REMOTE_UNCERTAINTY_RESPONSE_RECEIVED = "response_received"
+_REMOTE_UNCERTAINTY_NO_REQUEST = "no_remote_request_issued"
+_RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY = "not_safe_to_retry_same_identity"
+_RETRY_DISPOSITION_FRESH_SUBPROCESS = "retry_fresh_subprocess_same_call"
+_RETRY_DISPOSITION_CORRECTION_PROMPT = "retry_with_correction_prompt"
+_RETRY_DISPOSITION_TERMINAL_IN_LOOP = "terminal_not_retried_in_loop"
+_RETRY_DISPOSITION_SUCCESS_TERMINAL = "success_terminal"
+# Below this remainder no further worker spawn may start: a fresh subprocess
+# needs startup+connect time, so spending the tail of the budget on a spawn
+# that cannot succeed would only produce a lying timeout.
+_TURN_MIN_ATTEMPT_REMAINDER_SECONDS = 1.0
+# Extra evidence keys stamped onto attempt rows by the retry owners. They ride
+# OUTSIDE ``ModelAttemptEvidence`` (whose canonical field set lives frozen in
+# executor.contracts) and are preserved across re-normalization.
+_ATTEMPT_EVIDENCE_RETRY_KEYS = (
+    "retry_owner",
+    "nesting_depth",
+    "attempt_deadline_seconds",
+    "remote_uncertainty",
+    "retry_disposition",
+    "durable_side_effect_free",
+    "request_idempotency_key",
+)
+# Composed-deadline contextvar: outer retry layers (provider batch-empty loop,
+# future owners) publish one absolute monotonic deadline that every nested
+# runtime spawn must honor. Entry points pass explicit deadlines too; the
+# effective deadline is the min of both.
+_TURN_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "vibecomfy_turn_composed_deadline",
+    default=None,
+)
+# D3 freeze: the JSON-contract dispatch seam corrects malformed JSON at most
+# this many times (de-facto value 3 promoted to a named constant).
+_JSON_CONTRACT_MAX_ATTEMPTS = 3
 LOGGER = logging.getLogger(__name__)
 _DEEPSEEK_USAGE_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "vibecomfy_deepseek_usage_capture",
@@ -810,6 +870,131 @@ def _run_worker_subprocess(
     return proc.returncode, stdout_text, stderr_text
 
 
+def _effective_turn_deadline(explicit: float | None) -> float | None:
+    """Compose an explicit deadline with any outer composed-deadline context."""
+    ctx_deadline = _TURN_DEADLINE.get()
+    if explicit is None:
+        return ctx_deadline
+    if ctx_deadline is None:
+        return explicit
+    return min(explicit, ctx_deadline)
+
+
+def _composed_budget_exhausted(*, remaining: float, attempts_used: int) -> TimeoutError:
+    """Build the truthful typed exhaustion for a spent composed wall-clock budget."""
+    exc = TimeoutError(
+        "Composed turn wall-clock budget exhausted "
+        f"(total_budget={_TURN_TOTAL_BUDGET_SECONDS:g}s, "
+        f"remaining={max(0.0, remaining):g}s, attempts_used={attempts_used}); "
+        "no further worker spawn allowed. Timeout retry ownership: "
+        f"{_RETRY_OWNER_HARNESS_INFRASTRUCTURE} only, "
+        f"{_RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY}, new attempt identity."
+    )
+    exc.retry_ownership = {
+        "reason": "composed_turn_budget_exhausted",
+        "retry_owner": _RETRY_OWNER_HARNESS_INFRASTRUCTURE,
+        "total_budget_seconds": _TURN_TOTAL_BUDGET_SECONDS,
+        "remaining_seconds": max(0.0, remaining),
+        "attempts_used": attempts_used,
+        "remote_uncertainty": _REMOTE_UNCERTAINTY_NO_REQUEST,
+        "retry_disposition": _RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY,
+        # No spawn happened, so trivially no durable side effect and nothing
+        # to dedupe remotely; recorded for uniform evidence shape.
+        "durable_side_effect_free": True,
+        "request_idempotency_key": None,
+    }
+    return exc
+
+
+def _stamp_retry_evidence(
+    attempt: dict[str, Any],
+    *,
+    deadline_seconds: float | None,
+    disposition: str,
+) -> dict[str, Any]:
+    """Stamp T3.1 ownership evidence onto one attempt row (additive keys).
+
+    ``retry_owner`` names the layer that owns deciding what happens AFTER this
+    attempt: timeouts belong to the harness (new identity only); every other
+    in-loop outcome is owned by the worker transport layer.
+    """
+    stamped = dict(attempt)
+    failure_type = stamped.get("failure_type")
+    stamped["retry_owner"] = (
+        _RETRY_OWNER_HARNESS_INFRASTRUCTURE
+        if failure_type == "timeout"
+        else _RETRY_OWNER_WORKER_TRANSPORT
+    )
+    stamped["nesting_depth"] = 1  # innermost worker-transport layer
+    if deadline_seconds is not None:
+        stamped["attempt_deadline_seconds"] = round(float(deadline_seconds), 3)
+    stamped["remote_uncertainty"] = (
+        _REMOTE_UNCERTAINTY_TIMEOUT_BEFORE_RESPONSE
+        if failure_type == "timeout"
+        else _REMOTE_UNCERTAINTY_RESPONSE_RECEIVED
+    )
+    stamped["retry_disposition"] = disposition
+    # Completion requests generate text only — never a durable side effect —
+    # but carry no request-level idempotency key (see module ownership map).
+    stamped["durable_side_effect_free"] = True
+    stamped["request_idempotency_key"] = None
+    return stamped
+
+
+def _preserve_retry_evidence(normalized: dict[str, Any], original: Mapping[str, Any]) -> dict[str, Any]:
+    """Carry T3.1 evidence keys through canonical re-normalization of a row."""
+    for key in _ATTEMPT_EVIDENCE_RETRY_KEYS:
+        if key not in normalized and key in original:
+            normalized[key] = original[key]
+    return normalized
+
+
+def _worker_attempt_disposition(
+    result: Mapping[str, Any],
+    *,
+    attempt_index: int,
+    iteration_corrections: int,
+) -> str:
+    """Decide the retry disposition recorded on this spawn's attempt rows.
+
+    Mirrors the branch order of the ``_run_worker`` loop exactly so evidence
+    can never claim a retry the loop will not make.
+    """
+    if "error" not in result:
+        return _RETRY_DISPOSITION_SUCCESS_TERMINAL
+    if (
+        _is_iteration_exhaustion_result(result)
+        and not _is_typed_empty_worker_result(result)
+        and iteration_corrections < _ITERATION_EXHAUSTION_MAX_CORRECTIONS
+        and attempt_index + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS
+    ):
+        return _RETRY_DISPOSITION_CORRECTION_PROMPT
+    if _is_typed_empty_worker_result(result) and attempt_index + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS:
+        return _RETRY_DISPOSITION_FRESH_SUBPROCESS
+    return _RETRY_DISPOSITION_TERMINAL_IN_LOOP
+
+
+@contextlib.contextmanager
+def composed_model_call_budget(budget_seconds: float | None = None):
+    """Context manager composing ONE total wall-clock budget across nested loops.
+
+    Outer owners (provider ``run_agent_turn_batch``) wrap their whole retry
+    loop; every runtime spawn inside then honors the min of this deadline and
+    its own, so ≤3 provider attempts × ≤3 worker spawns share one budget
+    instead of multiplying per-layer budgets.
+    """
+    budget = float(
+        budget_seconds if budget_seconds is not None else _TURN_TOTAL_BUDGET_SECONDS
+    )
+    previous = _TURN_DEADLINE.get()
+    deadline = time.monotonic() + budget
+    _TURN_DEADLINE.set(min(deadline, previous) if previous is not None else deadline)
+    try:
+        yield _TURN_DEADLINE.get()
+    finally:
+        _TURN_DEADLINE.set(previous)
+
+
 def _run_worker(
     agent_kwargs: dict[str, Any],
     system_msg: str | None,
@@ -821,16 +1006,42 @@ def _run_worker(
     requested_model: str | None = None,
     effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
 
     A fresh subprocess/transport is permitted only after a canonical
     ``empty_response`` attempt with observed ``completion_tokens == 0``. Timeouts,
     provider/capacity errors, and malformed non-empty content surface immediately.
+
+    T3.1: *deadline* (or the outer composed-deadline contextvar) bounds the
+    TOTAL wall clock of all attempts in this loop; once spent, no further spawn
+    starts and a truthful typed exhaustion raises instead. Every attempt row is
+    stamped with retry-ownership evidence (owner/nesting/deadline/uncertainty/
+    disposition/side-effect/idempotency).
     """
     accumulated_attempts: list[dict[str, Any]] = []
     iteration_corrections = 0
+    effective_deadline = _effective_turn_deadline(deadline)
+    per_attempt_budget = _turn_timeout_seconds(
+        user_msg,
+        system_msg,
+        stage=(profiling_context or {}).get("backend_phase"),
+    )
     for attempt in range(_WORKER_TRANSIENT_MAX_ATTEMPTS):
+        remaining = (
+            None
+            if effective_deadline is None
+            else effective_deadline - time.monotonic()
+        )
+        if remaining is not None and remaining <= _TURN_MIN_ATTEMPT_REMAINDER_SECONDS:
+            raise _composed_budget_exhausted(
+                remaining=remaining or 0.0,
+                attempts_used=len(accumulated_attempts),
+            )
+        attempt_timeout = (
+            per_attempt_budget if remaining is None else min(per_attempt_budget, remaining)
+        )
         attempt_profile = dict(profiling_context or {})
         if attempt:
             attempt_profile["transient_retry_count"] = attempt
@@ -845,24 +1056,54 @@ def _run_worker(
                 requested_model=requested_model,
                 effort=effort,
                 profiling_context=attempt_profile,
+                deadline=effective_deadline,
             )
         except TimeoutError as exc:
-            timeout_attempt = _timeout_model_attempt(
-                agent_kwargs=agent_kwargs,
-                agent_id=agent_id,
-                requested_model=requested_model,
-                resolved_model=model,
-                profiling_context=profiling_context,
-                attempt=len(accumulated_attempts) + 1,
+            # D6 freeze: an in-attempt timeout is NEVER retried under the same
+            # identity — no request-level idempotency key exists, so the remote
+            # state of the timed-out request is unknowable. The attempt ends
+            # with this truthful typed exhaustion; only the live-agentic
+            # harness may retry it, exactly once, under a NEW attempt identity.
+            timeout_attempt = _stamp_retry_evidence(
+                _timeout_model_attempt(
+                    agent_kwargs=agent_kwargs,
+                    agent_id=agent_id,
+                    requested_model=requested_model,
+                    resolved_model=model,
+                    profiling_context=profiling_context,
+                    attempt=len(accumulated_attempts) + 1,
+                ),
+                deadline_seconds=attempt_timeout,
+                disposition=_RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY,
             )
             accumulated_attempts.append(timeout_attempt)
             record_model_attempts([timeout_attempt])
             exc.model_attempts = list(accumulated_attempts)  # type: ignore[attr-defined]
+            exc.retry_ownership = {  # type: ignore[attr-defined]
+                "reason": "in_attempt_timeout_not_retried_in_loop",
+                "retry_owner": _RETRY_OWNER_HARNESS_INFRASTRUCTURE,
+                "attempt_deadline_seconds": round(attempt_timeout, 3),
+                "remote_uncertainty": _REMOTE_UNCERTAINTY_TIMEOUT_BEFORE_RESPONSE,
+                "retry_disposition": _RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY,
+                "durable_side_effect_free": True,
+                "request_idempotency_key": None,
+            }
             raise
+        disposition = _worker_attempt_disposition(
+            result,
+            attempt_index=attempt,
+            iteration_corrections=iteration_corrections,
+        )
         attempts = list(coerce_model_attempts(result.get("model_attempts")))
         for item in attempts:
             item["attempt"] = len(accumulated_attempts) + 1
             normalized = ModelAttemptEvidence.from_mapping(item).to_dict()
+            normalized = _preserve_retry_evidence(normalized, item)
+            normalized = _stamp_retry_evidence(
+                normalized,
+                deadline_seconds=attempt_timeout,
+                disposition=disposition,
+            )
             accumulated_attempts.append(normalized)
             record_model_attempts([normalized])
         if accumulated_attempts:
@@ -931,6 +1172,7 @@ def _run_worker_once(
     requested_model: str | None = None,
     effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
 
@@ -988,6 +1230,15 @@ def _run_worker_once(
             system_msg,
             stage=backend_phase,
         )
+        if deadline is not None:
+            # T3.1: a single spawn may never outrun the composed turn budget.
+            remaining = deadline - time.monotonic()
+            if remaining <= _TURN_MIN_ATTEMPT_REMAINDER_SECONDS:
+                raise _composed_budget_exhausted(
+                    remaining=remaining,
+                    attempts_used=0,
+                )
+            turn_timeout = min(turn_timeout, remaining)
         try:
             with profiler_span(
                 LOGGER,
@@ -1072,6 +1323,7 @@ def run_agent_turn(
         )
 
     agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+    turn_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
     result = _run_worker(
         agent_kwargs,
         system_msg,
@@ -1082,6 +1334,7 @@ def run_agent_turn(
         requested_model=model,
         effort=effort,
         profiling_context={"backend_phase": "implement"},
+        deadline=turn_deadline,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -1116,6 +1369,7 @@ def run_agent_turn_delta(
         )
 
     agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+    turn_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
     result = _run_worker(
         agent_kwargs,
         system_msg,
@@ -1126,6 +1380,7 @@ def run_agent_turn_delta(
         requested_model=model,
         effort=effort,
         profiling_context={"backend_phase": "implement"},
+        deadline=turn_deadline,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -1154,6 +1409,7 @@ def run_agent_turn_batch(
         )
 
     agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+    turn_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
     result = _run_worker(
         agent_kwargs,
         system_msg,
@@ -1164,6 +1420,7 @@ def run_agent_turn_batch(
         requested_model=model,
         effort=effort,
         profiling_context={"backend_phase": "batch"},
+        deadline=turn_deadline,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -1500,7 +1757,12 @@ def run_model_turn(
             )
 
         agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
-        attempts = 3 if response_contract == "json" else 1
+        # T3.1: ONE composed deadline spans every JSON-nudge attempt of this
+        # model call (and nests under any outer provider budget).
+        call_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
+        attempts = (
+            _JSON_CONTRACT_MAX_ATTEMPTS if response_contract == "json" else 1
+        )
         result: dict[str, Any] | None = None
         last_error: Mapping[str, Any] | None = None
         for attempt in range(attempts):
@@ -1524,6 +1786,7 @@ def run_model_turn(
                     **effective_profile,
                     **({"json_retry_count": attempt} if attempt else {}),
                 },
+                deadline=call_deadline,
             )
             if "error" not in result:
                 break

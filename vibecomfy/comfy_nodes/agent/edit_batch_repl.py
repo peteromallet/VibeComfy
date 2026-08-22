@@ -350,6 +350,29 @@ def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
 
 
 
+# ── T3.2 correction-slot contract ────────────────────────────────────────────
+# Exactly ONE bounded protocol-correction opportunity per batch turn, RESERVED
+# in the request log BEFORE the first model call and carried to a final
+# disposition ("reserved" → "unused" | "consumed_recovered" |
+# "consumed_exhausted"). Prompt, output, and disposition persist through the
+# existing model_request_path / model_response_path / messages_path triple.
+#
+# Session-level bound decision (frozen): the bound stays PER TURN. A
+# session-wide counter would add durable resume state without shrinking
+# exposure — the turn loop itself already caps total corrections at
+# ≤ max_batches (one slot per turn, and each turn consumes batch budget).
+_BATCH_CORRECTION_OPPORTUNITY = "pre_first_call"
+_BATCH_CORRECTION_SLOT_BOUND = 1
+
+
+def _batch_correction_slot_record(disposition: str) -> dict[str, Any]:
+    return {
+        "opportunity": _BATCH_CORRECTION_OPPORTUNITY,
+        "bound": _BATCH_CORRECTION_SLOT_BOUND,
+        "disposition": disposition,
+    }
+
+
 def _malformed_model_json_detail(exc: BaseException) -> dict[str, str]:
     return _batch_loop_helper("_malformed_model_json_detail")(exc)
 
@@ -1083,6 +1106,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             "budget_remaining": budget_remaining,
             "node_variable_index": node_variable_index,
             "included_full_render": include_full_render,
+            # T3.2: the single protocol-correction opportunity is reserved
+            # BEFORE the first model call and persisted with this entry.
+            "correction_slot": _batch_correction_slot_record("reserved"),
         }
         if discovery_nudge:
             request_entry["discovery_construction_nudge"] = True
@@ -1091,6 +1117,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             state.model_request_path,
             {"response_contract": "batch_repl", "turns": request_log},
         )
+        protocol_retry_used = False
 
         try:
             try:
@@ -1105,6 +1132,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         effort=effort,
                     )
             except (deps.MalformedModelJSON, deps.MissingRequiredField) as first_exc:
+                protocol_retry_used = True
                 retry_messages = _batch_protocol_retry_messages(messages, first_exc)
                 first_detail = _malformed_model_json_detail(first_exc)
                 retry_request_entry = {
@@ -1118,6 +1146,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         "reason": _batch_protocol_parse_reason(first_exc),
                         "message": str(first_exc),
                     },
+                    # T3.2: this retry call CONSUMES the pre-first-call slot;
+                    # sibling of protocol_retry (whose shape is frozen).
+                    "correction_slot": _batch_correction_slot_record("consumed"),
                 }
                 request_log.append(retry_request_entry)
                 deps.write_json_artifact(
@@ -1154,6 +1185,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                     "reason": str(first_exc),
                     "parse_reason": _batch_protocol_parse_reason(first_exc),
                 }
+                retry_metadata["correction_slot"] = _batch_correction_slot_record(
+                    "consumed_recovered"
+                )
                 turn_result = dataclasses.replace(
                     turn_result,
                     audit_metadata=retry_metadata,
@@ -1168,6 +1202,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 "attempt_count": 2,
                 "turn_number": turn_number,
                 "response_contract": "batch_repl",
+                # T3.2: the reserved pre-first-call slot was consumed by the
+                # retry above and is now exhausted — protocol failure is final.
+                "correction_slot": _batch_correction_slot_record("consumed_exhausted"),
                 **exc_detail,
             }
             error_record = {
@@ -1239,7 +1276,22 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             )
             raise
 
-        state.provider_metadata = dict(turn_result.audit_metadata or {})
+        # T3.2: finalize the reserved slot's disposition on every success —
+        # the retry path already stamped "consumed_recovered"; a clean first
+        # response marks the reservation "unused". Landing in audit_metadata
+        # (not just provider_metadata) keeps turn_record evidence in sync.
+        provider_audit = dict(turn_result.audit_metadata or {})
+        provider_audit.setdefault(
+            "correction_slot",
+            _batch_correction_slot_record(
+                "consumed_recovered" if protocol_retry_used else "unused"
+            ),
+        )
+        turn_result = dataclasses.replace(
+            turn_result,
+            audit_metadata=provider_audit,
+        )
+        state.provider_metadata = dict(provider_audit)
         state.user_message = turn_result.message
         # Preserve the first non-empty executor message before any clarify splitting
         # or normalization so it remains available as a debug/input artifact.
