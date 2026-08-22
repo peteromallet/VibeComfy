@@ -213,6 +213,7 @@ def validate_only(manifest_path: Path | None = None) -> dict[str, Any]:
     canonical = _authoritative_entries()
     seen: set[str] = set()
     validated: list[dict[str, Any]] = []
+    obligation_violations: list[str] = []
     for index, entry in enumerate(entries):
         if not isinstance(entry, Mapping):
             raise ComparisonManifestError(f"comparison entry {index} must be an object")
@@ -249,7 +250,17 @@ def validate_only(manifest_path: Path | None = None) -> dict[str, Any]:
         ir_projection_available = False
     if not ir_projection_available:
         raise ComparisonManifestError("IR projection seam tests.test_ir_laws.pi_edit is unavailable")
+    # T5.3: every entry's scenario obligations must be complete and
+    # contradiction-free (declaration level; schema resolution is enforced
+    # by preflight_scenario_obligations before paid calls).
+    from .scenario_obligations import validate_obligation_coverage  # noqa: PLC0415
 
+
+    obligation_violations, obligation_warnings = validate_obligation_coverage(path)
+    if obligation_violations:
+        raise ComparisonManifestError(
+            "scenario obligation coverage failed:\n- " + "\n- ".join(obligation_violations)
+        )
     return {
         "ok": True,
         "model_calls": 0,
@@ -259,6 +270,9 @@ def validate_only(manifest_path: Path | None = None) -> dict[str, Any]:
         "locked_inputs": validated,
         "ir_projection": "tests.test_ir_laws.pi_edit",
         "threaded_wiring": wiring,
+        "obligation_warnings": obligation_warnings,
+        "obligation_violations": obligation_violations,
+        "obligation_preflight": "declaration_level",
     }
 
 
@@ -823,6 +837,12 @@ def run_comparison(
         raise ComparisonManifestError("concurrency must be a positive integer")
     validate_only(manifest_path)
     path = manifest_path or DEFAULT_COMPARISON_MANIFEST
+    # T5.3: fail-closed scenario obligation preflight before any paid call;
+    # VIBECOMFY_OBLIGATION_SCHEMA_CHECK enables exact schema-resolution proof
+    # for gated (audio/multi-video) scenarios.
+    from .scenario_obligations import preflight_scenario_obligations  # noqa: PLC0415
+
+    preflight_scenario_obligations(path)
     manifest = _load_json(path) or {}
     canonical = _authoritative_entries()
     base = output_base or DEFAULT_OUTPUT_BASE
@@ -1001,6 +1021,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate_only:
             payload = validate_only(args.manifest)
         elif args.run:
+            # T5.3: the CLI run lane is the paid-call lane — exact schema
+            # evidence for gated (audio/multi-video) scenarios must resolve
+            # from local authoritative sources before any leg starts.
+            # VIBECOMFY_OBLIGATION_SCHEMA_CHECK=0 explicitly defers.
+            os.environ.setdefault(SCHEMA_RESOLUTION_ENV_VAR, "1")
             payload = run_comparison(
                 args.manifest,
                 output_base=args.output_base,

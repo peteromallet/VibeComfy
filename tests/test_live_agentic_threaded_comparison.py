@@ -124,7 +124,12 @@ def test_adapter_forwards_explicit_mode_without_model_calls(
         readiness: dict[str, Any] = {}
         error = None
 
-    def fake_run(request: Any, *, entrypoint: str) -> FakeResult:
+    def fake_run(
+        request: Any,
+        *,
+        entrypoint: str,
+        scenario_id: str | None = None,
+    ) -> FakeResult:
         seen.append(request)
         return FakeResult()
 
