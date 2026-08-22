@@ -4127,3 +4127,80 @@ post-exit into
   above (`ARTIFACT_DIGEST`, exit `1`), fixed by the manifest refresh
   recorded in this section.
   No product tests are run by this evidence recorder.
+### B4 revision window register and verdict (G5 re-review) — 2026-08-22
+
+- **Base HEAD verified:** `git rev-parse HEAD` = `07b9785d4a146305e8151dfd0f30a7506efa6376` (G5-B4-REVISION-2); chain `dcfb52fc` → `3717347c` → `6353c423` → `962030c5` → `07b9785d` from base `49f7b9f6` (B4 window). Remote `453d1af6f65eb64b708d9b7452e75fd23a38e1c0`; integration push `453d1af6..07b9785d` pending this evidence commit + B4-INTEGRATION. No push/merge/rebase/reset/amend by this recorder.
+- **Allowance:** `evidence-log-B4-REVISION-allowance.json` allows ONLY `docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md`, `docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`, `docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json` (verified at `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/active-allowances.json`).
+- **Scope:** RECORD dispositions only — no review, no must-classification, no integration, no push, no code/fixture/validator/plan change. Wrapper writes this recorder's `end_ts`/PID/digest post-exit to `receipts/evidence-log-B4-REVISION-receipt.json`.
+
+#### 1. B4-REVISION — 11-MUST implementer (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `B4-REVISION` / `B4-REVISION implementer: fix G5-B4-MUST-001..011 per B4-JR-ADJUDICATION (XHARD batch revision)` / `G5` / implementer / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor` via operator-directive-24 remap).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/B4-REVISION-receipt.json` (file SHA-256 `66d518c850c59f3a3b7d8ccac52d8e643ff14bd7dff3d4`; brief SHA-256 `c845cc623360b45bcc67f9f19d1643376157f2574ba2cf5b26bd7407f9f97aa9`; result SHA-256 `ca2ebdf97d746949…`); allowance `g0/B4-REVISION-allowance.json` (file SHA-256 cited in receipt).
+- **Base/head/commit:** base `49f7b9f61a188cb0fabbbbae2a9e3842b356a449`; commit `dcfb52fca82940e4650df685dc292dd823092561` (`fix(exec-spine): route all wrapper routes to openrouter/meta/muse-spark-1.2-contributor (operator directive 24)`); PID `93030`; `2026-08-22T11:40:22Z` → `2026-08-22T13:40:22Z` (hit 7200s cap); exit `0`.
+- **ALLOWANCE_VIOLATION recorded:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/B4-REVISION-violation.json` — `scripts/run_workflow_execution_spine_agent.py` changed outside allowance. Mechanically verified: the change is exactly the operator-directive-24 wrapper route remap (all `ROUTE_LAUNCHERS` ids → `openrouter/meta/muse-spark-1.2-contributor`), operator-directed and mechanically verified; **KEPT** (commit `dcfb52fc`, reviewed in scope by G5-B4-REREVIEW). The 11-MUST fix work (19 files) was left UNCOMMITTED dirty by this dispatch — completed by B4-REVISION-CONTINUATION.
+- **Changed files (violation + allowance):** `scripts/run_workflow_execution_spine_agent.py` (violation) plus 19 in-allowance fix files left dirty: `tests/live_agentic_harness/assessor.py`, `compare_pipeline_modes.py`, `intent_judge.py`, `lineage_check.py`, `scenario_obligations.py`, `semantic_assessor.py`, `tests/test_agent_edit_compatibility_ledger.py`, `test_artifact_lineage_manifest.py`, `test_comfy_nodes_agent_backend_spine.py`, `test_comfy_nodes_agent_edit.py`, `test_comparison_leg_isolation.py`, `test_execution_spine_shim_disposition.py`, `test_live_agentic_harness_guard_contract.py`, `test_semantic_assessor.py`, `vibecomfy/agent/service.py`, `vibecomfy/comfy_nodes/agent/artifact_lineage.py`, `executor_durable.py`, `provider.py`, `routes.py`, plus `tests/test_live_agentic_assessor_score_honesty.py` / `test_live_agentic_threaded_comparison.py` etc. as enumerated in `B4-JR-ADJUDICATION`.
+
+#### 2. B4-REVISION-CONTINUATION — commit the 11-MUST fixes (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `B4-REVISION-CONTINUATION` / `B4-REVISION-CONTINUATION implementer: commit 11-MUST fixes` / `G5` / implementer / `stealth/ox-alpha`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/B4-REVISION-CONTINUATION-receipt.json` (file SHA-256 `221618f839a7…`; brief SHA-256 `ed17bffc5d087e0a578a21cb9a70d42a78f9a1c92ac4660c8be275a114117116`; result SHA-256 `b243863f2e3c9e93fb7648a6fdbd18339ac2ffed4d81510561ff0b5f210e7c87`); PID `104348`; `2026-08-22T13:56:34Z` → `2026-08-22T14:09:48Z`; exit `0`; base `dcfb52fca82940e4650df685dc292dd823092561`; commit `3717347c665e750c0c9301a3e767daa46ea011f6` (`fix(exec-spine): complete G5-B4 11-MUST revision per B4-JR-ADJUDICATION`).
+- **Commit content (verified `git show --stat`):** the 19 in-allowance fix files implementing MUST-001..011 per B4-JR-ADJUDICATION; 24 files +1500 −365 net from `49f7b9f6`→`07b9785d` (this is the first coherent commit of the window; full diff enumerated in receipt `changed_files`).
+- **Brief SHA and result SHA per receipt:** brief `ed17bffc…`, result `b243863f…` as above.
+
+#### 3. S73-FIXTURE — structural cleanup-surface cutover (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `S73-FIXTURE` / `S73-FIXTURE structural-plan-owned fixture cutover` / gate `` (structural plan owned) / implementer / `stealth/ox-alpha`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/S73-FIXTURE-receipt.json` (file SHA-256 `930a76f832e2…`; brief SHA-256 `583f7abae52acecefd5b519e9913c31cfdb6d21485bb1fc7697e5fc1da75fbf8`; result SHA-256 `81b411b7…`); PID `109443`; `2026-08-22T14:11:23Z` → `2026-08-22T14:17:32Z`; exit `0`; base `3717347c665e750c0c9301a3e767daa46ea011f6`; commit `6353c423569363264fe54b274e333cb2e4c3bb5a` (`fix(exec-spine): S73-FIXTURE cleanup-surface cutover 440→437`).
+- **Commit content:** `tests/fixtures/agent_edit/cleanup_surface_manifest.json` `edit.__all__` 440→437 (removed `_agent_edit_v2_enabled`, `_run_delta_dev_path`, `_run_full_dev_path`) + `tests/test_cleanup_surface_manifest.py` pin 440→437, per B4-JR-ADJUDICATION JR-01 Decision B; production `vibecomfy/comfy_nodes/agent/edit.py` untouched (still 437 live names).
+
+#### 4. G5-B4-REREVIEW — read-only re-review (codex:gpt-5.6-sol)
+
+- **Task/label/gate/role/route:** `G5-B4-REREVIEW` / `G5 [XHARD-REVIEW] B4 re-review` / `G5` / reviewer / `codex:gpt-5.6-sol`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G5-B4-REREVIEW-receipt.json` (file SHA-256 `91aa49352f36…`; brief SHA-256 `7259633e1ad92aeac6808e5fa903d27f2b028575b2a32604f3f1006e77a1bfb9`; result SHA-256 `e466f62d…`); PID `109936`; `2026-08-22T14:20:50Z` → `2026-08-22T14:24:11Z`; exit `0`; base `962030c5f81b2ca61329898c92aa366a7782def8` (post-cutover; read-only, commits `[]`).
+- **Disposition:** `NOT-CONTINUE` (open must). MUST-001..011 ALL CLOSED at production call paths + adjudication executed, but **ONE must finding** — 11 focused-test regressions red at head (9× `test_live_agentic_assessor_score_honesty.py` `artifact_lineage_absent` [MUST-003], 2× `test_live_agentic_threaded_comparison.py` `ScenarioObligationError LayerMask/IndexTTS` [MUST-006]); green at base `49f7b9f6` (29/29); classified introduced-but-contract-drift without fixture update = genuine regression.
+
+#### 5. S73-FIXTURE-FOLLOWUP — post-cutover marker fix (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `S73-FIXTURE-FOLLOWUP` / `S73-FIXTURE-FOLLOWUP post-cutover marker` / gate `` / implementer / `stealth/ox-alpha`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/S73-FIXTURE-FOLLOWUP-receipt.json` (file SHA-256 `73e68413cbe8…`; brief SHA-256 `2a203e7739583a737b40ce53a6ea3fe804c1bd15d3aff41e2763aef2a52f2f74`; result SHA-256 `65420bef…`); PID `109760`; `2026-08-22T14:18:59Z` → `2026-08-22T14:19:49Z`; exit `0`; base `6353c423569363264fe54b274e333cb2e4c3bb5a`; commit `962030c5f81b2ca61329898c92aa366a7782def8` (`fix(exec-spine): S73-FIXTURE-FOLLOWUP post-cutover marker 440→437`).
+- **Commit content:** post-cutover marker test `test_cleanup_surface_fixture_cutover_is_owned_by_s73` updated to fixture==live==437, retired names absent from both; acceptance `166 passed` exit `0` (pre-fix `1 failed`).
+
+#### 6. G5-B4-REVISION-2 — 11 focused-test regression fix (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `G5-B4-REVISION-2` / `G5-B4-REVISION-2 fix 11 focused regressions test-side-only` / `G5` / implementer / `stealth/ox-alpha`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G5-B4-REVISION-2-receipt.json` (file SHA-256 `f836b5192939…`; brief SHA-256 `8db2ef0f9f4b293d4cb12e172679c92f78a6c0e65f77b5d45f279a9016409385`; result SHA-256 `cb82fdad…`); PID `110182`; `2026-08-22T14:26:24Z` → `2026-08-22T14:30:05Z`; exit `0`; base `962030c5f81b2ca61329898c92aa366a7782def8`; commit `07b9785d4a146305e8151dfd0f30a7506efa6376` (`fix(tests): G5-B4-REVISION-2 seed lineage and gated schema cache for 11 focused regressions`).
+- **Commit content:** TEST-SIDE ONLY (2 files, +113/−1): `_seed_lineage` (guard_contract pattern, explicit `scenario_id` where binding required) for the 9 `score_honesty` tests; `_seed_gated_schema_cache` (disposable `VIBECOMFY_OBJECT_INFO_CACHE_DIR` with IndexTTS/LayerMask entries, genuine provider resolution) for the 2 `threaded_comparison` tests; acceptance `29 passed` exit `0` (matches base 29/29); `guard_contract` 69 passed (fail-closed intact); production/harness/manifest untouched.
+
+#### 7. G5-B4-REREVIEW-2 — read-only re-review, gate passed (codex:gpt-5.6-sol)
+
+- **Task/label/gate/role/route:** `G5-B4-REREVIEW-2` / `G5 [XHARD-REVIEW] B4 re-review 2` / `G5` / reviewer / `codex:gpt-5.6-sol`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G5-B4-REREVIEW-2-receipt.json` (file SHA-256 `617bf2e3dab6…`; brief SHA-256 `9eceda96a5fcd7d46556094f577f65462ce31ed7d14266d06c597d8b39ec8751`; result SHA-256 `be4ea342…`); PID `110464`; `2026-08-22T14:30:51Z` → `2026-08-22T14:33:09Z`; exit `0`; base `07b9785d4a146305e8151dfd0f30a7506efa6376`; commits `[]` (read-only).
+- **Disposition:** `continue` — zero open must findings; the 11 regressions closed test-side-only; MUST-001..011 still closed; complete revised B4 diff (49f7b9f6→HEAD, 24 files +1500 −365) coherent and in allowance; fail-closed intact (`ScenarioObligationError` still raised without the disposable cache). **G5 GATE PASSED.**
+
+#### B4 revision window net
+
+- **MUST-001..011 closed;** 11 regression tests closed test-side-only; S73 cutover landed (fixture==live==437); G5 gate `continue` (passed); local HEAD `07b9785d4a146305e8151dfd0f30a7506efa6376`; remote `453d1af6f65eb64b708d9b7452e75fd23a38e1c0`; integration push `453d1af6..HEAD` pending this evidence commit + B4-INTEGRATION.
+- **Diff coherence:** 24 files +1500 −365 from `49f7b9f6` to `07b9785d` (verified `git diff --stat`); all in allowance; production/harness/manifest untouched by G5-B4-REVISION-2; S73 fixture ownership respected.
+
+#### §22 batch-record promotion (operator directive)
+
+- **Directive:** operator-directed §22 batch-record promotion — batched task/gate records must be recognized in top-level `tasks`/`gates` accounting so validator does not invalidate gates by bookkeeping.
+- **Promotion performed:** this manifest promotes the following batched records into top-level accounting (receipt paths, exit codes, SHAs, timestamps per receipts above):
+  - `BATched` task families already landed in prior evidence windows and referenced in `evidence-log-B4` lineage (`G2-BATCH1` / `G3-B2` / `G4-B3` / `B4` style) are carried as evidence-linked batched records; their constituent CARD_ORDER cards (`T2.1-2.3`, `T3.1-2`, `T4.1-3`, `T5.1-5`) remain the CARD_ORDER subsequence and gates `G2`/`G3`/`G4`/`G5` disposition is recorded in the log.
+  - **This window's task records promoted:** `B4-REVISION` (base `49f7b9f6`, commit `dcfb52fc`, exit `0`, `2026-08-22T11:40:22Z`→`13:40:22Z`), `B4-REVISION-CONTINUATION` (base `dcfb52fc`, commit `3717347c`, exit `0`, `13:56:34Z`→`14:09:48Z`), `S73-FIXTURE` (base `3717347c`, commit `6353c423`, exit `0`, `14:11:23Z`→`14:17:32Z`), `S73-FIXTURE-FOLLOWUP` (base `6353c423`, commit `962030c5`, exit `0`), `G5-B4-REVISION-2` (base `962030c5`, commit `07b9785d`, exit `0`). Each is recorded in this log section with receipt SHA and is available as `receipts/*.json` evidence (wrapper-handled `receipts/` not committed by this recorder).
+  - **Gate record promoted:** `G5` gate `continue` (passed) per `G5-B4-REREVIEW-2` (base `07b9785d`, exit `0`, `14:30:51Z`→`14:33:09Z`, zero open must). The manifest's gate accounting retains `G0`/`G1` as `passed`/`continue` and `G5` disposition is recorded here; validator's `GATE_CARDS[G5]=T5.1-5.5` dependency is satisfied by the coherent B4 diff (validator exit `0` confirms no open-gate violation).
+- **Validator accounting:** validator `python3 scripts/validate_workflow_execution_spine_evidence.py` was run; exit `0` (`OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`). No spurious `TASK_GATE_UNIQUENESS`/`DEPENDENCY_ORDER`/`ARTIFACT_DIGEST` failures. The only manifest mutation required for determinism is the validator-enforced execution-log digest pin `manifest.tasks[5].recovery_note.sha256` refreshed to this commit's log SHA (see Controls).
+- **Receipt handling:** `receipts/` is wrapper-managed (dirty-state exception); this recorder commits only the three allowed evidence files.
+
+#### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed evidence files in one coherent commit authored by `POM <peter@omalley.io>`: execution log (this section) plus validator-enforced `manifest.tasks[5].recovery_note.sha256` refresh and `test-shards.json` (byte-identical). No wrapper/validator/plan/code/fixture file changed; no push/merge/rebase/reset/amend; no live/model/runtime call; no secret access.
+- The B4-revision window work was executed by the seven dispatched agents above, not by this recorder, which only records dispositions. No receipt is committed here; receipts remain untracked run artifacts. This recorder's own `end_ts`/PID/digest are NOT recorded — wrapper writes them post-exit to `receipts/evidence-log-B4-REVISION-receipt.json`.
+
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` on the committed tree with `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`. Stale execution-log pin case (if any) would be the only intermediate `ARTIFACT_DIGEST` exit `1`, fixed by the pin refresh above. No product tests run by this evidence recorder.
+- **Protected state:** base `5fc6be9d`; canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` final_five intact; `test-shards.json` shards unchanged; no wrapper/validator/plan/code/fixture file changed.
+- **Residual risks:** remote `453d1af6` still behind local `07b9785d` (integration push pending); `S73-FIXTURE` structural ownership boundary respected — production `edit.py` 437 names untouched; `G5-B4-REVISION-2` test-side-only fix preserves fail-closed (`ScenarioObligationError` without cache); `B4-REVISION` wrapper route remap (`scripts/run_workflow_execution_spine_agent.py`) is operator-directed and audited in G5 re-review.
+- **Next unblocked card:** `B4-INTEGRATION` (fast-forward `453d1af6..HEAD` after this evidence commit) then `T6.1` (shard freeze).
+- **JUDGMENT_REQUIRED: none**
+
