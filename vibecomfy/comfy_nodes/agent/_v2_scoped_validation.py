@@ -28,7 +28,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from .contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
@@ -161,84 +161,6 @@ def _load_turn_delta_ops(
     except ValueError:
         return None
     return ops
-
-
-
-def _iter_legacy_field_changes(payload: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
-    seen_ids: set[int] = set()
-
-    def emit_items(items: Any) -> Iterator[Mapping[str, Any]]:
-        if not isinstance(items, list):
-            return
-        for item in items:
-            if not isinstance(item, Mapping):
-                continue
-            identity = id(item)
-            if identity in seen_ids:
-                continue
-            seen_ids.add(identity)
-            yield item
-
-    yield from emit_items(payload.get("field_changes"))
-    outcome = payload.get("outcome")
-    if isinstance(outcome, Mapping):
-        yield from emit_items(outcome.get("changes"))
-    batch_turns = payload.get("batch_turns")
-    for turn in batch_turns if isinstance(batch_turns, list) else ():
-        if isinstance(turn, Mapping):
-            yield from emit_items(turn.get("field_changes"))
-    change_details = payload.get("change_details")
-    if isinstance(change_details, Mapping):
-        detail_turns = change_details.get("batch_turns")
-        for turn in detail_turns if isinstance(detail_turns, list) else ():
-            if isinstance(turn, Mapping):
-                yield from emit_items(turn.get("field_changes"))
-
-
-def _infer_delta_ops_from_legacy_field_changes(
-    response: Mapping[str, Any],
-) -> tuple[dict[str, Any], ...] | None:
-    """Recover scoped link intent from pre-delta response artifacts.
-
-    Only explicit link field changes are promoted. Literal/widget changes remain
-    V1 because field changes do not faithfully encode every edit operation kind.
-    """
-    ops: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    unsupported_change_seen = False
-    for change in _iter_legacy_field_changes(response):
-        target_uid = change.get("uid")
-        field_path = change.get("field_path")
-        new_value = change.get("new")
-        if target_uid is None or not isinstance(field_path, str) or not field_path:
-            unsupported_change_seen = True
-            continue
-        if not isinstance(new_value, Mapping):
-            unsupported_change_seen = True
-            continue
-        source_uid = new_value.get("uid")
-        output_slot = new_value.get("output_slot")
-        if source_uid is None or output_slot is None:
-            unsupported_change_seen = True
-            continue
-        source_scope = new_value.get("scope_path", "")
-        target_scope = change.get("scope_path", "")
-        if not isinstance(source_scope, str) or not isinstance(target_scope, str):
-            unsupported_change_seen = True
-            continue
-        op = {
-            "op": "upsert_link",
-            "from": [source_scope, str(source_uid), output_slot],
-            "to": [target_scope, str(target_uid), field_path],
-        }
-        key = json.dumps(op, sort_keys=True, separators=(",", ":"))
-        if key in seen:
-            continue
-        seen.add(key)
-        ops.append(op)
-    if unsupported_change_seen:
-        return None
-    return tuple(ops) if ops else None
 
 
 def _load_turn_delta_ops_diagnostic(
@@ -1301,8 +1223,6 @@ __all__ = (
     "_load_turn_response_payload",
     "_load_turn_candidate_graph",
     "_load_turn_delta_ops",
-    "_iter_legacy_field_changes",
-    "_infer_delta_ops_from_legacy_field_changes",
     "_load_turn_delta_ops_diagnostic",
     "_scoped_sentinel_payload",
     "_build_graph_index",

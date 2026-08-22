@@ -76,7 +76,21 @@ def test_edit_all_matches_frozen_manifest_membership_only() -> None:
 
 
 def test_edit_all_length_matches_frozen_count() -> None:
-    """Sanity: the manifest's edit __all__ length matches the pinned 472 count."""
+    """Sanity: the manifest's edit __all__ length matches the pinned 440 count.
+
+    S70 census resolution (T5.5): the LIVE agent-edit surface is 437 names.
+    The frozen manifest still carries 3 stale rows for dev-protocol shims that
+    batch-15 (``c7935c1f``, sole IR path) deleted from the product:
+    ``_agent_edit_v2_enabled``, ``_run_delta_dev_path``, ``_run_full_dev_path``
+    (edit.py:645/:851 document the removal; tests/test_comfy_nodes_agent_edit.py
+    asserts ``not hasattr`` for each).  The pin below therefore matches the
+    fixture (440), not the live module; regenerating
+    ``tests/fixtures/agent_edit/cleanup_surface_manifest.json`` to 437 is a
+    T5.5-JR-01 judgment item — the fixture is outside this card's file
+    allowance and belongs to the structural plan's manifest owner (S73).
+    The earlier "472" figure survives only in historical comments and is
+    superseded by this manifest.
+    """
     assert len(_edit_section()["__all__"]) == PINNED_EDIT_EXPORT_COUNT
 
 

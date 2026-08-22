@@ -748,14 +748,6 @@ def _nodes_by_uid(ir: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return result
 
 
-def _verify_delta_replay_legacy_removed() -> None:  # pragma: no cover
-    """Removed: the homemade UI-widget walker on V2 apply-envelope ops.
-
-    Batch 10 fix: the judge verifies the accepted Δ via
-    ``interpret(pre, Δ)`` / ``diff`` (Law 3) — see :func:`_verify_delta_replay`.
-    """
-
-
 def _render_judge_lens_payload(
     pre_ir: Mapping[str, Any],
     post_ir: Mapping[str, Any],

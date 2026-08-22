@@ -24,7 +24,8 @@ def load_agent_generated_scratchpad(path: Any) -> Any:
     Lazy facade for :func:`vibecomfy.security.agent_generated_loader.load_agent_generated_scratchpad`
     that keeps the guarded import function-local (the loader must stay out of
     the eager module-load path); re-exported by edit.py at top level while the
-    frozen 472-name __all__ stays unchanged.
+    frozen 440-name __all__ (tests/fixtures/agent_edit/cleanup_surface_manifest.json)
+    stays unchanged.
     """
     from vibecomfy.security.agent_generated_loader import load_agent_generated_scratchpad as _load
 
