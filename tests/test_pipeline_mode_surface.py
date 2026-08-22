@@ -209,3 +209,101 @@ def test_executor_only_durable_request_persists_canonical_mode(tmp_path: Path) -
     )
     persisted = json.loads(request_path.read_text(encoding="utf-8"))
     assert persisted["pipeline_mode"] == "threaded"
+
+
+# ── T4.2: staged adapter wire compatibility through both carriers ────────────
+
+
+def _t42_staged_report():
+    from vibecomfy.executor.agent_research_stage import AgentResearchTrace
+    from vibecomfy.executor.contracts import ClassifyDecision, Report
+    from vibecomfy.executor.core import AgentResearchResult
+    from vibecomfy.executor.evidence_pack import (
+        EvidenceArtifact,
+        EvidenceLedger,
+        EvidenceLedgerEntry,
+        EvidencePack,
+    )
+
+    trace = AgentResearchTrace(
+        route="research",
+        question="q",
+        iterations=(),
+        final_verdict="enough",
+        summary="s",
+        citations=(),
+        uncertainty="",
+        status="ok",
+        elapsed_seconds=0.0,
+        budget={"deadline_seconds": 450.0, "turns_used": 0, "deadline_reached": False},
+    )
+    pack = EvidencePack(
+        artifacts={
+            "hivemind_get:fixture": EvidenceArtifact(
+                evidence_id="hivemind_get:fixture",
+                kind="hivemind_get",
+                body={"content": "fixture"},
+            ),
+        },
+        ledger=EvidenceLedger(
+            entries=(
+                EvidenceLedgerEntry(
+                    decision="hivemind_get",
+                    conclusion="fetched",
+                    evidence_ids=("hivemind_get:fixture",),
+                    uncertainty="",
+                    tool_status="ok",
+                ),
+            )
+        ),
+    )
+    return Report(
+        plan=ClassifyDecision(route="research", task="research_nodes"),
+        research=AgentResearchResult(
+            route="research", trace=trace, evidence_pack=pack
+        ),
+    )
+
+
+def test_t42_staged_report_omits_orchestration_mode_and_keeps_envelope_stable():
+    from dataclasses import replace
+
+    from vibecomfy.executor.contracts import (
+        RESEARCH_EVIDENCE_SHARED_KEYS,
+        Report,
+    )
+
+    staged = _t42_staged_report().to_dict()["executor"]
+    # Staged omission is byte-compatible: no orchestration_mode key anywhere.
+    assert "orchestration_mode" not in staged
+    # The T4.1 shared evidence fields ride INSIDE the research payload
+    # additively; the envelope keys themselves are unchanged.
+    assert RESEARCH_EVIDENCE_SHARED_KEYS <= set(staged["research"])
+
+    threaded = replace(
+        _t42_staged_report(), orchestration_mode="threaded"
+    ).to_dict()["executor"]
+    assert threaded["orchestration_mode"] == "threaded"
+
+
+def test_t42_staged_serialization_round_trips_through_both_carriers():
+    from vibecomfy.comfy_nodes.agent.executor_response import serialize_executor_result
+    from vibecomfy.executor.contracts import ExecutorResult
+
+    result = ExecutorResult.success(report=_t42_staged_report(), reply="memo")
+    serialized = serialize_executor_result(result)
+    assert "orchestration_mode" not in serialized
+    research = serialized["report"]["executor"]["research"]
+    assert research["mode"] == "agent_owned"
+    assert research["budget"]["deadline_seconds"] == 450.0
+
+
+def test_t42_research_phase_deadline_default_is_one_shared_constant():
+    from vibecomfy.executor.agent_research_stage import TOOL_PHASE_DEADLINE_SECONDS
+    from vibecomfy.executor.tool_contracts import RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
+
+    # ONE canonical default: the staged stage constant and the shared knob
+    # fallback agree, and both readers (executor.core, edit_batch_repl) read
+    # this single name.
+    assert RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS == 450.0
+    assert TOOL_PHASE_DEADLINE_SECONDS == RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS

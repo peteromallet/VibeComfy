@@ -763,7 +763,17 @@ class TestAgentOwnedResearchFlow:
         }
         wire_research = result.to_dict()["report"]["executor"]["research"]
         assert wire_research["question"] == result.report.research.decision_memo["question"]
-        assert "ledger" not in wire_research
+        # T4.1: the compact handoff ledger is now exposed on BOTH routes —
+        # typed tiny judgments only, never artifact bodies or iterations.
+        assert [
+            sorted(entry) for entry in wire_research["ledger"]["entries"]
+        ] == [
+            sorted(entry) for entry in result.report.research.ledger.to_dict()["entries"]
+        ]
+        assert all(
+            set(entry) <= {"decision", "conclusion", "evidence_ids", "uncertainty", "tool_status"}
+            for entry in wire_research["ledger"]["entries"]
+        )
         assert "evidence_pack" not in wire_research
         legacy_research.assert_not_called()
         _, kwargs = mock_reply.call_args

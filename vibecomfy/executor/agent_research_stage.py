@@ -59,7 +59,12 @@ from .hivemind_tools import (
     serve_hivemind_record,
 )
 from .hivemind_clients import _first_text, _workflow_semantics
-from .tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
+from .tool_contracts import (
+    RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS,
+    ToolDiagnostic,
+    ToolResult,
+    ToolStatus,
+)
 from .tool_specs import (
     PHASE_RESEARCH,
     RESEARCH_PHASE_TOOLS,
@@ -81,9 +86,11 @@ MAX_RESEARCH_DECISION_TURNS = 8
 MAX_RESEARCH_TOOL_CALLS = 12
 HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD = 3
 
-# The 450-second window remains a backstop for slow in-flight work, not the
-# production loop's primary termination mechanism.
-TOOL_PHASE_DEADLINE_SECONDS = 450.0
+# The wall-clock window is a backstop for slow in-flight work, not the
+# production loop's primary termination mechanism. The default is the ONE
+# shared research-phase budget (T4.2): the batch-REPL research route reads
+# the same constant, so both carriers agree on VIBECOMFY_RESEARCH_PHASE_DEADLINE.
+TOOL_PHASE_DEADLINE_SECONDS = RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
 
 _MAX_TURNS = MAX_RESEARCH_DECISION_TURNS
 # The digest is built before the decision call. Reserve a typical model-turn
@@ -1125,6 +1132,11 @@ class AgentResearchTrace:
     evidence_artifact_count: int = 0
     warnings: tuple[str, ...] = ()
     error: str | None = None
+    # T4.1: persisted remaining-budget/deadline snapshot (shared schema with
+    # the threaded ``research_findings.budget`` block): deadline_seconds is
+    # the configured wall-clock window, turns_used the consumed decision
+    # turns, deadline_reached a typed exhaustion-by-deadline flag.
+    budget: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1145,6 +1157,10 @@ class AgentResearchTrace:
             payload["warnings"] = list(self.warnings)
         if self.error is not None:
             payload["error"] = self.error
+        if self.budget is not None:
+            # Additive-with-omission (T4.1): traces without a budget snapshot
+            # keep the exact legacy serialized shape.
+            payload["budget"] = dict(self.budget)
         return payload
 
 
@@ -1344,6 +1360,7 @@ def run_agent_research_stage(
                 uncertainty=(
                     "" if result.status is ToolStatus.OK else conclusion
                 ),
+                tool_status=result.status.value,
             )
         )
         digest = _tool_call_digest(
@@ -1374,6 +1391,7 @@ def run_agent_research_stage(
                 conclusion=message,
                 evidence_ids=(),
                 uncertainty=message,
+                tool_status=ToolStatus.REFUSED.value,
             )
         )
         warnings.append(message)
@@ -1873,6 +1891,14 @@ def run_agent_research_stage(
         ),
         warnings=tuple(warnings),
         error=error,
+        # T4.1: the remaining-budget/deadline facts persist as data on the
+        # trace (shared schema with the threaded findings packet) instead of
+        # living only in per-turn digests.
+        budget={
+            "deadline_seconds": float(deadline_seconds),
+            "turns_used": turns_taken,
+            "deadline_reached": stop_reason == "deadline",
+        },
     )
     pack = EvidencePack(artifacts=artifacts, ledger=EvidenceLedger(entries=ledger_entries))
     return trace, pack

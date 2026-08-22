@@ -1164,11 +1164,27 @@ def _build_research_findings_payload(state: AgentEditState) -> dict[str, Any]:
         warnings.append(
             "research route: community sources capped at 12 for presentation"
         )
+    # T4.1: typed remaining-budget/deadline block. The deadline facts are
+    # present only when the batch host enforced the research wall-clock
+    # window; the executor's shared evidence projector reads this packet so
+    # both carriers expose the same budget schema.
+    report = state.report if isinstance(state.report, Mapping) else {}
+    budget: dict[str, Any] = {"turns_used": int(state.batch_turn_count or 0)}
+    if report.get("phase_deadline"):
+        budget["deadline_reached"] = True
+        deadline_seconds = report.get("phase_deadline_seconds")
+        if (
+            isinstance(deadline_seconds, (int, float))
+            and not isinstance(deadline_seconds, bool)
+            and deadline_seconds > 0
+        ):
+            budget["deadline_seconds"] = float(deadline_seconds)
     return {
         "sources": sources,
         "summary": paragraph,
         "community_summary": paragraph,
         "warnings": tuple(warnings),
+        "budget": budget,
     }
 
 

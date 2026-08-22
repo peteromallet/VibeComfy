@@ -36,6 +36,18 @@ LOGGER = logging.getLogger(__name__)
 THREADED_MAX_AGENT_BATCHES = 24
 THREADED_DEFAULT_AGENT_BATCHES = 16
 
+# T4.3 continuation-substrate decision (recorded): cross-turn continuity is
+# carried by the durable CHAT ARTIFACTS inside the agent-edit host
+# (``_frag_chat.read_session_chat`` + PROMPT_MEMORY_MESSAGES feeding the
+# provider's recent-conversation block), NOT by the lease-fenced thread
+# transcript store. The host remains the single session/turn/checkpoint/
+# replay authority and the single writer of durable turn state; the
+# ``host_ports.thread_*`` transcript hooks stay production-bound but
+# deliberately driver-unconsumed (a second write path with no reader would
+# be dead weight and a new failure surface). Recovery keeps Row-7 semantics
+# via the one closed-checkpoint projector.
+THREADED_CONTINUATION_SUBSTRATE = "chat_artifacts"
+
 
 @dataclass(frozen=True)
 class ThreadedPurposeBudget:
@@ -45,6 +57,13 @@ class ThreadedPurposeBudget:
     bounded subset of that loop, while final projection has an independent
     reserve and therefore cannot be consumed by research. The underlying edit
     kernel additionally enforces its own atomic batch/retry limits.
+
+    T4.3 decision (recorded): the reserves are ADVISORY-ONLY by design. They
+    validate the intended partition of the production ceiling and are pinned
+    by contract tests, but they are deliberately NOT subtracted from the
+    ``max_batches`` value handed to the host: the batch host already enforces
+    its own atomic per-turn limits, and the hard ceiling that reaches it stays
+    ``min(requested, THREADED_MAX_AGENT_BATCHES)``.
     """
 
     research_and_edit_batches: int = THREADED_DEFAULT_AGENT_BATCHES
@@ -461,6 +480,7 @@ def run_threaded_executor(
 
 
 __all__ = [
+    "THREADED_CONTINUATION_SUBSTRATE",
     "THREADED_DEFAULT_AGENT_BATCHES",
     "THREADED_MAX_AGENT_BATCHES",
     "ThreadedKernel",

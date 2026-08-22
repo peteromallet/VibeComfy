@@ -2291,3 +2291,68 @@ class TestResearchDecisionRetryAndTelemetry:
         memo = executor_core._research_decision_memo(trace, diagnostics=())
         assert "research_error" not in memo
         assert memo["research_status"] == "ok"
+
+
+# ── T4.1: persisted budget snapshot + typed per-entry tool statuses ──────────
+
+
+class TestT41BudgetAndTypedStatuses:
+    def test_trace_persists_budget_snapshot_with_typed_deadline_flag(
+        self, profile_dir: Path
+    ) -> None:
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=_agent_judge([]),
+            deadline_seconds=450.0,
+        )
+        # The remaining-budget/deadline facts persist as DATA on the trace,
+        # not only in per-turn digests.
+        assert trace.budget == {
+            "deadline_seconds": 450.0,
+            "turns_used": 3,
+            "deadline_reached": False,
+        }
+        serialized = trace.to_dict()
+        assert serialized["budget"]["deadline_seconds"] == 450.0
+        assert serialized["budget"]["deadline_reached"] is False
+
+    def test_ledger_entries_carry_typed_tool_status_not_only_prefix_prose(
+        self, profile_dir: Path
+    ) -> None:
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        def failing_then_done(question, digest, messages=None):
+            if "hivemind_search →" not in digest:
+                return {"action": "call", "tool": "hivemind_search", "args": {"query": question}}
+            return {
+                "action": "finish",
+                "conclusion": "No usable evidence; answering from the graph.",
+                "evidence_ids": [],
+                "uncertainty": "timeout-shaped search",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=lambda *a, **k: ToolResult(
+                tool_name="hivemind_search",
+                status=ToolStatus.TIMEOUT,
+                result=None,
+                diagnostics=(ToolDiagnostic(code="hivemind_timeout", message="slow"),),
+            ),
+            get_fn=_fake_get,
+            judge_fn=failing_then_done,
+        )
+        executed = [
+            entry for entry in pack.ledger.entries if entry.decision == stage.DECISION_SEARCH
+        ]
+        # Typed per-entry status exists as DATA alongside the legacy
+        # status-prefixed conclusion prose.
+        assert executed and executed[0].tool_status == "timeout"
+        assert executed[0].conclusion.startswith("timeout")

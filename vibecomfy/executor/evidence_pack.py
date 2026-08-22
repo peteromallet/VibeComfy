@@ -164,14 +164,28 @@ class EvidenceArtifact:
 
 @dataclass(frozen=True)
 class EvidenceLedgerEntry:
-    """Compact agent judgment: no source body fields are part of this shape."""
+    """Compact agent judgment: no source body fields are part of this shape.
+
+    ``tool_status`` (T4.1) is the typed per-entry outcome of an EXECUTED
+    evidence tool call (the :class:`~vibecomfy.executor.tool_contracts.ToolStatus`
+    vocabulary, plus ``projection_failed``). It is ``None`` for non-tool
+    entries (question/synthesis/policy markers) and for legacy serialized
+    entries; the status-prefixed conclusion string remains the human-readable
+    form and is not replaced.
+    """
 
     decision: str
     conclusion: str
     evidence_ids: tuple[str, ...]
     uncertainty: str
+    tool_status: str | None = None
 
     def __post_init__(self) -> None:
+        if self.tool_status is not None:
+            status = str(self.tool_status).strip().casefold()
+            if not status:
+                raise ValueError("`tool_status` must be a non-empty string or None.")
+            object.__setattr__(self, "tool_status", status)
         object.__setattr__(
             self,
             "decision",
@@ -199,12 +213,17 @@ class EvidenceLedgerEntry:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "decision": self.decision,
             "conclusion": self.conclusion,
             "evidence_ids": list(self.evidence_ids),
             "uncertainty": self.uncertainty,
         }
+        # Additive-with-omission (T4.1): entries without a typed tool status
+        # keep the exact legacy serialized shape.
+        if self.tool_status is not None:
+            payload["tool_status"] = self.tool_status
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "EvidenceLedgerEntry":
@@ -213,6 +232,7 @@ class EvidenceLedgerEntry:
         _check_keys(
             payload,
             required=frozenset({"decision", "conclusion", "evidence_ids", "uncertainty"}),
+            optional=frozenset({"tool_status"}),
             contract="EvidenceLedgerEntry",
         )
         return cls(
@@ -220,6 +240,7 @@ class EvidenceLedgerEntry:
             conclusion=payload["conclusion"],
             evidence_ids=payload["evidence_ids"],
             uncertainty=payload["uncertainty"],
+            tool_status=payload.get("tool_status"),
         )
 
 

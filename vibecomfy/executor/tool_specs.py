@@ -949,12 +949,29 @@ def project_tool_evidence(
     result: ToolResult,
     session: Any,
 ) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    """Map one completed tool call to ``(artifacts, ledger_entry, digest)``."""
+    """Map one completed tool call to ``(artifacts, ledger_entry, digest)``.
+
+    The typed ``tool_status`` is stamped here — the ONE seam every executed
+    call (staged research loop and batch-host tool phase) passes through — so
+    per-ledger-entry statuses exist as data, not only as the status-prefixed
+    conclusion string. Entries that already carry a status are left alone.
+    """
     if result.status is not ToolStatus.OK:
-        return {}, _status_ledger_entry(spec.name, result), _format_tool_digest(
-            spec.name, args, result
-        )
-    return spec.projector(args, result, session)
+        artifacts_map: dict[str, EvidenceArtifact] = {}
+        entry = _status_ledger_entry(spec.name, result)
+    else:
+        artifacts_map, entry, _digest = spec.projector(args, result, session)
+    if isinstance(entry, Mapping) and not entry.get("tool_status"):
+        entry = {
+            **entry,
+            "tool_status": result.status.value,
+        }
+    digest = (
+        _format_tool_digest(spec.name, args, result)
+        if result.status is not ToolStatus.OK
+        else _digest
+    )
+    return artifacts_map, entry, digest
 
 
 __all__ = [

@@ -985,16 +985,23 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # whole scenario budget. Bound the entire research phase in wall-clock time
     # so the executor's reply phase still runs with whatever research was
     # collected. Configure with VIBECOMFY_RESEARCH_PHASE_DEADLINE (seconds;
-    # 0 disables; default 600).
+    # 0 disables). T4.2: the fallback is the ONE shared research-phase budget
+    # constant — identical to the staged C1 reader in executor.core.
+    from vibecomfy.executor.tool_contracts import RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
+
     research_phase_deadline: float | None = None
     research_phase_deadline_seconds = 0.0
     if research_only_route:
         try:
             research_phase_deadline_seconds = float(
-                os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "600") or 0
+                os.environ.get(
+                    "VIBECOMFY_RESEARCH_PHASE_DEADLINE",
+                    str(int(RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS)),
+                )
+                or 0
             )
         except ValueError:
-            research_phase_deadline_seconds = 600.0
+            research_phase_deadline_seconds = RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
         if research_phase_deadline_seconds > 0:
             research_phase_deadline = (
                 time.monotonic() + research_phase_deadline_seconds
@@ -1021,6 +1028,10 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 "graph_unchanged": True,
                 "queue_blockers": [],
                 "phase_deadline": deadline_summary,
+                # T4.1: typed budget facts (not prose) so the durable
+                # research-findings packet can project the shared
+                # remaining-budget/deadline block.
+                "phase_deadline_seconds": float(research_phase_deadline_seconds),
             }
             deps._emit_agent_edit_turn_event(
                 state,

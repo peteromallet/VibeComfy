@@ -7,6 +7,7 @@ import pytest
 
 from vibecomfy.executor import core
 from vibecomfy.executor.contracts import (
+    RESEARCH_EVIDENCE_SHARED_KEYS,
     ClassifyDecision,
     ExecutorHostPorts,
     ExecutorRequest,
@@ -461,3 +462,220 @@ def test_threaded_answer_only_graph_uses_inspect_reply_and_never_implements() ->
     assert result.reply == "The checkpoint feeds the sampler."
     assert seen["plan"].effective_route == "inspect"
     assert seen["plan"].research is False
+
+
+# ── T4.1: shared research evidence contract (cross-mode field parity) ────────
+
+
+def _staged_research_result(*, status: str = "ok", deadline_reached: bool = False):
+    """Build the staged carrier for the canonical one-fetch research scenario."""
+    from vibecomfy.executor.agent_research_stage import (
+        DECISION_GET,
+        DECISION_QUESTION,
+        AgentResearchIteration,
+        AgentResearchTrace,
+    )
+    from vibecomfy.executor.core import AgentResearchResult
+    from vibecomfy.executor.evidence_pack import (
+        EvidenceArtifact,
+        EvidenceLedger,
+        EvidenceLedgerEntry,
+        EvidencePack,
+    )
+
+    entries = (
+        EvidenceLedgerEntry(
+            decision=DECISION_QUESTION,
+            conclusion="q",
+            evidence_ids=("research_question",),
+            uncertainty="",
+        ),
+        EvidenceLedgerEntry(
+            decision=DECISION_GET,
+            conclusion="Fetched workflow precedent.",
+            evidence_ids=("hivemind_get:workflows:111",),
+            uncertainty="",
+            tool_status="ok",
+        ),
+        EvidenceLedgerEntry(
+            decision="synthesize",
+            conclusion="A fetched workflow supports the faster path.",
+            evidence_ids=("hivemind_get:workflows:111",),
+            uncertainty="low",
+        ),
+    )
+    trace = AgentResearchTrace(
+        route="research",
+        question="q",
+        final_verdict="enough",
+        summary="A fetched workflow supports the faster path.",
+        iterations=(
+            AgentResearchIteration(
+                iteration=1,
+                question="q",
+                tool_calls=({"tool": "hivemind_get"},),
+                synthesis={},
+                verdict="refine",
+            ),
+        ),
+        citations=("hivemind_get:workflows:111",),
+        uncertainty="low",
+        status=status,
+        elapsed_seconds=0.0,
+        attempt="grounded",
+        executed_tool_calls=1,
+        evidence_artifact_count=1,
+        budget={
+            "deadline_seconds": 450.0,
+            "turns_used": 2 if not deadline_reached else 8,
+            "deadline_reached": deadline_reached,
+        },
+    )
+    pack = EvidencePack(
+        artifacts={
+            "research_question": EvidenceArtifact(
+                evidence_id="research_question",
+                kind="research_question",
+                body={"question": "q"},
+            ),
+            "hivemind_get:workflows:111": EvidenceArtifact(
+                evidence_id="hivemind_get:workflows:111",
+                kind="hivemind_get",
+                body={"content": "fixture"},
+            ),
+        },
+        ledger=EvidenceLedger(entries=entries),
+    )
+    return AgentResearchResult(route="research", trace=trace, evidence_pack=pack)
+
+
+def _threaded_durable_response(*, deadline: bool = False) -> dict[str, Any]:
+    """The threaded carrier's durable packet for the SAME scenario."""
+    report: dict[str, Any] = {"graph_unchanged": True, "queue_blockers": []}
+    if deadline:
+        report["phase_deadline"] = "Research phase stopped after 3 turn(s)."
+        report["phase_deadline_seconds"] = 450.0
+    return {
+        "graph_unchanged": True,
+        "report": report,
+        "research_findings": {
+            "sources": [{"title": "Distilled video precedent"}],
+            "summary": "A fetched workflow supports the faster path.",
+            "community_summary": "A fetched workflow supports the faster path.",
+            "warnings": [],
+            "budget": {
+                "turns_used": 3,
+                "deadline_seconds": 450.0,
+                **({"deadline_reached": True} if deadline else {}),
+            },
+        },
+        "batch_turns": [{
+            "turn_number": 0,
+            "statements": [{
+                "detail": {
+                    "tool_call": "hivemind_get",
+                    "tool_status": "ok",
+                    "ledger_entry": {
+                        "decision": "hivemind_get",
+                        "conclusion": "Fetched workflow precedent.",
+                        "evidence_ids": ["hivemind_get:workflows:111"],
+                    },
+                },
+            }],
+        }],
+    }
+
+
+def test_t41_shared_evidence_keys_present_in_both_carriers() -> None:
+    from vibecomfy.executor.contracts import _durable_research_evidence
+
+    staged = _staged_research_result().to_dict()
+    threaded = _durable_research_evidence(
+        ImplementationResult(
+            message="done",
+            durable_response=_threaded_durable_response(),
+        ),
+        plan=ClassifyDecision(route="research", task="research_nodes"),
+    )
+    # Field-for-field parity: every shared key present in BOTH; absence in
+    # either mode is a failure. Counts/bytes may differ.
+    assert RESEARCH_EVIDENCE_SHARED_KEYS <= set(staged)
+    assert RESEARCH_EVIDENCE_SHARED_KEYS <= set(threaded)
+
+
+def test_t41_attempt_status_citations_and_budget_agree_across_modes() -> None:
+    from vibecomfy.executor.contracts import _durable_research_evidence
+
+    staged = _staged_research_result().to_dict()
+    threaded = _durable_research_evidence(
+        ImplementationResult(
+            message="done",
+            durable_response=_threaded_durable_response(),
+        ),
+    )
+    assert staged["research_attempt"] == threaded["research_attempt"] == "grounded"
+    assert staged["status"] == threaded["status"] == "ok"
+    assert staged["citations"] == threaded["citations"] == [
+        "hivemind_get:workflows:111"
+    ]
+    assert (
+        staged["budget"]["deadline_seconds"]
+        == threaded["budget"]["deadline_seconds"]
+        == 450.0
+    )
+    assert staged["budget"]["deadline_reached"] is False
+    assert threaded["budget"]["deadline_reached"] is False
+    assert staged["tool_call_statuses"] == {"ok": 1}
+    assert set(threaded["tool_call_statuses"]) == {"ok"}
+    # Permitted count divergence: the staged loop counts its decision
+    # iterations; the threaded projection counts research-bearing batch
+    # turns. Both are honest typed ints; they need not be equal.
+    assert isinstance(staged["decision_turns"], int) and staged["decision_turns"] >= 1
+    assert isinstance(threaded["decision_turns"], int) and threaded["decision_turns"] >= 1
+    # Compact handoff ledger exists in both, same entry schema.
+    staged_entry = staged["ledger"]["entries"][1]
+    threaded_entry = threaded["ledger"]["entries"][0]
+    assert staged_entry["evidence_ids"] == threaded_entry["evidence_ids"]
+    assert staged_entry["tool_status"] == threaded_entry["tool_status"] == "ok"
+
+
+def test_t41_exhausted_and_unsupported_source_agree_across_modes() -> None:
+    from vibecomfy.executor.contracts import (
+        _durable_research_evidence,
+        source_policy_entries,
+    )
+
+    plan = ClassifyDecision(
+        route="research",
+        task="research_nodes",
+        source_preferences=("web",),
+    )
+    staged_hit = _staged_research_result(
+        status="exhausted", deadline_reached=True
+    ).to_dict()
+    assert staged_hit["status"] == "exhausted"
+    assert staged_hit["budget"]["deadline_reached"] is True
+
+    threaded_hit = _durable_research_evidence(
+        ImplementationResult(
+            message="done",
+            durable_response=_threaded_durable_response(deadline=True),
+        ),
+        plan=plan,
+    )
+    assert threaded_hit["status"] == "exhausted"
+    assert threaded_hit["budget"]["deadline_reached"] is True
+    assert "research_phase_deadline" in {
+        item["code"] for item in threaded_hit["diagnostics"]
+    }
+    # The unsupported-source diagnostic CONTRACT is shared: the identical
+    # plan preferences yield the identical typed diagnostic on both carriers
+    # (threaded plans are host-authored, so staged exercises the live path).
+    _, policy = source_policy_entries(plan.source_preferences)
+    assert [item["code"] for item in policy] == ["unsupported_research_source"]
+    staged_result = _staged_research_result()
+    core_result = core._source_policy_entries(plan)
+    assert [item["code"] for item in core_result[1]] == [
+        "unsupported_research_source"
+    ]
+    assert core_result[1] == policy

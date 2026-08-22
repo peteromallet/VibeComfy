@@ -18,6 +18,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy.agent.deepseek_usage import coerce_deepseek_usage
 
+from .evidence_pack import EvidenceLedgerEntry
+
 if TYPE_CHECKING:  # pragma: no cover - type checkers only (avoids core import cycle)
     from .core import AgentResearchResult
 
@@ -2124,16 +2126,176 @@ class AgentEvidence:
         return payload
 
 
+def source_policy_entries(
+    source_preferences: Any,
+) -> tuple[tuple[EvidenceLedgerEntry, ...], tuple[dict[str, Any], ...]]:
+    """Make unsupported source requests visible, never rewrite them.
+
+    Shared by both drivers (T4.1): staged applies it to the classifier's
+    ``source_preferences``; the classifier-free threaded driver applies the
+    same helper to its host-authored plan, whose preferences are empty unless
+    a future plan author declares them — so the diagnostic CONTRACT is
+    identical even though threaded cannot express an unsupported source
+    through the public request shape today.
+    """
+    entries: list[EvidenceLedgerEntry] = []
+    diagnostics: list[dict[str, Any]] = []
+    for source in source_preferences or ():
+        source_name = str(source).strip()
+        if not source_name or source_name.casefold() in _C1_SUPPORTED_SOURCE_PREFERENCES:
+            continue
+        message = (
+            f"Requested source '{source_name}' is unavailable in the active C1 "
+            "research stage; it was not silently substituted or removed."
+        )
+        entries.append(EvidenceLedgerEntry(
+            decision="source_policy",
+            conclusion=message,
+            evidence_ids=(),
+            uncertainty=f"No {source_name} evidence was inspected.",
+        ))
+        diagnostics.append({
+            "code": "unsupported_research_source",
+            "severity": "warning",
+            "source": source_name,
+            "message": message,
+        })
+    return tuple(entries), tuple(diagnostics)
+
+
+_C1_SUPPORTED_SOURCE_PREFERENCES = frozenset({"hivemind", "messages", "workflows"})
+
+# The T4.1 shared research-evidence key set: every key here MUST be projected
+# by BOTH carriers for any scenario where research evidence exists. Counts
+# and bytes may differ between modes; field presence may not.
+RESEARCH_EVIDENCE_SHARED_KEYS = frozenset({
+    "mode",
+    "route",
+    "research_attempt",
+    "status",
+    "decision_turns",
+    "tool_calls_executed",
+    "tool_call_statuses",
+    "evidence_artifacts",
+    "citations",
+    "budget",
+    "diagnostics",
+    "ledger",
+})
+
+_DURABLE_EXECUTED_TOOL_STATUSES = frozenset({
+    "ok",
+    "no_results",
+    "rate_limited",
+    "timeout",
+    "unavailable",
+})
+_MAX_DURABLE_LEDGER_ENTRIES = 12
+_MAX_DURABLE_LEDGER_CONCLUSION_CHARS = 240
+
+
+def _durable_research_ledger(
+    batch_turns: Any,
+) -> tuple[list[dict[str, Any]], list[str], int, dict[str, int], set[int], bool]:
+    """Fold typed batch-turn statements into the compact public ledger.
+
+    Returns ``(ledger_entries, evidence_ids, executed_calls, status_counts,
+    research_turn_indices, grounded_evidence_seen)``. Counts derive ONLY
+    from typed statement fields; prose is never consulted.
+    """
+    entries: list[dict[str, Any]] = []
+    evidence_ids: list[str] = []
+    seen_evidence_ids: set[str] = set()
+    executed_calls = 0
+    status_counts: dict[str, int] = {}
+    research_turns: set[int] = set()
+    grounded_evidence_seen = False
+    if not isinstance(batch_turns, (list, tuple)):
+        return entries, evidence_ids, executed_calls, status_counts, research_turns, grounded_evidence_seen
+    for turn_index, turn in enumerate(batch_turns):
+        if not isinstance(turn, Mapping):
+            continue
+        statements = turn.get("statements")
+        if not isinstance(statements, (list, tuple)):
+            continue
+        for statement in statements:
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping) or not detail.get("tool_call"):
+                continue
+            tool_call = str(detail.get("tool_call") or "").strip()
+            research_turns.add(turn_index)
+            # Typed attempts that reached a tool count as execution,
+            # including no-results and transport failure. Policy refusal
+            # and invalid-request states never reached the evidence tool.
+            status = str(detail.get("tool_status") or "").strip().casefold()
+            if status:
+                status_counts[status] = status_counts.get(status, 0) + 1
+            if status in _DURABLE_EXECUTED_TOOL_STATUSES:
+                executed_calls += 1
+            ledger_entry = detail.get("ledger_entry")
+            if not isinstance(ledger_entry, Mapping):
+                continue
+            raw_ids = ledger_entry.get("evidence_ids")
+            if not isinstance(raw_ids, (list, tuple)):
+                continue
+            if raw_ids and tool_call in {"hivemind_get", "registry_lookup"}:
+                grounded_evidence_seen = True
+            entry_ids: list[str] = []
+            for raw_id in raw_ids:
+                evidence_id = str(raw_id).strip()
+                if not evidence_id or evidence_id in seen_evidence_ids:
+                    continue
+                seen_evidence_ids.add(evidence_id)
+                evidence_ids.append(evidence_id)
+                entry_ids.append(evidence_id)
+            if len(entries) < _MAX_DURABLE_LEDGER_ENTRIES:
+                conclusion = str(ledger_entry.get("conclusion") or "")
+                compact: dict[str, Any] = {
+                    "decision": str(ledger_entry.get("decision") or tool_call),
+                    "conclusion": conclusion[:_MAX_DURABLE_LEDGER_CONCLUSION_CHARS],
+                    "evidence_ids": entry_ids,
+                }
+                uncertainty = ledger_entry.get("uncertainty")
+                if isinstance(uncertainty, str) and uncertainty:
+                    compact["uncertainty"] = uncertainty[
+                        :_MAX_DURABLE_LEDGER_CONCLUSION_CHARS
+                    ]
+                if status:
+                    compact["tool_status"] = status
+                entries.append(compact)
+    return (
+        entries,
+        evidence_ids,
+        executed_calls,
+        status_counts,
+        research_turns,
+        grounded_evidence_seen,
+    )
+
+
 def _durable_research_evidence(
     implementation: ImplementationResult | None,
+    plan: ClassifyDecision | None = None,
 ) -> dict[str, Any]:
     """Project bounded batch-host research evidence into the public contract.
 
-    Threaded research runs inside the durable batch host rather than the staged
-    :class:`AgentResearchResult` phase.  The host already persists its bounded
-    ``research_findings`` packet and typed tool ledger in ``batch_turns``.
-    Project only those whitelisted fields; never expose the arbitrary durable
-    response, model transcript, raw tool bodies, or edit diagnostics.
+    Threaded research runs inside the durable batch host rather than the
+    staged :class:`AgentResearchResult` phase.  The host already persists its
+    bounded ``research_findings`` packet and typed tool ledger in
+    ``batch_turns``.  Project only those whitelisted fields; never expose the
+    arbitrary durable response, model transcript, raw tool bodies, or edit
+    diagnostics.
+
+    T4.1: the projected key set covers the SAME shared evidence fields as the
+    staged :meth:`AgentResearchResult.to_dict` payload (see
+    :data:`RESEARCH_EVIDENCE_SHARED_KEYS`) — attempt typing, typed stage
+    status, decision turns, executed-call count and per-status counts,
+    artifact/citation ids, the remaining budget/deadline block, diagnostics
+    (including the unsupported-source policy equivalent), and the compact
+    handoff ledger. Counts and bytes may differ between modes; field presence
+    may not.
     """
     durable = implementation.durable_response if implementation is not None else None
     if not isinstance(durable, Mapping):
@@ -2142,52 +2304,14 @@ def _durable_research_evidence(
     if not isinstance(findings, Mapping):
         return {}
 
-    executed_calls = 0
-    evidence_ids: list[str] = []
-    seen_evidence_ids: set[str] = set()
-    grounded_evidence_seen = False
-    executed_statuses = frozenset({
-        "ok",
-        "no_results",
-        "rate_limited",
-        "timeout",
-        "unavailable",
-    })
-    batch_turns = durable.get("batch_turns")
-    if isinstance(batch_turns, (list, tuple)):
-        for turn in batch_turns:
-            if not isinstance(turn, Mapping):
-                continue
-            statements = turn.get("statements")
-            if not isinstance(statements, (list, tuple)):
-                continue
-            for statement in statements:
-                if not isinstance(statement, Mapping):
-                    continue
-                detail = statement.get("detail")
-                if not isinstance(detail, Mapping) or not detail.get("tool_call"):
-                    continue
-                tool_call = str(detail.get("tool_call") or "").strip()
-                # Typed attempts that reached a tool count as execution,
-                # including no-results and transport failure. Policy refusal
-                # and invalid-request states never reached the evidence tool.
-                status = str(detail.get("tool_status") or "").strip().casefold()
-                if status in executed_statuses:
-                    executed_calls += 1
-                ledger_entry = detail.get("ledger_entry")
-                if not isinstance(ledger_entry, Mapping):
-                    continue
-                raw_ids = ledger_entry.get("evidence_ids")
-                if not isinstance(raw_ids, (list, tuple)):
-                    continue
-                if raw_ids and tool_call in {"hivemind_get", "registry_lookup"}:
-                    grounded_evidence_seen = True
-                for raw_id in raw_ids:
-                    evidence_id = str(raw_id).strip()
-                    if not evidence_id or evidence_id in seen_evidence_ids:
-                        continue
-                    seen_evidence_ids.add(evidence_id)
-                    evidence_ids.append(evidence_id)
+    (
+        ledger_entries,
+        evidence_ids,
+        executed_calls,
+        status_counts,
+        research_turns,
+        grounded_evidence_seen,
+    ) = _durable_research_ledger(durable.get("batch_turns"))
 
     raw_sources = findings.get("sources")
     sources = [
@@ -2214,18 +2338,70 @@ def _durable_research_evidence(
     warnings = [
         str(item) for item in raw_warnings if str(item).strip()
     ] if isinstance(raw_warnings, (list, tuple)) else []
+
+    budget = _durable_research_budget(findings)
+    deadline_reached = bool(budget.get("deadline_reached"))
+    status = "exhausted" if deadline_reached else "ok"
+    diagnostics: list[dict[str, Any]] = []
+    if deadline_reached:
+        diagnostics.append({
+            "code": "research_phase_deadline",
+            "severity": "warning",
+            "message": (
+                "research phase reached its wall-clock deadline; retained "
+                "typed evidence for downstream graph-local handling"
+            ),
+        })
+    _, policy_diagnostics = source_policy_entries(
+        getattr(plan, "source_preferences", ())
+    )
+    diagnostics.extend(policy_diagnostics)
+
     return {
         "mode": "agent_owned",
         "route": "research",
         "research_attempt": research_attempt,
+        "status": status,
+        "decision_turns": len(research_turns),
         "tool_calls_executed": executed_calls,
+        "tool_call_statuses": dict(sorted(status_counts.items())),
         "evidence_artifacts": evidence_artifacts,
         "citations": evidence_ids[:12],
+        "budget": budget,
+        "diagnostics": diagnostics,
+        "ledger": {"entries": ledger_entries},
         "summary": summary,
         "community_summary": community_summary or summary,
         "sources": sources,
         "warnings": warnings,
     }
+
+
+def _durable_research_budget(findings: Mapping[str, Any]) -> dict[str, Any]:
+    """Project the typed remaining-budget/deadline block from the host packet.
+
+    The batch host records ``turns_used`` always; ``deadline_seconds`` is
+    projected when the host enforced the research wall-clock window.
+    ``deadline_reached`` is ALWAYS emitted (False unless the host reported a
+    deadline stop) so the budget schema matches the staged trace snapshot.
+    """
+    raw_budget = findings.get("budget")
+    budget: dict[str, Any] = {}
+    if isinstance(raw_budget, Mapping):
+        turns_used = raw_budget.get("turns_used")
+        if isinstance(turns_used, int) and not isinstance(turns_used, bool):
+            budget["turns_used"] = max(0, turns_used)
+        deadline_seconds = raw_budget.get("deadline_seconds")
+        if (
+            isinstance(deadline_seconds, (int, float))
+            and not isinstance(deadline_seconds, bool)
+            and deadline_seconds > 0
+        ):
+            budget["deadline_seconds"] = float(deadline_seconds)
+        # Typed exhaustion-by-deadline flag is ALWAYS emitted (T4.1 field
+        # parity with the staged trace budget snapshot).
+        budget["deadline_reached"] = raw_budget.get("deadline_reached") is True
+    return budget
 
 
 @dataclass(frozen=True)
@@ -2315,7 +2491,9 @@ class AgentTurnResult:
             research = result.report.research.to_dict()
             warnings.extend(result.report.research.warnings)
         elif route == "research":
-            research = _durable_research_evidence(result.report.implementation)
+            research = _durable_research_evidence(
+                result.report.implementation, plan=plan
+            )
             raw_warnings = research.get("warnings")
             if isinstance(raw_warnings, list):
                 warnings.extend(str(item) for item in raw_warnings)

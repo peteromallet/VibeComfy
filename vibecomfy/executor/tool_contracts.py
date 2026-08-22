@@ -22,6 +22,15 @@ class ToolStatus(StrEnum):
 
 TOOL_STATUSES = frozenset(status.value for status in ToolStatus)
 
+# ── shared research-phase wall-clock budget (T4.2) ───────────────────────────
+# ONE canonical default for VIBECOMFY_RESEARCH_PHASE_DEADLINE. Both readers
+# (staged C1 research in executor.core, and the batch-REPL research route that
+# owns threaded/graphless research) read this single fallback so the same knob
+# can no longer drift between 450s and 600s defaults. The batch-REPL's former
+# 600s default was the outlier: the staged stage constant, the executor env
+# fallback, and this value now agree on 450s.
+RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS = 450.0
+
 
 def normalize_tool_status(value: Any) -> ToolStatus:
     if isinstance(value, ToolStatus):
@@ -138,6 +147,7 @@ class ToolResult:
 
 
 __all__ = [
+    "RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS",
     "TOOL_STATUSES",
     "ToolDiagnostic",
     "ToolResult",

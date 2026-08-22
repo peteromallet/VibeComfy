@@ -49,7 +49,7 @@ from .agent_research_stage import (
 from .evidence_pack import EvidenceLedger, EvidenceLedgerEntry, EvidencePack
 from .graph_inspection import inspect_graph, render_inspect_markdown
 from .stage_contracts import StageDiagnostic, StagePackage
-from .tool_contracts import ToolStatus
+from .tool_contracts import RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS, ToolStatus
 from .prompts import build_classify_messages
 from .contracts import (
     ClassifyDecision,
@@ -62,6 +62,7 @@ from .contracts import (
     _ALLOWED_ROUTES,
     coerce_model_attempts,
     resolve_orchestration_mode,
+    source_policy_entries,
 )
 from .profiles import (
     AgentSpecShape,
@@ -1011,9 +1012,6 @@ def _default_hivemind_client(*args: Any, **kwargs: Any) -> Any:
 # ── implement phase ──────────────────────────────────────────────────────────
 
 
-_C1_SUPPORTED_SOURCE_PREFERENCES = frozenset({"hivemind", "messages", "workflows"})
-
-
 @dataclass(frozen=True)
 class AgentResearchResult:
     """Active C1 output; edit agents receive only its compact ledger."""
@@ -1056,52 +1054,56 @@ class AgentResearchResult:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        # T4.1: every key in contracts.RESEARCH_EVIDENCE_SHARED_KEYS is
+        # projected here exactly as the threaded ``_durable_research_evidence``
+        # projects it, so the two carriers expose field-for-field parity.
+        trace = self.trace
+        status_counts: dict[str, int] = {}
+        for entry in self.ledger.entries:
+            if entry.tool_status is None:
+                continue
+            status_counts[entry.tool_status] = (
+                status_counts.get(entry.tool_status, 0) + 1
+            )
+        budget = getattr(trace, "budget", None)
         payload: dict[str, Any] = {
             "mode": "agent_owned",
             "route": self.route,
-            "status": self.trace.status,
-            "verdict": self.trace.final_verdict,
+            "status": trace.status,
+            "verdict": trace.final_verdict,
             "research_attempt": self.research_attempt,
+            "decision_turns": len(trace.iterations),
+            "tool_calls_executed": trace.executed_tool_calls,
+            "tool_call_statuses": dict(sorted(status_counts.items())),
+            "evidence_artifacts": trace.evidence_artifact_count,
             "diagnostics": [dict(item) for item in self.policy_diagnostics],
         }
+        if budget is not None:
+            payload["budget"] = dict(budget)
+        # Bounded citation ids (the memo refines these to its inspected ≤6
+        # subset; counts may differ between modes, field presence may not).
+        payload["citations"] = list(trace.citations)[:12]
         if self.decision_memo is not None:
             # Research-only exposes the bounded C5 memo, never source bodies,
             # iterations, or the full C1 artifact pack.
             payload.update(dict(self.decision_memo))
-        else:
-            # Edit routes expose only the compact C1 ledger.
-            payload["ledger"] = self.ledger.to_dict()
+        # The compact handoff ledger is exposed on BOTH routes: research-only
+        # keeps its bounded C5 memo AND now carries the same compact ledger
+        # field the threaded carrier exposes (entries are tiny judgments; no
+        # source bodies, iterations, or artifact packs).
+        payload["ledger"] = self.ledger.to_dict()
         return payload
-
 
 def _source_policy_entries(
     plan: ClassifyDecision,
 ) -> tuple[tuple[EvidenceLedgerEntry, ...], tuple[dict[str, Any], ...]]:
-    """Make unsupported classifier source requests visible, never rewrite them."""
+    """Make unsupported classifier source requests visible, never rewrite them.
 
-    entries: list[EvidenceLedgerEntry] = []
-    diagnostics: list[dict[str, Any]] = []
-    for source in plan.source_preferences:
-        source_name = str(source).strip()
-        if not source_name or source_name.casefold() in _C1_SUPPORTED_SOURCE_PREFERENCES:
-            continue
-        message = (
-            f"Requested source '{source_name}' is unavailable in the active C1 "
-            "research stage; it was not silently substituted or removed."
-        )
-        entries.append(EvidenceLedgerEntry(
-            decision="source_policy",
-            conclusion=message,
-            evidence_ids=(),
-            uncertainty=f"No {source_name} evidence was inspected.",
-        ))
-        diagnostics.append({
-            "code": "unsupported_research_source",
-            "severity": "warning",
-            "source": source_name,
-            "message": message,
-        })
-    return tuple(entries), tuple(diagnostics)
+    T4.1: the policy itself is the shared contract in
+    :func:`vibecomfy.executor.contracts.source_policy_entries`; staged keeps
+    this thin plan-shaped wrapper.
+    """
+    return source_policy_entries(plan.source_preferences)
 
 
 def _research_decision_memo(
@@ -1268,6 +1270,7 @@ def _research_stage_package(
     pack: EvidencePack,
     policy_diagnostics: tuple[dict[str, Any], ...],
     research_attempt: str = RESEARCH_ATTEMPT_NEVER,
+    budget: Mapping[str, Any] | None = None,
 ) -> StagePackage:
     """Build the F01 research :class:`StagePackage` handed to implement.
 
@@ -1328,6 +1331,7 @@ def _research_stage_package(
         next_stage_hints=("implement",) if route == "adapt" else (),
         ledger=pack.ledger,
         research_attempt=research_attempt,
+        budget=dict(budget) if budget is not None else None,
     )
 
 
@@ -1351,13 +1355,21 @@ def _run_agent_owned_research(
     # (900s), with implement consuming the remainder after research returns.
     # The stage coerces float(deadline_seconds) unconditionally, so we only
     # pass a value for research routes (never None); 0/negative env falls
-    # back to the stage default (450s) rather than an immediate deadline.
+    # back to the shared stage default (T4.2 unification: ONE canonical
+    # RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS for both carriers) rather than
+    # an immediate deadline.
     deadline_seconds: float | None = None
     if route in ("research", "adapt"):
         try:
-            configured = float(os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "450") or 0)
+            configured = float(
+                os.environ.get(
+                    "VIBECOMFY_RESEARCH_PHASE_DEADLINE",
+                    str(int(RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS)),
+                )
+                or 0
+            )
         except ValueError:
-            configured = 450.0
+            configured = RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
         if configured > 0:
             deadline_seconds = configured
     research_kwargs: dict[str, float] = {}
@@ -1409,6 +1421,7 @@ def _run_agent_owned_research(
             pack=pack,
             policy_diagnostics=diagnostics,
             research_attempt=attempt,
+            budget=getattr(trace, "budget", None),
         ),
         policy_diagnostics=diagnostics,
         decision_memo=memo,

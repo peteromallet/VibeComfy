@@ -288,3 +288,94 @@ def test_completed_checkpoint_isolated_from_a_later_aborted_turn(tmp_path) -> No
     assert reloaded["accepted_delta_ids"] == ["delta:one"]
     assert reloaded["revision"] == 1
     assert reloaded["last_event"]["kind"] == "message_aborted"
+
+
+# ── T4.3: chat-artifact continuation is the frozen canonical substrate ───────
+
+
+def test_t43_continuation_substrate_is_chat_artifacts() -> None:
+    from vibecomfy.executor.threaded import THREADED_CONTINUATION_SUBSTRATE
+
+    # Recorded decision (T4.3): cross-turn continuity rides the durable chat
+    # artifacts inside the agent-edit host (read_session_chat +
+    # PROMPT_MEMORY_MESSAGES). The lease-fenced thread transcript store stays
+    # production-bound but driver-unconsumed.
+    assert THREADED_CONTINUATION_SUBSTRATE == "chat_artifacts"
+
+
+def test_t43_driver_never_touches_thread_transcript_hooks(tmp_path) -> None:
+    from vibecomfy.executor.contracts import ExecutorRequest
+    from vibecomfy.executor.profiles import AgentSpecShape
+    from vibecomfy.executor.threaded import ThreadedKernel, run_threaded_executor
+
+    def _poison(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("thread transcript hook must not be consumed")
+
+    ports = host_ports(tmp_path / "sessions")
+    poisoned = replace_ports(
+        ports,
+        thread_load=_poison,
+        thread_begin=_poison,
+        thread_append=_poison,
+        thread_complete=_poison,
+        thread_abort=_poison,
+        thread_close=_poison,
+    )
+
+    seen: list[ExecutorRequest] = []
+
+    def run_implement(request: ExecutorRequest, spec: AgentSpecShape, **kwargs: Any):
+        seen.append(request)
+        return _implementation()
+
+    kernel = ThreadedKernel(
+        resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
+        run_implement=run_implement,
+        emit_phase=lambda *args, **kwargs: None,
+        enforce_reply_grounding=lambda reply, **kwargs: reply,
+        accepted_delta_ops=lambda implementation: (),
+        implementation_landed_edit=lambda implementation: False,
+        no_candidate_reason=lambda implementation: "route_not_applyable",
+    )
+
+    # TWO turns over the SAME session window: continuation is carried by the
+    # durable chat artifacts below the kernel seam — never by the driver via
+    # the transcript hooks.
+    for turn in range(2):
+        result = run_threaded_executor(
+            ExecutorRequest(
+                query=f"turn {turn}: find a faster distilled video workflow",
+                session_id="continuity-window",
+            ),
+            kernel=kernel,
+            host_ports=poisoned,
+            executor_id="executor-t43",
+        )
+        assert result.ok is True
+
+    assert len(seen) == 2
+
+
+def _implementation():
+    from vibecomfy.executor.contracts import ImplementationResult
+
+    return ImplementationResult(
+        message="Research completed.",
+        durable_response={
+            "graph_unchanged": True,
+            "research_findings": {
+                "sources": [],
+                "summary": "s",
+                "community_summary": "s",
+                "warnings": [],
+                "budget": {"turns_used": 1},
+            },
+            "batch_turns": [],
+        },
+    )
+
+
+def replace_ports(ports: Any, **overrides: Any) -> Any:
+    from dataclasses import replace
+
+    return replace(ports, **overrides)

@@ -158,6 +158,11 @@ class StagePackage:
     tool ledger — Python-derived, never model judgment.  It is optional and
     fails safe to ``never`` when absent (a package that does not declare
     evidence must not gate an implement on it).
+
+    ``budget`` (research stage only, T4.1) persists the remaining
+    budget/deadline facts of the producing stage so they survive the handoff
+    instead of living only in per-turn digests. Optional; omitted when a
+    stage does not enforce one.
     """
 
     stage_id: str
@@ -169,6 +174,7 @@ class StagePackage:
     ledger: EvidenceLedger = field(default_factory=EvidenceLedger)
     needs_input: NeedsInput | None = None
     research_attempt: str = "never"
+    budget: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "stage_id", _required_text(self.stage_id, "stage_id"))
@@ -203,6 +209,12 @@ class StagePackage:
         if attempt not in _RESEARCH_ATTEMPTS:
             attempt = "never"
         object.__setattr__(self, "research_attempt", attempt)
+        budget = self.budget
+        if budget is not None:
+            if not isinstance(budget, Mapping):
+                raise ValueError("`budget` must be an object.")
+            budget = _freeze_json(dict(budget))
+        object.__setattr__(self, "budget", budget)
 
         referenced_ids = set(ledger.evidence_ids)
         for diagnostic in diagnostics:
@@ -222,7 +234,7 @@ class StagePackage:
         return tuple(self.artifacts)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "stage_id": self.stage_id,
             "produced_at": self.produced_at,
             "artifacts": {
@@ -236,6 +248,11 @@ class StagePackage:
             "needs_input": self.needs_input.to_dict() if self.needs_input is not None else None,
             "research_attempt": self.research_attempt,
         }
+        if self.budget is not None:
+            # Additive-with-omission (T4.1): packages without a budget keep
+            # the exact legacy serialized shape.
+            payload["budget"] = _thaw_json(self.budget)
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "StagePackage":
@@ -253,7 +270,7 @@ class StagePackage:
                 "ledger",
                 "needs_input",
             }),
-            optional=frozenset({"research_attempt"}),
+            optional=frozenset({"research_attempt", "budget"}),
             contract="StagePackage",
         )
         needs_input = payload["needs_input"]
@@ -267,6 +284,7 @@ class StagePackage:
             ledger=EvidenceLedger.from_dict(payload["ledger"]),
             needs_input=NeedsInput.from_dict(needs_input) if needs_input is not None else None,
             research_attempt=payload.get("research_attempt", "never"),
+            budget=payload.get("budget"),
         )
 
 

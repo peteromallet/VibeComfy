@@ -374,3 +374,93 @@ def test_threaded_run_preserves_applied_on_projection_exception() -> None:
     assert "landed" in (result.reply or "").lower()
 
 
+
+
+# ── T4.3: terminal projection is mode-neutral and Row-7 recoverable ──────────
+
+
+def test_t43_terminal_projection_identical_across_modes() -> None:
+    from vibecomfy.executor.core import _durable_terminal_projection
+
+    original, graph, result = _stamped_applied_implementation()
+    staged = _durable_terminal_projection(
+        result, request_graph=original, reply=result.message, mode="staged"
+    )
+    threaded = _durable_terminal_projection(
+        result, request_graph=original, reply=result.message, mode="threaded"
+    )
+    # One mode-neutral projector: identical checkpoints project identically
+    # no matter which driver called it.
+    assert staged.terminal_state == threaded.terminal_state == "applied"
+    assert staged.graph == threaded.graph
+    assert [d.ops for d in staged.accepted_delta] == [
+        d.ops for d in threaded.accepted_delta
+    ]
+    assert dict(staged.eligibility) == dict(threaded.eligibility)
+    assert staged.reason == threaded.reason
+
+
+def test_t43_row7_recovery_receipt_plus_batch_is_applied_else_undetermined() -> None:
+    from vibecomfy.executor.core import _durable_terminal_projection
+
+    original = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    op = {"op": "set_node_field", "target": ["", "u", "steps"], "value": 25}
+
+    receipted = _durable_terminal_projection(
+        _receipted_implementation(original, op),
+        request_graph=original,
+        reply="done",
+        mode="threaded",
+    )
+    assert receipted.terminal_state == "applied"
+    assert receipted.eligibility["applyable"] is True
+
+    unreceipted = _durable_terminal_projection(
+        _unreceipted_implementation(original, op),
+        request_graph=original,
+        reply="done",
+        mode="threaded",
+    )
+    # Missing lifecycle/receipt evidence is NEVER guessed applied (Row 7).
+    assert unreceipted.terminal_state in {"undetermined", "no_candidate", "authority_rejected"}
+    assert unreceipted.eligibility["applyable"] is False
+    # And the staged driver derives the SAME terminal row for the same durable.
+    staged_unreceipted = _durable_terminal_projection(
+        _unreceipted_implementation(original, op),
+        request_graph=original,
+        reply="done",
+        mode="staged",
+    )
+    assert staged_unreceipted.terminal_state == unreceipted.terminal_state
+
+
+def _receipted_implementation(original: dict, op: dict):
+    from vibecomfy.executor.contracts import ImplementationResult
+
+    graph = {"nodes": [{"id": 1, "type": "KSampler", "widgets_values": [25]}], "links": []}
+    return ImplementationResult(
+        graph=graph,
+        message="landed",
+        durable_response={
+            "terminal_state": "applied",
+            "accepted_batch": [{"statement_index": 0, "op": op}],
+            "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+            "graph": graph,
+            "original_graph": original,
+            "outcome": {"kind": "candidate"},
+        },
+    )
+
+
+def _unreceipted_implementation(original: dict, op: dict):
+    from dataclasses import replace
+
+    receipted = _receipted_implementation(original, op)
+    return replace(
+        receipted,
+        durable_response={
+            key: value
+            for key, value in receipted.durable_response.items()
+            if key != "authority_receipt"
+        },
+    )
