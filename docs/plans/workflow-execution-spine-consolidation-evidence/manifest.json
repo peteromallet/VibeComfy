@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "7b9ab9d00c7ef0988dace762c41947df2046435cd4306f8c8008efeb3f7d8724",
+        "sha256": "07474dbfdf731e92837d07345da7abd5f0f12288d465ca0d13d4211538c0470f",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1442,26 +1442,32 @@
             "severity": "must",
             "classification": "HARD",
             "kind": "mechanical",
-            "status": "open",
+            "status": "fixed",
             "summary": "_ACTIVE_REGISTRY_LOCK = lock_handle at wrapper lines 266/322/325 lacks global, so the module global stays None; _registry_release's reuse branch (:343-344) is unreachable dead code and the comment at :254-257 documents an invariant that can never execute.",
             "blast_radius": "Latent SIGINT-window robustness gap only: handlers install after the guard returns; release always takes LOCK_EX on a fresh fd; dead-PID sweep self-heals.",
-            "fix": "one line + test, next batch revision"
+            "fix": "one line + test, next batch revision",
+            "revision_task_id": "BATCH1-REVISION",
+            "revision_commit": "2e384645786cb287ee121764125de3c85bda15d4"
           },
           {
             "finding_id": "MF-G2-2",
             "severity": "must",
             "classification": "HARD",
             "kind": "mechanical",
-            "status": "open",
+            "status": "fixed",
             "summary": "test_concurrent_registry_release_preserves_both_deletions (test file :642-666) asserts only absence of thread exceptions - no post-state assertion that both deletions persisted; a regression dropping LOCK_EX could lose a deletion yet pass.",
-            "fix": "add final registry-empty assertion (+ iterations)"
+            "fix": "add final registry-empty assertion (+ iterations)",
+            "revision_task_id": "BATCH1-REVISION",
+            "revision_commit": "2e384645786cb287ee121764125de3c85bda15d4"
           },
           {
             "finding_id": "SH-G2-3",
             "severity": "should",
-            "status": "open",
+            "status": "fixed",
             "summary": "docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md:145 still emits an explicit --timeout=3600 template example - outside the implementer allowance.",
-            "fix": "fix in next orchestrator/evidence touch"
+            "fix": "fix in next orchestrator/evidence touch",
+            "revision_task_id": "BATCH1-REVISION",
+            "revision_commit": "2e384645786cb287ee121764125de3c85bda15d4"
           },
           {
             "finding_id": "R-G2-1",
@@ -1571,6 +1577,73 @@
         },
         "follow_on_cards_queued": ["BATCH1-REVISION", "R-G2-1-REPAIR"],
         "next_unblocked_card": "BATCH1-REVISION then R-G2-1-REPAIR, then B2 (T3.1 + T3.2 implementation per the two completed inventories), then G3 batch review"
+      },
+      "batch1_revision": {
+        "task_id": "BATCH1-REVISION",
+        "gate": "G2",
+        "label": "BATCH1-REVISION: fix G2 must findings MF-G2-1 + MF-G2-2 + SH-G2-3 (registry lock global, release-test assertion, goal-doc timeout template)",
+        "role": "implementer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "fixed",
+        "base_sha": "ed50918c6e979a05706907fa1ef9719ea12a460c",
+        "wrapper_pid": 69837,
+        "start_ts": "2026-08-22T02:45:25Z",
+        "end_ts": "2026-08-22T02:57:27Z",
+        "exit": 0,
+        "commits": ["2e384645786cb287ee121764125de3c85bda15d4"],
+        "commit_author": "POM <peter@omalley.io>",
+        "changed_files": [
+          "docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md",
+          "scripts/run_workflow_execution_spine_agent.py",
+          "tests/test_run_workflow_execution_spine_agent.py"
+        ],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/BATCH1-REVISION-receipt.json", "sha256": "35d80d66cacd8f3c2fc7dca56e2ac1ddbaf2e72003fa7d20714e135d989fd09c"},
+        "brief_sha256": "a9a5b85190bc1bced2144ae53c5c23f13d550fdbb445faa5c96c056853a834cf",
+        "result_sha256": "5578f9d5fb31aecd08f98341f1401f781f02cb899aa36cb654f35e6a122290b2",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/BATCH1-REVISION-dispatch.log",
+        "findings_fixed": {
+          "MF-G2-1": "global _ACTIVE_REGISTRY_LOCK added as first statement of _registry_guard (wrapper :262); the three module-global assignments (:267/:323/:326 post-insert; :266/:322/:325 as found) now hit the module global; _registry_release reuse branch (:344-345) is live instead of dead code; new test test_registry_guard_publishes_active_lock_for_interrupt_reuse (test file :642) spies _json_write during the candidate write to prove a live handle is published on .active-allowances.lock, asserts the global is cleared after return, and proves the reuse branch removes the entry while keeping the descriptor open+locked (fresh-fd probe raises BlockingIOError, no second-flock block)",
+          "MF-G2-2": "test_concurrent_registry_release_preserves_both_deletions (test file :693) now runs 25 rounds with a post-state assertion registry == {} after each round; a LOCK_EX drop fails on lost update or corrupt read-modify-write (no-op'ing flock reproduces FileNotFoundError + lost-update + JSON-concatenation corruption; the old test passed vacuously through all of it)",
+          "SH-G2-3": "goal doc :145 template now emits --timeout=7200; zero 3600 occurrences remain in the goal doc"
+        },
+        "focused_command": "final focused run -> 51 passed, exit 0 (run 2; run 1 failed on the new test's own assertion bug - descriptor liveness asserted after guard return - fixed by observing liveness inside the spy and disclosed per run-at-most-once)"
+      },
+      "rg21_repair": {
+        "task_id": "R-G2-1-REPAIR",
+        "gate": "G2",
+        "label": "R-G2-1-REPAIR [XHARD]: replay converter drift — align executor ingest use_comfy_converter with recompute_apply",
+        "role": "implementer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "repair-landed-residual-flagged-for-g3-classification",
+        "base_sha": "2e384645786cb287ee121764125de3c85bda15d4",
+        "wrapper_pid": 71261,
+        "start_ts": "2026-08-22T02:57:36Z",
+        "end_ts": "2026-08-22T03:09:31Z",
+        "exit": 0,
+        "commits": ["b8891ee010fa90d1d8148002d1959ddd39c25606"],
+        "commit_author": "POM <peter@omalley.io>",
+        "changed_files": ["tests/test_authority_replay_sequential.py"],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/R-G2-1-REPAIR-receipt.json", "sha256": "7d369a56181a470a166ae32b21af2436ed800915b4e8e47cc84d0393abca3400"},
+        "brief_sha256": "aeb412b8c179933491bbefbb5cf47963f52f34d03c7f51cf05ff051aebf0edd0",
+        "result_sha256": "4e149af1301fd215f7ca68c9e44bfd6bf2b593639d41f345a9907f50adad28b1",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/R-G2-1-REPAIR-dispatch.log",
+        "red_reproduced": "both tests failed (candidate_hash_mismatch; 'ecccd7df...' != '7804d399...')",
+        "root_cause": "Evidence-corrected re-diagnosis: NOT converter selection - the G2 review's stated mechanism was empirically disproved (monkeypatch experiment at /tmp/rg21-repair/prove_fix.py: use_comfy_converter is not importable offline and both ingest paths hit the identical _normalize_ui_to_api fallback). The decisive delta is pin_untouched_ui: the test harness _sequential_candidate modeled the executor as bare emit_ui_json, but the live executor's projector pipeline ends with pin_untouched_ui(prior_ui, emitted, landed_ops) (session.py:462-469 _emit_working_snapshot, checkpoint.py:519, _gates.py:298, authority_receipts.py:339-348 recompute_apply). Omitting the pin re-emitted untouched schema-less nodes best-effort (float positions + injected vibecomfy_id/vibecomfy_uid props) vs pinned prior bytes -> hash drift.",
+        "fix": "Test-harness repair: _sequential_candidate returns pin_untouched_ui(submit, emitted, ops) after the interpret loop (test file :82), byte-identical to EditSession._emit_working_snapshot; invariant assertions untouched; the harness now enforces them against REAL executor bytes. Green: 2 passed, exit 0.",
+        "rejected_alternatives": [
+          "Pin use_comfy_converter=False in recompute_apply - outside the allowance and empirically insufficient offline.",
+          "Remove executor pins to match replay defaults - flips Law-1 door passthrough off for all live sessions; forbidden public-candidate change."
+        ],
+        "residual_risk_g3_classification": "Latent comfy-host ingest asymmetry remains: the executor ingests use_comfy_converter=False while recompute_apply uses the from_ui default True; provably inert offline, but on hosts where the comfy converter imports and diverges from _normalize_ui_to_api, replay could drift from live candidates. Closing it requires editing vibecomfy/comfy_nodes/agent/authority_receipts.py - outside R-G2-1's allowance. The G3 batch review must classify whether R-G2-1 is CLOSED (repair landed, tests green, residual flagged) or requires a follow-up production card; no closure verdict recorded here.",
+        "g2_condition_status": "must close before Batch 2 completes - repair card has landed (tests green); residual classification deferred to the G3 batch review per C10/§18",
+        "protected_state_unchanged": "Receipt schema, T2.2 transition table, terminal projector, mode-neutral projector contract untouched; no production file modified.",
+        "next_unblocked_card": "B2-IMPLEMENTER (T3.1 + T3.2; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B2-IMPLEMENTER.md and -allowance.json)"
       }
     }
   ],

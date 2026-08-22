@@ -2864,3 +2864,165 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## G2 follow-on cards — BATCH1-REVISION and R-G2-1-REPAIR (2026-08-22)
+
+### BATCH1-REVISION register
+
+- **Task/label/gate/role/route:** `BATCH1-REVISION` / `BATCH1-REVISION:
+  fix G2 must findings MF-G2-1 + MF-G2-2 + SH-G2-3 (registry lock global,
+  release-test assertion, goal-doc timeout template)` / gate `G2` /
+  implementer / model route `stealth/ox-alpha`, resolved
+  `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/BATCH1-REVISION-receipt.json` (file
+  SHA-256
+  `35d80d66cacd8f3c2fc7dca56e2ac1ddbaf2e72003fa7d20714e135d989fd09c`);
+  window `2026-08-22T02:45:25Z` → `2026-08-22T02:57:27Z`, launcher exit
+  `0`; base `ed50918c6e979a05706907fa1ef9719ea12a460c`; commit
+  `2e384645786cb287ee121764125de3c85bda15d4`; brief SHA-256
+  `a9a5b85190bc1bced2144ae53c5c23f13d550fdbb445faa5c96c056853a834cf`;
+  result SHA-256
+  `5578f9d5fb31aecd08f98341f1401f781f02cb899aa36cb654f35e6a122290b2`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/BATCH1-REVISION-dispatch.log`.
+- **Changed files (3, within allowance):**
+  `docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md`,
+  `scripts/run_workflow_execution_spine_agent.py`,
+  `tests/test_run_workflow_execution_spine_agent.py`.
+
+### MF-G2-1 fixed (must/HARD)
+
+`global _ACTIVE_REGISTRY_LOCK` added as the first statement of
+`_registry_guard` (wrapper :262); the three module-global assignments
+(wrapper :267/:323/:326 post-insert; :266/:322/:325 as found) now hit the
+module global, and `_registry_release`'s reuse branch (:344–345) is live
+instead of unreachable dead code. New test
+`test_registry_guard_publishes_active_lock_for_interrupt_reuse` (test
+file :642) spies `_json_write` during the candidate write to prove a live
+handle is published on `.active-allowances.lock`, asserts the global is
+cleared after the guard returns, and proves the reuse branch removes the
+registry entry while keeping the descriptor open+locked (fresh-fd probe →
+`BlockingIOError`; no second-flock block).
+
+### MF-G2-2 fixed (must/HARD)
+
+`test_concurrent_registry_release_preserves_both_deletions` (test file
+:693) now runs 25 rounds with a post-state assertion `registry == {}`
+after each round (:723); a LOCK_EX drop fails on lost update or corrupt
+read-modify-write (no-op'ing flock reproduces `FileNotFoundError` +
+lost-update + JSON-concatenation corruption; the old test passed
+vacuously through all of it).
+
+### SH-G2-3 fixed (should)
+
+Goal doc :145 template now emits `--timeout=7200`; zero `3600`
+occurrences remain in the goal doc.
+
+### BATCH1-REVISION focused run
+
+Final focused run: **51 passed, exit 0** (run 2; run 1 failed on the new
+test's own assertion bug — descriptor liveness asserted after guard
+return — fixed by observing liveness inside the spy and disclosed per the
+run-at-most-once constraint).
+
+### R-G2-1-REPAIR register
+
+- **Task/label/gate/role/route:** `R-G2-1-REPAIR` / `R-G2-1-REPAIR
+  [XHARD]: replay converter drift — align executor ingest
+  use_comfy_converter with recompute_apply` / gate `G2` / implementer /
+  model route `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/R-G2-1-REPAIR-receipt.json` (file
+  SHA-256
+  `7d369a56181a470a166ae32b21af2436ed800915b4e8e47cc84d0393abca3400`);
+  window `2026-08-22T02:57:36Z` → `2026-08-22T03:09:31Z`, launcher exit
+  `0`; base `2e384645786cb287ee121764125de3c85bda15d4`; commit
+  `b8891ee010fa90d1d8148002d1959ddd39c25606`; brief SHA-256
+  `aeb412b8c179933491bbefbb5cf47963f52f34d03c7f51cf05ff051aebf0edd0`;
+  result SHA-256
+  `4e149af1301fd215f7ca68c9e44bfd6bf2b593639d41f345a9907f50adad28b1`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/R-G2-1-REPAIR-dispatch.log`.
+- **Changed file (1, within allowance):**
+  `tests/test_authority_replay_sequential.py` only; no production file
+  modified.
+
+### R-G2-1 red reproduced and root cause re-diagnosed (evidence-corrected)
+
+- **Red:** both tests failed (`candidate_hash_mismatch`;
+  `'ecccd7df…' != '7804d399…'`).
+- **Root cause re-diagnosed — NOT converter selection.** The G2 review's
+  stated mechanism was empirically disproved (monkeypatch experiment at
+  `/tmp/rg21-repair/prove_fix.py`: `use_comfy_converter` is not
+  importable offline, and both ingest paths hit the identical
+  `_normalize_ui_to_api` fallback). The decisive delta is
+  `pin_untouched_ui`: the test harness `_sequential_candidate` modeled
+  the executor as bare `emit_ui_json`, but the live executor's projector
+  pipeline ends with `pin_untouched_ui(prior_ui, emitted, landed_ops)`
+  (`session.py:462-469` `_emit_working_snapshot`, `checkpoint.py:519`,
+  `_gates.py:298`, `authority_receipts.py:339-348` `recompute_apply`).
+  Omitting the pin re-emitted untouched schema-less nodes best-effort
+  (float positions + injected vibecomfy_id/uid props) vs pinned prior
+  bytes → hash drift.
+
+### R-G2-1 fix: test-harness repair
+
+The helper now returns `pin_untouched_ui(submit, emitted, ops)` after the
+interpret loop (test file :82), byte-identical to
+`EditSession._emit_working_snapshot`; invariant assertions untouched; the
+harness now enforces them against REAL executor bytes. Green: **2 passed,
+exit 0**.
+
+### R-G2-1 rejected alternatives
+
+- Pin `use_comfy_converter=False` in `recompute_apply` — outside the
+  allowance and empirically insufficient offline.
+- Remove executor pins to match replay defaults — flips Law-1 door
+  passthrough off for all live sessions; forbidden public-candidate
+  change.
+
+### R-G2-1 residual risk — flagged for G3 classification
+
+Latent comfy-host ingest asymmetry remains: the executor ingests
+`use_comfy_converter=False` while `recompute_apply` uses the `from_ui`
+default True. Provably inert offline, but on hosts where the comfy
+converter imports and diverges from `_normalize_ui_to_api`, replay could
+drift from live candidates. Closing it requires editing
+`vibecomfy/comfy_nodes/agent/authority_receipts.py` — outside R-G2-1's
+allowance. The G3 batch review must classify whether R-G2-1 is CLOSED
+(repair landed, tests green, residual flagged) or requires a follow-up
+production card; no closure verdict is recorded here.
+
+### G2 condition status and next unblocked card
+
+R-G2-1's G2 condition "must close before Batch 2 completes" — the repair
+card has landed (tests green); the residual classification is deferred to
+the G3 batch review per C10/§18. Next unblocked card: B2-IMPLEMENTER
+(T3.1 + T3.2; brief + allowance already written at
+`g0/B2-IMPLEMENTER.md` / `-allowance.json`).
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution log +
+manifest; test-shards.json untouched) in one coherent commit authored by
+`POM <peter@omalley.io>`. No receipt, protected state, branch, or other
+file is changed; no push, merge, promotion, live/model/runtime call,
+secret access, wrapper dispatch, review, validator change, or product/
+test run is performed by this evidence recorder; the recorded repairs
+were executed by the BATCH1-REVISION and R-G2-1-REPAIR agents, not by
+this recorder. No receipt is committed; the reviewed receipts stay
+untracked run artifacts. This evidence recorder's own wrapper PID is
+`71632`, start `2026-08-22T03:10:34Z` per `active-allowances.json`; its
+own receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-G2-FOLLOWON-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
