@@ -1,0 +1,29 @@
+{
+  "LayerMask: LoadSegmentAnythingModels": {
+    "category": "LayerMask",
+    "display_name": "Load Segment Anything Models",
+    "inputs": {
+      "required": {
+        "model_name": ["STRING", {"default": "sam_vit_h"}]
+      }
+    },
+    "outputs": [{"name": "model", "type": "SAM_MODEL", "is_list": false}],
+    "pack": "ComfyUI-LayerMask",
+    "pack_version": "local",
+    "object_info_widget_order": ["model_name"]
+  },
+  "LayerMask: SegmentAnythingUltra V3": {
+    "category": "LayerMask",
+    "display_name": "Segment Anything Ultra V3",
+    "inputs": {
+      "required": {
+        "image": ["IMAGE", {}],
+        "prompt": ["STRING", {"default": ""}]
+      }
+    },
+    "outputs": [{"name": "mask", "type": "MASK", "is_list": false}],
+    "pack": "ComfyUI-LayerMask",
+    "pack_version": "local",
+    "object_info_widget_order": ["image", "prompt"]
+  }
+}

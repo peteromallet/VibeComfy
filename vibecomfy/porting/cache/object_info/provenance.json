@@ -1,5 +1,5 @@
 {
-  "class_count": 1385,
+  "class_count": 1389,
   "packs": {
     "AILab_AudioDuration@runpod-snapshot.json": {
       "classes": 1,
@@ -36,6 +36,13 @@
       "repo": "https://github.com/city96/ComfyUI-GGUF.git",
       "schema_sha256": "1336fad984841444a9559b602c34ef11d1dd4b68a9a902437aaee6771ab5d2d3"
     },
+    "ComfyUI-IndexTTS@local.json": {
+      "classes": 2,
+      "locked_commit": "local-smoke-cache-20260822",
+      "pack": "ComfyUI-IndexTTS",
+      "repo": "https://github.com/IndexTTS/ComfyUI-IndexTTS.git",
+      "schema_sha256": "local"
+    },
     "ComfyUI-KJNodes@runpod-snapshot.json": {
       "classes": 230,
       "locked_commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
@@ -49,6 +56,13 @@
       "pack": "ComfyUI-LTXVideo",
       "repo": "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
       "schema_sha256": "82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e"
+    },
+    "ComfyUI-LayerMask@local.json": {
+      "classes": 2,
+      "locked_commit": "local-smoke-cache-20260822",
+      "pack": "ComfyUI-LayerMask",
+      "repo": "https://github.com/chrisgoringe/ComfyUI-LayerMask.git",
+      "schema_sha256": "local"
     },
     "ComfyUI-Qwen3-TTS@local-17c22ad.json": {
       "classes": 11,

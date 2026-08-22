@@ -7110,6 +7110,7 @@ name = "vibecomfy"
 version = "2.8.0"
 source = { editable = "." }
 dependencies = [
+    { name = "arnold" },
     { name = "httpx" },
     { name = "huggingface-hub", extra = ["hf-xet"] },
     { name = "pyyaml" },
@@ -7151,6 +7152,7 @@ runpod-local = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'intent'", specifier = ">=0.40" },
+    { name = "arnold", git = "https://github.com/peteromallet/Arnold.git?rev=9d8b2a4af93ba764e7e82381656a8fffb3678cf7" },
     { name = "arnold", marker = "extra == 'agent'", git = "https://github.com/peteromallet/Arnold.git?rev=9d8b2a4af93ba764e7e82381656a8fffb3678cf7" },
     { name = "comfyui", marker = "extra == 'comfy'", specifier = "==0.26.0", index = "https://nodes.appmana.com/simple/" },
     { name = "httpx", specifier = ">=0.25" },

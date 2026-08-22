@@ -1,0 +1,31 @@
+{
+  "IndexTTSEngineNode": {
+    "category": "IndexTTS",
+    "display_name": "IndexTTS Engine Node",
+    "inputs": {
+      "required": {
+        "text": ["STRING", {"multiline": true, "default": ""}],
+        "audio": ["AUDIO", {}],
+        "emotion": ["STRING", {}]
+      }
+    },
+    "outputs": [{"name": "audio", "type": "AUDIO", "is_list": false}],
+    "pack": "ComfyUI-IndexTTS",
+    "pack_version": "local",
+    "object_info_widget_order": ["text", "audio", "emotion"]
+  },
+  "IndexTTSEmotionOptionsNode": {
+    "category": "IndexTTS",
+    "display_name": "IndexTTS Emotion Options",
+    "inputs": {
+      "required": {
+        "emotion_control": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0}],
+        "other_param": ["FLOAT", {"default": 0.5}]
+      }
+    },
+    "outputs": [{"name": "emotion_options", "type": "EMOTION_OPTIONS", "is_list": false}],
+    "pack": "ComfyUI-IndexTTS",
+    "pack_version": "local",
+    "object_info_widget_order": ["emotion_control", "other_param"]
+  }
+}

@@ -9,6 +9,7 @@ description = "Python scratchpads for discovering, editing, validating, and runn
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "arnold @ git+https://github.com/peteromallet/Arnold.git@9d8b2a4af93ba764e7e82381656a8fffb3678cf7",
   "huggingface_hub[hf_xet]>=0.32.0",
   "httpx>=0.25",
   "pyyaml>=6",

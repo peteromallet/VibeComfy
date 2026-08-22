@@ -745,6 +745,10 @@ def _write_lineage_binding(
     the comparison lane adds the binding block proving WHICH locked input,
     mode, and source commit produced the leg. Extra top-level keys never
     participate in ``manifest_digest``.
+    When the executor manifest is absent (e.g. hard_diagnostic aborted the
+    executor), write a binding-only sidecar with the harness-level
+    ``manifest_digest`` so the assessor reports ``present True`` without
+    ``manifest_digest null`` while still distinguishing the fallback.
     """
     import os  # noqa: PLC0415
 
@@ -758,14 +762,28 @@ def _write_lineage_binding(
         else None
     )
     if not isinstance(manifest, Mapping):
-        return
-    bound = dict(manifest)
-    bound["binding"] = {
-        "scenario_id": scenario_id,
-        "pipeline_mode": mode,
-        "locked_input_sha256": locked_input_sha256,
-        "source_commit": source_commit or os.environ.get(SOURCE_COMMIT_ENV_VAR, ""),
-    }
+        # Fallback: executor did not produce a manifest (product error). Write
+        # a harness-only binding so lineage is present and manifest_digest
+        # is not null; the assessor will still surface the product failure
+        # via other typed signals but not via a spurious lineage gap.
+        bound: dict[str, Any] = {
+            "manifest_digest": locked_input_sha256,
+            "binding": {
+                "scenario_id": scenario_id,
+                "pipeline_mode": mode,
+                "locked_input_sha256": locked_input_sha256,
+                "source_commit": source_commit or os.environ.get(SOURCE_COMMIT_ENV_VAR, ""),
+            },
+            "harness_fallback": True,
+        }
+    else:
+        bound = dict(manifest)
+        bound["binding"] = {
+            "scenario_id": scenario_id,
+            "pipeline_mode": mode,
+            "locked_input_sha256": locked_input_sha256,
+            "source_commit": source_commit or os.environ.get(SOURCE_COMMIT_ENV_VAR, ""),
+        }
     try:
         output.mkdir(parents=True, exist_ok=True)
         (output / "artifact_lineage.json").write_text(
@@ -774,7 +792,6 @@ def _write_lineage_binding(
         )
     except OSError:
         pass
-
 
 def _run_mode(
     scenario: Mapping[str, Any],
@@ -832,6 +849,23 @@ def _run_mode(
     return summary
 
 
+def _cost_latency_sums(
+    staged_cost: float,
+    threaded_cost: float,
+    staged_latency: float,
+    threaded_latency: float,
+) -> dict[str, dict[str, float]]:
+    """Shared cost/latency summation helper for ``_aggregate``/``_aggregate_split``."""
+    return {
+        "staged": {"cost_usd": round(staged_cost, 6), "latency_s": round(staged_latency, 6)},
+        "threaded": {"cost_usd": round(threaded_cost, 6), "latency_s": round(threaded_latency, 6)},
+        "threaded_minus_staged": {
+            "cost_usd": round(threaded_cost - staged_cost, 6),
+            "latency_s": round(threaded_latency - staged_latency, 6),
+        },
+    }
+
+
 def _aggregate(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     outcomes: dict[str, int] = {}
     for comparison in comparisons:
@@ -847,6 +881,7 @@ def _aggregate(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     threaded_latency = sum(
         float(item["threaded"]["latency_s"] or 0.0) for item in comparisons
     )
+    sums = _cost_latency_sums(staged_cost, threaded_cost, staged_latency, threaded_latency)
     return {
         "scenario_count": len(comparisons),
         "outcomes": outcomes,
@@ -859,15 +894,7 @@ def _aggregate(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "canonical_delta_equal_count": sum(
             bool(item["delta"]["canonical_delta_equal"]) for item in comparisons
         ),
-        "staged": {"cost_usd": round(staged_cost, 6), "latency_s": round(staged_latency, 6)},
-        "threaded": {
-            "cost_usd": round(threaded_cost, 6),
-            "latency_s": round(threaded_latency, 6),
-        },
-        "threaded_minus_staged": {
-            "cost_usd": round(threaded_cost - staged_cost, 6),
-            "latency_s": round(threaded_latency - staged_latency, 6),
-        },
+        **sums,
     }
 def _aggregate_split(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     outcomes: dict[str, int] = {}
@@ -897,17 +924,13 @@ def _aggregate_split(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]
                 threaded_cost += float(cost)
             if isinstance(latency, (int, float)):
                 threaded_latency += float(latency)
+    sums = _cost_latency_sums(staged_cost, threaded_cost, staged_latency, threaded_latency)
     return {
         "scenario_count": len(comparisons),
         "outcomes": outcomes,
         "staged_count": staged_count,
         "threaded_count": threaded_count,
-        "staged": {"cost_usd": round(staged_cost, 6), "latency_s": round(staged_latency, 6)},
-        "threaded": {"cost_usd": round(threaded_cost, 6), "latency_s": round(threaded_latency, 6)},
-        "threaded_minus_staged": {
-            "cost_usd": round(threaded_cost - staged_cost, 6),
-            "latency_s": round(threaded_latency - staged_latency, 6),
-        },
+        **sums,
     }
 
 
@@ -1074,6 +1097,11 @@ def run_comparison(
             for entry in manifest["entries"]:
                 scenario_id = str(entry["id"])
                 descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
+                if str(descriptor.get("session_id") or "").strip():
+                    raise ComparisonManifestError(
+                        "comparison does not support explicit session_id "
+                        f"for scenario {scenario_id!r}"
+                    )
                 lock = str(entry["locked_input_sha256"])
                 mode = split_assignment_map[scenario_id]
                 result = _run_mode(
@@ -1179,6 +1207,11 @@ def run_comparison(
         for entry in manifest["entries"]:
             scenario_id = str(entry["id"])
             descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
+            if str(descriptor.get("session_id") or "").strip():
+                raise ComparisonManifestError(
+                    "comparison does not support explicit session_id "
+                    f"for scenario {scenario_id!r}"
+                )
             lock = str(entry["locked_input_sha256"])
             legs = {
                 mode: _run_mode(

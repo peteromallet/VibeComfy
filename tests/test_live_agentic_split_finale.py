@@ -275,3 +275,66 @@ def test_split_does_not_alter_paired_smoke_path(
         assert "threaded" in item
         assert "delta" in item and item["delta"] is not None
         assert "pair_skipped" not in item
+def test_split_one_invocation_50_legs_process_isolation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """BF-9: 50-leg cap-10 split path reconstructs in manifest order with process isolation."""
+    _seed_gated_schema_cache(monkeypatch, tmp_path)
+    manifest_path = comparator.HERE / "threaded_comparison_manifest_final50.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(manifest["entries"]) == 50
+
+    monkeypatch.setattr(comparator, "validate_only", lambda _p=None: {"ok": True})
+
+    captured: dict[str, Any] = {}
+
+    def fake_run_legs_in_processes(
+        descriptors: list[tuple[str, str, dict[str, Any], str]],
+        *,
+        output_base: Path,
+        tag: str,
+        transport: str | None,
+        concurrency: int,
+    ) -> list[dict[str, Any]]:
+        # Prove bounded launch window and manifest-order submission.
+        captured["count"] = len(descriptors)
+        captured["concurrency"] = concurrency
+        captured["modes"] = [mode for _, mode, _, _ in descriptors]
+        assert concurrency == 10
+        assert len(descriptors) == 50
+        # Simulate process-isolated execution: each descriptor in order.
+        results: list[dict[str, Any]] = []
+        for scenario_id, mode, _descriptor, lock in descriptors:
+            results.append(_summary(mode, lock, output_dir=output_base / mode / tag / scenario_id))
+        # Verify no shared mutation (deep-copy isolation is process-scoped by construction).
+        return results
+
+    monkeypatch.setattr(comparator, "_run_legs_in_processes", fake_run_legs_in_processes)
+
+    payload = comparator.run_comparison(
+        manifest_path,
+        output_base=tmp_path / "out",
+        concurrency=10,
+        leg_isolation="process",
+        split=True,
+    )
+
+    assert payload["aggregate"]["scenario_count"] == 50
+    assert len(payload["scenarios"]) == 50
+    assert payload["split"] == {"staged": 25, "threaded": 25}
+    assert payload["split_digest"] == comparator.SPLIT_FROZEN_DIGEST
+    ids = [s["scenario_id"] for s in payload["scenarios"]]
+    assert ids == [e["id"] for e in manifest["entries"]]
+    assert len(set(ids)) == 50
+    for item in payload["scenarios"]:
+        assert item["pair_skipped"] is True
+        assert item["delta"] is None
+        assert "leg" in item
+        assert item["mode"] in ("staged", "threaded")
+    assert payload["split_assignment"] == comparator.SPLIT_FROZEN_MAP
+    assert captured["count"] == 50
+    assert captured["concurrency"] == 10
+    # Process lane must still hit 25/25 via frozen map.
+    assert captured["modes"].count("staged") == 25
+    assert captured["modes"].count("threaded") == 25
+    assert payload["split_digest"] == comparator.split_digest(payload["split_assignment"])
