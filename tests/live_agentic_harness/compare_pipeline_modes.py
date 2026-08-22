@@ -31,6 +31,83 @@ REPO = HERE.parents[1]
 DEFAULT_COMPARISON_MANIFEST = HERE / "threaded_comparison_manifest.json"
 DEFAULT_OUTPUT_BASE = Path("out") / "compare-pipeline-modes"
 PIPELINE_MODES = ("staged", "threaded")
+# C5: frozen scenario→mode assignment for the one-invocation 25/25 split
+# finale (50 legs).  Sorted by locked_input_sha256 then alternating gives
+# exactly 25/25 on the final50 manifest; the map is frozen and its digest
+# is recorded in the live_run.  Any unknown id falls back to a pure hash
+# of its locked_input_sha256 for determinism.
+SPLIT_FROZEN_MAP: dict[str, str] = {
+    "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2": "staged",
+    "3d-3d-model-generation-and-preview-workflow-cc0df7": "staged",
+    "3d-3d-model-generation-and-retargeting-workflow-f65774": "staged",
+    "3d-3d-model-generation-and-rigging-from-image-352066": "staged",
+    "3d-3d-model-generation-and-rigging-workflow-90a1d5": "threaded",
+    "3d-3d-model-load-edit-and-export-workflow-d66a66": "threaded",
+    "3d-3d-shape-generation-and-export-workflow-8800a9": "staged",
+    "3d-converts-image-to-3d-model": "threaded",
+    "3d-generates-a-3d-mesh-from": "threaded",
+    "audio-acestep-audio-generation-and-processing-workfl-1b1360": "threaded",
+    "audio-acestep-audio-generation-with-detail-daemon-f0859f": "threaded",
+    "audio-acestep-audio-generation-with-ksampler-e8c20a": "staged",
+    "audio-acestep-audio-generation-workflow-2a31ec": "threaded",
+    "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": "staged",
+    "audio-audio-processing-with-chatterbox-tts-and-vc-b55994": "staged",
+    "audio-audio-processing-with-voice-tts-and-noise-remo-b80848": "threaded",
+    "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf": "staged",
+    "audio-transcribes-audio-appends-text-regenerates": "threaded",
+    "audio-tts-narration-using-indextts-2": "staged",
+    "hotshot-16-frames-agent-edit": "threaded",
+    "image-animatediff-image-to-video-with-latent-composi-17dc9b": "threaded",
+    "image-animatediff-video-from-images-with": "threaded",
+    "image-animatediff-video-generation-with-vae-d20410": "threaded",
+    "image-auraflow-image-generation-with-qwen-clip-9a3109": "staged",
+    "image-background-removal-and-grid-composition-54a681": "threaded",
+    "image-dual-checkpoint-xl-image-generation-with-refin-c9df19": "staged",
+    "image-face-detection-and-cropping-workflow-949658": "staged",
+    "image-flux-image-inpainting-and-compositing-with-con-00444a": "threaded",
+    "image-gemini-prompt-splitter-and-text-display-workfl-caae97": "staged",
+    "image-generates-a-2x2-seed-variation": "threaded",
+    "image-image-comparison-and-enhancement-with-florence-007018": "threaded",
+    "image-image-editing-with-qwen-image": "threaded",
+    "image-image-processing-with-sharpening-film-grain-an-9aa0f1": "threaded",
+    "image-image-to-image-with-controlnet-and-dwpreproces-49d057": "threaded",
+    "image-image-to-image-with-ipadapter-and-controlnet-1999a9": "staged",
+    "image-image-to-image-with-stable-zero123-and-backgro-def5b5": "threaded",
+    "image-inpainting-with-differential-diffusion-and-rea-1d414c": "threaded",
+    "image-kolors-image-generation-with-segs-detailer-and-d813fe": "staged",
+    "image-llama-cpp-instruct-image-preview-and-save-5b54bf": "staged",
+    "image-llava-image-captioning-and-keyword-extraction-d38dc8": "staged",
+    "image-qwen-image-inpainting-with-controlnet-09fc64": "threaded",
+    "image-sd3-image-generation-with-controlnet-19d221": "staged",
+    "image-sdxl-txt2img-cat-in-spacesuit": "staged",
+    "image-style-transfer-using-ip-adapter": "staged",
+    "image-two-stage-qwen-image-generation": "staged",
+    "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5": "staged",
+    "live-graph-explanation-smoke": "threaded",
+    "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652": "threaded",
+    "multi-video-based-character-replacement-using": "staged",
+    "speed-distillation-research": "staged",
+}
+SPLIT_FROZEN_DIGEST = "199f231f29f43716424888833d88b4be60f85f7dbcebb6e879fd3071447fa020"
+
+
+def split_assignment(entry: Mapping[str, Any]) -> str:
+    """Return the frozen mode for *entry* (C5 deterministic 25/25 split)."""
+    sid = str(entry.get("id") or entry.get("scenario_id") or "")
+    if sid in SPLIT_FROZEN_MAP:
+        return SPLIT_FROZEN_MAP[sid]
+    key = str(entry.get("locked_input_sha256") or sid)
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return "staged" if int(digest[0], 16) % 2 == 0 else "threaded"
+
+
+def split_digest(mapping: Mapping[str, str] | None = None) -> str:
+    """Digest of the frozen scenario→mode map (C5, recorded in live_run)."""
+    target = mapping if mapping is not None else SPLIT_FROZEN_MAP
+    return hashlib.sha256(
+        json.dumps(dict(target), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
 SOURCE_COMMIT_ENV_VAR = "VIBECOMFY_SOURCE_COMMIT"
 
 
@@ -792,6 +869,47 @@ def _aggregate(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "latency_s": round(threaded_latency - staged_latency, 6),
         },
     }
+def _aggregate_split(comparisons: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    outcomes: dict[str, int] = {}
+    staged_cost = 0.0
+    threaded_cost = 0.0
+    staged_latency = 0.0
+    threaded_latency = 0.0
+    staged_count = 0
+    threaded_count = 0
+    for item in comparisons:
+        outcome = str(item.get("outcome") or item.get("leg", {}).get("outcome") or "unknown")
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+        mode = str(item.get("mode") or "")
+        leg = item.get("leg") if isinstance(item.get("leg"), Mapping) else {}
+        usage = leg.get("usage") if isinstance(leg.get("usage"), Mapping) else {}
+        cost = usage.get("cost_usd")
+        latency = leg.get("latency_s")
+        if mode == "staged":
+            staged_count += 1
+            if isinstance(cost, (int, float)):
+                staged_cost += float(cost)
+            if isinstance(latency, (int, float)):
+                staged_latency += float(latency)
+        elif mode == "threaded":
+            threaded_count += 1
+            if isinstance(cost, (int, float)):
+                threaded_cost += float(cost)
+            if isinstance(latency, (int, float)):
+                threaded_latency += float(latency)
+    return {
+        "scenario_count": len(comparisons),
+        "outcomes": outcomes,
+        "staged_count": staged_count,
+        "threaded_count": threaded_count,
+        "staged": {"cost_usd": round(staged_cost, 6), "latency_s": round(staged_latency, 6)},
+        "threaded": {"cost_usd": round(threaded_cost, 6), "latency_s": round(threaded_latency, 6)},
+        "threaded_minus_staged": {
+            "cost_usd": round(threaded_cost - staged_cost, 6),
+            "latency_s": round(threaded_latency - staged_latency, 6),
+        },
+    }
+
 
 
 def _leg_exception_summary(
@@ -829,7 +947,6 @@ def _leg_exception_summary(
         "model_attempts": [],
     }
 
-
 def run_comparison(
     manifest_path: Path | None = None,
     *,
@@ -838,6 +955,7 @@ def run_comparison(
     transport: str | None = None,
     concurrency: int = 1,
     leg_isolation: str = "thread",
+    split: bool = False,
 ) -> dict[str, Any]:
     """Run the locked comparison lane once threaded adapter wiring is ready.
 
@@ -846,6 +964,9 @@ def run_comparison(
     staged-then-threaded execution order.  Higher values submit every
     scenario/mode leg before awaiting any result, then compare and serialize
     results on the parent thread in manifest order.
+    When ``split`` is True, each scenario runs in exactly ONE mode (25
+    staged + 25 threaded, frozen map) in one invocation; compare_pair is
+    skipped and per-leg assessments are recorded.
     """
     if leg_isolation not in LEG_ISOLATION_MODES:
         raise ComparisonManifestError(
@@ -875,7 +996,115 @@ def run_comparison(
         os.environ.setdefault(SOURCE_COMMIT_ENV_VAR, commit)
 
 
-    if concurrency > 1:
+    if split:
+        split_assignment_map: dict[str, str] = {}
+        for entry in manifest["entries"]:
+            sid = str(entry["id"])
+            split_assignment_map[sid] = split_assignment(entry)
+        staged_cnt = sum(1 for v in split_assignment_map.values() if v == "staged")
+        threaded_cnt = sum(1 for v in split_assignment_map.values() if v == "threaded")
+        if concurrency > 1:
+            descriptors: list[tuple[str, str, dict[str, Any], str]] = []
+            for entry in manifest["entries"]:
+                scenario_id = str(entry["id"])
+                descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
+                lock = str(entry["locked_input_sha256"])
+                if str(descriptor.get("session_id") or "").strip():
+                    raise ComparisonManifestError(
+                        "concurrent comparison does not support explicit session_id "
+                        f"for scenario {scenario_id!r}"
+                    )
+                mode = split_assignment_map[scenario_id]
+                descriptors.append((scenario_id, mode, descriptor, lock))
+            if leg_isolation == "process":
+                leg_results = _run_legs_in_processes(
+                    descriptors,
+                    output_base=base,
+                    tag=tag,
+                    transport=transport,
+                    concurrency=concurrency,
+                )
+            else:
+                leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
+                with ThreadPoolExecutor(
+                    max_workers=min(concurrency, len(descriptors)),
+                    thread_name_prefix="compare-pipeline-leg",
+                ) as executor:
+                    futures = [
+                        executor.submit(
+                            _run_mode,
+                            copy.deepcopy(descriptor),
+                            mode=mode,
+                            locked_input_sha256=lock,
+                            output_base=base,
+                            tag=tag,
+                            transport=transport,
+                        )
+                        for _scenario_id, mode, descriptor, lock in descriptors
+                    ]
+                    for index, (future, (scenario_id, mode, _descriptor, lock)) in enumerate(
+                        zip(futures, descriptors)
+                    ):
+                        try:
+                            leg_results[index] = future.result()
+                        except Exception as exc:  # noqa: BLE001
+                            leg_results[index] = _leg_exception_summary(
+                                scenario_id,
+                                mode=mode,
+                                locked_input_sha256=lock,
+                                output_base=base,
+                                tag=tag,
+                                error=exc,
+                            )
+            for (scenario_id, mode, _descriptor, lock), result in zip(descriptors, leg_results):
+                assert result is not None
+                metrics = _leg_metrics(result)
+                comparisons.append(
+                    {
+                        "scenario_id": scenario_id,
+                        "locked_input_sha256": lock,
+                        "mode": mode,
+                        "outcome": metrics["outcome"],
+                        "leg": metrics,
+                        "pair_skipped": True,
+                        "delta": None,
+                    }
+                )
+        else:
+            for entry in manifest["entries"]:
+                scenario_id = str(entry["id"])
+                descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
+                lock = str(entry["locked_input_sha256"])
+                mode = split_assignment_map[scenario_id]
+                result = _run_mode(
+                    descriptor,
+                    mode=mode,
+                    locked_input_sha256=lock,
+                    output_base=base,
+                    tag=tag,
+                    transport=transport,
+                )
+                metrics = _leg_metrics(result)
+                comparisons.append(
+                    {
+                        "scenario_id": scenario_id,
+                        "locked_input_sha256": lock,
+                        "mode": mode,
+                        "outcome": metrics["outcome"],
+                        "leg": metrics,
+                        "pair_skipped": True,
+                        "delta": None,
+                    }
+                )
+        split_counts = {"staged": staged_cnt, "threaded": threaded_cnt}
+        payload = {
+            "aggregate": _aggregate_split(comparisons),
+            "scenarios": comparisons,
+            "split": split_counts,
+            "split_digest": split_digest(split_assignment_map),
+            "split_assignment": split_assignment_map,
+        }
+    elif concurrency > 1:
         descriptors: list[tuple[str, str, dict[str, Any], str]] = []
         for entry in manifest["entries"]:
             scenario_id = str(entry["id"])
@@ -888,9 +1117,6 @@ def run_comparison(
                 )
             for mode in PIPELINE_MODES:
                 descriptors.append((scenario_id, mode, descriptor, lock))
-
-        # Submit all legs before awaiting any result.  Deep-copy at submission
-        # time so workers cannot share mutable descriptor state.
         if leg_isolation == "process":
             leg_results = _run_legs_in_processes(
                 descriptors,
@@ -917,8 +1143,6 @@ def run_comparison(
                     )
                     for _scenario_id, mode, descriptor, lock in descriptors
                 ]
-                # Await in submission order for deterministic reconstruction
-                # while allowing every submitted future to run concurrently.
                 for index, (future, (scenario_id, mode, _descriptor, lock)) in enumerate(
                     zip(futures, descriptors)
                 ):
@@ -933,8 +1157,6 @@ def run_comparison(
                             tag=tag,
                             error=exc,
                         )
-
-        # No comparison or IR projection occurs until every leg has finished.
         ordered: dict[str, dict[str, dict[str, Any]]] = {}
         for (scenario_id, mode, _descriptor, _lock), result in zip(
             descriptors, leg_results
@@ -954,8 +1176,6 @@ def run_comparison(
                 )
             )
     else:
-        # Compatibility path: preserve the original nested loop and call
-        # behavior when no explicit concurrency is requested.
         for entry in manifest["entries"]:
             scenario_id = str(entry["id"])
             descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
@@ -979,15 +1199,16 @@ def run_comparison(
                     threaded=legs["threaded"],
                 )
             )
-    payload = {"aggregate": _aggregate(comparisons), "scenarios": comparisons}
+    if split:
+        pass
+    else:
+        payload = {"aggregate": _aggregate(comparisons), "scenarios": comparisons}
     base.mkdir(parents=True, exist_ok=True)
     (base / "comparison.json").write_text(
         json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
     )
     (base / "comparison.md").write_text(_render_markdown(payload), encoding="utf-8")
     return payload
-
-
 def _write_leg_spec(
     spec_path: Path,
     *,
@@ -1181,6 +1402,23 @@ def _run_legs_in_processes(
 
 def _render_markdown(payload: Mapping[str, Any]) -> str:
     aggregate = payload["aggregate"]
+    if "split" in payload:
+        split = payload["split"]
+        lines = [
+            "# Pipeline comparison: staged versus threaded (split 25/25)",
+            "",
+            f"- Scenarios: {aggregate['scenario_count']}",
+            f"- Split: staged={split.get('staged')} threaded={split.get('threaded')} digest={payload.get('split_digest','')[:12]}…",
+            f"- Outcomes: `{json.dumps(aggregate['outcomes'], sort_keys=True)}`",
+            f"- Cost delta (threaded - staged): {aggregate['threaded_minus_staged']['cost_usd']}",
+            f"- Latency delta (threaded - staged): {aggregate['threaded_minus_staged']['latency_s']}",
+            "",
+            "| scenario | mode | outcome |",
+            "|---|---|---|",
+        ]
+        for item in payload["scenarios"]:
+            lines.append(f"| {item['scenario_id']} | {item['mode']} | {item['outcome']} |")
+        return "\n".join(lines) + "\n"
     lines = [
         "# Pipeline comparison: staged versus threaded",
         "",
@@ -1244,6 +1482,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--run-leg", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--leg-out", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--split",
+        action="store_true",
+        help="C5: one-invocation 25/25 split finale (one leg per scenario, frozen map)",
+    )
     return parser
 
 
@@ -1267,9 +1510,6 @@ def main(argv: list[str] | None = None) -> int:
             from .scenario_obligations import SCHEMA_RESOLUTION_ENV_VAR  # noqa: PLC0415
 
             os.environ[SCHEMA_RESOLUTION_ENV_VAR] = "1"
-            # G5-B4-MUST-008: paid legs never run on the shared-process
-            # thread lane. Concurrent runs default to process isolation;
-            # an explicit --leg-isolation thread is refused.
             if args.leg_isolation == "thread":
                 print(
                     json.dumps(
@@ -1293,6 +1533,7 @@ def main(argv: list[str] | None = None) -> int:
                 transport=args.transport,
                 concurrency=args.concurrency,
                 leg_isolation=leg_isolation,
+                split=args.split,
             )
         else:
             print("choose --validate-only or --run")
