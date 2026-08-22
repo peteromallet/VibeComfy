@@ -317,7 +317,18 @@ def recompute_apply(
         return False, None, f"invalid_delta_envelope: {exc}", declared_op_count
 
     try:
-        workflow = from_ui(dict(submit_graph), schema_provider=schema_provider)
+        workflow = from_ui(
+            dict(submit_graph),
+            schema_provider=schema_provider,
+            # Executor ingest contract (EditSession._workflow_from_ui,
+            # porting/edit/session.py; gate twin _workflow_from_ui,
+            # porting/edit/_gates.py): always the offline normalizer,
+            # never the host's comfy converter. Replay must select the
+            # same converter as live ingest or a host where the comfy
+            # converter imports AND diverges would make every receipt
+            # fail closed with candidate_hash_mismatch.
+            use_comfy_converter=False,
+        )
         from vibecomfy.porting.edit.admit import (
             AdmissionRejected,
             admission_snapshot_for,
