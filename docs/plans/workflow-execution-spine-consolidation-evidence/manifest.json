@@ -806,7 +806,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "f773d6a04d7366c9952c4f758018d1ef6b90b0baf9df7418d349220222985828",
+        "sha256": "9c1ebc26ea98e6d456b1fccd72f1867d13a471f29f37d92c3684c9a3d8c7fa4c",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -891,7 +891,7 @@
       "shard_integrity": {
         "path": "test-shards.json",
         "byte_identical_to_base": false,
-        "current_sha256": "a534da31ff7a62b315db0a6f7402dee7f2c01cbe112b2d48e5833078132b00a9",
+        "current_sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353",
         "base_sha256": "f0f1824368988de00857af70a58d7914c39f2a7914c9eba5840e76438d7cc3e3",
         "modified": true
       },
@@ -930,7 +930,7 @@
         },
         {
           "path": "test-shards.json",
-          "sha256": "8138d296385c03e0a74dfc3e828831b4599b51101c561ced860ac46a86ae6e6a"
+          "sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353"
         },
         {
           "path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json",
@@ -1529,7 +1529,7 @@
       "shard_integrity": {
         "path": "test-shards.json",
         "byte_identical_to_base": false,
-        "sha256": "8138d296385c03e0a74dfc3e828831b4599b51101c561ced860ac46a86ae6e6a",
+        "sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353",
         "modified": true
       },
       "integration_push_evidence": {
@@ -3758,6 +3758,82 @@
       "changed_files": [],
       "commits": [
         "5f200fb4"
+      ]
+    },
+    {
+      "task_id": "T6.1",
+      "gate": "G6",
+      "role": "implementer",
+      "label": "T6.1 [HARD] freeze canonical test shards (S0-S11) into test-shards.json",
+      "model_route": "stealth/ox-alpha",
+      "status": "complete",
+      "disposition": "complete",
+      "base_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "target_sha": "1cc1a0d734bf7831fe5c2972143b719f59f4e251",
+      "commits": [
+        "1cc1a0d734bf7831fe5c2972143b719f59f4e251"
+      ],
+      "changed_files": [
+        "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"
+      ],
+      "receipts": [
+        {
+          "task_id": "T6.1-FREEZE-SHARDS",
+          "path": "receipts/T6.1-FREEZE-SHARDS-receipt.json",
+          "sha256": "2f4dac6fd41a8a9f72a10386fd17ff50b2247324409a66d21bcd55474c8c1f55",
+          "brief_sha256": "5617dec768cef786841732627a2dc5f9ee3dbbcc2896c42cba07a191bdf57183",
+          "result_sha256": "b5764f7dc580f140748723e60dda4c7feb01ae327eba5edc4183e3c9f917ab3b",
+          "role": "implementer",
+          "model_route": "stealth/ox-alpha",
+          "pid": 111922,
+          "start_ts": "2026-08-22T15:06:03Z",
+          "end_ts": "2026-08-22T15:17:37Z",
+          "exit": 0,
+          "base_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+          "commits": [],
+          "changed_files": [
+            "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"
+          ]
+        },
+        {
+          "task_id": "T6.1-FREEZE-SHARDS-COMMIT",
+          "path": "receipts/T6.1-FREEZE-SHARDS-COMMIT-receipt.json",
+          "sha256": "087169284c39d05fb15f1c1f4890fa4ffdc2449320bc9949aaf5e424eb0eb07a",
+          "brief_sha256": "122ac385c4adad595462e8c1f58ee0ac53a04945437c2ac055be6b57337e9f70",
+          "result_sha256": "6da2d1afbbd417647341a0ae0b14f219e0ec8530f2b9dbb51d9524bcfaa3c12b",
+          "role": "implementer",
+          "model_route": "stealth/ox-alpha",
+          "pid": 112315,
+          "start_ts": "2026-08-22T15:18:52Z",
+          "end_ts": "2026-08-22T15:19:45Z",
+          "exit": 0,
+          "base_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+          "commits": [
+            "1cc1a0d734bf7831fe5c2972143b719f59f4e251"
+          ],
+          "changed_files": []
+        }
+      ],
+      "shard_integrity": {
+        "path": "test-shards.json",
+        "sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353",
+        "current_sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353",
+        "byte_identical_to_base": false,
+        "modified": true
+      },
+      "evidence_links": [
+        {
+          "path": "test-shards.json",
+          "sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353"
+        },
+        {
+          "path": "receipts/T6.1-FREEZE-SHARDS-receipt.json",
+          "sha256": "2f4dac6fd41a8a9f72a10386fd17ff50b2247324409a66d21bcd55474c8c1f55"
+        },
+        {
+          "path": "receipts/T6.1-FREEZE-SHARDS-COMMIT-receipt.json",
+          "sha256": "087169284c39d05fb15f1c1f4890fa4ffdc2449320bc9949aaf5e424eb0eb07a"
+        }
       ]
     }
   ],
