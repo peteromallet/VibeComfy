@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "09aeb384ef6218837ccdf0a73ec931f303261a9a43c184ca33d2da7bb73b6197",
+        "sha256": "a35e991abb9d88d371073fde4bb27f1f73ffb21b4b5bfca75ce776f9a170b1eb",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1954,6 +1954,55 @@
           "Behaviorally unifying count bases across modes (would change RC2-gate inputs and live-harness attestation semantics)."
         ],
         "protected_state_unchanged": "Protected base 5fc6be9dbe811df77e43d440ad087440e8bd57b5 remains ancestor of HEAD; wrapper, validator, plan docs, receipts, manifests, T2.x/T3.x authority/replay/retry/batch-protocol files, and vibecomfy/porting/edit/session.py/_gates.py untouched."
+      },
+      "g4_b3_review": {
+        "task_id": "G4-B3-REVIEW",
+        "gate": "G4",
+        "label": "G4 [XHARD-REVIEW] batch/gate review of the B3 window (T4.1+T4.2+T4.3)",
+        "role": "reviewer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "verdict": "continue",
+        "base_sha": "160042304761fbb6069ee0bc46b134c25625c071",
+        "reviewed_window": "69b6fcf17cf081d7726c882740462f51e5229d24..160042304761fbb6069ee0bc46b134c25625c071 (B3 T4.1+T4.2+T4.3)",
+        "wrapper_pid": 80568,
+        "start_ts": "2026-08-22T06:41:50Z",
+        "end_ts": "2026-08-22T07:00:58Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/G4-B3-REVIEW-receipt.json", "sha256": "6ce7647ef9cf1aa5eb2b416297223e02ce74548d8d174bad4565cd04751b4631"},
+        "brief_sha256": "933ef231eb138b30359efd1a250f5d0e53882ddff2b821db5fc7f1198e8d4741",
+        "result_sha256": "dee7ec0f1a27e6340025661ded4582c81ca8dabaf851b546f499ca6498f52faf",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G4-B3-REVIEW-dispatch.log",
+        "verdict_basis": [
+          "The complete B3 window 69b6fcf1..16004230 satisfies plan G4 acceptance plus the relevant binding conditions for T4.1 [XHARD], T4.2 [HARD], and T4.3 [HARD]; NO must findings; protected state unchanged.",
+          "Merge/default recommendation: integrate 16004230 together with the concurrently-landed evidence commit 7821a86d; carry the 5 pre-existing focused failures forward as known-failing with exact IDs (not B3-introduced); they remain G7-blocking if still unfixed at finale time."
+        ],
+        "t41_verdict": "PASS - RESEARCH_EVIDENCE_SHARED_KEYS (12 keys) produced by BOTH carriers (staged AgentResearchResult.to_dict, threaded _durable_research_evidence); attempt typing Python-derived both sides (never prose); executed-call base reconciled over typed statuses only; budget/deadline persisted both sides with deadline_reached always emitted; unsupported-source parity via single shared source_policy_entries (duplicate constant deleted, one definition remains); per-ledger-entry tool_status stamped at the ONE seam additive-with-omission; cross-mode parity pinned by three new test_t41_* tests",
+        "t42_verdict": "PASS - exactly two env readers of VIBECOMFY_RESEARCH_PHASE_DEADLINE, both fall back to the single RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS=450.0 (600s outlier gone); wire compatibility preserved additive-with-omission (no renames, pinned); separate reply-model behavior untouched; closed-checkpoint projection authority intact at 4 sites",
+        "t43_verdict": "PASS - classifier-free (sole _run_classify call site inside _run_staged_executor, unreachable for threaded); graphless research (no run_agent_research_stage on threaded path); answer-only inspect graph=None; accepted batch sole authority (projection refuses applied without persisted ops/replay_ok); Row-7 recovery fail-closed; ONE mode-neutral projector (del mode); three recorded decisions consistent with code (continuation substrate=chat_artifacts consumed at _frag_entrypoint.py:351; reserves advisory-only with hard ceiling 24; 450s unified)",
+        "attack_surface_walked": ["typed route", "graph/schema identity (untouched)", "accepted delta validity", "terminal state", "failure family", "evidence", "idempotency", "cost"],
+        "prose_as_correctness_findings": [],
+        "pre_existing_failure_carry_forward": {
+          "head_result": "255 passed, 5 failed @ 16004230 (focused pytest)",
+          "base_export": "git archive 69b6fcf1 -> all 5 reproduce with identical assertion shapes",
+          "introduced_by_b3": 0,
+          "browser_node_batch": "20 pass / 0 fail (node --test)",
+          "ownership": "known-failing carry-forward, owned by T6.2 classification; not B3-introduced, non-blocking for G4; remain G7-blocking if still unfixed at finale time",
+          "failing_ids": [
+            {"id": "tests/test_executor_flows.py::TestSimpleEditFlow::test_simple_edit_pure_clarify_is_not_promoted_to_candidate", "shape": "pure-clarify narration text"},
+            {"id": "tests/test_executor_flows.py::test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph", "shape": "rollback-graph promotion"},
+            {"id": "tests/test_executor_flows.py::test_terminal_no_candidate_response_does_not_promote_rollback_graph", "shape": "rollback-graph promotion"},
+            {"id": "tests/test_executor_threaded_mode.py::test_threaded_accepted_edit_survives_projection_failure", "shape": "graph identity-after-projection"},
+            {"id": "tests/test_executor_threaded_mode.py::test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap", "shape": "graph identity-after-projection"}
+          ]
+        },
+        "validator_environment": "reviewer-worktree validator exit 1 environmental (untracked receipts absent; T1.2-MUST-001 chain is Batch-1-era); operating worktree validator @7821a86d -> OK exit 0; final-five/final50 unchanged across the window",
+        "next_unblocked_card": "Integration push d564de9e..HEAD (incl. 16004230 + 7821a86d + this evidence commit), then evidence-log-integration, then G3-RESIDUAL-RG21-ASYMMETRY card (XHARD, before T7.2), then B4-IMPLEMENTER (T5.1->T5.5), then G5 batch review"
       }
     }
   ],

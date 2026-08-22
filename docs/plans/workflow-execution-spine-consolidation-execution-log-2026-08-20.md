@@ -3636,3 +3636,143 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## G4 batch/gate review — G4-B3-REVIEW disposition (2026-08-22)
+
+### G4-B3-REVIEW register
+
+- **Task/label/gate/role/route:** `G4-B3-REVIEW` / `G4 [XHARD-REVIEW]
+  batch/gate review of the B3 window (T4.1+T4.2+T4.3)` / gate `G4` /
+  reviewer / model route `stealth/ox-alpha`, resolved
+  `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/G4-B3-REVIEW-receipt.json` (file
+  SHA-256
+  `6ce7647ef9cf1aa5eb2b416297223e02ce74548d8d174bad4565cd04751b4631`);
+  window `2026-08-22T06:41:50Z` → `2026-08-22T07:00:58Z`, launcher exit
+  `0`; base `160042304761fbb6069ee0bc46b134c25625c071`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `933ef231eb138b30359efd1a250f5d0e53882ddff2b821db5fc7f1198e8d4741`;
+  result SHA-256
+  `dee7ec0f1a27e6340025661ded4582c81ca8dabaf851b546f499ca6498f52faf`;
+  `stop_or_judgment` empty (`JUDGMENT_REQUIRED: none`); full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/G4-B3-REVIEW-dispatch.log`.
+- **Verdict: `continue`.** G4 discharged: the B3 window satisfies plan
+  G4 acceptance plus the relevant binding conditions; NO must findings.
+- **Window scope verified:** range `69b6fcf1..16004230` = exactly one
+  commit, 16 files (+1008/−106) matching the B3 receipt's
+  `changed_files`; no unauthorized files.
+
+### Merge recommendation (advisory)
+
+Integrate `16004230` together with the concurrently-landed evidence
+commit `7821a86d` (evidence-log-B3, this operating worktree). Carry
+the 5 pre-existing focused failures forward as known-failing with the
+exact IDs below; they are not B3-introduced and do not block G4, but
+they remain G7-blocking if still unfixed at finale time.
+
+### T4.1 PASS — shared research evidence contract
+
+- `RESEARCH_EVIDENCE_SHARED_KEYS` (12 keys) produced by BOTH carriers:
+  staged `AgentResearchResult.to_dict`; threaded
+  `_durable_research_evidence`.
+- Attempt typing Python-derived on both sides (never prose);
+  executed-call base reconciled over typed statuses only.
+- Budget/deadline persisted both sides with `deadline_reached` always
+  emitted; unsupported-source parity via a single shared
+  `source_policy_entries` (duplicate constant deleted — one definition
+  remains); per-ledger-entry `tool_status` stamped at the ONE seam,
+  additive-with-omission.
+- Cross-mode parity pinned by three new `test_t41_*` tests.
+
+### T4.2 PASS — staged adapter freeze; deadline unified on 450s
+
+- Exactly two env readers of `VIBECOMFY_RESEARCH_PHASE_DEADLINE`, both
+  falling back to the single
+  `RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS = 450.0` — the 600s outlier
+  is gone.
+- Wire compatibility preserved additive-with-omission (no renames,
+  pinned); separate reply-model behavior untouched;
+  closed-checkpoint projection authority intact at 4 sites.
+
+### T4.3 PASS — threaded adapter obligations; decisions consistent
+
+- Classifier-free: sole `_run_classify` call site sits inside
+  `_run_staged_executor`, unreachable for threaded. Graphless
+  research: no `run_agent_research_stage` on the threaded path;
+  answer-only inspect returns graph=None.
+- Accepted batch sole authority: projection refuses applied without
+  persisted ops/replay_ok. Row-7 recovery fail-closed. ONE
+  mode-neutral projector (`del mode`).
+- Three recorded decisions consistent with code: continuation
+  substrate = chat_artifacts consumed at `_frag_entrypoint.py:351`;
+  reserves advisory-only with hard ceiling 24; deadline unified at
+  450s.
+
+### G4 attack surface walked
+
+Typed route; graph/schema identity (untouched); accepted delta
+validity; terminal state; failure family; evidence; idempotency; cost
+— no prose-as-correctness found anywhere in the diff.
+
+### 5 pre-existing failures — CONFIRMED PRE-EXISTING
+
+Focused pytest at HEAD `16004230`: 255 passed, 5 failed. Base export
+(`git archive 69b6fcf1`) reproduces all 5 with identical assertion
+shapes; introduced-by-B3 count: **0**. Browser node batch: 20 pass /
+0 fail. Carry-forward with exact IDs (known-failing; owned by T6.2
+classification):
+
+- `tests/test_executor_flows.py::TestSimpleEditFlow::test_simple_edit_pure_clarify_is_not_promoted_to_candidate`
+  (pure-clarify narration text)
+- `tests/test_executor_flows.py::test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph`
+  (rollback-graph promotion)
+- `tests/test_executor_flows.py::test_terminal_no_candidate_response_does_not_promote_rollback_graph`
+  (rollback-graph promotion)
+- `tests/test_executor_threaded_mode.py::test_threaded_accepted_edit_survives_projection_failure`
+  (graph identity-after-projection)
+- `tests/test_executor_threaded_mode.py::test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap`
+  (graph identity-after-projection)
+
+### Evidence coherence
+
+The reviewer-worktree validator exit 1 was environmental: receipts are
+untracked run artifacts absent in the fresh review worktree, and the
+T1.2-MUST-001 chain is Batch-1-era. The operating worktree validator
+at `7821a86d` returns OK, exit 0. final-five/final50 unchanged across
+the window.
+
+### Next unblocked card
+
+Integration push (`d564de9e..HEAD`, including `16004230` + `7821a86d`
++ this commit), then evidence-log-integration, then the
+G3-RESIDUAL-RG21-ASYMMETRY card (XHARD, before T7.2), then
+B4-IMPLEMENTER (T5.1→T5.5; brief + allowance already written at
+`g0/B4-IMPLEMENTER.md` / `-allowance.json`), then G5 batch review
+(test-shard inventory may overlap the final G5 review).
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution
+log + manifest; test-shards.json untouched) in one coherent commit
+authored by `POM <peter@omalley.io>`. No receipt, protected state,
+branch, or other file is changed; no push, merge, promotion,
+live/model/runtime call, secret access, wrapper dispatch, review,
+validator change, or product/test run is performed by this evidence
+recorder; the recorded G4 batch review was executed by the
+G4-B3-REVIEW agent, not by this recorder. No receipt is committed; the
+reviewed receipts stay untracked run artifacts. This evidence
+recorder's own wrapper PID is `81442`, start `2026-08-22T07:01:56Z`
+per `active-allowances.json`; this recorder's own receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-G4-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
