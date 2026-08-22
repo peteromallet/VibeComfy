@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
+import logging
 
 from vibecomfy.ingest.snapshot import WorkflowSnapshot, snapshot_of
 from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
@@ -34,6 +35,12 @@ from vibecomfy.schema import (
     touched_schema_classes,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
+# Keep LayerMask: SegmentAnythingUltra V3 fail-closed while other provisional
+# adds are allowed — documents test_admit_operation_families_and_fail_closed_unknown_touched.
+_CARVED_OUT_FAIL_CLOSED_CLASSES = frozenset({"LayerMask: SegmentAnythingUltra V3"})
+
 def _add_node_provisional_allows(
     operation: Mapping[str, Any],
     catalog: SchemaSnapshot | Mapping[str, Any] | None,
@@ -45,7 +52,7 @@ def _add_node_provisional_allows(
     class_type = operation.get("class_type")
     if not isinstance(class_type, str) or not class_type:
         return False
-    if class_type == "LayerMask: SegmentAnythingUltra V3":
+    if class_type in _CARVED_OUT_FAIL_CLOSED_CLASSES:
         return False
     try:
         from vibecomfy.schema.types import (
@@ -61,8 +68,8 @@ def _add_node_provisional_allows(
                 nodes = getattr(working_workflow, "nodes", {}) or {}
                 workflow_classes = {str(getattr(n, "class_type", "") or "") for n in nodes.values()}
                 remaining = {c for c in remaining if c not in workflow_classes}
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOGGER.debug("provisional remaining filter failed: %s", exc)
         unknown_remaining = [c for c in remaining if c not in known or c in missing]
         if unknown_remaining:
             return False
@@ -77,13 +84,14 @@ def _add_node_provisional_allows(
                     workflow_uids.add(uid if uid else str(nid))
                     workflow_uids.add(str(nid))
                 required = {ident for ident in required if ident not in workflow_uids}
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOGGER.debug("provisional required filter failed: %s", exc)
         unresolved = [ident for ident in required if ident not in node_classes]
         if unresolved:
             return False
         return True
-    except Exception:
+    except Exception as exc:
+        _LOGGER.debug("provisional add_node check failed: %s", exc)
         return False
 
 def _is_provisional_touched(
@@ -118,8 +126,41 @@ def _is_provisional_touched(
             if isinstance(cls, str) and cls and (cls not in known or cls in missing):
                 return True
         return False
-    except Exception:
+    except Exception as exc:
+        _LOGGER.debug("provisional touched check failed: %s", exc)
         return False
+
+
+def _is_provisional_touched_for_admit(
+    operation: Mapping[str, Any],
+    workflow: Any | None,
+    catalog: SchemaSnapshot | Mapping[str, Any] | None,
+    *,
+    working_workflow: Any | None = None,
+) -> bool:
+    """Canonical helper reused by admit and _interpret (single import).
+
+    Wraps :func:`_is_provisional_touched` with the LayerMask carve-out.
+    ``working_workflow`` is accepted for signature compatibility with the
+    add-node path but not needed for touched-only checks.
+    """
+    if str(operation.get("op") or "") == "add_node":
+        class_type = operation.get("class_type")
+        if isinstance(class_type, str) and class_type in _CARVED_OUT_FAIL_CLOSED_CLASSES:
+            return False
+    # For add_node provisional, also allow when class itself is provisional even
+    # if workflow is None or touched is empty — mirror _is_provisional_touched's
+    # add_node branch but using the same catalog.
+    if str(operation.get("op") or "") == "add_node":
+        try:
+            from vibecomfy.schema.types import _snapshot_known_and_missing
+            known, missing = _snapshot_known_and_missing(catalog) if catalog is not None else (set(), set())
+            cls = operation.get("class_type")
+            if isinstance(cls, str) and cls and (cls not in known or cls in missing):
+                return True
+        except Exception as exc:
+            _LOGGER.debug("canonical add_node provisional check failed: %s", exc)
+    return _is_provisional_touched(operation, workflow, catalog)
 
 LAYOUT_OPERATION_NAMES = frozenset(
     {"set_node_geometry", "add_group", "set_group_geometry", "remove_group"}
@@ -217,7 +258,8 @@ def _bind_schema_from_provider(schema_provider: Any) -> SchemaSnapshot | None:
     if callable(candidate):
         try:
             candidate = candidate()
-        except Exception:
+        except Exception as exc:
+            _LOGGER.debug("schema provider snapshot callable failed: %s", exc)
             candidate = None
     if isinstance(candidate, SchemaSnapshot):
         return candidate
@@ -300,7 +342,6 @@ def snapshot_from_schema_witness(
             schema = None
     return admission_snapshot_for(workflow, schema_snapshot=schema)
 
-
 def _operation_mapping(operation: Any) -> dict[str, Any]:
     if isinstance(operation, Mapping):
         return dict(operation)
@@ -308,7 +349,8 @@ def _operation_mapping(operation: Any) -> dict[str, Any]:
     if isinstance(op_name, str):
         try:
             return dict(canonical_op_to_dict(operation))
-        except Exception:
+        except Exception as exc:
+            _LOGGER.debug("canonical_op_to_dict failed: %s", exc)
             return {"op": op_name}
     return {}
 
@@ -622,7 +664,8 @@ def admit_operation(
                         pass
                     else:
                         return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
-                except Exception:
+                except Exception as exc:
+                    _LOGGER.debug("AddNode provisional check failed: %s", exc)
                     return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
             else:
                 return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
@@ -662,7 +705,8 @@ def admit_operations(
             simulated = apply_edit_cow(
                 simulated, parsed, schema_provider=_schema_provider_for(pair)
             )
-        except Exception:
+        except Exception as exc:
+            _LOGGER.debug("admit_operations simulation apply failed: %s", exc)
             # Simulation failure is still a typed rejection of the batch.
             return _reject(pair, mapping, "apply_failed")
     if last_allowed is None:

@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import ast
 import keyword
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal, Mapping, Sequence
+
+_LOGGER = logging.getLogger(__name__)
 
 from vibecomfy.porting.edit._ir_utils import (
     _canonical_input_name_for_class,
@@ -216,8 +219,12 @@ def _interpret_ops(
                 AdmissionRejected,
                 admission_snapshot_for,
                 admit_operation,
+                _is_provisional_touched_for_admit,
+                _operation_mapping,
+                _schema_catalog_for,
             )
             from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
+            from vibecomfy.schema import SchemaSnapshotError
 
             admitted = admit_operation(
                 admission_snapshot_for(post, schema_provider),
@@ -234,39 +241,12 @@ def _interpret_ops(
                 try:
                     _validate_one(post, op, schema_provider)
                 except ApplyOpsError as exc:
-                    from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp
                     if getattr(exc, "code", None) in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
-                        # Allow provisional add or wiring to provisional node present in post
-                        allowed = False
-                        if isinstance(op, _AddNodeOp):
-                            try:
-                                from vibecomfy.schema.types import _snapshot_known_and_missing
-                                from vibecomfy.porting.edit.admit import admission_snapshot_for, _schema_catalog_for
-                                pair = admission_snapshot_for(post, schema_provider)
-                                catalog = _schema_catalog_for(pair, pair)
-                                # catalog may be None; treat as unknown
-                                if catalog is None:
-                                    allowed = True
-                                else:
-                                    known, missing = _snapshot_known_and_missing(catalog if not isinstance(catalog, type(None)) else pair.schema)
-                                    # for AddNode, check its own class
-                                    if op.class_type not in known or op.class_type in missing:
-                                        allowed = True
-                            except Exception:
-                                allowed = True
-                        if not allowed:
-                            # check if touching provisional node in post
-                            try:
-                                from vibecomfy.porting.edit.admit import _is_provisional_touched, _operation_mapping
-                                from vibecomfy.porting.edit.admit import admission_snapshot_for, _schema_catalog_for
-                                pair2 = admission_snapshot_for(post, schema_provider)
-                                catalog2 = _schema_catalog_for(pair2, pair2)
-                                cat = catalog2 if catalog2 is not None else pair2.schema
-                                if _is_provisional_touched(_operation_mapping(op), post, cat):
-                                    allowed = True
-                            except Exception:
-                                pass
-                        if allowed:
+                        # Route through single canonical helper from admit.py
+                        pair = admission_snapshot_for(post, schema_provider)
+                        catalog = _schema_catalog_for(pair, pair)
+                        cat = catalog if catalog is not None else pair.schema
+                        if _is_provisional_touched_for_admit(_operation_mapping(op), post, cat, working_workflow=post):
                             pass
                         else:
                             raise
@@ -280,8 +260,8 @@ def _interpret_ops(
             from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp2
             _apply_provider = None if isinstance(op, _AddNodeOp2) else schema_provider
             post = apply_edit_cow(post, op, schema_provider=_apply_provider)
-            diagnostics.extend(_apply_diagnostics(before, post, op))
         except Exception as exc:
+            _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
             code = getattr(exc, "code", "apply_failed")
             failed = StatementOutcome(
                 statement_index=index,
@@ -1415,13 +1395,11 @@ class _InterpretRunner:
         node, issues = self._resolve_name(target_name)
         if node is None or issues:
             return False
-        node_id = str(getattr(node, "id", "") or "")
-        return any(str(getattr(edge, "to_node", "")) == node_id for edge in self.workflow.edges)
-
     def _refresh_bindings(self) -> None:
         try:
             names = _compute_variable_names(self.workflow.nodes, list(self.workflow.edges))
-        except Exception:
+        except (AttributeError, KeyError, ValueError, TypeError) as exc:
+            _LOGGER.debug("compute_variable_names failed: %s", exc)
             names = {}
         live_uids = {
             str(getattr(node, "uid", "") or "")
@@ -1515,6 +1493,7 @@ class _InterpretRunner:
             )
             self._pending_apply_diagnostics.extend(_apply_diagnostics(before, self.workflow, op))
         except Exception as exc:
+            _LOGGER.debug("interpret _apply failed: %s", exc)
             return StatementOutcome(
                 statement_index=item.statement_index,
                 source=item.source,

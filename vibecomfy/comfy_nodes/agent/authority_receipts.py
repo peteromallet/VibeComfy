@@ -754,9 +754,15 @@ def stamp_response_with_authority(
         else ()
     )
     if not receipt.is_applyable:
+        # Narrow: discovery-stop clarify must be preserved even when replay
+        # is not applyable (candidate_hash_mismatch / accepted_batch==[]).
+        # Only this specific report key maps to clarify; all other
+        # non-applyable cases remain fail-closed.
+        _orig_outcome = response.get("outcome") if isinstance(response.get("outcome"), Mapping) else None
+        _report = response.get("report") if isinstance(response.get("report"), Mapping) else None
+        if isinstance(_orig_outcome, Mapping) and _orig_outcome.get("kind") == "clarify" and isinstance(_report, Mapping) and "discovery_stop" in _report:
+            return stamped
         # Fail closed: force applyability fields to False. Row 4, not row 3:
-        # candidate or replay rejected is authority_rejected. Rejected
-        # candidate is audit-only; original graph remains authoritative.
         from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
         from vibecomfy.porting.edit.checkpoint import (
             TERMINAL_STATE_AUTHORITY_REJECTED,
