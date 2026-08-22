@@ -709,6 +709,19 @@
           "label": "T7.2 [HARD] ONE authoritative concurrent 50-leg live run (final50, --split 25 staged + 25 threaded, concurrency 10, process isolation) \u2014 the single authoritative finale",
           "model_route": "stealth/ox-alpha",
           "exit": 0
+        },
+        {
+          "sequence": 10,
+          "canonical_slot": "G7",
+          "task_id": "G7-REVIEW",
+          "receipt_path": "receipts/G7-REVIEW-receipt.json",
+          "sha256": "bd75dd8136cfeff409ec4641b25b8bc495c02486d17137094e56c984c8250fa2",
+          "result_sha256": "4adffc81697aa819979752daede9679f444cfa12314be627aa0fbe4e44019c25",
+          "role": "review",
+          "label": "G7 [XHARD-REVIEW] final review \u2014 verify the authoritative finale (50 legs, 25/25 split), honest assessment, all deterministic gates green, protected state unchanged; return continue/correct/replan/stop + separate merge/default recommendation",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "stop \u2014 done-when unmet (5/50 product passes) \u2014 HOLD, DO NOT MERGE \u2014 escalated to operator; JUDGMENT_REQUIRED: none"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1132,7 +1145,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "568cec723666ec35ef972b0b59c69c531d13d56ee05a30d08dd2c376055838ec",
+        "sha256": "77138e7306336efda7393a3f785e88a2a1ba6642e2a90977f82cf565bd544353",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
