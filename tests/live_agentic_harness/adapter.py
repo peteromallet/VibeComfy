@@ -216,7 +216,11 @@ def run_headless_scenario(
         pipeline_mode=pipeline_mode,
     )
 
-    result = run_headless(request, entrypoint="live_agentic_harness")
+    result = run_headless(
+        request,
+        entrypoint="live_agentic_harness",
+        scenario_id=str(scenario.get("id") or "") or None,
+    )
     summary: dict[str, Any] = {
         "scenario_id": scenario_id,
         "status": result.status,

@@ -8,9 +8,10 @@ importing this module.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -158,11 +159,16 @@ def run_headless(
     request: HeadlessAgentRequest,
     *,
     entrypoint: str = "headless_cli",
+    scenario_id: str | None = None,
 ) -> HeadlessAgentResult:
     """Run one headless agent turn and synthesize artifacts.
 
     Live runs are gated by provider readiness.  Dry runs still require readiness
     because the classify phase calls a model.
+
+    ``scenario_id`` is the harness-owned lineage identity (T5.1); when given it
+    is bound into the executor request so the artifact lineage manifest records
+    the scenario binding at the source.
     """
     _ensure_headless_env()
 
@@ -195,6 +201,11 @@ def run_headless(
             request=request,
         )
 
+    # T5.1 lineage: bind the harness-owned scenario identity at the source so
+    # the artifact lineage manifest records it verbatim (never re-derived).
+    if scenario_id:
+        executor_request = replace(executor_request, scenario_id=str(scenario_id))
+
     try:
         readiness = _check_live_readiness(request)
     except Exception as exc:
@@ -225,7 +236,6 @@ def run_headless(
             error=error,
             request=request,
         )
-
     from vibecomfy.comfy_nodes.agent.executor_durable import (  # noqa: PLC0415
         maybe_write_executor_only_durable_turn,
     )
@@ -275,6 +285,35 @@ def run_headless(
         readiness=readiness,
         entrypoint=entrypoint,
     )
+
+    # T5.1: persist the executor-built artifact lineage manifest as a stable
+    # sidecar so the harness assessor can bind assessment evidence to it even
+    # when the response envelope is large or redacted downstream.
+    _report = response.get("report") if isinstance(response, Mapping) else None
+    _lineage_manifest = (
+        (_report or {}).get("executor", {}).get("artifact_lineage")
+        if isinstance(_report, Mapping)
+        else None
+    )
+    if isinstance(_lineage_manifest, Mapping):
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "artifact_lineage.json").write_text(
+                json.dumps(_thaw_mapping(_lineage_manifest), indent=2, sort_keys=True)
+                + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            LOGGER.warning("could not persist artifact_lineage.json sidecar")
+
+def _thaw_mapping(value: Any) -> Any:
+    """Plain-dict/list copy of frozen mappingproxy/tuple evidence."""
+    if isinstance(value, Mapping):
+        return {str(k): _thaw_mapping(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_mapping(v) for v in value]
+    return value
+
 
     return HeadlessAgentResult(
         status=status,

@@ -1412,6 +1412,19 @@ def _build_batch_repl_response(
     response.update(compatibility_fields)
     response.update(_execution_plan_response_fields(state))
     response.update(_session_artifact_response_fields(state))
+    # T5.1 lineage: bind the retained ingest snapshot's digests into the
+    # durable response so the artifact lineage manifest can link the workflow
+    # snapshot without re-deriving shape from raw bytes. Additive keys only.
+    _lineage_snapshot = getattr(state, "workflow_snapshot", None)
+    if _lineage_snapshot is not None and getattr(_lineage_snapshot, "source_digest", None):
+        response["workflow_source_digest"] = _lineage_snapshot.source_digest
+        response["workflow_semantic_digest"] = _lineage_snapshot.semantic_digest
+        response["workflow_semantic_hash_version"] = (
+            _lineage_snapshot.semantic_hash_version
+        )
+        response["workflow_source_representation"] = str(
+            getattr(_lineage_snapshot, "source_representation", "") or ""
+        )
     if canonical_route:
         response["route"] = canonical_route
     if canonical_route == "research":

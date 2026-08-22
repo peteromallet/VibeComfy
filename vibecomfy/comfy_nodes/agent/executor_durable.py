@@ -160,6 +160,12 @@ def maybe_write_executor_only_durable_turn(
             stamped["workflow_source_digest"] = retained_snapshot.source_digest
             stamped["workflow_semantic_digest"] = retained_snapshot.semantic_digest
             stamped["workflow_semantic_hash_version"] = retained_snapshot.semantic_hash_version
+            # T5.1 lineage: the source representation name travels with the
+            # snapshot digests so the artifact manifest can link it without
+            # re-deriving shape from raw bytes.
+            stamped["workflow_source_representation"] = str(
+                getattr(retained_snapshot, "source_representation", "") or ""
+            )
         stamped["session_path"] = str(session_dir_for(root, context.session_id))
         stamped["session_path_resolved"] = str(session_dir_for(root, context.session_id).resolve())
         stamped["detail_json_path"] = str(response_path)

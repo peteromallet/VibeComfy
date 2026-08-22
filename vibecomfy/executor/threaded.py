@@ -28,6 +28,10 @@ from .contracts import (
 from .profiles import AgentSpecShape
 from .request_purpose import deterministic_request_purpose
 
+# Lazy at call time inside core; the module-level import here is the typed
+# builder seam shared by both deliberation modes (no mode fork below it).
+from .core import _build_artifact_lineage_manifest  # noqa: E402
+
 LOGGER = logging.getLogger(__name__)
 
 # Hard production ceiling. Unlike the prototype this is neither a 200-call nor
@@ -250,6 +254,14 @@ def run_threaded_executor(
             model_attempts=attempts,
             reply_request=snapshot_reply_request_capture(),
             orchestration_mode="threaded",
+            artifact_lineage=_build_artifact_lineage_manifest(
+                request,
+                plan=plan,
+                research=None,
+                implementation_result=implementation,
+                model_attempts=attempts,
+                orchestration_mode="threaded",
+            ),
         )
 
     def finish(result: ExecutorResult) -> ExecutorResult:

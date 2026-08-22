@@ -1095,6 +1095,10 @@ class ExecutorRequest:
     # Deliberation driver only. Canonical values are staged/threaded; legacy
     # full/two_step aliases are normalized immediately at this boundary.
     pipeline_mode: OrchestrationMode | None = None
+    # T5.1 lineage binding: harness-owned scenario identity for this turn.
+    # None for non-harness callers; the artifact lineage manifest records it
+    # verbatim (empty string when unknown at the source — never fabricated).
+    scenario_id: str | None = None
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
@@ -2001,6 +2005,10 @@ class Report:
     # Additive only for non-default orchestration. Omitting it for staged mode
     # preserves the existing staged wire bytes exactly.
     orchestration_mode: OrchestrationMode | None = None
+    # T5.1: digest-linked artifact lineage manifest (see
+    # vibecomfy.comfy_nodes.agent.artifact_lineage). Additive with omission:
+    # None keeps legacy wire bytes unchanged.
+    artifact_lineage: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.research is not None and not callable(getattr(self.research, "to_dict", None)):
@@ -2066,6 +2074,8 @@ class Report:
         ]
         if self.reply_request is not None:
             inner["reply_request"] = _thaw_jsonish(self.reply_request)
+        if self.artifact_lineage is not None:
+            inner["artifact_lineage"] = _thaw_jsonish(self.artifact_lineage)
         if self.orchestration_mode is not None:
             inner["orchestration_mode"] = self.orchestration_mode
         return {"executor": inner}

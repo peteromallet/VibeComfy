@@ -13,6 +13,7 @@ import copy
 import hashlib
 import inspect
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -29,6 +30,44 @@ REPO = HERE.parents[1]
 DEFAULT_COMPARISON_MANIFEST = HERE / "threaded_comparison_manifest.json"
 DEFAULT_OUTPUT_BASE = Path("out") / "compare-pipeline-modes"
 PIPELINE_MODES = ("staged", "threaded")
+SOURCE_COMMIT_ENV_VAR = "VIBECOMFY_SOURCE_COMMIT"
+
+# Resolved once per comparison, before any leg thread starts (T5.1: every
+# leg's lineage manifest links the same source commit; T5.4: written before
+# concurrent workers exist, read-only afterwards).
+_SOURCE_COMMIT: list[str] = []
+
+
+def resolve_source_commit() -> str:
+    """Return the executing source commit (env pin, else ``git rev-parse HEAD``).
+
+    Resolved ONCE per comparison before any leg starts so every leg's T5.1
+    lineage manifest links the same source commit. Empty string when the
+    executing tree has no git metadata — the executor then records the typed
+    fallback row instead of fabricating a commit.
+    """
+    import os  # noqa: PLC0415
+    import re as _re  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+
+    pinned = os.environ.get(SOURCE_COMMIT_ENV_VAR) or ""
+    if _re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", pinned):
+        return pinned
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    candidate = (result.stdout or "").strip()
+    if result.returncode == 0 and _re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", candidate):
+        return candidate
+    return ""
 
 _LOCKED_SCENARIO_FIELDS = (
     "query",
@@ -589,6 +628,51 @@ def _numeric_delta(new: Any, old: Any) -> float | None:
     return round(float(new) - float(old), 6)
 
 
+def _write_lineage_binding(
+    output: Path | None,
+    *,
+    scenario_id: str,
+    mode: str,
+    locked_input_sha256: str,
+    source_commit: str,
+) -> None:
+    """Bind harness-owned identity into the leg's T5.1 artifact lineage.
+
+    The executor builds the manifest (rows + scenario/session/turn/baseline);
+    the comparison lane adds the binding block proving WHICH locked input,
+    mode, and source commit produced the leg. Extra top-level keys never
+    participate in ``manifest_digest``.
+    """
+    import os  # noqa: PLC0415
+
+    if output is None:
+        return
+    response = _load_json(output / "response.json")
+    report = response.get("report") if isinstance(response, Mapping) else None
+    manifest = (
+        report.get("executor", {}).get("artifact_lineage")
+        if isinstance(report, Mapping)
+        else None
+    )
+    if not isinstance(manifest, Mapping):
+        return
+    bound = dict(manifest)
+    bound["binding"] = {
+        "scenario_id": scenario_id,
+        "pipeline_mode": mode,
+        "locked_input_sha256": locked_input_sha256,
+        "source_commit": source_commit or os.environ.get(SOURCE_COMMIT_ENV_VAR, ""),
+    }
+    try:
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "artifact_lineage.json").write_text(
+            json.dumps(bound, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
 def _run_mode(
     scenario: Mapping[str, Any],
     *,
@@ -600,6 +684,7 @@ def _run_mode(
 ) -> dict[str, Any]:
     from .adapter import run_headless_scenario  # noqa: PLC0415
     from .guard import guard_output_dir  # noqa: PLC0415
+
 
     started = time.monotonic()
     summary = run_headless_scenario(
@@ -633,6 +718,13 @@ def _run_mode(
         locked_input_sha256=locked_input_sha256,
         elapsed_s=float(summary["elapsed_s"]),
         response=response or {},
+    )
+    _write_lineage_binding(
+        output,
+        scenario_id=str(scenario.get("id") or summary.get("scenario_id") or ""),
+        mode=mode,
+        locked_input_sha256=locked_input_sha256,
+        source_commit=_SOURCE_COMMIT[0] if _SOURCE_COMMIT else "",
     )
     return summary
 
@@ -735,6 +827,14 @@ def run_comparison(
     canonical = _authoritative_entries()
     base = output_base or DEFAULT_OUTPUT_BASE
     comparisons: list[dict[str, Any]] = []
+    # T5.1: one source commit for every leg of this comparison, resolved
+    # before any concurrent worker exists.
+    del _SOURCE_COMMIT[:]
+    commit = resolve_source_commit()
+    if commit:
+        _SOURCE_COMMIT.append(commit)
+        os.environ.setdefault(SOURCE_COMMIT_ENV_VAR, commit)
+
 
     if concurrency > 1:
         descriptors: list[tuple[str, str, dict[str, Any], str]] = []

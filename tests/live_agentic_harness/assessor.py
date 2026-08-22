@@ -38,6 +38,8 @@ from .intent_judge import (
     judge_semantic_answer,
 )
 from .research_assessment import assess_research_evidence
+from .lineage_check import assess_artifact_lineage
+
 
 _ERROR_SEVERITIES = {"error", "fatal"}
 
@@ -841,6 +843,13 @@ def assess_live_output_dir(
     safe_refusal_accepted = False
     refusal_outage = False
     outcome_kind: Any = None
+    lineage_assessment: dict[str, Any] = {
+        "issues": [],
+        "present": False,
+        "manifest_digest": None,
+        "binding": {},
+        "provenance": "absent",
+    }
 
     if response is not None:
         outcome = response.get("outcome") or {}
@@ -1116,6 +1125,13 @@ def assess_live_output_dir(
         issues.extend(_assess_executed_research(output_dir, response, scenario))
         issues.extend(_assess_graph_census_consistency(response, scenario))
 
+        # T5.1: digest-linked artifact lineage — validity, scenario binding,
+        # and fallback-impersonation checks. Structured evidence only.
+        lineage_assessment = assess_artifact_lineage(
+            output_dir, response, scenario
+        )
+        issues.extend(lineage_assessment["issues"])
+
     # Semantic-answer judge runs for every D13 rubric scenario regardless
     # of edit expectation or response presence. Health controls are
     # structurally scored only.
@@ -1185,6 +1201,12 @@ def assess_live_output_dir(
         "excluded_from_semantic_product_rates": _excluded_from_semantic_product_rates(
             scenario
         ),
+        "artifact_lineage": {
+            "present": lineage_assessment["present"],
+            "manifest_digest": lineage_assessment["manifest_digest"],
+            "binding": lineage_assessment["binding"],
+            "provenance": lineage_assessment["provenance"],
+        },
         "ui_evidence": {
             "original": original_ui_path.is_file(),
             "final": final_ui_path.is_file(),

@@ -1862,6 +1862,298 @@ def _durable_terminal_projection(
     )
 
 
+def _artifact_lineage_rows(
+    request: ExecutorRequest,
+    *,
+    plan: ClassifyDecision | None,
+    research: Any,
+    implementation_result: ImplementationResult | None,
+    model_attempts: tuple[dict[str, Any], ...],
+    orchestration_mode: str,
+) -> list[dict[str, Any]]:
+    """Collect the T5.1 lineage rows from typed turn evidence.
+
+    Every link kind is emitted exactly once; unavailable links become typed
+    fallback rows (reason only, never a digest) so a fallback can never
+    impersonate a candidate, receipt, or final graph.
+    """
+    # Imported lazily: the manifest vocabulary lives beside the authority
+    # receipts it links, and eager import would create an import cycle.
+    from vibecomfy.comfy_nodes.agent.artifact_lineage import (  # noqa: PLC0415
+        canonical_lineage_digest,
+        fallback_row,
+        primary_row,
+    )
+
+    durable = (
+        implementation_result.durable_response
+        if implementation_result is not None
+        else None
+    )
+    durable_map = dict(durable) if isinstance(durable, Mapping) else {}
+
+    def _hex64(value: Any) -> str | None:
+        if isinstance(value, str) and len(value) == 64 and all(
+            c in "0123456789abcdef" for c in value
+        ):
+            return value
+        return None
+
+    rows: list[dict[str, Any]] = []
+
+    # ── source commit ────────────────────────────────────────────────────
+    commit = os.environ.get("VIBECOMFY_SOURCE_COMMIT") or ""
+    if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit):
+        rows.append(primary_row("source_commit", canonical_lineage_digest(commit), detail=commit))
+    else:
+        rows.append(fallback_row("source_commit", "unavailable_no_source_commit_evidence"))
+
+    # ── request ──────────────────────────────────────────────────────────
+    try:
+        graph = request.graph if isinstance(request.graph, Mapping) else None
+        request_identity = {
+            "query": request.query,
+            "workflow_id": request.workflow_id,
+            "session_id": request.session_id,
+            "profile": request.profile,
+            "pipeline_mode": request.pipeline_mode or orchestration_mode,
+            "interaction_mode": request.interaction_mode,
+            "expect_graph_changed": request.expect_graph_changed,
+            "max_batches": request.max_batches,
+            "graph_digest": canonical_lineage_digest(dict(graph)) if graph else None,
+        }
+        rows.append(primary_row("request", canonical_lineage_digest(request_identity)))
+    except Exception:  # noqa: BLE001 - unserializable request stays a typed fallback
+        rows.append(fallback_row("request", "unavailable_request_not_serializable"))
+
+    # ── source representation / workflow snapshot / schema snapshot ─────
+    representation = durable_map.get("workflow_source_representation")
+    if isinstance(representation, str) and representation.strip():
+        rows.append(
+            primary_row(
+                "source_representation",
+                canonical_lineage_digest(representation),
+                detail=representation,
+            )
+        )
+    else:
+        rows.append(fallback_row("source_representation", "not_stamped_in_durable_payload"))
+
+    source_digest = _hex64(durable_map.get("workflow_source_digest"))
+    if source_digest is not None:
+        rows.append(
+            primary_row(
+                "workflow_snapshot",
+                source_digest,
+                detail={
+                    "semantic_digest": durable_map.get("workflow_semantic_digest"),
+                    "semantic_hash_version": durable_map.get(
+                        "workflow_semantic_hash_version"
+                    ),
+                },
+            )
+        )
+    else:
+        rows.append(fallback_row("workflow_snapshot", "no_retained_snapshot"))
+
+    witness = durable_map.get("schema_witness")
+    witness_digest = _hex64(witness) if isinstance(witness, str) else None
+    if witness_digest is None and isinstance(witness, Mapping) and witness:
+        witness_digest = canonical_lineage_digest(dict(witness))
+    if witness_digest is not None:
+        rows.append(primary_row("schema_snapshot", witness_digest))
+    else:
+        rows.append(fallback_row("schema_snapshot", "no_schema_witness"))
+
+    # ── prompt/tool contract ─────────────────────────────────────────────
+    stages = ("execute",) if orchestration_mode == "threaded" else (
+        "classify",
+        "research",
+        "implement",
+        "reply",
+    )
+    try:
+        from .tool_specs import tool_catalog_docs  # noqa: PLC0415
+
+        contract_payload: dict[str, Any] = {"stages": {}}
+        for stage in stages:
+            spec = _resolve_spec(request.profile, stage)
+            contract_payload["stages"][stage] = {
+                **_spec_fields(spec),
+                "tool_catalog_digest": canonical_lineage_digest(
+                    tool_catalog_docs(stage)
+                ),
+            }
+        contract_payload["orchestration_mode"] = orchestration_mode
+        rows.append(
+            primary_row(
+                "prompt_tool_contract", canonical_lineage_digest(contract_payload)
+            )
+        )
+    except Exception:  # noqa: BLE001 - unresolved profile is a typed fallback
+        rows.append(fallback_row("prompt_tool_contract", "profile_unresolved"))
+
+    # ── model/provider/transport ─────────────────────────────────────────
+    attempt_routes = [
+        {
+            key: attempt.get(key)
+            for key in ("model", "provider", "transport", "endpoint")
+            if key in attempt
+        }
+        for attempt in model_attempts
+        if isinstance(attempt, Mapping)
+    ]
+    if any(attempt_routes):
+        rows.append(
+            primary_row(
+                "model_provider_transport",
+                canonical_lineage_digest(attempt_routes),
+                detail={"attempt_count": len(attempt_routes)},
+            )
+        )
+    else:
+        rows.append(fallback_row("model_provider_transport", "no_model_attempts_observed"))
+
+    # ── research ─────────────────────────────────────────────────────────
+    route = plan.effective_route if plan is not None else ""
+    if research is not None and callable(getattr(research, "to_dict", None)):
+        rows.append(
+            primary_row("research", canonical_lineage_digest(research.to_dict()))
+        )
+    elif route in {"clarify", "inspect"}:
+        rows.append(fallback_row("research", "route_skips_research"))
+    else:
+        rows.append(fallback_row("research", "no_research_evidence"))
+
+    # ── accepted delta / candidate / replay proof ────────────────────────
+    ops = _accepted_delta_ops(implementation_result)
+    apply_eligible_route = route in ("revise", "adapt", "reorganise")
+    if ops:
+        from vibecomfy.porting.edit.checkpoint import accepted_delta_id  # noqa: PLC0415
+        from vibecomfy.porting.edit.ops import canonical_op_to_dict  # noqa: PLC0415
+
+        op_dicts = [canonical_op_to_dict(op) for op in ops]
+        rows.append(
+            primary_row(
+                "accepted_delta",
+                canonical_lineage_digest(op_dicts),
+                detail={"accepted_delta_id": accepted_delta_id(ops), "op_count": len(op_dicts)},
+            )
+        )
+    elif not apply_eligible_route:
+        rows.append(fallback_row("accepted_delta", "non_apply_route"))
+    else:
+        rows.append(fallback_row("accepted_delta", "no_accepted_operations"))
+
+    candidate = durable_map.get("candidate")
+    if isinstance(candidate, Mapping) and candidate:
+        candidate_map = dict(candidate)
+        identity = {
+            key: candidate_map.get(key)
+            for key in ("transaction_id", "candidate_id")
+            if candidate_map.get(key)
+        }
+        rows.append(
+            primary_row(
+                "candidate",
+                canonical_lineage_digest(candidate_map),
+                detail=identity or None,
+            )
+        )
+    elif not apply_eligible_route:
+        rows.append(fallback_row("candidate", "non_apply_route"))
+    else:
+        rows.append(fallback_row("candidate", "no_candidate_built"))
+    receipt = durable_map.get("authority_receipt")
+    if isinstance(receipt, Mapping) and receipt.get("replay_ok"):
+        rows.append(
+            primary_row(
+                "replay_proof",
+                canonical_lineage_digest(dict(receipt)),
+                detail={
+                    "replay_ok": True,
+                    "candidate_matches": bool(receipt.get("candidate_matches")),
+                },
+            ),
+        )
+    elif isinstance(receipt, Mapping) and receipt.get("replay_ok") is False:
+        rows.append(fallback_row("replay_proof", "replay_not_accepted"))
+    elif not apply_eligible_route:
+        rows.append(fallback_row("replay_proof", "replay_not_run"))
+    else:
+        rows.append(fallback_row("replay_proof", "no_authority_receipt"))
+
+    # ── terminal response / assessment ───────────────────────────────────
+    if durable_map:
+        rows.append(primary_row("terminal_response", canonical_lineage_digest(durable_map)))
+    else:
+        rows.append(fallback_row("terminal_response", "projection_unavailable"))
+    # The assessment row is completed by the harness assessor after scoring;
+    # at executor close it is always a typed pending fallback.
+    rows.append(fallback_row("assessment", "assessment_pending"))
+    return rows
+
+def _thaw_lineage_detail(value: Any) -> Any:
+    """Plain-dict/list copy so lineage row details are JSON-safe."""
+    if isinstance(value, Mapping):
+        return {str(k): _thaw_lineage_detail(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_lineage_detail(v) for v in value]
+    return value
+
+
+def _build_artifact_lineage_manifest(
+    request: ExecutorRequest,
+    *,
+    plan: ClassifyDecision | None,
+    research: Any,
+    implementation_result: ImplementationResult | None,
+    model_attempts: tuple[dict[str, Any], ...],
+    orchestration_mode: str,
+) -> dict[str, Any] | None:
+    """Build the T5.1 manifest; None only when the builder itself is broken."""
+    try:
+        from vibecomfy.comfy_nodes.agent.artifact_lineage import (  # noqa: PLC0415
+            build_artifact_lineage,
+        )
+
+        durable = (
+            implementation_result.durable_response
+            if implementation_result is not None
+            else None
+        )
+        durable_map = dict(durable) if isinstance(durable, Mapping) else {}
+        scenario_id = str(
+            request.scenario_id
+            or durable_map.get("scenario_id")
+            or ""
+        )
+        baseline = str(
+            durable_map.get("baseline_turn_id") or durable_map.get("baseline_id") or ""
+        )
+        lineage = {
+            "scenario_id": scenario_id,
+            "session_id": str(durable_map.get("session_id") or ""),
+            "turn_id": str(durable_map.get("turn_id") or ""),
+            "baseline_id": baseline,
+        }
+        rows = _artifact_lineage_rows(
+            request,
+            plan=plan,
+            research=research,
+            implementation_result=implementation_result,
+            model_attempts=model_attempts,
+            orchestration_mode=orchestration_mode,
+        )
+        for row in rows:
+            if "detail" in row:
+                row["detail"] = _thaw_lineage_detail(row["detail"])
+        return build_artifact_lineage(lineage=lineage, rows=rows)
+    except Exception:  # noqa: BLE001 - lineage must never break the turn
+        LOGGER.exception("artifact lineage manifest build failed")
+        return None
+
+
 
 def _projection_reply(
     projection: Any,
@@ -2769,6 +3061,14 @@ def _run_staged_executor(
             classification_status=classification_status,
             model_attempts=model_attempts,
             reply_request=snapshot_reply_request_capture(),
+            artifact_lineage=_build_artifact_lineage_manifest(
+                request,
+                plan=plan,
+                research=research,
+                implementation_result=implementation,
+                model_attempts=model_attempts,
+                orchestration_mode="staged",
+            ),
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
