@@ -4500,3 +4500,84 @@ post-exit into
 - **Protected state:** base `5fc6be9d` (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `54467724`; no wrapper/validator/plan/code/fixture file changed; `5fc6be9d` IS ancestor of `40458ed8` and of the new commit.
 - **No push:** the G6 chain remains pushed at `743cc102`; the C5 extension commit `40458ed8` and this docs commit are **local-only** on `fixer/workflow-execution-spine-consolidation`; the terminal push happens at `REPORT-ASSEMBLY`.
 - **JUDGMENT_REQUIRED: none**
+### SMOKE-RUN window (B6, §18 pre-finale validation) — 2026-08-22
+
+- **Task/gate/label/role:** `SMOKE-RUN` / `G7` (B6 window, §18 pre-finale validation) / `SMOKE-RUN — §18 smoke: final5 x both modes = 10 concurrent legs, validate-only first, NON-authoritative validation` / implementer; `evidence-log-SMOKE` / `G7` / `evidence-log-SMOKE — record SMOKE-RUN (10 legs final5 x 2 modes, non-authoritative, 0 infra-blocked, 0 undetermined); next: bug-fix recommendations → finale` / evidence. This entry RECORDS only; no review, classification, fix, integration, push, or code change is performed by this recorder.
+- **Disposition:** **recorded as non-authoritative validation** — 10-leg smoke completed as validation only (`authoritative: false` / `non_authoritative`), 0 infra-blocked, 0 undetermined; all legs `status: success` with honest product pass/fail. G7 remains open/pending until bug-fix recommendations → T7.2 authoritative finale (50 legs, 25 staged + 25 threaded, concurrency 10, ONE invocation) → T7.3 assess → G7 review → report assembly.
+- **Input/base HEAD:** `5be51fdad11f76eb50991345d4c0c981dcbbee1b` — `git rev-parse HEAD` exit `0` at this recorder's start; G7 HARNESS-SPLIT-EXTENSION head `40458ed89b36b321dfb2146b9cd0bb2cf082dd6b` is the pre-smoke base; protected base `5fc6be9dbe811df77e43d440ad087440e8bd57b5` remains ancestor (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`).
+- **Model route:** `stealth/ox-alpha` for SMOKE-RUN implementer (resolved `openrouter/meta/muse-spark-1.2-contributor`, wrapper remap). Receipt `model_route`, `resolved_model`, launcher argv, PID, and timestamps are authoritative in the receipt below. This recorder is `stealth/ox-alpha` evidence (wrapper remap; do not treat the id as hard model binding; do NOT mix routes mid-card).
+
+#### 1. SMOKE-RUN — `5be51fda` read-only (stealth/ox-alpha) — validate-only + 10-leg smoke
+
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/SMOKE-RUN-receipt.json` (file SHA-256 `4c52d0e7a1d36cd57b9d98906dc520d21cc7e2cd66ae77e7788cf357712a58af`; brief SHA-256 `2c300911600abf9bc766402830453c431aeab9589797775bc9123064f04d8b5e`; result SHA-256 `5b8bdfe0039969b8243c0b5513582189c6423288a2e1cc7ca6746771bb6f1135`); PID `129089`; `2026-08-22T18:52:32Z` → `2026-08-22T19:15:46Z`; exit `0`; base `5be51fdad11f76eb50991345d4c0c981dcbbee1b`; `commits: []`, `changed_files: []` (read-only, no repository file changes).
+- **Validate-only first (ZERO model calls) — REQUIRED FIRST:**
+  ```bash
+  python3 -m tests.live_agentic_harness.compare_pipeline_modes --validate-only --manifest tests/live_agentic_harness/threaded_comparison_manifest_final5.json
+  ```
+  Exit `0`, exactly 5 entries (`scenario_count: 5`, modes `[staged, threaded]`), `model_calls: 0`, 5 locked inputs as manifest. **Barrier-proven:** re-ran with poisoned env that would fail any outbound call — `OPENROUTER_API_KEY=__BARRIER_INVALID_KEY__ DEEPSEEK_API_KEY=__BARRIER_INVALID_KEY__ VIBECOMFY_HERMES_API_KEY=__BARRIER_INVALID_KEY__ VIBECOMFY_OPENROUTER_BASE_URL=http://127.0.0.1:1 VIBECOMFY_TRANSPORT=openrouter` → still `EXIT 0`, same 5 entries, `model_calls: 0`, no `attempts` created, `threaded_wiring.status=ready/runnable`. Saved to `/tmp/t7-smoke/validate_only_barrier.json` (+ `.stderr`). Irreplaceable evidence: no HTTP attempted (base URL poisoned, keys invalid); identical SHA256 output. Disposable roots: `/tmp/t7-smoke/validate_only_barrier.json` + `/tmp/t7-smoke/object_info` cache not required for validate-only.
+- **10-leg smoke — all concurrent (5 scenarios × staged+threaded), manifest-order reconstruction, per-leg lineage:**
+  ```bash
+  VIBECOMFY_OBJECT_INFO_CACHE_DIR=/tmp/t7-smoke/object_info \
+  OPENROUTER_API_KEY=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 \
+  DEEPSEEK_API_KEY=<redacted> \
+  python3 -m tests.live_agentic_harness.compare_pipeline_modes --run \
+    --manifest tests/live_agentic_harness/threaded_comparison_manifest_final5.json \
+    --output-base /tmp/t7-smoke/out --tag smoke-final5-10 --concurrency 10
+  ```
+  `EXIT 0`, `leg_isolation=process` (no shared interpreter state), `concurrency=10` → 10 descriptors submitted concurrently via `_run_legs_in_processes` (5 specs × 2 modes, `max_live=10`), reconstructed in manifest order via `ordered[scenario_id][mode]` → `compare_pair`. Frozen infra: `stealth/ox-alpha` remapped to `openrouter:deepseek/deepseek-v4-flash-0731`, budget cap enforced via harness, harness infra retries frozen = 0 for all legs (no `infra_timeout`/`infra_empty_response`). **Authoritative: `false` / `non_authoritative`** — validation only; never counted toward the finale; a retry is never a second authoritative finale — attempts 1/2 → 3 are validation iterations (attempt1 `No module named 'arnold'` blocked, attempt2 `provider rejected authentication` with stale `sk-c04d…` blocked; both recorded at `/tmp/t7-smoke/out-attempt1-blocked-arnold-missing/` and `/tmp/t7-smoke/out-attempt2-auth-rejected/`; fixed by `pip install arnold@9d8b2a4` and hermes pool key `sk-or-v1-9fed…`).
+- **10 unique leg receipts verified:** `/tmp/t7-smoke/out/_legs/leg_0000…0009_*.json` + `result_0000…0009_*.json`, plus `/tmp/t7-smoke/out/comparison.json` and per-leg `artifact_lineage.json` (locked_input/schema/graph/delta/candidate/receipt/terminal/assessment) + `model_attempts.json` + `comparison_metrics.json` + `flow_metadata.json` (10 dirs under `staged/` + `threaded/` with digests).
+
+#### 2. Result scorecard (attempt3 — final valid dispatch)
+
+- **Aggregate:** `scenario_count: 5`, `outcomes: {both_fail: 3, both_pass: 1, staged_only: 1}`, `outcomes.blocked: 0` — **0 infra-blocked, 0 undetermined**; every leg `status: success` with honest product pass/fail. Product pass rate low (1/5 both_pass) — honest pre-finale signal, expected; finale score will reflect the same distribution unless prompt/tooling fixes land. Harness infra retries frozen = 0 for all legs.
+- **Per-leg table (attempt3, `authoritative: false`):**
+  | scenario | mode | outcome `status` | latency s | calls (`model_attempts`) | tokens (prompt/comp/total) | cost USD | retries* | IR sha | canonical delta | evidence |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | `audio-tts-narration-using-indextts-2` | staged | `fail` (product) `success` | 944.09 | 22 | 105338/18355/123693 | 0.04629 | 0 | `null` | `null` | lineage 7 primary rows |
+  | `audio-tts-narration-using-indextts-2` | threaded | `fail` (product) `success` | 467.84 | 4 | 20410/5239/25649 | 0.01086 | 0 | `4eee7baa…` | `null` | IR mismatch |
+  | `image-image-editing-with-qwen-image` | staged | `fail` (product) `success` | 280.48 | 13 | 33331/5983/39314 | 0.01461 | 0 | `2f3f2df4…` | `null` | — |
+  | `image-image-editing-with-qwen-image` | threaded | `fail` (product) `success` | 13.74 | 2 | 5953/377/6330 | 0.00202 | 0 | `d91d11aa…` | `null` | — |
+  | `live-graph-explanation-smoke` | staged | `pass` `success` | 84.46 | 2 | 6254/1355/7609 | 0.00318 | 0 | `eb94ebe9…` | `null` | IR equal `true` |
+  | `live-graph-explanation-smoke` | threaded | `pass` `success` | 18.53 | 1 | 1934/608/2542 | 0.00119 | 0 | `eb94ebe9…` | `null` | IR equal `true` |
+  | `multi-video-based-character-replacement-using` | staged | `fail` (product) `success` | 343.95 | 16 | 68485/16949/85434 | 0.03647 | 0 | `null` | `null` | — |
+  | `multi-video-based-character-replacement-using` | threaded | `fail` (product) `success` | 135.57 | 5 | 39754/3902/43656 | 0.01472 | 0 | `null` | `null` | — |
+  | `speed-distillation-research` | staged | `pass` `success` | 376.36 | 13 | 26486/5552/32038 | 0.01142 | 0 | `9dcfce3e…` | `null` | IR equal but outcome split → `staged_only` |
+  | `speed-distillation-research` | threaded | `fail` (product) `success` | 351.51 | 14 | 23142/7792/30934 | 0.01451 | 0 | `9dcfce3e…` | `null` | — |
+  `*` harness infra retries frozen and recorded separately = 0 for all legs (no infra failures); product failures are `failure_family: product` or `null` (assessor `fail`), not infra.
+- **Costs/latency:** `staged cost 0.11196 latency 2029.34s` / `threaded cost 0.043308 latency 987.19s` / `delta cost -0.06865 latency -1042.15s`; `all_inputs_locked_equal: true`, `ir_projection_equal_count:2`, `canonical_delta_equal_count:0`.
+- **Infra-blocked / undetermined legs with evidence:** attempt1 (`/tmp/t7-smoke/out-attempt1-blocked-arnold-missing/comparison.json`): 10/10 `blocked` `No module named 'arnold'` — fixed by `pip install arnold@9d8b2a4`. Attempt2 (`/tmp/t7-smoke/out-attempt2-auth-rejected/comparison.json`): 10/10 `blocked` `provider rejected authentication` (stale key) — fixed by hermes pool key. Attempt3: **0 blocked, 0 undetermined** — all legs `status: success` with honest product `pass/fail`; no silent infra failures; artifact digests per leg recorded in `artifact_lineage.json`.
+
+#### 3. Schema cache note (finale readiness)
+
+- The smoke required a disposable authoritative `object_info` cache at `/tmp/t7-smoke/object_info` (IndexTTS/Qwen/LayerMask schemas with provenance) via `VIBECOMFY_OBJECT_INFO_CACHE_DIR`, else `preflight_scenario_obligations(require_schema_resolution=True)` fails closed and blocks **ALL** legs. The finale (T7.2) **MUST** reproduce this: either promote the cache into `vibecomfy/porting/cache/object_info` or mount the same `VIBECOMFY_OBJECT_INFO_CACHE_DIR`. Without it, every leg is infra-blocked fail-closed.
+- Also `arnold@9d8b2a4` was installed to resolve `No module named 'arnold'` (attempt1 evidence). Monitor the `sk-or-v1-9fed…` hermes-pool OpenRouter key expiry/rotation before finale.
+
+#### 4. JUDGMENT_REQUIRED: none
+
+- All 10 legs are genuine product evaluations — no infra `blocked`, no `undetermined`, no mechanical crashes, manifest-order reconstruction verified, per-leg lineage + latency/calls/tokens/cost/retries/artifact digests present. `JUDGMENT_REQUIRED: none`.
+
+#### Next unblocked card
+
+- **Bug-fix recommendations + fixes per §18 step 6** (Grok review of the smoke/harness → BUG fixes → re-smoke until legs "seem to be working": no infra failures, no undetermined legs, no mechanical crashes) → then **T7.2 authoritative finale** (50 legs, 25 staged + 25 threaded, concurrency 10, ONE invocation, `split: {staged: 25, threaded: 25}`) → T7.3 assess → G7 review → report assembly (terminal push at REPORT-ASSEMBLY). The smoke is validation only; its attempts 1/2 → 3 are validation iterations, never a second authoritative finale.
+
+#### Residual risks (unchanged pre-existing + smoke notes)
+
+- Pre-existing shard-observed sets unchanged: **S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env** (broad-suite env/missing-module, non-introduced). The two **adjudicated G6 deltas** remain intentional (fail-closed mirror `adds_workflow_json_provisional_node` + typed-kind `runs_bounded_loop_with_turn0_render_then_diff_feedback` `ValidationError`→`ModelMistake`), recorded at `G6-FINAL-REREVIEW-2`, not regressions.
+- **Low product pass rate (honest):** 1/5 `both_pass`, 3 `both_fail` product, 1 split — honest pre-finale signal, expected; finale score will reflect the same distribution unless prompt/tooling fixes land.
+- **Schema-cache reproduction for the finale:** disposable cache at `/tmp/t7-smoke/object_info` must be reproduced for T7.2 via proper `vibecomfy/porting/cache/object_info` promotion or same `VIBECOMFY_OBJECT_INFO_CACHE_DIR` mount; otherwise finale will re-hit fail-closed and block all legs.
+- **Split payload consumers must read `payload.split`:** split markdown is a new payload shape — downstream REPORT-ASSEMBLY must read `payload.split` (and `payload.split_digest`/`payload.split_assignment`) not `delta` for the finale; paired smoke continues to use pair-delta shape.
+- **`resolved_model` fidelity:** receipt `resolved_model` fidelity relies on the hermes launcher `resolved=` print; this recorder preserves truthful `model_route`/`resolved_model` from receipts.
+- **Latency note:** staged TTS path 944s vs threaded 467s — within cap but near `LEG_TIMEOUT 1200s`; monitor for finale.
+
+#### Manifest / shards / validation
+
+- **Manifest:** G7 `status: open`, `disposition: pending`, `next_unblocked_card` remains `T7.1-PREFLIGHT` until bug-fix window lands; this recorder adds G7 `evidence_sequence` sequence 3 `SMOKE-RUN` (`stealth/ox-alpha` implementer, `4c52d0e7…` / `5b8bdfe0…`, read-only) and a `live_runs` non-authoritative record for the 10-leg smoke (`authoritative: false`, `status: non_authoritative`, `concurrency: 10`, 10 legs, `split: null` paired, `outcomes.blocked: 0`); `G6` unchanged (`status: passed`, `disposition: continue`, `head_sha: b57272e8`); `final_five` intact; top-level `tasks` unchanged (validator flattens `G7` `evidence_sequence` into accounting per directives 22/25.3); validator `LIVE_RUN_SINGLETON` still passes (only ONE authoritative run allowed, and this is not it).
+- **Shards:** `docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json` **byte-identical** to `b57272e8` (source `54467724`, head `54467724`, 12 shards `S0`→`S11` + singleton `broad_suite_once_v1` pending, T6.3-owned); no shard mutation on this docs-only recorder.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` on the working tree with `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+
+#### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed evidence files in one coherent commit authored by `POM <peter@omalley.io>`: execution log (this section) and `manifest.json` (G7 sequence 3 + non-authoritative live_run); `test-shards.json` is byte-identical and not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file is changed; no push, merge, rebase, reset, promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration is performed by this recorder; the recorded smoke work was executed by the SMOKE-RUN agent above, not by this recorder. No receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/`. This recorder's own `end_ts`, wrapper PID, and receipt digest are NOT computed or recorded here — the wrapper writes them post-exit into `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-SMOKE-receipt.json`.
+- **Protected state:** base `5fc6be9d` (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `54467724`; no wrapper/validator/plan/code/fixture file changed; `5fc6be9d` IS ancestor of `5be51fda` and of the new commit.
+- **No push:** the G6 chain remains pushed at `743cc102`; the C5 extension commit `40458ed8` and this docs commit are **local-only** on `fixer/workflow-execution-spine-consolidation`; the terminal push happens at `REPORT-ASSEMBLY`.
+- **JUDGMENT_REQUIRED: none**
