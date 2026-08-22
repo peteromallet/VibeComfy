@@ -3974,3 +3974,156 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+### B4 window register and verdict (G5)
+
+B4 window disposition: the T5.1→T5.5 card run across three
+implementer dispatches (`B4-IMPLEMENTER`, `B4-CONTINUATION-T5.5`,
+`B4-COMMIT-T5.5`). This entry is a read-only record compiled from the
+wrapper receipts by the evidence recorder; the G5 gate review itself
+has NOT run yet (see B4 window net).
+
+#### B4-IMPLEMENTER register — T5.1+T5.2+T5.3+T5.4 committed; T5.5 partial at cap; one recorded ALLOWANCE_VIOLATION
+
+- **Task/label/gate/role/route:** `B4-IMPLEMENTER` /
+  `B4 implementer: T5.1 [XHARD] artifact lineage + T5.2 [XHARD]
+  canonical semantic assessor + T5.3 [HARD] scenario obligations +
+  T5.4 [XHARD] concurrent isolation + T5.5 [XHARD] shim retirement` /
+  gate `` (empty) / implementer / model route `stealth/ox-alpha`,
+  resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/B4-IMPLEMENTER-receipt.json` (file
+  SHA-256
+  `1dcec922ccbd4f4792164e5ef78e2a2f2050a19d9f32d97dd62f7fb47aeba205`);
+  window `2026-08-22T07:49:13Z` → `2026-08-22T09:49:13Z` — exactly
+  the 7200s launcher cap — launcher exit `0`; base
+  `f38e2d4cbe6068a5043bb7c493b7e70bca14511f`; commits in merge order:
+  `a308eeaa` (T5.1 digest-linked artifact lineage manifest),
+  `856651ab` (§23 wrapper reviewer route), `9ca97b58` (T5.2 canonical
+  semantic assessor — typed carriers, no synthesized edits),
+  `6710e15b` (T5.3 scenario obligations and fail-closed preflight),
+  `9da6465a` (T5.4 concurrent comparison leg isolation); brief
+  SHA-256 `a4b69311…`; result SHA-256 `ca2ebdf9…`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/B4-IMPLEMENTER-dispatch.log`.
+- **ALLOWANCE_VIOLATION recorded:** the violation record at
+  `receipts/B4-IMPLEMENTER-violation.json` (`type`
+  `ALLOWANCE_VIOLATION`; file SHA-256
+  `3adf67aeab3dc86f1f90770d65ab6d71a68115e1cc8a51079d2afba1bade34c3`)
+  flags `scripts/run_workflow_execution_spine_agent.py` (forbidden by
+  the dispatch allowance) among changed files. Mechanically verified
+  by this recorder: the change is exactly commit `856651ab`, one
+  insertion in `ROUTE_LAUNCHERS` —
+  `"codex:gpt-5.6-sol": (HERMES_LAUNCHER, "codex:gpt-5.6-sol"),` —
+  i.e. the operator-directive-23 reviewer route registration;
+  content operator-directed, `git show --stat` = 1 file changed,
+  1 insertion(+). Disposition: **KEPT**, to be audited by the G5
+  review.
+- **T5.5 NOT completed by this dispatch:** the 7200s cap hit
+  mid-card; partial T5.5 work was left dirty/uncommitted on top of
+  `9da6465a` and was picked up by the continuation dispatch below.
+
+#### B4-CONTINUATION-T5.5 register — T5.5 work delivered, commit missing
+
+- **Task/label/gate/role/route:** `B4-CONTINUATION-T5.5` /
+  `B4-CONTINUATION implementer: T5.5 [XHARD] shim retirement
+  (completion)` / gate `` (empty) / implementer / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/B4-CONTINUATION-T5.5-receipt.json`
+  (file SHA-256
+  `541603ce6764fd2b764637292a71f85acdc92f06a6de1b6ed1e55c21d94203f8`);
+  window `2026-08-22T09:54:16Z` → `2026-08-22T10:27:45Z`, launcher
+  exit `0`; base `9da6465a8b330243cf4cb3516085490cf05911f6`;
+  **commits: []** — zero commits; brief SHA-256 `fff64b0d…`; result
+  SHA-256 `9a271f2a…`; `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/B4-CONTINUATION-T5.5-dispatch.log`.
+- **Delivered work (left dirty):** four files —
+  `tests/test_cleanup_surface_manifest.py`,
+  `tests/test_execution_spine_shim_disposition.py` (new; frozen
+  S70↔owner manifest), `vibecomfy/comfy_nodes/agent/_frag_transform_stages.py`,
+  `vibecomfy/comfy_nodes/agent/_v2_scoped_validation.py`.
+- **Disposition:** work delivered, commit missing → follow-up commit
+  card dispatched (`B4-COMMIT-T5.5`, next entry).
+
+#### B4-COMMIT-T5.5 register — T5.5 committed
+
+- **Task/label/gate/role/route:** `B4-COMMIT-T5.5` /
+  `B4-COMMIT-T5.5 implementer: commit the finished T5.5
+  execution-spine shim retirement` / gate `` (empty) / implementer /
+  model route `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/B4-COMMIT-T5.5-receipt.json` (file
+  SHA-256
+  `26c502bd59c057b917d254280f9b7d8ccac52d8e643ff14f0fad47c03a990458`);
+  window `2026-08-22T10:30:45Z` → `2026-08-22T10:39:10Z`, launcher
+  exit `0`; base `9da6465a8b330243cf4cb3516085490cf05911f6`; commit
+  `5f200fb4fd8f6bb14a4bd8af684e86aed53f3bdc` `feat(exec-spine): T5.5
+  execution-spine shim retirement`; brief SHA-256 `357e518f…`; result
+  SHA-256 `6253e3d1…`; `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/B4-COMMIT-T5.5-dispatch.log`.
+- **Commit content (verified via `git show --stat`):** 5 files —
+  `tests/live_agentic_harness/intent_judge.py` −8,
+  `tests/test_cleanup_surface_manifest.py` (16 ±),
+  `tests/test_execution_spine_shim_disposition.py` +665,
+  `vibecomfy/comfy_nodes/agent/_frag_transform_stages.py` (3 ±),
+  `vibecomfy/comfy_nodes/agent/_v2_scoped_validation.py` (82 ±);
+  total 683 insertions(+), 91 deletions(-). The receipt's own
+  changed_files lists only `tests/test_execution_spine_shim_disposition.py`
+  (delta against this dispatch's dirty start).
+- **Tree state:** tracked tree clean at `5f200fb4` (re-verified
+  read-only by this recorder via `git status --porcelain`: only
+  untracked receipts/run artifacts remain).
+
+#### B4 window net
+
+- **All five cards committed** on
+  `fixer/workflow-execution-spine-consolidation`: T5.1 `a308eeaa`,
+  §23 route `856651ab`, T5.2 `9ca97b58`, T5.3 `6710e15b`, T5.4
+  `9da6465a`, T5.5 `5f200fb4`. Local HEAD `5f200fb4fd8f6bb14a4bd8af684e86aed53f3bdc`
+  (verified); remote
+  `453d1af6f65eb64b708d9b7452e75fd23a38e1c0` (verified live via
+  `git ls-remote`). Integration push `453d1af6..5f200fb4` pending G5
+  review.
+- **G5 gate review pending:** the codex:gpt-5.6-sol batch review of
+  the B4 window plus test-shard inventory has not run (brief +
+  allowance staged at `g0/G5-B4-REVIEW.md` /
+  `g0/G5-B4-REVIEW-allowance.json`). T6.1 freezes shards after G5, so
+  no T5.x shard records are added in this commit.
+- **Manifest/test-shards:** no new T5.x task/gate or shard records —
+  the validator's task accounting stays green without them, and T5.x
+  records land with the G5/T6.1 freeze. One manifest change was
+  forced by this append itself: `manifest.tasks[5].recovery_note.sha256`
+  pins the execution-log whole-file digest and is validator-enforced;
+  the first post-append run failed `ARTIFACT_DIGEST` (stale pin
+  `63ba23fa…`) and the pin was refreshed to this commit's final log
+  digest. test-shards.json byte-identical.
+
+#### Controls
+
+This evidence append changes only allowed evidence files (execution
+log plus the validator-enforced execution-log digest pin
+`manifest.tasks[5].recovery_note.sha256`; test-shards.json
+byte-identical) in one coherent commit authored by
+`POM <peter@omalley.io>`. No receipt,
+protected state, branch, or other file is changed; no push, merge,
+rebase, reset, promotion, live/model/runtime call, secret access,
+wrapper dispatch, review, classification, integration, validator
+change, or product/test run is performed by this evidence recorder;
+the recorded B4-window work was executed by the three B4 implementer
+agents, not by this recorder, which only records dispositions. No
+receipt is committed; the reviewed receipts stay untracked run
+artifacts. This recorder's own `end_ts`, wrapper PID, and receipt
+digest are NOT computed or recorded here — the wrapper writes them
+post-exit into
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-B4-receipt.json`.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  exits `0` on the committed tree with the deterministic passing
+  output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carrying stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`;
+  the sole intermediate failure was the stale execution-log pin
+  above (`ARTIFACT_DIGEST`, exit `1`), fixed by the manifest refresh
+  recorded in this section.
+  No product tests are run by this evidence recorder.
