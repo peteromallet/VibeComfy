@@ -2258,3 +2258,224 @@ wrapper-recorded brief and result digests.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## §18 comprehensive pre-review — PRE-REVIEW-REMAINING disposition (2026-08-21)
+
+### PRE-REVIEW-REMAINING register and verdict
+
+1. **Comprehensive pre-code review — `PRE-REVIEW-REMAINING`.** Gate `G7`
+   in the receipt; scope is the ONE §18 comprehensive pre-review of the
+   complete remaining plan T2.3→G7 plus the §16 wrapper-timeout raise, the
+   finale amendment, the §19 validator-routing amendment, and the
+   directive-20 route-fix verification; label
+   `§18 ONE comprehensive pre-review: complete remaining plan T2.3→G7 +
+   §16 timeout raise + finale amendment + validator routing + directive-20
+   route fix + H3 overlap adjudication`; role `reviewer`; model
+   route/resolved model `stealth/ox-alpha`; receipt
+   `receipts/PRE-REVIEW-REMAINING-receipt.json`; receipt SHA-256
+   `6b6fc6df129a4503be06411cf93d137f169aa3c27aeb79aa5f515d37b6ac300c`;
+   brief SHA-256
+   `6f698d9c6033aeeb5d839abec33a63860751a7f3d652018a234cf2e0a4258859`;
+   result SHA-256
+   `eb8660fe57320faa043cd59d3748e0109ce035801da080e41bfe9362a4d1d7e1`;
+   wrapper PID `59206`; `2026-08-21T23:40:32Z` →
+   `2026-08-21T23:50:38Z`; exit `0`; base
+   `d9459c80635909e13d19f69e1c3566e0114280d9`; no commits and no changed
+   files under the read-only allowance (`allowed: []`,
+   `forbidden: ["**"]`). Wrapper invocation:
+   `/root/.codex/skills/subagent-launcher/launch_hermes_agent.py
+   --model=stealth/ox-alpha
+   --query-file=/workspace/vibecomfy-exec-spine-20260820/g0/PRE-REVIEW-REMAINING.md
+   --project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine
+   --timeout=3600`; dispatch record
+   `g0/PRE-REVIEW-REMAINING-dispatch.log`.
+- **Verdict:** `continue` — `JUDGMENT_REQUIRED: none`, `commit: none`,
+  `changed_files: []` — with thirteen binding conditions. Card contracts
+  are sound under the conditions: A (T2.3→G7 card contracts), B
+  (allowances/batch boundaries plus H3 adjudication), C (schema closure
+  and terminal semantics preserved), D (new §18 finale flow coherent),
+  and E (directive-20 route fix `5399a5aa` verified correct and safe:
+  both legacy routes remap to `(HERMES_LAUNCHER, "stealth/ox-alpha")`,
+  unknown routes rejected outright, no conditional fallback). The review
+  also recorded one base-state deviation: local HEAD `d9459c80` is one
+  docs-only commit ahead of remote `c83d2e59` → Condition 1.
+
+### Binding conditions (13, binding on remaining batches)
+
+- **C1 — push base:** local HEAD `d9459c80` (docs-only T2.2 disposition
+  commit) is one ahead of remote `c83d2e59`; the next integration push
+  must include it, and subsequent briefs must cite the pushed SHA as the
+  latest reviewed integration base.
+- **C2 — §16 scope:** change only the argparse default at
+  `run_workflow_execution_spine_agent.py:564` (3600→7200); stop emitting
+  explicit `--timeout=3600` in orchestrator/brief templates (plan §10
+  examples are stale), else the raise is inert. Focused proof:
+  a `VCSPINE_FAKE_LAUNCHER` stub sleeping >3600s completes exit 0.
+- **C3 — validator routing:** `_route_for_label` (135–140) and the G7
+  check (150–151) become set-membership accepting
+  `{grok-4.6, codex:gpt-5.6-luna, stealth/ox-alpha}` per label class;
+  historical records keep validating, new records dispatch as
+  `stealth/ox-alpha` per §20; must land in Batch 0/1 before the first
+  post-amendment receipt is recorded.
+- **C4 — validator finale count:** `check_live_run` (324–342) requires
+  exactly 50 unique leg receipts at concurrency 10 with the recorded
+  25/25 staged/threaded split; the smoke run is recorded
+  `authoritative: false` / `non_authoritative` so `LIVE_RUN_SINGLETON`
+  ignores it (line 326 already excludes that status).
+- **C5 — harness split support:** extend
+  `compare_pipeline_modes.run_comparison` minimally for one-invocation
+  25/25 execution with a frozen, digested scenario→mode map recorded in
+  the live_run and per-leg assessments emitted; `compare_pair`
+  skipped/adjusted for single-leg scenarios; do NOT alter deep-copy
+  isolation (763), the session_id ban (745–749), manifest-order
+  reconstruction (790–795), or validate-only zero-model-call behavior
+  (153–223).
+- **C6 — smoke path untouched:** the smoke uses the current paired path
+  with the final5 manifest (10 legs); validate-only first with
+  `model_calls: 0`; smoke is validation only and never counted toward the
+  finale.
+- **C7 — registry lock fix (required before any parallel window is
+  used):** shrink `_registry_guard`'s critical section (unlock+close
+  after candidate write, ~307) AND make `_registry_release` take LOCK_EX
+  around its read-modify-write (328–337); both halves together or not at
+  all.
+- **C8 — overlap predicate:** keep same-worktree ⇒ unconditional overlap
+  (`_allowances_overlap`, 246–251); no read-only exemption for
+  same-worktree pairs.
+- **C9 — readonly flag contract (if introduced):** empty `allowed`
+  accepted only with `readonly=true`; readonly exemptions apply only
+  across distinct worktrees; wrapper flags `ALLOWANCE_VIOLATION` for any
+  changed file on a readonly registration.
+- **C10 — batch/gate fusion:** batch reviews discharge the co-terminous
+  gate reviews per the B1–B6 mapping below; no per-card pre/post reviews;
+  must-findings fixed in the next batch or batch revision; up to 3 end
+  reviews routed `stealth/ox-alpha` precede the final runs.
+- **C11 — closure/terminal invariants carried forward:** T3.1's
+  durable-resume owner names the T2.2 checkpoint/receipt schema as its
+  touched closure; T4.2/T4.3 project terminal state exclusively through
+  the T2.2 mode-neutral projector; T3.2's persisted correction is
+  audit-only, never public candidate/graph/accepted_batch; T5.2
+  `undetermined` strictly on missing/contradictory evidence.
+- **C12 — split freeze and honest reporting:** scenario→mode assignment
+  fixed and digested before T7.2; report presents smoke and finale scores
+  separately with per-leg product pass/fail/undetermined; no second
+  authoritative finale; the §12 final-five waiver and §18 smoke waiver
+  are the only active waivers.
+- **C13 — hygiene rider (non-blocking):** fold removal of dead
+  `GROK_LAUNCHER` (43) and the unimported `Iterable` annotation on
+  `_receipt_files` (189) into the Batch 0/1 wrapper touch — no dedicated
+  card.
+
+### Batch decomposition B0–B6 with gate fusion
+
+```
+B0 (infra, first commits of Batch 1): §16 timeout raise (C2) ·
+    validator routing/count amendments (C3, C4) · registry lock fix (C7) ·
+    overlap predicate (C8/C9) · hygiene rider (C13)
+B1: T2.3                        → batch review doubles as G2
+B2: T3.1 + T3.2                 → G3      (read-only retry/protocol inventories may run concurrently)
+B3: T4.1 → T4.2 → T4.3          → G4      (adapter inventories may overlap)
+B4: T5.1 → T5.2 → T5.3 → T5.4 → T5.5 → G5   (test-shard inventory may overlap final G5 review)
+B5: T6.1 → T6.2 → T6.3          → G6
+B6: T7.1 → T7.2 → T7.3          → ≤3 end reviews (stealth/ox-alpha) + smoke loop + authoritative finale
+```
+
+Intra-batch order follows §7's serial edges; serialization boundaries are
+exactly the gates; the three §7 read-only windows are preserved; no
+per-card loops (must-findings fixed in next batch or batch revision,
+C10). The Condition-5 harness extension lands in the Batch 6 window but
+is implemented and validate-only-tested alongside the T7.1 preflight.
+
+### Finale mechanics confirmed by the pre-review
+
+- Smoke works unmodified today: final5 manifest × both PIPELINE_MODES =
+  10 legs; `threaded_comparison_manifest_final5.json` validates and its
+  digests match validator `FINAL_FIVE`.
+- The authoritative 50-leg split does NOT fit the current harness:
+  `run_comparison` hard-runs both modes per entry and `compare_pair`
+  requires both legs → Condition 5 extension needed in the Batch 6
+  window. Two half-manifest process invocations were considered and
+  rejected (breaks the ONE-authoritative-invocation rule and the
+  singleton live_run record).
+- final50 verified: 50 entries, 50 unique ids, 50 unique locked digests,
+  and `entries[:5] == final5['entries']` byte-for-byte (final-five
+  immutability holds).
+- Consequence accepted: with a split finale there are no staged/threaded
+  pairs in G7; locked-core comparability comes from the smoke run, so the
+  report must present smoke (10 legs, both modes) and finale (50 legs)
+  scores separately and honestly (C12).
+
+### H3 STOP resolution (operator escalation answered by this pre-review)
+
+- **Lock hold CONFIRMED real hazard:** `_registry_guard` acquires
+  `fcntl.flock(LOCK_EX)` (wrapper line 259) and returns with the lock
+  still held (308), released only in `run()`'s finally via
+  `_registry_release` (752); every other wrapper invocation blocks at
+  registration for the entire child runtime, the dead-PID sweep cannot
+  fire while any wrapper lives, and all §7 parallel windows are impossible
+  today → becomes Condition 7 (both-half registry lock fix).
+- **Overlap predicate ADJUDICATED conservative, not contradictory:** keep
+  same-worktree unconditional overlap (246–251); H3's proposed read-only
+  same-worktree exemption is REJECTED → Condition 8.
+- **Snapshot hazard confirmed but contained:** the before/after whole-tree
+  snapshot diff would false-flag a same-worktree concurrent mutator, but
+  §8 step 1 gives every card a fresh clean worktree, snapshots walk
+  `project_dir` only, `.git` is pruned, and the shared evidence dir is
+  excluded — the hazard fires only for same-worktree concurrency, which
+  the landed rule unconditionally rejects, and does not block plan §7
+  cross-worktree read-only windows.
+- The H3-overlap-narrow card is superseded by Conditions 7–9; the H3 stop
+  is thereby adjudicated/resolved, and the wrapper touch (lock fix plus
+  C13 hygiene) lands in Batch 0/1. If Condition 7 slips, serializing
+  batches remains the acceptable fallback (§7 grants permission, not
+  obligation).
+
+### Residual risks carried from the pre-review
+
+- Registry fix concurrency bug if only one half lands: guard-side-only
+  shrink leaves `_registry_release`'s unlocked RMW racing under shortened
+  locks (lost deletions, zombie allowances) — C7 is one atomic unit.
+- §16 inertness from any surviving explicit `--timeout=3600` in
+  orchestrator templates — audit template sites, not just the default.
+- Validator membership sets permit legacy-route reuse in new records;
+  §20 compliance rests on dispatch discipline plus batch-review
+  spot-checks of `model_route` fields.
+- Harness split extension must land with the T7.1 preflight and keep the
+  smoke path byte-identical.
+- `resolved_model` receipt fidelity depends on the hermes launcher
+  printing `resolved=` on stderr; until verified once against real output,
+  end reviews should not treat `resolved_model` as independent
+  model-identity proof.
+- Unpushed `d9459c80`: digest pins inside the manifest
+  (`tasks[5].recovery_note.sha256`, shard-integrity pins) must stay
+  consistent with the pushed branch at next integration (C1).
+
+### Next unblocked card
+
+Batch 1 implementation per §18 plus the pre-review's B0/B1 split: B0
+infra first commits (C2 §16 timeout raise, C3 validator routing, C4
+validator finale count, C7 registry lock fix, C8/C9 overlap, C13 hygiene),
+then B1 = T2.3 (replay/concurrency persistence, plan lines 384–406), then
+ONE batch review doubling as G2 (C10), then integration push including
+`d9459c80` (C1), then evidence recording and validator.
+
+### Controls
+
+This evidence append changes only the three allowed evidence files in one
+coherent commit authored by `POM <peter@omalley.io>`. No receipt,
+protected state, branch, or other file is changed; no push, merge,
+promotion, live/model/runtime call, secret access, wrapper dispatch,
+review, validator change, or product/test run is performed by this
+evidence recorder. No receipt is committed; the reviewed receipt stays an
+untracked run artifact. The wrapper records this recorder's own `end_ts`
+and receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
