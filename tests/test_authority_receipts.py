@@ -500,3 +500,140 @@ def test_stamp_response_maps_replay_mismatch_to_authority_rejected() -> None:
     assert stamped["audit"]["rejected_candidate"]["graph"] == {"nodes": [{"id": 1}]}
     assert stamped.get("accepted_delta_ids") in ((), [], None) or list(stamped.get("accepted_delta_ids") or ()) == []
 
+
+
+# ── T2.3 crash-boundary injections ──────────────────────────────────────────
+
+
+def _ksampler_schema() -> NodeSchema:
+    return NodeSchema(
+        class_type="KSampler",
+        pack="core",
+        inputs={
+            "model": InputSpec(type="MODEL", required=True),
+            "positive": InputSpec(type="CONDITIONING", required=True),
+            "negative": InputSpec(type="CONDITIONING", required=True),
+            "seed": InputSpec(type="INT", required=True),
+            "steps": InputSpec(type="INT", required=True),
+            "cfg": InputSpec(type="FLOAT", required=True),
+            "sampler_name": InputSpec(type="COMBO", required=True),
+            "scheduler": InputSpec(type="COMBO", required=True),
+            "denoise": InputSpec(type="FLOAT", required=True),
+        },
+        outputs=[OutputSpec(type="LATENT", name="LATENT")],
+    )
+
+
+def _mode_turn_fixture() -> tuple[dict, dict, dict, list]:
+    """(submit graph, candidate graph, delta envelope, accepted batch)."""
+    submit = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "pos": [10, 20],
+                "size": [320, 240],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+                "widgets_values": [],
+                "inputs": [],
+                "outputs": [],
+            }
+        ],
+        "links": [],
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
+    }
+    candidate = json.loads(json.dumps(submit))
+    candidate["nodes"][0]["mode"] = 4
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [{"op": "set_mode", "target": ["", "sampler-1"], "mode": 4}],
+    }
+    accepted = [{"op": op} for op in envelope["ops"]]
+    return submit, candidate, envelope, accepted
+
+
+def test_crash_after_delta_before_receipt_leaves_no_authority_and_recovers_undetermined(
+    tmp_path: Path,
+) -> None:
+    """Injection 4: the process dies after persisting submit+delta but before
+    authority/receipt.json exists. The turn must carry NO authority, and
+    recovery must refuse to guess ``applied`` from unverified delta evidence.
+    """
+    from vibecomfy.porting.edit.checkpoint import (
+        TERMINAL_STATE_UNDETERMINED,
+        recover_terminal_checkpoint,
+    )
+
+    submit, candidate, _envelope, accepted = _mode_turn_fixture()
+    turn_dir = tmp_path / "sessions" / "crash-a" / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "request.json").write_text(json.dumps({"graph": submit}), encoding="utf-8")
+    evidence = {"original_graph": submit, "graph": candidate, "accepted_batch": accepted}
+
+    assert load_authority_receipt(turn_dir) is None
+    checkpoint = recover_terminal_checkpoint(evidence)
+    assert checkpoint.terminal_state == TERMINAL_STATE_UNDETERMINED
+    assert checkpoint.replay_verified is False
+    assert checkpoint.reason == "unknown_evidence_not_guessed_applied"
+    assert checkpoint.deltas == ()
+
+
+def test_crash_after_receipt_before_projection_recovers_applied_deterministically(
+    tmp_path: Path,
+) -> None:
+    """Injection 5: the receipt is durable but response.json / session-state /
+    projection never landed. Recovery classifies deterministically from the
+    persisted receipt + accepted delta (row 7), never by guessing.
+    """
+    from vibecomfy.porting.edit.checkpoint import (
+        TERMINAL_STATE_APPLIED,
+        project_terminal_checkpoint,
+        recover_terminal_checkpoint,
+    )
+
+    submit, candidate, envelope, accepted = _mode_turn_fixture()
+    response = {
+        "agent_edit_protocol": "v2_delta",
+        "graph": candidate,
+        "accepted_batch": accepted,
+        "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
+    }
+    turn_dir = tmp_path / "sessions" / "crash-b" / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    receipt = build_authority_receipt(
+        session_id="crash-b",
+        turn_id="0001",
+        submit_graph=submit,
+        cumulative_delta_envelope=envelope,
+        candidate=candidate,
+        response=response,
+        schema_version="2.0.0",
+        schema_provider=_Provider({"KSampler": _ksampler_schema()}),
+    )
+    assert receipt.is_applyable
+    write_authority_receipt(turn_dir, receipt)
+    assert load_authority_receipt(turn_dir) == receipt
+
+    evidence = {
+        "authority_receipt": receipt.to_dict(),
+        "original_graph": submit,
+        "graph": candidate,
+        "accepted_batch": accepted,
+    }
+    checkpoint = recover_terminal_checkpoint(evidence)
+    assert checkpoint.terminal_state == TERMINAL_STATE_APPLIED
+    assert checkpoint.replay_verified is True
+    assert len(checkpoint.deltas) == 1
+
+    # The frozen mode-neutral projector mirrors the recovered checkpoint; it
+    # does not invent a different terminal state from partial evidence.
+    projection = project_terminal_checkpoint(checkpoint)
+    assert projection.terminal_state == TERMINAL_STATE_APPLIED
+    assert projection.accepted is True
+    assert projection.landed_count == 1

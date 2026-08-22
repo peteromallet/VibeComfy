@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     session_dir_for,
     turn_dir_for,
 )
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
 
 # ── normalize_path_component ────────────────────────────────────────────────
@@ -1049,6 +1051,50 @@ def test_recovery_handles_transaction_dir_with_no_log_file(tmp_path):
 # ── Transactional apply server semantics (T21) ──────────────────────────────
 
 
+class _TurnSchemaProvider:
+    """Minimal provider for the helper's touched classes (KSampler/LoadImage).
+
+    The fail-closed authority contract freezes touched-class schemas into the
+    witness (T2.1): ``schema_provider=None`` can never resolve them, so the
+    seed supplies the exact evidence schemas explicitly instead of relying on
+    a live ComfyUI registry.
+    """
+
+    def __init__(self) -> None:
+        self._schemas = {
+            "KSampler": NodeSchema(
+                class_type="KSampler",
+                pack="core",
+                inputs={
+                    "model": InputSpec(type="MODEL", required=True),
+                    "positive": InputSpec(type="CONDITIONING", required=True),
+                    "negative": InputSpec(type="CONDITIONING", required=True),
+                    "seed": InputSpec(type="INT", required=True),
+                    "steps": InputSpec(type="INT", required=True),
+                    "cfg": InputSpec(type="FLOAT", required=True),
+                    "sampler_name": InputSpec(type="COMBO", required=True),
+                    "scheduler": InputSpec(type="COMBO", required=True),
+                    "denoise": InputSpec(type="FLOAT", required=True),
+                },
+                outputs=[OutputSpec(type="LATENT", name="LATENT")],
+            ),
+            "LoadImage": NodeSchema(
+                class_type="LoadImage",
+                pack="core",
+                inputs={
+                    "image": InputSpec(type="COMBO", required=True),
+                },
+                outputs=[
+                    OutputSpec(type="IMAGE", name="IMAGE"),
+                    OutputSpec(type="MASK", name="MASK"),
+                ],
+            ),
+        }
+
+    def get_schema(self, class_type: str) -> NodeSchema | None:
+        return self._schemas.get(class_type)
+
+
 def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
     from vibecomfy.comfy_nodes.agent import session as S
     from vibecomfy.comfy_nodes.agent.authority_receipts import (
@@ -1112,6 +1158,7 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         candidate=candidate_graph,
         response=response,
         schema_version="2.0.0",
+        schema_provider=_TurnSchemaProvider(),
     )
     assert receipt.is_applyable
     write_authority_receipt(turn_dir, receipt)
@@ -1391,3 +1438,272 @@ def test_reconcile_returns_durable_receipts_and_repairs_index(tmp_path):
     receipts = result["receipts_by_turn"][turn_id]
     assert [event["event_type"] for event in receipts] == ["prepared"]
     assert receipts[0]["receipt"]["lease_nonce"] == prepared["lease_nonce"]
+
+
+# ── T2.3 reproducible replay and concurrency injections ────────────────────
+
+
+def _injection_submit_graph() -> dict:
+    return {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "pos": [10, 20],
+                "size": [320, 240],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+                "widgets_values": [],
+                "inputs": [],
+                "outputs": [],
+            }
+        ],
+        "links": [],
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
+    }
+
+
+def _injection_v2_request(submit: dict, workflow_id: str) -> dict:
+    return {"graph": submit, "workflow_id": workflow_id}
+
+
+def _injection_v2_response(submit: dict, candidate: dict) -> dict:
+    from vibecomfy.comfy_nodes.agent import session as S
+
+    structural_before = S.structural_graph_hash(submit)
+    structural_after = S.structural_graph_hash(candidate)
+    delta_envelope = {
+        "schema_version": "2.0.0",
+        "ops": [{"op": "set_mode", "target": ["", "sampler-1"], "mode": 4}],
+    }
+    return {
+        "agent_edit_protocol": "v2_delta",
+        "graph": candidate,
+        "accepted_batch": [{"op": op} for op in delta_envelope["ops"]],
+        "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
+        "candidate": {
+            "plan_hash": S.v2_mutation_plan_hash(
+                delta_ops_envelope=delta_envelope,
+                structural_hash_before=structural_before,
+                structural_hash_after=structural_after,
+            ),
+            "structural_hash_before": structural_before,
+            "structural_hash_after": structural_after,
+        },
+    }
+def _injection_cycle(root: Path, session_id: str, idempotency_key: str):
+    """Full public-path turn: allocate → persist request → record response."""
+    from vibecomfy.comfy_nodes.agent import session as S
+
+    submit = _injection_submit_graph()
+    candidate = json.loads(json.dumps(submit))
+    candidate["nodes"][0]["mode"] = 4
+    request = _injection_v2_request(submit, "123e4567-e89b-12d3-a456-426614174000")
+    allocation = S.allocate_turn(
+        session_root=root, session_id=session_id,
+        request_payload=request, idempotency_key=idempotency_key,
+    )
+    assert allocation.replay is None and allocation.conflict is None
+    S._write_response_atomic(allocation.turn_dir / "request.json", request)
+    record = S.record_idempotent_response(
+        session_root=root, session_id=session_id, scope="edit",
+        idempotency_key=idempotency_key, request_hash=allocation.request_hash,
+        response=_injection_v2_response(submit, candidate),
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit", turn_id=allocation.context.turn_id,
+        schema_provider=_TurnSchemaProvider(),
+    )
+    assert record is not None
+    return allocation, record
+
+
+def test_duplicate_same_turn_request_replays_recorded_response(tmp_path: Path) -> None:
+    """Injection 1: the same request payload + key replays the recorded
+    response on the SAME turn instead of minting a second authority."""
+    from vibecomfy.comfy_nodes.agent import session as S
+    from vibecomfy.comfy_nodes.agent.authority_receipts import load_authority_receipt
+
+    root = tmp_path
+    first_alloc, _record = _injection_cycle(root, "dup-session", "k-dup")
+    submit = _injection_submit_graph()
+    request = _injection_v2_request(submit, "123e4567-e89b-12d3-a456-426614174000")
+
+    second_alloc = S.allocate_turn(
+        session_root=root, session_id="dup-session",
+        request_payload=request, idempotency_key="k-dup",
+    )
+    assert second_alloc.conflict is None
+    assert second_alloc.replay is not None
+    assert second_alloc.context.turn_id == first_alloc.context.turn_id
+    assert second_alloc.turn_dir == first_alloc.turn_dir
+    candidate = json.loads(json.dumps(submit))
+    candidate["nodes"][0]["mode"] = 4
+    assert second_alloc.replay.response["graph"] == candidate
+    state = S.read_state(first_alloc.session_dir)
+    assert list(state["turns"]) == [first_alloc.context.turn_id]
+    assert list(state["idempotency_records"]) == ["edit:k-dup"]
+    receipt = load_authority_receipt(first_alloc.turn_dir)
+    assert receipt is not None and receipt.is_applyable
+
+
+def test_stale_turn_reference_fails_closed_and_new_submit_supersedes_candidate(
+    tmp_path: Path,
+) -> None:
+    """Injection 2: a stale turn reference fails closed with StaleStateMismatch,
+    and a new submit supersedes the prior candidate to unknown."""
+    from vibecomfy.comfy_nodes.agent import session as S
+    from vibecomfy.comfy_nodes.agent.contracts import FailureKind, FailureEnvelope
+
+    root = tmp_path / "stale-root"
+    root.mkdir()
+    # (a) Unknown/stale turn_id on the public prepare path.
+    stale = S.prepare_turn_transaction(
+        session_root=root, session_id="stale-session",
+        turn_id="9999", request_payload={},
+    )
+    assert isinstance(stale, FailureEnvelope)
+    assert stale.kind == FailureKind.STALE_STATE_MISMATCH
+    assert stale.turn_id == "9999"
+
+    # (b) A new same-session submit supersedes the prior candidate turn.
+    first_alloc, _ = _injection_cycle(root, "supersede-session", "k-t1")
+    submit = _injection_submit_graph()
+    newer = S.allocate_turn(
+        session_root=root, session_id="supersede-session",
+        request_payload=_injection_v2_request(submit, "123e4567-e89b-12d3-a456-426614174000"),
+        idempotency_key="k-t2",
+    )
+    assert newer.context.turn_id != first_alloc.context.turn_id
+    transitions = list(newer.unknown_transitions)
+    assert len(transitions) == 1
+    assert transitions[0]["turn_id"] == first_alloc.context.turn_id
+    assert transitions[0]["from_state"] == "candidate_ready"
+    assert transitions[0]["to_state"] == "superseded"
+    assert transitions[0]["reason"] == "superseded_by_new_submit"
+    state = S.read_state(newer.session_dir)
+    superseded = state["turns"][first_alloc.context.turn_id]
+    assert superseded["state"] == "superseded"
+    assert superseded["unknown_reason"] == "superseded_by_new_submit"
+    accept_after_supersede = S.accept_turn(
+        session_root=root, session_id="supersede-session",
+        turn_id=first_alloc.context.turn_id,
+        client_graph_hash=None, request_payload={},
+    )
+    assert isinstance(accept_after_supersede, FailureEnvelope)
+    assert accept_after_supersede.kind in (FailureKind.STALE_STATE_MISMATCH, FailureKind.EDITOR_AHEAD_CONFLICT)
+    assert state["turns"][newer.context.turn_id]["state"] == "candidate"
+
+
+def test_duplicate_idempotency_key_with_different_request_conflicts(tmp_path: Path) -> None:
+    """Injection 3: reusing an idempotency key for a DIFFERENT request payload
+    is a typed conflict carrying both hashes; no second turn is created."""
+    from vibecomfy.comfy_nodes.agent import session as S
+    from vibecomfy.comfy_nodes.agent.contracts import FailureKind
+
+    root = tmp_path
+    first_alloc, _record = _injection_cycle(root, "conflict-session", "k-conflict")
+    other = _injection_submit_graph()
+    other["nodes"][0]["pos"] = [99, 99]
+    conflicting = S.allocate_turn(
+        session_root=root, session_id="conflict-session",
+        request_payload=_injection_v2_request(other, "123e4567-e89b-12d3-a456-426614174000"),
+        idempotency_key="k-conflict",
+    )
+    assert conflicting.replay is None
+    assert conflicting.conflict is not None
+    assert conflicting.conflict.failure.kind == FailureKind.STALE_STATE_MISMATCH
+    context = conflicting.conflict.failure.agent_failure_context
+    assert context["existing_request_hash"] != context["request_hash"]
+    assert context["existing_request_hash"] == first_alloc.request_hash
+    state = S.read_state(first_alloc.session_dir)
+    assert list(state["turns"]) == [first_alloc.context.turn_id]
+
+
+def test_concurrent_independent_sessions_do_not_contaminate(tmp_path: Path) -> None:
+    """Injection 7: two sessions running full allocate→record cycles in threads
+    keep disjoint turns, idempotency records, and per-session authority receipts."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from vibecomfy.comfy_nodes.agent import session as S
+    from vibecomfy.comfy_nodes.agent.authority_receipts import load_authority_receipt
+
+    root = tmp_path / "concurrent-root"
+    root.mkdir()
+    barrier = threading.Barrier(2)
+
+    def run(session_id: str):
+        barrier.wait()
+        allocation, record = _injection_cycle(root, session_id, f"k-{session_id}")
+        return session_id, allocation, record
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, ["con-a", "con-b"]))
+
+    seen_dirs = set()
+    for session_id, allocation, _record in results:
+        session_dir = S.session_dir_for(root, session_id)
+        seen_dirs.add(session_dir)
+        state = S.read_state(session_dir)
+        assert list(state["turns"]) == [allocation.context.turn_id]
+        assert list(state["idempotency_records"]) == [f"edit:k-{session_id}"]
+        receipt = load_authority_receipt(allocation.turn_dir)
+        assert receipt is not None and receipt.session_id == session_id
+        assert receipt.is_applyable
+    assert len(seen_dirs) == 2
+
+
+def test_process_global_cache_poisoning_cannot_change_authority_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Injection 8: poisoning the process-global fixture/object-info caches
+    between two identical builds cannot change the persisted authority — the
+    schema witness freeze is the isolation boundary."""
+    from vibecomfy.comfy_nodes.agent import fixture_provider
+    from vibecomfy.comfy_nodes.agent import _frag_orchestration
+    from vibecomfy.comfy_nodes.agent.authority_receipts import build_authority_receipt
+
+    submit, candidate, envelope, _accepted = _mode_turn_fixture_session()
+    response = {
+        "agent_edit_protocol": "v2_delta",
+        "graph": candidate,
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
+        "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
+    }
+
+    def build(turn_id: str):
+        return build_authority_receipt(
+            session_id="poison-session", turn_id=turn_id,
+            submit_graph=submit, cumulative_delta_envelope=envelope,
+            candidate=candidate, response=response, schema_version="2.0.0",
+            schema_provider=_TurnSchemaProvider(),
+        )
+
+    clean = build("0001")
+    monkeypatch.setattr(fixture_provider, "_CONTENT_CACHE", {"poison": "junk"})
+    monkeypatch.setattr(fixture_provider, "_MANIFEST_CACHE", {"poisoned": True})
+    monkeypatch.setattr(_frag_orchestration, "_RUNTIME_OBJECT_INFO_PATH", ["/nonexistent/object_info.json"])
+    poisoned = build("0002")
+
+    assert poisoned.replay.replay_ok and poisoned.replay.candidate_matches
+    assert poisoned.submit_graph_hash == clean.submit_graph_hash
+    assert poisoned.cumulative_delta_hash == clean.cumulative_delta_hash
+    assert poisoned.candidate_hash == clean.candidate_hash
+    assert poisoned.schema_witness_hash == clean.schema_witness_hash
+    assert poisoned.replay.recomputed_candidate_hash == clean.replay.recomputed_candidate_hash
+
+
+def _mode_turn_fixture_session() -> tuple[dict, dict, dict, list]:
+    """Same shape as test_authority_receipts._mode_turn_fixture, local to this module."""
+    submit = _injection_submit_graph()
+    candidate = json.loads(json.dumps(submit))
+    candidate["nodes"][0]["mode"] = 4
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [{"op": "set_mode", "target": ["", "sampler-1"], "mode": 4}],
+    }
+    return submit, candidate, envelope, [{"op": op} for op in envelope["ops"]]
