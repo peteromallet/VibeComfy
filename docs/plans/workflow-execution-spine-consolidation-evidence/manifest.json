@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "3fa6a6dfd3f325b291cc0d083c86b8cbf6fb67bbbf24e6152210661fa6d96619",
+        "sha256": "7b9ab9d00c7ef0988dace762c41947df2046435cd4306f8c8008efeb3f7d8724",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1530,6 +1530,47 @@
         "registration_ts": "2026-08-22T01:53:17Z",
         "completion_window": "2026-08-22T02:04Z - 2026-08-22T02:16:20Z",
         "observation": "four simultaneous active-allowances.json registrations with no blocking - C7 registry lock fix operationally proven"
+      },
+      "batch1_integration": {
+        "task_id": "BATCH1-INTEGRATION",
+        "gate": "G2",
+        "label": "BATCH1-INTEGRATION: apply reviewed chain, run named batch shard once, fast-forward push",
+        "role": "integration",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "pass",
+        "base_sha": "b9c23c92cdf3b132f8baa0376910baf0a5b09018",
+        "wrapper_pid": 69266,
+        "start_ts": "2026-08-22T02:34:27Z",
+        "end_ts": "2026-08-22T02:37:43Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/BATCH1-INTEGRATION-receipt.json", "sha256": "2d6f78421cc54231da2dfed6ed8b8ddeda3e83d0487bbfe6003f5aad3b191a81"},
+        "brief_sha256": "2c3d7d80a138b65aadc7b6ddf91469f2252576e84521e4f8adac4184455560fc",
+        "result_sha256": "402f9b980a2dbbb59e9712adc2b8d27001104a00a2c4dbfeeab4ea5beb4268ab",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/BATCH1-INTEGRATION-dispatch.log",
+        "push": {
+          "command": "git push origin HEAD:fixer/workflow-execution-spine-consolidation",
+          "remote_before": "c83d2e59cae670c056564f297061062b0a880763",
+          "remote_after": "b9c23c92cdf3b132f8baa0376910baf0a5b09018",
+          "fast_forward": true,
+          "forced": false,
+          "pushed_commits": ["d9459c80", "c469e493", "0f6cd658", "686a8e75", "baf1ee93", "b9c23c92"],
+          "condition_1_satisfied": true
+        },
+        "named_batch_shard": {
+          "run_count": 1,
+          "expected": "168 passed, 2 failed",
+          "observed": "2 failed, 168 passed, 61 warnings in 1.66s",
+          "exit": 1,
+          "failures": ["tests/test_authority_replay_sequential.py::test_replay_matches_executor_candidate_on_multi_add_with_remove", "tests/test_authority_replay_sequential.py::test_recompute_apply_is_sequential_invariant"],
+          "new_failures": 0
+        },
+        "follow_on_cards_queued": ["BATCH1-REVISION", "R-G2-1-REPAIR"],
+        "next_unblocked_card": "BATCH1-REVISION then R-G2-1-REPAIR, then B2 (T3.1 + T3.2 implementation per the two completed inventories), then G3 batch review"
       }
     }
   ],

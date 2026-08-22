@@ -2774,3 +2774,93 @@ exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## Batch 1 integration push — BATCH1-INTEGRATION disposition (2026-08-22)
+
+### BATCH1-INTEGRATION register
+
+- **Task/label/gate/role/route:** `BATCH1-INTEGRATION` /
+  `BATCH1-INTEGRATION: apply reviewed chain, run named batch shard once,
+  fast-forward push` / gate `G2` / integration / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/BATCH1-INTEGRATION-receipt.json` (file
+  SHA-256 `2d6f78421cc54231da2dfed6ed8b8ddeda3e83d0487bbfe6003f5aad3b191a81`);
+  window `2026-08-22T02:34:27Z` → `2026-08-22T02:37:43Z`, launcher exit
+  `0`; base `b9c23c92cdf3b132f8baa0376910baf0a5b09018`; zero changed
+  files, zero commits (read-only integration); brief SHA-256
+  `2c3d7d80a138b65aadc7b6ddf91469f2252576e84521e4f8adac4184455560fc`;
+  result SHA-256
+  `402f9b980a2dbbb59e9712adc2b8d27001104a00a2c4dbfeeab4ea5beb4268ab`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/BATCH1-INTEGRATION-dispatch.log`.
+- This evidence recorder's own wrapper PID is `69552`, start
+  `2026-08-22T02:38:33Z` per `active-allowances.json`; this recorder's
+  own `end_ts` and receipt digest are written by the wrapper after exit
+  and are not recorded here.
+
+### Push executed and verified — Condition 1 (C1) satisfied
+
+- **Push executed:** `git push origin
+  HEAD:fixer/workflow-execution-spine-consolidation` →
+  `c83d2e59..b9c23c92`; plain fast-forward refspec, no force flag; all
+  seven commits advanced in one atomic update; history untouched.
+- **remote_after** verified via `git ls-remote` =
+  `b9c23c92cdf3b132f8baa0376910baf0a5b09018`; fast-forward from
+  `c83d2e59cae670c056564f297061062b0a880763`.
+- **Condition 1 (C1) satisfied:** the push includes the docs-only T2.2
+  disposition commit `d9459c80`, the pre-review evidence `c469e493`,
+  Batch 1 B0/B1 commits `0f6cd658` + `686a8e75`, and evidence commits
+  `baf1ee93` + `b9c23c92` (chain order `c83d2e59 → d9459c80 → c469e493
+  → 0f6cd658 → 686a8e75 → baf1ee93 → b9c23c92`). Subsequent briefs cite
+  `b9c23c92` as the latest reviewed integration base.
+
+### Named batch shard — run once by the integration agent
+
+- The focused T2.3 five-module command (`test_authority_receipts.py`,
+  `test_authority_replay_sequential.py`,
+  `test_agent_edit_artifact_replay.py`,
+  `test_comfy_nodes_agent_transaction_storage.py`,
+  `test_comfy_nodes_agent_session.py`) ran EXACTLY once: exit `1`,
+  result `2 failed, 168 passed, 61 warnings in 1.66s` — matches the
+  expected `168 passed, 2 failed` exactly.
+- The two failures are exactly the pre-existing R-G2-1 set
+  (`tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove,
+  test_recompute_apply_is_sequential_invariant}`); no new failures
+  appeared.
+
+### G2 follow-on cards queued (context)
+
+- **BATCH1-REVISION**: MF-G2-1 registry-lock `global`, MF-G2-2
+  release-test post-state assertion, SH-G2-3 goal-doc timeout template
+  — all HARD/mechanical.
+- **R-G2-1-REPAIR**: dedicated XHARD production repair of the replay
+  converter drift; must close before Batch 2 completes.
+
+### Next unblocked card
+
+BATCH1-REVISION, then R-G2-1-REPAIR, then B2 (T3.1 + T3.2
+implementation per the two completed inventories), then G3 batch
+review.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution log
++ manifest; test-shards.json untouched) in one coherent commit authored
+by `POM <peter@omalley.io>`. No receipt, protected state, branch, or
+other file is changed; no merge, promotion, live/model/runtime call,
+secret access, wrapper dispatch, review, validator change, or
+product/test run is performed by this evidence recorder; the recorded
+push was executed by the BATCH1-INTEGRATION agent, not by this
+recorder. No receipt is committed; the reviewed receipts stay untracked
+run artifacts. The wrapper records this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
