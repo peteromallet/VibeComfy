@@ -585,6 +585,46 @@
         "G6-MUST-S6-001 CLOSED via G6-DEEP-REVISION + G6-FINAL-REREVIEW-2"
       ],
       "residual": "G6 PASSED \u2014 S6 7 failure-kind regressions closed in production; S1 6 pre-existing, S6 17 pre-existing, S3 3, S4 24, S7 5, S9 3, T6.3 broad 2 env; 2 adjudicated S6 deltas intentional (fail-closed + typed-kind) \u2014 zero open must"
+    },
+    {
+      "gate_id": "G7",
+      "status": "open",
+      "disposition": "pending",
+      "label": "G7 [HARD] finale window \u2014 B6 HARNESS-SPLIT-EXTENSION 25/25 split support, pending T7.1 preflight",
+      "model_route": "stealth/ox-alpha",
+      "exit": 0,
+      "base_sha": "743cc1027010880bed873ad57a6daf346848c0fd",
+      "head_sha": "40458ed89b36b321dfb2146b9cd0bb2cf082dd6b",
+      "next_unblocked_card": "T7.1-PREFLIGHT (validate-only on BOTH manifests, ZERO model calls \u2014 required before any smoke/finale live run; \u00a718/\u00a725.4)",
+      "evidence_sequence": [
+        {
+          "sequence": 1,
+          "canonical_slot": "G7",
+          "task_id": "HARNESS-SPLIT-EXTENSION",
+          "receipt_path": "receipts/HARNESS-SPLIT-EXTENSION-receipt.json",
+          "sha256": "d2f0119e88a991597fec83eef9b3f6adfb415297df97908c0b501ab88831d157",
+          "result_sha256": "c0feaf11e9ac0e5cb4b371ee0590cc9ccdccb88e3246176747d166e7de3a4aad",
+          "commit": "40458ed89b36b321dfb2146b9cd0bb2cf082dd6b",
+          "role": "implementer",
+          "label": "HARNESS-SPLIT-EXTENSION implementer: C5 one-invocation 25/25 split finale support in compare_pipeline_modes (smoke path byte-identical)",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 2,
+          "canonical_slot": "G7",
+          "task_id": "HARNESS-SPLIT-EXTENSION-REVIEW",
+          "receipt_path": "receipts/HARNESS-SPLIT-EXTENSION-REVIEW-receipt.json",
+          "sha256": "01aaaaec978b8ec37d9c17fd464910699be3279605b58dda781d0b704c531890",
+          "result_sha256": "dc0f92dec25d550d097ded510d7aa6267bb6e98011ba0cd9303551099b027fc3",
+          "role": "review",
+          "label": "HARNESS-SPLIT-EXTENSION-REVIEW \u2014 one batch review of C5 split finale (40458ed8); continue required before T7.1",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "continue"
+        }
+      ],
+      "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); split payload.split shape; resolved_model via hermes resolved= print"
     }
   ],
   "tasks": [
@@ -1005,7 +1045,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "7190181631dbf0038fffc62a276b7b42fa8f35f33df387f04e02b706a9f5ad9d",
+        "sha256": "6a57b7f51d8100d3e3ef69372d07929e4aff66faf3bccefff7b74723a05e59ae",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
