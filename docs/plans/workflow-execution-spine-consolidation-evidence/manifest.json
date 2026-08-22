@@ -389,16 +389,16 @@
     },
     {
       "gate_id": "G6",
-      "status": "stopped",
-      "disposition": "stop",
-      "label": "G6 [XHARD-REVIEW] G6 window disposition \u2014 STOP (not passed) per \u00a79 (7 S6 failure-kind regressions open after capped chain)",
+      "status": "passed",
+      "disposition": "continue",
+      "label": "G6 [XHARD-REVIEW] G6 window \u2014 G6 PASSED via deep revision + final rereview continue",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
-      "head_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
+      "head_sha": "b57272e8b2d61fd75d099516360b4027f9f330df",
       "input_sha": "bdbcfeb919fc43bfd21a6369aa89a230b7a682e5",
-      "output_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
-      "next_unblocked_card": "STOP \u2014 no integration, no push, no B6 (T7.1/finale) per \u00a79",
+      "output_sha": "b57272e8b2d61fd75d099516360b4027f9f330df",
+      "next_unblocked_card": "HARNESS-SPLIT-EXTENSION (B6, before T7.1 preflight)",
       "evidence_sequence": [
         {
           "sequence": 1,
@@ -540,10 +540,51 @@
           "label": "G6-FINAL-REREVIEW final gate re-review of the adjudication-driven revision (d8bf0712)",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0
+        },
+        {
+          "sequence": 12,
+          "canonical_slot": "G6",
+          "task_id": "G6-DEEP-REVISION",
+          "receipt_path": "receipts/G6-DEEP-REVISION-receipt.json",
+          "sha256": "466dc9225c99d3e26e20b64f4ffabb990d06ce48be5091fd57f4153229da9c13",
+          "result_sha256": "e860227cc152869281eb73e401ba8aaeffb7239db35274a03893c8b48330150a",
+          "commit": "7bae7b4f",
+          "role": "implementer",
+          "label": "G6-DEEP-REVISION implementer: close G6-MUST-S6-001 via typed failure-kind chain (admit\u2192_validate_one\u2192budget_failure_kind) + fail-closed admission mirrors (operator 25)",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 13,
+          "canonical_slot": "G6",
+          "task_id": "G6-PROMOTE-BATCH-RECORDS",
+          "receipt_path": "receipts/G6-PROMOTE-BATCH-RECORDS-receipt.json",
+          "sha256": "e922ff31383437f6eaf334c307ddd2755285d7aa55e5b7d57a2d40fae7eb308f",
+          "result_sha256": "6eb3c9907c5bea98565ac709c2ca0f62e1bda57e53abd19019bcf5f79c3c1f9a",
+          "commit": "b57272e8",
+          "role": "implementer",
+          "label": "G6-PROMOTE-BATCH-RECORDS implementer: promote nested G6/batch evidence records into validator accounting (operator directives 22 + 25.3)",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 14,
+          "canonical_slot": "G6",
+          "task_id": "G6-FINAL-REREVIEW-2",
+          "receipt_path": "receipts/G6-FINAL-REREVIEW-2-receipt.json",
+          "sha256": "cca64fe5aa25f87c842f867c8715c28824b3179fb7ce7c014001da8930594d07",
+          "result_sha256": "bf826cf950c687368dbcb7c219108d7a33c0e76f78af8529fb638b3b145b4718",
+          "disposition": "continue",
+          "role": "review",
+          "label": "G6-FINAL-REREVIEW-2 final gate re-review \u2014 deep revision + batch-record promotion; zero open must findings required for continue (operator 25)",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
         }
       ],
-      "finding_closure": [],
-      "residual": "S6 7 failure-kind regressions open; STOP per \u00a79"
+      "finding_closure": [
+        "G6-MUST-S6-001 CLOSED via G6-DEEP-REVISION + G6-FINAL-REREVIEW-2"
+      ],
+      "residual": "G6 PASSED \u2014 S6 7 failure-kind regressions closed in production; S1 6 pre-existing, S6 17 pre-existing, S3 3, S4 24, S7 5, S9 3, T6.3 broad 2 env; 2 adjudicated S6 deltas intentional (fail-closed + typed-kind) \u2014 zero open must"
     }
   ],
   "tasks": [
@@ -964,7 +1005,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "f5e64c964ddc16929bfd496126e470f6b8c23c95ab3982245fa1dffe3abd094e",
+        "sha256": "7190181631dbf0038fffc62a276b7b42fa8f35f33df387f04e02b706a9f5ad9d",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -4039,7 +4080,15 @@
       "result_sha256": "961a8a714714c0480f6b3f357df648f0596a7d10b3502c950b77ace695482668"
     }
   ],
-  "shards": [],
+  "shards": [
+    {
+      "shard_id": "broad_suite_once_v1",
+      "status": "pending",
+      "owner": "T6.3",
+      "command": "python -m pytest -q",
+      "note": "T6.3-owned singleton broad suite. NOT part of T6.2 focused sequence; must remain pending during T6.2. Any change to canonical broad command requires fresh Grok judgment before execution."
+    }
+  ],
   "live_runs": [],
   "findings": [
     {
@@ -4219,11 +4268,11 @@
       "finding_id": "G6-MUST-S6-001",
       "severity": "must",
       "classification": "XHARD",
-      "status": "open",
-      "disposition": "open",
+      "status": "closed",
+      "disposition": "closed",
       "summary": "S6 7 truly-new introduced regressions: failure-kind collapse ValidationError vs ModelMistake/Unrepresentable; budget_failure_kind mapping not preserving typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (only ApplyOpsError.code propagated). 27 failed at HEAD d8bf0712; 7 remain OPEN after capped chain (G6-REVIEW\u2192B5-REVISION\u2192B5-REVISION-2\u2192REREVIEW\u2192JR-ADJUDICATION\u2192FINAL-REVISION\u2192FINAL-REREVIEW). Requires deeper typed mapping fix; helper consolidation + carve-out already landed.",
-      "revision_task_id": "G6-FINAL-REVISION",
-      "re_review_task_id": "G6-FINAL-REREVIEW",
+      "revision_task_id": "G6-DEEP-REVISION",
+      "re_review_task_id": "G6-FINAL-REREVIEW-2",
       "implementer": "stealth/ox-alpha",
       "reviewer": "grok-4.6",
       "initial_review_receipt": {
@@ -4232,14 +4281,14 @@
         "result_sha256": "908bd912284cd0729417030c8124aab3088b82ae75277803466fca553c1f1d59"
       },
       "revision_receipt": {
-        "path": "receipts/G6-FINAL-REVISION-receipt.json",
-        "sha256": "3a57e20760fc68b5f81a9771a9e6426657dd39dfe6373c1c9481ec54d6b869d9",
-        "result_sha256": "7b146626765737277a48aaed764d2f2f92864c2442da622915d84ef8f18512fd"
+        "path": "receipts/G6-DEEP-REVISION-receipt.json",
+        "sha256": "466dc9225c99d3e26e20b64f4ffabb990d06ce48be5091fd57f4153229da9c13",
+        "result_sha256": "e860227cc152869281eb73e401ba8aaeffb7239db35274a03893c8b48330150a"
       },
       "rereview_receipt": {
-        "path": "receipts/G6-FINAL-REREVIEW-receipt.json",
-        "sha256": "0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a",
-        "result_sha256": "387c88991151dfd77bf6615755756827202ad8418f3135e81657983331e47ea9",
+        "path": "receipts/G6-FINAL-REREVIEW-2-receipt.json",
+        "sha256": "cca64fe5aa25f87c842f867c8715c28824b3179fb7ce7c014001da8930594d07",
+        "result_sha256": "bf826cf950c687368dbcb7c219108d7a33c0e76f78af8529fb638b3b145b4718",
         "role": "reviewer",
         "disposition": "continue",
         "reviewer": "codex:gpt-5.6-sol"
@@ -4280,9 +4329,22 @@
         {
           "path": "receipts/T6.3-BROAD-SUITE-receipt.json",
           "sha256": "7fa54c91d3c5235bb0caee1f64ef0f4f8bc3c8ad10a017cb9f0c7a2d7d99b7d2"
+        },
+        {
+          "path": "receipts/G6-DEEP-REVISION-receipt.json",
+          "sha256": "466dc9225c99d3e26e20b64f4ffabb990d06ce48be5091fd57f4153229da9c13"
+        },
+        {
+          "path": "receipts/G6-PROMOTE-BATCH-RECORDS-receipt.json",
+          "sha256": "e922ff31383437f6eaf334c307ddd2755285d7aa55e5b7d57a2d40fae7eb308f"
+        },
+        {
+          "path": "receipts/G6-FINAL-REREVIEW-2-receipt.json",
+          "sha256": "cca64fe5aa25f87c842f867c8715c28824b3179fb7ce7c014001da8930594d07"
         }
       ],
-      "closure_requirement": "deeper budget_failure_kind mapping: preserve typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (not just ApplyOpsError.code); re-review required before continue"
+      "closure_requirement": "deeper budget_failure_kind mapping: preserve typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (not just ApplyOpsError.code); re-review required before continue",
+      "closure": "G6-DEEP-REVISION 7bae7b4f closed typed failure-kind chain (admit\u2192_validate_one\u2192budget_failure_kind) + fail-closed admission mirrors; G6-FINAL-REREVIEW-2 continue with zero open must; S6 7 regressions verified closed in production."
     }
   ],
   "g0_finding_chains": [
