@@ -885,12 +885,10 @@ def test_intent_judge_legacy_walker_stub_removed_but_canonical_verifier_kept() -
 
 
 def test_cleanup_surface_fixture_cutover_is_owned_by_s73() -> None:
-    """JR-01 Decision B (MUST-010): the LIVE ``edit.__all__`` (437 names) is
-    authoritative; the frozen fixture still carries the three retired names
-    (440) and its correction is owned EXACTLY by card ``S73-FIXTURE`` — this
-    manifest no longer claims 440 as the resolved live count, and B4 stays
-    fail-closed on integration until the separately reviewed S73 integration
-    lands."""
+    """JR-01 Decision B (MUST-010): S73-FIXTURE (6353c423) landed the
+    cutover; the live ``edit.__all__`` (437 names) is authoritative and the
+    frozen fixture now matches the live 437 — this test enforces
+    fixture == live == 437 with the three retired names absent from BOTH."""
     import json
 
     import vibecomfy.comfy_nodes.agent.edit as agent_edit_module
@@ -903,10 +901,8 @@ def test_cleanup_surface_fixture_cutover_is_owned_by_s73() -> None:
     retired = {"_agent_edit_v2_enabled", "_run_delta_dev_path", "_run_full_dev_path"}
     assert len(agent_edit_module.__all__) == 437
     assert not retired & set(agent_edit_module.__all__)
-    # Deliberately untouched in this commit (S73-FIXTURE owns the change):
-    assert len(manifest["edit"]["__all__"]) == 440
-    assert retired <= set(manifest["edit"]["__all__"])
-
+    assert len(manifest["edit"]["__all__"]) == 437
+    assert not retired & set(manifest["edit"]["__all__"])
 
 def test_no_stale_472_name_comment_in_production_tree() -> None:
     """Dirty-file resolution §2b companion: stale count comment corrected."""
