@@ -347,7 +347,7 @@
       "gate_id": "G2",
       "status": "passed",
       "disposition": "pass",
-      "label": "G2 [HARD] T2 batch (BATCH1) — promoted per §22",
+      "label": "G2 [HARD] T2 batch (BATCH1) \u2014 promoted per \u00a722",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "input_sha": "baf1ee93faf31eeb090c75cc572791cc2cf19fce",
@@ -358,7 +358,7 @@
       "gate_id": "G3",
       "status": "passed",
       "disposition": "pass",
-      "label": "G3 [HARD] T3 batch (B2) — promoted per §22",
+      "label": "G3 [HARD] T3 batch (B2) \u2014 promoted per \u00a722",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "input_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -369,7 +369,7 @@
       "gate_id": "G4",
       "status": "passed",
       "disposition": "pass",
-      "label": "G4 [HARD] T4 batch (B3) — promoted per §22",
+      "label": "G4 [HARD] T4 batch (B3) \u2014 promoted per \u00a722",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "input_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -380,7 +380,7 @@
       "gate_id": "G5",
       "status": "passed",
       "disposition": "continue",
-      "label": "G5 [XHARD-REVIEW] B4 revision window + S73 fixture (G5-B4-REREVIEW-2) — promoted per §22",
+      "label": "G5 [XHARD-REVIEW] B4 revision window + S73 fixture (G5-B4-REREVIEW-2) \u2014 promoted per \u00a722",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "input_sha": "962030c5f81b2ca61329898c92aa366a7782def8",
@@ -391,7 +391,7 @@
       "gate_id": "G6",
       "status": "passed",
       "disposition": "continue",
-      "label": "G6 [XHARD-REVIEW] G6 window — G6 PASSED via deep revision + final rereview continue",
+      "label": "G6 [XHARD-REVIEW] G6 window \u2014 G6 PASSED via deep revision + final rereview continue",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
@@ -550,7 +550,7 @@
           "result_sha256": "e860227cc152869281eb73e401ba8aaeffb7239db35274a03893c8b48330150a",
           "commit": "7bae7b4f",
           "role": "implementer",
-          "label": "G6-DEEP-REVISION implementer: close G6-MUST-S6-001 via typed failure-kind chain (admit→_validate_one→budget_failure_kind) + fail-closed admission mirrors (operator 25)",
+          "label": "G6-DEEP-REVISION implementer: close G6-MUST-S6-001 via typed failure-kind chain (admit\u2192_validate_one\u2192budget_failure_kind) + fail-closed admission mirrors (operator 25)",
           "model_route": "stealth/ox-alpha",
           "exit": 0
         },
@@ -576,7 +576,7 @@
           "result_sha256": "bf826cf950c687368dbcb7c219108d7a33c0e76f78af8529fb638b3b145b4718",
           "disposition": "continue",
           "role": "review",
-          "label": "G6-FINAL-REREVIEW-2 final gate re-review — deep revision + batch-record promotion; zero open must findings required for continue (operator 25)",
+          "label": "G6-FINAL-REREVIEW-2 final gate re-review \u2014 deep revision + batch-record promotion; zero open must findings required for continue (operator 25)",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0
         }
@@ -584,18 +584,18 @@
       "finding_closure": [
         "G6-MUST-S6-001 CLOSED via G6-DEEP-REVISION + G6-FINAL-REREVIEW-2"
       ],
-      "residual": "G6 PASSED — S6 7 failure-kind regressions closed in production; S1 6 pre-existing, S6 17 pre-existing, S3 3, S4 24, S7 5, S9 3, T6.3 broad 2 env; 2 adjudicated S6 deltas intentional (fail-closed + typed-kind) — zero open must"
+      "residual": "G6 PASSED \u2014 S6 7 failure-kind regressions closed in production; S1 6 pre-existing, S6 17 pre-existing, S3 3, S4 24, S7 5, S9 3, T6.3 broad 2 env; 2 adjudicated S6 deltas intentional (fail-closed + typed-kind) \u2014 zero open must"
     },
     {
       "gate_id": "G7",
       "status": "open",
       "disposition": "pending",
-      "label": "G7 [HARD] finale window — B6 HARNESS-SPLIT-EXTENSION 25/25 split support, pending T7.1 preflight",
+      "label": "G7 [HARD] finale window \u2014 B6 HARNESS-SPLIT-EXTENSION 25/25 split + BUG-FIX + re-smoke (READY, key-hydration precondition); pending T7.2 finale",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "743cc1027010880bed873ad57a6daf346848c0fd",
-      "head_sha": "40458ed89b36b321dfb2146b9cd0bb2cf082dd6b",
-      "next_unblocked_card": "T7.1-PREFLIGHT (validate-only on BOTH manifests, ZERO model calls — required before any smoke/finale live run; §18/§25.4)",
+      "head_sha": "7df2e5f5001ceaa7bce10c593d9bcf2fd4f975e9",
+      "next_unblocked_card": "T7.2-FINALE \u2014 ONE authoritative live run: all 50 final50 scenarios, 25 staged + 25 threaded = 50 legs, --run --manifest threaded_comparison_manifest_final50.json --split --concurrency 10 --leg-isolation process, single invocation (hydrate OPENROUTER_API_KEY from /workspace/.creds/omp.env or ~/.hermes/.env before launch)",
       "evidence_sequence": [
         {
           "sequence": 1,
@@ -618,7 +618,7 @@
           "sha256": "01aaaaec978b8ec37d9c17fd464910699be3279605b58dda781d0b704c531890",
           "result_sha256": "dc0f92dec25d550d097ded510d7aa6267bb6e98011ba0cd9303551099b027fc3",
           "role": "review",
-          "label": "HARNESS-SPLIT-EXTENSION-REVIEW — one batch review of C5 split finale (40458ed8); continue required before T7.1",
+          "label": "HARNESS-SPLIT-EXTENSION-REVIEW \u2014 one batch review of C5 split finale (40458ed8); continue required before T7.1",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
           "disposition": "continue"
@@ -631,12 +631,62 @@
           "sha256": "4c52d0e7a1d36cd57b9d98906dc520d21cc7e2cd66ae77e7788cf357712a58af",
           "result_sha256": "5b8bdfe0039969b8243c0b5513582189c6423288a2e1cc7ca6746771bb6f1135",
           "role": "implementer",
-          "label": "SMOKE-RUN — §18 smoke: final5 x both modes = 10 concurrent legs, validate-only first, NON-authoritative validation",
+          "label": "SMOKE-RUN \u2014 \u00a718 smoke: final5 x both modes = 10 concurrent legs, validate-only first, NON-authoritative validation",
           "model_route": "stealth/ox-alpha",
           "exit": 0
+        },
+        {
+          "sequence": 4,
+          "canonical_slot": "G7",
+          "task_id": "BUG-FIX-RECOMMENDATIONS",
+          "receipt_path": "receipts/BUG-FIX-RECOMMENDATIONS-receipt.json",
+          "sha256": "e649e2a263e00ab9e06fbda6c9eb1bce0fb1920474300ea5c9a1000adaa19b4b",
+          "result_sha256": "b08256ab14ccd849c66855d6bc9bfd822638c17d828cd0c6c433497e814ccb97",
+          "role": "review",
+          "label": "BUG-FIX-RECOMMENDATIONS \u2014 \u00a718 step 6: review smoke + harness, recommend BUG fixes; ground the bug-fix pass",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 5,
+          "canonical_slot": "G7",
+          "task_id": "BUG-FIX-APPLY",
+          "receipt_path": "receipts/BUG-FIX-APPLY-receipt.json",
+          "sha256": "cde77d9064cc2fdc1a9034bb53f332248821eedcda6c20762a7978ce59b8755f",
+          "result_sha256": "bf9e1e009b249c091e9605e80faf712baaefe056df55312751f7f76ef6006e5c",
+          "commit": "7df2e5f5001ceaa7bce10c593d9bcf2fd4f975e9",
+          "role": "implementer",
+          "label": "BUG-FIX-APPLY implementer \u2014 land BF-1 (attested schema cache) + BF-2 (arnold pin) + BF-3/5/8/9 per \u00a718 step 6",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 6,
+          "canonical_slot": "G7",
+          "task_id": "SMOKE-RUN-2",
+          "receipt_path": "receipts/SMOKE-RUN-2-receipt.json",
+          "sha256": "65e1cdb2a09e435851fe57380f3c32148c79e2e35bf5fea9a70cf23b11413d6f",
+          "result_sha256": "fcc0249339cc85b473c9e7b557f12ebee9d0c319354fe733fc1c92ca5e26779c",
+          "role": "implementer",
+          "label": "SMOKE-RUN-2 \u2014 \u00a718 step 6 re-smoke after BUG-FIX-APPLY (BF-1/BF-2 provisioning fixes); final5 x 2 modes = 10 legs, NON-authoritative",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 7,
+          "canonical_slot": "G7",
+          "task_id": "SMOKE-JR-ADJUDICATION",
+          "receipt_path": "receipts/SMOKE-JR-ADJUDICATION-receipt.json",
+          "sha256": "2cb61104c7d5e1d0c41628b1047d76393b2a6f1d725a9e590b177127c1ff0e79",
+          "result_sha256": "3c05497614664ef0713f835e3b0046b69d32bb992660e347068a8d098de4c95e",
+          "role": "review",
+          "label": "SMOKE-JR-ADJUDICATION \u2014 binding ruling: multi-video/threaded zero-call leg (product vs infra) + smoke scorecard + finale readiness",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "continue"
         }
       ],
-      "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); split payload.split shape; resolved_model via hermes resolved= print"
+      "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
     }
   ],
   "tasks": [
@@ -1047,7 +1097,7 @@
         "receipt_sha256": "unavailable",
         "brief_sha256": "unavailable",
         "result_sha256": "unavailable",
-        "known_session_prefix": "01a02258-…",
+        "known_session_prefix": "01a02258-\u2026",
         "implementer_commit": "4f38adb816effe9440fe3292193aff14bd7dff3d",
         "implementer_commit_ts": "2026-08-21T04:08:39Z",
         "detached_session_exit_ts": "2026-08-21T04:09:05Z",
@@ -1057,7 +1107,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "9301a8c20a588abd2a8915789c75717c8c0d8f3d4e097d34791cbbb15939d269",
+        "sha256": "c599dc42e8ee6aae2f22a68d01de3ac2a29196c2354b71b342613fb4fd6f6560",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1918,7 +1968,7 @@
           "TASK_ALREADY_COMPLETED on interrupted-receipt re-dispatch",
           "column-0 markers in code fences",
           "second-signal reentry",
-          "all accepted by v3 continue and none is a §13 stop"
+          "all accepted by v3 continue and none is a \u00a713 stop"
         ],
         "focused_evidence": {
           "command": "python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q",
@@ -2110,7 +2160,7 @@
       "h3_stop": {
         "task_id": "evidence-log-H3-stop",
         "gate": "",
-        "label": "PLAN §9 STOP — H3-overlap-narrow pre-code gate",
+        "label": "PLAN \u00a79 STOP \u2014 H3-overlap-narrow pre-code gate",
         "role": "evidence",
         "status": "stopped",
         "disposition": "JUDGMENT_REQUIRED",
@@ -2151,7 +2201,7 @@
         },
         "coherent_core": "JUDGMENT_REQUIRED on the contradictory overlap predicate (finding 2); findings 1 and 3 are real hazards outside H3's frozen repair.",
         "stub_capture": "Both dispatches exposed only degenerate final-message-only tails (301 bytes and 291 bytes); the substantive review body was not persisted.",
-        "stop_rule": "plan §9: an XHARD pre-code review that does not return continue stops the affected card",
+        "stop_rule": "plan \u00a79: an XHARD pre-code review that does not return continue stops the affected card",
         "operator_questions": [
           "Whether read-only + mutating concurrency must remain overlapping, or OVERLAP-NARROW applies only to read-only pairs",
           "Whether the snapshot hazard requires a wrapper-guard card before any read-only parallel window"
@@ -2184,7 +2234,7 @@
           "receipts_committed": false
         },
         "next_unblocked_action": "operator direction on H3",
-        "resolution": "Adjudicated/resolved by the §18 comprehensive pre-review PRE-REVIEW-REMAINING (receipts/PRE-REVIEW-REMAINING-receipt.json, verdict continue): proposed read-only same-worktree exemption REJECTED (Condition 8); confirmed lock-hold finding became Condition 7 (registry lock fix, both halves atomic, lands Batch 0/1); snapshot hazard confirmed but contained by the same-worktree rule and does not block plan §7 cross-worktree windows. The H3-overlap-narrow card is superseded by Conditions 7-9."
+        "resolution": "Adjudicated/resolved by the \u00a718 comprehensive pre-review PRE-REVIEW-REMAINING (receipts/PRE-REVIEW-REMAINING-receipt.json, verdict continue): proposed read-only same-worktree exemption REJECTED (Condition 8); confirmed lock-hold finding became Condition 7 (registry lock fix, both halves atomic, lands Batch 0/1); snapshot hazard confirmed but contained by the same-worktree rule and does not block plan \u00a77 cross-worktree windows. The H3-overlap-narrow card is superseded by Conditions 7-9."
       },
       "h4_chain": {
         "task_id": "evidence-log-H4",
@@ -2329,7 +2379,7 @@
         "findings_revisions": [
           "H4-MUST-001 closed by per-clause instruction-scope evaluation and semicolon splitting.",
           "H4-MUST-002 closed by requirement-form detection for direct post-exit field requirements.",
-          "Exactly one review, one revision, and one re-review were used per operator §13/§14."
+          "Exactly one review, one revision, and one re-review were used per operator \u00a713/\u00a714."
         ],
         "residual_risks": [
           "Guard phrase set is intentionally bounded; finished_at, completion timestamp, receipt SHA-256, and receipt checksum need deliberate future coverage.",
@@ -2337,7 +2387,7 @@
           "Execution-log edits require refreshing tasks[5].recovery_note.sha256.",
           "test-shards.json edits require refreshing matching tasks[5].evidence_links[*].sha256 and tasks[6].shard_integrity.sha256.",
           "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings paired with a path; candidate future XHARD card, not blocking G1.",
-          "H3 remains STOPPED pending operator direction and is deferred to before the T3.1/T3.2 read-only windows per operator §15/Grok ordering."
+          "H3 remains STOPPED pending operator direction and is deferred to before the T3.1/T3.2 read-only windows per operator \u00a715/Grok ordering."
         ],
         "validator": {
           "command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
@@ -2356,7 +2406,7 @@
           "receipts_committed": false
         },
         "next_unblocked_card": "G1-gate-review",
-        "h3_status": "STOPPED pending operator direction; deferred to before the T3.1/T3.2 read-only windows per operator §15/Grok ordering"
+        "h3_status": "STOPPED pending operator direction; deferred to before the T3.1/T3.2 read-only windows per operator \u00a715/Grok ordering"
       },
       "findings_closed": [
         "T1.2-MUST-001",
@@ -2643,7 +2693,7 @@
         "add_group, set_group_geometry, and remove_group remain shape-admitted without a catalog because T1.2 treats group IDs as optional.",
         "Live providers without a frozen .snapshot skip require_known_touched_schema when working IR is present; _validate_one still runs.",
         "Layout group identity is checked only when a working IR is supplied.",
-        "H3-overlap-narrow remains STOPPED pending operator direction (wrapper pre-code JUDGMENT_REQUIRED, de75b418), outside T2.x and deferred before T3.1/T3.2 read-only windows per §15/Grok ordering.",
+        "H3-overlap-narrow remains STOPPED pending operator direction (wrapper pre-code JUDGMENT_REQUIRED, de75b418), outside T2.x and deferred before T3.1/T3.2 read-only windows per \u00a715/Grok ordering.",
         "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings; tracked per adjudication A as a candidate future XHARD card."
       ],
       "validator": {
@@ -2880,7 +2930,7 @@
         "The 27 listed-shard failures are pre-existing and unchanged.",
         "H3-overlap-narrow remains STOPPED pending operator direction (wrapper pre-code JUDGMENT_REQUIRED, de75b418); deferred, with remaining runs serializing batches.",
         "Pre-existing validator gap: _iter_digest_refs silently skips malformed non-64-hex digest strings; tracked per adjudication A.",
-        "Directive-20 wrapper route fix 5399a5aa8ae441f55410f30db4b4aae7faa3a98f is part of the pushed lineage, operator-authorized; its review is folded into the §18 comprehensive pre-review (PRE-REVIEW-REMAINING) scope."
+        "Directive-20 wrapper route fix 5399a5aa8ae441f55410f30db4b4aae7faa3a98f is part of the pushed lineage, operator-authorized; its review is folded into the \u00a718 comprehensive pre-review (PRE-REVIEW-REMAINING) scope."
       ],
       "validator": {
         "command": "python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json",
@@ -2901,7 +2951,7 @@
       "pre_review_remaining": {
         "task_id": "PRE-REVIEW-REMAINING",
         "gate": "G7",
-        "label": "§18 ONE comprehensive pre-review: complete remaining plan T2.3→G7 + §16 timeout raise + finale amendment + validator routing + directive-20 route fix + H3 overlap adjudication",
+        "label": "\u00a718 ONE comprehensive pre-review: complete remaining plan T2.3\u2192G7 + \u00a716 timeout raise + finale amendment + validator routing + directive-20 route fix + H3 overlap adjudication",
         "role": "reviewer",
         "model_route": "stealth/ox-alpha",
         "resolved_model": "stealth/ox-alpha",
@@ -2924,7 +2974,7 @@
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/PRE-REVIEW-REMAINING-dispatch.log",
         "binding_conditions": [
           "C1 push base: local HEAD d9459c80 (docs-only T2.2 disposition commit) is one ahead of remote c83d2e59; next integration push must include it and subsequent briefs cite the pushed SHA as base.",
-          "C2 §16 scope: change only the argparse default at run_workflow_execution_spine_agent.py:564 (3600->7200); stop emitting explicit --timeout=3600 in orchestrator/brief templates (plan §10 examples stale); focused proof VCSPINE_FAKE_LAUNCHER stub sleeping >3600s completes exit 0.",
+          "C2 \u00a716 scope: change only the argparse default at run_workflow_execution_spine_agent.py:564 (3600->7200); stop emitting explicit --timeout=3600 in orchestrator/brief templates (plan \u00a710 examples stale); focused proof VCSPINE_FAKE_LAUNCHER stub sleeping >3600s completes exit 0.",
           "C3 validator routing: _route_for_label (135-140) + G7 check (150-151) become set-membership accepting {grok-4.6, codex:gpt-5.6-luna, stealth/ox-alpha} per label class; land in Batch 0/1 before the first post-amendment receipt.",
           "C4 validator finale count: check_live_run (324-342) exactly 50 unique leg receipts, concurrency 10, recorded 25/25 staged/threaded split; smoke recorded authoritative:false/non_authoritative so LIVE_RUN_SINGLETON ignores it (line 326 already excludes).",
           "C5 harness split support: extend compare_pipeline_modes.run_comparison minimally for one-invocation 25/25 execution with frozen digested scenario->mode map recorded in live_run; per-leg assessments; compare_pair skipped/adjusted for single-leg scenarios; do NOT alter deep-copy isolation (763), session_id ban (745-749), manifest-order reconstruction (790-795), validate_only zero-model-call behavior (153-223).",
@@ -2934,11 +2984,11 @@
           "C9 readonly flag contract (if introduced): empty allowed accepted only with readonly=true; readonly exemptions only across distinct worktrees; wrapper flags ALLOWANCE_VIOLATION for any changed file on a readonly registration.",
           "C10 batch/gate fusion: batch reviews discharge co-terminous gate reviews per B1-B6 mapping; no per-card pre/post reviews; must-findings fixed in next batch or batch revision; up to 3 end reviews routed stealth/ox-alpha precede final runs.",
           "C11 closure/terminal invariants: T3.1 durable-resume owner names T2.2 checkpoint/receipt schema as touched closure; T4.2/T4.3 project terminal state only via the T2.2 mode-neutral projector; T3.2 persisted correction audit-only, never public candidate/graph/accepted_batch; T5.2 undetermined strictly on missing/contradictory evidence.",
-          "C12 split freeze + honest reporting: scenario->mode assignment fixed and digested before T7.2; report presents smoke and finale scores separately with per-leg product pass/fail/undetermined; no second authoritative finale; §12 final-five waiver and §18 smoke waiver are the only active waivers.",
+          "C12 split freeze + honest reporting: scenario->mode assignment fixed and digested before T7.2; report presents smoke and finale scores separately with per-leg product pass/fail/undetermined; no second authoritative finale; \u00a712 final-five waiver and \u00a718 smoke waiver are the only active waivers.",
           "C13 hygiene rider (non-blocking): fold dead GROK_LAUNCHER (43) and unimported Iterable annotation on _receipt_files (189) into the Batch 0/1 wrapper touch."
         ],
         "batch_map": {
-          "B0": "infra first commits of Batch 1: C2 §16 timeout raise; C3 validator routing; C4 validator finale count; C7 registry lock fix; C8/C9 overlap predicate; C13 hygiene rider",
+          "B0": "infra first commits of Batch 1: C2 \u00a716 timeout raise; C3 validator routing; C4 validator finale count; C7 registry lock fix; C8/C9 overlap predicate; C13 hygiene rider",
           "B1": "T2.3 -> batch review doubles as G2",
           "B2": "T3.1 + T3.2 -> G3 (read-only retry/protocol inventories may run concurrently)",
           "B3": "T4.1 -> T4.2 -> T4.3 -> G4 (adapter inventories may overlap)",
@@ -2949,7 +2999,7 @@
         "h3_adjudication": {
           "lock_hold": "CONFIRMED real hazard: _registry_guard returns with LOCK_EX held (wrapper 259->308), released only via _registry_release at 752; every other invocation blocks for the entire child runtime -> Condition 7",
           "overlap_predicate": "landed code conservative, not contradictory: keep same-worktree unconditional overlap (246-251); proposed read-only same-worktree exemption REJECTED -> Condition 8",
-          "snapshot_hazard": "confirmed but contained: fires only for same-worktree concurrency, which is unconditionally rejected; does not block plan §7 cross-worktree read-only windows",
+          "snapshot_hazard": "confirmed but contained: fires only for same-worktree concurrency, which is unconditionally rejected; does not block plan \u00a77 cross-worktree read-only windows",
           "resolution": "H3-overlap-narrow card superseded by Conditions 7-9; stop adjudicated/resolved; wrapper touch lands Batch 0/1"
         },
         "finale_mechanics": [
@@ -2960,8 +3010,8 @@
         ],
         "residual_risks": [
           "Registry fix concurrency bug if only one half lands (guard shrink leaves _registry_release unlocked RMW racing): C7 is one atomic unit.",
-          "§16 inertness from surviving explicit --timeout=3600 in orchestrator templates: audit template sites, not just the default.",
-          "Validator membership sets permit legacy-route reuse in new records; §20 compliance rests on dispatch discipline plus batch-review spot-checks of model_route fields.",
+          "\u00a716 inertness from surviving explicit --timeout=3600 in orchestrator templates: audit template sites, not just the default.",
+          "Validator membership sets permit legacy-route reuse in new records; \u00a720 compliance rests on dispatch discipline plus batch-review spot-checks of model_route fields.",
           "Harness split extension must land with the T7.1 preflight and keep the smoke path byte-identical.",
           "resolved_model receipt fidelity depends on the hermes launcher printing resolved= on stderr; do not treat resolved_model as independent model-identity proof until verified once.",
           "Unpushed d9459c80: manifest digest pins must stay consistent with the pushed branch at next integration (C1)."
@@ -3031,12 +3081,12 @@
         "combined B0 line -> 73 passed",
         "focused T2.3 line -> 168 passed, 2 failed (both pre-existing production drift, residual risk 1)",
         "base-export control runs at pristine c469e493 and fec6cb12 reproduced the same reds before Batch 1",
-        "§16 stub proof: wrapper with no --timeout flag, fake launcher slept 3610 s > old default, exit 0 with launcher argv --timeout=7200"
+        "\u00a716 stub proof: wrapper with no --timeout flag, fake launcher slept 3610 s > old default, exit 0 with launcher argv --timeout=7200"
       ],
       "residual_risks": [
-        "Two pre-existing failures remain in the focused T2.3 command (tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove, test_recompute_apply_is_sequential_invariant}): production drift — live executor ingest pins use_comfy_converter=False (vibecomfy/porting/edit/session.py:444, _gates.py:314) while recompute_apply uses the from_ui default converter, so replayed candidates diverge from executor candidates on multi-add+remove edits (candidate_hash_mismatch); verified red on pristine exports of c469e493 and fec6cb12; one-line production fix exists but vibecomfy/** is outside the implementer allowance — needs an owner decision (T2.3 production repair or dedicated card), routed to the G2 batch review for classification.",
+        "Two pre-existing failures remain in the focused T2.3 command (tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove, test_recompute_apply_is_sequential_invariant}): production drift \u2014 live executor ingest pins use_comfy_converter=False (vibecomfy/porting/edit/session.py:444, _gates.py:314) while recompute_apply uses the from_ui default converter, so replayed candidates diverge from executor candidates on multi-add+remove edits (candidate_hash_mismatch); verified red on pristine exports of c469e493 and fec6cb12; one-line production fix exists but vibecomfy/** is outside the implementer allowance \u2014 needs an owner decision (T2.3 production repair or dedicated card), routed to the G2 batch review for classification.",
         "Validator routing membership accepts exactly {grok-4.6, codex:gpt-5.6-luna, stealth/ox-alpha}; a future fourth route requires another amendment.",
-        "Live-run contract now requires an explicit split: {staged: 25, threaded: 25} field — T7.2 must record it that way (Condition 4 implementation).",
+        "Live-run contract now requires an explicit split: {staged: 25, threaded: 25} field \u2014 T7.2 must record it that way (Condition 4 implementation).",
         "Registry guard/release assume the single-threaded wrapper invariant (one critical section per process); multi-threaded double-guard in one process is out of contract."
       ],
       "controls": {
@@ -3305,7 +3355,7 @@
       "rg21_repair": {
         "task_id": "R-G2-1-REPAIR",
         "gate": "G2",
-        "label": "R-G2-1-REPAIR [XHARD]: replay converter drift — align executor ingest use_comfy_converter with recompute_apply",
+        "label": "R-G2-1-REPAIR [XHARD]: replay converter drift \u2014 align executor ingest use_comfy_converter with recompute_apply",
         "role": "implementer",
         "model_route": "stealth/ox-alpha",
         "resolved_model": "stealth/ox-alpha",
@@ -3339,7 +3389,7 @@
           "Remove executor pins to match replay defaults - flips Law-1 door passthrough off for all live sessions; forbidden public-candidate change."
         ],
         "residual_risk_g3_classification": "Latent comfy-host ingest asymmetry remains: the executor ingests use_comfy_converter=False while recompute_apply uses the from_ui default True; provably inert offline, but on hosts where the comfy converter imports and diverges from _normalize_ui_to_api, replay could drift from live candidates. Closing it requires editing vibecomfy/comfy_nodes/agent/authority_receipts.py - outside R-G2-1's allowance. The G3 batch review must classify whether R-G2-1 is CLOSED (repair landed, tests green, residual flagged) or requires a follow-up production card; no closure verdict recorded here.",
-        "g2_condition_status": "must close before Batch 2 completes - repair card has landed (tests green); residual classification deferred to the G3 batch review per C10/§18",
+        "g2_condition_status": "must close before Batch 2 completes - repair card has landed (tests green); residual classification deferred to the G3 batch review per C10/\u00a718",
         "protected_state_unchanged": "Receipt schema, T2.2 transition table, terminal projector, mode-neutral projector contract untouched; no production file modified.",
         "next_unblocked_card": "B2-IMPLEMENTER (T3.1 + T3.2; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B2-IMPLEMENTER.md and -allowance.json)"
       },
@@ -3875,7 +3925,7 @@
       "task_id": "T3.1",
       "gate": "G3",
       "role": "implementer",
-      "label": "T3.1 [HARD] nested retry ownership (B2 batch, promoted per §22)",
+      "label": "T3.1 [HARD] nested retry ownership (B2 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -3889,7 +3939,7 @@
       "task_id": "T3.2",
       "gate": "G3",
       "role": "implementer",
-      "label": "T3.2 [XHARD] batch protocol (B2 batch, promoted per §22)",
+      "label": "T3.2 [XHARD] batch protocol (B2 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -3903,7 +3953,7 @@
       "task_id": "T4.1",
       "gate": "G4",
       "role": "implementer",
-      "label": "T4.1 [XHARD] shared research evidence contract (B3 batch, promoted per §22)",
+      "label": "T4.1 [XHARD] shared research evidence contract (B3 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -3917,7 +3967,7 @@
       "task_id": "T4.2",
       "gate": "G4",
       "role": "implementer",
-      "label": "T4.2 [HARD] staged adapter (B3 batch, promoted per §22)",
+      "label": "T4.2 [HARD] staged adapter (B3 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -3931,7 +3981,7 @@
       "task_id": "T4.3",
       "gate": "G4",
       "role": "implementer",
-      "label": "T4.3 [HARD] threaded adapter (B3 batch, promoted per §22)",
+      "label": "T4.3 [HARD] threaded adapter (B3 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "69b6fcf17cf081d7726c882740462f51e5229d24",
@@ -3945,7 +3995,7 @@
       "task_id": "T5.1",
       "gate": "G5",
       "role": "implementer",
-      "label": "T5.1 [XHARD] artifact lineage (B4 batch, promoted per §22)",
+      "label": "T5.1 [XHARD] artifact lineage (B4 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "49f7b9f61a188cb0fabbbbae2a9e3842b356a449",
@@ -3959,7 +4009,7 @@
       "task_id": "T5.2",
       "gate": "G5",
       "role": "implementer",
-      "label": "T5.2 [XHARD] canonical semantic assessor (B4 batch, promoted per §22)",
+      "label": "T5.2 [XHARD] canonical semantic assessor (B4 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "49f7b9f61a188cb0fabbbbae2a9e3842b356a449",
@@ -3973,7 +4023,7 @@
       "task_id": "T5.3",
       "gate": "G5",
       "role": "implementer",
-      "label": "T5.3 [HARD] scenario obligations (B4 batch, promoted per §22)",
+      "label": "T5.3 [HARD] scenario obligations (B4 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "49f7b9f61a188cb0fabbbbae2a9e3842b356a449",
@@ -3987,7 +4037,7 @@
       "task_id": "T5.4",
       "gate": "G5",
       "role": "implementer",
-      "label": "T5.4 [HARD] concurrent comparison leg isolation (B4 batch, promoted per §22)",
+      "label": "T5.4 [HARD] concurrent comparison leg isolation (B4 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "49f7b9f61a188cb0fabbbbae2a9e3842b356a449",
@@ -4001,7 +4051,7 @@
       "task_id": "T5.5",
       "gate": "G5",
       "role": "implementer",
-      "label": "T5.5 [XHARD] execution-spine shim retirement (B4 batch, promoted per §22)",
+      "label": "T5.5 [XHARD] execution-spine shim retirement (B4 batch, promoted per \u00a722)",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "49f7b9f61a188cb0fabbbbae2a9e3842b356a449",
@@ -4113,7 +4163,7 @@
       "task_id": "T6.3",
       "gate": "G6",
       "role": "validator",
-      "label": "T6.3 [HARD] singleton broad suite (broad_suite_once_v1) — python -m pytest -q",
+      "label": "T6.3 [HARD] singleton broad suite (broad_suite_once_v1) \u2014 python -m pytest -q",
       "model_route": "stealth/ox-alpha",
       "exit": 0,
       "base_sha": "bdbcfeb919fc43bfd21a6369aa89a230b7a682e5",
@@ -4222,6 +4272,90 @@
         }
       ],
       "note": "SMOKE-RUN 10-leg smoke (5 scenarios x staged+threaded), non-authoritative validation only; 0 blocked, 0 undetermined; per-leg lineage/latency/calls/tokens/cost/retries/artifact digests in /tmp/t7-smoke/out"
+    },
+    {
+      "task_id": "SMOKE-RUN-2",
+      "gate": "G7",
+      "status": "non_authoritative",
+      "authoritative": false,
+      "tag": "smoke-final5-10-r2",
+      "manifest": "tests/live_agentic_harness/threaded_comparison_manifest_final5.json",
+      "concurrency": 10,
+      "scenario_count": 5,
+      "leg_count": 10,
+      "split": null,
+      "outcomes": {
+        "both_fail": 3,
+        "both_pass": 1,
+        "staged_only": 1,
+        "blocked": 0,
+        "undetermined": 0
+      },
+      "all_inputs_locked_equal": true,
+      "leg_receipts": [
+        {
+          "leg_id": "audio-tts-narration-using-indextts-2__staged",
+          "scenario_id": "audio-tts-narration-using-indextts-2",
+          "mode": "staged",
+          "status": "success"
+        },
+        {
+          "leg_id": "audio-tts-narration-using-indextts-2__threaded",
+          "scenario_id": "audio-tts-narration-using-indextts-2",
+          "mode": "threaded",
+          "status": "success"
+        },
+        {
+          "leg_id": "image-image-editing-with-qwen-image__staged",
+          "scenario_id": "image-image-editing-with-qwen-image",
+          "mode": "staged",
+          "status": "success"
+        },
+        {
+          "leg_id": "image-image-editing-with-qwen-image__threaded",
+          "scenario_id": "image-image-editing-with-qwen-image",
+          "mode": "threaded",
+          "status": "success"
+        },
+        {
+          "leg_id": "live-graph-explanation-smoke__staged",
+          "scenario_id": "live-graph-explanation-smoke",
+          "mode": "staged",
+          "status": "success"
+        },
+        {
+          "leg_id": "live-graph-explanation-smoke__threaded",
+          "scenario_id": "live-graph-explanation-smoke",
+          "mode": "threaded",
+          "status": "success"
+        },
+        {
+          "leg_id": "multi-video-based-character-replacement-using__staged",
+          "scenario_id": "multi-video-based-character-replacement-using",
+          "mode": "staged",
+          "status": "success"
+        },
+        {
+          "leg_id": "multi-video-based-character-replacement-using__threaded",
+          "scenario_id": "multi-video-based-character-replacement-using",
+          "mode": "threaded",
+          "status": "success",
+          "note": "0 calls, executor_failure, 1.17s \u2014 PRODUCT ValidationError fast-path (binding Q1), not infra"
+        },
+        {
+          "leg_id": "speed-distillation-research__staged",
+          "scenario_id": "speed-distillation-research",
+          "mode": "staged",
+          "status": "success"
+        },
+        {
+          "leg_id": "speed-distillation-research__threaded",
+          "scenario_id": "speed-distillation-research",
+          "mode": "threaded",
+          "status": "success"
+        }
+      ],
+      "note": "SMOKE-RUN-2 \u00a718 re-smoke after BF-1/BF-2 (7df2e5f5): corrected run 0 blocked/0 undetermined/0 crashes (first invocation blocked:5 superseded, infra_prerequisite env hydration); both_fail:3 both_pass:1 staged_only:1 honest product; all_inputs_locked_equal:true; 5 staged+5 threaded manifest-order; authoritative:false non_authoritative \u2014 ignored by LIVE_RUN_SINGLETON; flagged leg multi-video/threaded is PRODUCT per SMOKE-JR-ADJUDICATION Q1; finale READY with ONE precondition: OPENROUTER_API_KEY hydrated"
     }
   ],
   "findings": [
@@ -4404,7 +4538,7 @@
       "classification": "XHARD",
       "status": "closed",
       "disposition": "closed",
-      "summary": "S6 7 truly-new introduced regressions: failure-kind collapse ValidationError vs ModelMistake/Unrepresentable; budget_failure_kind mapping not preserving typed code through admit → _validate_one → budget_failure_kind (only ApplyOpsError.code propagated). 27 failed at HEAD d8bf0712; 7 remain OPEN after capped chain (G6-REVIEW→B5-REVISION→B5-REVISION-2→REREVIEW→JR-ADJUDICATION→FINAL-REVISION→FINAL-REREVIEW). Requires deeper typed mapping fix; helper consolidation + carve-out already landed.",
+      "summary": "S6 7 truly-new introduced regressions: failure-kind collapse ValidationError vs ModelMistake/Unrepresentable; budget_failure_kind mapping not preserving typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (only ApplyOpsError.code propagated). 27 failed at HEAD d8bf0712; 7 remain OPEN after capped chain (G6-REVIEW\u2192B5-REVISION\u2192B5-REVISION-2\u2192REREVIEW\u2192JR-ADJUDICATION\u2192FINAL-REVISION\u2192FINAL-REREVIEW). Requires deeper typed mapping fix; helper consolidation + carve-out already landed.",
       "revision_task_id": "G6-DEEP-REVISION",
       "re_review_task_id": "G6-FINAL-REREVIEW-2",
       "implementer": "stealth/ox-alpha",
@@ -4477,8 +4611,8 @@
           "sha256": "cca64fe5aa25f87c842f867c8715c28824b3179fb7ce7c014001da8930594d07"
         }
       ],
-      "closure_requirement": "deeper budget_failure_kind mapping: preserve typed code through admit → _validate_one → budget_failure_kind (not just ApplyOpsError.code); re-review required before continue",
-      "closure": "G6-DEEP-REVISION 7bae7b4f closed typed failure-kind chain (admit→_validate_one→budget_failure_kind) + fail-closed admission mirrors; G6-FINAL-REREVIEW-2 continue with zero open must; S6 7 regressions verified closed in production."
+      "closure_requirement": "deeper budget_failure_kind mapping: preserve typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (not just ApplyOpsError.code); re-review required before continue",
+      "closure": "G6-DEEP-REVISION 7bae7b4f closed typed failure-kind chain (admit\u2192_validate_one\u2192budget_failure_kind) + fail-closed admission mirrors; G6-FINAL-REREVIEW-2 continue with zero open must; S6 7 regressions verified closed in production."
     }
   ],
   "g0_finding_chains": [

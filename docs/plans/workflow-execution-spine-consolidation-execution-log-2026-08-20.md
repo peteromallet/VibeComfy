@@ -4581,3 +4581,98 @@ post-exit into
 - **Protected state:** base `5fc6be9d` (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `54467724`; no wrapper/validator/plan/code/fixture file changed; `5fc6be9d` IS ancestor of `5be51fda` and of the new commit.
 - **No push:** the G6 chain remains pushed at `743cc102`; the C5 extension commit `40458ed8` and this docs commit are **local-only** on `fixer/workflow-execution-spine-consolidation`; the terminal push happens at `REPORT-ASSEMBLY`.
 - **JUDGMENT_REQUIRED: none**
+### BUG-FIX + re-smoke window (B6, §18 step 6) — 2026-08-22
+
+- **Task/gate/label/role:** `evidence-log-BF-SMOKE2` / `G7` (B6 window, §18 step 6) / `evidence-log-BF-SMOKE2 — record BUG-FIX-APPLY (7df2e5f5) + SMOKE-RUN-2 (clean, non-authoritative) + SMOKE-JR-ADJUDICATION (READY, key-hydration precondition); finale next` / evidence. This entry RECORDS only; no review, classification, fix, integration, push, or code change is performed by this recorder.
+- **Disposition:** **recorded as BUG-FIX + re-smoke window** — BUG-FIX-RECOMMENDATIONS → BUG-FIX-APPLY (`7df2e5f5`) → SMOKE-RUN-2 (NON-authoritative, CLEAN per §18) → SMOKE-JR-ADJUDICATION (READY with ONE binding precondition). G7 remains open/pending until the single authoritative `T7.2-FINALE` (50 legs, 25 staged + 25 threaded, concurrency 10, ONE invocation) → T7.3 assess → G7 review → REPORT-ASSEMBLY. The smoke-2 is **`authoritative: false` / `non_authoritative`** — never counted toward the finale; a retry is never a second authoritative finale.
+- **Input/base HEAD:** `7df2e5f5001ceaa7bce10c593d9bcf2fd4f975e9` — `git rev-parse HEAD` exit `0` at this recorder's start; base for BUG-FIX window was `1f2fa5f76f59e3be2d9255865b5c3ab549dc5e8c` (SMOKE-RUN), BUG-FIX-APPLY landed `7df2e5f5` atop it; protected base `5fc6be9dbe811df77e43d440ad087440e8bd57b5` remains ancestor (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`).
+- **Model route:** `stealth/ox-alpha` for BUG-FIX-RECOMMENDATIONS (review), BUG-FIX-APPLY (implementer), SMOKE-RUN-2 (implementer, read-only); `codex:gpt-5.6-sol` for SMOKE-JR-ADJUDICATION (review, binding). Wrapper remaps route ids — do not treat the id as a hard model binding; do NOT mix routes mid-card. Receipt `model_route`, `resolved_model`, launcher argv, PID, and timestamps are authoritative in receipts below.
+
+#### 1. BUG-FIX-RECOMMENDATIONS — review, stealth/ox-alpha (NOT READY until BF-1+BF-2)
+
+- **Task/label/gate/role/route:** `BUG-FIX-RECOMMENDATIONS` / `BUG-FIX-RECOMMENDATIONS — §18 step 6: review smoke + harness, recommend BUG fixes; ground the bug-fix pass` / gate `` / review / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor`, wrapper remap).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/BUG-FIX-RECOMMENDATIONS-receipt.json` (file SHA-256 `e649e2a263e00ab9e06fbda6c9eb1bce0fb1920474300ea5c9a1000adaa19b4b`; brief SHA-256 `129c29b1953c835a5d45442684fcccf89e31030ec3b349cb841a1aff54a5e208`; result SHA-256 `b08256ab14ccd849c66855d6bc9bfd822638c17d828cd0c6c433497e814ccb97`); PID `131149`; `2026-08-22T19:20:33Z` → `2026-08-22T19:22:56Z`; exit `0`; base `1f2fa5f76f59e3be2d9255865b5c3ab549dc5e8c`; `commits: []`, `changed_files: []` (read-only review); allowance `g0/BUG-FIX-RECOMMENDATIONS-allowance.json` (`allowed: []`, `forbidden: ["**"]`, read-only).
+- **Findings (2 MUSTs + 4 SHOULDs):**
+  - **BF-1 (MUST):** promote attested schema cache into `vibecomfy/porting/cache/object_info/` — IndexTTS/LayerMask 4 classes with provenance; blocks all legs via `preflight_scenario_obligations(require_schema_resolution=True)` fail-closed without it. The smoke's disposable `VIBECOMFY_OBJECT_INFO_CACHE_DIR=/tmp/t7-smoke/object_info` is not durable for the finale.
+  - **BF-2 (MUST):** `arnold@9d8b2a4` pin — `import arnold` must succeed; smoke attempt1 was `No module named 'arnold'` (all 10 blocked).
+  - **BF-3 (SHOULD):** `session_id` ban parity — harness header guards vs stale session leaks.
+  - **BF-5 (SHOULD):** aggregate dedup — duplicate scenario IDs in comparison aggregation.
+  - **BF-8 (SHOULD):** lineage-binding tolerance — per-leg `artifact_lineage.json` binding strictness.
+  - **BF-9 (SHOULD):** process-isolation test — subprocess boundary coverage for `compare_pipeline_modes --leg-isolation process`.
+- **Verdict:** **NOT READY until BF-1+BF-2** — the two MUSTs are gating for any authoritative finale; SHOULDs are P2/P3 and may ride with BF-1..BF-9 pass.
+- **`JUDGMENT_REQUIRED`:** per review findings (NOT READY gated on MUSTs), not an open adjudication; adjudicated next in SMOKE-JR-ADJUDICATION.
+
+#### 2. BUG-FIX-APPLY — `7df2e5f5` implementer, stealth/ox-alpha — landed BF-1..BF-9 (29 passed)
+
+- **Task/label/gate/role/route:** `BUG-FIX-APPLY` / `BUG-FIX-APPLY implementer — land BF-1 (attested schema cache) + BF-2 (arnold pin) + BF-3/5/8/9 per §18 step 6` / gate `` / implementer / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor`).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/BUG-FIX-APPLY-receipt.json` (file SHA-256 `cde77d9064cc2fdc1a9034bb53f332248821eedcda6c20762a7978ce59b8755f`; brief SHA-256 `08ac000ec8441733fca932bc65e1dfc1478c64b73d5a8efd3168b972140e1d31`; result SHA-256 `bf9e1e009b249c091e9605e80faf712baaefe056df55312751f7f76ef6006e5c`); PID `131323`; `2026-08-22T19:24:13Z` → `2026-08-22T19:28:26Z`; exit `0`; base `1f2fa5f76f59e3be2d9255865b5c3ab549dc5e8c`; commit `7df2e5f5001ceaa7bce10c593d9bcf2fd4f975e9` `fix(exec-spine): BUG-FIX-APPLY — BF-1..BF-9 per §18 step 6 (attested schema cache in repo, arnold pin, session_id parity, aggregate dedup, lineage binding, process-isolation test)`; allowance `g0/BUG-FIX-APPLY-allowance.json` (`allowed: vibecomfy/porting/cache/object_info/**, pyproject.toml, uv.lock, compare_pipeline_modes.py, test_live_agentic_split_finale.py`).
+- **Commit content (verified `git show --stat`):** **8 files** `+203/−26`:
+  - `vibecomfy/porting/cache/object_info/index.json` (updated), `provenance.json` (attested `local-smoke-cache-20260822`, 4 classes), `ComfyUI-IndexTTS@local.json` (31 lines), `ComfyUI-LayerMask@local.json` (29 lines) — **BF-1** repo-promoted cache;
+  - `pyproject.toml` + `uv.lock` — **BF-2** `arnold@9d8b2a4` pin;
+  - `tests/live_agentic_harness/compare_pipeline_modes.py` (+81/−? BF-3 session_id parity, BF-5 aggregate dedup, BF-8 lineage-binding tolerance);
+  - `tests/test_live_agentic_split_finale.py` (+63 BF-9 process-isolation test).
+- **Proof:**
+  - `python3 -c "import arnold; print(arnold.__version__)"` succeeds (BF-2);
+  - schema resolution passes **without** `VIBECOMFY_OBJECT_INFO_CACHE_DIR` (BF-1 repo cache hit — `index.json` + provider resolution no longer fail-closed; disposable override still supported but not required);
+  - `29 passed` (28→29 incl BF-9 new test `test_live_agentic_split_finale.py`); base `1f2fa5f7` had 28/28 green in the same suite.
+- **`JUDGMENT_REQUIRED: none`.**
+
+#### 3. SMOKE-RUN-2 — §18 re-smoke after fixes, read-only, `authoritative: false` / `non_authoritative`, CLEAN
+
+- **Task/label/gate/role/route:** `SMOKE-RUN-2` / `SMOKE-RUN-2 — §18 step 6 re-smoke after BUG-FIX-APPLY (BF-1/BF-2 provisioning fixes); final5 x 2 modes = 10 legs, NON-authoritative` / gate `` / implementer / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor`).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/SMOKE-RUN-2-receipt.json` (file SHA-256 `65e1cdb2a09e435851fe57380f3c32148c79e2e35bf5fea9a70cf23b11413d6f`; brief SHA-256 `2c300911600abf9bc766402830453c431aeab9589797775bc9123064f04d8b5e`; result SHA-256 `fcc0249339cc85b473c9e7b557f12ebee9d0c319354fe733fc1c92ca5e26779c`); PID `131693`; `2026-08-22T19:29:29Z` → `2026-08-22T19:39:32Z`; exit `0`; base `7df2e5f5001ceaa7bce10c593d9bcf2fd4f975e9`; `commits: []`, `changed_files: []` (read-only, no repository file changes); allowance `g0/SMOKE-RUN-allowance.json` (`allowed: []`, `forbidden: ["**"]`, read-only).
+- **First invocation (environment hydration failure — recorded as evidence, superseded):**
+  - `outcomes:{blocked:5}` (5/5 scenarios blocked → 10/10 legs `blocked_prerequisite`/`infra_prerequisite` — `missing OPENROUTER_API_KEY`, `0 cost, 0 calls`; environment hydration, not harness defect);
+  - evidence `/tmp/t7-smoke/smoke_run.log` (harness fast-fails 5 scenarios as `blocked_prerequisite` with zero model calls when key absent).
+- **Corrected run (after key hydration — the §18 CLEAN re-smoke):**
+  ```bash
+  OPENROUTER_API_KEY=$(cat /workspace/.creds/omp.env | grep OPENROUTER_API_KEY | cut -d= -f2) \
+  python3 -m tests.live_agentic_harness.compare_pipeline_modes --run \
+    --manifest tests/live_agentic_harness/threaded_comparison_manifest_final5.json \
+    --output-base /tmp/t7-smoke-2/out --tag smoke-final5-10-r2 --concurrency 10
+  ```
+  Exit `0`, `aggregate:{scenario_count:5, outcomes:{both_fail:3,both_pass:1,staged_only:1}, all_inputs_locked_equal:true}`, **10 unique leg receipts**, **5 staged + 5 threaded**, manifest order, per-leg lineage + digests + metrics (`artifact_lineage.json`, `model_attempts.json`, `comparison_metrics.json`, `flow_metadata.json`; 10 dirs under `staged/` + `threaded/` with digests). Concurrency 10, no infra `blocked_prerequisite` leaks.
+- **Authoritative flag:** **`authoritative: false` / `non_authoritative`** — validation only; never counted toward the finale; validator `LIVE_RUN_SINGLETON` ignores this run (only ONE authoritative `T7.2` finale allowed later).
+- **Flagged leg:** `multi-video-based-character-replacement-using/threaded` — `0 calls, executor_failure, 1.17s` → **`JUDGMENT_REQUIRED`** (escalated to SMOKE-JR-ADJUDICATION; not infra `blocked`).
+
+#### 4. SMOKE-JR-ADJUDICATION — review, codex:gpt-5.6-sol — BINDING, FINALE READY (ONE precondition)
+
+- **Task/label/gate/role/route:** `SMOKE-JR-ADJUDICATION` / `SMOKE-JR-ADJUDICATION — binding ruling: multi-video/threaded zero-call leg (product vs infra) + smoke scorecard + finale readiness` / gate `` / review / `codex:gpt-5.6-sol` (resolved `openrouter/meta/muse-spark-1.2-contributor`).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/SMOKE-JR-ADJUDICATION-receipt.json` (file SHA-256 `2cb61104c7d5e1d0c41628b1047d76393b2a6f1d725a9e590b177127c1ff0e79`; brief SHA-256 `65f91954e8b2b3e425f3cd438d4d786ad09a613a73d0378c1502a1098db24351`; result SHA-256 `3c05497614664ef0713f835e3b0046b69d32bb992660e347068a8d098de4c95e`); PID `132809`; `2026-08-22T19:40:00Z` → `2026-08-22T19:41:27Z`; exit `0`; base `7df2e5f5001ceaa7bce10c593d9bcf2fd4f975e9`; `commits: []`, `changed_files: []` (read-only binding adjudication); allowance `g0/SMOKE-JR-ADJUDICATION-allowance.json` (`allowed: []`, `forbidden: ["**"]`, read-only).
+- **Binding rulings:**
+  - **Q1 — the flagged leg is PRODUCT:** typed `ValidationError` fast-path rejection **before any model call** — pre-model emit-admission rejection; **not** `blocked_prerequisite`/`infra_prerequisite`; `0 calls` is honest — executor never invoked the model. Correct classification: `failure_family: product` / `product_fail`, not infra.
+  - **Q2 — smoke is CLEAN per §18:** corrected run **0 blocked / 0 undetermined / 0 crashes**; the first-invocation `blocked:5` is an **isolated `infra_prerequisite` environment-hydration issue, superseded, not a harness defect**. The §18 "seem to be working: no infra failures, no undetermined legs, no mechanical crashes" gate is **MET** on the corrected run.
+  - **Q3 — finale READY with ONE binding precondition:** **OPENROUTER_API_KEY must be hydrated from `/workspace/.creds/omp.env` (canonical) or `~/.hermes/.env` in the invoking shell before the finale** (the finale harness otherwise fast-fails 50 legs as `blocked_prerequisite` with zero cost). This is the **only** blocking precondition; no code change required before finale.
+  - **Q4 — no additional must-fixes:** no further BF MUSTs; SHOULDs BF-3/5/8/9 already landed with BUG-FIX-APPLY.
+- **Final scorecard:** `0 blocked, 0 undetermined, 0 infra_failures, 0 crashes`; `both_fail:3` typed product failures (honest signal); smoke-2 is CLEAN and non-authoritative; **FINALE READY** (precondition above).
+- **`JUDGMENT_REQUIRED: none`.**
+
+#### Next unblocked card
+
+- **`T7.2-FINALE`** — ONE authoritative live run: **all 50 final50 scenarios, 25 staged + 25 threaded = 50 legs**, `--run --manifest threaded_comparison_manifest_final50.json --split --concurrency 10 --leg-isolation process`, **single invocation**, with the **key-hydration precondition satisfied before launch** (hydrate `OPENROUTER_API_KEY` from `/workspace/.creds/omp.env` or `~/.hermes/.env`). **No second authoritative run; a retry is never a second authoritative finale.** Then `T7.3-ASSESS` → `G7-REVIEW` → `REPORT-ASSEMBLY` (terminal push at REPORT-ASSEMBLY).
+- **Invoker checklist:** `export $(cat /workspace/.creds/omp.env | xargs)` OR `set -a; source ~/.hermes/.env; set +a` before `python3 -m tests.live_agentic_harness.compare_pipeline_modes --run --manifest tests/live_agentic_harness/threaded_comparison_manifest_final50.json --split --concurrency 10 --leg-isolation process --output-base /tmp/t72-finale --tag finale-50x2` — one shot, authoritative.
+
+#### Residual risks
+
+- Pre-existing shard-observed sets unchanged: **S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env** (broad-suite env/missing-module, non-introduced). The two **adjudicated G6 deltas** remain intentional (fail-closed mirror `adds_workflow_json_provisional_node` + typed-kind `runs_bounded_loop_with_turn0_render_then_diff_feedback` `ValidationError`→`ModelMistake`), recorded at `G6-FINAL-REREVIEW-2`, not regressions.
+- **Low product pass rate is honest signal:** 3/5 `both_fail` in smoke — honest pre-finale product signal, expected; finale will reflect the same distribution unless prompt/tooling improves outside the spine. Not a spine defect.
+- **Schema cache provenance is `local-smoke-cache-20260822` (attested-local), not upstream-SHA:** 4 classes (`ComfyUI-IndexTTS`, `ComfyUI-LayerMask` plus index/provenance) captured from a live `object_info` dump with `local` provenance; durable but not pinned to an upstream commit SHA — monitor upstream schema drift.
+- **Process test mocks the subprocess boundary:** BF-9 `test_live_agentic_split_finale.py` new test mocks `Popen` fd/cap; real fd/cap proven by `test_comparison_leg_isolation` (existing 9 tests, process-isolation contract).
+- **First-invocation `blocked:5` recorded as environment-hydration evidence:** not a harness defect — the corrected run supersedes it; evidence at `/tmp/t7-smoke/smoke_run.log` preserved.
+- **Key-hydration risk:** finale fast-fails 50 legs as `blocked_prerequisite` with zero cost if `OPENROUTER_API_KEY` is not hydrated — the ONE binding precondition above is **MUST** before T7.2.
+- **No push:** the G6 chain remains pushed at `743cc102`; BUG-FIX-APPLY `7df2e5f5` and prior C5/SMOKE commits are **local-only** on `fixer/workflow-execution-spine-consolidation`; terminal push at REPORT-ASSEMBLY.
+
+#### Manifest / shards / validation
+
+- **Manifest:** G7 `status: open`, `disposition: pending`, `label` notes B6 HARNESS-SPLIT-EXTENSION + BUG-FIX + re-smoke + adjudication (READY) pending T7.2 finale; `base_sha: 743cc102`, `head_sha: 7df2e5f5` (BUG-FIX-APPLY); `evidence_sequence` now **7 records** (1 `HARNESS-SPLIT-EXTENSION` `40458ed8` implementer `stealth/ox-alpha`, 2 `HARNESS-SPLIT-EXTENSION-REVIEW` `continue` `codex:gpt-5.6-sol`, 3 `SMOKE-RUN` `stealth/ox-alpha`, **4 `BUG-FIX-RECOMMENDATIONS` `stealth/ox-alpha` review `e649e2a2…`/`b08256ab…`, 5 `BUG-FIX-APPLY` `7df2e5f5` implementer `stealth/ox-alpha` `cde77d90…`/`bf9e1e00…`, 6 `SMOKE-RUN-2` `stealth/ox-alpha` non_authoritative `65e1cdb2…`/`fcc02493…`, 7 `SMOKE-JR-ADJUDICATION` `codex:gpt-5.6-sol` review `2cb61104…`/`3c054976…`**) with truthful `receipt_path`/`sha256`/`result_sha256`/`role`/`label`/`model_route`/`exit`/`disposition`/`commit` from receipts; plus `live_runs` smoke-2 record `authoritative: false`/`status: non_authoritative` (`tag: smoke-final5-10-r2`, `scenario_count:5`, `outcomes:{both_fail:3,both_pass:1,staged_only:1,blocked:0}`, `all_inputs_locked_equal:true`, 10 legs, `split: null` paired — **ignored by `LIVE_RUN_SINGLETON`**, which still requires exactly one authoritative `T7.2` later); `G6` unchanged (`status: passed`, `disposition: continue`, `head_sha: b57272e8`); `final_five` intact; top-level `tasks` unchanged (validator flattens `G7` `evidence_sequence` into accounting per directives 22/25.3).
+- **Shards:** `docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json` **byte-identical** to `b57272e8` (source `54467724`, head `54467724`, 12 shards `S0`→`S11` + singleton `broad_suite_once_v1` pending, T6.3-owned); no shard mutation on this docs-only recorder.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` on the working tree with `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`.
+
+#### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed evidence files in one coherent commit authored by `POM <peter@omalley.io>`: execution log (this section) plus validator-enforced `manifest.tasks[5].recovery_note.sha256` refresh and `manifest.json` G7 evidence_sequence/live_run additions; `test-shards.json` is byte-identical and not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file is changed; no push, merge, rebase, reset, promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration is performed by this recorder; the recorded window work was executed by the four predecessor agents above, not by this recorder. No receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` (dirty-state exception). This recorder's own `end_ts`, wrapper PID, and receipt digest are NOT recorded — wrapper writes them post-exit to `receipts/evidence-log-BF-SMOKE2-receipt.json`.
+- **Protected state:** base `5fc6be9d` (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `54467724`; no wrapper/validator/plan/code/fixture file changed; `5fc6be9d` IS ancestor of `7df2e5f5` and of the new commit.
+- **No push:** the fix chain `1f2fa5f7 → 7df2e5f5` and prior C5/SMOKE are **local-only** on `fixer/workflow-execution-spine-consolidation`; terminal push at REPORT-ASSEMBLY.
+- **JUDGMENT_REQUIRED: none**
+- **Smoke-2 is recorded as CLEAN/non-authoritative with finale READY (key-hydration precondition recorded).**
+
