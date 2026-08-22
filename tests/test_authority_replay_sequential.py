@@ -17,7 +17,7 @@ from vibecomfy.comfy_nodes.agent.session import payload_hash
 from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.ops import normalize_delta_ops
-from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
 FIXTURE = (
@@ -57,19 +57,29 @@ def _envelope(ops: list) -> dict:
 
 
 def _sequential_candidate(submit: dict, envelope: dict, schema_provider) -> dict:
-    """Apply ops one at a time via interpret+emit — the live sequential path."""
+    """Apply ops one at a time via interpret+emit+pin — the live sequential path.
+
+    Mirrors the executor's emit pipeline ``EditSession._emit_working_snapshot``
+    (vibecomfy/porting/edit/session.py): one ``interpret`` per op, then
+    ``emit_ui_json``, then ``pin_untouched_ui`` over the landed ops. The pin
+    stage is part of the projector contract: without it, untouched schema-less
+    nodes are re-emitted best-effort (float positions, injected identity
+    properties) and the candidate drifts from both the live session candidate
+    and ``recompute_apply``, which pins identically.
+    """
     ops = normalize_delta_ops(envelope)
     workflow = from_ui(dict(submit), schema_provider=schema_provider, use_comfy_converter=False)
     for op in ops:
         step = interpret(workflow, (op,), schema_provider=schema_provider)
         assert step.ok, step.diagnostics
         workflow = step.workflow
-    return emit_ui_json(
+    emitted = emit_ui_json(
         workflow,
         schema_provider=schema_provider,
         include_virtual_wires=True,
         prior_ui_payload=submit,
     )
+    return pin_untouched_ui(submit, emitted, ops)
 
 
 def test_replay_matches_executor_candidate_on_multi_add_with_remove() -> None:
