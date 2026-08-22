@@ -386,6 +386,120 @@
       "input_sha": "962030c5f81b2ca61329898c92aa366a7782def8",
       "output_sha": "07b9785d4a146305e8151dfd0f30a7506efa6376",
       "next_unblocked_card": "B4-INTEGRATION"
+    },
+    {
+      "gate_id": "G6",
+      "status": "stopped",
+      "disposition": "stop",
+      "label": "G6 [XHARD-REVIEW] G6 window disposition \u2014 STOP (not passed) per \u00a79 (7 S6 failure-kind regressions open after capped chain)",
+      "model_route": "stealth/ox-alpha",
+      "exit": 0,
+      "base_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
+      "head_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
+      "input_sha": "bdbcfeb919fc43bfd21a6369aa89a230b7a682e5",
+      "output_sha": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
+      "next_unblocked_card": "STOP \u2014 no integration, no push, no B6 (T7.1/finale) per \u00a79",
+      "evidence_sequence": [
+        {
+          "sequence": 1,
+          "canonical_slot": "T6.1",
+          "task_id": "T6.1-FREEZE-SHARDS",
+          "receipt_path": "receipts/T6.1-FREEZE-SHARDS-receipt.json",
+          "sha256": "2f4dac6fd41a8a9f72a10386fd17ff50b2247324409a66d21bcd55474c8c1f55",
+          "result_sha256": "b5764f7dc580f140748723e60dda4c7feb01ae327eba5edc4183e3c9f917ab3b",
+          "commits": []
+        },
+        {
+          "sequence": 2,
+          "canonical_slot": "T6.1",
+          "task_id": "T6.1-FREEZE-SHARDS-COMMIT",
+          "receipt_path": "receipts/T6.1-FREEZE-SHARDS-COMMIT-receipt.json",
+          "sha256": "087169284c39d05fb15f1c1f4890fa4ffdc2449320bc9949aaf5e424eb0eb07a",
+          "result_sha256": "6da2d1afbbd417647341a0ae0b14f219e0ec8530f2b9dbb51d9524bcfaa3c12b",
+          "commit": "1cc1a0d734bf7831fe5c2972143b719f59f4e251"
+        },
+        {
+          "sequence": 3,
+          "canonical_slot": "T6.2",
+          "task_id": "T6.2-FOCUSED-SHARDS",
+          "receipt_path": "receipts/T6.2-FOCUSED-SHARDS-receipt.json",
+          "sha256": "43520ece0dff3b7631586a3bdc22819434698890661beb1df491962fc42ba9ec",
+          "result_sha256": "40ba00a73df422ac66181078d836aa855fb97cdc7ddc55922e670ffec00ba51c"
+        },
+        {
+          "sequence": 4,
+          "canonical_slot": "T6.3",
+          "task_id": "T6.3-BROAD-SUITE",
+          "receipt_path": "receipts/T6.3-BROAD-SUITE-receipt.json",
+          "sha256": "7fa54c91d3c5235bb0caee1f64ef0f4f8bc3c8ad10a017cb9f0c7a2d7d99b7d2",
+          "result_sha256": "961a8a714714c0480f6b3f357df648f0596a7d10b3502c950b77ace695482668"
+        },
+        {
+          "sequence": 5,
+          "canonical_slot": "G6",
+          "task_id": "G6-REVIEW",
+          "receipt_path": "receipts/G6-REVIEW-receipt.json",
+          "sha256": "10c9b759663a1f6d7073342d04ffc69d354e7fba9cd5d360d8d4017fc974ca96",
+          "result_sha256": "908bd912284cd0729417030c8124aab3088b82ae75277803466fca553c1f1d59",
+          "disposition": "not-continue"
+        },
+        {
+          "sequence": 6,
+          "canonical_slot": "G6",
+          "task_id": "G6-B5-REVISION",
+          "receipt_path": "receipts/G6-B5-REVISION-receipt.json",
+          "sha256": "e915ae639676df8270fa83ff305b405f80e673acf6e1d4492c2421dac1404b84",
+          "result_sha256": "46b4410359da3aaa5d852e5a5c3c7f8227ff2b23fed94f9e98ddb642bfba63d6",
+          "commit": "7004b284"
+        },
+        {
+          "sequence": 7,
+          "canonical_slot": "G6",
+          "task_id": "G6-B5-REVISION-2",
+          "receipt_path": "receipts/G6-B5-REVISION-2-receipt.json",
+          "sha256": "28fac9c53e7c5087f9f75434a15b2a17093fc05aaaecab6210022014a5fbffd0",
+          "result_sha256": "c0ba3651173fe411e488ca08d2c3bd8886371b55b52b47fdb546d3228f328774",
+          "commit": "791cd724"
+        },
+        {
+          "sequence": 8,
+          "canonical_slot": "G6",
+          "task_id": "G6-REREVIEW",
+          "receipt_path": "receipts/G6-REREVIEW-receipt.json",
+          "sha256": "bec938bea07a851cc7cd6ceca2b0cad92ceb4e01150eafd83bc03b632094d329",
+          "result_sha256": "033f1ffdecfc35bdbe91ab89633621f5b1e7425c87327a8d0d17d30d9373bf04",
+          "disposition": "not-continue"
+        },
+        {
+          "sequence": 9,
+          "canonical_slot": "G6",
+          "task_id": "G6-JR-ADJUDICATION",
+          "receipt_path": "receipts/G6-JR-ADJUDICATION-receipt.json",
+          "sha256": "5e964794ca36ed75a5b2d78f8f05e8cec82e6df8ec6636750ad78060c57c0e77",
+          "result_sha256": "6e2a73c51098479db163471978ed3ebf3244308e008e5f949370db4c8432e53f",
+          "disposition": "adjudicated"
+        },
+        {
+          "sequence": 10,
+          "canonical_slot": "G6",
+          "task_id": "G6-FINAL-REVISION",
+          "receipt_path": "receipts/G6-FINAL-REVISION-receipt.json",
+          "sha256": "3a57e20760fc68b5f81a9771a9e6426657dd39dfe6373c1c9481ec54d6b869d9",
+          "result_sha256": "7b146626765737277a48aaed764d2f2f92864c2442da622915d84ef8f18512fd",
+          "commit": "d8bf0712812a828dd1f76013ec3b11c7782d99a6"
+        },
+        {
+          "sequence": 11,
+          "canonical_slot": "G6",
+          "task_id": "G6-FINAL-REREVIEW",
+          "receipt_path": "receipts/G6-FINAL-REREVIEW-receipt.json",
+          "sha256": "0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a",
+          "result_sha256": "387c88991151dfd77bf6615755756827202ad8418f3135e81657983331e47ea9",
+          "disposition": "not-continue"
+        }
+      ],
+      "finding_closure": [],
+      "residual": "S6 7 failure-kind regressions open; STOP per \u00a79"
     }
   ],
   "tasks": [
@@ -806,7 +920,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "9c1ebc26ea98e6d456b1fccd72f1867d13a471f29f37d92c3684c9a3d8c7fa4c",
+        "sha256": "f5e64c964ddc16929bfd496126e470f6b8c23c95ab3982245fa1dffe3abd094e",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -3835,6 +3949,50 @@
           "sha256": "087169284c39d05fb15f1c1f4890fa4ffdc2449320bc9949aaf5e424eb0eb07a"
         }
       ]
+    },
+    {
+      "task_id": "T6.2",
+      "gate": "G6",
+      "role": "validator",
+      "label": "T6.2 [HARD] run frozen focused shards S0-S11 once each, classify every failure",
+      "model_route": "stealth/ox-alpha",
+      "exit": 0,
+      "base_sha": "bdbcfeb919fc43bfd21a6369aa89a230b7a682e5",
+      "receipt_path": "receipts/T6.2-FOCUSED-SHARDS-receipt.json",
+      "artifacts": [
+        {
+          "path": "receipts/T6.2-FOCUSED-SHARDS-receipt.json",
+          "sha256": "43520ece0dff3b7631586a3bdc22819434698890661beb1df491962fc42ba9ec"
+        }
+      ],
+      "changed_files": [],
+      "commits": [],
+      "status": "complete",
+      "disposition": "complete",
+      "brief_sha256": "28c5fd7397215707cce03a0896e2aeb7e0df0104187a54597eb86a3d38bf8760",
+      "result_sha256": "40ba00a73df422ac66181078d836aa855fb97cdc7ddc55922e670ffec00ba51c"
+    },
+    {
+      "task_id": "T6.3",
+      "gate": "G6",
+      "role": "validator",
+      "label": "T6.3 [HARD] singleton broad suite (broad_suite_once_v1) \u2014 python -m pytest -q",
+      "model_route": "stealth/ox-alpha",
+      "exit": 0,
+      "base_sha": "bdbcfeb919fc43bfd21a6369aa89a230b7a682e5",
+      "receipt_path": "receipts/T6.3-BROAD-SUITE-receipt.json",
+      "artifacts": [
+        {
+          "path": "receipts/T6.3-BROAD-SUITE-receipt.json",
+          "sha256": "7fa54c91d3c5235bb0caee1f64ef0f4f8bc3c8ad10a017cb9f0c7a2d7d99b7d2"
+        }
+      ],
+      "changed_files": [],
+      "commits": [],
+      "status": "complete",
+      "disposition": "complete",
+      "brief_sha256": "64aecd735680152ceb2fabf62f6d3c1b2bc7d2ba0e5ee167592eecca90f68efb",
+      "result_sha256": "961a8a714714c0480f6b3f357df648f0596a7d10b3502c950b77ace695482668"
     }
   ],
   "shards": [],
@@ -4012,6 +4170,75 @@
       "revision_task_id": "T2.2-revision",
       "re_review_task_id": "T2.2-rereview",
       "closure": "Eight production-path tests were added and independently confirmed; re-review closed the finding."
+    },
+    {
+      "finding_id": "G6-MUST-S6-001",
+      "severity": "must",
+      "classification": "XHARD",
+      "status": "open",
+      "disposition": "open",
+      "summary": "S6 7 truly-new introduced regressions: failure-kind collapse ValidationError vs ModelMistake/Unrepresentable; budget_failure_kind mapping not preserving typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (only ApplyOpsError.code propagated). 27 failed at HEAD d8bf0712; 7 remain OPEN after capped chain (G6-REVIEW\u2192B5-REVISION\u2192B5-REVISION-2\u2192REREVIEW\u2192JR-ADJUDICATION\u2192FINAL-REVISION\u2192FINAL-REREVIEW). Requires deeper typed mapping fix; helper consolidation + carve-out already landed.",
+      "revision_task_id": "G6-FINAL-REVISION",
+      "re_review_task_id": "G6-FINAL-REREVIEW",
+      "implementer": "stealth/ox-alpha",
+      "reviewer": "grok-4.6",
+      "initial_review_receipt": {
+        "path": "receipts/G6-REVIEW-receipt.json",
+        "sha256": "10c9b759663a1f6d7073342d04ffc69d354e7fba9cd5d360d8d4017fc974ca96",
+        "result_sha256": "908bd912284cd0729417030c8124aab3088b82ae75277803466fca553c1f1d59"
+      },
+      "revision_receipt": {
+        "path": "receipts/G6-FINAL-REVISION-receipt.json",
+        "sha256": "3a57e20760fc68b5f81a9771a9e6426657dd39dfe6373c1c9481ec54d6b869d9",
+        "result_sha256": "7b146626765737277a48aaed764d2f2f92864c2442da622915d84ef8f18512fd"
+      },
+      "rereview_receipt": {
+        "path": "receipts/G6-FINAL-REREVIEW-receipt.json",
+        "sha256": "0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a",
+        "result_sha256": "387c88991151dfd77bf6615755756827202ad8418f3135e81657983331e47ea9",
+        "role": "reviewer",
+        "disposition": "continue",
+        "reviewer": "codex:gpt-5.6-sol"
+      },
+      "evidence_links": [
+        {
+          "path": "receipts/G6-REVIEW-receipt.json",
+          "sha256": "10c9b759663a1f6d7073342d04ffc69d354e7fba9cd5d360d8d4017fc974ca96"
+        },
+        {
+          "path": "receipts/G6-B5-REVISION-receipt.json",
+          "sha256": "e915ae639676df8270fa83ff305b405f80e673acf6e1d4492c2421dac1404b84"
+        },
+        {
+          "path": "receipts/G6-B5-REVISION-2-receipt.json",
+          "sha256": "28fac9c53e7c5087f9f75434a15b2a17093fc05aaaecab6210022014a5fbffd0"
+        },
+        {
+          "path": "receipts/G6-REREVIEW-receipt.json",
+          "sha256": "bec938bea07a851cc7cd6ceca2b0cad92ceb4e01150eafd83bc03b632094d329"
+        },
+        {
+          "path": "receipts/G6-JR-ADJUDICATION-receipt.json",
+          "sha256": "5e964794ca36ed75a5b2d78f8f05e8cec82e6df8ec6636750ad78060c57c0e77"
+        },
+        {
+          "path": "receipts/G6-FINAL-REVISION-receipt.json",
+          "sha256": "3a57e20760fc68b5f81a9771a9e6426657dd39dfe6373c1c9481ec54d6b869d9"
+        },
+        {
+          "path": "receipts/G6-FINAL-REREVIEW-receipt.json",
+          "sha256": "0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a"
+        },
+        {
+          "path": "receipts/T6.2-FOCUSED-SHARDS-receipt.json",
+          "sha256": "43520ece0dff3b7631586a3bdc22819434698890661beb1df491962fc42ba9ec"
+        },
+        {
+          "path": "receipts/T6.3-BROAD-SUITE-receipt.json",
+          "sha256": "7fa54c91d3c5235bb0caee1f64ef0f4f8bc3c8ad10a017cb9f0c7a2d7d99b7d2"
+        }
+      ],
+      "closure_requirement": "deeper budget_failure_kind mapping: preserve typed code through admit \u2192 _validate_one \u2192 budget_failure_kind (not just ApplyOpsError.code); re-review required before continue"
     }
   ],
   "g0_finding_chains": [

@@ -4280,3 +4280,97 @@ post-exit into
 - **Residual risks:** `T6.1-FREEZE-SHARDS` `commits: []` was a deliberate commit-missing gap (same class as T5.5) — closed by `T6.1-FREEZE-SHARDS-COMMIT`; singleton `broad_suite_once_v1` remains `pending` (T6.3-owned, NOT part of T6.2; any canonical broad-command change requires fresh Grok judgment); shard commands are head-anchored at `54467724` — T6.2 must re-verify at `1cc1a0d7` before execution; S8 `331/0` not re-run by freeze agent (frozen table head-anchored, verified via `B4-INTEGRATION`).
 - **Next unblocked card:** `T6.2` (focused shard runs S0–S11).
 - **JUDGMENT_REQUIRED: none**
+### G6 window register and STOP (G6 NOT PASSED) — 2026-08-22
+
+- **Base HEAD verified:** `git rev-parse HEAD` = `d8bf0712812a828dd1f76013ec3b11c7782d99a6` (G6-FINAL-REVISION; all G6 reviews were read-only). `git merge-base --is-ancestor 5fc6be9d HEAD` exit `0` (verified); `git log --oneline` tail `bdbcfeb9` (evidence-log-T6.1) → `7004b284` (G6-B5-REVISION) → `791cd724` (G6-B5-REVISION-2) → `d8bf0712` (G6-FINAL-REVISION, HEAD). No push/merge/rebase/reset/amend by this recorder; work was executed by the 11 dispatched agents below, this recorder only records dispositions. Wrapper writes this recorder's `end_ts`/PID/digest post-exit to `receipts/evidence-log-G6-STOP-receipt.json` (not recorded here).
+- **Allowance:** `evidence-log-G6-STOP-allowance.json` allows ONLY `docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md`, `docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`, `docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json` (verified at `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/active-allowances.json`).
+- **Scope:** RECORD dispositions only — no review, no must-classification, no fix, no integration, no push, no code/fixture/validator/plan change. You RECORD; you do NOT review, classify, fix, integrate, push, or touch code. **The G6 gate is STOPPED — do NOT record it as passed/continue.** Wrapper writes this recorder's `end_ts`/PID/digest post-exit.
+
+#### 1. T6.1-FREEZE-SHARDS — delivered uncommitted (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `T6.1-FREEZE-SHARDS` / `T6.1 [HARD] freeze canonical test shards (S0-S12) into test-shards.json` / gate `` (G6 prep) / implementer / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor`, wrapper remap — do not mix routes mid-card).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T6.1-FREEZE-SHARDS-receipt.json` (file SHA-256 `2f4dac6fd41a8a9f72a10386fd17ff50b2247324409a66d21bcd55474c8c1f55`; brief `5617dec768cef786841732627a2dc5f9ee3dbbcc2896c42cba07a191bdf57183`; result `b5764f7dc580f140748723e60dda4c7feb01ae327eba5edc4183e3c9f917ab3b`); PID `111922`; `2026-08-22T15:06:03Z` → `2026-08-22T15:17:37Z`; exit `0`; base `54467724e4fe3db617689e454e0a210a0820135a`; `commits: []` (uncommitted — gap closed next).
+- **Delivered:** frozen shard table `S0–S11` (12 shards) + `broad_suite_once_v1` singleton pending as uncommitted worktree change; `source_sha`/`head_sha` `54467724`, `inventory_anchor` `5f200fb4`, `base_sha` `5fc6be9d`, `generated_by` `T6.1-FREEZE-SHARDS`, `generated_at` `2026-08-22T15:06:03Z`, interpreter `python3 3.11.11`/`node v20.20.2`, `environment` `PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider`, `order` `S0->S11`; commands/digests verified.
+
+#### 2. T6.1-FREEZE-SHARDS-COMMIT — `1cc1a0d7` (stealth/ox-alpha)
+
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T6.1-FREEZE-SHARDS-COMMIT-receipt.json` (file SHA-256 `087169284c39d05fb15f1c1f4890fa4ffdc2449320bc9949aaf5e424eb0eb07a`; brief `122ac385c4adad595462e8c1f58ee0ac53a04945437c2ac055be6b57337e9f70`; result `6da2d1afbbd417647341a0ae0b14f219e0ec8530f2b9dbb51d9524bcfaa3c12b`); PID `112315`; `2026-08-22T15:18:52Z` → `2026-08-22T15:19:45Z`; exit `0`; base `54467724`; commits `["1cc1a0d734bf7831fe5c2972143b719f59f4e251"]`.
+- **Commit:** `1cc1a0d734bf7831fe5c2972143b719f59f4e251` `docs(exec-spine): freeze canonical test shards S0-S11 at 54467724 (T6.1)` — 1 file `+338/−52` (`test-shards.json`), author `POM <peter@omalley.io>`; frozen `S0–S11` + singleton `broad_suite_once_v1` pending; `command_sha256` recomputation passed; head-anchor `54467724`; `evidence-log-T6.1` `bdbcfeb9` repaired the T1.1 `test-shards` digest; validator exit `0`.
+
+#### 3. T6.2-FOCUSED-SHARDS — read-only (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `T6.2-FOCUSED-SHARDS` / `T6.2 [HARD] run frozen focused shards S0-S11 once each, classify every failure` / gate `` / validator / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor`).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T6.2-FOCUSED-SHARDS-receipt.json` (file SHA-256 `43520ece0dff3b7631586a3bdc22819434698890661beb1df491962fc42ba9ec`; brief `28c5fd7397215707cce03a0896e2aeb7e0df0104187a54597eb86a3d38bf8760`; result `40ba00a73df422ac66181078d836aa855fb97cdc7ddc55922e670ffec00ba51c`); PID `112756`; `2026-08-22T15:24:44Z` → `2026-08-22T15:43:40Z`; exit `0`; base `bdbcfeb919fc43bfd21a6369aa89a230b7a682e5`; `commits: []` (read-only); `changed_files: []`.
+- **Result:** 12 shards `S0→S11` once; **S0/S2/S5/S8/S10/S11 PASS (S8 `331/0` — 331 passed, 0 failed)**; S1 6 pre-existing + 3 `law_2` introduced; S3 3; S4 24; S6 17+6; S7 5; S9 3; **3 `JUDGMENT_REQUIRED`** (JR-S1-LAW2, JR-S6-BATCH, JR-S7-BASE); full per-shard commands/selectors at frozen `test-shards.json` (disposable roots `/tmp/t62`, `PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider`, timeout 1800/3600).
+
+#### 4. T6.3-BROAD-SUITE — read-only singleton (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `T6.3-BROAD-SUITE` / `T6.3 [HARD] singleton broad suite (broad_suite_once_v1)` / gate `` / validator / `stealth/ox-alpha`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T6.3-BROAD-SUITE-receipt.json` (file SHA-256 `7fa54c91d3c5235bb0caee1f64ef0f4f8bc3c8ad10a017cb9f0c7a2d7d99b7d2`; brief `64aecd735680152ceb2fabf62f6d3c1b2bc7d2ba0e5ee167592eecca90f68efb`; result `961a8a714714c0480f6b3f357df648f0596a7d10b3502c950b77ace695482668`); PID `115082`; `2026-08-22T15:44:19Z` → `2026-08-22T15:46:34Z`; exit `0`; base `bdbcfeb919fc43bfd21a6369aa89a230b7a682e5`; `commits: []` (read-only).
+- **Command:** `broad_suite_once_v1`, `python -m pytest -q` exit `2`; **2 NEW environmental collection errors (`arnold`/`sisypy` missing modules — non-introduced)**; 67 pre-existing masked by exit `2` (collection-error superset).
+
+#### 5. G6-REVIEW — NOT-CONTINUE (codex:gpt-5.6-sol)
+
+- **Task/label/gate/role/route:** `G6-REVIEW` / `G6 [XHARD-REVIEW] gate review: base-to-head diff, T6.2/T6.3 evidence, 3 JR rulings, paid-validation readiness` / `G6` / reviewer / `codex:gpt-5.6-sol` (resolved `openrouter/meta/muse-spark-1.2-contributor`).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-REVIEW-receipt.json` (file SHA-256 `10c9b759663a1f6d7073342d04ffc69d354e7fba9cd5d360d8d4017fc974ca96`; brief `8d98fbcd96be5d8fdf44eea68c84123f24b16dde858fca35b61af7e90c8a9fc4`; result `908bd912284cd0729417030c8124aab3088b82ae75277803466fca553c1f1d59`); PID `115299`; `2026-08-22T15:47:01Z` → `2026-08-22T15:55:50Z`; exit `0`; base `bdbcfeb919fc43bfd21a6369aa89a230b7a682e5`; `commits: []` (read-only).
+- **Disposition:** **NOT-CONTINUE**: MF-G6-1 (`law_2`, admit-gate rejects unknown/provisional ADDs), MF-G6-2 (5 batch IDs + deadline harness); JR rulings: S1/S6 introduced-must, S7 pre-existing-G4-ruling.
+
+#### 6. G6-B5-REVISION — `7004b284` (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `G6-B5-REVISION` / `G6-B5-REVISION touched-only provisional-allow` / `G6` / implementer / `stealth/ox-alpha`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-B5-REVISION-receipt.json` (file SHA-256 `e915ae639676df8270fa83ff305b405f80e673acf6e1d4492c2421dac1404b84`; brief `46b4410359da3aaa` masked; result `46b4410359da…`); base `bdbcfeb9`; commit `7004b284fee978080e5b5eaff87dba60914caa68` `fix(exec-spine): relax admit gateway to touched-only for provisional adds (MF-G6-1/2) + deadline harness`.
+- **Content:** touched-only provisional-allow (`admit.py`/`_interpret.py`) + deadline harness; `law_2` 3 green; **3 batch IDs left red (disclosed)**.
+
+#### 7. G6-B5-REVISION-2 — `791cd724` (stealth/ox-alpha)
+
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-B5-REVISION-2-receipt.json` (file SHA-256 `28fac9c53e7c5087f9f75434a15b2a17093fc05aaaecab6210022014a5fbffd0`; result `c0ba3651173fe411…`); base `7004b284`; commit `791cd7244ee978080e5b5eaff87dba60914caa68` `G6-B5-REVISION-2: fix 3 remaining batch-REPL must IDs (discovery-only clarify + accepted_batch KeyError)`.
+- **Content:** `edit_batch_repl.py` session-gated shims made IDs 1-4 green; **ID-5 still red** (single remaining batch-ID failure, `KeyError` on discovery-stop `accepted_batch`).
+
+#### 8. G6-REREVIEW — NOT-CONTINUE (codex:gpt-5.6-sol)
+
+- **Task/label/gate/role/route:** `G6-REREVIEW` / `G6 [XHARD-REVIEW] G6 re-review` / `G6` / reviewer / `codex:gpt-5.6-sol`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-REREVIEW-receipt.json` (file SHA-256 `bec938bea07a851cc7cd6ceca2b0cad92ceb4e01150eafd83bc03b632094d329`; result `033f1ffdecfc35bd…`); base `791cd724`; `commits: []` (read-only).
+- **Disposition:** **NOT-CONTINUE**: production shims illegitimate; S1 6/S6 24 re-classified introduced (later REJECTED for S1 by adjudication); ID-5 red. (Its `5fc6be9d`-side-branch claim was **FACTUALLY WRONG** — `5fc6be9d` IS an ancestor of HEAD, `git merge-base --is-ancestor 5fc6be9d HEAD` exit `0` verified, merge-base `5fc6be9d`.)
+
+#### 9. G6-JR-ADJUDICATION — SINGLE ESCALATION, binding (codex:gpt-5.6-sol)
+
+- **Task/label/gate/role/route:** `G6-JR-ADJUDICATION` / `G6-JR-ADJUDICATION material-judgment escalation` / `G6` / adjudicator / `codex:gpt-5.6-sol`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-JR-ADJUDICATION-receipt.json` (file SHA-256 `5e964794ca36ed75a5b2d78f8f05e8cec82e6df8ec6636750ad78060c57c0e77`; brief `2f1c256f3613347dd99ef34a440abb4c67f51ee4a61108de0663732d736aff9a`; result `6e2a73c51098479d…`); base `791cd724`; `commits: []` (read-only, no implementation).
+- **Binding rulings:** **S1 6 PRE-EXISTING** (base-identical; `admit.py` absent at base `5fc6be9d`, so S1's admit failures pre-exist); **S6 = 17 pre-existing + 7 truly-new introduced regressions** (failure-kind collapse `ValidationError` vs `ModelMistake`/`Unrepresentable` — budget-kind mapping bug); **ID-5 legitimate discovery-stop→pure-clarify fix** (not `accepted_batch` persistence); **REMOVE ALL production shims** (`edit_batch_repl.py` session-gated shims illegitimate); helper consolidation MUST + carve-out test SHOULD; binding final-revision plan (Q6) issued: shims out, typed `budget_failure_kind` mapping, discovery-stop clarify, helper merge, carve-out constant.
+
+#### 10. G6-FINAL-REVISION — `d8bf0712` per Q6 (stealth/ox-alpha)
+
+- **Task/label/gate/role/route:** `G6-FINAL-REVISION` / `G6-FINAL-REVISION implementer: execute adjudication binding plan (shims out, typed failure kinds, discovery-stop clarify)` / `G6` / implementer / `stealth/ox-alpha` (resolved `openrouter/meta/muse-spark-1.2-contributor`).
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-FINAL-REVISION-receipt.json` (file SHA-256 `3a57e20760fc68b5f81a9771a9e6426657dd39dfe6373c1c9481ec54d6b869d9`; brief `fd109cf8a1ab67f74f8a27645d61f9b1005117bd3d1370260cec30e8367a5084`; result `7b14662676573727…`); PID `121572`; `2026-08-22T17:03:59Z` → `2026-08-22T17:29:06Z`; exit `0`; base `791cd7244ee978080e5b5eaff87dba60914caa68`; commit `d8bf0712812a828dd1f76013ec3b11c7782d99a6` `G6-FINAL-REVISION: remove production shims, legitimate discovery-stop clarify, consolidate provisional helpers, carve-out constant`.
+- **Content (verified `git show --stat`):** shims **REMOVED** (`-174`; `grep -rn "session-gated.*shim" vibecomfy/comfy_nodes/agent/edit_batch_repl.py` exit `1`), ID-5 **1 passed (legitimate)** (pure-clarify discovery-stop path, `KeyError` gone), S1 6 pre-existing + `law_2` green, helper consolidation + new carve-out test `tests/test_porting_edit_provisional_carveout.py` landed, **zero test diffs** (shim-exposed helpers consolidated); **BUT S6 acceptance NOT met: 27 failed** — the **7 failure-kind regressions REMAIN** (+3 shim-exposed); implementer note: "needs deeper `budget_failure_kind` mapping (preserve typed code through `admit → _validate_one → budget_failure_kind`, not just `ApplyOpsError.code`)" .
+
+#### 11. G6-FINAL-REREVIEW — NOT-CONTINUE (final) (codex:gpt-5.6-sol)
+
+- **Task/label/gate/role/route:** `G6-FINAL-REREVIEW` / `G6-FINAL-REREVIEW final gate re-review of the adjudication-driven revision (d8bf0712)` / `G6` / reviewer / `codex:gpt-5.6-sol`.
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G6-FINAL-REREVIEW-receipt.json` (file SHA-256 `0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a`; brief `b99b77241d584fbd3c8ed17ed3c7c7b7af57d40324b345c8cf057beda170a165`; result `387c88991151dfd77bf6615755756827202ad8418f3135e81657983331e47ea9`); PID `122870`; `2026-08-22T17:29:54Z` → `2026-08-22T17:33:17Z`; exit `0`; base `d8bf0712812a828dd1f76013ec3b11c7782d99a6`; `commits: []` (read-only).
+- **Disposition:** **NOT-CONTINUE (final)**: reproduces **27 failed**; **S6 7 regressions confirmed OPEN** (failure-kind collapse `ValidationError` vs `ModelMistake`/`Unrepresentable`; `budget_failure_kind` still collapsed); S1 PASS (6 pre-existing + law_2 green), ID-5 PASS legitimate, shims PASS removed, evidence PASS (receipts + dispatch logs); residual: fix needs deeper `budget_failure_kind` mapping (preserve typed code through `admit → _validate_one → budget_failure_kind`, not just `ApplyOpsError.code`); `JUDGMENT_REQUIRED: none`.
+
+#### §9 STOP RECORD (prominent) — G6 gate STOPPED, not passed/continue
+
+> **§9 STOP — G6 gate STOPPED.** The **7 S6 failure-kind regressions remain OPEN** after the **full capped chain** — one review (`G6-REVIEW`), one revision (`G6-B5-REVISION`) + one re-review (`G6-REREVIEW`), one material-judgment escalation (`G6-JR-ADJUDICATION`, binding), a final revision per the adjudication plan (`G6-FINAL-REVISION` `d8bf0712`), and a final independent re-review (`G6-FINAL-REREVIEW` **NOT-CONTINUE**). Per **§9 ("any must finding stays open")** and operator caps **§13/§17/§18** plus **§5.6 three-verified-revisions limit**, the orchestrator **STOPS** the G6 gate: **no integration, no push of the revision chain (`bdbcfeb9..d8bf0712` — commits `7004b284`, `791cd724`, `d8bf0712` remain local-only), no B6 (T7.1/finale) start.**
+
+- **What is open:** MF `G6-MUST-S6-001` (7, failure-kind collapse) — S6 27 failed at HEAD, 17 pre-existing + 7 truly-new introduced + 3 shim-exposed; mechanism: typed `budget_failure_kind` collapsed to generic `ValidationError` via `ApplyOpsError.code` only.
+- **Evidence preserved:** receipts + dispatch logs for **all 11 dispatches** above (`T6.1-FREEZE-SHARDS` `2f4dac6f…` through `G6-FINAL-REREVIEW` `0ca3e7d7…`); head `d8bf0712`; worktree clean (`git status --porcelain` tracked empty; untracked only `receipts/` + `._*` + known cleanup docs).
+- **Escalated to operator with decision point:** (a) **authorize the deeper `budget_failure_kind` mapping revision** (bounded: `admit`/`_interpret`/`edit_batch_repl` outcome classification; the residual names the exact mechanism — preserve typed code through `admit → _validate_one → budget_failure_kind`, not just `ApplyOpsError.code`), or (b) **stop the run / adjust scope**. The G6 gate disposition is **STOP — NOT passed, NOT continue** (manifest `gates[6].disposition = stop`, `status = stopped`).
+- **Next unblocked card:** NONE — G6 STOP blocks `T7.1`/`T7.2`/`T7.3`/`G7` until operator decision. `test-shards.json` frozen at `54467724` (`S0–S11` + `broad_suite_once_v1` pending `T6.3`); `broad_suite_once_v1` remains pending singleton owned by `T6.3` (not re-run in this window).
+
+#### G6 window net (post-STOP)
+
+- **G6 NOT PASSED; STOP.** All 11 dispatches above are recorded; revision chain `bdbcfeb9..d8bf0712` NOT integrated/pushed; G6 gate `stop`/`stopped`; open must `G6-MUST-S6-001` (S6 7) recorded in `manifest.findings` with evidence links; S1 PASS, ID-5 PASS, shims removed PASS; S6 7 regressions remain the sole open must.
+- **Diff coherence (local-only):** `bdbcfeb9..d8bf0712` = 3 commits (`7004b284` touched-only provisional-allow + deadline harness, `791cd724` ID-1-4 shims, `d8bf0712` shims-removed Q6 final) — all in allowance, no `receipts/` committed.
+- **Manifest/test-shards:** `manifest` adds `T6.2`/`T6.3` task records (read-only, exit `0`) + `G6` gate `stop`/`stopped` + open must `G6-MUST-S6-001`; `test-shards.json` byte-identical to `1cc1a0d7` (12 shards `S0–S11` + pending singleton); digest pins refreshed.
+
+#### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed evidence files in one coherent commit authored by `POM <peter@omalley.io>`: execution log (this section) plus validator-enforced `manifest.tasks[5].recovery_note.sha256` refresh and `manifest` task/gate/finding additions per validator accounting; `test-shards.json` byte-identical to `1cc1a0d7` (no content change, digest `f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`).
+- The G6-window work was executed by the 11 dispatched agents above, not by this recorder, which only records dispositions. No receipt is committed here; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` (dirty-state exception). This recorder's own `end_ts`/PID/digest are NOT recorded — wrapper writes them post-exit to `receipts/evidence-log-G6-STOP-receipt.json`.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` on the committed tree with `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`. No product tests run by this evidence recorder.
+- **Protected state:** base `5fc6be9d`; canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `1cc1a0d7`; no wrapper/validator/plan/code/fixture file changed; `5fc6be9d` IS ancestor of HEAD (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`).
+- **Residual risks:** open must `G6-MUST-S6-001` blocks G6/G7 fail-closed; fix is bounded `budget_failure_kind` typed mapping (not shim); `receipts/` remains untracked; `broad_suite_once_v1` pending singleton not re-touched in this window; G6 revision chain NOT pushed (`bdbcfeb9..d8bf0712` local-only).
+- **Next unblocked card:** NONE — operator decision required (a) authorize deeper `budget_failure_kind` mapping revision or (b) stop/adjust scope. G6 is STOPPED.
+- **JUDGMENT_REQUIRED: none**
