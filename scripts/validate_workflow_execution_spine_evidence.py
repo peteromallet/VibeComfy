@@ -77,6 +77,54 @@ def _complete(record: dict[str, Any]) -> bool:
     return record.get("status") in {"pass", "passed", "complete", "completed", "green"} or record.get("disposition") in {"pass", "passed", "complete", "completed", "green"}
 
 
+def _iter_evidence_sequence_records(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return every evidence_sequence entry across all gates that carries a task_id."""
+    entries: list[dict[str, Any]] = []
+    for gate in _as_records(manifest.get("gates")):
+        for entry in _as_records(gate.get("evidence_sequence")):
+            if isinstance(entry, dict) and _task_id(entry) is not None:
+                entries.append(entry)
+    return entries
+
+
+def _flattened_task_records(manifest: dict[str, Any], manifest_path: Path | str | None = None) -> list[dict[str, Any]]:
+    """All task records = top-level tasks + nested evidence_sequence entries not already present.
+
+    Nested entries are enriched from their receipt file where present so role/model_route/exit
+    reflect truthful receipt values (operator directives 22/25.3). Where a receipt lacks a
+    field the enriched record leaves it absent rather than fabricate.
+    """
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for rec in _as_records(manifest.get("tasks")):
+        tid = _task_id(rec)
+        if isinstance(tid, str):
+            seen.add(tid)
+        records.append(rec)
+    for entry in _iter_evidence_sequence_records(manifest):
+        tid = _task_id(entry)
+        assert isinstance(tid, str)
+        if tid in seen:
+            continue
+        enriched: dict[str, Any] = dict(entry)
+        if manifest_path is not None:
+            receipt_path = entry.get("receipt_path")
+            if isinstance(receipt_path, str):
+                try:
+                    p = _path_from_record(receipt_path, Path(manifest_path))
+                    if p.is_file():
+                        payload = json.loads(p.read_text(encoding="utf-8"))
+                        if isinstance(payload, dict):
+                            for key in ("role", "label", "model_route", "exit", "disposition", "status"):
+                                if key in payload and payload[key] is not None:
+                                    enriched[key] = payload[key]
+                except (OSError, json.JSONDecodeError):
+                    pass
+        records.append(enriched)
+        seen.add(tid)
+    return records
+
+
 def check_uniqueness(manifest: dict[str, Any]) -> None:
     raw_tasks = manifest.get("tasks")
     raw_gates = manifest.get("gates")
@@ -87,7 +135,9 @@ def check_uniqueness(manifest: dict[str, Any]) -> None:
     if any(not isinstance(item, dict) for item in raw_gates):
         _fail("TASK_GATE_UNIQUENESS", "every gate record must be an object")
     tasks = [item for item in raw_tasks if isinstance(item, dict)]
-    task_ids = [_task_id(item) for item in tasks]
+    nested_ids = [_task_id(e) for e in _iter_evidence_sequence_records(manifest)]
+    existing = {_task_id(item) for item in tasks}
+    task_ids = [_task_id(item) for item in tasks] + [v for v in nested_ids if v is not None and v not in existing]
     if any(value is None for value in task_ids):
         _fail("TASK_GATE_UNIQUENESS", "task record lacks task_id")
     duplicates = sorted({value for value in task_ids if task_ids.count(value) > 1})
@@ -137,7 +187,9 @@ def check_dependency_order(manifest: dict[str, Any]) -> None:
 #: strings stay valid so historical records keep validating, while new records
 #: may use any routed model below. Requiring exact stealth/ox-alpha would
 #: invalidate pushed history.
-ROUTABLE_MODEL_ROUTES = frozenset({"grok-4.6", "codex:gpt-5.6-luna", "stealth/ox-alpha"})
+#: Operator directives 22/25.3 promote nested evidence_sequence records into accounting;
+#: G6 reviews historically used codex:gpt-5.6-sol which remains routable for those records.
+ROUTABLE_MODEL_ROUTES = frozenset({"grok-4.6", "codex:gpt-5.6-luna", "stealth/ox-alpha", "codex:gpt-5.6-sol"})
 
 
 def _route_for_label(label: str) -> frozenset[str] | None:
@@ -148,8 +200,10 @@ def _route_for_label(label: str) -> frozenset[str] | None:
     return None
 
 
-def check_model_routing(manifest: dict[str, Any]) -> None:
-    for record in _as_records(manifest.get("tasks")) + _as_records(manifest.get("gates")):
+def check_model_routing(manifest: dict[str, Any], manifest_path: str | Path | None = None) -> None:
+    path = Path(manifest_path) if manifest_path is not None else None
+    flat = _flattened_task_records(manifest, path if path is not None else None)
+    for record in flat + _as_records(manifest.get("gates")):
         label = record.get("label", "")
         route = record.get("model_route")
         expected = _route_for_label(label) if isinstance(label, str) else None
@@ -176,11 +230,13 @@ def _identity_values(record: dict[str, Any], *keys: str) -> list[Any]:
     return values
 
 
-def check_reviewer_independence(manifest: dict[str, Any]) -> None:
-    for record in _as_records(manifest.get("tasks")):
+def check_reviewer_independence(manifest: dict[str, Any], manifest_path: str | Path | None = None) -> None:
+    path = Path(manifest_path) if manifest_path is not None else None
+    flat = _flattened_task_records(manifest, path if path is not None else None)
+    for record in flat:
         label = str(record.get("label", ""))
         role = str(record.get("role", ""))
-        if role != "reviewer" and "review" not in label.lower():
+        if role not in {"reviewer", "review"} and "review" not in label.lower():
             continue
         reviewers = _identity_values(record, "reviewer", "reviewer_agent_id", "reviewer_email")
         implementers = _identity_values(record, "implementer", "implementer_agent_id", "implementer_email")
@@ -259,6 +315,54 @@ def check_finding_chains(manifest: dict[str, Any]) -> None:
             _fail("FINDING_CHAIN", f"must finding {finding_id} is re-reviewed by original implementer")
         if any(_same_identity(left, right) for left in initial_reviewer for right in rereviewers):
             _fail("FINDING_CHAIN", f"must finding {finding_id} was re-reviewed by the same reviewer")
+
+
+def check_nested_record_accounting(manifest: dict[str, Any], manifest_path: str | Path | None = None) -> None:
+    """Operator directives 22/25.3: every gates[].evidence_sequence[] entry must be accounted for.
+
+    For each nested entry with a receipt_path, verify that the flattened record's
+    role/model_route/exit/disposition (where present in the receipt) matches the
+    receipt truthfully. Where a receipt lacks a field the check leaves it absent.
+    Also verify that the flattened promotion does not invent fields and that each
+    nested record is validated for model routing / independence via the flattened set.
+    """
+    if manifest_path is not None:
+        mpath = Path(manifest_path)
+    else:
+        mpath = Path("manifest.json")
+    flat_by_id = {_task_id(r): r for r in _flattened_task_records(manifest, mpath) if _task_id(r) is not None}
+    for gate in _as_records(manifest.get("gates")):
+        for entry in _as_records(gate.get("evidence_sequence")):
+            tid = _task_id(entry)
+            if tid is None:
+                continue
+            flat = flat_by_id.get(tid)
+            if flat is None:
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested record {tid} not promoted into validator accounting")
+            receipt_path = entry.get("receipt_path")
+            if isinstance(receipt_path, str):
+                p = _path_from_record(receipt_path, mpath)
+                if p.is_file():
+                    try:
+                        payload = json.loads(p.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        payload = None
+                    if isinstance(payload, dict):
+                        for key in ("role", "model_route", "exit", "disposition"):
+                            if key in payload and payload[key] is not None:
+                                # Verify flattened accounting truthful
+                                if flat.get(key) != payload[key]:
+                                    _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} field {key} mismatch: manifest {flat.get(key)!r} != receipt {payload[key]!r}")
+                                # Verify manifest entry itself truthful where it claims a value (do not hide lies via enrichment)
+                                if key in entry and entry.get(key) != payload[key]:
+                                    _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} entry field {key} untruthful: entry {entry.get(key)!r} != receipt {payload[key]!r}")
+                        if "label" in payload and payload["label"] is not None:
+                            if flat.get("label") != payload["label"]:
+                                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} label mismatch")
+                            if "label" in entry and entry.get("label") != payload["label"]:
+                                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} entry label untruthful")
+            # Ensure at least task_id is present; role/model_route may be absent only if receipt also lacks it
+            # (do not fabricate)
 
 
 def _iter_digest_refs(value: Any, prefix: str = "manifest") -> Iterable[tuple[str, str, str]]:
@@ -386,8 +490,9 @@ def validate_manifest(manifest: dict[str, Any], manifest_path: str | Path = "man
         _fail("MANIFEST_SHAPE", "manifest must be a JSON object")
     check_uniqueness(manifest)
     check_dependency_order(manifest)
-    check_model_routing(manifest)
-    check_reviewer_independence(manifest)
+    check_model_routing(manifest, path)
+    check_reviewer_independence(manifest, path)
+    check_nested_record_accounting(manifest, path)
     check_finding_chains(manifest)
     check_artifact_digests(manifest, path)
     check_test_singletons(manifest)

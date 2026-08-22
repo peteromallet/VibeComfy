@@ -407,7 +407,11 @@
           "receipt_path": "receipts/T6.1-FREEZE-SHARDS-receipt.json",
           "sha256": "2f4dac6fd41a8a9f72a10386fd17ff50b2247324409a66d21bcd55474c8c1f55",
           "result_sha256": "b5764f7dc580f140748723e60dda4c7feb01ae327eba5edc4183e3c9f917ab3b",
-          "commits": []
+          "commits": [],
+          "role": "implementer",
+          "label": "T6.1 [HARD] freeze canonical test shards (S0-S12) into test-shards.json",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 2,
@@ -416,7 +420,11 @@
           "receipt_path": "receipts/T6.1-FREEZE-SHARDS-COMMIT-receipt.json",
           "sha256": "087169284c39d05fb15f1c1f4890fa4ffdc2449320bc9949aaf5e424eb0eb07a",
           "result_sha256": "6da2d1afbbd417647341a0ae0b14f219e0ec8530f2b9dbb51d9524bcfaa3c12b",
-          "commit": "1cc1a0d734bf7831fe5c2972143b719f59f4e251"
+          "commit": "1cc1a0d734bf7831fe5c2972143b719f59f4e251",
+          "role": "implementer",
+          "label": "T6.1-FREEZE-SHARDS-COMMIT verify + commit frozen shard table",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 3,
@@ -424,7 +432,11 @@
           "task_id": "T6.2-FOCUSED-SHARDS",
           "receipt_path": "receipts/T6.2-FOCUSED-SHARDS-receipt.json",
           "sha256": "43520ece0dff3b7631586a3bdc22819434698890661beb1df491962fc42ba9ec",
-          "result_sha256": "40ba00a73df422ac66181078d836aa855fb97cdc7ddc55922e670ffec00ba51c"
+          "result_sha256": "40ba00a73df422ac66181078d836aa855fb97cdc7ddc55922e670ffec00ba51c",
+          "role": "validator",
+          "label": "T6.2 [HARD] run frozen focused shards S0-S11 once each, classify every failure",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 4,
@@ -432,7 +444,11 @@
           "task_id": "T6.3-BROAD-SUITE",
           "receipt_path": "receipts/T6.3-BROAD-SUITE-receipt.json",
           "sha256": "7fa54c91d3c5235bb0caee1f64ef0f4f8bc3c8ad10a017cb9f0c7a2d7d99b7d2",
-          "result_sha256": "961a8a714714c0480f6b3f357df648f0596a7d10b3502c950b77ace695482668"
+          "result_sha256": "961a8a714714c0480f6b3f357df648f0596a7d10b3502c950b77ace695482668",
+          "role": "validator",
+          "label": "T6.3 [HARD] singleton broad suite (python -m pytest -q), key broad_suite_once_v1",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 5,
@@ -441,7 +457,11 @@
           "receipt_path": "receipts/G6-REVIEW-receipt.json",
           "sha256": "10c9b759663a1f6d7073342d04ffc69d354e7fba9cd5d360d8d4017fc974ca96",
           "result_sha256": "908bd912284cd0729417030c8124aab3088b82ae75277803466fca553c1f1d59",
-          "disposition": "not-continue"
+          "disposition": "not-continue",
+          "role": "review",
+          "label": "G6 [XHARD-REVIEW] gate review: base-to-head diff, T6.2/T6.3 evidence, 3 JR rulings, paid-validation readiness",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
         },
         {
           "sequence": 6,
@@ -450,7 +470,11 @@
           "receipt_path": "receipts/G6-B5-REVISION-receipt.json",
           "sha256": "e915ae639676df8270fa83ff305b405f80e673acf6e1d4492c2421dac1404b84",
           "result_sha256": "46b4410359da3aaa5d852e5a5c3c7f8227ff2b23fed94f9e98ddb642bfba63d6",
-          "commit": "7004b284"
+          "commit": "7004b284",
+          "role": "implementer",
+          "label": "G6-B5-REVISION implementer: admit-gate touched-only relaxation + deadline harness (MF-G6-1/2)",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 7,
@@ -459,7 +483,11 @@
           "receipt_path": "receipts/G6-B5-REVISION-2-receipt.json",
           "sha256": "28fac9c53e7c5087f9f75434a15b2a17093fc05aaaecab6210022014a5fbffd0",
           "result_sha256": "c0ba3651173fe411e488ca08d2c3bd8886371b55b52b47fdb546d3228f328774",
-          "commit": "791cd724"
+          "commit": "791cd724",
+          "role": "implementer",
+          "label": "G6-B5-REVISION-2 implementer: complete MF-G6-2 (3 remaining batch-REPL must IDs)",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 8,
@@ -468,7 +496,11 @@
           "receipt_path": "receipts/G6-REREVIEW-receipt.json",
           "sha256": "bec938bea07a851cc7cd6ceca2b0cad92ceb4e01150eafd83bc03b632094d329",
           "result_sha256": "033f1ffdecfc35bdbe91ab89633621f5b1e7425c87327a8d0d17d30d9373bf04",
-          "disposition": "not-continue"
+          "disposition": "not-continue",
+          "role": "review",
+          "label": "G6-REREVIEW fresh gate re-review: MF-G6-1/MF-G6-2 closed (7004b284 + 791cd724)",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
         },
         {
           "sequence": 9,
@@ -477,7 +509,11 @@
           "receipt_path": "receipts/G6-JR-ADJUDICATION-receipt.json",
           "sha256": "5e964794ca36ed75a5b2d78f8f05e8cec82e6df8ec6636750ad78060c57c0e77",
           "result_sha256": "6e2a73c51098479db163471978ed3ebf3244308e008e5f949370db4c8432e53f",
-          "disposition": "adjudicated"
+          "disposition": "adjudicated",
+          "role": "review",
+          "label": "G6-JR-ADJUDICATION single escalation: binding rulings on S1/S6/ID-5/shims + revision plan",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
         },
         {
           "sequence": 10,
@@ -486,7 +522,11 @@
           "receipt_path": "receipts/G6-FINAL-REVISION-receipt.json",
           "sha256": "3a57e20760fc68b5f81a9771a9e6426657dd39dfe6373c1c9481ec54d6b869d9",
           "result_sha256": "7b146626765737277a48aaed764d2f2f92864c2442da622915d84ef8f18512fd",
-          "commit": "d8bf0712812a828dd1f76013ec3b11c7782d99a6"
+          "commit": "d8bf0712812a828dd1f76013ec3b11c7782d99a6",
+          "role": "implementer",
+          "label": "G6-FINAL-REVISION implementer: execute adjudication binding plan (shims out, typed failure kinds, discovery-stop clarify)",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0
         },
         {
           "sequence": 11,
@@ -495,7 +535,11 @@
           "receipt_path": "receipts/G6-FINAL-REREVIEW-receipt.json",
           "sha256": "0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a",
           "result_sha256": "387c88991151dfd77bf6615755756827202ad8418f3135e81657983331e47ea9",
-          "disposition": "not-continue"
+          "disposition": "not-continue",
+          "role": "review",
+          "label": "G6-FINAL-REREVIEW final gate re-review of the adjudication-driven revision (d8bf0712)",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
         }
       ],
       "finding_closure": [],
