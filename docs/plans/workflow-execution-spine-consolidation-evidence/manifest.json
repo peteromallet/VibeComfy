@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "a35e991abb9d88d371073fde4bb27f1f73ffb21b4b5bfca75ce776f9a170b1eb",
+        "sha256": "e05590a0bf60517838bef491edbee27a59b3d927e508686c7c0f40c461a6e095",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -2003,6 +2003,53 @@
         },
         "validator_environment": "reviewer-worktree validator exit 1 environmental (untracked receipts absent; T1.2-MUST-001 chain is Batch-1-era); operating worktree validator @7821a86d -> OK exit 0; final-five/final50 unchanged across the window",
         "next_unblocked_card": "Integration push d564de9e..HEAD (incl. 16004230 + 7821a86d + this evidence commit), then evidence-log-integration, then G3-RESIDUAL-RG21-ASYMMETRY card (XHARD, before T7.2), then B4-IMPLEMENTER (T5.1->T5.5), then G5 batch review"
+      },
+      "b3_integration": {
+        "task_id": "B3-INTEGRATION",
+        "gate": "",
+        "label": "B3-INTEGRATION: apply reviewed chain, run named batch shard once, fast-forward push",
+        "role": "integration",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "pass",
+        "base_sha": "453d1af6f65eb64b708d9b7452e75fd23a38e1c0",
+        "wrapper_pid": 81785,
+        "start_ts": "2026-08-22T07:11:18Z",
+        "end_ts": "2026-08-22T07:14:30Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/B3-INTEGRATION-receipt.json", "sha256": "1fc802a3c353024e07ee54447582a6b18cd1c5b4c303fb1c21f718786f02847a"},
+        "brief_sha256": "941c07be19edb14c18bd98dade5c9621cbc32042dc524f841320d3c7e1e6da28",
+        "result_sha256": "6b8ca99b9dcc65e7ef0eecf28045a0feb8f37f8f7ac18225135145bf4a296b68",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B3-INTEGRATION-dispatch.log",
+        "push": {
+          "command": "git push origin HEAD:fixer/workflow-execution-spine-consolidation",
+          "remote_before": "d564de9e146dd69a08d5aaf9530efc4186d7fad2",
+          "remote_after": "453d1af6f65eb64b708d9b7452e75fd23a38e1c0",
+          "fast_forward": true,
+          "forced": false,
+          "pushed_commits": [
+            "69b6fcf17cf081d7726c882740462f51e5229d24",
+            "160042304761fbb6069ee0bc46b134c25625c071",
+            "7821a86d669dc625ad1ae6390e3894476c1dfbea",
+            "453d1af6f65eb64b708d9b7452e75fd23a38e1c0"
+          ]
+        },
+        "named_batch_shard": {
+          "run_count": 1,
+          "expected": "255 passed, 5 failed (the G4 pre-existing set)",
+          "observed": "5 failed, 255 passed, 29 warnings in 6.43s",
+          "exit": 1,
+          "new_failures": 0,
+          "matches_g4_review_record": true
+        },
+        "follow_on_cards_queued": [
+          "G3-RESIDUAL-RG21-ASYMMETRY"
+        ],
+        "next_unblocked_card": "G3-RESIDUAL-RG21-ASYMMETRY card (XHARD production repair, vibecomfy/comfy_nodes/agent/authority_receipts.py converter alignment; must land before T7.2; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/G3-RESIDUAL-RG21-ASYMMETRY.md and -allowance.json), then its evidence, then B4-IMPLEMENTER (T5.1->T5.5; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B4-IMPLEMENTER.md and -allowance.json), then G5 batch review (test-shard inventory may overlap final G5 review), then integration + evidence"
       }
     }
   ],

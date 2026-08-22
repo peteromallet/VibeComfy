@@ -3776,3 +3776,91 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## B3-window integration push — B3-INTEGRATION disposition (2026-08-22)
+
+### B3-INTEGRATION register
+
+- **Task/label/gate/role/route:** `B3-INTEGRATION` /
+  `B3-INTEGRATION: apply reviewed chain, run named batch shard once,
+  fast-forward push` / gate `` (empty) / integration / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/B3-INTEGRATION-receipt.json` (file
+  SHA-256
+  `1fc802a3c353024e07ee54447582a6b18cd1c5b4c303fb1c21f718786f02847a`);
+  window `2026-08-22T07:11:18Z` → `2026-08-22T07:14:30Z`, launcher
+  exit `0`; base `453d1af6f65eb64b708d9b7452e75fd23a38e1c0`; zero
+  changed files, zero commits (read-only integration); brief SHA-256
+  `941c07be19edb14c18bd98dade5c9621cbc32042dc524f841320d3c7e1e6da28`;
+  result SHA-256
+  `6b8ca99b9dcc65e7ef0eecf28045a0feb8f37f8f7ac18225135145bf4a296b68`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/B3-INTEGRATION-dispatch.log`.
+
+### Push executed
+
+- **Command:** `git push origin
+  HEAD:fixer/workflow-execution-spine-consolidation` → range update
+  `d564de9e..453d1af6`, fast-forward (no force; merge-base ancestor
+  check true), exit `0`. Remote before (`git ls-remote`, live):
+  `d564de9e146dd69a08d5aaf9530efc4186d7fad2`.
+- **Remote after verified:** `git ls-remote` returns
+  `453d1af6f65eb64b708d9b7452e75fd23a38e1c0` == local HEAD at record
+  time (re-verified read-only by this recorder).
+- **Pushed range covers four commits:** `69b6fcf1` (B2-window
+  integration push disposition record riding this push per the
+  established pattern), B3 implementer `16004230` (T4.1+T4.2+T4.3),
+  evidence `7821a86d` (B3 implementer disposition), and `453d1af6`
+  (G4 batch/gate review disposition).
+
+### Named batch shard (run exactly once)
+
+- Focused pytest over the 7 executor/threaded/pipeline files
+  (`test_executor_flows`, `test_agent_research_shadow`,
+  `test_executor_threaded_contracts`, `test_executor_threaded_mode`,
+  `test_executor_threaded_sessions`, `test_executor_threaded_edits`,
+  `test_pipeline_mode_surface`): **255 passed, 5 failed**, 29
+  warnings in 6.43s, exit `1` (expected).
+- The 5 failures are **exactly the G4 pre-existing set** — 3×
+  `test_executor_flows.py` (rollback-graph promotion ×2,
+  pure-clarify narration) + 2× `test_executor_threaded_mode.py`
+  (graph identity-after-projection) — same families, same IDs;
+  new failures: **0**; matches the G4 record.
+
+### Next unblocked card
+
+The `G3-RESIDUAL-RG21-ASYMMETRY` card (XHARD production repair,
+`vibecomfy/comfy_nodes/agent/authority_receipts.py` converter
+alignment; must land before T7.2; brief + allowance already written
+at `g0/G3-RESIDUAL-RG21-ASYMMETRY.md` / `-allowance.json`), then its
+evidence, then `B4-IMPLEMENTER` (T5.1→T5.5; brief + allowance at
+`g0/B4-IMPLEMENTER.md` / `-allowance.json`), then G5 batch review
+(test-shard inventory may overlap the final G5 review), then
+integration + evidence.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution
+log + manifest; test-shards.json untouched) in one coherent commit
+authored by `POM <peter@omalley.io>`. No receipt, protected state,
+branch, or other file is changed; no push, merge, promotion,
+live/model/runtime call, secret access, wrapper dispatch, review,
+validator change, or product/test run is performed by this evidence
+recorder; the recorded push and shard run were executed by the
+B3-INTEGRATION agent, not by this recorder. No receipt is committed;
+the reviewed receipts stay untracked run artifacts. This evidence
+recorder's own wrapper PID is `82072`, start `2026-08-22T07:15:11Z`
+per `active-allowances.json`; this recorder's own receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-B3-INTEGRATION-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
