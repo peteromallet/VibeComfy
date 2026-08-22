@@ -25,6 +25,43 @@ _LIN = {
 }
 
 
+class _StubInputSpec:
+    def __init__(self, default: Any = None) -> None:
+        self.default = default
+
+
+class _StubNodeSchema:
+    def __init__(self, inputs: dict) -> None:
+        self.inputs = inputs
+
+
+class _StubSchemaProvider:
+    """Minimal SchemaProvider double exposing schema-known input defaults."""
+
+    def __init__(self, schemas: dict) -> None:
+        self._schemas = schemas
+
+    def get_schema(self, class_type: str):
+        return self._schemas.get(class_type)
+
+
+_KSAMPLER_SCHEMA = _StubNodeSchema(
+    {
+        name: _StubInputSpec(default)
+        for name, default in (
+            ("seed", 0),
+            ("control_after_generate", "fixed"),
+            ("steps", 20),
+            ("cfg", 8),
+            ("sampler_name", "euler"),
+            ("scheduler", "normal"),
+            ("denoise", 1.0),
+        )
+    }
+)
+_SEMANTIC_PROVIDER = _StubSchemaProvider({"KSampler": _KSAMPLER_SCHEMA})
+
+
 def _ui_graph(seed: int = 7) -> dict:
     return {
         "last_node_id": 1,
@@ -76,13 +113,22 @@ def test_ui_api_envelope_carriers_decode_through_own_named_door() -> None:
     assert env_view.source_representation == "envelope"
 
 
-def test_mixed_ui_api_pair_is_decoded_per_side_not_forced_through_one_decoder() -> None:
+def test_mixed_ui_api_pair_is_decoded_per_side_and_semantically_equal() -> None:
     """r5 failure #1 counterexample: UI original + API final must each decode
-    through its own door — the API side is never reinterpreted as UI."""
-    pre = canonical_semantic_view(_ui_graph(seed=7), lineage=_LIN)
-    post = canonical_semantic_view(_api_graph(seed=7), lineage=_LIN)
+    through its own door — the API side is never reinterpreted as UI — AND
+    semantically identical products must carry the SAME normalized
+    content_digest (G5-B4-MUST-005), so an unchanged mixed pair is no_edit."""
+    pre = canonical_semantic_view(
+        _ui_graph(seed=7), lineage=_LIN, schema_provider=_SEMANTIC_PROVIDER
+    )
+    post = canonical_semantic_view(
+        _api_graph(seed=7), lineage=_LIN, schema_provider=_SEMANTIC_PROVIDER
+    )
     assert pre.source_representation == "ui"
     assert post.source_representation == "api"
+    assert pre.content_digest == post.content_digest
+    verdict = judge_graph_pair(pre, post, (), schema_provider=None)
+    assert verdict.outcome == "no_edit"
 
 
 # ── lineage matching ─────────────────────────────────────────────────────────
@@ -232,31 +278,18 @@ def test_canonical_mode_withheld_batch_is_undetermined(tmp_path: Path) -> None:
     assert "withheld_accepted_batch" in (verdict.get("error") or "")
 
 
-def test_legacy_artifacts_without_lineage_keep_rc12b_behavior(
+def test_legacy_artifacts_without_lineage_never_synthesize_or_pass_withheld(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Lineage-less fixtures keep the historical product-diff seed (frozen
-    compatibility surface; ledger T5.5-LS-01)."""
+    """Lineage-less fixtures have NO durable edit authority: the removed
+    T5.5-LS-01 product-diff seed may not fabricate a Δ (C11), and a withheld
+    accepted_batch must grade ``undetermined`` — never a synthesized-edit
+    pass (G5-B4-MUST-004)."""
     calls: list[int] = []
 
     def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
         calls.append(len(calls))
-        payload = json.loads(messages[1]["content"])
-        assert payload.get("delta", {}).get("seed") == "canonical_diff"
-        return {
-            "content": json.dumps(
-                {
-                    "pass_": True,
-                    "criteria": {
-                        "correct_node_targeted": True,
-                        "correct_parameter_changed": True,
-                        "value_semantically_matches_intent": True,
-                        "no_orphaned_wiring": True,
-                    },
-                    "rationale": "legacy product graded",
-                }
-            )
-        }
+        raise AssertionError("model judge must not run on withheld evidence")
 
     monkeypatch.setattr(
         "tests.live_agentic_harness.intent_judge.run_model_turn",
@@ -270,5 +303,49 @@ def test_legacy_artifacts_without_lineage_keep_rc12b_behavior(
         lineage=False,
     )
     verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
-    assert verdict["pass_"] is True
-    assert len(calls) == 1
+    assert verdict["pass_"] is None
+    assert "withheld_accepted_batch" in (verdict.get("error") or "")
+    assert calls == []
+
+
+def test_legacy_artifacts_without_lineage_do_not_seed_diff_from_product(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A changed product WITHOUT lineage evidence and without any accepted
+    batch yields no fabricated Δ: the judge runs without a canonical Δ seed
+    instead of inventing one from diff(pre_wf, post_wf)."""
+    seeds_seen: list[Any] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
+        payload = json.loads(messages[1]["content"])
+        delta = payload.get("delta")
+        seeds_seen.append((delta or {}).get("seed"))
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": False,
+                    "criteria": {
+                        "correct_node_targeted": False,
+                        "correct_parameter_changed": False,
+                        "value_semantically_matches_intent": False,
+                        "no_orphaned_wiring": False,
+                    },
+                    "rationale": "no durable Δ evidence",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    _write_run(
+        tmp_path,
+        pre=_ui_graph(7),
+        post=_ui_graph(30),
+        response={"ok": True},
+        lineage=False,
+    )
+    verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
+    assert verdict["pass_"] is False
+    assert all(seed != "canonical_diff" for seed in seeds_seen)

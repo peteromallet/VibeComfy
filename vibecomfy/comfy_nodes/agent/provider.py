@@ -1133,7 +1133,6 @@ def _provider_status_metadata(
         "route_metadata": route_descriptor.to_dict(),
         "route_options": _supported_browser_route_options(),
         "credential_presence": _credential_presence(),
-        "legacy_deepseek_fallback_enabled": False,
     }
 
 
@@ -1375,7 +1374,6 @@ def run_agent_turn(
             "provider": "arnold",
             "requested_route": route_descriptor.requested_route,
             "route_metadata": route_descriptor.to_dict(),
-            "legacy_deepseek_fallback_enabled": False,
             "credential_presence": _credential_presence(),
         },
     )
@@ -1444,7 +1442,6 @@ def run_agent_turn_delta(
                 "provider": "arnold",
                 "requested_route": route_descriptor.requested_route,
                 "route_metadata": route_descriptor.to_dict(),
-                "legacy_deepseek_fallback_enabled": False,
                 "credential_presence": _credential_presence(),
                 "response_contract": "delta",
             }, response),
@@ -1708,7 +1705,6 @@ def run_agent_turn_batch(
         "provider": "arnold",
         "requested_route": route_descriptor.requested_route,
         "route_metadata": route_descriptor.to_dict(),
-        "legacy_deepseek_fallback_enabled": False,
         "credential_presence": _credential_presence(),
         "response_contract": "batch_repl",
     }

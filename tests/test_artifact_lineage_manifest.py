@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -263,6 +264,16 @@ def test_builder_never_raises_on_garbage_durable(monkeypatch) -> None:
 # ── assessor-side checks ─────────────────────────────────────────────────────
 
 
+def _envelope_response(manifest: dict | None = None, **extra: Any) -> dict:
+    """Response envelope carrying the same manifest the sidecar holds."""
+    executor: dict[str, Any] = {}
+    if manifest is not None:
+        executor["artifact_lineage"] = json.loads(json.dumps(manifest))
+    response: dict[str, Any] = {"ok": True, "report": {"executor": executor}}
+    response.update(extra)
+    return response
+
+
 def _landed_edit_response() -> dict:
     return {
         "ok": True,
@@ -276,7 +287,13 @@ def _landed_edit_response() -> dict:
 def test_assessor_flags_fallback_impersonation_on_landed_edit(tmp_path: Path) -> None:
     manifest = _manifest()  # all rows are typed fallbacks
     (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
-    result = assess_artifact_lineage(tmp_path, _landed_edit_response(), {"id": "s1"})
+    response = _envelope_response(
+        manifest,
+        graph_unchanged=False,
+        change_details={"landed_operation_count": 1},
+        gates={"queue_validate_ok": True},
+    )
+    result = assess_artifact_lineage(tmp_path, response, {"id": "s1"})
     checks = {issue["check"] for issue in result["issues"]}
     assert "artifact_lineage_fallback_impersonation" in checks
     assert any(issue["severity"] == "error" for issue in result["issues"])
@@ -286,7 +303,9 @@ def test_assessor_flags_scenario_binding_mismatch(tmp_path: Path) -> None:
     manifest = _manifest()
     manifest["binding"] = {"scenario_id": "other-scenario", "pipeline_mode": "staged"}
     (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
-    result = assess_artifact_lineage(tmp_path, {"ok": True}, {"id": "s1"})
+    result = assess_artifact_lineage(
+        tmp_path, _envelope_response(manifest), {"id": "s1"}
+    )
     assert any(
         issue["check"] == "artifact_lineage_binding" and issue["severity"] == "error"
         for issue in result["issues"]
@@ -297,37 +316,183 @@ def test_assessor_accepts_valid_bound_manifest(tmp_path: Path) -> None:
     manifest = _manifest()
     manifest["binding"] = {"scenario_id": "s1", "pipeline_mode": "threaded"}
     (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
-    result = assess_artifact_lineage(tmp_path, {"ok": True, "graph_unchanged": True}, {"id": "s1"})
+    result = assess_artifact_lineage(
+        tmp_path, _envelope_response(manifest), {"id": "s1"}
+    )
     assert result["present"] is True
     assert result["manifest_digest"] == manifest["manifest_digest"]
     assert result["binding"]["pipeline_mode"] == "threaded"
     assert result["issues"] == []
+    assert result["provenance"] == "sidecar_correlated"
 
 
-def test_assessor_records_absence_without_fabricating(tmp_path: Path) -> None:
+def test_absent_lineage_is_undetermined_never_pass(tmp_path: Path) -> None:
+    """G5-B4-MUST-003: missing lineage evidence can never grade green."""
     result = assess_artifact_lineage(tmp_path, {"ok": True}, {"id": "s1"})
     assert result["present"] is False
     assert result["provenance"] == "absent"
-    assert result["issues"] == []
+    assert any(
+        issue["check"] == "artifact_lineage_absent"
+        and issue["severity"] == "undetermined"
+        for issue in result["issues"]
+    )
+
+
+def _with_rebuilt_digest(manifest: dict) -> dict:
+    """Recompute manifest_digest over the mutated content, as a forger would."""
+    manifest["manifest_digest"] = canonical_lineage_digest(
+        {
+            "schema_version": manifest["schema_version"],
+            "lineage": dict(manifest["lineage"]),
+            "rows": [dict(row) for row in manifest["rows"]],
+        }
+    )
+    return manifest
 
 
 def test_assessor_flags_corrupted_manifest(tmp_path: Path) -> None:
     manifest = _manifest()
     manifest["rows"] = manifest["rows"][:-1]  # drop a row, keep stale digest
     (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
-    result = assess_artifact_lineage(tmp_path, {"ok": True}, {"id": "s1"})
+    result = assess_artifact_lineage(
+        tmp_path, _envelope_response(manifest), {"id": "s1"}
+    )
     assert any(
         issue["check"] == "artifact_lineage" and issue["severity"] == "error"
         for issue in result["issues"]
     )
 
 
-def test_load_prefers_sidecar_over_envelope(tmp_path: Path) -> None:
+def test_serialized_fallback_row_with_digest_is_rejected() -> None:
+    """G5-B4-MUST-002 counterexample at the serialized boundary: a forged
+    digest-bearing fallback row — even inside a manifest whose
+    manifest_digest was recomputed over the forgery — must be REJECTED.
+    A fallback can never impersonate a candidate/final-graph link."""
+    rows = [
+        {"kind": "candidate", "row_class": "fallback",
+         "reason": "no_candidate_built", "digest": _SHA},
+        {"kind": "accepted_delta", "row_class": "fallback",
+         "reason": _fallback_reason("accepted_delta"), "digest": _SHA},
+        fallback_row("replay_proof", _fallback_reason("replay_proof")),
+        fallback_row("terminal_response", _fallback_reason("terminal_response")),
+        fallback_row("assessment", _fallback_reason("assessment")),
+    ]
+    forged = {
+        "schema_version": ARTIFACT_LINEAGE_SCHEMA_VERSION,
+        "lineage": {"session_id": "s"},
+        "rows": rows,
+    }
+    forged["manifest_digest"] = canonical_lineage_digest(forged)
+
+    ok, error = validate_artifact_lineage(forged)
+    assert ok is False
+    assert "never carry a digest" in (error or "") or "outside the" in (error or "")
+
+
+def test_build_rejects_digest_bearing_fallback_row() -> None:
+    with pytest.raises(ArtifactLineageError, match="outside the fallback contract"):
+        build_artifact_lineage(
+            lineage={"session_id": "s"},
+            rows=[
+                {"kind": "candidate", "row_class": "fallback",
+                 "reason": "no_candidate_built", "digest": "a" * 64},
+            ],
+        )
+
+
+# ── G5-B4-MUST-003 counterexamples ──────────────────────────────────────────
+
+
+def test_stale_same_scenario_sidecar_is_rejected(tmp_path: Path) -> None:
+    """A sidecar from an EARLIER turn of the same scenario has different
+    content than the current envelope — it must error, never win."""
+    stale = _manifest()
+    stale["binding"] = {"scenario_id": "s1", "pipeline_mode": "staged"}
+    (tmp_path / "artifact_lineage.json").write_text(json.dumps(stale), encoding="utf-8")
+    fresh = _manifest(lineage={"scenario_id": "s1", "session_id": "sess2"})
+    fresh["binding"] = {"scenario_id": "s1", "pipeline_mode": "staged"}
+    result = assess_artifact_lineage(
+        tmp_path, _envelope_response(fresh), {"id": "s1"}
+    )
+    checks = {(i["check"], i["severity"]) for i in result["issues"]}
+    assert ("artifact_lineage_sidecar_stale", "error") in checks
+
+
+def test_sidecar_without_envelope_is_undetermined(tmp_path: Path) -> None:
+    """An uncorrelatable sidecar cannot prove this run produced it."""
+    manifest = _manifest()
+    manifest["binding"] = {"scenario_id": "s1", "pipeline_mode": "staged"}
+    (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
+    result = assess_artifact_lineage(tmp_path, {"ok": True}, {"id": "s1"})
+    assert result["present"] is True
+    assert result["provenance"] == "sidecar_unverified"
+    assert any(
+        issue["check"] == "artifact_lineage_sidecar_unverified"
+        and issue["severity"] == "undetermined"
+        for issue in result["issues"]
+    )
+
+
+def test_binding_restapled_onto_foreign_manifest_is_rejected(tmp_path: Path) -> None:
+    """binding.scenario_id must agree with the manifest's own lineage block."""
+    manifest = _manifest()
+    manifest["lineage"] = {"scenario_id": "other-scenario", "session_id": "x"}
+    _with_rebuilt_digest(manifest)
+    manifest["binding"] = {"scenario_id": "s1", "pipeline_mode": "staged"}
+    (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
+    result = assess_artifact_lineage(
+        tmp_path, _envelope_response(manifest), {"id": "s1"}
+    )
+    assert any(
+        issue["check"] == "artifact_lineage_binding" and issue["severity"] == "error"
+        for issue in result["issues"]
+    )
+
+
+def test_turn_identity_mismatch_against_terminal_response_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Manifest lineage session/turn must match the terminal response's own
+    identity — a same-scenario cross-turn sidecar cannot hide behind its
+    scenario label."""
+    manifest = _manifest()
+    manifest["lineage"] = {
+        "scenario_id": "s1",
+        "session_id": "sess-old",
+        "turn_id": "turn-old",
+    }
+    _with_rebuilt_digest(manifest)
+    manifest["binding"] = {"scenario_id": "s1", "pipeline_mode": "staged"}
+    (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
+    response = _envelope_response(
+        manifest, session_id="sess-new", turn_id="turn-new"
+    )
+    result = assess_artifact_lineage(tmp_path, response, {"id": "s1"})
+    assert any(
+        issue["check"] == "artifact_lineage_binding" and issue["severity"] == "error"
+        and "turn_id" in issue["detail"]
+        for issue in result["issues"]
+    )
+
+
+def test_load_reports_correlated_sidecar_provenance(tmp_path: Path) -> None:
+    """The sidecar wins ONLY when it fingerprints identical to the current
+    response envelope copy (G5-B4-MUST-003)."""
     manifest = _manifest()
     (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
-    envelope_response = {
-        "report": {"executor": {"artifact_lineage": {"schema_version": "bogus"}}}
-    }
-    loaded, provenance = load_artifact_lineage(tmp_path, envelope_response)
-    assert provenance == "sidecar"
+    loaded, provenance = load_artifact_lineage(
+        tmp_path, _envelope_response(manifest)
+    )
+    assert provenance == "sidecar_correlated"
     assert loaded["manifest_digest"] == manifest["manifest_digest"]
+
+
+def test_load_reports_digest_mismatch_for_foreign_sidecar(tmp_path: Path) -> None:
+    manifest = _manifest()
+    (tmp_path / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
+    foreign = _manifest(lineage={"session_id": "another-run"})
+    loaded, provenance = load_artifact_lineage(
+        tmp_path, _envelope_response(foreign)
+    )
+    assert provenance == "sidecar_digest_mismatch"
+    assert loaded is None

@@ -46,11 +46,7 @@ from .executor_response import (
     _serialize_executor_result,
     _strip_non_applyable_forbidden_fields,
 )
-from .executor_durable import (
-    EXECUTOR_ONLY_NON_APPLYABLE_ROUTES,
-    maybe_write_executor_only_durable_turn,
-    write_executor_only_chat_artifact,
-)
+from .executor_durable import maybe_write_executor_only_durable_turn
 from .provider import readiness, handle_credential_submission
 from .hivemind_feedback import submit_hivemind_feedback
 from .session import (
@@ -64,9 +60,6 @@ from .session import (
     session_dir_for,
 )
 
-
-_EXECUTOR_ONLY_NON_APPLYABLE_ROUTES = EXECUTOR_ONLY_NON_APPLYABLE_ROUTES
-_write_executor_only_chat_artifact = write_executor_only_chat_artifact
 
 
 def handle_agent_edit(*args: Any, **kwargs: Any) -> dict[str, Any]:

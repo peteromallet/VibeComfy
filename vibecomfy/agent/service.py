@@ -155,6 +155,15 @@ def _synthesize_artifacts(
     )
 
 
+def _thaw_mapping(value: Any) -> Any:
+    """Plain-dict/list copy of frozen mappingproxy/tuple evidence."""
+    if isinstance(value, Mapping):
+        return {str(k): _thaw_mapping(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_mapping(v) for v in value]
+    return value
+
+
 def run_headless(
     request: HeadlessAgentRequest,
     *,
@@ -305,15 +314,6 @@ def run_headless(
             )
         except OSError:
             LOGGER.warning("could not persist artifact_lineage.json sidecar")
-
-def _thaw_mapping(value: Any) -> Any:
-    """Plain-dict/list copy of frozen mappingproxy/tuple evidence."""
-    if isinstance(value, Mapping):
-        return {str(k): _thaw_mapping(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_thaw_mapping(v) for v in value]
-    return value
-
 
     return HeadlessAgentResult(
         status=status,

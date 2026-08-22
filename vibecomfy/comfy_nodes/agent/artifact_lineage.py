@@ -79,6 +79,14 @@ FALLBACK_REASONS: Mapping[str, frozenset[str]] = {
 }
 ROW_CLASSES = ("primary", "fallback")
 
+#: Exact field contract per row class. ``detail`` is optional evidence prose;
+#: every other key outside these sets is a forgery vector and is rejected both
+#: at build time and at the serialized-manifest boundary (G5-B4-MUST-002).
+_ALLOWED_ROW_KEYS: Mapping[str, frozenset[str]] = {
+    "primary": frozenset({"kind", "row_class", "digest", "detail"}),
+    "fallback": frozenset({"kind", "row_class", "reason", "detail"}),
+}
+
 
 class ArtifactLineageError(ValueError):
     """A lineage row or manifest violates the typed manifest contract."""
@@ -138,6 +146,42 @@ def _validated_row(
     if detail is not None:
         row["detail"] = detail
     return row
+def _canonical_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate one caller-supplied row and return its canonical form.
+
+    The serialized-manifest impersonation guard lives here: a fallback row
+    carrying a ``digest`` (or a primary row carrying a ``reason``, or any row
+    carrying fields outside its class contract) is rejected — a fallback can
+    never be read as a candidate/final-graph/receipt link, on the way in or on
+    the way back out of a serialized manifest.
+    """
+    kind = row.get("kind")
+    row_class = row.get("row_class")
+    if row_class not in ROW_CLASSES:
+        raise ArtifactLineageError(f"unknown row class for {kind!r}: {row_class!r}")
+    unexpected = sorted(set(row) - _ALLOWED_ROW_KEYS[str(row_class)])
+    if unexpected:
+        raise ArtifactLineageError(
+            f"row {kind!r} carries fields outside the {row_class} contract: "
+            + ", ".join(unexpected)
+        )
+    if row_class == "primary":
+        clean = _validated_row(
+            kind=str(kind), row_class="primary", digest=row.get("digest")
+        )
+    else:
+        clean = _validated_row(
+            kind=str(kind),
+            row_class="fallback",
+            reason=row.get("reason"),
+            digest=row.get("digest"),
+        )
+    detail = row.get("detail")
+    if detail is not None:
+        clean["detail"] = detail
+    return clean
+
+
 
 
 def _is_sha256_hex(value: str) -> bool:
@@ -153,12 +197,14 @@ def build_artifact_lineage(
     coerced = coerce_lineage(lineage)
     seen: dict[str, dict[str, Any]] = {}
     for row in rows:
+        if not isinstance(row, Mapping):
+            raise ArtifactLineageError("lineage rows must be mappings")
         kind = row.get("kind")
         if not isinstance(kind, str) or kind not in _LINK_KIND_SET:
             raise ArtifactLineageError(f"row kind {kind!r} is not a lineage link kind")
         if kind in seen:
             raise ArtifactLineageError(f"duplicate lineage rows for kind {kind!r}")
-        seen[kind] = dict(row)
+        seen[kind] = _canonical_row(row)
     missing = [kind for kind in LINK_KINDS if kind not in seen]
     if missing:
         raise ArtifactLineageError(
@@ -199,16 +245,10 @@ def validate_artifact_lineage(value: Any) -> tuple[bool, str | None]:
             return False, f"unknown lineage link kind: {kind!r}"
         kinds.append(str(kind))
         try:
-            if row_class == "primary":
-                _validated_row(
-                    kind=str(kind), row_class="primary", digest=row.get("digest")
-                )
-            elif row_class == "fallback":
-                _validated_row(
-                    kind=str(kind), row_class="fallback", reason=row.get("reason")
-                )
-            else:
-                return False, f"unknown row class for {kind!r}: {row_class!r}"
+            # Serialized-boundary guard (G5-B4-MUST-002): reconstruct each row
+            # through the canonical contract so a fallback carrying a digest,
+            # a primary carrying a reason, or any out-of-contract field is rejected.
+            _canonical_row(row)
         except ArtifactLineageError as exc:
             return False, str(exc)
         detail = row.get("detail")

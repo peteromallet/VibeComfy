@@ -4093,7 +4093,6 @@ def test_agent_provider_lazy_loads_arnold_and_normalizes_response(monkeypatch) -
     assert result.audit_metadata["requested_route"] == "anthropic"
     assert result.audit_metadata["route_metadata"]["normalized_route"] == "arnold"
     assert result.audit_metadata["route_metadata"]["tos_acknowledgement_required"] is True
-    assert result.audit_metadata["legacy_deepseek_fallback_enabled"] is False
 
 
 def test_agent_provider_delta_path_uses_separate_v2_prompt_and_normalizer(monkeypatch) -> None:

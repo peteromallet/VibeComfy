@@ -92,32 +92,85 @@ T55_DISPOSITION = (
         "removal_condition": "",
         "authority_note": "docstring-only; PINNED_EDIT_EXPORT_COUNT=440 unchanged",
     },
+    {
+        "id": "T5.5-DS-04",
+        "surface": (
+            "vibecomfy/comfy_nodes/agent/routes.py # "
+            "_EXECUTOR_ONLY_NON_APPLYABLE_ROUTES,_write_executor_only_chat_artifact"
+        ),
+        "kind": "zero-consumer wrapper-on-wrapper aliases (RS-04 split, deleted per adjudication)",
+        "owner": "T5.5",
+        "disposition": "delete_now",
+        "consumer_evidence": (
+            "adjudication RS-04 repo search found supported consumers ONLY for the routes-level "
+            "_maybe_write_executor_only_durable_turn wrapper; these two routes aliases had none. "
+            "Deleted in B4-REVISION; canonical names stay importable from executor_durable"
+        ),
+        "compat_test": ["tests/test_routes_session_sanitization.py"],
+        "removal_condition": "",
+        "authority_note": (
+            "pure alias bindings over executor_durable public names; deletion removes a second "
+            "import surface without touching any commit algorithm"
+        ),
+    },
+    {
+        "id": "T5.5-DS-05",
+        "surface": (
+            "vibecomfy/comfy_nodes/agent/executor_durable.py # "
+            "_maybe_write_executor_only_durable_turn,_write_executor_only_chat_artifact"
+        ),
+        "kind": "zero-consumer underscore aliases over the public durable writers (deleted per adjudication)",
+        "owner": "T5.5",
+        "disposition": "delete_now",
+        "consumer_evidence": (
+            "adjudication RS-04: no consumers found for either underscore alias; the public "
+            "maybe_write_executor_only_durable_turn / write_executor_only_chat_artifact remain "
+            "the sole durable implementations. Deleted in B4-REVISION"
+        ),
+        "compat_test": [
+            "tests/test_comfy_nodes_agent_backend_spine.py",
+            "tests/test_execution_spine_shim_disposition.py",
+        ],
+        "removal_condition": "",
+        "authority_note": (
+            "aliases never appeared in any patch or import contract; deletion leaves exactly one "
+            "public name per implementation (single durable authority)"
+        ),
+    },
     # ── retained temporarily, owned by this card ────────────────────────────
     {
         "id": "T5.5-RS-01",
         "surface": "vibecomfy/executor/core.py:90-160 # handle_agent_edit/classify_failure/... forwards + _legacy_host_ports + _default_host_ports",
-        "kind": "monkeypatch forwarding delegates over ExecutorHostPorts",
-        "owner": "T5.5",
-        "disposition": "retain_temporary",
+        "kind": "module-level executor forwarding + monkeypatch surface (S72c structural family)",
+        "owner": "S72",
+        "disposition": "out_of_scope_structural_card",
         "consumer_evidence": (
-            "tests/structural_harness/actors.py + actors_agent_judgment.py mock.patch "
-            "vibecomfy.executor.core.{handle_agent_edit,run_classify_turn,run_reply_turn,"
-            "run_agent_research_stage}; tests/test_executor_host_boundary.py monkeypatches "
-            "executor_core._default_host_ports and injects host_ports"
+            "Structural-harness actors and executor-flow tests patch the vibecomfy.executor.core "
+            "module attributes: tests/structural_harness/actors.py + actors_agent_judgment.py "
+            "mock.patch vibecomfy.executor.core.{handle_agent_edit,run_classify_turn,run_reply_turn,"
+            "run_agent_research_stage}; the no-host_ports production path constructs "
+            "_legacy_host_ports dynamically so those patches remain visible; "
+            "tests/test_executor_host_boundary.py injects host_ports"
         ),
         "compat_test": [
-            "tests/test_executor_host_boundary.py",
             "tests/test_executor_flows.py",
+            "tests/test_executor_host_boundary.py",
         ],
         "removal_condition": (
-            "structural S72c executes E61/E64 port census: migrate structural-harness actors to "
-            "injected ExecutorHostPorts, then delete the module-level forwards and "
-            "_legacy_host_ports"
+            "S72c executes E61/E64 port census and migrates consumers to injected ExecutorHostPorts "
+            "(canonical downstream implementation: ExecutorHostPorts + "
+            "vibecomfy.comfy_nodes.agent.executor_adapter.build_executor_host_ports). Removal is "
+            "permitted only after tests/structural_harness/actors.py, actors_agent_judgment.py, "
+            "actors_m5/route_intent_map.py, and executor-flow tests use injected ExecutorHostPorts "
+            "rather than patching vibecomfy.executor.core; then delete the module-level forwards "
+            "and _legacy_host_ports"
         ),
         "authority_note": (
-            "delegates forward into the same ExecutorHostPorts built once; operation admission "
-            "stays admit_operation (porting.edit.admit) — a patched host function cannot mint "
-            "an accepted delta or replay proof"
+            "the forwarding functions delegate to the same ExecutorHostPorts; they add no "
+            "admission, accepted-delta, replay, or terminal-commit implementation. Test "
+            "monkeypatching can replace a host function in a controlled test, but the production "
+            "shim creates no second authority path (operation admission stays admit_operation/"
+            "porting.edit.admit)"
         ),
     },
     {
@@ -143,45 +196,54 @@ T55_DISPOSITION = (
     },
     {
         "id": "T5.5-RS-03",
-        "surface": "tests/live_agentic_harness/intent_judge.py:988-1004 # canonical_diff seed fallback [T5.5-LS-01]",
-        "kind": "harness-side legacy-artifact fallback (judge grading lens)",
+        "surface": "tests/live_agentic_harness/intent_judge.py # canonical_diff",
+        "kind": "harness-side legacy-artifact product-diff seed (removed with G5-B4-MUST-004)",
         "owner": "T5.5",
-        "disposition": "retain_temporary",
+        "disposition": "delete_now",
         "consumer_evidence": (
-            "r5 regression fixtures lacking T5.1 lineage manifests still grade through "
-            "diff(pre_wf, post_wf); inline ledger marker T5.5-LS-01 at :992"
+            "the RC12b seed synthesized delta_ops from diff(pre_wf, post_wf) on lineage-less "
+            "fixtures — even when queue_validate_ok was false — fabricating an edit and grading "
+            "withheld evidence as a pass (C11 violation; G5-B4-MUST-004). Removed in B4-REVISION: "
+            "lineage-less fixtures carry no durable edit authority, so no delta is ever "
+            "synthesized; withheld/undetermined authority yields undetermined"
         ),
         "compat_test": [
             "tests/test_live_agentic_assessor_score_honesty.py",
             "tests/test_semantic_assessor.py",
         ],
-        "removal_condition": "RC12b comparison fixtures regenerated with typed T5.1 lineage manifests",
+        "removal_condition": "",
         "authority_note": (
-            "harness-grading only: the seed never enters accepted_batch, admission, or replay; "
-            "semantic assessor separately refuses legacy delta_ops projections by design"
+            "removal tightens authority: the judge grades only accepted_batch/durable lineage "
+            "evidence; the inline ledger marker T5.5-LS-01 was deleted with the seed"
         ),
     },
     {
         "id": "T5.5-RS-04",
-        "surface": "vibecomfy/comfy_nodes/agent/routes.py:69,980-997 + executor_durable.py:421-422 # underscored durable-turn wrapper-on-wrapper aliases",
-        "kind": "wrapper-on-wrapper preserving routes monkeypatch location",
-        "owner": "T5.5",
-        "disposition": "retain_temporary",
+        "surface": "vibecomfy/comfy_nodes/agent/routes.py:983-998 # _maybe_write_executor_only_durable_turn",
+        "kind": "routes-level wrapper preserving the routes monkeypatch/direct-call location (S75 family)",
+        "owner": "S75",
+        "disposition": "out_of_scope_structural_card",
         "consumer_evidence": (
             "tests/test_routes_session_sanitization.py patch.object(routes_mod, "
             "'_maybe_write_executor_only_durable_turn') x6 + direct calls; "
-            "tests/test_comfy_nodes_agent_backend_spine.py:11206+ calls routes._maybe_write..."
+            "tests/test_comfy_nodes_agent_backend_spine.py:11206+ calls routes._maybe_write...; "
+            "adjudication search found NO consumers for the four zero-consumer aliases, which "
+            "are deleted now as T5.5-DS-04/DS-05"
         ),
         "compat_test": [
             "tests/test_routes_session_sanitization.py",
             "tests/test_comfy_nodes_agent_backend_spine.py",
         ],
         "removal_condition": (
-            "S72c/S73 migrate those consumers to the public maybe_write_executor_only_durable_turn, "
-            "then delete routes._maybe_write... def, executor_durable.py:421-422 aliases, and the "
-            "routes.py:69 chat-artifact alias"
+            "S75 may delete the surviving routes wrapper only after patch consumers move to the "
+            "public durable function or an explicit injected port; canonical downstream "
+            "implementation: executor_durable.maybe_write_executor_only_durable_turn"
         ),
-        "authority_note": "pure delegation to the same executor_durable implementation; both layers write identical artifacts; no second commit path exists",
+        "authority_note": (
+            "the surviving wrapper injects the route module's session root/allocation functions "
+            "and delegates to the sole public durable implementation; it cannot create an "
+            "accepted delta and exposes no second commit algorithm"
+        ),
     },
     {
         "id": "T5.5-RS-05",
@@ -205,64 +267,92 @@ T55_DISPOSITION = (
     },
     {
         "id": "T5.5-RS-06",
-        "surface": 'vibecomfy/comfy_nodes/agent/provider.py:1136,1378,1447,1711 # "legacy_deepseek_fallback_enabled": False audit stamp',
-        "kind": "always-False dead diagnostic flag (retired deepseek fallback)",
+        "surface": 'vibecomfy/comfy_nodes/agent/provider.py # legacy_deepseek_fallback_enabled',
+        "kind": "always-False dead diagnostic flag (retired deepseek fallback) — removed now",
         "owner": "T5.5",
-        "disposition": "migrate_then_delete",
+        "disposition": "delete_now",
         "consumer_evidence": (
-            "asserted False by tests/test_comfy_nodes_agent_backend_spine.py:4096 and "
-            "tests/test_comfy_nodes_agent_edit.py:11146 (both outside this card's file allowance)"
+            "adjudication RS-06: migrate_then_delete is one of T5.5's first three classes, so "
+            "'remove all execution-spine shims in the first three classes' applies unqualified; "
+            "S71 delegation rejected. The two assertions requiring the dead field were removed "
+            "from tests/test_comfy_nodes_agent_backend_spine.py and tests/"
+            "test_comfy_nodes_agent_edit.py in this revision (no compatibility alias replaced "
+            "them). Historical occurrences in tests/fixtures/editor_sessions/*/model_response.json "
+            "are classified HISTORICAL FIXTURES — serialized input records, never current "
+            "producer authority"
         ),
         "compat_test": [
             "tests/test_comfy_nodes_agent_backend_spine.py",
             "tests/test_comfy_nodes_agent_edit.py",
+            "tests/test_execution_spine_shim_disposition.py",
         ],
-        "removal_condition": (
-            "S71 migrates the two assertions off the flag, then deletes all four stamping sites"
+        "removal_condition": "",
+        "authority_note": (
+            "constant False; gated nothing; removal tightens authority by deleting an always-false "
+            "production stamp instead of delegating it to S71. test_deleted_symbols_absent proves "
+            "the symbol stays absent from production"
         ),
-        "authority_note": "constant False; gates nothing; purely historical audit metadata",
     },
     {
         "id": "T5.5-RS-07",
         "surface": "vibecomfy/porting/edit/__init__.py:8-106 (+ executor/, ingest/, comfy_nodes/agent/ package inits) # lazy __getattr__ public façades used by spine callers",
         "kind": "lazy re-export façade (headless import / cycle-break purpose per master plan §14.1)",
-        "owner": "T5.5",
-        "disposition": "retain_temporary",
+        "owner": "S73",
+        "disposition": "out_of_scope_structural_card",
         "consumer_evidence": (
-            "tests/test_porting_edit_kernel.py:8 imports ClaimReferenceError/EditSession/"
-            "apply_edit_tool_call/close_terminal_checkpoint through the façade; executor core "
-            "imports close_terminal_checkpoint; eager import safety not yet proven"
+            "supported consumers are PUBLIC/IMPORT consumers: tests/test_porting_edit_kernel.py:8 "
+            "imports ClaimReferenceError/EditSession/apply_edit_tool_call/close_terminal_checkpoint "
+            "through the façade, as do tests/test_terminal_checkpoint.py and other `from "
+            "vibecomfy.porting.edit import diff, interpret` users. CORRECTED per adjudication: "
+            "the earlier claim that executor core imports close_terminal_checkpoint through this "
+            "façade was stale — vibecomfy/executor/core.py:1762-1774 imports directly from "
+            "vibecomfy.porting.edit.checkpoint"
         ),
         "compat_test": [
             "tests/test_porting_edit_kernel.py",
-            "tests/test_api_surface.py",
+            "tests/test_terminal_checkpoint.py",
         ],
         "removal_condition": (
-            "S73 may collapse to eager exports only after fresh-process headless-import checks "
-            "prove no ComfyUI pull-in; otherwise retain as documented public surface"
+            "S73 may consolidate or make exports eager only after a fresh-process test proves "
+            "that importing the façade and representative names does not import ComfyUI/agent "
+            "implementation modules or recreate an import cycle; otherwise retain as documented "
+            "public surface"
         ),
-        "authority_note": "names resolve to the single canonical owners (admit/checkpoint/session); façade adds no second implementation",
+        "authority_note": (
+            "_EXPORT_MODULES maps each name to exactly one canonical module (each target module "
+            "is the canonical implementation owner) and __getattr__ only imports and caches that "
+            "object; admission, checkpoint, and session semantics remain in their canonical "
+            "modules — the façade adds no second implementation"
+        ),
     },
     {
         "id": "T5.5-RS-08",
         "surface": "vibecomfy/comfy_nodes/agent/edit_batch_repl.py:1-217 # EditBatchReplDeps invocation-time globals() resolution (B37 seam)",
-        "kind": "monkeypatch/cycle dependency-resolution seam (71-name deps bag)",
-        "owner": "T5.5",
-        "disposition": "retain_temporary",
+        "kind": "monkeypatch/cycle dependency-resolution seam (71-name deps bag; S72 batch-REPL dependency family)",
+        "owner": "S72",
+        "disposition": "out_of_scope_structural_card",
         "consumer_evidence": (
             "edit.py:517-545 _stage_agent_batch_repl delegate is frozen patched_via_edit_module "
             "(cleanup_surface_manifest); tests/test_edit_batch_repl_dependencies.py freezes the "
-            "field set/no-singleton/missing-name error"
+            "field set/no-singleton/missing-name error/import isolation. Structural-plan evidence: "
+            "S72 priority candidates include 'batch REPL globals-based dependency resolution' "
+            "(structural-cleanup plan §14.1), with S72b/B37 as prerequisite context"
         ),
         "compat_test": [
             "tests/test_edit_batch_repl_dependencies.py",
             "tests/test_cleanup_surface_manifest.py",
         ],
         "removal_condition": (
-            "S75 replaces the globals() bag with typed capabilities when the B37 typed-capability "
-            "card lands; the builder stays until every host field has a typed port"
+            "S72 replaces the 71-name dependency bag with typed capabilities/ports after the B37 "
+            "prerequisite; the S72 migration must update or remove the temporary field-count "
+            "freeze rather than treating tests/test_edit_batch_repl_dependencies.py as authority "
+            "to preserve the bag"
         ),
-        "authority_note": "deps resolve to the same _frag_* functions; mutation authority still flows through admit_operation + verify_apply",
+        "authority_note": (
+            "the builder resolves the existing façade functions for the same invocation; it does "
+            "not create an admission or mutation implementation — accepted mutation still passes "
+            "through canonical admission and verification functions"
+        ),
     },
     {
         "id": "T5.5-RS-09",
@@ -514,6 +604,23 @@ T55_DISPOSITION = (
             "_load_arnold_runtime is the sole optional-runtime import gate at six "
             "provider.py call sites (:1337/:1404/:1706/:1843/:1915)"
         ),
+        # G5-B4-MUST-009 / XS-16 adjudication: complete contract fields, no waiver.
+        "compat_test": [
+            "tests/browser/agent_status_poller.test.mjs",
+            "tests/test_comfy_nodes_agent_backend_spine.py",
+            "tests/test_agent_runtime_adapter.py",
+        ],
+        "removal_condition": (
+            "S72b replaces provider/runtime status wrappers and the optional-runtime late loader "
+            "with an explicit injected runtime/status port after B30/B32, then deletes the "
+            "compatibility wrappers only after browser and backend consumers use the canonical "
+            "readiness shape"
+        ),
+        "authority_note": (
+            "status wrappers are read-only projections and _load_arnold_runtime selects an "
+            "execution implementation but does not admit operations, create accepted deltas, "
+            "verify replay, or commit terminal state"
+        ),
     },
     {
         "id": "T5.5-XS-17",
@@ -533,9 +640,96 @@ T55_DISPOSITION = (
         "removal_condition": "S72a session delegate inversion after B33–B35: extracted modules take typed ports, reverse lookups and star-imports delete",
         "authority_note": "forwarding reaches the same storage/journal implementations; accept/reject authority unchanged",
     },
+    {
+        "id": "T5.5-XS-18",
+        "surface": "vibecomfy/comfy_nodes/agent/_agentic_replay_service.py # candidate_graph",
+        "kind": "legacy-authority alias surface (v1 replay aggregate projection)",
+        "owner": "S74",
+        "disposition": "out_of_scope_structural_card",
+        "consumer_evidence": (
+            "replay payloads project stored v1 aggregates under the candidate_graph key; "
+            "classified by tests/test_agent_edit_compatibility_ledger.py reconciliation "
+            "(G5-B4-MUST-009): previously unclassified legacy-authority surface"
+        ),
+        "compat_test": ["tests/test_agent_edit_compatibility_ledger.py"],
+        "removal_condition": (
+            "S74a removes V1 replay readers when every persisted replay session is migrated or "
+            "aged out and fixtures are regenerated without v1 keys"
+        ),
+        "authority_note": (
+            "read-only projection of already-stored aggregates into replay responses; stamps no "
+            "apply authority and mints no accepted delta"
+        ),
+    },
+    {
+        "id": "T5.5-XS-19",
+        "surface": "vibecomfy/comfy_nodes/agent/_session_storage.py # queue_allowed,candidate_graph",
+        "kind": "legacy-authority alias surface (stored v1 response reader)",
+        "owner": "S74",
+        "disposition": "out_of_scope_structural_card",
+        "consumer_evidence": (
+            "session storage reads persisted v1 fields (queue_allowed/candidate_graph) out of "
+            "stored responses for rehydrate projections; classified by the compatibility-ledger "
+            "reconciliation (G5-B4-MUST-009)"
+        ),
+        "compat_test": ["tests/test_agent_edit_compatibility_ledger.py"],
+        "removal_condition": (
+            "S74a drops the alias reads when stored session responses no longer carry the v1 "
+            "fields (persisted sessions migrated or aged out)"
+        ),
+        "authority_note": (
+            "projects stored v1 fields into read-only summaries; eligibility stays derived from "
+            "canonical gates, not from the alias booleans"
+        ),
+    },
+    {
+        "id": "T5.5-XS-20",
+        "surface": "vibecomfy/comfy_nodes/agent/authority_receipts.py # candidate_graph",
+        "kind": "legacy-authority alias surface (receipt stamp legacy-key strip)",
+        "owner": "S74",
+        "disposition": "out_of_scope_structural_card",
+        "consumer_evidence": (
+            "authority_receipts stamping pops the legacy candidate_graph key from receipt "
+            "payloads; classified by the compatibility-ledger reconciliation (G5-B4-MUST-009)"
+        ),
+        "compat_test": ["tests/test_agent_edit_compatibility_ledger.py"],
+        "removal_condition": (
+            "S74a retires the strip when receipts are regenerated without v1 candidate_graph "
+            "stamps (MIG-G2 window closes)"
+        ),
+        "authority_note": (
+            "strips a legacy diagnostic key from stamped receipts; digests, admission, and replay "
+            "verification are untouched and cannot be granted through it"
+        ),
+    },
+    {
+        "id": "T5.5-XS-21",
+        "surface": "vibecomfy/comfy_nodes/agent/batch_rollback_journal.py # queue_allowed",
+        "kind": "legacy-authority alias surface (abort diagnostic constant stamp)",
+        "owner": "S74",
+        "disposition": "out_of_scope_structural_card",
+        "consumer_evidence": (
+            "abort diagnostics stamp queue_allowed=false into rollback journal payloads; "
+            "classified by the compatibility-ledger reconciliation (G5-B4-MUST-009)"
+        ),
+        "compat_test": ["tests/test_agent_edit_compatibility_ledger.py"],
+        "removal_condition": (
+            "S74a regenerates abort diagnostics without the v1 flag once browser/backend consumers "
+            "stop reading it from abort payloads"
+        ),
+        "authority_note": (
+            "constant-false diagnostic metadata inside abort records; gates nothing and grants no "
+            "queue authority"
+        ),
+    },
 )
 DELETED_ROWS = [row for row in T55_DISPOSITION if row["disposition"] == "delete_now"]
-RETAINED_ROWS = [row for row in T55_DISPOSITION if row["disposition"].startswith(("retain", "migrate", "collapse"))]
+RETAINED_ROWS = [
+    row
+    for row in T55_DISPOSITION
+    if row["disposition"].startswith(("retain", "migrate", "collapse"))
+    or row["disposition"] == "out_of_scope_structural_card"
+]
 
 
 def _source(path: str) -> str:
@@ -552,29 +746,117 @@ def test_row_has_complete_contract(row) -> None:
     assert row["surface"], row["id"]
     assert row["kind"], row["id"]
     assert row["consumer_evidence"], row["id"]
-    if row["owner"] == "T5.5":
-        if row["disposition"] == "delete_now":
-            assert row["compat_test"], row["id"]
-        else:
-            assert row["compat_test"], row["id"]
-            assert row["removal_condition"], row["id"]
-            assert row["authority_note"], row["id"]
-    else:
-        assert row["disposition"] == "out_of_scope_structural_card", row["id"]
-
+    # G5-B4-MUST-009 (XS-16 adjudication): the owner-based waiver is GONE.
+    # Every row whose production surface remains — S71–S77 owners and
+    # out_of_scope_structural_card included — requires nonempty
+    # compat_test, removal_condition, and authority_note.
+    assert row["compat_test"], row["id"]
+    assert row["authority_note"], row["id"]
+    if row["disposition"] != "delete_now":
+        assert row["removal_condition"], row["id"]
 
 def test_manifest_ids_are_unique() -> None:
+
+
     ids = [row["id"] for row in T55_DISPOSITION]
     assert len(ids) == len(set(ids))
 
 
+LEGACY_AUTHORITY_TOKENS = {
+    "queue_allowed": re.compile(r"\bqueue_allowed\b"),
+    "candidate_graph": re.compile(r"\bcandidate_graph\b"),
+}
+_RECONCILIATION_SCAN_ROOTS = (
+    Path("vibecomfy/comfy_nodes/agent"),
+    Path("vibecomfy/comfy_nodes/web"),
+)
+_RECONCILIATION_SUFFIXES = {".py", ".js", ".mjs", ".json"}
+
+# RS-06 adjudication: these fixture records are HISTORICAL serialized input,
+# classified as such — they are never treated as current producer authority.
+HISTORICAL_FIXTURE_PREFIXES = (
+    "tests/fixtures/editor_sessions/",
+)
+
+# Alias surfaces classified by THIS manifest instead of the compatibility
+# ledger's own allowlist regime (the four surfaces G5 found unclassified).
+# tests/test_agent_edit_compatibility_ledger.py imports this set.
+MANIFEST_CLASSIFIED_ALIAS_FILES = frozenset(
+    {
+        "vibecomfy/comfy_nodes/agent/_agentic_replay_service.py",
+        "vibecomfy/comfy_nodes/agent/_session_storage.py",
+        "vibecomfy/comfy_nodes/agent/authority_receipts.py",
+        "vibecomfy/comfy_nodes/agent/batch_rollback_journal.py",
+    }
+)
+
+
+def _iter_legacy_authority_surfaces() -> list[Path]:
+    files: list[Path] = []
+    for scan_root in _RECONCILIATION_SCAN_ROOTS:
+        for path in (ROOT / scan_root).rglob("*"):
+            if path.is_file() and path.suffix in _RECONCILIATION_SUFFIXES:
+                files.append(path)
+    return sorted(files)
+
+
 def test_zero_unclassified_rows() -> None:
-    unclassified = [
-        row["id"]
-        for row in T55_DISPOSITION
-        if not OWNER_RE.match(row["owner"]) or row["disposition"] not in DISPOSITIONS
-    ]
-    assert unclassified == []
+    """REAL reconciliation (G5-B4-MUST-009), not the tautological self-check
+    it replaced: enumerate repository surfaces carrying a legacy-authority
+    token and require every one to be classified — by this manifest (with an
+    exact owner) or by the compatibility-ledger allowlist regime."""
+    unclassified: list[str] = []
+    surfaces = [row["surface"] for row in T55_DISPOSITION]
+    for path in _iter_legacy_authority_surfaces():
+        rel_path = path.relative_to(ROOT).as_posix()
+        text = path.read_text(encoding="utf-8", errors="replace")
+        hits = [
+            alias
+            for alias, pattern in LEGACY_AUTHORITY_TOKENS.items()
+            if pattern.search(text)
+        ]
+        if not hits:
+            continue
+        in_manifest = any(rel_path in surface for surface in surfaces)
+        if in_manifest:
+            continue
+        # Not manifest-classified: it must be classified by the
+        # fixture-ledger allowlist regime instead.
+        from tests.test_agent_edit_compatibility_ledger import (  # noqa: PLC0415
+            ALLOWED_ALIAS_FILES,
+        )
+
+        if all(rel_path in ALLOWED_ALIAS_FILES[a] for a in hits):
+            continue
+        unclassified.append(
+            f"{rel_path}: legacy-authority tokens {hits} map to no manifest "
+            "row and no ledger allowlist"
+        )
+    assert unclassified == [], "\n".join(unclassified)
+
+
+def test_manifest_classified_alias_files_have_exact_owner_rows() -> None:
+    """Every manifest-classified alias file maps to a row with an exact
+    structural owner and complete evidence (no anonymous classification)."""
+    for rel_path in sorted(MANIFEST_CLASSIFIED_ALIAS_FILES):
+        rows = [row for row in T55_DISPOSITION if rel_path in row["surface"]]
+        assert rows, f"{rel_path}: no disposition row names this surface"
+        for row in rows:
+            assert OWNER_RE.match(row["owner"]), row["id"]
+            assert row["owner"] != "T5.5", row["id"]
+
+
+def test_historical_editor_session_fixtures_are_not_producer_authority() -> None:
+    """RS-06 adjudication: editor-session fixture records may retain the dead
+    flag as HISTORICAL serialized input; the manifest classifies them so S78
+    never mistakes them for current producers."""
+    assert HISTORICAL_FIXTURE_PREFIXES == ("tests/fixtures/editor_sessions/",)
+    for prefix in HISTORICAL_FIXTURE_PREFIXES:
+        assert (ROOT / prefix).is_dir(), prefix
+        assert any(
+            "legacy_deepseek_fallback_enabled" in p.read_text(encoding="utf-8", errors="replace")
+            for p in (ROOT / prefix).rglob("model_response.json")
+        )
 
 
 def test_every_structural_card_owner_is_exact() -> None:
@@ -598,17 +880,32 @@ def test_intent_judge_legacy_walker_stub_removed_but_canonical_verifier_kept() -
     text = _source("tests/live_agentic_harness/intent_judge.py")
     assert "_verify_delta_replay_legacy_removed" not in text
     assert "def _verify_delta_replay(" in text
-    assert "T5.5-LS-01" in text  # inline retained-shim ledger marker survives
+    assert "T5.5-LS-01" not in text  # retained-shim ledger marker removed with the RC12b seed
+    assert "canonical_diff" not in text  # G5-B4-MUST-004: no synthesized Δ seed remains
 
 
-def test_cleanup_surface_count_resolution_is_440() -> None:
-    """S70 census question resolved: frozen agent-edit surface is 440 names."""
+def test_cleanup_surface_fixture_cutover_is_owned_by_s73() -> None:
+    """JR-01 Decision B (MUST-010): the LIVE ``edit.__all__`` (437 names) is
+    authoritative; the frozen fixture still carries the three retired names
+    (440) and its correction is owned EXACTLY by card ``S73-FIXTURE`` — this
+    manifest no longer claims 440 as the resolved live count, and B4 stays
+    fail-closed on integration until the separately reviewed S73 integration
+    lands."""
     import json
 
+    import vibecomfy.comfy_nodes.agent.edit as agent_edit_module
+
     manifest = json.loads(
-        (ROOT / "tests/fixtures/agent_edit/cleanup_surface_manifest.json").read_text(encoding="utf-8")
+        (ROOT / "tests/fixtures/agent_edit/cleanup_surface_manifest.json").read_text(
+            encoding="utf-8"
+        )
     )
+    retired = {"_agent_edit_v2_enabled", "_run_delta_dev_path", "_run_full_dev_path"}
+    assert len(agent_edit_module.__all__) == 437
+    assert not retired & set(agent_edit_module.__all__)
+    # Deliberately untouched in this commit (S73-FIXTURE owns the change):
     assert len(manifest["edit"]["__all__"]) == 440
+    assert retired <= set(manifest["edit"]["__all__"])
 
 
 def test_no_stale_472_name_comment_in_production_tree() -> None:
@@ -635,10 +932,8 @@ def test_retained_row_compat_tests_exist(row) -> None:
             "# Compatibility forwarding names: existing integrations and tests patch these",
         ),
         ("T5.5-RS-02", "vibecomfy/executor/contracts.py", "_ORCHESTRATION_MODE_ALIASES"),
-        ("T5.5-RS-03", "tests/live_agentic_harness/intent_judge.py", "seed\": \"canonical_diff"),
         ("T5.5-RS-04", "vibecomfy/comfy_nodes/agent/routes.py", "_maybe_write_executor_only_durable_turn"),
         ("T5.5-RS-05", "vibecomfy/comfy_nodes/agent/_frag_session_bundle.py", "_warn_legacy_contract_once"),
-        ("T5.5-RS-06", "vibecomfy/comfy_nodes/agent/provider.py", '"legacy_deepseek_fallback_enabled": False'),
         ("T5.5-RS-07", "vibecomfy/porting/edit/__init__.py", "def __getattr__"),
         (
             "T5.5-RS-08",

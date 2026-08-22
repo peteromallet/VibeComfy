@@ -921,6 +921,7 @@ def judge_edit_intent(
         pre_wf = pre_view.workflow
         post_wf = post_view.workflow
     else:
+        # Legacy artifacts without typed lineage (non-canonical mode).
         try:
             pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
             post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
@@ -986,21 +987,21 @@ def judge_edit_intent(
             delta_ops = [dict(op) for op in accepted_ops]
             delta_envelope = {"ops": list(delta_ops), "seed": "accepted_batch"}
         else:
-            # Same-door Δ: never re-diff raw original.ui vs final.ui shapes (RC4).
-            # RC12b: a withheld accepted_batch (queue_validate_ok=false) is not
-            # the product — seed from diff(pre_wf, post_wf) even if a stale
-            # batch exists.  [RETAINED-SHIM ledger T5.5-LS-01: legacy artifacts
-            # without a T5.1 lineage manifest only; removal condition = RC12b
-            # fixtures regenerated with typed lineage.]
-            from vibecomfy.porting.edit._diff import diff
-            from vibecomfy.porting.edit.ops import op_to_dict
-
-            derived = diff(pre_wf, post_wf, schema_provider=schema_provider)
-            if derived:
-                delta_ops = [op_to_dict(op) for op in derived]
-                delta_envelope = {
-                    "ops": list(delta_ops),
-                    "seed": "canonical_diff",
+            # The legacy product-diff seed was removed in B4-REVISION
+            # (G5-B4-MUST-004): lineage-less fixtures carry no durable edit
+            # authority, so a Δ may never be synthesized from
+            # diff(pre_wf, post_wf) — C11 forbids grading a
+            # fabricated edit. A withheld accepted_batch (queue_validate_ok
+            # false) is contradictory authority evidence and yields
+            # ``undetermined``, never a pass.
+            if queue_gate_failed:
+                return {
+                    "pass_": None,
+                    "error": (
+                        "undetermined: withheld_accepted_batch "
+                        "(queue_validate_ok=false)"
+                    ),
+                    "metadata": {"verdict": "withheld_accepted_batch"},
                 }
 
     from vibecomfy.porting.edit.apply_gate import verify_apply

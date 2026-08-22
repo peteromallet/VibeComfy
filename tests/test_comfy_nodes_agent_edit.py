@@ -11143,7 +11143,6 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
         "openrouter_api_key": True,
         "deepseek_api_key": False,
     }
-    assert unavailable["legacy_deepseek_fallback_enabled"] is False
 
     env_path = tmp_path / ".hermes" / ".env"
     openrouter = _handle_agent_credentials(

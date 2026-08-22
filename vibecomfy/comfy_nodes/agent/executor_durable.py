@@ -418,5 +418,3 @@ def write_executor_only_chat_artifact(
         )
 
 
-_maybe_write_executor_only_durable_turn = maybe_write_executor_only_durable_turn
-_write_executor_only_chat_artifact = write_executor_only_chat_artifact

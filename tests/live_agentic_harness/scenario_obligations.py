@@ -14,12 +14,13 @@ declares, before any paid model work:
 
 ``validate_obligation_coverage`` returns typed violations;
 ``preflight_scenario_obligations`` raises :class:`ScenarioObligationError` on
-any violation. ``run_comparison`` runs the declaration preflight always and
-the schema-resolution preflight when ``VIBECOMFY_OBLIGATION_SCHEMA_CHECK``
-enables it (the finale lane) — discovery happens before paid calls, never
-after. A safe refusal is useful behavior but never satisfies a scenario whose
-obligations require an edit; descriptors granting ``allow_safe_refusal`` on
-edit scenarios are a coverage violation.
+any violation. ``run_comparison`` — the paid-call lane — runs the declaration
+preflight always AND the schema-resolution preflight unconditionally
+(G5-B4-MUST-006): ``VIBECOMFY_OBLIGATION_SCHEMA_CHECK`` cannot defer or
+disable it there. Discovery happens before paid calls, never after. A safe
+refusal is useful behavior but never satisfies a scenario whose obligations
+require an edit; descriptors granting ``allow_safe_refusal`` on edit scenarios
+are a coverage conflict, and an accepted refusal grades ``undetermined``.
 """
 
 from __future__ import annotations
@@ -323,31 +324,129 @@ def validate_obligation_coverage(
     return violations, warnings
 
 
-def _resolve_schema_locally(class_type: str) -> bool:
-    """Attempt LOCAL-ONLY authoritative resolution of one class schema.
-
-    Never touches the network: on-demand/network providers are excluded so the
-    check proves existing provenance, not future downloads.
-    """
-    from vibecomfy.schema.provider import ObjectInfoSchemaProvider
-
-    cache_candidates: list[Path] = []
+def _authoritative_cache_roots() -> list[Path]:
+    """Local object_info cache roots eligible as authoritative sources."""
+    roots: list[Path] = []
     env_cache = os.environ.get("VIBECOMFY_OBJECT_INFO_CACHE_DIR")
     if env_cache:
-        cache_candidates.append(Path(env_cache))
-    default_cache = REPO / "out" / "cache"
-    if default_cache.is_dir():
-        newest = sorted(default_cache.glob("object_info.*.json"))
-        cache_candidates.extend(reversed(newest))
-    for candidate in cache_candidates[:1] or []:
+        roots.append(Path(env_cache))
+    roots.append(REPO / "vibecomfy" / "porting" / "cache" / "object_info")
+    return roots
+
+
+def _provenance_row(
+    root: Path,
+    class_type: str,
+) -> tuple[bool, str]:
+    """Return whether *class_type*'s cache file carries real provenance."""
+    try:
+        index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, f"unreadable cache index at {root}"
+    filename = index.get(class_type) if isinstance(index, Mapping) else None
+    if not isinstance(filename, str) or not filename:
+        return False, f"{class_type!r} has no cache-file row in {root}/index.json"
+    prov_path = root / "provenance.json"
+    try:
+        provenance = (
+            json.loads(prov_path.read_text(encoding="utf-8"))
+            if prov_path.is_file()
+            else {}
+        )
+    except (OSError, json.JSONDecodeError):
+        return False, f"unreadable provenance attestation at {prov_path}"
+    packs = (
+        provenance.get("packs")
+        if isinstance(provenance, Mapping)
+        else None
+    )
+    entry = packs.get(filename) if isinstance(packs, Mapping) else None
+    if not isinstance(entry, Mapping):
+        return False, (
+            f"no provenance attestation for {filename!r}; an unattested cache "
+            "is not an authoritative source"
+        )
+    if not (entry.get("repo") or entry.get("locked_commit")):
+        return False, (
+            f"provenance for {filename!r} carries neither repo nor locked_commit"
+        )
+    return True, ""
+
+
+def _resolve_schema_locally(
+    requirement: Mapping[str, Any],
+) -> tuple[bool, list[str]]:
+    """LOCAL-ONLY authoritative resolution of one declared schema evidence
+    requirement. Never touches the network.
+
+    Proves (G5-B4-MUST-006), beyond bare ``provider.get(...)`` existence:
+    * the declaring ``source`` kind is ``authoritative_object_info``;
+    * the class resolves from a local object_info cache ROOT whose
+      provenance attests the DECLARED owning ``pack``;
+    * the backing cache file carries real provenance (a repo or a locked
+      commit — never an unattested/stub capture);
+    * every ``required_field_evidence`` field name is visible in the
+      resolved schema inputs (e.g. ``emotion_control``).
+    """
+    class_type = str(requirement.get("class_type") or "").strip()
+    if not class_type or class_type.startswith("<"):
+        return False, [f"requirement names no resolvable class ({class_type!r})"]
+    declared_pack = str(requirement.get("pack") or "").strip()
+    source_kind = str(requirement.get("source") or "").strip()
+    if source_kind != "authoritative_object_info":
+        return False, [
+            f"{class_type!r} declares source {source_kind!r}; only "
+            "'authoritative_object_info' is authoritative"
+        ]
+    if not declared_pack:
+        return False, [f"{class_type!r} declares no owning pack"]
+    required_fields = [
+        str(field_name)
+        for field_name in (requirement.get("required_field_evidence") or ())
+        if str(field_name)
+    ]
+
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    failures: list[str] = []
+    for root in _authoritative_cache_roots():
+        if not (root / "index.json").is_file():
+            continue
         try:
-            provider = ObjectInfoSchemaProvider(str(candidate))
+            provider = ObjectInfoIndexSchemaProvider(str(root))
             schema = provider.get(class_type)
         except Exception:  # noqa: BLE001 - unreadable cache is simply not evidence
+            failures.append(f"cache root {root} could not be read")
             continue
-        if schema is not None:
-            return True
-    return False
+        if schema is None:
+            failures.append(f"{class_type!r} absent from cache root {root}")
+            continue
+        resolved_pack = str(getattr(schema, "pack", "") or "")
+        if resolved_pack != declared_pack:
+            failures.append(
+                f"local cache attests pack {resolved_pack!r} for "
+                f"{class_type!r}; requirement declares {declared_pack!r}"
+            )
+            continue
+        attested, detail = _provenance_row(root, class_type)
+        if not attested:
+            failures.append(detail)
+            continue
+        schema_inputs = getattr(schema, "inputs", None) or {}
+        missing_fields = [
+            field_name for field_name in required_fields
+            if field_name not in schema_inputs
+        ]
+        if missing_fields:
+            failures.append(
+                f"required field evidence missing from resolved schema: "
+                f"{', '.join(missing_fields)}"
+            )
+            continue
+        return True, []
+    if not failures:
+        failures.append("no local authoritative object_info cache root found")
+    return False, failures
 
 
 def preflight_scenario_obligations(
@@ -383,15 +482,18 @@ def preflight_scenario_obligations(
             per_class: dict[str, bool] = {}
             for req in obligation.schema_evidence_requirements:
                 class_type = str(req.get("class_type") or "")
-                if not class_type or class_type.startswith("<"):
+                if not class_type or class_type.startswith("<") or req.get(
+                    "undeclared"
+                ):
                     continue
-                resolved = _resolve_schema_locally(class_type)
+                resolved, resolution_failures = _resolve_schema_locally(req)
                 per_class[class_type] = resolved
                 if not resolved:
                     violations.append(
                         f"{scenario_id}: exact schema evidence for "
                         f"{class_type!r} is not available from any local "
-                        "authoritative source; refusing paid calls (fail-closed)"
+                        "authoritative source; refusing paid calls "
+                        "(fail-closed): " + "; ".join(resolution_failures)
                     )
             if per_class:
                 resolution_results[scenario_id] = per_class

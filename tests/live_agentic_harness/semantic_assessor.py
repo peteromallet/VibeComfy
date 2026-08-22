@@ -55,8 +55,53 @@ class CanonicalSemanticView:
 
     source_representation: str  # "snapshot" | "envelope" | "ui" | "api"
     workflow: Any               # retained VibeWorkflow IR
-    content_digest: str         # SHA-256 over canonical raw content
+    content_digest: str         # SHA-256 over the normalized product content
     lineage: dict[str, str] = field(default_factory=dict)
+
+
+def _normalized_api_payload(
+    workflow: Any,
+    schema_provider: Any,
+) -> Any:
+    """Project a decoded workflow onto its canonical API wire form.
+
+    Inputs whose value equals the schema-known default are DROPPED and
+    missing schema-known inputs stay omitted, so "explicitly defaulted"
+    (how the UI door materializes widget slots) and "omitted at the wire"
+    (how the API door stores them) normalize to the same payload.
+    Semantically identical UI/API/envelope representations therefore carry
+    one content_digest (G5-B4-MUST-005). Without a resolving schema the
+    plain compiled form is hashed unchanged — conservative, never a guess.
+    """
+    compiled = workflow.compile("api")
+    getter = getattr(schema_provider, "get_schema", None) or getattr(
+        schema_provider, "get", None
+    )
+    if not callable(getter):
+        return compiled
+    normalized: dict[Any, Any] = {}
+    for uid, node in compiled.items():
+        if not isinstance(node, Mapping):
+            normalized[uid] = node
+            continue
+        inputs = (
+            dict(node["inputs"])
+            if isinstance(node.get("inputs"), Mapping)
+            else {}
+        )
+        try:
+            schema = getter(str(node.get("class_type") or ""))
+        except Exception:  # noqa: BLE001 - unresolvable schema stays unprojected
+            schema = None
+        specs = getattr(schema, "inputs", None)
+        if isinstance(specs, Mapping):
+            for name, spec in specs.items():
+                if str(name) in inputs and inputs[str(name)] == getattr(
+                    spec, "default", None
+                ):
+                    del inputs[str(name)]
+        normalized[uid] = {**node, "inputs": inputs}
+    return normalized
 
 
 def canonical_semantic_view(
@@ -98,6 +143,8 @@ def canonical_semantic_view(
             ),
             workflow=payload.workflow,
             content_digest=str(getattr(payload, "source_digest", "") or ""),
+
+
             lineage=merged,
         )
 
@@ -114,7 +161,6 @@ def canonical_semantic_view(
 
     if isinstance(payload, Mapping):
         raw = dict(payload)
-        digest = canonical_lineage_digest(raw)
         from vibecomfy.ingest.normalize import (
             _is_vibe_envelope,
             from_api,
@@ -148,6 +194,15 @@ def canonical_semantic_view(
                 "payload matches no named ingest door "
                 "(envelope|ui|api); refusing to guess a decode"
             )
+        # G5-B4-MUST-005: digest the NORMALIZED product, never the raw carrier
+        # mapping. ``compile("api")`` projects every door's decode onto one
+        # canonical wire form, so semantically identical UI/API/envelope
+        # representations carry the same content_digest and an unchanged
+        # mixed pair grades ``no_edit`` instead of a digest-shaped false
+        # "changed product".
+        digest = canonical_lineage_digest(
+            _normalized_api_payload(workflow, schema_provider)
+        )
         return CanonicalSemanticView(
             source_representation=representation,
             workflow=workflow,

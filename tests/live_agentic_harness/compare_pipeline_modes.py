@@ -856,12 +856,12 @@ def run_comparison(
         raise ComparisonManifestError("concurrency must be a positive integer")
     validate_only(manifest_path)
     path = manifest_path or DEFAULT_COMPARISON_MANIFEST
-    # T5.3: fail-closed scenario obligation preflight before any paid call;
-    # VIBECOMFY_OBLIGATION_SCHEMA_CHECK enables exact schema-resolution proof
-    # for gated (audio/multi-video) scenarios.
+    # T5.3 + G5-B4-MUST-006: this is the paid-call lane — exact IndexTTS/
+    # LayerMask schema evidence MUST resolve from local authoritative sources
+    # before any leg starts. An environment override cannot defer it.
     from .scenario_obligations import preflight_scenario_obligations  # noqa: PLC0415
 
-    preflight_scenario_obligations(path)
+    preflight_scenario_obligations(path, require_schema_resolution=True)
     manifest = _load_json(path) or {}
     canonical = _authoritative_entries()
     base = output_base or DEFAULT_OUTPUT_BASE
@@ -897,6 +897,7 @@ def run_comparison(
                 output_base=base,
                 tag=tag,
                 transport=transport,
+                concurrency=concurrency,
             )
         else:
             leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
@@ -1065,21 +1066,30 @@ def _run_legs_in_processes(
     output_base: Path,
     tag: str,
     transport: str | None,
+    concurrency: int = 1,
 ) -> list[dict[str, Any] | None]:
-    """Run every leg in its own process; submit all, await in order.
+    """Run legs in their own processes under the concurrency cap.
 
-    Submission is simultaneous (every Popen starts before any result is
-    awaited); reconstruction follows the submission/manifest order, so no
-    serialization is introduced and no state is shared between legs.
+    At most ``concurrency`` leg processes are live at any moment; a finished
+    leg's slot is handed to the next descriptor immediately (no
+    serialization-to-hide-races: independent legs still overlap up to the
+    cap). Reconstruction follows the submission/manifest order, so failed
+    children retain their original slots and no state is shared between legs.
     """
     import signal  # noqa: PLC0415
     import subprocess  # noqa: PLC0415
 
+    max_live = max(1, int(concurrency))
     specs_dir = output_base / "_legs"
     specs_dir.mkdir(parents=True, exist_ok=True)
-    handles: list[subprocess.Popen[Any]] = []
-    out_paths: list[Path] = []
-    for index, (scenario_id, mode, scenario, lock) in enumerate(descriptors):
+    handles: dict[int, subprocess.Popen[Any]] = {}
+    out_paths: dict[int, Path] = {}
+    leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
+    deadline_by_index = [0.0] * len(descriptors)
+    next_to_launch = 0
+
+    def _launch(index: int) -> None:
+        scenario_id, mode, scenario, lock = descriptors[index]
         spec_path = specs_dir / f"leg_{index:04d}_{scenario_id}_{mode}.json"
         out_path = specs_dir / f"result_{index:04d}_{scenario_id}_{mode}.json"
         _write_leg_spec(
@@ -1104,24 +1114,23 @@ def _run_legs_in_processes(
         env["VIBECOMFY_HEADLESS"] = "1"
         if _SOURCE_COMMIT:
             env[SOURCE_COMMIT_ENV_VAR] = _SOURCE_COMMIT[0]
-        handles.append(
-            subprocess.Popen(
-                command,
-                cwd=str(REPO),
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+        handles[index] = subprocess.Popen(
+            command,
+            cwd=str(REPO),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
-        out_paths.append(out_path)
+        out_paths[index] = out_path
+        deadline_by_index[index] = time.monotonic() + LEG_TIMEOUT_SECONDS
 
-    leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
-    deadline_by_index = [time.monotonic() + LEG_TIMEOUT_SECONDS] * len(descriptors)
-    pending = set(range(len(descriptors)))
-    while pending:
+    while next_to_launch < len(descriptors) or handles:
+        while next_to_launch < len(descriptors) and len(handles) < max_live:
+            _launch(next_to_launch)
+            next_to_launch += 1
         finished_now: list[int] = []
-        for index in sorted(pending):
+        for index in sorted(handles):
             code = handles[index].poll()
             if code is not None or time.monotonic() > deadline_by_index[index]:
                 finished_now.append(index)
@@ -1129,19 +1138,20 @@ def _run_legs_in_processes(
             time.sleep(0.05)
             continue
         for index in finished_now:
-            pending.discard(index)
+            handle = handles.pop(index)
+            out_path = out_paths.pop(index)
             scenario_id, mode, _scenario, lock = descriptors[index]
             timed_out = time.monotonic() > deadline_by_index[index]
-            if timed_out and handles[index].poll() is None:
+            if timed_out and handle.poll() is None:
                 try:
-                    os.killpg(os.getpgid(handles[index].pid), signal.SIGTERM)
-                    handles[index].wait(timeout=LEG_KILL_GRACE_SECONDS)
+                    os.killpg(os.getpgid(handle.pid), signal.SIGTERM)
+                    handle.wait(timeout=LEG_KILL_GRACE_SECONDS)
                 except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
                     try:
-                        os.killpg(os.getpgid(handles[index].pid), signal.SIGKILL)
+                        os.killpg(os.getpgid(handle.pid), signal.SIGKILL)
                     except (ProcessLookupError, PermissionError):
                         pass
-            payload = _load_json(out_paths[index]) if out_paths[index].is_file() else None
+            payload = _load_json(out_path) if out_path.is_file() else None
             if isinstance(payload, Mapping) and payload.get("ok") is True and isinstance(
                 payload.get("summary"), Mapping
             ):
@@ -1153,7 +1163,7 @@ def _run_legs_in_processes(
                 else (
                     f"leg process timed out after {LEG_TIMEOUT_SECONDS}s"
                     if timed_out
-                    else f"leg process exited with code {handles[index].poll()}"
+                    else f"leg process exited with code {code}"
                 )
             )
             leg_results[index] = _leg_exception_summary(
@@ -1227,8 +1237,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Concurrent-leg isolation (T5.4). 'process' runs every leg in its "
-            "own interpreter (no shared state; the finale lane default for "
-            "concurrency > 1); 'thread' keeps the historical in-process pool."
+            "own interpreter (no shared state; required for all paid CLI "
+            "runs); 'thread' is the weaker shared-process lane and is "
+            "restricted to dry/validation use."
         ),
     )
     parser.add_argument("--run-leg", type=Path, default=None, help=argparse.SUPPRESS)
@@ -1248,16 +1259,33 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate_only:
             payload = validate_only(args.manifest)
         elif args.run:
-            # T5.3: the CLI run lane is the paid-call lane — exact schema
-            # evidence for gated (audio/multi-video) scenarios must resolve
-            # from local authoritative sources before any leg starts.
-            # VIBECOMFY_OBLIGATION_SCHEMA_CHECK=0 explicitly defers.
-            os.environ.setdefault(SCHEMA_RESOLUTION_ENV_VAR, "1")
-            # T5.4: the paid-call CLI defaults to full process isolation when
-            # running legs concurrently.
-            leg_isolation = args.leg_isolation or (
-                "process" if args.concurrency > 1 else "thread"
-            )
+            # G5-B4-MUST-006: the CLI run lane is the paid-call lane — exact
+            # IndexTTS/LayerMask schema evidence must resolve from local
+            # authoritative sources before any leg starts. A pre-set
+            # VIBECOMFY_OBLIGATION_SCHEMA_CHECK=0 can no longer bypass this.
+            # Lazy import: scenario_obligations imports this module.
+            from .scenario_obligations import SCHEMA_RESOLUTION_ENV_VAR  # noqa: PLC0415
+
+            os.environ[SCHEMA_RESOLUTION_ENV_VAR] = "1"
+            # G5-B4-MUST-008: paid legs never run on the shared-process
+            # thread lane. Concurrent runs default to process isolation;
+            # an explicit --leg-isolation thread is refused.
+            if args.leg_isolation == "thread":
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": (
+                                "--leg-isolation thread is restricted to "
+                                "dry/validation use; paid runs require "
+                                "'process' isolation"
+                            ),
+                        },
+                        indent=2,
+                    )
+                )
+                return 2
+            leg_isolation = args.leg_isolation or "process"
             payload = run_comparison(
                 args.manifest,
                 output_base=args.output_base,

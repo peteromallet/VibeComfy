@@ -66,6 +66,49 @@ def _write_ui_pair(output_dir: Path, original: dict, candidate: dict) -> None:
     (output_dir / "candidate.ui.json").write_text(json.dumps(candidate), encoding="utf-8")
 
 
+_LINEAGE_SHA = "b" * 64
+
+
+def _seed_lineage(output_dir: Path, scenario_id: str | None = None) -> None:
+    """Attach a typed artifact-lineage manifest (sidecar + envelope copy) to
+    the leg artifacts.
+
+    G5-B4-MUST-003 made absent lineage grade ``undetermined``; these tests
+    exercise OTHER structured assessor checks, so they seed valid evidence
+    (all-primary rows — no impersonation ambiguity) instead of relying on the
+    old fail-open absence behavior.
+    """
+    from vibecomfy.comfy_nodes.agent.artifact_lineage import (
+        LINK_KINDS,
+        build_artifact_lineage,
+        primary_row,
+    )
+
+    # Infer scenario_id from the output directory name when the caller does
+    # not pass an explicit id — many guard tests name the leg directory after
+    # the scenario under test (e.g. tmp_path / "landed-count-positive").
+    if scenario_id is None:
+        scenario_id = output_dir.name if output_dir.name and "tmp" not in output_dir.name else "s1"
+
+    manifest = build_artifact_lineage(
+        lineage={"scenario_id": scenario_id},
+        rows=[primary_row(kind, _LINEAGE_SHA) for kind in LINK_KINDS],
+    )
+    manifest["binding"] = {"scenario_id": scenario_id}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    frozen = json.loads(json.dumps(manifest))
+    (output_dir / "artifact_lineage.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    response_path = output_dir / "response.json"
+    if response_path.is_file():
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        report = response.setdefault("report", {})
+        executor = report.setdefault("executor", {})
+        executor["artifact_lineage"] = frozen
+        response_path.write_text(json.dumps(response), encoding="utf-8")
+
+
 def _write_safe_refusal_response(
     output_dir: Path,
     *,
@@ -306,6 +349,7 @@ def test_agentic_guard_allows_explicit_safe_refusal_scenarios(tmp_path: Path) ->
             "expected_outcome_kinds": ["clarify", "requires_custom_nodes"],
         },
     }
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is True
@@ -338,6 +382,7 @@ def test_agentic_guard_rejects_unexpected_noop_for_safe_refusal_scenarios(tmp_pa
             "expected_outcome_kind": "clarify",
         },
     }
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is False
@@ -378,7 +423,6 @@ def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(
         json.dumps({"message": "The graph is unchanged."}),
         encoding="utf-8",
     )
-
     scenario = {
         "id": "edit-or-refuse",
         "query": "replace the missing custom node",
@@ -391,15 +435,23 @@ def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(
         "tests.live_agentic_harness.assessor.judge_grounded_refusal",
         lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
     )
+    _seed_lineage(output_dir, scenario_id="edit-or-refuse")
     verdict = guard_output_dir(output_dir, scenario=scenario)
-
-    assert verdict["live_agentic_success"] is True
+    # G5-B4-MUST-007: the grounded refusal is ACCEPTED evidence (no product
+    # fail), but the scenario obligation requires an EDITED product — so the
+    # leg records ``undetermined`` and can never grade pass.
+    assert verdict["live_agentic_success"] is False
+    assert verdict["score_class"] == "undetermined"
     assessment = verdict["assessment"]
-    assert assessment["passed"] is True
-    assert assessment["verdict"] == "pass"
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
     assert assessment["expect_graph_changed"] is True
     assert assessment["allow_safe_refusal_outcome_kinds"] == ["clarify", "requires_custom_nodes"]
-    assert {"safe_refusal", "grounded_refusal"} <= {issue["check"] for issue in assessment["issues"]}
+    checks = {(issue["check"], issue["severity"]) for issue in assessment["issues"]}
+    assert {"safe_refusal", "grounded_refusal", "safe_refusal_edit_obligation"} <= {
+        check for check, _ in checks
+    }
+    assert ("safe_refusal_edit_obligation", "undetermined") in checks
 
 
 def test_desired_edit_rejects_safe_refusal_when_grounded_judge_unavailable(
@@ -479,17 +531,23 @@ def test_desired_edit_accepts_grounded_safe_refusal(
         "tests.live_agentic_harness.assessor.judge_grounded_refusal",
         lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
     )
-
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
         scenario=_desired_edit_scenario("desired-refusal-grounded"),
     )
-
-    assert verdict["live_agentic_success"] is True
+    # G5-B4-MUST-007: even a genuine grounded refusal cannot satisfy a
+    # desired-edit obligation — accepted, but recorded ``undetermined``.
+    assert verdict["score_class"] == "undetermined"
     assessment = verdict["assessment"]
-    assert assessment["passed"] is True
+    assert assessment["passed"] is False
     assert any(
         issue["check"] == "grounded_refusal" and issue["severity"] == "info"
+        for issue in assessment["issues"]
+    )
+    assert any(
+        issue["check"] == "safe_refusal_edit_obligation"
+        and issue["severity"] == "undetermined"
         for issue in assessment["issues"]
     )
 
@@ -534,6 +592,7 @@ def test_grounded_safe_refusal_ignores_rolled_back_attempt_diagnostics(
         lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
     )
 
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
         scenario=_desired_edit_scenario(
@@ -541,10 +600,18 @@ def test_grounded_safe_refusal_ignores_rolled_back_attempt_diagnostics(
             kind="clarify",
         ),
     )
-
-    assert verdict["live_agentic_success"] is True
+    # G5-B4-MUST-007: the rolled-back batch diagnostics are correctly
+    # ignored (no hard_diagnostic issue), but an accepted refusal on a
+    # desired-edit scenario records ``undetermined`` — never pass.
+    assert verdict["live_agentic_success"] is False
+    assert verdict["score_class"] == "undetermined"
     assert not any(
         issue["check"] == "hard_diagnostic"
+        for issue in verdict["assessment"]["issues"]
+    )
+    assert any(
+        issue["check"] == "safe_refusal_edit_obligation"
+        and issue["severity"] == "undetermined"
         for issue in verdict["assessment"]["issues"]
     )
 
@@ -867,6 +934,7 @@ def test_agentic_guard_ignores_oversized_model_request(tmp_path: Path) -> None:
             "max_model_request_bytes": 100,
         },
     }
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is True
@@ -909,6 +977,7 @@ def test_agentic_guard_ignores_forbidden_model_request_substrings(tmp_path: Path
             "forbid_model_request_substrings": ["\"workflow_schema\""],
         },
     }
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is True
@@ -971,7 +1040,7 @@ def test_agentic_guard_accepts_linked_source_edit_that_changes_effective_value(t
         _frame_count_graph(source_value=8, target_value=8, linked=True),
         _frame_count_graph(source_value=16, target_value=8, linked=True),
     )
-
+    _seed_lineage(output_dir, scenario_id="effective-edit")
     verdict = guard_output_dir(output_dir, scenario=_effective_target_scenario())
 
     assert verdict["live_agentic_success"] is True
@@ -1159,7 +1228,6 @@ def test_agentic_guard_matcher_only_scenarios_pass_without_prose_gating(
     output_dir = tmp_path / scenario_id
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
-
     expect_edit = bool(response.get("graph_unchanged") is False)
     scenario = {
         "id": scenario_id,
@@ -1168,6 +1236,7 @@ def test_agentic_guard_matcher_only_scenarios_pass_without_prose_gating(
             "skip_intent_judge": True,
         },
     }
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is True, verdict["assessment"]["issues"]
@@ -1425,6 +1494,7 @@ def test_agentic_guard_expected_edit_with_positive_landed_count_passes(
         encoding="utf-8",
     )
 
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
         scenario={
@@ -1467,6 +1537,7 @@ def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
         "tests.live_agentic_harness.assessor.judge_grounded_refusal",
         lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
     )
+    _seed_lineage(output_dir, scenario_id="landed-count-refusal-exempt")
     verdict = guard_output_dir(
         output_dir,
         scenario={
@@ -1479,9 +1550,12 @@ def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
         },
     )
 
-    assert verdict["live_agentic_success"] is True
-    assert verdict["assessment"]["passed"] is True
-    assert verdict["assessment"]["verdict"] == "pass"
+    # G5-B4-MUST-007: the refusal is exempt from the landed-count guard, but
+    # an accepted refusal on an edit-required scenario is ``undetermined``.
+    assert verdict["live_agentic_success"] is False
+    assert verdict["score_class"] == "undetermined"
+    assert verdict["assessment"]["passed"] is False
+    assert verdict["assessment"]["verdict"] == "undetermined"
     assert {"safe_refusal", "grounded_refusal"} <= {
         issue["check"] for issue in verdict["assessment"]["issues"]
     }
@@ -1632,6 +1706,7 @@ def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(
         lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
     )
 
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
         scenario={
@@ -1644,14 +1719,15 @@ def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(
             },
         },
     )
-
-    assert verdict["live_agentic_success"] is True
-    assert verdict["assessment"]["passed"] is True
-    checks = {issue["check"] for issue in verdict["assessment"]["issues"]}
-    assert "safe_refusal" in checks
-    assert "grounded_refusal" in checks
-    assert "landed_operation_count" not in checks
-    assert "route_graph_consistency" not in checks
+    assert verdict["live_agentic_success"] is False
+    assert verdict["assessment"]["verdict"] == "undetermined"
+    assert verdict["assessment"]["passed"] is False
+    checks = {(issue["check"], issue["severity"]) for issue in verdict["assessment"]["issues"]}
+    assert ("safe_refusal", "info") in checks
+    assert ("grounded_refusal", "info") in checks
+    assert ("safe_refusal_edit_obligation", "undetermined") in checks
+    assert "landed_operation_count" not in {c for c, _ in checks}
+    assert "route_graph_consistency" not in {c for c, _ in checks}
 
 
 def test_agentic_guard_non_edit_route_still_scored_by_own_structured_checks(
@@ -1710,7 +1786,7 @@ def test_agentic_guard_allows_shared_linked_source_edit_by_default(tmp_path: Pat
         _frame_count_graph(source_value=8, target_value=8, linked=True, shared_source=True),
         _frame_count_graph(source_value=16, target_value=8, linked=True, shared_source=True),
     )
-
+    _seed_lineage(output_dir, scenario_id="effective-edit")
     verdict = guard_output_dir(output_dir, scenario=_effective_target_scenario())
 
     assert verdict["live_agentic_success"] is True
@@ -1772,6 +1848,7 @@ def test_agentic_guard_treats_skipped_queue_validation_as_warning(tmp_path: Path
         },
     )
 
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
         scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
@@ -1812,6 +1889,7 @@ def test_agentic_guard_product_fails_real_queue_validation_failure(tmp_path: Pat
         },
     )
 
+    _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
         scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
@@ -1884,9 +1962,11 @@ def test_refusal_fixtures_produce_pass_fail_fail_undetermined(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
-    """Grounded / unsupported / fabricated / outage → pass / fail / fail / undetermined."""
+    """Grounded / unsupported / fabricated / outage →
+    undetermined / fail / fail / undetermined (G5-B4-MUST-007: a grounded
+    refusal cannot SATISFY a desired-edit scenario, it records undetermined)."""
     cases = (
-        ("grounded", _grounded_refusal_verdict(grounded=True), "pass", "pass"),
+        ("grounded", _grounded_refusal_verdict(grounded=True), "undetermined", "undetermined"),
         (
             "unsupported",
             {
@@ -1914,6 +1994,7 @@ def test_refusal_fixtures_produce_pass_fail_fail_undetermined(
         output_dir = tmp_path / name
         _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
         _write_safe_refusal_response(output_dir)
+        _seed_lineage(output_dir, scenario_id=f"refusal-{name}")
         monkeypatch.setattr(
             "tests.live_agentic_harness.assessor.judge_grounded_refusal",
             lambda *args, _verdict=judge_verdict, **kwargs: _verdict,
@@ -2188,6 +2269,7 @@ def test_health_controls_are_structurally_scored_not_semantically_judged(
             Path(__file__).parent / "live_agentic_harness" / "scenarios" / f"{scenario_id}.json"
         )
         scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        _seed_lineage(output_dir)
         verdict = guard_output_dir(output_dir, scenario=scenario)
         assert verdict["assessment"]["scenario_kind"] == "health_control"
         assert verdict["assessment"]["excluded_from_semantic_product_rates"] is True
@@ -2265,6 +2347,7 @@ def test_only_pass_satisfies_a_semantic_scenario(
         "tests.live_agentic_harness.assessor.judge_semantic_answer",
         lambda *args, **kwargs: _semantic_verdict(),
     )
+    _seed_lineage(output_dir, scenario_id="semantic-fixture")
     passing = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
     assert passing["live_agentic_success"] is True
     assert passing["assessment"]["verdict"] == "pass"

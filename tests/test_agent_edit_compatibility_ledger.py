@@ -197,9 +197,16 @@ def _fixture_retained_alias_tokens_by_row() -> dict[str, str]:
 
 def test_agent_edit_legacy_aliases_stay_inside_compatibility_ledger_allowlist() -> None:
     violations: list[str] = []
+    # G5-B4-MUST-009: these four surfaces are classified by the frozen T5.5
+    # disposition manifest instead (exact structural owner per row).
+    from tests.test_execution_spine_shim_disposition import (
+        MANIFEST_CLASSIFIED_ALIAS_FILES,
+    )
 
     for path in _iter_text_files():
         rel_path = path.relative_to(ROOT).as_posix()
+        if rel_path in MANIFEST_CLASSIFIED_ALIAS_FILES:
+            continue
         text = path.read_text(encoding="utf-8")
         for alias_name, pattern in ALIAS_PATTERNS.items():
             if rel_path in ALLOWED_ALIAS_FILES[alias_name]:
@@ -210,7 +217,8 @@ def test_agent_edit_legacy_aliases_stay_inside_compatibility_ledger_allowlist() 
 
     assert not violations, (
         "Legacy agent-edit aliases must stay within tests/fixtures/agent_edit/"
-        "compatibility_ledger.md allowlists:\n" + "\n".join(violations)
+        "compatibility_ledger.md allowlists or carry an exact-owner row in "
+        "tests/test_execution_spine_shim_disposition.py:\n" + "\n".join(violations)
     )
 
 

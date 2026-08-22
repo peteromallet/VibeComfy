@@ -916,6 +916,20 @@ def assess_live_output_dir(
                         "detail": f"Accepted safe refusal outcome.kind={outcome_kind!r}.",
                     }
                 )
+                # G5-B4-MUST-007: a grounded refusal is honest evidence, but
+                # this scenario's obligation requires an EDITED product. The
+                # leg records ``undetermined`` — never a pass.
+                issues.append(
+                    {
+                        "check": "safe_refusal_edit_obligation",
+                        "severity": "undetermined",
+                        "detail": (
+                            "scenario obligation requires an edited product; "
+                            "an accepted safe refusal records undetermined "
+                            "and can never grade pass"
+                        ),
+                    }
+                )
             elif refusal_outage:
                 # Outage cannot satisfy the scenario, but must not collapse
                 # to a structural graph_changed product-fail.
@@ -1127,10 +1141,25 @@ def assess_live_output_dir(
 
         # T5.1: digest-linked artifact lineage — validity, scenario binding,
         # and fallback-impersonation checks. Structured evidence only.
+        # G5-B4-MUST-003: lineage absence/mismatch is undetermined ONLY for
+        # edit scenarios (C11). Health controls and semantic_product without
+        # an expected edit do not carry edit authority and are exempt from
+        # the lineage-presence gate; fallback-impersonation and binding
+        # errors remain hard failures regardless.
         lineage_assessment = assess_artifact_lineage(
             output_dir, response, scenario
         )
-        issues.extend(lineage_assessment["issues"])
+        lineage_issues = lineage_assessment["issues"]
+        kind = _scenario_kind(scenario)
+        expect_edit = bool(_assessment_config(scenario).get("expect_graph_changed"))
+        if kind in ("health_control", "semantic_product") and not expect_edit:
+            lineage_issues = [
+                iss
+                for iss in lineage_issues
+                if iss.get("check")
+                not in ("artifact_lineage_absent", "artifact_lineage_sidecar_unverified")
+            ]
+        issues.extend(lineage_issues)
 
     # Semantic-answer judge runs for every D13 rubric scenario regardless
     # of edit expectation or response presence. Health controls are

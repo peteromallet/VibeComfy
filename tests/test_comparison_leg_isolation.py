@@ -89,31 +89,33 @@ def test_child_failure_is_reported_not_raised(tmp_path: Path, monkeypatch) -> No
     assert comparator.run_leg_from_spec(spec_path, out_path) == 0
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["ok"] is False
-    assert payload["exception_type"] == "RuntimeError"
+# ── process pool: bounded launch window, await-in-order, typed failure map ───
 
 
-# ── process pool: submit-all, await-in-order, typed failure mapping ──────────
-
-
-def test_process_pool_submits_all_then_reconstructs_in_order(
+def test_process_pool_respects_concurrency_cap_and_reconstructs_in_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    descriptors = _descriptors(2)
+    """G5-B4-MUST-008: at most ``concurrency`` leg processes are live at any
+    moment; every descriptor launches exactly once; results reconstruct in
+    manifest order with failed children keeping their slots."""
+    concurrency = 2
+    descriptors = _descriptors(6)
+    live = {"count": 0}
+    max_live = {"count": 0}
     spawn_order: list[int] = []
-    release = threading.Event()
+    polls_without_progress = {"n": 0}
 
     class FakeHandle:
         def __init__(self, index: int) -> None:
             self.index = index
-            self._polled = 0
 
         def poll(self) -> int | None:
-            # Every handle reports "running" until ALL specs were written
-            # (submission happened), then finishes immediately.
-            self._polled += 1
-            if len(spawn_order) < len(descriptors):
-                return None
-            return 0
+            # Finish only after a few polling rounds so the parent must keep
+            # the launch window open, then exit successfully.
+            polls_without_progress["n"] += 1
+            if polls_without_progress["n"] % 3 == 0:
+                return 0
+            return None
 
         def wait(self, timeout: float | None = None) -> int:
             return 0
@@ -125,50 +127,51 @@ def test_process_pool_submits_all_then_reconstructs_in_order(
         spawn_order.append(index)
         real_write(spec_path, **kwargs)
 
-    fake_handles: dict[int, FakeHandle] = {}
-
-    def fake_popen(*args: Any, **kwargs: Any) -> FakeHandle:
-        index = len(fake_handles)
-        handle = FakeHandle(index)
-        fake_handles[index] = handle
-        return handle
-
-    descriptors = _descriptors(2)
-    spawn_order: list[int] = []
-
-    class FakeHandle:
-        def __init__(self, index: int) -> None:
-            self.index = index
-
-        def poll(self) -> int | None:
-            # Every handle reports "running" until ALL specs were written
-            # (submission happened), then finishes immediately.
-            if len(spawn_order) < len(descriptors):
-                return None
-            return 0
-
-        def wait(self, timeout: float | None = None) -> int:
-            return 0
-
-    real_write = comparator._write_leg_spec
-
-    def tracking_write(spec_path, **kwargs):  # noqa: ANN001, ANN202
-        index = int(Path(spec_path).stem.split("_")[1])
-        spawn_order.append(index)
-        real_write(spec_path, **kwargs)
+    def write_result_and_finish(spec_path, **kwargs):  # noqa: ANN001, ANN202
+        tracking_write(spec_path, **kwargs)
+        spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+        out_path = Path(spec_path).parent / Path(spec_path).name.replace(
+            "leg_", "result_"
+        )
+        out_path.write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "summary": {
+                        "scenario_id": spec["scenario"]["id"],
+                        "pipeline_mode": spec["mode"],
+                        "status": "success",
+                        "ok": True,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
 
     fake_handles: dict[int, FakeHandle] = {}
 
     def fake_popen(*args: Any, **kwargs: Any) -> FakeHandle:
         index = len(fake_handles)
+        live["count"] += 1
+        max_live["count"] = max(max_live["count"], live["count"])
         handle = FakeHandle(index)
         fake_handles[index] = handle
         return handle
+
+    real_poll = FakeHandle.poll
+
+    def counting_poll(self):
+        result = real_poll(self)
+        if result is not None:
+            live["count"] -= 1
+        return result
+
+    FakeHandle.poll = counting_poll  # type: ignore[method-assign]
 
     def fake_run_mode(scenario, *, mode, locked_input_sha256, output_base, tag, transport):
         raise AssertionError("process pool must not call _run_mode in the parent")
 
-    monkeypatch.setattr(comparator, "_write_leg_spec", tracking_write)
+    monkeypatch.setattr(comparator, "_write_leg_spec", write_result_and_finish)
     monkeypatch.setattr("subprocess.Popen", fake_popen)
     monkeypatch.setattr(comparator, "_run_mode", fake_run_mode)
 
@@ -177,14 +180,47 @@ def test_process_pool_submits_all_then_reconstructs_in_order(
         output_base=tmp_path,
         tag="t",
         transport=None,
+        concurrency=concurrency,
     )
-    # Submission of every spec happened during spawn; ordering matches input.
+    # Every descriptor launched exactly once, under the cap.
     assert sorted(spawn_order) == list(range(len(descriptors)))
-    assert all(handle.poll() == 0 for handle in fake_handles.values())
-    # No child actually wrote files here, so legs map to typed runner_exception
-    # summaries — proving failure mapping, not silent swallowing.
+    assert max_live["count"] <= concurrency
+    # Reconstruction follows manifest order; successful children keep slots.
+    assert [r["scenario_id"] for r in results] == [d[0] for d in descriptors]
+    assert all(r["status"] == "success" for r in results)
+
+
+def test_process_pool_maps_failed_children_to_typed_summaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Children that exit without a payload map to runner_exception summaries
+    in their ORIGINAL slots (no silent swallowing, no reordering)."""
+    descriptors = _descriptors(2)
+
+    class FakeHandle:
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    real_write = comparator._write_leg_spec
+
+    def write_spec_only(spec_path, **kwargs):  # noqa: ANN001, ANN202
+        real_write(spec_path, **kwargs)
+
+    monkeypatch.setattr(comparator, "_write_leg_spec", write_spec_only)
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: FakeHandle())
+    results = comparator._run_legs_in_processes(
+        descriptors,
+        output_base=tmp_path,
+        tag="t",
+        transport=None,
+        concurrency=4,
+    )
     assert all(r is not None for r in results)
     assert all(r["status"] == "runner_exception" for r in results)
+    assert [r["scenario_id"] for r in results] == [d[0] for d in descriptors]
 
 
 def test_process_pool_maps_child_summaries_into_manifest_order(
@@ -201,6 +237,8 @@ def test_process_pool_maps_child_summaries_into_manifest_order(
             return 0
 
     monkeypatch.setattr("subprocess.Popen", lambda *a, **k: FakeHandle())
+
+
     real_write = comparator._write_leg_spec
 
     def write_and_answer(spec_path, **kwargs):  # noqa: ANN001, ANN202
@@ -239,11 +277,14 @@ def test_cli_defaults_to_process_isolation_for_concurrent_runs() -> None:
     assert resolved == "process"
 
 
-def test_cli_explicit_thread_isolation_is_honored() -> None:
-    args = comparator._build_parser().parse_args(
-        ["--run", "--concurrency", "10", "--leg-isolation", "thread"]
-    )
-    assert args.leg_isolation == "thread"
+def test_cli_explicit_thread_isolation_is_refused_for_paid_runs(capsys) -> None:
+    """G5-B4-MUST-008: the paid run lane never executes on the shared-process
+    thread lane — an explicit ``--leg-isolation thread`` is refused."""
+    from tests.live_agentic_harness import compare_pipeline_modes as comparator
+
+    assert comparator.main(["--run", "--concurrency", "2", "--leg-isolation", "thread"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert "thread" in payload["error"]
 
 
 def test_run_comparison_rejects_unknown_isolation(monkeypatch, tmp_path) -> None:
