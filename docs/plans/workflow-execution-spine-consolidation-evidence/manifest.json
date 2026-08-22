@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "d1b1d51c2a6ed22c78383ea023d6f26a585e9c223c955a0bffb544b9269e65d8",
+        "sha256": "ef6a73f4eda5efc9c23a8ef050d7b2540231a68523799b5187c7e9023970901c",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1340,6 +1340,75 @@
         ]
       },
       "next_unblocked_card": "Batch 1: B0 infra first commits (C2/C3/C4/C7/C8-C9/C13) then B1 = T2.3",
+      "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false}
+    },
+    {
+      "task_id": "T2.3",
+      "gate": "G2",
+      "label": "Batch 1 implementer: B0 infra (timeout raise, validator routing+count, H3 lock fix, hygiene) + B1 T2.3 replay/concurrency failure injections",
+      "role": "implementer",
+      "model_route": "stealth/ox-alpha",
+      "resolved_model": "stealth/ox-alpha",
+      "base_sha": "c469e4934d3f4aabc990d7aed3c59794a2ffce08",
+      "target_sha": "686a8e750e1b8ae67a1e40e8717e591de1b83b4b",
+      "commits": [
+        "0f6cd65810a2dcfc7cdd83577d6c7b5e112f0916",
+        "686a8e750e1b8ae67a1e40e8717e591de1b83b4b"
+      ],
+      "commit_author": "POM <peter@omalley.io>",
+      "changed_files": [
+        "docs/plans/workflow-execution-spine-consolidation-plan-2026-08-20.md",
+        "scripts/run_workflow_execution_spine_agent.py",
+        "scripts/validate_workflow_execution_spine_evidence.py",
+        "tests/test_authority_receipts.py",
+        "tests/test_comfy_nodes_agent_session.py",
+        "tests/test_run_workflow_execution_spine_agent.py",
+        "tests/test_workflow_execution_spine_evidence.py"
+      ],
+      "receipts": [
+        {
+          "task_id": "BATCH1-IMPLEMENTER",
+          "path": "receipts/BATCH1-IMPLEMENTER-receipt.json",
+          "sha256": "c1d766bfefa48708e1e59638eecee5f2ce3f5338f007fe11277d6b91c77c4d8f",
+          "brief_sha256": "6d3b2f8bbe745df9072b6709855fedeeb2f0fbeeeb62b21cfb582eb24b0b2585",
+          "result_sha256": "ae0a59181f2ee315c3f618fe197d3288076ce94a1a7e0fc441ad655bb7a819ba",
+          "role": "implementer",
+          "model_route": "stealth/ox-alpha",
+          "resolved_model": "stealth/ox-alpha",
+          "pid": 60171,
+          "start_ts": "2026-08-22T00:01:13Z",
+          "end_ts": "2026-08-22T01:46:08Z",
+          "exit": 0,
+          "base_sha": "c469e4934d3f4aabc990d7aed3c59794a2ffce08",
+          "commits": ["0f6cd65810a2dcfc7cdd83577d6c7b5e112f0916", "686a8e750e1b8ae67a1e40e8717e591de1b83b4b"],
+          "changed_file_count": 7,
+          "stop_or_judgment": ""
+        }
+      ],
+      "focused_commands": [
+        "python -m pytest -q tests/test_workflow_execution_spine_evidence.py -> 23 passed",
+        "python -m pytest -q tests/test_run_workflow_execution_spine_agent.py -> 50 passed",
+        "combined B0 line -> 73 passed",
+        "focused T2.3 line -> 168 passed, 2 failed (both pre-existing production drift, residual risk 1)",
+        "base-export control runs at pristine c469e493 and fec6cb12 reproduced the same reds before Batch 1",
+        "§16 stub proof: wrapper with no --timeout flag, fake launcher slept 3610 s > old default, exit 0 with launcher argv --timeout=7200"
+      ],
+      "residual_risks": [
+        "Two pre-existing failures remain in the focused T2.3 command (tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove, test_recompute_apply_is_sequential_invariant}): production drift — live executor ingest pins use_comfy_converter=False (vibecomfy/porting/edit/session.py:444, _gates.py:314) while recompute_apply uses the from_ui default converter, so replayed candidates diverge from executor candidates on multi-add+remove edits (candidate_hash_mismatch); verified red on pristine exports of c469e493 and fec6cb12; one-line production fix exists but vibecomfy/** is outside the implementer allowance — needs an owner decision (T2.3 production repair or dedicated card), routed to the G2 batch review for classification.",
+        "Validator routing membership accepts exactly {grok-4.6, codex:gpt-5.6-luna, stealth/ox-alpha}; a future fourth route requires another amendment.",
+        "Live-run contract now requires an explicit split: {staged: 25, threaded: 25} field — T7.2 must record it that way (Condition 4 implementation).",
+        "Registry guard/release assume the single-threaded wrapper invariant (one critical section per process); multi-threaded double-guard in one process is out of contract."
+      ],
+      "controls": {
+        "merge_to_main": false,
+        "promotion": false,
+        "live_model_runtime_provider_calls": false,
+        "secret_access": false,
+        "protected_state_touched": false,
+        "push_by_implementer": false,
+        "receipts_committed": false
+      },
+      "next_unblocked_card": "G2 batch review (ONE stealth review of the whole Batch 1 diff, doubling as G2 per C10), then integration push including d9459c80 + c469e493 + Batch 1 (C1), then B2 (T3.1+T3.2 impl)",
       "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false}
     }
   ],

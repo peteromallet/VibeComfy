@@ -2479,3 +2479,155 @@ and receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## Batch 1 implementer — BATCH1-IMPLEMENTER disposition (2026-08-22)
+
+### BATCH1-IMPLEMENTER register and verdict
+
+- **Task/label/role/route:** `BATCH1-IMPLEMENTER` / no gate / `Batch 1
+  implementer: B0 infra (timeout raise, validator routing+count, H3 lock
+  fix, hygiene) + B1 T2.3 replay/concurrency` / implementer / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/BATCH1-IMPLEMENTER-receipt.json`;
+  window `2026-08-22T00:01:13Z` → `2026-08-22T01:46:08Z`, launcher exit
+  `0` after 6294.5 s; base `c469e4934d3f4aabc990d7aed3c59794a2ffce08`;
+  commits `0f6cd65810a2dcfc7cdd83577d6c7b5e112f0916`
+  (`fix(exec-spine): raise timeout default, amend validator
+  routing/finale, shorten registry lock`) and
+  `686a8e750e1b8ae67a1e40e8717e591de1b83b4b` (`test(exec-spine): cover
+  T2.3 replay/concurrency failure injections`); brief SHA-256
+  `6d3b2f8bbe745df9072b6709855fedeeb2f0fbeeeb62b21cfb582eb24b0b2585`;
+  result SHA-256
+  `ae0a59181f2ee315c3f618fe197d3288076ce94a1a7e0fc441ad655bb7a819ba`;
+  `stop_or_judgment` empty.
+- **Changed files (7, all within the 10-file allowance):**
+  `scripts/run_workflow_execution_spine_agent.py`,
+  `scripts/validate_workflow_execution_spine_evidence.py`,
+  `docs/plans/workflow-execution-spine-consolidation-plan-2026-08-20.md`
+  (only the two §10 `--timeout=` lines),
+  `tests/test_run_workflow_execution_spine_agent.py`,
+  `tests/test_workflow_execution_spine_evidence.py`,
+  `tests/test_authority_receipts.py`,
+  `tests/test_comfy_nodes_agent_session.py`.
+- **Implementer-recorded focused commands:** B0 wrapper/validator lines
+  green (`23 passed`, `50 passed`, combined `73 passed`); focused T2.3
+  line `168 passed, 2 failed` — both failures are pre-existing production
+  drift (residual risk 1 below); base-export control runs at pristine
+  `c469e493` and `fec6cb12` reproduced the same reds before Batch 1.
+- This evidence recorder's own wrapper PID is `65868`, start
+  `2026-08-22T01:53:17Z` per `active-allowances.json`; this recorder's
+  own `end_ts` and receipt digest are written by the wrapper after exit
+  and are not recorded here.
+
+### B0 infra items landed (binding-condition mapping)
+
+- **C2 (§16):** argparse default in `run_workflow_execution_spine_agent.py`
+  raised 3600 → 7200; no explicit `--timeout=3600` remains in
+  briefs/templates (the two plan §10 lines amended). Stub proof: a real
+  wrapper dispatched with no `--timeout` flag ran a fake launcher sleeping
+  3610 s — past the old 3600 s default that would have killed it at
+  ~3605 s — and exited `0`, with the launcher argv carrying
+  `--timeout=7200`.
+- **C3:** validator `_route_for_label` plus the G7 check are
+  set-membership accepting exactly `{grok-4.6, codex:gpt-5.6-luna,
+  stealth/ox-alpha}` per label class; unrouted labels keep legacy
+  any-route behavior.
+- **C4:** validator `check_live_run` requires exactly 50 unique leg
+  receipts at concurrency 10 with a recorded 25/25 staged/threaded split;
+  the smoke run recorded `authoritative: false`, so `LIVE_RUN_SINGLETON`
+  ignores it.
+- **C7 (H3 registry-lock fix, BOTH halves):** `_registry_guard`'s
+  critical section ends at the candidate write (~ms, never spans the
+  child runtime); `_registry_release` takes `LOCK_EX` around its
+  read-modify-write; the threaded test proves zero lost deletions;
+  interrupt-inside-critical-section self-deadlock is eliminated via
+  `_ACTIVE_REGISTRY_LOCK` descriptor reuse; the E2E test proves a second
+  wrapper completes while the first child still sleeps.
+- **C8:** same-worktree unconditional overlap kept verbatim (no
+  read-only exemption) — Condition 8 upheld.
+- **C13 hygiene:** dead `GROK_LAUNCHER` removed; unimported `Iterable`
+  annotation on `_receipt_files` folded.
+- **C9 not introduced:** no `readonly` flag landed; empty-`allowed`
+  read-only registrations remain accepted.
+
+### B1 — T2.3 eight failure injections
+
+Eight required failure injections across `tests/test_authority_receipts.py`
+and `tests/test_comfy_nodes_agent_session.py`, each proven by a real test
+driving the public session/authority paths:
+
+| injection | behavior proven |
+|---|---|
+| duplicate same-turn request | same payload+key replays the recorded response on the SAME turn; exactly one turn and one idempotency record |
+| stale turn | prepare on unknown turn ⇒ `StaleStateMismatch`; new submit supersedes `candidate_ready→superseded`; late accept rejected |
+| duplicate idempotency key | typed conflict carrying both request hashes; no second turn |
+| crash after delta before receipt | `load_authority_receipt is None`; recovery undetermined `unknown_evidence_not_guessed_applied`, no deltas |
+| crash after receipt before projection | row-7 recovery applied deterministically from persisted receipt+delta with replay_verified; mode-neutral projector mirrors it |
+| changed ambient cache | frozen-provider replay still matches after witness-freeze schema mutation |
+| concurrent independent sessions | barrier-synchronized threads over distinct session dirs keep disjoint turns/idempotency records/receipts |
+| process-global cache poisoning | poisoned content/manifest/object-info caches leave all authority identity hashes unchanged |
+
+### Residual risks (as stated by the implementer)
+
+1. **Two pre-existing failures remain in the focused T2.3 command**
+   (`tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove,
+   test_recompute_apply_is_sequential_invariant}`): production drift —
+   live executor ingest pins `use_comfy_converter=False`
+   (`vibecomfy/porting/edit/session.py:444`, `_gates.py:314`) while
+   `recompute_apply` uses the `from_ui` default converter, so replayed
+   candidates diverge from executor candidates on multi-add+remove edits
+   (`candidate_hash_mismatch`). Verified red on pristine exports of
+   `c469e493` and `fec6cb12` (predates Batch 1). A one-line production fix
+   exists but `vibecomfy/**` is outside the implementer allowance — needs
+   an owner decision (T2.3 production repair or dedicated card); routed to
+   the G2 batch review for classification.
+2. Validator routing membership accepts exactly `{grok-4.6,
+   codex:gpt-5.6-luna, stealth/ox-alpha}`; a future fourth route requires
+   another amendment.
+3. The live-run contract now requires an explicit
+   `split: {staged: 25, threaded: 25}` field — T7.2 must record it that
+   way (Condition 4 implementation).
+4. Registry guard/release assume the single-threaded wrapper invariant
+   (one critical section per process); multi-threaded double-guard in one
+   process is out of contract.
+
+### Parallel dispatches launched concurrently (context)
+
+Per §21.1/§21.3 read-only windows, three dispatches launched alongside
+Batch 1 close-out, all registering in `active-allowances.json` at
+`2026-08-22T01:53:17Z`: `G2-BATCH1-REVIEW` (fresh worktree
+`wt-g2-batch1-review` at `686a8e75`, PID 65870), `T3.1-INVENTORY`
+(`wt-t31-inventory`, PID 65873), and `T3.2-INVENTORY`
+(`wt-t32-inventory`, PID 65877). Their own evidence entries follow when
+they close.
+
+### Next unblocked card
+
+The G2 batch review (ONE stealth review of the whole Batch 1 diff,
+doubling as the G2 gate per C10; attack surface: duplicate authority,
+accepted-delta drift, terminal ambiguity, privacy, replay
+nondeterminism, idempotency, recovery), then integration push including
+`d9459c80` + `c469e493` + Batch 1 (C1), then B2 (T3.1+T3.2
+implementation) once the inventories close.
+
+### Controls
+
+This evidence append changes only the three allowed evidence files in one
+coherent commit authored by `POM <peter@omalley.io>`. No receipt,
+protected state, branch, or other file is changed; no push, merge,
+promotion, live/model/runtime call, secret access, wrapper dispatch,
+review, validator change, or product/test run is performed by this
+evidence recorder. The reviewed BATCH1-IMPLEMENTER receipt stays an
+untracked run artifact and is not committed. The wrapper records this
+recorder's own `end_ts` and receipt digest after exit; neither is
+computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  was run after these appends against the refreshed manifest digests and
+  exited `0` with deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carrying stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
