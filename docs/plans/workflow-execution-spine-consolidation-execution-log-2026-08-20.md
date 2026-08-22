@@ -2631,3 +2631,146 @@ computed or recorded here.
   carrying stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## G2 batch/gate review — G2-BATCH1-REVIEW disposition (2026-08-22)
+
+### G2-BATCH1-REVIEW register and verdict
+
+- **Task/label/gate/role/route:** `G2-BATCH1-REVIEW` / `G2 [XHARD-REVIEW]
+  batch/gate review of Batch 1 (B0 infra + B1 T2.3)` / gate `G2` /
+  reviewer / model route `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/G2-BATCH1-REVIEW-receipt.json` (file
+  SHA-256 `a386bbcf2be731a58c0ecdf90ac2cdbc4c329443d9458704abd50aeab2f30e02`);
+  window `2026-08-22T01:53:17Z` → `2026-08-22T02:16:20Z`, launcher exit
+  `0`; base `686a8e750e1b8ae67a1e40e8717e591de1b83b4b`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `be59a55d588196944276d9ba2d707ffb31532615c99d7a060ec6b1569a212b5c`;
+  result SHA-256
+  `d1d4c8e6a296a077f1b76869e395e89f96b7eb8bffd1b41b472f33ef2e1056d7`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/G2-BATCH1-REVIEW-dispatch.log`.
+- **Verdict: `continue`.** Batch 1 (`c469e493..686a8e75`) satisfies all
+  six landed B0 conditions (C2/C3/C4/C7/C8/C13) and the B1 T2.3
+  acceptance; C9 n/a (not introduced).
+- **Merge/default recommendation:** proceed with the integration push
+  including `d9459c80..686a8e75` (C1), conditional on recording the four
+  findings below as evidence-linked cards; R-G2-1 must close before
+  Batch 2 completes; default routing unchanged.
+- This evidence recorder's own wrapper PID is `68841`, start
+  `2026-08-22T02:17:46Z` per `active-allowances.json`; this recorder's
+  own `end_ts` and receipt digest are written by the wrapper after exit
+  and are not recorded here.
+
+### Findings recorded as evidence-linked cards (all open)
+
+- **MF-G2-1** (must, HARD/mechanical): `_ACTIVE_REGISTRY_LOCK =
+  lock_handle` at wrapper lines 266/322/325 lacks `global` → the module
+  global stays `None`; `_registry_release`'s reuse branch (:343–344) is
+  unreachable dead code and the comment at :254–257 documents an
+  invariant that can never execute. Latent SIGINT-window robustness gap
+  only (handlers install after the guard returns; release always takes
+  LOCK_EX on a fresh fd; dead-PID sweep self-heals). Fix: one line +
+  test, next batch revision.
+- **MF-G2-2** (must, HARD/mechanical):
+  `test_concurrent_registry_release_preserves_both_deletions` (test file
+  :642–666) asserts only absence of thread exceptions — no post-state
+  assertion that both deletions persisted; a regression dropping LOCK_EX
+  could lose a deletion yet pass. Fix: add a final registry-empty
+  assertion (+ iterations).
+- **SH-G2-3** (should):
+  `docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md:145`
+  still emits an explicit `--timeout=3600` template example — outside
+  the implementer allowance; fix in next orchestrator/evidence touch.
+- **R-G2-1** (residual, must-track — §7 classification): the two
+  pre-existing failures in
+  `tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove,
+  test_recompute_apply_is_sequential_invariant}` are PRE-EXISTING, NOT
+  introduced by Batch 1 (empty diff over `vibecomfy/**` + failing module
+  + conftest; mechanism visible in unchanged code:
+  `use_comfy_converter=False` ingest pin at `session.py:~444` /
+  `_gates.py:~314` vs the `from_ui`-default `recompute_apply`; failure
+  signature `candidate_hash_mismatch`). Disposition: acceptable residual
+  risk for G2, requiring a dedicated XHARD production-repair card; must
+  close before Batch 2 completes; G6/G7 fail closed on it if ignored.
+
+### Review-run focused command and validator environment
+
+- The review re-ran the focused T2.3 command: `168 passed / 2 failed` —
+  exactly the two known pre-existing R-G2-1 failures — exit `1`.
+- The review-worktree validator exit `1` was root-caused environmental,
+  not an evidence defect: receipts are untracked run artifacts absent in
+  the fresh worktree; the HEAD validator against the operating manifest
+  exits `0`, and the base validator against the same manifest also
+  exits `0`.
+
+### Next unblocked card
+
+Integration push including `d9459c80..686a8e75` (C1), then B2
+(T3.1+T3.2 implementation) once the inventories below close;
+MF-G2-1/MF-G2-2 land in the next batch revision per C10.
+
+## Read-only inventories — T3.1/T3.2 dispositions (2026-08-22)
+
+### T3.1-INVENTORY register
+
+- **Task/label/role/route:** `T3.1-INVENTORY` / `T3.1 [HARD]
+  retry-ownership inventory (read-only, pre-implementation)` / inventory
+  / model route `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/T3.1-INVENTORY-receipt.json` (file
+  SHA-256 `b9a74cbcb3d0128f2e98cea8485e860e978cf39b7423d712ecacf02207bb1f4c`);
+  window `2026-08-22T01:53:17Z` → `2026-08-22T02:05:53Z`, launcher exit
+  `0`; base `686a8e750e1b8ae67a1e40e8717e591de1b83b4b`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `4623bffd1fd542d690378e4c1ac326c290fcf974e12fd91ced08f277fa1ef819`;
+  result SHA-256
+  `1078fc2553502dad7c913e7f8f40f218d4c700f117a9bc512a3df41b4a7a58d9`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/T3.1-INVENTORY-dispatch.log`.
+
+### T3.2-INVENTORY register
+
+- **Task/label/role/route:** `T3.2-INVENTORY` / `T3.2 [XHARD]
+  batch-protocol / accepted-batch authority inventory (read-only,
+  pre-implementation)` / inventory / model route `stealth/ox-alpha`,
+  resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/T3.2-INVENTORY-receipt.json` (file
+  SHA-256 `d5d7a1e8592ec72fecb7b483d20fc484f971aa0091d7a412492c3a9e2997fc3d`);
+  window `2026-08-22T01:53:17Z` → `2026-08-22T02:08:21Z`, launcher exit
+  `0`; base `686a8e750e1b8ae67a1e40e8717e591de1b83b4b`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `808ce0da1999038b986c840d52d9ae6738d2aec6f9400294e8e0e1b7932230cc`;
+  result SHA-256
+  `1e6c8cd4d76bfd34b6b65a2de26319e615d476168b3d503d1b576e0ea19a60ec`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/T3.2-INVENTORY-dispatch.log`.
+
+### Parallel-wave note (C7 operationally proven)
+
+All four tasks of the 02:10Z parallel wave (`evidence-log-BATCH1`,
+`G2-BATCH1-REVIEW`, `T3.1-INVENTORY`, `T3.2-INVENTORY`) registered
+concurrently in `active-allowances.json` at `2026-08-22T01:53:17Z`
+(wrapper PIDs 65868/65896/65897/65898), completing across 02:04–02:16Z —
+four simultaneous registrations with no blocking; the C7 registry lock
+fix is operationally proven.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution log
++ manifest; test-shards.json untouched) in one coherent commit authored
+by `POM <peter@omalley.io>`. No receipt, protected state, branch, or
+other file is changed; no push, merge, promotion, live/model/runtime
+call, secret access, wrapper dispatch, review, validator change, or
+product/test run is performed by this evidence recorder. No receipt is
+committed; the reviewed receipts stay untracked run artifacts. The
+wrapper records this recorder's own `end_ts` and receipt digest after
+exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.

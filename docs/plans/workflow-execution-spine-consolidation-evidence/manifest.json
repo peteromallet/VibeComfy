@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "ef6a73f4eda5efc9c23a8ef050d7b2540231a68523799b5187c7e9023970901c",
+        "sha256": "3fa6a6dfd3f325b291cc0d083c86b8cbf6fb67bbbf24e6152210661fa6d96619",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1408,8 +1408,129 @@
         "push_by_implementer": false,
         "receipts_committed": false
       },
-      "next_unblocked_card": "G2 batch review (ONE stealth review of the whole Batch 1 diff, doubling as G2 per C10), then integration push including d9459c80 + c469e493 + Batch 1 (C1), then B2 (T3.1+T3.2 impl)",
-      "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false}
+      "next_unblocked_card": "Integration push including d9459c80..686a8e75 (C1), then B2 (T3.1+T3.2 impl); MF-G2-1/MF-G2-2 land in the next batch revision per C10; R-G2-1 dedicated XHARD production-repair card closes before Batch 2 completes",
+      "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false},
+      "g2_batch_review": {
+        "task_id": "G2-BATCH1-REVIEW",
+        "gate": "G2",
+        "label": "G2 [XHARD-REVIEW] batch/gate review of Batch 1 (B0 infra + B1 T2.3)",
+        "role": "reviewer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "verdict": "continue",
+        "base_sha": "686a8e750e1b8ae67a1e40e8717e591de1b83b4b",
+        "wrapper_pid": 65896,
+        "start_ts": "2026-08-22T01:53:17Z",
+        "end_ts": "2026-08-22T02:16:20Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/G2-BATCH1-REVIEW-receipt.json", "sha256": "a386bbcf2be731a58c0ecdf90ac2cdbc4c329443d9458704abd50aeab2f30e02"},
+        "brief_sha256": "be59a55d588196944276d9ba2d707ffb31532615c99d7a060ec6b1569a212b5c",
+        "result_sha256": "d1d4c8e6a296a077f1b76869e395e89f96b7eb8bffd1b41b472f33ef2e1056d7",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G2-BATCH1-REVIEW-dispatch.log",
+        "verdict_basis": [
+          "Batch 1 (c469e493..686a8e75) satisfies all six landed B0 conditions (C2/C3/C4/C7/C8/C13) and the B1 T2.3 acceptance; C9 n/a (not introduced).",
+          "Merge/default recommendation: proceed with the integration push including d9459c80..686a8e75 (C1), conditional on recording the four findings as evidence-linked cards; R-G2-1 closes before Batch 2 completes; default routing unchanged."
+        ],
+        "findings": [
+          {
+            "finding_id": "MF-G2-1",
+            "severity": "must",
+            "classification": "HARD",
+            "kind": "mechanical",
+            "status": "open",
+            "summary": "_ACTIVE_REGISTRY_LOCK = lock_handle at wrapper lines 266/322/325 lacks global, so the module global stays None; _registry_release's reuse branch (:343-344) is unreachable dead code and the comment at :254-257 documents an invariant that can never execute.",
+            "blast_radius": "Latent SIGINT-window robustness gap only: handlers install after the guard returns; release always takes LOCK_EX on a fresh fd; dead-PID sweep self-heals.",
+            "fix": "one line + test, next batch revision"
+          },
+          {
+            "finding_id": "MF-G2-2",
+            "severity": "must",
+            "classification": "HARD",
+            "kind": "mechanical",
+            "status": "open",
+            "summary": "test_concurrent_registry_release_preserves_both_deletions (test file :642-666) asserts only absence of thread exceptions - no post-state assertion that both deletions persisted; a regression dropping LOCK_EX could lose a deletion yet pass.",
+            "fix": "add final registry-empty assertion (+ iterations)"
+          },
+          {
+            "finding_id": "SH-G2-3",
+            "severity": "should",
+            "status": "open",
+            "summary": "docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md:145 still emits an explicit --timeout=3600 template example - outside the implementer allowance.",
+            "fix": "fix in next orchestrator/evidence touch"
+          },
+          {
+            "finding_id": "R-G2-1",
+            "severity": "residual",
+            "classification": "XHARD",
+            "must_track": true,
+            "status": "open",
+            "summary": "the two pre-existing failures in tests/test_authority_replay_sequential.py::{test_replay_matches_executor_candidate_on_multi_add_with_remove, test_recompute_apply_is_sequential_invariant} are PRE-EXISTING, NOT introduced by Batch 1 (empty diff over vibecomfy/** + failing module + conftest); mechanism visible in unchanged code: use_comfy_converter=False ingest pin at session.py:~444/_gates.py:~314 vs the from_ui-default recompute_apply; failure signature candidate_hash_mismatch.",
+            "disposition": "acceptable residual risk for G2, requiring a dedicated XHARD production-repair card (plan section 7 classification)",
+            "closure_requirement": "must close before Batch 2 completes; G6/G7 fail closed on it if ignored"
+          }
+        ],
+        "focused_command": "focused T2.3 command re-run by the review -> 168 passed, 2 failed (exactly the two known pre-existing R-G2-1 failures), exit 1",
+        "validator_environment": "review-worktree validator exit 1 root-caused environmental: receipts are untracked run artifacts absent in the fresh worktree; HEAD validator vs operating manifest -> OK exit 0; base validator vs same -> OK exit 0"
+      },
+      "t31_inventory": {
+        "task_id": "T3.1-INVENTORY",
+        "label": "T3.1 [HARD] retry-ownership inventory (read-only, pre-implementation)",
+        "role": "inventory",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "base_sha": "686a8e750e1b8ae67a1e40e8717e591de1b83b4b",
+        "wrapper_pid": 65897,
+        "start_ts": "2026-08-22T01:53:17Z",
+        "end_ts": "2026-08-22T02:05:53Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/T3.1-INVENTORY-receipt.json", "sha256": "b9a74cbcb3d0128f2e98cea8485e860e978cf39b7423d712ecacf02207bb1f4c"},
+        "brief_sha256": "4623bffd1fd542d690378e4c1ac326c290fcf974e12fd91ced08f277fa1ef819",
+        "result_sha256": "1078fc2553502dad7c913e7f8f40f218d4c700f117a9bc512a3df41b4a7a58d9",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T3.1-INVENTORY-dispatch.log"
+      },
+      "t32_inventory": {
+        "task_id": "T3.2-INVENTORY",
+        "label": "T3.2 [XHARD] batch-protocol / accepted-batch authority inventory (read-only, pre-implementation)",
+        "role": "inventory",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "base_sha": "686a8e750e1b8ae67a1e40e8717e591de1b83b4b",
+        "wrapper_pid": 65898,
+        "start_ts": "2026-08-22T01:53:17Z",
+        "end_ts": "2026-08-22T02:08:21Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/T3.2-INVENTORY-receipt.json", "sha256": "d5d7a1e8592ec72fecb7b483d20fc484f971aa0091d7a412492c3a9e2997fc3d"},
+        "brief_sha256": "808ce0da1999038b986c840d52d9ae6738d2aec6f9400294e8e0e1b7932230cc",
+        "result_sha256": "1e6c8cd4d76bfd34b6b65a2de26319e615d476168b3d503d1b576e0ea19a60ec",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T3.2-INVENTORY-dispatch.log"
+      },
+      "parallel_wave_proof": {
+        "wave": "02:10Z parallel wave",
+        "participants": [
+          {"task_id": "evidence-log-BATCH1", "wrapper_pid": 65868},
+          {"task_id": "G2-BATCH1-REVIEW", "wrapper_pid": 65896},
+          {"task_id": "T3.1-INVENTORY", "wrapper_pid": 65897},
+          {"task_id": "T3.2-INVENTORY", "wrapper_pid": 65898}
+        ],
+        "registration_ts": "2026-08-22T01:53:17Z",
+        "completion_window": "2026-08-22T02:04Z - 2026-08-22T02:16:20Z",
+        "observation": "four simultaneous active-allowances.json registrations with no blocking - C7 registry lock fix operationally proven"
+      }
     }
   ],
   "shards": [],
