@@ -336,11 +336,80 @@ def test_cli_uses_threaded_terminology_only() -> None:
     assert "two-step" not in help_text.lower()
 
 
+def _seed_gated_schema_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Seed a disposable VIBECOMFY_OBJECT_INFO_CACHE_DIR with gated class evidence.
+
+    G5-B4-MUST-006 made run_comparison's preflight fail-closed on
+    IndexTTS/LayerMask schema provenance. These threaded tests exercise
+    concurrency/isolation, not schema gating, so they provide a disposable
+    authoritative cache that genuinely resolves the declared requirements
+    (no bypass, no monkeypatch of _resolve_schema_locally).
+    """
+    cache_dir = tmp_path / "_gated_schema_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    # Classes the authoritative manifests declare as gated schema evidence.
+    gated_requirements = [
+        ("IndexTTSEngineNode", "ComfyUI-IndexTTS", {}),
+        ("IndexTTSEmotionOptionsNode", "ComfyUI-IndexTTS", {"emotion_control": ["STRING", {}]}),
+        ("LayerMask: LoadSegmentAnythingModels", "ComfyUI-LayerMask", {}),
+        ("LayerMask: SegmentAnythingUltra V3", "ComfyUI-LayerMask", {}),
+    ]
+    index: dict[str, str] = {}
+    files: dict[str, dict[str, dict]] = {}
+    for class_type, pack, inputs in gated_requirements:
+        filename = f"{pack}@test.json"
+        index[class_type] = filename
+        info: dict[str, object] = {
+            "name": class_type,
+            "display_name": class_type,
+            "category": "test",
+            "inputs": {"required": inputs} if inputs else {"required": {"dummy": ["STRING", {}]}},
+            "outputs": [{"name": "OUTPUT", "type": "OUTPUT"}],
+            "pack": pack,
+            "pack_slug": pack.lower(),
+            "object_info_widget_order": list(inputs.keys()) if inputs else ["dummy"],
+        }
+        files.setdefault(filename, {})[class_type] = info
+    (cache_dir / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    provenance: dict[str, object] = {
+        "class_count": len(index),
+        "packs": {
+            filename: {
+                "classes": len(classes),
+                "locked_commit": "b" * 40,
+                "pack": filename.split("@")[0],
+                "repo": f"https://github.com/test/{filename.split('@')[0]}.git",
+                "schema_sha256": "c" * 64,
+            }
+            for filename, classes in files.items()
+        },
+    }
+    (cache_dir / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
+    for filename, classes in files.items():
+        (cache_dir / filename).write_text(json.dumps(classes), encoding="utf-8")
+    monkeypatch.setenv("VIBECOMFY_OBJECT_INFO_CACHE_DIR", str(cache_dir))
+    return cache_dir
+
+
 def _comparison_manifest_with_entries(tmp_path: Path, count: int = 5) -> Path:
+    """Return a comparison manifest with ``count`` resolvable entries.
+
+    G5-B4-MUST-006 made the gated IndexTTS/LayerMask scenarios require
+    local authoritative schema evidence. To keep these no-model concurrency
+    tests focused on their original intent (barrier concurrency, exception
+    isolation, manifest-order reconstruction) the helper filters to
+    entries whose obligations are fully resolvable at HEAD. The production
+    fail-closed preflight itself is untouched — the manifest simply avoids
+    triggering it so the concurrency contract can be exercised.
+    """
+    from tests.live_agentic_harness.scenario_obligations import SCHEMA_EVIDENCE_REQUIREMENTS
+
     manifest = json.loads(
         comparator.DEFAULT_COMPARISON_MANIFEST.read_text(encoding="utf-8")
     )
-    manifest["entries"] = manifest["entries"][:count]
+    gated_ids = set(SCHEMA_EVIDENCE_REQUIREMENTS.keys())
+    filtered = [e for e in manifest["entries"] if e.get("id") not in gated_ids]
+    manifest["entries"] = filtered[:count]
     path = tmp_path / f"comparison-{count}.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     return path
@@ -349,6 +418,7 @@ def _comparison_manifest_with_entries(tmp_path: Path, count: int = 5) -> Path:
 def test_concurrent_comparison_submits_all_legs_and_reconstructs_manifest_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _seed_gated_schema_cache(monkeypatch, tmp_path)
     manifest = _comparison_manifest_with_entries(tmp_path, count=5)
     entered = threading.Barrier(10)
     calls: list[tuple[str, str, int, str | None]] = []
@@ -399,6 +469,7 @@ def test_concurrent_comparison_submits_all_legs_and_reconstructs_manifest_order(
 def test_concurrent_comparison_isolates_leg_exception(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _seed_gated_schema_cache(monkeypatch, tmp_path)
     manifest = _comparison_manifest_with_entries(tmp_path, count=5)
     monkeypatch.setattr(comparator, "validate_only", lambda _path=None: {"ok": True})
     calls: list[tuple[str, str]] = []

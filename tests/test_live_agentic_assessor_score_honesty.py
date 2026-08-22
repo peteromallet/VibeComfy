@@ -5,6 +5,37 @@ from pathlib import Path
 
 from tests.live_agentic_harness.assessor import assess_live_output_dir
 
+_LINEAGE_SHA = "b" * 64
+
+
+def _seed_lineage(output_dir: Path, scenario_id: str | None = None) -> None:
+    """Attach a typed artifact-lineage manifest (sidecar + envelope copy).
+
+    G5-B4-MUST-003 made absent lineage grade ``undetermined``; these
+    score-honesty tests exercise OTHER structured checks, so they seed
+    valid all-primary lineage instead of relying on the old fail-open
+    absence behavior. Mirrors tests/test_live_agentic_harness_guard_contract.py::_seed_lineage.
+    """
+    from vibecomfy.comfy_nodes.agent.artifact_lineage import LINK_KINDS, build_artifact_lineage, primary_row
+
+    if scenario_id is None:
+        scenario_id = output_dir.name if output_dir.name and "tmp" not in output_dir.name else "s1"
+    manifest = build_artifact_lineage(
+        lineage={"scenario_id": scenario_id},
+        rows=[primary_row(kind, _LINEAGE_SHA) for kind in LINK_KINDS],
+    )
+    manifest["binding"] = {"scenario_id": scenario_id}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    frozen = json.loads(json.dumps(manifest))
+    (output_dir / "artifact_lineage.json").write_text(json.dumps(manifest), encoding="utf-8")
+    response_path = output_dir / "response.json"
+    if response_path.is_file():
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        report = response.setdefault("report", {})
+        executor = report.setdefault("executor", {})
+        executor["artifact_lineage"] = frozen
+        response_path.write_text(json.dumps(response), encoding="utf-8")
+
 
 def test_recovered_upstream_500_is_warning_when_candidate_succeeded(tmp_path: Path) -> None:
     response = {
@@ -15,6 +46,7 @@ def test_recovered_upstream_500_is_warning_when_candidate_succeeded(tmp_path: Pa
         "warnings": ["Hivemind HTTP error 500: Internal Server Error"],
     }
     (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    _seed_lineage(tmp_path)
 
     assessment = assess_live_output_dir(
         tmp_path,
@@ -69,6 +101,7 @@ def test_skipped_queue_validation_is_warning_when_candidate_succeeded(tmp_path: 
         },
     }
     (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    _seed_lineage(tmp_path)
 
     assessment = assess_live_output_dir(
         tmp_path,
@@ -103,6 +136,7 @@ def test_skipped_queue_validation_does_not_hide_other_failed_gates(tmp_path: Pat
         },
     }
     (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    _seed_lineage(tmp_path)
 
     assessment = assess_live_output_dir(
         tmp_path,
@@ -142,6 +176,7 @@ def test_queue_validation_stage_failure_still_fails(tmp_path: Path) -> None:
         },
     }
     (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    _seed_lineage(tmp_path)
 
     assessment = assess_live_output_dir(
         tmp_path,
@@ -204,6 +239,7 @@ def test_message_prose_never_affects_score(tmp_path: Path) -> None:
             json.dumps({"message": message}),
             encoding="utf-8",
         )
+        _seed_lineage(run_dir)
         assessment = assess_live_output_dir(run_dir, scenario=scenario)
         scores.append((assessment["passed"], assessment["error_count"]))
 
@@ -283,6 +319,7 @@ def test_implementation_result_unchanged_prose_does_not_gate_scoring(tmp_path: P
         json.dumps({"message": "Updated the sampler; other nodes are unchanged."}),
         encoding="utf-8",
     )
+    _seed_lineage(tmp_path)
 
     assessment = assess_live_output_dir(
         tmp_path,
@@ -394,6 +431,7 @@ def test_model_request_size_and_content_gates_removed(tmp_path: Path) -> None:
             "forbid_model_request_substrings": ['"workflow_schema"'],
         },
     }
+    _seed_lineage(tmp_path, scenario_id=str(scenario["id"]))
     assessment = assess_live_output_dir(tmp_path, scenario=scenario)
 
     assert assessment["passed"] is True, assessment["issues"]
@@ -421,6 +459,7 @@ def test_shared_source_effective_edit_passes_by_default(tmp_path: Path) -> None:
         json.dumps(_frame_graph(source_value=16, target_value=8, linked=True, shared_source=True)),
         encoding="utf-8",
     )
+    _seed_lineage(run_dir, scenario_id="effective-edit")
 
     assessment = assess_live_output_dir(run_dir, scenario=_effective_edit_scenario())
 
@@ -477,6 +516,7 @@ def test_equivalent_effect_different_paths_score_equally(tmp_path: Path) -> None
         json.dumps(_frame_graph(source_value=8, target_value=16, linked=False)),
         encoding="utf-8",
     )
+    _seed_lineage(direct_dir, scenario_id="effective-edit")
 
     linked_dir = tmp_path / "linked-source"
     linked_dir.mkdir(parents=True, exist_ok=True)
@@ -491,6 +531,7 @@ def test_equivalent_effect_different_paths_score_equally(tmp_path: Path) -> None
         json.dumps(_frame_graph(source_value=16, target_value=8, linked=True)),
         encoding="utf-8",
     )
+    _seed_lineage(linked_dir, scenario_id="effective-edit")
 
     scenario = _effective_edit_scenario()
     direct = assess_live_output_dir(direct_dir, scenario=scenario)
