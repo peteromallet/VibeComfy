@@ -243,16 +243,18 @@ def _interpret_ops(
                 except ApplyOpsError as exc:
                     if getattr(exc, "code", None) in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
                         # Route through single canonical helper from admit.py
+                        # FAIL-CLOSED: authoritative catalog must be present; missing
+                        # catalog must REJECT, never admit via fallback.
                         pair = admission_snapshot_for(post, schema_provider)
                         catalog = _schema_catalog_for(pair, pair)
-                        cat = catalog if catalog is not None else pair.schema
-                        if _is_provisional_touched_for_admit(_operation_mapping(op), post, cat, working_workflow=post):
+                        if catalog is None:
+                            raise
+                        if _is_provisional_touched_for_admit(_operation_mapping(op), post, catalog, working_workflow=post):
                             pass
                         else:
                             raise
                     else:
                         raise
-            # Typed-op callers carry their channel contract in the op (and,
             # for AddNodeOp, its explicit widget_field_names), while Python
             # source batches are replayed from source by apply_gate. Keep the
             # typed-op interpreter aligned with typed validation here.

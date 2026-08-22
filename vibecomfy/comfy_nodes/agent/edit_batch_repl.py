@@ -2209,6 +2209,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             if not _journal_failed:
                 _entry_mod.commit_turn_event_buffer()
     failure_kind = deps._batch_budget_failure_kind(state.batch_turns)
+    artifixer_report = deps._batch_budget_artifixer_report(state, failure_kind)
     state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
     if consecutive_errors >= max_consecutive_errors:
         exit_code = "batch_consecutive_errors_exhausted"

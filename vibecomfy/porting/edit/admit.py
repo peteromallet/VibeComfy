@@ -151,15 +151,20 @@ def _is_provisional_touched_for_admit(
     # For add_node provisional, also allow when class itself is provisional even
     # if workflow is None or touched is empty — mirror _is_provisional_touched's
     # add_node branch but using the same catalog.
+    # FAIL-CLOSED: when catalog is None, no schema evidence exists, so do NOT
+    # admit provisional adds — missing catalog must reject schema-dependent ops.
     if str(operation.get("op") or "") == "add_node":
+        if catalog is None:
+            return False
         try:
             from vibecomfy.schema.types import _snapshot_known_and_missing
-            known, missing = _snapshot_known_and_missing(catalog) if catalog is not None else (set(), set())
+            known, missing = _snapshot_known_and_missing(catalog)
             cls = operation.get("class_type")
             if isinstance(cls, str) and cls and (cls not in known or cls in missing):
                 return True
-        except Exception as exc:
+        except (KeyError, AttributeError, Exception) as exc:
             _LOGGER.debug("canonical add_node provisional check failed: %s", exc)
+            return False
     return _is_provisional_touched(operation, workflow, catalog)
 
 LAYOUT_OPERATION_NAMES = frozenset(

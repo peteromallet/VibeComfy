@@ -535,8 +535,17 @@ def require_known_schema_for_operation(
                 code=admitted.typed_reason,
                 detail={"evidence_refs": list(admitted.evidence_refs), "op": getattr(operation, "op", None)},
             )
+        # FAIL-CLOSED: missing schema evidence must never admit an operation
+        # whose touched closure is schema-dependent. If admit allowed above,
+        # re-check need; schema-dependent ops require rejection when snapshot is None.
+        from vibecomfy.porting.edit.admit import _needs_schema_knowledge, _operation_mapping
+        if _needs_schema_knowledge(_operation_mapping(operation)):
+            raise EditOpParseError(
+                "missing_touched_schema",
+                code="missing_touched_schema",
+                detail={"evidence_refs": ["reason:missing_touched_schema"], "op": getattr(operation, "op", None)},
+            )
         return
-    admitted = admit_operation(snapshot, operation)
     if isinstance(admitted, AdmissionRejected):
         raise EditOpParseError(
             admitted.typed_reason,

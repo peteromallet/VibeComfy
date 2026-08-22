@@ -1833,8 +1833,16 @@ def stamp_terminal_state(
         # Never let a replay-mismatch masquerade as clarify on the public wire.
         if terminal_state == "authority_rejected" and outcome.get("kind") == "clarify":
             outcome["kind"] = "error"
-            outcome["failure_kind"] = outcome.get("failure_kind") or "ValidationError"
-            outcome["stage"] = outcome.get("stage") or "authority"
+            # Preserve typed failure kind through authority path; do not collapse
+            # ModelMistake/Unrepresentable to ValidationError. Missing touched
+            # schema maps to SchemaGap when evident in evidence_refs.
+            prior_kind = outcome.get("failure_kind")
+            if isinstance(prior_kind, str) and prior_kind:
+                outcome["failure_kind"] = prior_kind
+            elif evidence_refs and any("missing_touched_schema" in str(ref) for ref in evidence_refs):
+                outcome["failure_kind"] = "SchemaGap"
+            else:
+                outcome["failure_kind"] = "ValidationError"
             outcome["retryable"] = False if outcome.get("retryable") is None else outcome.get("retryable")
             outcome["next_action"] = outcome.get("next_action") or "none"
             outcome["graph_unchanged"] = True

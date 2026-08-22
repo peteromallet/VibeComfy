@@ -803,9 +803,19 @@ def stamp_response_with_authority(
                 "verification failed. The graph is unchanged."
             )
             stamped["message"] = message
+        # Preserve typed failure kind through authority path instead of
+        # collapsing to ValidationError. Missing touched schema is SCHEMA_GAP.
+        prior_outcome = response.get("outcome") if isinstance(response.get("outcome"), dict) else {}
+        prior_kind = prior_outcome.get("failure_kind") if isinstance(prior_outcome, dict) else None
+        if missing_touched:
+            authority_failure_kind = "SchemaGap"
+        elif isinstance(prior_kind, str) and prior_kind in {"ModelMistake", "Unrepresentable", "SchemaGap", "ValidationError", "ProviderError"}:
+            authority_failure_kind = prior_kind
+        else:
+            authority_failure_kind = "ValidationError"
         stamped["outcome"] = {
             "kind": "error",
-            "failure_kind": "ValidationError",
+            "failure_kind": authority_failure_kind,
             "stage": "authority",
             "retryable": False,
             "next_action": "none",
@@ -815,7 +825,7 @@ def stamp_response_with_authority(
         }
         stamped["internal_outcome"] = {
             "kind": "failure",
-            "failure_kind": "ValidationError",
+            "failure_kind": authority_failure_kind,
             "stage": "authority",
             "retryable": False,
             "next_action": "none",

@@ -642,6 +642,34 @@ def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
         "compatible output",
         "confidence",
     )
+    # Typed ApplyOpsError codes that must preserve their failure kind explicitly
+    # (do not collapse via haystack). These are fixable model mistakes.
+    _TYPED_MODEL_MISTAKE_CODES = {
+        "unknown_schema",
+        "unknown_port",
+        "unknown_field",
+        "wrong_channel",
+        "unknown_target",
+        "unknown_target_field",
+        "unknown_target_node",
+        "unknown_add_node_class_type",
+        "unknown_output",
+        "invalid_arguments",
+        "malformed_op",
+        "unsupported_op",
+        "apply_failed",
+        "batch_identity_rejected",
+        "unbound_graph_name",
+        "batch_syntax_error",
+        "unsupported_query_call",
+        "batch_transaction_rolled_back",
+        "batch_consecutive_errors_exhausted",
+        "batch_budget_exhausted",
+    }
+    _TYPED_SCHEMA_GAP_CODES = {
+        "missing_touched_schema",
+        "schema_less_queue_blocker",
+    }
     category_turn_hits = {
         FailureKind.MODEL_MISTAKE: 0,
         FailureKind.UNREPRESENTABLE: 0,
@@ -655,10 +683,21 @@ def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
             message = str(diagnostic.get("message", "")).lower()
             teaching_hint = str(diagnostic.get("teaching_hint", "")).lower()
             haystack = " ".join((code, message, teaching_hint))
+            # Preserve typed kinds before haystack; prevents unknown_schema
+            # containing "schema" from being misclassified as SCHEMA_GAP.
+            if code in _BATCH_UNREPRESENTABLE_DIAGNOSTIC_CODES:
+                turn_categories.add(FailureKind.UNREPRESENTABLE)
+                continue
+            if code in _TYPED_SCHEMA_GAP_CODES:
+                turn_categories.add(FailureKind.SCHEMA_GAP)
+                continue
+            if code in _TYPED_MODEL_MISTAKE_CODES:
+                turn_categories.add(FailureKind.MODEL_MISTAKE)
+                continue
             if any(marker in haystack for marker in schema_gap_markers):
                 turn_categories.add(FailureKind.SCHEMA_GAP)
                 continue
-            if code in _BATCH_UNREPRESENTABLE_DIAGNOSTIC_CODES or "not allowed" in haystack or "immutable" in haystack:
+            if "not allowed" in haystack or "immutable" in haystack:
                 turn_categories.add(FailureKind.UNREPRESENTABLE)
                 continue
             turn_categories.add(FailureKind.MODEL_MISTAKE)
