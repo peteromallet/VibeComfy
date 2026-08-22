@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import json
 import os
@@ -7,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -142,14 +144,14 @@ def test_dead_pid_grace_clears_synthetic_dead_wrapper_and_writes_note(tmp_path: 
         "allowed": ["allowed.txt"],
     })
 
-    lock_handle, registry, _candidate = wrapper._registry_guard(
+    registry, _candidate = wrapper._registry_guard(
         evidence, "next-dispatch", allowance, project, ["allowed.txt"]
     )
     try:
         assert "T1.2-precode-dead-wrapper" not in registry
         assert "next-dispatch" in registry
     finally:
-        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+        wrapper._registry_release(evidence, "next-dispatch")
 
     note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
     assert set(note) == {"cleared_task_ids", "cleared_ts", "reason"}
@@ -181,13 +183,13 @@ def test_dead_pid_younger_than_grace_is_retained_then_cleared_later(tmp_path: Pa
 
     entry["start_ts_epoch"] = time.time() - wrapper.DEAD_PID_GRACE_SECONDS - 120
     _write_registry(evidence, task_id, entry)
-    lock_handle, registry, _candidate = wrapper._registry_guard(
+    registry, _candidate = wrapper._registry_guard(
         evidence, "next-dispatch", allowance, project, ["allowed.txt"]
     )
     try:
         assert task_id not in registry
     finally:
-        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+        wrapper._registry_release(evidence, "next-dispatch")
     note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
     assert note["cleared_task_ids"] == [task_id]
 
@@ -205,13 +207,13 @@ def test_live_pid_is_retained_regardless_of_age(tmp_path: Path) -> None:
         "allowed": ["live.txt"],
     })
 
-    lock_handle, registry, _candidate = wrapper._registry_guard(
+    registry, _candidate = wrapper._registry_guard(
         evidence, "next-dispatch", allowance, project, ["allowed.txt"]
     )
     try:
         assert task_id in registry
     finally:
-        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+        wrapper._registry_release(evidence, "next-dispatch")
     assert task_id in json.loads((evidence / "active-allowances.json").read_text())
     assert not (evidence / "stale-allowance-cleared.json").exists()
 
@@ -236,13 +238,13 @@ def test_missing_or_non_int_pid_uses_six_hour_path(
         "allowed": ["missing.txt"],
     })
 
-    lock_handle, registry, _candidate = wrapper._registry_guard(
+    registry, _candidate = wrapper._registry_guard(
         evidence, "next-dispatch", allowance, project, ["allowed.txt"]
     )
     try:
         assert (task_id not in registry) is cleared
     finally:
-        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+        wrapper._registry_release(evidence, "next-dispatch")
     if cleared:
         note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
         assert note["cleared_task_ids"] == [task_id]
@@ -275,14 +277,14 @@ def test_mixed_sweep_note_names_dead_and_six_hour_classes(tmp_path: Path) -> Non
     }
     registry_path.write_text(json.dumps(registry))
 
-    lock_handle, active, _candidate = wrapper._registry_guard(
+    active, _candidate = wrapper._registry_guard(
         evidence, "next-dispatch", allowance, project, ["allowed.txt"]
     )
     try:
         assert "dead-entry" not in active
         assert "missing-entry" not in active
     finally:
-        wrapper._registry_release(evidence, "next-dispatch", lock_handle)
+        wrapper._registry_release(evidence, "next-dispatch")
     note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
     assert note["cleared_task_ids"] == ["dead-entry", "missing-entry"]
     assert "dead-PID grace" in note["reason"]
@@ -591,3 +593,180 @@ def test_finalization_failure_does_not_clobber_interrupted_receipt(tmp_path: Pat
     }
     assert wrapper._record_finalization_failure(evidence, receipt_path, partial.copy(), failure) is None
     assert json.loads(receipt_path.read_text()) == partial
+
+
+def test_timeout_default_is_7200() -> None:
+    spec = importlib.util.spec_from_file_location("workflow_execution_wrapper_timeout_default", WRAPPER)
+    assert spec is not None and spec.loader is not None
+    wrapper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper)
+    args = wrapper.build_parser().parse_args([
+        "--task-id=T", "--role=r", "--label=l", "--model-route=stealth/ox-alpha",
+        "--query-file=q", "--project-dir=p", "--allowance-file=a", "--evidence-dir=e",
+    ])
+    assert args.timeout == 7200
+
+
+def test_registry_critical_section_ends_after_candidate_write(tmp_path: Path) -> None:
+    """H3 fix: the exclusive lock is released once the candidate entry is durable.
+
+    Under the pre-fix behavior the guard returned a lock handle held for the
+    whole child runtime, so this non-blocking probe would raise BlockingIOError
+    and a second registration would stall until the first dispatch finished.
+    """
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_short_critical_section")
+    registry, _candidate = wrapper._registry_guard(evidence, "task-a", allowance, project, ["allowed.txt"])
+    try:
+        assert "task-a" in registry
+        probe = (evidence / ".active-allowances.lock").open("r+")
+        try:
+            fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+        finally:
+            probe.close()
+        other_project = project.parent / "worktree-b"
+        other_project.mkdir()
+        second_registry, _second = wrapper._registry_guard(
+            evidence, "task-b", allowance, other_project, ["other.txt"]
+        )
+        assert set(second_registry) == {"task-a", "task-b"}
+        stored = json.loads((evidence / "active-allowances.json").read_text())
+        assert set(stored) == {"task-a", "task-b"}
+    finally:
+        wrapper._registry_release(evidence, "task-a")
+        wrapper._registry_release(evidence, "task-b")
+    assert not json.loads((evidence / "active-allowances.json").read_text())
+
+
+def test_concurrent_registry_release_preserves_both_deletions(tmp_path: Path) -> None:
+    """Releases take LOCK_EX around their read-modify-write so neither deletion is lost."""
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_concurrent_release")
+    other_project = project.parent / "worktree-b"
+    other_project.mkdir()
+    wrapper._registry_guard(evidence, "task-a", allowance, project, ["allowed.txt"])
+    wrapper._registry_guard(evidence, "task-b", allowance, other_project, ["other.txt"])
+    failures: list[BaseException] = []
+
+    def release(task_id: str) -> None:
+        try:
+            wrapper._registry_release(evidence, task_id)
+        except BaseException as exc:  # surfaced via the assertion below
+            failures.append(exc)
+
+    threads = [threading.Thread(target=release, args=("task-a",)), threading.Thread(target=release, args=("task-b",))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+        assert not thread.is_alive()
+    assert not failures
+
+
+def test_second_wrapper_completes_while_first_child_still_sleeping(tmp_path: Path) -> None:
+    """End-to-end H3 proof: registration, sweep, and release all work while
+    another wrapper's child is mid-run; the live entry survives the sweep.
+    """
+    case_root = Path(tempfile.mkdtemp(prefix="wrapper-overlap-", dir=tmp_path))
+    evidence = case_root / "evidence"
+    evidence.mkdir()
+
+    def make_worktree(name: str, allowed_name: str) -> tuple[Path, Path]:
+        project = case_root / name
+        project.mkdir()
+        _git(project, "init", "-q")
+        _git(project, "config", "user.email", "test@example.invalid")
+        _git(project, "config", "user.name", "Test")
+        (project / "seed.txt").write_text("seed\n")
+        _git(project, "add", "-A")
+        _git(project, "commit", "-qm", "seed")
+        allowance = case_root / f"{name}-allowance.json"
+        allowance.write_text(json.dumps({"allowed": [allowed_name], "forbidden": []}))
+        return project, allowance
+
+    project_a, allowance_a = make_worktree("project-a", "allowed-a.txt")
+    project_b, allowance_b = make_worktree("project-b", "allowed-b.txt")
+    brief_a = case_root / "brief-a.md"
+    brief_a.write_text("brief a\n")
+    brief_b = case_root / "brief-b.md"
+    brief_b.write_text("brief b\n")
+    fake = case_root / "fake_launcher.py"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, sys, time\n"
+        "project = pathlib.Path(next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--project-dir=')))\n"
+        "if os.environ.get('FAKE_MODE') == 'sleep':\n"
+        "    pathlib.Path(os.environ['FAKE_HANDSHAKE']).write_text(str(os.getpid()))\n"
+        "    print('fake child ready', flush=True)\n"
+        "    time.sleep(60)\n"
+        "else:\n"
+        "    target = project / os.environ.get('FAKE_TARGET', 'allowed.txt')\n"
+        "    target.write_text('ok')\n"
+        "print('fake result')\n"
+        "print('resolved=fake-model', file=sys.stderr)\n"
+    )
+    fake.chmod(0o755)
+    env = os.environ.copy()
+    env["VCSPINE_FAKE_LAUNCHER"] = str(fake)
+    handshake = evidence / "child-handshake"
+    env["FAKE_MODE"] = "sleep"
+    env["FAKE_HANDSHAKE"] = str(handshake)
+
+    first = subprocess.Popen(
+        [
+            sys.executable, str(WRAPPER), "--task-id=first-dispatch", "--role=implementer",
+            "--label=T9.1 [HARD] overlap holder", "--model-route=codex:gpt-5.6-luna",
+            f"--query-file={brief_a}", f"--project-dir={project_a}",
+            f"--allowance-file={allowance_a}", f"--evidence-dir={evidence}",
+            "--timeout=30",
+        ],
+        env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    child_pid: int | None = None
+    try:
+        deadline = time.monotonic() + 10
+        while not handshake.exists() and time.monotonic() < deadline:
+            if first.poll() is not None:
+                raise AssertionError(f"first wrapper exited early: {first.communicate()}")
+            time.sleep(0.01)
+        assert handshake.exists()
+        child_pid = int(handshake.read_text())
+        registry = json.loads((evidence / "active-allowances.json").read_text())
+        assert set(registry) == {"first-dispatch"}
+
+        second_env = os.environ.copy()
+        second_env["VCSPINE_FAKE_LAUNCHER"] = str(fake)
+        second_env["FAKE_TARGET"] = "allowed-b.txt"
+        second = subprocess.run(
+            [
+                sys.executable, str(WRAPPER), "--task-id=second-dispatch", "--role=implementer",
+                "--label=T9.2 [HARD] overlap entrant", "--model-route=codex:gpt-5.6-luna",
+                f"--query-file={brief_b}", f"--project-dir={project_b}",
+                f"--allowance-file={allowance_b}", f"--evidence-dir={evidence}",
+                "--timeout=30",
+            ],
+            env=second_env, text=True, capture_output=True, timeout=60,
+        )
+        assert second.returncode == 0, second.stderr
+        # The live first entry survived the second wrapper's dead-PID sweep,
+        # and the second wrapper already released its own entry on completion.
+        registry = json.loads((evidence / "active-allowances.json").read_text())
+        assert set(registry) == {"first-dispatch"}
+        assert json.loads((evidence / "second-dispatch-receipt.json").read_text())["exit"] == 0
+    finally:
+        first.send_signal(signal.SIGTERM)
+        try:
+            first_returncode = first.wait(timeout=10)
+        except subprocess.TimeoutExpired:  # pragma: no cover - defensive
+            first.kill()
+            first_returncode = first.wait(timeout=5)
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        first.communicate(timeout=10)
+    interrupted = json.loads((evidence / "first-dispatch-receipt.json").read_text())
+    assert interrupted["status"] == "interrupted"
+    assert not json.loads((evidence / "active-allowances.json").read_text())

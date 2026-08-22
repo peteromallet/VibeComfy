@@ -797,7 +797,7 @@ python "$EXECUTION_WORKTREE/scripts/run_workflow_execution_spine_agent.py" \
   --query-file="$BRIEF_PATH" \
   --project-dir="$TASK_WORKTREE" \
   --allowance-file="$ALLOWANCE_PATH" \
-  --evidence-dir="$EVIDENCE_DIR" --timeout=3600
+  --evidence-dir="$EVIDENCE_DIR" --timeout=7200
 ```
 
 XHARD Grok 4.6 example:
@@ -809,7 +809,7 @@ python "$EXECUTION_WORKTREE/scripts/run_workflow_execution_spine_agent.py" \
   --query-file="$BRIEF_PATH" \
   --project-dir="$TASK_WORKTREE" \
   --allowance-file="$ALLOWANCE_PATH" \
-  --evidence-dir="$EVIDENCE_DIR" --timeout=3600
+  --evidence-dir="$EVIDENCE_DIR" --timeout=7200
 ```
 
 The T0.3 bootstrap Luna is invoked directly through:

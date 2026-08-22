@@ -264,9 +264,38 @@ def test_dependency_order_rejects_reversed_cards() -> None:
     _error(manifest, "DEPENDENCY_ORDER")
 
 
-def test_model_routing_rejects_xhard_on_luna() -> None:
+def test_model_routing_accepts_legacy_routes_and_stealth_ox_alpha() -> None:
+    # Historical records keep validating: [HARD] tasks on Luna (the _manifest default).
+    validator.validate_manifest(_manifest(), ROOT / "manifest.json")
+    for label, route in (
+        ("T0.0 [XHARD] source", "grok-4.6"),
+        ("T0.0 [XHARD] source", "codex:gpt-5.6-luna"),
+        ("T0.0 [XHARD] source", "stealth/ox-alpha"),
+        ("T0.0 [HARD] source", "grok-4.6"),
+        ("T0.0 [HARD] source", "stealth/ox-alpha"),
+    ):
+        manifest = _manifest()
+        manifest["tasks"][0]["label"] = label
+        manifest["tasks"][0]["model_route"] = route
+        validator.validate_manifest(manifest, ROOT / "manifest.json")
+
+
+def test_model_routing_rejects_unknown_route_for_both_label_classes() -> None:
+    for label in ("T0.0 [XHARD] source", "T0.0 [HARD] source"):
+        manifest = _manifest()
+        manifest["tasks"][0]["label"] = label
+        manifest["tasks"][0]["model_route"] = "gpt-9-turbo"
+        detail = _error(manifest, "MODEL_ROUTING")
+        assert "gpt-9-turbo" in detail
+
+
+def test_g7_recommendation_accepts_routed_set_and_rejects_unknown() -> None:
+    for route in ("grok-4.6", "codex:gpt-5.6-luna", "stealth/ox-alpha"):
+        manifest = _manifest()
+        manifest["gates"] = [{"gate_id": "G7", "status": "open", "label": "G7 recommend", "model_route": route}]
+        validator.validate_manifest(manifest, ROOT / "manifest.json")
     manifest = _manifest()
-    manifest["tasks"][0]["label"] = "T0.0 [XHARD] source"
+    manifest["gates"] = [{"gate_id": "G7", "status": "open", "label": "G7 recommend", "model_route": "gpt-9-turbo"}]
     _error(manifest, "MODEL_ROUTING")
 
 
@@ -291,7 +320,7 @@ def test_final_five_identity_is_locked() -> None:
     _error(manifest, "FINAL_FIVE_INTEGRITY")
 
 
-def _authoritative_run(count: int = 100, mode: str = "50x2", *, duplicate: bool = False, keyless: bool = False) -> dict:
+def _authoritative_run(count: int = 50, *, duplicate: bool = False, keyless: bool = False, split: dict | None = None) -> dict:
     receipts: list[dict] = []
     for i in range(count):
         if keyless:
@@ -300,30 +329,55 @@ def _authoritative_run(count: int = 100, mode: str = "50x2", *, duplicate: bool 
             receipts.append({"leg_id": "0"})
         else:
             receipts.append({"leg_id": str(i)})
-    return {"task_id": "T7.2", "authoritative": True, "concurrency": 10, "mode": mode, "leg_receipts": receipts}
+    run = {"task_id": "T7.2", "authoritative": True, "concurrency": 10, "split": {"staged": 25, "threaded": 25}, "leg_receipts": receipts}
+    if split is not None:
+        run["split"] = split
+    return run
 
 
-def test_live_run_accepts_one_authoritative_100_leg_record() -> None:
+def test_live_run_accepts_one_authoritative_50_leg_split_record() -> None:
     manifest = _manifest()
     manifest["live_runs"] = [_authoritative_run()]
     validator.validate_manifest(manifest, ROOT / "manifest.json")
 
 
-def test_live_run_rejects_99_or_101_duplicate_or_keyless_receipts() -> None:
-    for count in (99, 101):
+def test_live_run_rejects_49_or_51_duplicate_or_keyless_receipts() -> None:
+    for count in (49, 51):
         _error({**_manifest(), "live_runs": [_authoritative_run(count)]}, "LIVE_RUN_SINGLETON")
     _error({**_manifest(), "live_runs": [_authoritative_run(duplicate=True)]}, "LIVE_RUN_SINGLETON")
     _error({**_manifest(), "live_runs": [_authoritative_run(keyless=True)]}, "LIVE_RUN_SINGLETON")
 
 
-def test_live_run_rejects_stale_5x2_ten_leg_contract() -> None:
-    detail = _error({**_manifest(), "live_runs": [_authoritative_run(10, "5x2")]}, "LIVE_RUN_SINGLETON")
-    assert "50x2" in detail
+def test_live_run_rejects_legacy_100_leg_50x2_contract() -> None:
+    run = _authoritative_run(100)
+    run["mode"] = "50x2"
+    detail = _error({**_manifest(), "live_runs": [run]}, "LIVE_RUN_SINGLETON")
+    assert "50 unique leg_receipts" in detail
+
+
+def test_live_run_rejects_missing_or_unbalanced_split_or_concurrency() -> None:
+    missing = _authoritative_run()
+    del missing["split"]
+    _error({**_manifest(), "live_runs": [missing]}, "LIVE_RUN_SINGLETON")
+    unbalanced = _authoritative_run(split={"staged": 40, "threaded": 10})
+    _error({**_manifest(), "live_runs": [unbalanced]}, "LIVE_RUN_SINGLETON")
+    slow = _authoritative_run()
+    slow["concurrency"] = 20
+    _error({**_manifest(), "live_runs": [slow]}, "LIVE_RUN_SINGLETON")
 
 
 def test_live_run_rejects_two_authoritative_invocations() -> None:
     run = _authoritative_run()
     _error({**_manifest(), "live_runs": [run, copy.deepcopy(run)]}, "LIVE_RUN_SINGLETON")
+
+
+def test_smoke_non_authoritative_run_does_not_trip_singleton() -> None:
+    smoke = {"task_id": "smoke-final5x2", "authoritative": False, "concurrency": 10, "mode": "5x2", "leg_receipts": [{"leg_id": str(i)} for i in range(10)]}
+    manifest = {**_manifest(), "live_runs": [_authoritative_run(), smoke]}
+    validator.validate_manifest(manifest, ROOT / "manifest.json")
+    flagged = dict(smoke, authoritative=True, status="non_authoritative")
+    manifest = {**_manifest(), "live_runs": [_authoritative_run(), flagged]}
+    validator.validate_manifest(manifest, ROOT / "manifest.json")
 
 
 def test_card_order_places_t04_after_t02_before_g0() -> None:

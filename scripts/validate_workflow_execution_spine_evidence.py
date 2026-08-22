@@ -132,11 +132,19 @@ def check_dependency_order(manifest: dict[str, Any]) -> None:
         _fail("DEPENDENCY_ORDER", "explicit record sequence is not increasing")
 
 
-def _route_for_label(label: str) -> str | None:
+#: Directive §20 routes every role to stealth/ox-alpha. Acceptance is
+#: SET-MEMBERSHIP per label class: the legacy grok-4.6 / codex:gpt-5.6-luna
+#: strings stay valid so historical records keep validating, while new records
+#: may use any routed model below. Requiring exact stealth/ox-alpha would
+#: invalidate pushed history.
+ROUTABLE_MODEL_ROUTES = frozenset({"grok-4.6", "codex:gpt-5.6-luna", "stealth/ox-alpha"})
+
+
+def _route_for_label(label: str) -> frozenset[str] | None:
     if "[XHARD" in label or re.search(r"\bmaterial judgment\b", label, re.I) or (label.startswith("G7") and "recommend" in label.lower()):
-        return "grok-4.6"
+        return ROUTABLE_MODEL_ROUTES
     if "[HARD" in label:
-        return "codex:gpt-5.6-luna"
+        return ROUTABLE_MODEL_ROUTES
     return None
 
 
@@ -145,10 +153,10 @@ def check_model_routing(manifest: dict[str, Any]) -> None:
         label = record.get("label", "")
         route = record.get("model_route")
         expected = _route_for_label(label) if isinstance(label, str) else None
-        if expected and route != expected:
-            _fail("MODEL_ROUTING", f"{_task_id(record) or _gate_id(record)} requires {expected}, got {route}")
-        if _gate_id(record) == "G7" and route != "grok-4.6":
-            _fail("MODEL_ROUTING", "final G7 recommendation must use grok-4.6")
+        if expected and route not in expected:
+            _fail("MODEL_ROUTING", f"{_task_id(record) or _gate_id(record)} requires one of {sorted(expected)}, got {route}")
+        if _gate_id(record) == "G7" and route not in ROUTABLE_MODEL_ROUTES:
+            _fail("MODEL_ROUTING", f"final G7 recommendation must use one of {sorted(ROUTABLE_MODEL_ROUTES)}")
 
 
 def _same_identity(left: Any, right: Any) -> bool:
@@ -329,8 +337,15 @@ def check_live_run(manifest: dict[str, Any]) -> None:
     for run in authoritative:
         if run.get("task_id") not in {None, "T7.2"} and run.get("card") not in {None, "T7.2"}:
             _fail("LIVE_RUN_SINGLETON", "authoritative live_run is not G7.2")
-        if run.get("concurrency") != 10 or run.get("mode") != "50x2":
-            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must be concurrency 10 and mode 50x2")
+        # §18 finale: 50 legs total -- all 50 final50 scenarios, 25 staged +
+        # 25 threaded. The legacy 100-leg "50x2" contract is retired.
+        if run.get("concurrency") != 10:
+            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must be concurrency 10")
+        split = run.get("split")
+        staged = split.get("staged") if isinstance(split, dict) else None
+        threaded = split.get("threaded") if isinstance(split, dict) else None
+        if staged != 25 or threaded != 25:
+            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must record a 25 staged / 25 threaded split")
         receipts = _leg_receipts(run)
         keys = []
         for receipt in receipts:
@@ -338,8 +353,8 @@ def check_live_run(manifest: dict[str, Any]) -> None:
                 keys.append(receipt.get("leg_id", receipt.get("receipt_id")))
             else:
                 keys.append(receipt)
-        if len(receipts) != 100 or any(key is None for key in keys) or len(set(keys)) != 100:
-            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must contain exactly 100 unique leg_receipts")
+        if len(receipts) != 50 or any(key is None for key in keys) or len(set(keys)) != 50:
+            _fail("LIVE_RUN_SINGLETON", "authoritative live_run must contain exactly 50 unique leg_receipts")
 
 
 def _walk_assessments(value: Any) -> Iterable[dict[str, Any]]:

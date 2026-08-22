@@ -37,10 +37,10 @@ import sys
 import re
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 HERMES_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py"
-GROK_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_omp_agent.py"
 STALE_SECONDS = 6 * 60 * 60
 DEAD_PID_GRACE_SECONDS = 60
 ROUTE_LAUNCHERS = {
@@ -251,11 +251,19 @@ def _allowances_overlap(current: dict[str, Any], other: dict[str, Any]) -> bool:
     return any(_pattern_overlap(str(a), str(b)) for a in current_allowed for b in other_allowed)
 
 
-def _registry_guard(evidence_dir: Path, task_id: str, allowance_file: Path, worktree: Path, allowed: list[str]) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+#: Descriptor holding this process's registry-guard critical-section lock, or
+#: None. Single-threaded wrapper invariant: ``_registry_release`` reuses this
+#: descriptor when an interrupt lands inside the critical section instead of
+#: blocking on a second flock acquisition, which would deadlock the handler.
+_ACTIVE_REGISTRY_LOCK: Any = None
+
+
+def _registry_guard(evidence_dir: Path, task_id: str, allowance_file: Path, worktree: Path, allowed: list[str]) -> tuple[dict[str, Any], dict[str, Any]]:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     registry_path, lock_path = _registry_paths(evidence_dir)
     lock_path.touch(exist_ok=True)
     lock_handle = lock_path.open("r+")
+    _ACTIVE_REGISTRY_LOCK = lock_handle
     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
     try:
         try:
@@ -305,11 +313,51 @@ def _registry_guard(evidence_dir: Path, task_id: str, allowance_file: Path, work
                 raise WrapperError(f"ALLOWANCE_OVERLAP: {task_id} overlaps active task {active_id}")
         registry[task_id] = candidate
         _json_write(registry_path, registry)
-        return lock_handle, registry, candidate
-    except Exception:
+        # H3 fix: the critical section ends once the candidate entry is durably
+        # written. The lock is NOT held for the child runtime, so other wrappers
+        # can register allowances and the dead-PID sweep can fire while this
+        # dispatch runs.
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
         lock_handle.close()
+        _ACTIVE_REGISTRY_LOCK = None
+        return registry, candidate
+    except Exception:
+        _ACTIVE_REGISTRY_LOCK = None
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lock_handle.close()
         raise
+
+
+def _registry_release(evidence_dir: Path, task_id: str) -> None:
+    """Remove one task entry from the registry under an exclusive lock.
+
+    With the guard's critical section shortened (H3 fix), the lock is normally
+    free here, so this read-modify-write MUST take LOCK_EX itself; an unlocked
+    RMW loses concurrent deletions and leaves zombie allowances behind.
+    """
+    registry_path, lock_path = _registry_paths(evidence_dir)
+    held = _ACTIVE_REGISTRY_LOCK
+    if held is not None and not getattr(held, "closed", True):
+        handle = held
+    else:
+        lock_path.touch(exist_ok=True)
+        handle = lock_path.open("r+")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    try:
+        try:
+            registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            registry = {}
+        if isinstance(registry, dict):
+            registry.pop(task_id, None)
+            _json_write(registry_path, registry)
+    finally:
+        if handle is not held:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
 
 
 def _pid_exists(pid: int) -> bool:
@@ -321,20 +369,6 @@ def _pid_exists(pid: int) -> bool:
         return False
     return True
 
-
-def _registry_release(evidence_dir: Path, task_id: str, lock_handle: Any) -> None:
-    registry_path, _ = _registry_paths(evidence_dir)
-    try:
-        try:
-            registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
-        except (OSError, json.JSONDecodeError):
-            registry = {}
-        if isinstance(registry, dict):
-            registry.pop(task_id, None)
-            _json_write(registry_path, registry)
-    finally:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-        lock_handle.close()
 
 def _git(project_dir: Path, args: list[str]) -> str:
     result = subprocess.run(["git", *args], cwd=project_dir, text=True, capture_output=True, check=False)
@@ -561,7 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", required=True, type=Path)
     parser.add_argument("--allowance-file", required=True, type=Path)
     parser.add_argument("--evidence-dir", required=True, type=Path)
-    parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--timeout", type=int, default=7200)
     parser.add_argument("--base-sha")
     parser.add_argument("--gate")
     return parser
@@ -597,7 +631,7 @@ def run(args: argparse.Namespace) -> int:
         raise WrapperError("ALLOWANCE_INVALID: allowance must be an object")
     project_dir, allowed, forbidden, base_sha = _preflight(args, allowance)
     evidence_dir = args.evidence_dir.resolve()
-    lock_handle, _, _ = _registry_guard(evidence_dir, args.task_id, args.allowance_file.resolve(), project_dir, allowed)
+    _registry_guard(evidence_dir, args.task_id, args.allowance_file.resolve(), project_dir, allowed)
     start_ts = utc_now()
     child_pid: int | None = None
     stdout_bytes = b""
@@ -643,8 +677,7 @@ def run(args: argparse.Namespace) -> int:
         except BaseException:
             pass
         try:
-            if not getattr(lock_handle, "closed", True):
-                _registry_release(evidence_dir, args.task_id, lock_handle)
+            _registry_release(evidence_dir, args.task_id)
         except BaseException:
             pass
         os._exit(128 + signum)
@@ -749,7 +782,7 @@ def run(args: argparse.Namespace) -> int:
                 cleanup_error = exc
         finally:
             try:
-                _registry_release(evidence_dir, args.task_id, lock_handle)
+                _registry_release(evidence_dir, args.task_id)
             except Exception as exc:
                 release_error = exc
         if cleanup_error is not None or release_error is not None:
