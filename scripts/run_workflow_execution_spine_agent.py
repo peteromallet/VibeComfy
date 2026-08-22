@@ -44,10 +44,10 @@ HERMES_LAUNCHER = "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py"
 STALE_SECONDS = 6 * 60 * 60
 DEAD_PID_GRACE_SECONDS = 60
 ROUTE_LAUNCHERS = {
-    "codex:gpt-5.6-luna": (HERMES_LAUNCHER, "stealth/ox-alpha"),
-    "grok-4.6": (HERMES_LAUNCHER, "stealth/ox-alpha"),
-    "stealth/ox-alpha": (HERMES_LAUNCHER, "stealth/ox-alpha"),
-    "codex:gpt-5.6-sol": (HERMES_LAUNCHER, "codex:gpt-5.6-sol"),
+    "codex:gpt-5.6-luna": (HERMES_LAUNCHER, "openrouter/meta/muse-spark-1.2-contributor"),
+    "grok-4.6": (HERMES_LAUNCHER, "openrouter/meta/muse-spark-1.2-contributor"),
+    "stealth/ox-alpha": (HERMES_LAUNCHER, "openrouter/meta/muse-spark-1.2-contributor"),
+    "codex:gpt-5.6-sol": (HERMES_LAUNCHER, "openrouter/meta/muse-spark-1.2-contributor"),
 }
 GATE_BY_TASK = {
     "T0.0": "G0", "T0.1": "G0", "T0.2": "G0", "T0.3": "G0",
