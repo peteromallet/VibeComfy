@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "7846070fca6fec8f7ef96d55dbd1828645438c46b2fd5d95aae07d694bb2bf62",
+        "sha256": "3e6f6fc433853bef52fac240b7d96860fcf4785dae7391b52ae271d07b48f9c6",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1408,7 +1408,7 @@
         "push_by_implementer": false,
         "receipts_committed": false
       },
-      "next_unblocked_card": "G3 batch review (ONE stealth review of the whole B2 diff - BATCH1-REVISION + R-G2-1-REPAIR + B2 commits; doubles as the G3 gate per C10; must classify the R-G2-1 residual AND the 22 pre-existing T3.2-scope failures), then integration push (b9c23c92..HEAD), then B3",
+      "next_unblocked_card": "Integration push b9c23c92..HEAD (incl. evidence commit 63d4d153), then evidence-log-integration, then B3-IMPLEMENTER (T4.1 + T4.2 + T4.3; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER.md and -allowance.json), then G4 batch review",
       "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false},
       "g2_batch_review": {
         "task_id": "G2-BATCH1-REVIEW",
@@ -1724,6 +1724,99 @@
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T4.2-INVENTORY-dispatch.log",
         "surface": "Staged-adapter surface: five pipeline stages (classify, research, implement, no-candidate, reply) with per-stage entry/exit sites and contract flow; shared contract surfaces vs the T4.1 evidence list; research phase internals (budgets, loop semantics, hang handling, evidence flow); wire-compatibility surface (byte-stable staged omission pattern); reply-model distinct behavior; staged test coverage map with uncovered gaps",
         "ambiguous_areas": "VIBECOMFY_RESEARCH_PHASE_DEADLINE defaults differ (450s executor staged vs 600s batch-REPL, same env knob); per-ledger-entry tool status encoded as status-prefixed conclusion strings vs typed field; executed_tool_calls count bases may differ subtly across modes"
+      },
+      "g3_b2_review": {
+        "task_id": "G3-B2-REVIEW",
+        "gate": "G3",
+        "label": "G3 [XHARD-REVIEW] batch/gate review of the B2 window (BATCH1-REVISION + R-G2-1-REPAIR + B2 T3.1/T3.2)",
+        "role": "reviewer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "verdict": "continue",
+        "base_sha": "5396123eb7a955e0753e0b47a4f4516a773c66f8",
+        "reviewed_window": "2e384645786cb287ee121764125de3c85bda15d4..5396123eb7a955e0753e0b47a4f4516a773c66f8 (BATCH1-REVISION + R-G2-1-REPAIR + B2 T3.1/T3.2)",
+        "wrapper_pid": 76285,
+        "start_ts": "2026-08-22T04:25:41Z",
+        "end_ts": "2026-08-22T04:48:22Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/G3-B2-REVIEW-receipt.json", "sha256": "1eff68938568792561bd7c95e404c0b7d8717365b756c917e041519a661688a9"},
+        "brief_sha256": "87972cd5a279c25970447852f69b8b1747a44a825bee22b1bfc8ddbcee92e428",
+        "result_sha256": "d3d4823802714f4f8efbc89a1ff2a84a22003306e3429d8f226620927cea543b",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G3-B2-REVIEW-dispatch.log",
+        "verdict_basis": [
+          "The complete B2 window 2e384645..5396123e satisfies G3 gate acceptance for T3.1 [HARD] and T3.2 [XHARD]; the G2 findings are closed correctly; a genuine R-G2-1 repair landed; zero test failures introduced; protected state unchanged.",
+          "Merge/default recommendation: proceed with the integration push b9c23c92..5396123e plus the pending evidence-log-B2 append (63d4d153); default routing unchanged; land one small follow-up production card before T7.2 (G3-RESIDUAL-RG21-ASYMMETRY); does not block B3."
+        ],
+        "t31_verdict": "PASS - owner map frozen (runtime.py:132-135), composed budget via min() contextvar enforced pre-spawn + per-spawn clamp + provider wrap (historical 3x3 multiplication dead), D6/480s truthful typed exhaustion with harness-only new-identity retry, attempt evidence real (all seven keys stamped, preserved through re-normalization); focused command reproduced: 358 passed",
+        "t32_verdict": "PASS - fence seam fail-closed on all eight scenarios (no-fence / malformed / multiple / valid+prose / empty-fence typed identity no-op / duplicate-replay by idempotency key / valid-first-invalid-second atomic + reprompt-once), native structured bypass, correction slot exactly-once + persisted end-to-end, ok-and-landed admission, accepted_batch sole authority, echo derived-only",
+        "findings_closed": [
+          {
+            "finding_id": "MF-G2-1",
+            "severity": "must",
+            "classification": "HARD",
+            "status": "closed",
+            "summary": "registry-lock global fix from BATCH1-REVISION verified genuine: module global published and reused, release reuse branch live"
+          },
+          {
+            "finding_id": "MF-G2-2",
+            "severity": "must",
+            "classification": "HARD",
+            "status": "closed",
+            "summary": "post-state registry-empty assertion verified genuine: concurrent-release test now fails on lost updates instead of passing vacuously"
+          },
+          {
+            "finding_id": "SH-G2-3",
+            "severity": "should",
+            "status": "closed",
+            "summary": "goal-doc timeout template now emits --timeout=7200"
+          },
+          {
+            "finding_id": "R-G2-1",
+            "severity": "residual",
+            "classification": "XHARD",
+            "status": "closed",
+            "summary": "repair strengthened the harness: _sequential_candidate returns pin_untouched_ui(submit, emitted, ops) byte-identical to EditSession._emit_working_snapshot; assertions strengthened not relaxed; 2 passed independently reproduced by the review"
+          }
+        ],
+        "residuals": [
+          {
+            "finding_id": "G3-RESIDUAL-RG21-ASYMMETRY",
+            "severity": "should",
+            "classification": "XHARD",
+            "must_track": true,
+            "blocking": false,
+            "summary": "executor ingests use_comfy_converter=False (session.py:444) while recompute_apply keeps the from_ui converter default True (authority_receipts.py:320); provably inert offline (identical _normalize_ui_to_api fallback both paths); latent only on comfy-import hosts; drift direction fail-closed (false candidate_hash_mismatch rejection, never a false accept); one-line repairable at vibecomfy/comfy_nodes/agent/authority_receipts.py (outside R-G2-1's allowance)",
+            "closure_requirement": "land before T7.2"
+          },
+          {
+            "finding_id": "G3-RESIDUAL-ARNOLD-MODULE",
+            "severity": "should",
+            "must_track": true,
+            "blocking": false,
+            "summary": "non-default VIBECOMFY_ARNOLD_RUNTIME_MODULE ignores the composed-deadline contextvar (opaque third-party retry semantics)"
+          },
+          "600s composed default tightens worst-case wall clock vs historical unbounded 9x480s composition (intended, env-tunable)",
+          "retry-evidence keys ride outside the frozen ModelAttemptEvidence dataclass as additive dict keys (contracts.py outside the allowance); preserved through re-normalization"
+        ],
+        "t32_failure_classification": {
+          "head": "150 passed, 22 failed @ 5396123e",
+          "base_export": "139 passed, 22 failed @ 903f6099",
+          "symmetric_diff_of_failing_ids": "EMPTY (diff exit 0)",
+          "new_passes_at_head": "+11 = exactly the new B2 pins",
+          "introduced_by_b2": 0,
+          "ownership": "pre-existing prompt-content/loop-behavior assertions in tests/test_comfy_nodes_agent_edit.py untouched by this card; owned by T6.2 formal classification with base/head proof recorded"
+        },
+        "focused_commands": [
+          "T3.1 pytest (runtime/executor/agent-contracts) re-run -> 358 passed",
+          "T3.2 pytest -k 'batch or protocol or accepted_batch' @ head 5396123e -> 150 passed, 22 failed; same selection @ base export 903f6099 -> 139 passed, 22 failed; failing-ID symmetric diff EMPTY"
+        ],
+        "validator_environment": "reviewer-worktree validator exit 1 root-caused environmental (untracked receipts absent in the fresh worktree); scratch replica of committed state -> OK exit 0 with stdout SHA-256 1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224 (byte-exact match to the recorded deterministic digest); manifest final_five/findings/gates/live_runs/shards identical across the window",
+        "next_unblocked_card": "Integration push b9c23c92..HEAD (incl. evidence commit 63d4d153), then evidence-log-integration, then B3-IMPLEMENTER (T4.1+T4.2+T4.3), then G4 batch review"
       },
       "t43_inventory": {
         "task_id": "T4.3-INVENTORY",

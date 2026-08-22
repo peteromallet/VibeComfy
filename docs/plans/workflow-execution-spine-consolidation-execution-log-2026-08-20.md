@@ -3247,3 +3247,146 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## G3 batch/gate review — G3-B2-REVIEW disposition (2026-08-22)
+
+### G3-B2-REVIEW register
+
+- **Task/label/role/route:** `G3-B2-REVIEW` / `G3 [XHARD-REVIEW] batch/gate
+  review of the B2 window (BATCH1-REVISION + R-G2-1-REPAIR + B2
+  T3.1/T3.2)` / reviewer / model route `stealth/ox-alpha`, resolved
+  `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/G3-B2-REVIEW-receipt.json` (file SHA-256
+  `1eff68938568792561bd7c95e404c0b7d8717365b756c917e041519a661688a9`);
+  window `2026-08-22T04:25:41Z` → `2026-08-22T04:48:22Z`, launcher exit
+  `0`; base `5396123eb7a955e0753e0b47a4f4516a773c66f8`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `87972cd5a279c25970447852f69b8b1747a44a825bee22b1bfc8ddbcee92e428`;
+  result SHA-256
+  `d3d4823802714f4f8efbc89a1ff2a84a22003306e3429d8f226620927cea543b`;
+  `stop_or_judgment` empty (`JUDGMENT_REQUIRED: none`); full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/G3-B2-REVIEW-dispatch.log`.
+- **Verdict: `continue`.** The complete B2 window
+  (`2e384645..5396123e`) satisfies G3 gate acceptance for T3.1 [HARD]
+  and T3.2 [XHARD], correctly closes the G2 findings, lands a genuine
+  R-G2-1 repair, introduces zero test failures, and leaves protected
+  state unchanged.
+
+### Merge recommendation (advisory)
+
+Proceed with the integration push `b9c23c92..5396123e` plus the pending
+evidence-log-B2 append (`63d4d153`, already landed in this worktree);
+default routing unchanged; land one small follow-up production card
+before T7.2 (G3-RESIDUAL-RG21-ASYMMETRY below); the residual does not
+block B3.
+
+### T3.1 PASS — retry ownership and composed budget
+
+- Owner map frozen as constants (`runtime.py:132-135`); composed budget
+  via one min() contextvar deadline enforced pre-spawn and clamped per
+  spawn with the provider wrap — the historical 3×3 multiplication is
+  dead; D6/480s truthful typed exhaustion with harness-only
+  new-identity retry; attempt evidence real (all seven keys stamped,
+  preserved through canonical re-normalization).
+- Review reproduced the focused command: **358 passed**, exit 0.
+
+### T3.2 PASS — fence seam, native structured seam, correction slot
+
+- Fence seam fail-closed on all eight scenarios (no-fence / malformed /
+  multiple / valid+prose / empty-fence→typed identity no-op /
+  duplicate-replay by idempotency key / valid-first-invalid-second
+  atomic+reprompt-once); native structured bypass intact; correction
+  slot exactly-once and persisted end-to-end; ok∧landed admission rule
+  enforced with `accepted_batch` sole authority; accept-response echo
+  provenance pinned derived-only.
+
+### G2 findings closure
+
+- **MF-G2-1 and MF-G2-2 verified genuine** fixes from BATCH1-REVISION
+  (registry-lock module global published and reused; post-state
+  registry-empty assertion), not vacuous passes.
+- **SH-G2-3 fixed** (goal-doc timeout template now emits 7200s).
+- **R-G2-1 CLOSED.** The repair strengthened the test harness —
+  `_sequential_candidate` now returns
+  `pin_untouched_ui(submit, emitted, ops)`, byte-identical to the live
+  executor pipeline (`EditSession._emit_working_snapshot`); invariant
+  assertions strengthened, not relaxed; both tests pass, independently
+  reproduced by the review.
+
+### Residuals (should-track, non-blocking)
+
+- **G3-RESIDUAL-RG21-ASYMMETRY** (should, XHARD): executor ingests
+  `use_comfy_converter=False` (`session.py:444`) while
+  `recompute_apply` keeps the `from_ui` converter default True
+  (`authority_receipts.py:320`). Provably inert offline (both paths hit
+  the identical `_normalize_ui_to_api` fallback); latent only on hosts
+  where the comfy converter imports AND diverges; drift direction is
+  fail-closed (a false `candidate_hash_mismatch` rejection, never a
+  false accept); one-line repairable at
+  `vibecomfy/comfy_nodes/agent/authority_receipts.py` (outside
+  R-G2-1's allowance). Must land before T7.2.
+- **G3-RESIDUAL-ARNOLD-MODULE** (should): non-default
+  `VIBECOMFY_ARNOLD_RUNTIME_MODULE` ignores the composed-deadline
+  contextvar (opaque third-party retry semantics).
+- The 600s composed default tightens worst-case wall clock vs the
+  historical unbounded 9×480s composition (intended, env-tunable).
+- Retry-evidence keys ride outside the frozen `ModelAttemptEvidence`
+  dataclass as additive dict keys (`contracts.py` outside the
+  allowance); preserved through re-normalization.
+
+### 22 pre-existing T3.2-scope failures — CONFIRMED PRE-EXISTING
+
+| Selection | Result |
+|---|---|
+| head `5396123e` | 150 passed, 22 failed |
+| base `903f6099` export | 139 passed, 22 failed |
+| failing-ID symmetric difference | **EMPTY** (`diff` exit 0) |
+
+The +11 passes at head are exactly the new B2 pins;
+introduced-by-B2 count: **0**. All 22 failures are pre-existing
+prompt-content/loop-behavior assertions untouched by this card; owned
+by T6.2's formal classification, with base/head evidence now recorded.
+
+### Evidence coherence
+
+The reviewer-worktree validator exit 1 was environmental: receipts are
+untracked run artifacts absent in the fresh review worktree. A scratch
+replica of the committed state validated **OK, exit 0**, stdout SHA-256
+`1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`
+(byte-exact match to the recorded deterministic digest). Manifest
+final_five/findings/gates/live_runs/shards identical across the
+window.
+
+### Next unblocked card
+
+Integration push `b9c23c92..HEAD` (including evidence commit
+`63d4d153`), then evidence-log-integration, then B3-IMPLEMENTER
+(T4.1+T4.2+T4.3; brief + allowance already written at
+`g0/B3-IMPLEMENTER.md` / `-allowance.json`), then G4 batch review.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution log
++ manifest; test-shards.json untouched) in one coherent commit authored
+by `POM <peter@omalley.io>`. No receipt, protected state, branch, or
+other file is changed; no push, merge, promotion, live/model/runtime
+call, secret access, wrapper dispatch, review, validator change, or
+product/test run is performed by this evidence recorder; the recorded
+G3 batch review was executed by the G3-B2-REVIEW agent, not by this
+recorder. No receipt is committed; the reviewed receipts stay untracked
+run artifacts. This evidence recorder's own wrapper PID is `77467`,
+start `2026-08-22T04:48:59Z` per `active-allowances.json`; this
+recorder's own receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-G3-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
