@@ -806,7 +806,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "5b5b2a0b97ab5410066591e5d45da489c3a27894ed85579248d37c5061d2b545",
+        "sha256": "f773d6a04d7366c9952c4f758018d1ef6b90b0baf9df7418d349220222985828",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
