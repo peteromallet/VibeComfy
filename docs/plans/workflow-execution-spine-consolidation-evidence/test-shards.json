@@ -1,79 +1,365 @@
 {
   "schema_version": "1",
-  "source_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+  "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+  "head_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+  "inventory_anchor": "5f200fb4fd8f6bb14a4bd8af684e86aed53f3bdc",
+  "base_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+  "generated_by": "T6.1-FREEZE-SHARDS",
+  "generated_at": "2026-08-22T15:06:03Z",
+  "interpreter": {
+    "python": "python3 3.11.11 (/root/.pyenv/versions/3.11.11/bin/python3)",
+    "node": "v20.20.2"
+  },
+  "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+  "timeout_seconds_default": 1800,
+  "disposable_root_prefix": "/tmp/t62",
+  "order": "S0->S11",
   "shards": [
     {
       "shard_id": "comparison_validate_only_six_entry",
+      "order": 0,
       "command": "/root/.pyenv/shims/python3 -m tests.live_agentic_harness.compare_pipeline_modes --validate-only --manifest tests/live_agentic_harness/threaded_comparison_manifest.json",
-      "source_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
-      "output_sha256": "517fc57f26391c1f5409cb5fde7b6e2ea09cc407a9dfadcfbb8bdf7d6b2a9050",
-      "exit": 0,
-      "status": "passed",
-      "receipt": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json"
+      "command_sha256": "f94727a72c089a98aeea30ee46c0990395150778ae299c2e7a365a6c666e3412",
+      "selectors": [
+        "tests/live_agentic_harness/compare_pipeline_modes.py",
+        "tests/live_agentic_harness/threaded_comparison_manifest.json"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "/root/.pyenv/shims/python3 (python3 3.11.11)",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/comparison_validate_only_six_entry/",
+      "expected_outcome": {
+        "status": "pass",
+        "exit": 0,
+        "note": "Model-free validate-only; pyenv-shim interpreter carried forward verbatim from T0.0; output digest re-anchored at T6.2. Behavior unit-locked at HEAD by S8 test_validate_only_locks_r5_final_five_without_model_calls. Base 5fc6be9d exit 0 digest 517fc57f26391c1f5409cb5fde7b6e2ea09cc407a9dfadcfbb8bdf7d6b2a9050."
+      }
     },
     {
-      "shard_id": "T1.1_ingest_snapshot_ir_graph_inspection",
-      "command": "/root/.pyenv/shims/python3 -m pytest -q tests/test_ingest_snapshot.py tests/test_snapshot_api_workflows.py tests/test_ir_laws.py tests/test_graph_inspection.py",
-      "source_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
-      "output_sha256": "d93f6f7bf90a9d53b223d0e308c9554674d15cf8e63ae292b017157bfaa52c93",
-      "exit": 1,
-      "status": "pre_existing_failures",
-      "receipt": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json"
+      "shard_id": "ingest_ir_snapshot_graph",
+      "order": 1,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_ingest_snapshot.py tests/test_snapshot_api_workflows.py tests/test_ir_laws.py tests/test_graph_inspection.py",
+      "command_sha256": "c9f5ab7aff2bb02812263f9221e4ca450820e235570df11f29f8a6a2aa456f77",
+      "selectors": [
+        "tests/test_ingest_snapshot.py",
+        "tests/test_snapshot_api_workflows.py",
+        "tests/test_ir_laws.py",
+        "tests/test_graph_inspection.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/ingest_ir_snapshot_graph/",
+      "expected_outcome": {
+        "status": "pre_existing_failures",
+        "exit": 1,
+        "note": "Carried forward T1.1_ingest_snapshot_ir_graph_inspection, env normalized python3+cache-off. Base record exit 1 output digest d93f6f7bf90a9d53b223d0e308c9554674d15cf8e63ae292b017157bfaa52c93 (T0.0 baseline). Exact failing IDs not enumerated in committed evidence (inventory AMB-2); T6.2 records IDs at frozen run and classifies vs base digest. All 4 selector files verified at HEAD.",
+        "known_failing_ids_enumerated": false
+      },
+      "carry_forward": "T1.1_ingest_snapshot_ir_graph_inspection -> S1, env normalized to python3 3.11.11"
     },
     {
-      "shard_id": "H1_wrapper_survival_stop_marker",
-      "command": "python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q",
-      "source_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
-      "exit": 0,
-      "status": "passed",
-      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H1-wrapper-survival-stop-marker-review-receipt.json"
+      "shard_id": "schema_provenance_schema_snapshot",
+      "order": 2,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_schema.py",
+      "command_sha256": "16766d1c47a9dc9abde13bd83e1d9666299409b89c40b98c1599a1d121251a90",
+      "selectors": [
+        "tests/test_schema.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/schema_provenance_schema_snapshot/",
+      "expected_outcome": {
+        "status": "pass",
+        "exit": 0,
+        "note": "Single-file schema shard; green through T1.1/T1.2 windows; no dedicated head-state record (inventory AMB-5). T6.2 records baseline. Any failure is introduced unless proven base-identical at 5fc6be9d."
+      }
     },
     {
-      "shard_id": "H2_dead_pid_sweep",
-      "command": "python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q",
-      "source_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-      "output_sha256": "cc5b9a99373e2bd7386105ba65ff7906f35ef2974ca2bf19e6c98847fd904d50",
-      "exit": 0,
-      "status": "passed",
-      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H2-dead-pid-sweep-review-receipt.json"
-    },
-    {
-      "shard_id": "H4_evidence_brief_guard",
-      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py",
-      "source_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
-      "summary": "46 passed, 1 warning",
-      "exit": 0,
-      "status": "passed",
-      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/H4-evidence-brief-integration-receipt.json"
-    },
-    {
-      "shard_id": "T2.1_operation_admission_gateway",
+      "shard_id": "edit_delta_admission_gateway",
+      "order": 3,
       "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_porting_edit_kernel.py tests/test_porting_edit_apply.py tests/test_porting_edit_ops.py tests/test_porting_edit_delta_contract.py",
-      "source_sha": "993cadd3cfa7760c4ef4954f9afaa44e48bf8898",
-      "summary": "102 passed, 3 failed (pre-existing), 57 warnings",
-      "exit": 1,
-      "status": "pre_existing_failures",
-      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T2.1-integration-receipt.json"
+      "command_sha256": "9653d0d69e49e69f8fb5e9ce3fe4e781424d6391a7d79d592776ca9a38e837de",
+      "selectors": [
+        "tests/test_porting_edit_kernel.py",
+        "tests/test_porting_edit_apply.py",
+        "tests/test_porting_edit_ops.py",
+        "tests/test_porting_edit_delta_contract.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/edit_delta_admission_gateway/",
+      "expected_outcome": {
+        "status": "pre_existing_failures",
+        "exit": 1,
+        "note": "Carried forward T2.1_operation_admission_gateway with normalized env + absorbs test_porting_edit_kernel.py from old T2.2. 3 known pre-existing delta-contract IDs (base fec6cb12 identical, inventory log 1716-1722/1786-1808): test_agent_delta_turn_result_produces_accepted_batch_only, test_diff_inverse_over_field_mode_link_and_node_edits, test_diff_cumulative_replay_and_undo_roundtrip. 102 passed / 3 failed per T2.1 integration receipt.",
+        "known_failing_ids": [
+          "tests/test_porting_edit_delta_contract.py::test_agent_delta_turn_result_produces_accepted_batch_only",
+          "tests/test_porting_edit_delta_contract.py::test_diff_inverse_over_field_mode_link_and_node_edits",
+          "tests/test_porting_edit_delta_contract.py::test_diff_cumulative_replay_and_undo_roundtrip"
+        ]
+      },
+      "carry_forward": "T2.1_operation_admission_gateway -> S3 (+ test_porting_edit_kernel.py re-mapped from T2.2)"
     },
     {
-      "shard_id": "T2.2_closed_checkpoint_terminal_projector",
-      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_comfy_nodes_agent_session.py",
-      "source_sha": "c83d2e59cae670c056564f297061062b0a880763",
-      "summary": "362 passed, 27 failed (pre-existing), 2 skipped",
-      "exit": 1,
-      "status": "pre_existing_failures",
-      "receipt": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T2.2-integration-receipt.json"
+      "shard_id": "checkpoint_replay_session_authority",
+      "order": 4,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_authority_replay_sequential.py tests/test_comfy_nodes_agent_session.py tests/test_shared_authority_canonicalization.py \"tests/test_comfy_nodes_agent_edit.py::test_r5_no_candidate_clarification_fixture_is_not_replayed\"",
+      "command_sha256": "8fae1425594d2d4162193111e82e3eb2ac724b49fe0a6ab75ec21890a248f455",
+      "selectors": [
+        "tests/test_terminal_checkpoint.py",
+        "tests/test_porting_edit_session.py",
+        "tests/test_authority_receipts.py",
+        "tests/test_authority_replay_sequential.py",
+        "tests/test_comfy_nodes_agent_session.py",
+        "tests/test_shared_authority_canonicalization.py",
+        "tests/test_comfy_nodes_agent_edit.py::test_r5_no_candidate_clarification_fixture_is_not_replayed"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/checkpoint_replay_session_authority/",
+      "expected_outcome": {
+        "status": "pre_existing_failures",
+        "exit": 1,
+        "note": "Re-mapped T2.2 remainder + replay/canonicalization files. 27 known-failing family from T2.2 integration (c83d2e59 era): 21x test_porting_edit_session.py admit/schema/done-gate cousins + 6x test_comfy_nodes_agent_session.py receipt.is_applyable is False. Base 48f81d64 identical per T2.2 receipt (362 passed / 27 failed). Production drift since (authority_receipts.py RG21 7c919305, T5.5 legacy projection removal) grepped no direct symbol reference from failing tests to removed code (inventory AMB-4); T6.2 reclassifies vs base.",
+        "known_failing_family": "21x test_porting_edit_session.py + 6x test_comfy_nodes_agent_session.py (362 passed / 27 failed T2.2-integration)",
+        "known_failing_ids_enumerated": false
+      },
+      "carry_forward": "T2.2 remainder + replay/canonicalization -> S4; test_porting_edit_kernel.py -> S3, test_executor_threaded_edits.py -> S7"
+    },
+    {
+      "shard_id": "retry_ownership_composed_budget",
+      "order": 5,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_runtime_worker_retry.py tests/test_executor_contracts.py tests/test_comfy_nodes_agent_contracts.py",
+      "command_sha256": "9f7d33cf15728dd332412b45c2f9ed1fa5e05096f03d0bc0071fd21957856dde",
+      "selectors": [
+        "tests/test_runtime_worker_retry.py",
+        "tests/test_executor_contracts.py",
+        "tests/test_comfy_nodes_agent_contracts.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/retry_ownership_composed_budget/",
+      "expected_outcome": {
+        "status": "pass",
+        "exit": 0,
+        "note": "S5 frozen verbatim T3.1 command; twice-recorded 358 passed / 0 failed (B2 window + BATCH1-INTEGRATION re-run, exit 0)."
+      }
+    },
+    {
+      "shard_id": "batch_protocol_accepted_batch",
+      "order": 6,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_executor_stage_contracts.py tests/test_agent_edit_artifact_replay.py tests/test_comfy_nodes_agent_edit.py tests/test_comfy_nodes_agent_backend_spine.py -k 'batch or protocol or accepted_batch'",
+      "command_sha256": "db7c50f3eea4c2954739db02573d7e691ef104cd9277a2b2286c851a7bd40fc1",
+      "selectors": [
+        "tests/test_executor_stage_contracts.py",
+        "tests/test_agent_edit_artifact_replay.py",
+        "tests/test_comfy_nodes_agent_edit.py",
+        "tests/test_comfy_nodes_agent_backend_spine.py"
+      ],
+      "selector_filter": "-k 'batch or protocol or accepted_batch' (9 new T3.2 tests all match filter; r5 multiple-fence test via backend_spine k-subset)",
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/batch_protocol_accepted_batch/",
+      "expected_outcome": {
+        "status": "pre_existing_failures",
+        "exit": 1,
+        "note": "T3.2 command + test_comfy_nodes_agent_backend_spine.py extension. 22 known pre-existing on original 3-file selection (150 passed / 22 failed, byte-identical base 903f6099 vs head 5396123e, symmetric diff empty, inventory log 3337-3348). Exact 22 IDs not enumerated in committed evidence (inventory AMB-1); T6.2 captures IDs and classifies vs base export. Added backend_spine k-subset including r5 fence test expected pass.",
+        "known_failing_count": 22,
+        "known_failing_ids_enumerated": false
+      }
+    },
+    {
+      "shard_id": "staged_threaded_executor_adapters",
+      "order": 7,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_executor_flows.py tests/test_agent_research_shadow.py tests/test_executor_threaded_contracts.py tests/test_executor_threaded_mode.py tests/test_executor_threaded_sessions.py tests/test_executor_threaded_edits.py tests/test_pipeline_mode_surface.py",
+      "command_sha256": "fc7c7fc0523654c96e64752f88b972860faf7addf27dec74ebcf47b5028f453c",
+      "selectors": [
+        "tests/test_executor_flows.py",
+        "tests/test_agent_research_shadow.py",
+        "tests/test_executor_threaded_contracts.py",
+        "tests/test_executor_threaded_mode.py",
+        "tests/test_executor_threaded_sessions.py",
+        "tests/test_executor_threaded_edits.py",
+        "tests/test_pipeline_mode_surface.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/staged_threaded_executor_adapters/",
+      "expected_outcome": {
+        "status": "pre_existing_failures",
+        "exit": 1,
+        "note": "Verbatim B3 7-file command. 5 known G4-confirmed pre-existing IDs (base 69b6fcf1 identical, inventory log 3717-3734): test_executor_flows.py::TestSimpleEditFlow::test_simple_edit_pure_clarify_is_not_promoted_to_candidate; test_executor_flows.py::test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph; plus 3 further executor flow/threaded IDs per G4 receipt (captured verbatim at T6.2).",
+        "known_failing_ids": [
+          "tests/test_executor_flows.py::TestSimpleEditFlow::test_simple_edit_pure_clarify_is_not_promoted_to_candidate",
+          "tests/test_executor_flows.py::test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph",
+          "tests/test_executor_flows.py::TestSimpleEditFlow::test_simple_edit_pure_clarify_is_not_promoted_to_candidate (+ 3 G4-enumerated siblings \u2014 see inventory log 3717-3734 and G4-B3-REVIEW dispatch; T6.2 enumerates full 5)"
+        ],
+        "known_failing_count": 5
+      },
+      "carry_forward": "absorbs test_executor_threaded_edits.py re-mapped from T2.2"
+    },
+    {
+      "shard_id": "artifact_assessor_comparator_isolation",
+      "order": 8,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_artifact_lineage_manifest.py tests/test_semantic_assessor.py tests/test_scenario_obligation_preflight.py tests/test_comparison_leg_isolation.py tests/test_live_agentic_threaded_comparison.py tests/test_live_agentic_runner_persistence.py tests/test_headless_agent_artifacts.py tests/test_live_agentic_assessor_score_honesty.py tests/test_live_agentic_harness_guard_contract.py tests/test_headless_harness_scenarios_contract.py tests/test_agent_obligation_ledger.py",
+      "command_sha256": "9ea1c96e633e3d04ff3cffd564522289fa57cc27127c4a3274a1c873494d7c23",
+      "selectors": [
+        "tests/test_artifact_lineage_manifest.py",
+        "tests/test_semantic_assessor.py",
+        "tests/test_scenario_obligation_preflight.py",
+        "tests/test_comparison_leg_isolation.py",
+        "tests/test_live_agentic_threaded_comparison.py",
+        "tests/test_live_agentic_runner_persistence.py",
+        "tests/test_headless_agent_artifacts.py",
+        "tests/test_live_agentic_assessor_score_honesty.py",
+        "tests/test_live_agentic_harness_guard_contract.py",
+        "tests/test_headless_harness_scenarios_contract.py",
+        "tests/test_agent_obligation_ledger.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/artifact_assessor_comparator_isolation/",
+      "expected_outcome": {
+        "status": "pass",
+        "exit": 0,
+        "note": "S8 UPDATED per T6.1 brief S4.3: B4-REVISION (3717347c, 19 files) + G5-B4-REVISION-2 (07b9785d, _seed_lineage + gated schema cache) closed previous head-state failures. B4-INTEGRATION focused run at d9338beb: 331 passed, 0 failed, exit 0 (dispatch log S4, g0/B4-INTEGRATION-dispatch.log:60-70). The 2 headless-scenarios contract failures NoneType.status (pre-existing at 5f200fb4, <=2 family) are FIXED at HEAD (B4-REVISION MUST-008/006 + helper seeding). The 11 regressions (9 score_honesty + 2 threaded) flagged in G5-B4-REREVIEW are FIXED by 07b9785d (29 passed, G5-B4-REREVIEW-2 continue). Any failure at HEAD is now introduced unless proven base-identical (re-verify at T6.2)."
+      }
+    },
+    {
+      "shard_id": "compat_shim_retirement_surface",
+      "order": 9,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_execution_spine_shim_disposition.py tests/test_cleanup_surface_manifest.py tests/test_agent_edit_compatibility_ledger.py tests/test_api_surface.py tests/test_executor_host_boundary.py tests/test_agent_runtime_adapter.py tests/edgecases/test_backward_compat.py",
+      "command_sha256": "8fac82975def70b3add70fc19a8dbca119010b17ba31067ab08d61b0fac02b90",
+      "selectors": [
+        "tests/test_execution_spine_shim_disposition.py",
+        "tests/test_cleanup_surface_manifest.py",
+        "tests/test_agent_edit_compatibility_ledger.py",
+        "tests/test_api_surface.py",
+        "tests/test_executor_host_boundary.py",
+        "tests/test_agent_runtime_adapter.py",
+        "tests/edgecases/test_backward_compat.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/compat_shim_retirement_surface/",
+      "expected_outcome": {
+        "status": "pre_existing_failures",
+        "exit": 1,
+        "note": "S9 UPDATED per T6.1 brief S4.2: S73-FIXTURE (6353c423) cut over fixture 440->437 (removed _agent_edit_v2_enabled, _run_delta_dev_path, _run_full_dev_path) and S73-FIXTURE-FOLLOWUP (962030c5) fixed marker test; integration-verified GREEN (S73+followup receipts exit 0; B4-INTEGRATION chain includes both; marker test 166 passed per execution log S B4 window). Shim disposition file at HEAD: HEAD has correct. Thus test_execution_spine_shim_disposition.py + test_cleanup_surface_manifest.py expected GREEN.",
+        "green_files": [
+          "tests/test_execution_spine_shim_disposition.py (60/60 shim disposition pass; marker test now green per 962030c5)",
+          "tests/test_cleanup_surface_manifest.py (fixture 437 matches live edit.__all__ 437)"
+        ],
+        "known_failing_ids": [
+          "tests/test_agent_edit_compatibility_ledger.py::test_agent_edit_legacy_aliases_stay_inside_compatibility_ledger_allowlist \u2014 allowlist rows for _agentic_replay_service.py, _session_storage.py, vibecomfy/comfy_nodes/agent/authority_receipts.py, vibecomfy/comfy_nodes/agent/batch_rollback_journal.py (4 ledger rows; S70 retired-name rows owned by S73, not S9 failures; inventory S2 rows 21-22 and B4-REVISION-CONTINUATION allowlist)",
+          "tests/test_api_surface.py::* \u2014 only if drift proven pre-existing at base 5fc6be9d (B4-COMMIT baseline family: api-surface drift was part of 7 baseline failures at 5f200fb4; not S73-related; enumerate at T6.2 with base/head evidence git show 5fc6be9d:tests/test_api_surface.py)",
+          "tests/edgecases/test_backward_compat.py::* \u2014 only if drift proven pre-existing at base 5fc6be9d (same baseline family; enumerate at T6.2)"
+        ],
+        "known_failing_summary": "Known-failing = compatibility-ledger allowlist rows (4 files above) plus any api-surface/backward-compat drift proven pre-existing at base 5fc6be9d. No cleanup-manifest membership failure remains after S73 (6353c423+962030c5)."
+      }
+    },
+    {
+      "shard_id": "wrapper_evidence_harness",
+      "order": 10,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py tests/test_workflow_execution_spine_evidence.py",
+      "command_sha256": "c37de47f20cd2785e853e5c5e9ff6f6477afc07495bbc4b53802bae35e8e1ee0",
+      "selectors": [
+        "tests/test_run_workflow_execution_spine_agent.py",
+        "tests/test_workflow_execution_spine_evidence.py"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "python3 3.11.11",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/wrapper_evidence_harness/",
+      "expected_outcome": {
+        "status": "pass",
+        "exit": 0,
+        "note": "Consolidates H1_wrapper_survival_stop_marker / H2_dead_pid_sweep / H4_evidence_brief_guard (same selector file, three historical repair runs of one surface; three frozen entries would duplicate \u2014 inventory carry-forward). H4 record 46 passed /1 warning exit 0 at acec7cc1; wrapper/validator later commits each covered by their chain's focused reruns; no single combined two-file head record \u2014 T6.2 establishes frozen baseline (inventory AMB-5). No GAP: wrapper scripts scripts/run_workflow_execution_spine_agent.py + scripts/validate_workflow_execution_spine_evidence.py owned here."
+      },
+      "carry_forward": "H1/H2/H4 -> S10 consolidated"
+    },
+    {
+      "shard_id": "browser_contracts_node",
+      "order": 11,
+      "command": "PYTHONDONTWRITEBYTECODE=1 node --test tests/browser/agent_edit_response_contract.test.mjs tests/browser/canonical_delta.test.mjs tests/browser/payload_contracts.test.mjs tests/browser/pipeline_mode_surface.test.mjs tests/browser/agent_lifecycle_parity.test.mjs tests/browser/legacy_authority_migration.test.mjs tests/browser/agent_lifecycle_commit.test.mjs",
+      "command_sha256": "6e0d42c00cf292c72b49256a7d3526a2d5f12d10b24cb14c020adcb898264214",
+      "selectors": [
+        "tests/browser/agent_edit_response_contract.test.mjs",
+        "tests/browser/canonical_delta.test.mjs",
+        "tests/browser/payload_contracts.test.mjs",
+        "tests/browser/pipeline_mode_surface.test.mjs",
+        "tests/browser/agent_lifecycle_parity.test.mjs",
+        "tests/browser/legacy_authority_migration.test.mjs",
+        "tests/browser/agent_lifecycle_commit.test.mjs"
+      ],
+      "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+      "interpreter": "node v20.20.2 (PYTHONDONTWRITEBYTECODE=1 python3 wrapper for node --test invocation)",
+      "environment": "PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider; node v20.20.2",
+      "timeout_seconds": 1800,
+      "disposable_root": "/tmp/t62/browser_contracts_node/",
+      "expected_outcome": {
+        "status": "pass",
+        "exit": 0,
+        "note": "7-file node shard (node v20.20.2). Union of recorded greens at 5f200fb4: B2 trio 290/0, B3 pair 20/20, T5.5 pair 89/89. No .mjs changed in B4/S73 window; Python-side seams locked from JS (inventory row 23)."
+      }
     }
   ],
   "singleton": {
     "shard_id": "broad_suite_once_v1",
+    "order": null,
     "command": "python -m pytest -q",
-    "status": "pending"
+    "command_sha256": "03b2d5596d232a4210386ff5610b26c7bb59cd1aa14f9531d5121955881b3d13",
+    "selectors": [
+      "* (full suite)"
+    ],
+    "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+    "interpreter": "python3 3.11.11",
+    "environment": "default",
+    "timeout_seconds": 3600,
+    "disposable_root": "/tmp/t62/broad_suite_once_v1/",
+    "status": "pending",
+    "owner": "T6.3",
+    "note": "T6.3-owned singleton broad suite. NOT part of T6.2 focused sequence; must remain pending during T6.2. Any change to canonical broad command requires fresh Grok judgment before execution."
+  },
+  "coverage": {
+    "inventory_anchor": "5f200fb4fd8f6bb14a4bd8af684e86aed53f3bdc",
+    "head": "54467724e4fe3db617689e454e0a210a0820135a",
+    "base": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
+    "range_commits": 77,
+    "changed_production_behaviors": 45,
+    "changed_tests": 32,
+    "harness_modules": 8,
+    "fixtures": "tests/fixtures/workflow_execution_spine_r5/*.json (7 files)",
+    "changed_files_verified": "All 26 delta files since 5f200fb4 verified covered: docs/plans/* (2), scripts/run_workflow_execution_spine_agent.py (1), tests/fixtures/agent_edit/cleanup_surface_manifest.json (1), 6 live_agentic_harness modules, 11 test files, 5 production agent files (service.py, artifact_lineage.py, executor_durable.py, provider.py, routes.py) + 2 docs/plan files. No GAP, no orphan, no duplicate shard membership.",
+    "no_gap_statement": "Every changed production behavior and every changed/new test in 5fc6be9d..54467724 maps to exactly one shard S0-S11 per inventory census (rows 1-25). The two canonical-order additions S9 (compat/shim) and S10 (wrapper/harness) exist to avoid orphaning T5.5 and wrapper/validator behaviors. Re-verified at HEAD: all 46 selector files exist (git ls-files + test -f); no selector file renamed/removed by B4-REVISION/S73 that requires re-mapping (only fixture row removals, not test file renames).",
+    "carry_forward_summary": "comparison_validate_only_six_entry->S0 verbatim pyenv-shim; T1.1->S1 env normalized python3; T2.1->S3; T2.2 split test_porting_edit_kernel.py->S3, test_executor_threaded_edits.py->S7, remainder->S4; H1/H2/H4->S10 consolidated; singleton broad_suite_once_v1 stays pending T6.3-owned"
   },
   "evidence_log": {
-    "task_id": "evidence-log-T2.2-integration",
-    "gate": "G2",
-    "validator_exit": 0,
-    "other_tests_run": false
+    "task_id": "T6.1-FREEZE-SHARDS",
+    "gate": "G6",
+    "role": "implementer",
+    "route": "stealth/ox-alpha",
+    "source_sha": "54467724e4fe3db617689e454e0a210a0820135a",
+    "inventory_anchor": "5f200fb4fd8f6bb14a4bd8af684e86aed53f3bdc",
+    "note": "Frozen at HEAD post B4 integration (d9338beb + 54467724 evidence commit). S8 pass per B4-INTEGRATION 331/0; S9 shim+cleanup GREEN post S73+S73-FOLLOWUP (6353c423+962030c5); S9 known-failing reduced to compat-ledger allowlist only."
   }
 }
