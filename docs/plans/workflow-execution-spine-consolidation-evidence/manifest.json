@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "07474dbfdf731e92837d07345da7abd5f0f12288d465ca0d13d4211538c0470f",
+        "sha256": "7846070fca6fec8f7ef96d55dbd1828645438c46b2fd5d95aae07d694bb2bf62",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -1408,7 +1408,7 @@
         "push_by_implementer": false,
         "receipts_committed": false
       },
-      "next_unblocked_card": "Integration push including d9459c80..686a8e75 (C1), then B2 (T3.1+T3.2 impl); MF-G2-1/MF-G2-2 land in the next batch revision per C10; R-G2-1 dedicated XHARD production-repair card closes before Batch 2 completes",
+      "next_unblocked_card": "G3 batch review (ONE stealth review of the whole B2 diff - BATCH1-REVISION + R-G2-1-REPAIR + B2 commits; doubles as the G3 gate per C10; must classify the R-G2-1 residual AND the 22 pre-existing T3.2-scope failures), then integration push (b9c23c92..HEAD), then B3",
       "evidence_commit": {"required_author": "POM <peter@omalley.io>", "message_prefix": "docs(exec-spine):", "allowed_files": ["docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md", "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json", "docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json"], "push": false},
       "g2_batch_review": {
         "task_id": "G2-BATCH1-REVIEW",
@@ -1644,6 +1644,109 @@
         "g2_condition_status": "must close before Batch 2 completes - repair card has landed (tests green); residual classification deferred to the G3 batch review per C10/§18",
         "protected_state_unchanged": "Receipt schema, T2.2 transition table, terminal projector, mode-neutral projector contract untouched; no production file modified.",
         "next_unblocked_card": "B2-IMPLEMENTER (T3.1 + T3.2; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B2-IMPLEMENTER.md and -allowance.json)"
+      },
+      "b2_implementer": {
+        "task_id": "B2-IMPLEMENTER",
+        "gate": "",
+        "label": "B2 implementer: T3.1 [HARD] nested retry ownership + T3.2 [XHARD] batch protocol and accepted-batch authority",
+        "role": "implementer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "landed-pending-g3-batch-review",
+        "base_sha": "903f6099f0c16c6cfe0c435ba33066a33956e28d",
+        "wrapper_pid": 71929,
+        "start_ts": "2026-08-22T03:20:14Z",
+        "end_ts": "2026-08-22T04:16:14Z",
+        "exit": 0,
+        "commits": ["5396123eb7a955e0753e0b47a4f4516a773c66f8"],
+        "commit_author": "POM <peter@omalley.io>",
+        "changed_files": [
+          "tests/live_agentic_harness/runner.py",
+          "tests/test_comfy_nodes_agent_contracts.py",
+          "tests/test_comfy_nodes_agent_edit.py",
+          "tests/test_executor_contracts.py",
+          "tests/test_runtime_worker_retry.py",
+          "vibecomfy/comfy_nodes/agent/_turn_state_machine.py",
+          "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
+          "vibecomfy/comfy_nodes/agent/provider.py",
+          "vibecomfy/comfy_nodes/agent/runtime.py"
+        ],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/B2-IMPLEMENTER-receipt.json", "sha256": "8c48bc4bca34640ace335f3b485242da9763ab0543e2aa309616046932054a10"},
+        "brief_sha256": "eeca8c48da5d5f038d2ebcdfa1783b415bfd55d9369bea3ae4e66920b485018a",
+        "result_sha256": "d3d47748104d9b1d98ed936db8c97c636b4156271de055a66ee741ed1461c23e",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B2-IMPLEMENTER-dispatch.log",
+        "t31_retry_freeze": "D1: one owner + one total wall-clock budget - _TURN_TOTAL_BUDGET_SECONDS (env VIBECOMFY_AGENT_TURN_TOTAL_BUDGET, default 600s) with deadlines flowing from all four entry points (run_model_turn, run_agent_turn, _delta, _batch) into _run_worker(deadline=...); provider composed_model_call_budget() ends the historical 3x3-spawn multiplication (one shared deadline, enforced pre-spawn, clamped per spawn); budget exhaustion raises truthful typed TimeoutError with full retry_owner... fields; owner map frozen as constants (runtime.py:113-170): runtime_worker_transport, runtime_json_correction, provider_batch_empty, harness_infrastructure",
+        "d6_480s_decision": "Routed judgment made and enforced: a side-effect-free timed-out model request may NOT retry under the same identity (completion requests carry no request-level idempotency key, so remote state of the timed-out request is unknowable - double-billing risk, latency-pathology masking). The attempt ends with truthful typed exhaustion carrying retry_owner=harness_infrastructure, retry_disposition=not_safe_to_retry_same_identity, remote_uncertainty=timeout_before_response (runtime.py:1060-1089); the harness remains sole owner of exactly one retry under a NEW attempt identity; fixture vocabulary (attempt_ledger_480s.json) now equals live behavior",
+        "evidence_fields": "Every attempt row stamps retry_owner/nesting_depth/attempt_deadline_seconds/remote_uncertainty/retry_disposition/durable_side_effect_free/request_idempotency_key (_stamp_retry_evidence), preserved through canonical re-normalization in runtime and provider; harness _attempt_record carries a retry_ownership block per scenario attempt (runner.py:343-395)",
+        "pins_d2_d3_d4_d5": "hivemind 1 retry + 0.5s backoff inside the shared 450s phase deadline with deadline-checked-before-any-attempt behavior test; correction layers bounded by named constants (_JSON_CONTRACT_MAX_ATTEMPTS, _BATCH_REPL_EMPTY_ATTEMPTS, _ITERATION_EXHAUSTION_MAX_CORRECTIONS/_CLASSIFY_MAX_PARSE_ATTEMPTS); durable path replay-only with 10s session-lock bound; harness DEFAULT_INFRA_RETRIES==1, 1200s, _RETRYABLE_INFRA_CLASSES frozen",
+        "t32_batch_protocol": "Fence seam pinned as single stripping seam at provider.py:208-212, fail-closed {empty, missing_batch_fence, multiple_batch_fences}, never merged/rerun; native structured seam frozen at the payload[\"batch\"] mapping branch (provider.py:1475-1480); correction slot: exactly one bounded opportunity per batch turn, RESERVED in model_request_path before the first call (edit_batch_repl.py:1103-1112), dispositions unused/consumed_recovered/consumed_exhausted; session-level bound stays per-turn=1 (structural cap via the turn loop, recorded at edit_batch_repl.py:353-361); authority: ok-and-landed admission rule + derived-envelope digest binding unit-pinned, duplicate-submit replay/conflict by idempotency key via allocate_turn/record_idempotent_response, accept-response echo provenance derived-only (_turn_state_machine.py:606-612)",
+        "focused_commands": {
+          "t31_pytest": "358 passed, exit 0 (runtime/executor/agent-contracts)",
+          "t32_pytest": "150 passed, 22 failed (-k 'batch or protocol or accepted_batch'); failure set byte-identical to pristine base 903f6099 (same selection in a base worktree; symmetric diff empty); all 22 pre-existing prompt-content/loop-behavior failures not touched by this card",
+          "t32_browser": "node --test 3 browser suites: 290 pass / 0 fail, exit 0"
+        },
+        "disclosed_defect_fixes": "First T3.2 python run failed 29; implementer fixed 3 defects in its own additions (dropped first_detail line, idempotency key passed via payload instead of kwarg, tuple-vs-list accepted_batch shape) before the final run; disclosed per run-at-most-once",
+        "residual_risks": [
+          "Non-default VIBECOMFY_ARNOLD_RUNTIME_MODULE ignores the composed-deadline contextvar (opaque third-party retry semantics; AMBIGUOUS per inventory - unchanged).",
+          "Composed 600s default tightens real worst-case wall clock vs the prior unbounded 9x480s composition (env-tunable).",
+          "The 22 pre-existing T3.2-scope failures remain; implementer claims byte-identical-to-base - G3 review must classify introduced vs pre-existing.",
+          "contracts.py ModelAttemptEvidence not extended (outside allowance) - evidence rides as additive dict keys outside the dataclass."
+        ],
+        "rejected_alternatives": [
+          "Extending ModelAttemptEvidence in contracts.py - outside the allowance; additive dict keys achieve it.",
+          "Moving timeout retry into worker/provider loops - rejected; harness stays sole owner per D5/D6.",
+          "Session-level correction counter - rejected; structural bound suffices.",
+          "Splitting commits per card - provider hunks overlap; single commit permitted."
+        ],
+        "protected_state_unchanged": "Protected base 5fc6be9d untouched; wrapper/validator/plan/receipt docs untouched."
+      },
+      "t42_inventory": {
+        "task_id": "T4.2-INVENTORY",
+        "label": "T4.2 [HARD] staged-adapter inventory (read-only, pre-implementation)",
+        "role": "inventory",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "base_sha": "903f6099f0c16c6cfe0c435ba33066a33956e28d",
+        "wrapper_pid": 72053,
+        "start_ts": "2026-08-22T03:21:12Z",
+        "end_ts": "2026-08-22T03:29:17Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/T4.2-INVENTORY-receipt.json", "sha256": "324a177990f7cbbaedc4269c6f9b88bdb3d2418488dd230ec9cf5f07c164b458"},
+        "brief_sha256": "2a286af025422b54cf014bf26a75c114028f1568bfe7677e39d8a3fa04a083e2",
+        "result_sha256": "f71456bc06f54d31fe1d9ad1e092e8ecc41b46b01f714e44f6210a5a2b77a074",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T4.2-INVENTORY-dispatch.log",
+        "surface": "Staged-adapter surface: five pipeline stages (classify, research, implement, no-candidate, reply) with per-stage entry/exit sites and contract flow; shared contract surfaces vs the T4.1 evidence list; research phase internals (budgets, loop semantics, hang handling, evidence flow); wire-compatibility surface (byte-stable staged omission pattern); reply-model distinct behavior; staged test coverage map with uncovered gaps",
+        "ambiguous_areas": "VIBECOMFY_RESEARCH_PHASE_DEADLINE defaults differ (450s executor staged vs 600s batch-REPL, same env knob); per-ledger-entry tool status encoded as status-prefixed conclusion strings vs typed field; executed_tool_calls count bases may differ subtly across modes"
+      },
+      "t43_inventory": {
+        "task_id": "T4.3-INVENTORY",
+        "label": "T4.3 [HARD] threaded-adapter inventory (read-only, pre-implementation)",
+        "role": "inventory",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "continue",
+        "base_sha": "903f6099f0c16c6cfe0c435ba33066a33956e28d",
+        "wrapper_pid": 72054,
+        "start_ts": "2026-08-22T03:21:12Z",
+        "end_ts": "2026-08-22T03:30:56Z",
+        "exit": 0,
+        "commits": [],
+        "changed_files": [],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/T4.3-INVENTORY-receipt.json", "sha256": "778f9d8ae91496abf418f1a6b7ff3fa1ab4c026352cb6f11a3858741936991a5"},
+        "brief_sha256": "f74a161703e7ec7f7805417058f6dcd5464fc77460c01c7150189f80cd9e8853",
+        "result_sha256": "adf418d1d5cf297fd5707c5237b3940f6d5ee201edf82ba63f402c7d56ec840a",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T4.3-INVENTORY-dispatch.log",
+        "surface": "Threaded-adapter surface: classifier-free routing (sole _run_classify caller proven staged-only, dispatch tests forbid threaded entry); graphless research; answer-only; attached-graph authority (pipeline_mode is boundary marker only); continuation; terminal projection (mode-neutral frozen table); threaded test coverage with gaps (no two-turn continuation e2e, thread store undriven, research deadline tested without pipeline_mode=threaded)",
+        "ambiguous_areas": "Thread store fully built + production-bound but zero production callers (driver uses session-chat memory) - T4.3 brief must pick/freeze one; ThreadedPurposeBudget reserves validated but unenforced at _bounded_request; shared VIBECOMFY_RESEARCH_PHASE_DEADLINE defaults 600s (batch REPL) vs 450s (staged C1)"
       }
     }
   ],

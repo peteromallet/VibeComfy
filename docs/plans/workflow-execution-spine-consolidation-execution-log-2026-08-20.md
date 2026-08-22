@@ -3026,3 +3026,224 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## B2 implementer + T4.2/T4.3 inventory dispositions (2026-08-22)
+
+### B2-IMPLEMENTER register
+
+- **Task/label/role/route:** `B2-IMPLEMENTER` / `B2 implementer: T3.1
+  [HARD] nested retry ownership + T3.2 [XHARD] batch protocol and
+  accepted-batch authority` / implementer / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/B2-IMPLEMENTER-receipt.json` (file
+  SHA-256
+  `8c48bc4bca34640ace335f3b485242da9763ab0543e2aa309616046932054a10`);
+  window `2026-08-22T03:20:14Z` → `2026-08-22T04:16:14Z`, launcher exit
+  `0`; base `903f6099f0c16c6cfe0c435ba33066a33956e28d` (R-G2-1
+  precondition confirmed green at base); single commit
+  `5396123eb7a955e0753e0b47a4f4516a773c66f8` covering both cards
+  (provider hunks overlap; per-card split rejected); brief SHA-256
+  `eeca8c48da5d5f038d2ebcdfa1783b415bfd55d9369bea3ae4e66920b485018a`;
+  result SHA-256
+  `d3d47748104d9b1d98ed936db8c97c636b4156271de055a66ee741ed1461c23e`;
+  `stop_or_judgment` empty (`JUDGMENT_REQUIRED: none`); full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/B2-IMPLEMENTER-dispatch.log`.
+- **Changed files (9, all within allowance):**
+  `vibecomfy/comfy_nodes/agent/runtime.py`,
+  `vibecomfy/comfy_nodes/agent/provider.py`,
+  `vibecomfy/comfy_nodes/agent/edit_batch_repl.py`,
+  `vibecomfy/comfy_nodes/agent/_turn_state_machine.py`,
+  `tests/live_agentic_harness/runner.py`,
+  `tests/test_runtime_worker_retry.py`,
+  `tests/test_executor_contracts.py`,
+  `tests/test_comfy_nodes_agent_contracts.py`,
+  `tests/test_comfy_nodes_agent_edit.py`. Protected state untouched
+  (`5fc6be9d` unchanged).
+
+### T3.1 landed — one owner + one total wall-clock budget
+
+- **D1 retry freeze:** `_TURN_TOTAL_BUDGET_SECONDS` (env
+  `VIBECOMFY_AGENT_TURN_TOTAL_BUDGET`, default 600s) with explicit
+  deadlines flowing from all four entry points (`run_model_turn`,
+  `run_agent_turn`, `_delta`, `_batch`) into `_run_worker(deadline=...)`;
+  provider's ≤3-attempt loop wraps everything in
+  `composed_model_call_budget()` (`provider.py`), ending the historical
+  3×3-spawn budget multiplication with one shared deadline enforced
+  pre-spawn and clamped per spawn. Budget exhaustion raises a truthful
+  typed `TimeoutError` carrying full `retry_owner...` fields.
+- **Owner map frozen as constants** (`runtime.py:113-170`):
+  `runtime_worker_transport`, `runtime_json_correction`,
+  `provider_batch_empty`, `harness_infrastructure`.
+
+### D6 — the 480s disposition decision (the routed judgment)
+
+A side-effect-free timed-out model request may NOT retry under the same
+identity: completion requests carry no request-level idempotency key, so
+the remote state of the timed-out request is unknowable (double-billing
+risk, latency-pathology masking). The attempt ends with truthful typed
+exhaustion carrying `retry_owner=harness_infrastructure`,
+`retry_disposition=not_safe_to_retry_same_identity`,
+`remote_uncertainty=timeout_before_response` (`runtime.py:1060-1089`);
+the harness remains sole owner of exactly one retry under a NEW attempt
+identity. The fixture vocabulary (`attempt_ledger_480s.json`) now equals
+live behavior rather than contradicting it.
+
+### Evidence fields made real and D2/D3/D4/D5 pins
+
+- Every attempt row stamps
+  `retry_owner/nesting_depth/attempt_deadline_seconds/remote_uncertainty/
+  retry_disposition/durable_side_effect_free/request_idempotency_key`
+  (`_stamp_retry_evidence`), preserved through canonical re-normalization
+  in runtime and provider; harness `_attempt_record` carries a
+  `retry_ownership` block per scenario attempt (`runner.py:343-395`).
+- **D2/D3/D4/D5 pins:** hivemind 1 retry + 0.5s backoff inside the
+  shared 450s phase deadline with deadline-checked-before-any-attempt
+  behavior test; correction layers bounded by named constants
+  (`_JSON_CONTRACT_MAX_ATTEMPTS`, `_BATCH_REPL_EMPTY_ATTEMPTS`, existing
+  `_ITERATION_EXHAUSTION_MAX_CORRECTIONS`/`_CLASSIFY_MAX_PARSE_ATTEMPTS`);
+  durable path replay-only with the 10s session-lock bound; harness
+  `DEFAULT_INFRA_RETRIES==1`, `1200s`, `_RETRYABLE_INFRA_CLASSES` frozen.
+
+### T3.2 landed — fence seam, native structured seam, correction slot
+
+- Fence seam documented as the single stripping seam at
+  `provider.py:208-212`; fail-closed
+  `{empty, missing_batch_fence, multiple_batch_fences}` pinned; never
+  merged, never rerun. Native structured seam frozen at the
+  `payload["batch"]` mapping branch (`provider.py:1475-1480`) — bypasses
+  fence parsing, no new transport built.
+- **Correction slot:** exactly one bounded opportunity per batch turn,
+  RESERVED in `model_request_path` before the first call
+  (`edit_batch_repl.py:1103-1112`), consumed as a sibling record next to
+  the untouched `protocol_retry` shape; final dispositions
+  `unused/consumed_recovered/consumed_exhausted` land in audit metadata,
+  turn records, response errors, and terminal diagnostics. **Session-level
+  bound decision:** stays per-turn bound=1 — total corrections are already
+  structurally capped at ≤ max_batches by the turn loop; a session-wide
+  counter would add durable resume state without shrinking exposure
+  (recorded at `edit_batch_repl.py:353-361`).
+- Authority: ok∧landed admission rule + derived-envelope digest binding
+  unit-pinned; duplicate-submit replay/conflict by idempotency key covered
+  through `allocate_turn`/`record_idempotent_response`; accept-response
+  echo provenance pinned derived-only (`_turn_state_machine.py:606-612`).
+  Browser canonical-only contract untouched — 290 browser tests already
+  lock it. `contracts.py` ModelAttemptEvidence not extended (outside the
+  allowance) — evidence rides as additive dict keys outside the dataclass.
+
+### Focused command results and disclosed defect fixes
+
+| Command | Result |
+|---|---|
+| T3.1 pytest (runtime/executor/agent-contracts) | **358 passed**, exit 0 |
+| T3.2 pytest (`-k batch or protocol or accepted_batch`) | **150 passed, 22 failed** — failure set byte-identical to pristine base `903f6099` (same selection run in a base worktree; symmetric diff empty); all 22 pre-existing prompt-content/loop-behavior failures not touched by this card |
+| T3.2 node --test (3 browser suites) | **290 pass / 0 fail**, exit 0 |
+
+First T3.2 python run failed 29; the implementer fixed 3 defects in its
+own additions (dropped `first_detail` line, idempotency key passed via
+payload instead of kwarg, tuple-vs-list accepted_batch shape) before the
+final run above — disclosed per run-at-most-once.
+
+### Residual risks and G3 classification flags
+
+- Non-default `VIBECOMFY_ARNOLD_RUNTIME_MODULE` ignores the
+  composed-deadline contextvar (opaque third-party retry semantics;
+  flagged AMBIGUOUS in inventory — unchanged).
+- The composed 600s default tightens real worst-case wall clock vs the
+  prior unbounded 9×480s composition (env-tunable).
+- The 22 pre-existing T3.2-scope failures remain: the implementer claims
+  byte-identical-to-base (symmetric diff empty), but G3 review must
+  classify introduced vs pre-existing.
+- R-G2-1 residual (latent comfy-host ingest asymmetry, flagged at its
+  own card below) still awaits G3 classification together with the
+  22-failure set.
+
+### T4.2-INVENTORY register
+
+- **Task/label/role/route:** `T4.2-INVENTORY` / `T4.2 [HARD]
+  staged-adapter inventory (read-only, pre-implementation)` / inventory /
+  model route `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/T4.2-INVENTORY-receipt.json` (file
+  SHA-256
+  `324a177990f7cbbaedc4269c6f9b88bdb3d2418488dd230ec9cf5f07c164b458`);
+  window `2026-08-22T03:21:12Z` → `2026-08-22T03:29:17Z`, launcher exit
+  `0`; base `903f6099f0c16c6cfe0c435ba33066a33956e28d`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `2a286af025422b54cf014bf26a75c114028f1568bfe7677e39d8a3fa04a083e2`;
+  result SHA-256
+  `f71456bc06f54d31fe1d9ad1e092e8ecc41b46b01f714e44f6210a5a2b77a074`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/T4.2-INVENTORY-dispatch.log`.
+- Surface inventoried: staged pipeline stages
+  (classify → research → implement → no-candidate → reply), shared
+  contract surfaces vs the T4.1 evidence list, research phase internals,
+  wire-compatibility surface, reply-model distinct behavior, staged test
+  coverage map; AMBIGUOUS items recorded (450s vs 600s deadline defaults
+  on one env knob, per-ledger-entry tool-status encoding,
+  executed-tool-call count bases across modes).
+
+### T4.3-INVENTORY register
+
+- **Task/label/role/route:** `T4.3-INVENTORY` / `T4.3 [HARD]
+  threaded-adapter inventory (read-only, pre-implementation)` / inventory
+  / model route `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/T4.3-INVENTORY-receipt.json` (file
+  SHA-256
+  `778f9d8ae91496abf418f1a6b7ff3fa1ab4c026352cb6f11a3858741936991a5`);
+  window `2026-08-22T03:21:12Z` → `2026-08-22T03:30:56Z`, launcher exit
+  `0`; base `903f6099f0c16c6cfe0c435ba33066a33956e28d`; zero changed
+  files, zero commits (read-only); brief SHA-256
+  `f74a161703e7ec7f7805417058f6dcd5464fc77460c01c7150189f80cd9e8853`;
+  result SHA-256
+  `adf418d1d5cf297fd5707c5237b3940f6d5ee201edf82ba63f402c7d56ec840a`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/T4.3-INVENTORY-dispatch.log`.
+- Surface inventoried: classifier-free routing (sole `_run_classify`
+  caller proven staged-only), graphless research, answer-only,
+  attached-graph authority, continuation, terminal projection, threaded
+  test coverage; ambiguous areas recorded (thread-store substrate built +
+  production-bound but undriven, budget reserves unenforced, the shared
+  450/600 deadline-default split).
+
+### Three-way concurrent dispatch note
+
+B2 (mutating, wrapper PID 71929) ran concurrently with both read-only
+inventories (wrapper PIDs 72053/72054, both registered
+`2026-08-22T03:21:12Z`) via separate worktrees — the §21 concurrent
+window exploited with the registry-lock fix holding (no blocking,
+no interference between the mutating and read-only registrations).
+
+### Next unblocked card
+
+G3 batch review: ONE stealth review of the whole B2 diff (BATCH1-REVISION
++ R-G2-1-REPAIR + B2 commits), doubling as the G3 gate per C10; it must
+classify the R-G2-1 residual AND the 22 pre-existing T3.2-scope failures
+(introduced vs pre-existing). Then integration push (`b9c23c92..HEAD`),
+then B3.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution log +
+manifest; test-shards.json untouched) in one coherent commit authored by
+`POM <peter@omalley.io>`. No receipt, protected state, branch, or other
+file is changed; no push, merge, promotion, live/model/runtime call,
+secret access, wrapper dispatch, review, validator change, or product/
+test run is performed by this evidence recorder; the recorded B2
+implementation and inventories were executed by the B2-IMPLEMENTER,
+T4.2-INVENTORY, and T4.3-INVENTORY agents, not by this recorder. No
+receipt is committed; the reviewed receipts stay untracked run artifacts.
+This evidence recorder's own wrapper PID is `75970`, start
+`2026-08-22T04:17:08Z` per `active-allowances.json`; this recorder's own
+receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-B2-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.
