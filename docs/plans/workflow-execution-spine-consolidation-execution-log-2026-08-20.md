@@ -3864,3 +3864,113 @@ receipt digest after exit; neither is computed or recorded here.
   carries stdout SHA-256
   `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
   No product tests are run by this evidence recorder.
+
+## G3-RESIDUAL-RG21-ASYMMETRY closure — residual repair disposition (2026-08-22)
+
+### G3-RESIDUAL-RG21-ASYMMETRY register
+
+- **Task/label/gate/role/route:** `G3-RESIDUAL-RG21-ASYMMETRY` /
+  `G3-RESIDUAL-RG21-ASYMMETRY [XHARD]: align
+  authority_receipts.recompute_apply converter with executor ingest
+  (land before T7.2)` / gate `G3` / implementer / model route
+  `stealth/ox-alpha`, resolved `stealth/ox-alpha`.
+- **Receipt/result:** `receipts/G3-RESIDUAL-RG21-ASYMMETRY-receipt.json`
+  (file SHA-256
+  `bfa4f32ebe0935558b2168554973f0ecb3814186e8522c5896821c2471e185d6`);
+  window `2026-08-22T07:23:04Z` → `2026-08-22T07:36:01Z`, launcher
+  exit `0`; base `730fb7222e87c679c360a37884b59fb1db9472e7`
+  (post-B3-integration; B3+G4 landed before it); commit
+  `7c919305909fd81042d3d0691785fbd2a290d959`; changed file
+  `vibecomfy/comfy_nodes/agent/authority_receipts.py` only (+12/−1,
+  within allowance); brief SHA-256
+  `9d7307c4efa035b20b8f36bd9d2392961043a6378fe8ca24218c5d0c731eff4b`;
+  result SHA-256
+  `b790ceff1bc872702663b134555a8191de464af3e155792b96d08c641bb95a3c`;
+  `stop_or_judgment` empty; full body at
+  `/workspace/vibecomfy-exec-spine-20260820/g0/G3-RESIDUAL-RG21-ASYMMETRY-dispatch.log`.
+
+### Root cause
+
+`recompute_apply` ingested the submit graph via
+`from_ui(dict(submit_graph), schema_provider=schema_provider)`
+(`authority_receipts.py:320` pre-fix), inheriting `from_ui`'s default
+`use_comfy_converter=True` (`normalize.py:1230`), which attempts the
+host's comfy converter `convert_ui_to_api`
+(`normalize.py:516-549`). Live executor ingest pins `False` in both
+twins (`session.py:444`, `_gates.py:314`). On comfy hosts where the
+converter imports AND diverges from `_normalize_ui_to_api`, replay IR
+≠ live IR → loud fail-closed `candidate_hash_mismatch`. In this
+environment the bug is inert (no `comfy` module;
+`check_comfy_compatibility()` fails `comfyui_version_unknown`), so
+both selections collapse to `_normalize_ui_to_api` today.
+
+### Fix
+
+One call site (`authority_receipts.py:320`): `recompute_apply` now
+passes `use_comfy_converter=False` with a comment citing both
+executor pins. Replay selects the identical converter as live ingest
+on every host.
+
+### Failure-injection proof (simulated comfy host)
+
+`/tmp/rg21-asymmetry/probe_converter_asymmetry.py` injects a fake
+importable divergent `convert_ui_to_api` and patches
+`check_comfy_compatibility` to OK, then compares `recompute_apply`
+against the R-G2-1 executor-model candidate on the
+sequential-invariant test's delta:
+
+- Base: converter invoked **1× by replay only**, hashes diverge
+  `7804d399…` vs `7b1ac49e…`, exit 3.
+- Fixed: converter invocations **0** (the `False` pin never attempts
+  the import), hash `7804d399…` = `7804d399…`, exit 0.
+
+Divergence channel **structurally closed**:
+`use_comfy_converter=False` never imports or calls the converter
+(`normalize.py:479-481`) — no host can re-open the channel; not
+merely unobserved.
+
+### Tests
+
+`tests/test_authority_replay_sequential.py` → **2 passed**, exit 0
+(R-G2-1 intact, not weakened); `tests/test_authority_receipts.py` →
+**11 passed**, exit 0. Each run once, caches disabled.
+
+### Closure
+
+**G3-RESIDUAL-RG21-ASYMMETRY CLOSED** (landed before T7.2 as
+required).
+
+### Next unblocked card
+
+`B4-IMPLEMENTER` (T5.1→T5.5; brief + allowance at
+`g0/B4-IMPLEMENTER.md` / `-allowance.json`), then G5 batch review
+(test-shard inventory may overlap final G5 review), then integration
++ evidence.
+
+### Controls
+
+This evidence append changes only allowed evidence files (execution
+log + manifest; test-shards.json untouched) in one coherent commit
+authored by `POM <peter@omalley.io>`. No receipt, protected state,
+branch, or other file is changed; no push, merge, promotion,
+live/model/runtime call, secret access, wrapper dispatch, review,
+validator change, or product/test run is performed by this evidence
+recorder; the recorded residual repair was executed by the
+G3-RESIDUAL-RG21-ASYMMETRY agent, not by this recorder. No receipt is
+committed; the reviewed receipts stay untracked run artifacts. This
+evidence recorder's own wrapper PID is `82717`, start
+`2026-08-22T07:36:30Z` per `active-allowances.json`; this recorder's
+own receipt path is
+`docs/plans/workflow-execution-spine-consolidation-evidence/receipts/evidence-log-G3-RESIDUAL-receipt.json`,
+written by the wrapper together with this recorder's own `end_ts` and
+receipt digest after exit; neither is computed or recorded here.
+
+- **Validator proof:** the required read-only command
+  `python3 scripts/validate_workflow_execution_spine_evidence.py
+  docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  runs after this append against the refreshed manifest digests; its
+  deterministic passing output
+  `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json`
+  carries stdout SHA-256
+  `1000d84578b5ef510a6b2ae9d447148f7b707c055695707711e2086bd5727224`.
+  No product tests are run by this evidence recorder.

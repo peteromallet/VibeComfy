@@ -326,7 +326,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "e05590a0bf60517838bef491edbee27a59b3d927e508686c7c0f40c461a6e095",
+        "sha256": "63ba23faefc97a659221be3ab509476d9a1275cc1a164fe241a56c5cad1088dc",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -2050,6 +2050,45 @@
           "G3-RESIDUAL-RG21-ASYMMETRY"
         ],
         "next_unblocked_card": "G3-RESIDUAL-RG21-ASYMMETRY card (XHARD production repair, vibecomfy/comfy_nodes/agent/authority_receipts.py converter alignment; must land before T7.2; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/G3-RESIDUAL-RG21-ASYMMETRY.md and -allowance.json), then its evidence, then B4-IMPLEMENTER (T5.1->T5.5; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B4-IMPLEMENTER.md and -allowance.json), then G5 batch review (test-shard inventory may overlap final G5 review), then integration + evidence"
+      },
+      "g3_residual_rg21_asymmetry": {
+        "task_id": "G3-RESIDUAL-RG21-ASYMMETRY",
+        "gate": "G3",
+        "label": "G3-RESIDUAL-RG21-ASYMMETRY [XHARD]: align authority_receipts.recompute_apply converter with executor ingest (land before T7.2)",
+        "role": "implementer",
+        "model_route": "stealth/ox-alpha",
+        "resolved_model": "stealth/ox-alpha",
+        "status": "complete",
+        "disposition": "closed",
+        "base_sha": "730fb7222e87c679c360a37884b59fb1db9472e7",
+        "wrapper_pid": 82378,
+        "start_ts": "2026-08-22T07:23:04Z",
+        "end_ts": "2026-08-22T07:36:01Z",
+        "exit": 0,
+        "commits": ["7c919305909fd81042d3d0691785fbd2a290d959"],
+        "changed_files": ["vibecomfy/comfy_nodes/agent/authority_receipts.py"],
+        "stop_or_judgment": "",
+        "receipt": {"path": "receipts/G3-RESIDUAL-RG21-ASYMMETRY-receipt.json", "sha256": "bfa4f32ebe0935558b2168554973f0ecb3814186e8522c5896821c2471e185d6"},
+        "brief_sha256": "9d7307c4efa035b20b8f36bd9d2392961043a6378fe8ca24218c5d0c731eff4b",
+        "result_sha256": "b790ceff1bc872702663b134555a8191de464af3e155792b96d08c641bb95a3c",
+        "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G3-RESIDUAL-RG21-ASYMMETRY-dispatch.log",
+        "root_cause": "recompute_apply ingested the submit graph via from_ui(dict(submit_graph), schema_provider=schema_provider) (authority_receipts.py:320 pre-fix), inheriting from_ui's default use_comfy_converter=True (normalize.py:1230) which attempts the host comfy converter convert_ui_to_api (normalize.py:516-549); live executor ingest pins False in both twins (session.py:444, _gates.py:314); on hosts where the converter imports AND diverges, replay IR != live IR -> loud fail-closed candidate_hash_mismatch",
+        "fix": "recompute_apply passes use_comfy_converter=False with a comment citing both executor pins - replay selects the identical converter as live ingest on every host",
+        "failure_injection_proof": {
+          "probe": "/tmp/rg21-asymmetry/probe_converter_asymmetry.py",
+          "method": "fake importable divergent convert_ui_to_api injected and check_comfy_compatibility patched to OK; recompute_apply compared against the R-G2-1 executor-model candidate on the sequential-invariant test's delta",
+          "base": {"converter_invocations_by_replay": 1, "hashes_diverge": true, "exit": 3},
+          "fixed": {"converter_invocations": 0, "hash_equal": true, "exit": 0},
+          "structural_closure": "use_comfy_converter=False never imports or calls the converter (normalize.py:479-481); divergence channel structurally closed, not merely unobserved"
+        },
+        "tests": [
+          {"path": "tests/test_authority_replay_sequential.py", "result": "2 passed", "exit": 0, "note": "R-G2-1 intact, not weakened", "run_count": 1},
+          {"path": "tests/test_authority_receipts.py", "result": "11 passed", "exit": 0, "run_count": 1}
+        ],
+        "test_notes": "each run once, caches disabled",
+        "closure": "G3-RESIDUAL-RG21-ASYMMETRY CLOSED; landed before T7.2 as required",
+        "residual_risks": ["cosmetic only: fix comment references the executor pins by location; if those move, the comment (not behavior) drifts"],
+        "next_unblocked_card": "B4-IMPLEMENTER (T5.1->T5.5; brief + allowance already written at /workspace/vibecomfy-exec-spine-20260820/g0/B4-IMPLEMENTER.md and -allowance.json), then G5 batch review (test-shard inventory may overlap final G5 review), then integration + evidence"
       }
     }
   ],
