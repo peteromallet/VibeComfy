@@ -84,7 +84,7 @@
     {
       "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-shape-generation-and-export-workflow-8800a9.json",
-      "descriptor_sha256": "4c8dfefcdd372108a83b88fd5b855c557f3fc3ef436e40cb92418e02a4b3a6c0",
+      "descriptor_sha256": "e6e0a2001429726f0f46be56cdb414d5388bc3803cff63cca0c4b5d2f0afeefc",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",

@@ -1,16 +1,13 @@
 {
   "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
-  "query": "Lower the shape refinement strength to 0.4 so the final mesh stays closer to the input coarse mesh.",
+  "query": "Lower the shape refinement strength to 0.5 so the final mesh stays closer to the input coarse mesh.",
   "workflow_path": "external_workflows/corpus/8800a945cff8d090.json",
   "network": true,
   "timeout": 360,
   "apply": true,
   "assessment": {
     "expect_graph_changed": true,
-    "allow_safe_refusal_outcome_kinds": [
-      "clarify",
-      "requires_custom_nodes"
-    ]
+    "allow_safe_refusal_outcome_kinds": []
   },
   "desired": {
     "outcome": "The refined mesh resembles the input coarse mesh more closely, with less aggressive reshaping.",

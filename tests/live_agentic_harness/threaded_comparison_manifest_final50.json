@@ -73,9 +73,9 @@
     },
     {
       "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
-      "descriptor_sha256": "4c8dfefcdd372108a83b88fd5b855c557f3fc3ef436e40cb92418e02a4b3a6c0",
+      "descriptor_sha256": "e6e0a2001429726f0f46be56cdb414d5388bc3803cff63cca0c4b5d2f0afeefc",
       "source_workflow_sha256": "134ec19b6bd7158373e968face34c9bd2390c8e1011d40c92fc077e6a08f7658",
-      "locked_input_sha256": "5f038ea0cef66ff40f4a3588f44fa8b24a949c23c1112feff407ae145fb43e9d"
+      "locked_input_sha256": "302337c316073ecaca5b4c34f2329cee395979f79bfce56ac42ee07dad231170"
     },
     {
       "id": "3d-converts-image-to-3d-model",
