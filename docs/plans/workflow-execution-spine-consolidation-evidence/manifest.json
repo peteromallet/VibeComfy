@@ -1085,6 +1085,87 @@
           "model_route": "ox-alpha",
           "exit": 0,
           "disposition": "card closed \u2014 directive implemented and committed as bbf4f596; no open must findings (\u00a713 single-escalation policy); fix 2 PASS throughout"
+        },
+        {
+          "sequence": 39,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-2",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-2-receipt.json",
+          "sha256": "8a74fd439d00357d44326574cc9509a078d98ba3ce9658deefdaad2c82baaa50",
+          "result_sha256": "e78ba8631359af0fb211c3144ca762fef76de453dbfe85a740c2a71e36cb20f0",
+          "commit": "33e4afbd839aea78ae323a47da8943b827a8e5de",
+          "role": "implementer",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-2 \u2014 \u00a728 deep-audit: fix 3 ASSESSOR CORRECTNESS + fix 4 REPLAY/LIVE CANONICALIZATION",
+          "disposition": "implemented \u2014 reviewed in batch by DEEP-AUDIT-REVIEW-2; JUDGMENT_REQUIRED: none"
+        },
+        {
+          "sequence": 40,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-REVIEW-2",
+          "receipt_path": "receipts/DEEP-AUDIT-REVIEW-2-receipt.json",
+          "sha256": "3603ef4bc8ee0128ce297b4f6fefb706bb765cd236022d29ac35171c4117f1cc",
+          "result_sha256": "adc2b908114fd0b092f5f2afe12fff50d5ff2b53a6a19f789a1e91fc1a13a318",
+          "role": "review",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "label": "DEEP-AUDIT-REVIEW-2 \u2014 codex review of DEEP-AUDIT-FIX-2 commit 33e4afbd (fix 3 assessor correctness + fix 4 replay/live canonicalization)",
+          "disposition": "findings-opened \u2014 Fix 3 FAIL must 001 (production delta-hash chain byte-fragile); Fix 4 FAIL must 002 (applied-unverified unbound)"
+        },
+        {
+          "sequence": 41,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-2-REVISION",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-2-REVISION-receipt.json",
+          "sha256": "5b1e8fd2f81cda3f2b45edb01a34ac9de8df3d8eceadff3e48f4037c87e462b4",
+          "result_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "commit": "8bbd72f2239777c85279ce4c7b33c6d625d66839",
+          "role": "implementer",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-2-REVISION \u2014 resolve REVIEW-2 musts 001 (production semantic delta-hash chain) + 002 (applied-unverified from validated V2 only)",
+          "disposition": "landed clean (commit \u2286 allowance, no violation) but result body digest is the degenerate-empty artifact repeat (output-capture anomaly); rereview closed 001 and reopened binding as REREVIEW-001"
+        },
+        {
+          "sequence": 42,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-REVIEW-2-REREVIEW",
+          "receipt_path": "receipts/DEEP-AUDIT-REVIEW-2-REREVIEW-receipt.json",
+          "sha256": "1afdaeee36da166b81dc7e4dfd2178b7b3bd46b4cfe98cdb3d1032b6703c3d1a",
+          "result_sha256": "bf6af603b6b12e829dbd914d64196c6296776adb16925600968626ee62a58cd8",
+          "role": "review",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "label": "DEEP-AUDIT-REVIEW-2-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-2 card diff (33e4afbd+8bbd72f2) after musts 001/002",
+          "disposition": "mixed \u2014 finding 001 CLOSED (semantic delta-hash chain end-to-end); REREVIEW-001 FAIL (applied-unverified still unbound); escalated per single-\u00a713-escalation policy"
+        },
+        {
+          "sequence": 43,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-2-ADJUDICATION",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-2-ADJUDICATION-receipt.json",
+          "sha256": "ea2d905e1bd9b486fa26f1d2df729c3a0dee529eb3098688681ae3b53fa1cb7c",
+          "result_sha256": "b622e0fc4112d0a9498db68bea7b3b94e5cee9f7f0534f0cfa972e408b911f0f",
+          "role": "adjudication",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-2-ADJUDICATION \u2014 single \u00a713 escalation (codex): applied-unverified/replay-verified binding contract ruling + exact directive",
+          "disposition": "continue \u2014 all-six-check binding directive issued for landed_replay_verified; no applied-unverified without persisted receipt+transaction+assessed-graph binding; chain closed"
+        },
+        {
+          "sequence": 44,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-2-REVISION-2",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-2-REVISION-2-receipt.json",
+          "sha256": "67c824bbd7202834967501328eeb9688587656c64349560ca2da4bda88e6946c",
+          "result_sha256": "565589aa19835f3052db2bdad2abdeb74e3f84e0accf2ceeec16d90bbf5292af",
+          "commit": "ee8cfdd27f5c6bd9612640c4cf51ace4e97565d6",
+          "role": "implementer",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-2-REVISION-2 \u2014 implement ADJUDICATION-2 directive (6 mandatory binding checks; single persisted-pair loader; centralized receipt digest + candidate identities; 4 honest tests)",
+          "disposition": "card closed \u2014 directive implemented and committed as ee8cfdd2; no open must findings (\u00a713 single-escalation policy); fixes 3+4 per adjudicated design"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1508,7 +1589,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "2affaf4b728a6a87beb518f248551790748e14a3b0686febcff6d61744437866",
+        "sha256": "1478ea019cf87c73aa4e556e4fa6707925e8a6456977d64ef45b8d0872484dcd",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
