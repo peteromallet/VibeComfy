@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -2680,3 +2681,197 @@ def test_write_object_info_cache_freezes_generation_and_timestamp(tmp_path) -> N
     assert metadata["generation"] == 4
     assert metadata["captured_at"] == "2026-08-21T01:02:03Z"
 
+
+# ── §28 deep-audit fix 1: schema snapshot completeness ──────────────────────
+
+
+_EXTERNAL_WHISPER_SOURCE = '''
+class ApplyWhisperNode:
+    """External custom node that exists only in an installed source tree."""
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO",),
+                "model": (["tiny", "base"],),
+            },
+            "optional": {"language": ("STRING", {"default": "en"})},
+        }
+'''
+
+
+def _write_external_custom_node(root, class_type="ApplyWhisperNode", source=None) -> None:
+    custom_nodes = root / "custom_nodes"
+    custom_nodes.mkdir(parents=True, exist_ok=True)
+    (custom_nodes / f"{class_type}.py").write_text(source or _EXTERNAL_WHISPER_SOURCE)
+
+
+def test_capture_heals_runtime_present_external_custom_node(tmp_path, monkeypatch) -> None:
+    """§28 fix 1: a class the selected payload lacks but an installed
+    custom-node source provides is CAPTURED into the frozen snapshot and is
+    no longer reported missing."""
+    from vibecomfy.schema import capture_schema_snapshot
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    _write_external_custom_node(tmp_path)
+    snapshot = capture_schema_snapshot(
+        class_types=["ApplyWhisperNode"],
+        connected_object_info={},  # runtime object_info lacks the external node
+        connected_object_info_verified=False,
+        source_roots=[tmp_path / "custom_nodes"],
+    )
+    assert snapshot.missing_classes == ()
+    payload = snapshot.schemas["ApplyWhisperNode"]
+    assert set(payload["inputs"]) == {"audio", "model", "language"}
+    assert [item["name"] for item in payload["outputs"]] == ["text"]
+    assert payload["provenance"]["source_provider"] == "source_parser"
+    assert snapshot.input_order["ApplyWhisperNode"] == ("audio", "model", "language")
+
+
+def test_capture_keeps_genuinely_absent_class_missing_and_fails_closed(
+    tmp_path,
+) -> None:
+    """Fail-closed discipline: a class absent from runtime AND custom-node
+    sources stays missing and admission still rejects it."""
+    from vibecomfy.schema import capture_schema_snapshot, require_known_touched_schema
+
+    (tmp_path / "empty_custom_nodes").mkdir()
+    snapshot = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "GenuinelyAbsentNode12345"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+        source_roots=[tmp_path / "empty_custom_nodes"],
+    )
+    assert "GenuinelyAbsentNode12345" in snapshot.missing_classes
+    assert "GenuinelyAbsentNode12345" not in snapshot.schemas
+    with pytest.raises(Exception, match="missing_touched_schema"):
+        require_known_touched_schema(
+            {
+                "op": "add_node",
+                "class_type": "GenuinelyAbsentNode12345",
+                "uid": "u-new",
+                "node_id": "77",
+                "fields": {},
+            },
+            snapshot,
+        )
+
+
+def test_captured_external_schemas_survive_snapshot_round_trip(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Replay reproducibility: to_payload/from_payload preserves captured
+    external schemas and reconstructs the identical missing_classes set."""
+    from vibecomfy.schema import (
+        capture_schema_snapshot,
+        schema_snapshot_from_payload,
+        schema_snapshot_to_payload,
+    )
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    _write_external_custom_node(tmp_path)
+    snapshot = capture_schema_snapshot(
+        class_types=["ApplyWhisperNode", "AbsentNode98765"],
+        connected_object_info={},
+        source_roots=[tmp_path / "custom_nodes"],
+    )
+    payload = schema_snapshot_to_payload(snapshot)
+    rebuilt = schema_snapshot_from_payload(payload)
+    assert rebuilt.content_digest == snapshot.content_digest
+    assert list(rebuilt.missing_classes) == list(snapshot.missing_classes)
+    assert dict(rebuilt.schemas) == dict(snapshot.schemas)
+    assert rebuilt.get_schema("ApplyWhisperNode") is not None
+    # Re-capture from the round-tripped payload yields identical authority.
+    recaptured = capture_schema_snapshot(
+        class_types=["ApplyWhisperNode", "AbsentNode98765"],
+        request_snapshot=payload,
+        source_roots=[tmp_path / "custom_nodes"],
+    )
+    assert list(recaptured.missing_classes) == list(snapshot.missing_classes)
+    assert dict(recaptured.schemas) == dict(snapshot.schemas)
+
+
+def test_build_schema_witness_receipts_drop_healed_missing_class(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Authority receipts improve: build_schema_witness over a provider that
+    cannot resolve an installed external node captures it at witness time,
+    so missing_class_types shrinks and replay reconstructs identically."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        build_schema_witness,
+        validate_schema_witness,
+    )
+    from vibecomfy.schema.types import schema_snapshot_from_payload
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    _write_external_custom_node(tmp_path)
+    monkeypatch.chdir(tmp_path)  # default source roots are repo-relative
+    graph = {"nodes": [{"id": "5", "type": "ApplyWhisperNode"}]}
+    delta = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "5", "model"],
+                "value": "base",
+            }
+        ],
+    }
+
+    class _RuntimeOnlyProvider:
+        def get_schema(self, class_type):
+            return None  # live runtime object_info without the external pack
+
+    witness = build_schema_witness(
+        schema_provider=_RuntimeOnlyProvider(),
+        submit_graph=graph,
+        candidate_payload=graph,
+        delta_envelope=delta,
+    )
+    assert validate_schema_witness(witness)[0] is True
+    assert witness["missing_class_types"] == []
+    assert "ApplyWhisperNode" in witness["schemas"]
+    # Replay reconstruction from the frozen witness payload is identical.
+    rebuilt = schema_snapshot_from_payload(witness["schema_snapshot"])
+    assert list(rebuilt.missing_classes) == []
+    assert "ApplyWhisperNode" in rebuilt.schemas
+
+
+def test_capture_on_demand_leg_resolves_uninstalled_pack_offline(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The on-demand rung participates behind VIBECOMFY_ON_DEMAND_SCHEMAS=1
+    with the network stubbed: clone parse feeds the frozen snapshot."""
+    from vibecomfy.schema import capture_schema_snapshot
+    from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "1")
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "WhisperPack.py").write_text(_EXTERNAL_WHISPER_SOURCE)
+    fake_ref = SimpleNamespace(slug="whisper-pack", url="https://example.invalid/whisper-pack")
+    monkeypatch.setattr(OnDemandInstallSchemaProvider, "_resolve_pack", lambda self, cls: fake_ref)
+    monkeypatch.setattr(OnDemandInstallSchemaProvider, "_ensure_clone", lambda self, ref: pack)
+    snapshot = capture_schema_snapshot(
+        class_types=["ApplyWhisperNode"],
+        connected_object_info={},
+        source_roots=[tmp_path / "no_sources_here"],
+    )
+    assert snapshot.missing_classes == ()
+    assert snapshot.schemas["ApplyWhisperNode"]["provenance"]["source_provider"] == (
+        "on_demand_static"
+    )

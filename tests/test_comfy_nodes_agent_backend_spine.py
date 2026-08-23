@@ -4590,14 +4590,50 @@ def test_extract_batch_fence_missing_fence_raises_malformed() -> None:
         agent_provider.extract_batch_fence("Just some prose, no code block.")
 
 
-def test_extract_batch_fence_multiple_fences_raises_malformed() -> None:
-    """A response with multiple ```batch fences raises MalformedModelJSON."""
+def test_extract_batch_fence_multiple_fences_merge_in_order() -> None:
+    """§28 fix 2: multiple ```batch fences MERGE in order — full code from
+    every fence is retained (never truncated), prose outside is preserved."""
     text = "```batch\nx = 1\n```\n\n```batch\ny = 2\n```"
-    with pytest.raises(agent_provider.MalformedModelJSON, match="multiple"):
-        agent_provider.extract_batch_fence(text)
+    provenance: dict = {}
+    batch_code, prose = agent_provider.extract_batch_fence(text, parse_provenance=provenance)
+    assert batch_code == "x = 1\ny = 2"
+    assert provenance == {"parse_reason": "merged_batch_fences", "fence_count": 2}
 
 
-def test_r5_multiple_fence_fixture_fails_closed_without_batch_merge_or_rerun() -> None:
+def test_extract_batch_fence_prose_between_fences_still_merges() -> None:
+    """§28 fix 2: fences split by prose merge; the prose stays message text."""
+    text = (
+        "First part.\n```batch\nadd_node(\"Foo\")\n```\n"
+        "Now the second part.\n```batch\ndone()\n```\nThanks."
+    )
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == 'add_node("Foo")\ndone()'
+    assert "First part." in prose
+    assert "Now the second part." in prose
+    assert "Thanks." in prose
+    assert "add_node" not in prose
+
+
+def test_extract_batch_fence_three_fences_merge_all_bodies_in_order() -> None:
+    """§28 fix 2: more than two fences still merge every body, in order."""
+    text = (
+        "```batch\na = 1\n```\nmid\n```batch\n\n```\ntail\n"
+        "```batch\nb = 2\n```\nend"
+    )
+    provenance: dict = {}
+    batch_code, prose = agent_provider.extract_batch_fence(text, parse_provenance=provenance)
+    assert batch_code == "a = 1\nb = 2"
+    assert provenance["fence_count"] == 3
+    assert "mid" in prose and "tail" in prose and "end" in prose
+
+
+def test_r5_multiple_fence_fixture_merges_per_deep_audit_fix_2() -> None:
+    """§28 deep-audit fix 2 supersedes the R5 fail-closed-on-multi-fence rule.
+
+    The same frozen fixture response is exercised, but multiple fences now
+    MERGE in order (full code from both fences retained, never truncated,
+    no rerun) instead of raising ``multiple_batch_fences``.
+    """
     fixture = json.loads(
         (
             Path(__file__).parent
@@ -4607,15 +4643,27 @@ def test_r5_multiple_fence_fixture_fails_closed_without_batch_merge_or_rerun() -
         ).read_text(encoding="utf-8")
     )
 
-    with pytest.raises(
-        agent_provider.MalformedModelJSON,
-        match=fixture["expected"]["reason_contains"],
-    ):
-        agent_provider.extract_batch_fence(fixture["response"])
+    provenance: dict = {}
+    batch_code, prose = agent_provider.extract_batch_fence(
+        fixture["response"], parse_provenance=provenance
+    )
+    assert batch_code == (
+        "set_node_field('1', 'prompt', 'first')\n"
+        "set_node_field('1', 'prompt', 'second')"
+    )
+    assert prose == ""
+    assert provenance == {"parse_reason": "merged_batch_fences", "fence_count": 2}
 
-    assert fixture["expected"]["accepted_batch"] is False
-    assert fixture["expected"]["merged_fences"] is False
-    assert fixture["expected"]["rerun_accepted_batch"] is False
+    # The normalized batch turn carries the merge provenance as evidence so
+    # the harness can distinguish a merged batch from a single-fence batch.
+    turn = agent_provider._normalize_batch_response(
+        fixture["response"], route="openrouter", model="test-model"
+    )
+    assert turn.batch == batch_code
+    assert turn.audit_metadata["batch_parse"] == {
+        "parse_reason": "merged_batch_fences",
+        "fence_count": 2,
+    }
 
 
 def test_extract_batch_fence_empty_fence_is_valid() -> None:

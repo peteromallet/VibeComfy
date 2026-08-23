@@ -19108,20 +19108,49 @@ def test_entrypoint_enforces_max_batches_bounds_and_ignores_invalid(
     [
         ("", "empty"),
         ("no fences here at all", "missing_batch_fence"),
-        (
-            "prose\n```batch\na = 1\n```\nmid\n```batch\nb = 2\n```\n",
-            "multiple_batch_fences",
-        ),
     ],
 )
 def test_batch_protocol_fence_parsing_fail_closed(raw: str, expected_reason: str) -> None:
-    """No fence / malformed-empty / multiple fences all fail closed with the
-    frozen parse_reason vocabulary; fences are never merged."""
+    """Empty and genuinely fence-less responses fail closed with the frozen
+    parse_reason vocabulary. §28 fix 2: multiple fences no longer raise —
+    they merge (see test_batch_protocol_multiple_fences_merge_in_order)."""
     from vibecomfy.comfy_nodes.agent import provider as provider_mod
 
     with pytest.raises(provider_mod.MalformedModelJSON) as raised:
         provider_mod.extract_batch_fence(raw)
     assert raised.value.parse_reason == expected_reason
+
+
+def test_batch_protocol_multiple_fences_merge_in_order() -> None:
+    """§28 fix 2: fences split by prose MERGE in order instead of raising."""
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    provenance: dict = {}
+    batch, prose = provider_mod.extract_batch_fence(
+        "prose\n```batch\na = 1\n```\nmid\n```batch\nb = 2\n```\n",
+        parse_provenance=provenance,
+    )
+    assert batch == "a = 1\nb = 2"
+    assert "prose" in prose and "mid" in prose
+    assert provenance == {"parse_reason": "merged_batch_fences", "fence_count": 2}
+
+
+def test_batch_protocol_merged_fences_record_evidence_on_normalized_turn() -> None:
+    """§28 fix 2: the normalized batch turn records merge provenance
+    (parse_reason + fence_count) so merged batches are distinguishable."""
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    result = provider_mod._normalize_batch_response(
+        'Hello.\n```batch\nsaveimage.filename_prefix = "a"\n```\n'
+        'more prose\n```batch\ndone()\n```',
+        route="openrouter",
+        model="test-model",
+    )
+    assert result.batch == 'saveimage.filename_prefix = "a"\ndone()'
+    assert result.audit_metadata["batch_parse"] == {
+        "parse_reason": "merged_batch_fences",
+        "fence_count": 2,
+    }
 
 
 def test_batch_protocol_valid_batch_with_prose_keeps_both_parts() -> None:

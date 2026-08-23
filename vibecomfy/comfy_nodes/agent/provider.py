@@ -205,10 +205,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
-# T3.2 fence seam (frozen): this is the SINGLE stripping seam for batch_repl
-# responses. ``extract_batch_fence`` is fail-closed on it — zero fences raises
-# ``parse_reason="missing_batch_fence"``, more than one raises
-# ``parse_reason="multiple_batch_fences"`` (never merged, never rerun).
+# T3.2 fence seam: this is the SINGLE stripping seam for batch_repl
+# responses. Zero complete ```batch fences still fail closed with
+# ``parse_reason="missing_batch_fence"``; multiple fences MERGE (§28
+# deep-audit fix 2): every fenced body is kept in order — never truncated,
+# never rerun — and the merge path records parse provenance
+# (``parse_reason="merged_batch_fences"`` + ``fence_count``) so the harness
+# can distinguish a merged batch from a single-fence batch.
 _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
 
 
@@ -337,14 +340,24 @@ def ensure_sentence_message(message: str | None, *, fallback: str) -> str:
     return text
 
 
-def extract_batch_fence(text: str) -> tuple[str, str]:
-    """Extract exactly one ```batch fenced block from a model response.
+def extract_batch_fence(
+    text: str,
+    *,
+    parse_provenance: dict[str, Any] | None = None,
+) -> tuple[str, str]:
+    """Extract the ```batch payload from a model response.
 
     Returns ``(batch_code, prose)`` where *batch_code* is the code inside the
-    fence and *prose* is all text outside it (the agent's user-facing message).
+    fence(s) and *prose* is all text outside them (the agent's user-facing
+    message).
 
-    Raises :class:`MalformedModelJSON` when zero or multiple batch fences are
-    found — the fence is the single stripping seam.
+    Robustness (§28 deep-audit fix 2): one well-formed fence is used as-is
+    regardless of surrounding prose; multiple fences are MERGED — every
+    fenced body concatenated in order, full code retained, never truncated.
+    When *parse_provenance* is given, the merge path records
+    ``parse_reason="merged_batch_fences"`` and ``fence_count`` so the harness
+    can distinguish merged from single-fence batches. Zero complete fences
+    still fails closed with ``parse_reason="missing_batch_fence"``.
     """
     if not text.strip():
         raise MalformedModelJSON(
@@ -353,6 +366,8 @@ def extract_batch_fence(text: str) -> tuple[str, str]:
             parse_reason="empty",
         )
     matches = _BATCH_FENCE_RE.findall(text)
+    # Extract prose: everything outside the fences, with the fence text removed.
+    prose = _BATCH_FENCE_RE.sub("", text).strip()
     if len(matches) == 0:
         raise MalformedModelJSON(
             "Agent response does not contain a ```batch fenced block. "
@@ -360,16 +375,13 @@ def extract_batch_fence(text: str) -> tuple[str, str]:
             raw_response=text,
             parse_reason="missing_batch_fence",
         )
-    if len(matches) > 1:
-        raise MalformedModelJSON(
-            "Agent response contains multiple ```batch fenced blocks. "
-            "Include exactly one ```batch code block per turn.",
-            raw_response=text,
-            parse_reason="multiple_batch_fences",
-        )
-    batch_code = matches[0].strip()
-    # Extract prose: everything outside the fence, with the fence text removed.
-    prose = _BATCH_FENCE_RE.sub("", text).strip()
+    bodies = [match.strip() for match in matches]
+    if len(bodies) == 1:
+        return bodies[0], prose
+    batch_code = "\n".join(body for body in bodies if body)
+    if parse_provenance is not None:
+        parse_provenance["parse_reason"] = "merged_batch_fences"
+        parse_provenance["fence_count"] = len(bodies)
     return batch_code, prose
 
 
@@ -1498,16 +1510,22 @@ def _normalize_batch_response(
             raw_response=text,
             parse_reason="empty",
         )
-    batch_code, prose = extract_batch_fence(text)
+    batch_parse_provenance: dict[str, Any] = {}
+    batch_code, prose = extract_batch_fence(text, parse_provenance=batch_parse_provenance)
     # Preserve prose as-is (possibly empty); the backend synthesizer
     # (_synthesize_batch_repl_message) owns final message filling.
     message = prose.strip()
+    audit: dict[str, Any] = dict(merged_audit or {})
+    if batch_parse_provenance:
+        # §28 fix 2: a merged multi-fence batch is distinguishable from a
+        # single-fence batch via its parse provenance (evidence plumbing).
+        audit["batch_parse"] = batch_parse_provenance
     return BatchTurnResult(
         batch=batch_code,
         message=message,
         route=route,
         model=model,
-        audit_metadata=merged_audit,
+        audit_metadata=audit,
     )
 
 

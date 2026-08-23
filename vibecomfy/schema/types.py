@@ -367,6 +367,63 @@ def _digest_body(snapshot: SchemaSnapshot) -> dict[str, Any]:
     return body
 
 
+def _capture_external_custom_node_schemas(
+    class_types: Sequence[str],
+    *,
+    source_roots: Sequence[str | Path] | None = None,
+) -> dict[str, tuple[dict[str, Any], tuple[str, ...]]]:
+    """Resolve reported-missing classes from installed custom-node sources.
+
+    §28 deep-audit fix 1 (schema snapshot completeness): the frozen snapshot
+    must CAPTURE external custom-node schemas the runtime actually has, using
+    the existing resolvers only — :class:`SourceSchemaProvider` over installed
+    custom-node source trees first, then the on-demand pack resolver behind
+    the same ``VIBECOMFY_ON_DEMAND_SCHEMAS`` gate as
+    ``AuthoringSchemaProvider``. A class genuinely absent from runtime AND
+    custom-node sources stays missing and keeps failing closed in admission;
+    nothing here weakens fail-closed semantics.
+    """
+    resolved: dict[str, tuple[dict[str, Any], tuple[str, ...]]] = {}
+    candidates = [str(item) for item in dict.fromkeys(class_types) if str(item)]
+    if not candidates:
+        return resolved
+    import os
+
+    try:
+        from vibecomfy.schema.provider import SourceSchemaProvider
+
+        resolvers: list[Any] = [
+            SourceSchemaProvider(list(source_roots) if source_roots is not None else None)
+        ]
+    except Exception:  # noqa: BLE001 - source resolution must never break capture
+        return resolved
+    if os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS", "1") != "0":
+        try:
+            from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
+
+            resolvers.append(OnDemandInstallSchemaProvider())
+        except Exception:  # noqa: BLE001 - best-effort last rung only
+            pass
+    for class_type in candidates:
+        schema = None
+        for resolver in resolvers:
+            try:
+                schema = resolver.get_schema(class_type)
+            except Exception:  # noqa: BLE001 - a failing resolver reads as absence
+                schema = None
+            if schema is not None:
+                break
+        if schema is None:
+            continue
+        try:
+            payload = schema_payload_from_node_schema(class_type, schema)
+        except Exception:  # noqa: BLE001 - an unusable schema reads as absence
+            continue
+        order = tuple(str(name) for name in (payload.get("input_order") or ()))
+        resolved[class_type] = (payload, order)
+    return resolved
+
+
 def capture_schema_snapshot(
     *,
     class_types: Sequence[str] | None = None,
@@ -381,12 +438,19 @@ def capture_schema_snapshot(
     generation: int | None = None,
     workflow_observation: Mapping[str, Any] | None = None,
     node_classes: Mapping[str, str] | None = None,
+    source_roots: Sequence[str | Path] | None = None,
 ) -> SchemaSnapshot:
     """Freeze schema authority at ingress.
 
     Precedence is explicit request snapshot, then verified connected
     ``/object_info``, then configured content-addressed cache. Workflow
     observation is recorded as non-authoritative and never selected.
+
+    §28 deep-audit fix 1: after payload selection, requested classes still
+    reported missing are resolved through the external custom-node sources
+    (``source_roots`` → :class:`SourceSchemaProvider`, then the gated
+    on-demand resolver) and their schemas ride inside the frozen snapshot;
+    classes no resolver can produce stay missing and fail closed.
     """
     del workflow_observation  # non-authoritative by contract
     selected_source = ""
@@ -527,6 +591,15 @@ def capture_schema_snapshot(
         for class_type in requested:
             if class_type not in schemas and class_type not in missing:
                 missing.append(class_type)
+    if missing:
+        healed = _capture_external_custom_node_schemas(
+            [item for item in missing if item not in schemas],
+            source_roots=source_roots,
+        )
+        for healed_class, (healed_payload, healed_order) in healed.items():
+            schemas[healed_class] = healed_payload
+            input_order[healed_class] = healed_order
+            missing.remove(healed_class)
 
     frozen_node_classes: dict[str, str] = {}
     inherited = None
