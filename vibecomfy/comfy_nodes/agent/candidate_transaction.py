@@ -42,6 +42,7 @@ from .projection_registry_v1 import (
     RESTORATION_COMPENSATION_WIRE_VERSION,
     canonical_json_bytes_v1 as _registry_canonical_json_bytes,
     canonicalize_contract_numeric as _registry_canonicalize_contract_numeric,
+    ContractError as _RegistryContractError,
     classify_legacy_migration_v1,
     projection_reference_v1,
     validate_candidate_transaction_v2,
@@ -102,6 +103,35 @@ _LEGACY_STATE_ADAPTER: Mapping[str, str] = {
     "unknown": "superseded",
 }
 
+def _semantic_hash_view(value: Any) -> Any:
+    """Project a hash preimage onto its semantic-canonical numeric form.
+
+    DEEP-AUDIT-FIX-2 (§28 fix 4): persisted hashes are re-verified after a
+    JSON round trip whose producer may spell equal numbers differently
+    (browser ``Number`` carriers collapse integral floats such as ``30.0``
+    to ``30``; UI emitters may do the inverse).  Hashing a byte-fragile
+    rendering made replay reject semantically identical deltas
+    (``persisted_delta_hash_mismatch`` / ``schema_witness_hash_mismatch``).
+    Numeric leaves are therefore normalised through the shared contract
+    canonicalizer before hashing: key order and separators remain owned by
+    the canonical-JSON layer, integral floats collapse to ints, and
+    non-finite / oversized numerics are rejected by the canonicalizer —
+    this module then falls back to the raw value so hashing stays total
+    and those payloads keep hashing over their exact bytes (fail-closed:
+    any spelling change still changes the digest).
+    """
+    try:
+        return _registry_canonicalize_contract_numeric(
+            value, finite_error_code="non_canonical_number", allow_bool=True
+        )
+    except _RegistryContractError:
+        return value
+
+
+def legacy_rendering_hash(value: Any) -> str:
+    """SHA-256 over the exact historical rendering (no numeric folding)."""
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
 
 def canonical_json_bytes(value: Any) -> bytes:
     """Compatibility facade over the sole Python canonical-JSON owner."""
@@ -109,7 +139,8 @@ def canonical_json_bytes(value: Any) -> bytes:
 
 
 def content_hash(value: Any) -> str:
-    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+    """Semantic content hash: canonical JSON over the normalized preimage."""
+    return hashlib.sha256(canonical_json_bytes(_semantic_hash_view(value))).hexdigest()
 
 
 def canonical_transaction_state(value: Any) -> str | None:
@@ -514,7 +545,15 @@ def validate_schema_witness(witness: Any) -> tuple[bool, str | None]:
         return False, "malformed_schema_witness"
     if body["provider_mode"] not in {"none", "frozen"}:
         return False, "malformed_schema_provider_mode"
-    if witness.get("witness_hash") != content_hash(body):
+    # DEEP-AUDIT-FIX-2 (§28 fix 4): the stored digest must reproduce from the
+    # persisted body across semantic-equivalent re-renderings.  Accept the
+    # semantic hash (numeric-canonical preimage, what ``build_schema_witness``
+    # mints since this fix) or the exact legacy rendering (witnesses minted
+    # before it).  Both candidates are pure functions of THIS body: a
+    # genuinely different schema payload matches neither — tamper evidence
+    # is unchanged, nothing fail-open.
+    stored_witness_hash = witness.get("witness_hash")
+    if stored_witness_hash not in {content_hash(body), legacy_rendering_hash(body)}:
         if snapshot_payload is not None:
             return False, "invalid_schema_snapshot"
         return False, "schema_witness_hash_mismatch"
@@ -905,7 +944,20 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
     from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
 
     derived = derived_accepted_delta_envelope({"accepted_batch": accepted})
-    if plan.get("delta_hash") != content_hash(derived):
+    # DEEP-AUDIT-FIX-2 (§28 fix 4): replay re-derives the Δ from the persisted
+    # batch and must reach the same digest whenever the re-derivation is
+    # semantically equivalent to what was minted — equal ops under a different
+    # numeric spelling (``30`` vs ``30.0`` from a browser ``Number`` carrier)
+    # or dict ordering/formatting must NOT fail as ``persisted_delta_hash_mismatch``.
+    # The stored digest is accepted when it matches the semantic hash (numeric-
+    # canonical preimage) or the exact legacy rendering of THIS derived Δ.  Both
+    # are pure functions of the persisted bytes: a genuinely different delta
+    # matches neither, so the tamper check keeps failing closed.
+    stored_delta_hash = plan.get("delta_hash")
+    if not isinstance(stored_delta_hash, str) or stored_delta_hash not in {
+        content_hash(derived),
+        legacy_rendering_hash(derived),
+    }:
         return False, "persisted_delta_hash_mismatch"
     required_hashes = ("candidate_graph_hash", "candidate_structural_graph_hash", "authority_receipt_hash")
     if any(not isinstance(hashes.get(field), str) or not hashes.get(field) for field in required_hashes):
@@ -1010,5 +1062,6 @@ __all__ = [
     "validate_candidate_transaction_v2",
     "validate_prepared_authority_v1",
     "classify_legacy_migration_v1",
+    "legacy_rendering_hash",
     "validate_schema_witness",
 ]

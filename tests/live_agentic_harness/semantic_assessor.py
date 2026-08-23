@@ -249,7 +249,7 @@ def require_matching_lineage(
 class PairVerdict:
     """Honest verdict over one graph pair under the accepted-delta authority."""
 
-    outcome: str  # "applied_edit" | "no_edit" | "delta_replay_mismatch" | "undetermined"
+    outcome: str  # "applied_edit" | "applied_unverified" | "no_edit" | "delta_replay_mismatch" | "undetermined"
     reason: str
     detail: dict[str, Any] = field(default_factory=dict)
 
@@ -285,13 +285,21 @@ def judge_graph_pair(
     *,
     schema_provider: Any = None,
     queue_gate_failed: bool = False,
+    landed_replay_verified: bool = False,
 ) -> PairVerdict:
     """Judge one lineage-matched pair WITHOUT ever synthesizing edits.
 
     * unchanged product + no accepted delta ⇒ ``no_edit`` (determined absence;
       the caller decides pass/fail against the scenario expectation);
-    * changed product + no accepted delta ⇒ ``undetermined`` (contradictory:
-      something changed without durable authority — C11 forbids guessing);
+    * changed product + no accepted delta ⇒ ``undetermined``
+      (``changed_product_without_accepted_delta``; contradictory: something
+      changed without durable authority — C11 forbids guessing) — UNLESS the
+      run carries durable replay-verified landed-edit authority
+      (``landed_replay_verified``, DEEP-AUDIT-FIX-2 §28 fix 3): then the honest
+      class is ``applied_unverified`` — the edit landed and replay verified,
+      but this judge holds no accepted Δ to re-derive, so it stays distinct
+      from both ``applied_edit`` (pass-grade evidence) and bare
+      ``undetermined`` (missing evidence).
     * accepted delta present ⇒ replay ``interpret(pre, Δ)`` must reconstruct
       the post product; contradiction is ``delta_replay_mismatch`` (fail-closed),
       reconstruction success is ``applied_edit``.
@@ -307,6 +315,24 @@ def judge_graph_pair(
                     "pre_digest": pre.content_digest,
                     "post_digest": post.content_digest,
                     "queue_gate_failed": queue_gate_failed,
+                },
+            )
+        if landed_replay_verified and not queue_gate_failed:
+            # §28 fix 3: the candidate graph landed and the durable candidate
+            # transaction replay-verified it; only the accepted-Δ envelope is
+            # absent from this response.  Record the honest applied-unverified
+            # class with the landed-edit evidence instead of a bare
+            # undetermined.  Never a pass: without an accepted Δ this judge
+            # cannot re-derive the edit, and a withheld batch (queue gate
+            # failed) can never back any verdict.
+            return PairVerdict(
+                outcome="applied_unverified",
+                reason="landed_edit_replay_verified_without_accepted_delta",
+                detail={
+                    "pre_digest": pre.content_digest,
+                    "post_digest": post.content_digest,
+                    "queue_gate_failed": queue_gate_failed,
+                    "landed_replay_verified": True,
                 },
             )
         return PairVerdict(

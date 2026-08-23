@@ -3190,3 +3190,61 @@ def test_provisional_completion_creates_one_digest_stable_generation() -> None:
     assert recomposed.snapshot.content_digest == completed.content_digest
     # No additions at all: identity, not a copy.
     assert _complete_schema_snapshot_with_provisional(base, {}) is base
+
+
+def test_fix4_witness_hash_reproduces_across_numeric_respelling() -> None:
+    """§28 fix 4: a schema-witness digest minted over one numeric rendering of
+    the frozen surface must reproduce when replay re-renders semantically
+    equal numbers with different spellings (browser ``Number`` carriers), and
+    must still reject a genuinely different payload."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        SCHEMA_WITNESS_CONTRACT_VERSION,
+        content_hash,
+        validate_schema_witness,
+    )
+
+    body = {
+        "contract_version": SCHEMA_WITNESS_CONTRACT_VERSION,
+        "provider_mode": "frozen",
+        "schemas": {
+            "KnownPromptNode": {
+                "class_type": "KnownPromptNode",
+                "pack": None,
+                "inputs": {
+                    "required": {
+                        "seed": ["INT", {"default": 30}],
+                        "denoise": ["FLOAT", {"default": 1.0}],
+                    }
+                },
+                "input_order": [],
+                "outputs": [],
+            }
+        },
+        "missing_class_types": [],
+    }
+    # Mint over the float-spelled seed (30.0) exactly as a UI emitter would.
+    float_spelled = json.loads(json.dumps(body).replace('"default": 30}', '"default": 30.0}'))
+    assert float_spelled["schemas"]["KnownPromptNode"]["inputs"]["required"]["seed"][1]["default"] == 30.0
+    witness = {**float_spelled, "witness_hash": content_hash(float_spelled)}
+    assert validate_schema_witness(witness) == (True, None)
+
+    # Replay re-rendering: browser Number carriers collapse 30.0 → 30.
+    int_respelled = json.loads(json.dumps(witness))
+    int_respelled["schemas"]["KnownPromptNode"]["inputs"]["required"]["seed"][1]["default"] = 30
+    ok, error = validate_schema_witness(int_respelled)
+    assert (ok, error) == (True, None), error
+
+    # Full JSON round trip reproduces the same witness_hash (replay law).
+    round_tripped = json.loads(json.dumps(witness))
+    assert round_tripped["witness_hash"] == witness["witness_hash"]
+    assert validate_schema_witness(round_tripped) == (True, None)
+
+    # Tamper evidence: a genuinely DIFFERENT schema payload matches neither
+    # the semantic hash nor the legacy rendering — fail closed.
+    tampered = json.loads(json.dumps(witness))
+    tampered["schemas"] = dict(tampered["schemas"])
+    tampered["schemas"]["EvilNode"] = tampered["schemas"].pop("KnownPromptNode")
+    tampered["schemas"]["EvilNode"]["class_type"] = "EvilNode"
+    ok, error = validate_schema_witness(tampered)
+    assert ok is False
+    assert error == "schema_witness_hash_mismatch"

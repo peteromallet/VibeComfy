@@ -13920,3 +13920,313 @@ def test_capture_ingress_schema_snapshot_freezes_door_authority() -> None:
     )
     assert absent.missing_classes == ("GenuinelyAbsentDoorNode12345",)
     assert "GenuinelyAbsentDoorNode12345" not in absent.schemas
+
+
+# ── DEEP-AUDIT-FIX-2 (§28 fix 3: assessor correctness) ──────────────────────
+# Focused tests for the named card files tests/test_live_agentic_assessor.py /
+# tests/test_live_agentic_semantic_assessor.py / tests/test_live_agentic_harness.py
+# (none exist); per the card they land in the nearest existing allowed test file.
+
+_FIX2_LIN = {
+    "scenario_id": "s1",
+    "session_id": "sess",
+    "turn_id": "0001",
+    "baseline_id": "0000",
+}
+
+
+class _Fix2StubInputSpec:
+    def __init__(self, default=None):
+        self.default = default
+
+
+class _Fix2StubNodeSchema:
+    def __init__(self, inputs):
+        self.inputs = inputs
+
+
+class _Fix2StubSchemaProvider:
+    def __init__(self, schemas):
+        self._schemas = schemas
+
+    def get_schema(self, class_type):
+        return self._schemas.get(class_type)
+
+
+_FIX2_PROVIDER = _Fix2StubSchemaProvider(
+    {
+        "KSampler": _Fix2StubNodeSchema(
+            {
+                name: _Fix2StubInputSpec(default)
+                for name, default in (
+                    ("seed", 0),
+                    ("control_after_generate", "fixed"),
+                    ("steps", 20),
+                    ("cfg", 8),
+                    ("sampler_name", "euler"),
+                    ("scheduler", "normal"),
+                    ("denoise", 1.0),
+                )
+            }
+        )
+    }
+)
+
+
+def _fix2_ui_graph(seed: int = 7) -> dict:
+    return {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [seed, "fixed", 20, 8, "euler", "normal", 1],
+            }
+        ],
+        "links": [],
+    }
+
+
+def test_fix3_research_route_no_edit_is_not_product_fail(tmp_path):
+    """§28 fix 3: a canonical research/inspect/respond leg that correctly makes
+    no edit is scored by its structured non-edit checks — transient upstream
+    infra noise stays a warning and the leg records the honest
+    ``non_edit_route_answered`` class instead of product-fail."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    response = {
+        "ok": True,
+        "route": "respond",
+        "graph_unchanged": True,
+        "outcome": {"kind": "respond"},
+        "reply": "The KSampler seed widget drives variation; it is at 7.",
+        "warnings": ["Hivemind HTTP error 500: Internal Server Error"],
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    scenario = {"assessment": {"expect_graph_changed": False}}
+
+    assessment = assess_live_output_dir(tmp_path, scenario=scenario)
+
+    upstream = [i for i in assessment["issues"] if i["check"] == "upstream_failure"]
+    assert upstream, assessment["issues"]
+    assert {i["severity"] for i in upstream} == {"warning"}
+    assert assessment["verdict"] == "pass"
+    assert assessment["passed"] is True
+    assert assessment["outcome_class"] == "non_edit_route_answered"
+    assert any(
+        i["check"] == "non_edit_route_no_edit" and i["severity"] == "info"
+        for i in assessment["issues"]
+    )
+
+
+def test_fix3_edit_expectation_on_no_edit_leg_still_fails_closed(tmp_path):
+    """The non-edit recognition never waives an explicit scenario obligation:
+    expect_graph_changed=True + graph_unchanged=True remains an error."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    response = {
+        "ok": True,
+        "route": "respond",
+        "graph_unchanged": True,
+        "outcome": {"kind": "respond"},
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    scenario = {"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}}
+
+    assessment = assess_live_output_dir(tmp_path, scenario=scenario)
+
+    assert assessment["verdict"] == "fail"
+    assert any(
+        i["check"] == "graph_changed" and i["severity"] == "error"
+        for i in assessment["issues"]
+    )
+
+
+def test_fix3_landed_replay_verified_pair_is_applied_unverified():
+    """A changed product with NO accepted Δ but durable replay-verified landed
+    authority records ``applied_unverified`` — distinct from both
+    ``applied_edit`` and bare ``undetermined``."""
+    from tests.live_agentic_harness.semantic_assessor import (
+        canonical_semantic_view,
+        judge_graph_pair,
+    )
+
+    pre = canonical_semantic_view(
+        _fix2_ui_graph(7), lineage=_FIX2_LIN, schema_provider=_FIX2_PROVIDER
+    )
+    post = canonical_semantic_view(
+        _fix2_ui_graph(30), lineage=_FIX2_LIN, schema_provider=_FIX2_PROVIDER
+    )
+
+    verdict = judge_graph_pair(pre, post, (), landed_replay_verified=True)
+    assert verdict.outcome == "applied_unverified"
+    assert verdict.reason == "landed_edit_replay_verified_without_accepted_delta"
+    assert verdict.detail["landed_replay_verified"] is True
+    assert verdict.detail["pre_digest"] != verdict.detail["post_digest"]
+
+    # Without that evidence the legacy honest undetermined stands.
+    legacy = judge_graph_pair(pre, post, ())
+    assert legacy.outcome == "undetermined"
+    assert legacy.reason == "changed_product_without_accepted_delta"
+
+
+def test_fix3_applied_unverified_never_fabricates_or_fail_opens():
+    """No pass fabrication: unchanged products stay no_edit even with replay
+    authority; a queue-gate-withheld batch can never back applied-unverified;
+    accepted-delta contradiction still fails closed."""
+    from tests.live_agentic_harness.semantic_assessor import (
+        canonical_semantic_view,
+        judge_graph_pair,
+    )
+
+    pre = canonical_semantic_view(
+        _fix2_ui_graph(7), lineage=_FIX2_LIN, schema_provider=_FIX2_PROVIDER
+    )
+    same = canonical_semantic_view(
+        _fix2_ui_graph(7), lineage=_FIX2_LIN, schema_provider=_FIX2_PROVIDER
+    )
+    changed = canonical_semantic_view(
+        _fix2_ui_graph(30), lineage=_FIX2_LIN, schema_provider=_FIX2_PROVIDER
+    )
+
+    unchanged = judge_graph_pair(pre, same, (), landed_replay_verified=True)
+    assert unchanged.outcome == "no_edit"
+
+    withheld = judge_graph_pair(
+        pre, changed, (), landed_replay_verified=True, queue_gate_failed=True
+    )
+    assert withheld.outcome == "undetermined"
+
+    ops = ({"op": "set_node_field", "target": ["", "99", "widgets_values.0"], "value": 1},)
+    contradictory = judge_graph_pair(pre, changed, ops)
+    assert contradictory.outcome == "undetermined"
+    assert "reconstruct" in contradictory.reason
+
+
+def test_fix3_landed_replay_extractor_is_fail_closed():
+    from tests.live_agentic_harness.intent_judge import _landed_replay_verified
+
+    assert _landed_replay_verified(None) is False
+    assert _landed_replay_verified({}) is False
+    assert (
+        _landed_replay_verified(
+            {"candidate_transaction": {"authority": {"replay_ok": True}}}
+        )
+        is False
+    )  # candidate_matches missing → fail closed
+    assert (
+        _landed_replay_verified(
+            {
+                "candidate_transaction": {
+                    "authority": {"replay_ok": True, "candidate_matches": True}
+                }
+            }
+        )
+        is True
+    )
+    assert (
+        _landed_replay_verified(
+            {"authority": {"replay_ok": True, "candidate_matches": True}}
+        )
+        is True
+    )
+
+
+# ── DEEP-AUDIT-FIX-2 (§28 fix 4: replay/live canonicalization) ──────────────
+
+
+def _fix2_structural_transaction(seed_value=30):
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        build_candidate_transaction,
+    )
+
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Note",
+                "mode": 0,
+                "properties": {"vibecomfy_uid": "n1"},
+            }
+        ],
+        "links": [],
+    }
+    accepted_batch = [
+        {"op": {"op": "set_node_field", "target": ["", "n1", "title"], "value": seed_value}},
+    ]
+    transaction = build_candidate_transaction(
+        workflow_id="123e4567-e89b-12d3-a456-426614174000",
+        session_id="s",
+        turn_id="t",
+        plan_hash="p",
+        submit_graph=graph,
+        candidate_graph=graph,
+        accepted_batch=accepted_batch,
+        delta_hash=None,  # mint over the derived semantic Δ
+        submit_graph_hash="a" * 64,
+        submit_structural_graph_hash="a" * 64,
+        candidate_graph_hash="b" * 64,
+        candidate_structural_graph_hash="c" * 64,
+        authority_receipt_hash="d" * 64,
+        schema_witness={"witness_hash": "e" * 64},
+        replay_ok=True,
+        candidate_matches=True,
+        applyable=False,
+    )
+    return transaction
+
+
+def test_fix4_persisted_delta_survives_numeric_respelling_and_key_order():
+    """Replay law across renderings: re-deriving the persisted Δ under a
+    different dict key order or numeric spelling (browser ``Number`` carriers
+    collapse ``30.0`` → ``30``) must NOT fail as persisted_delta_hash_mismatch."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        validate_candidate_transaction,
+    )
+
+    transaction = _fix2_structural_transaction(30)
+    ok, error = validate_candidate_transaction(transaction)
+    assert (ok, error) == (True, None)
+
+    # Dict ordering + whitespace round trip.
+    reordered = json.loads(json.dumps(transaction))
+    batch = reordered["plan"]["accepted_batch"]
+    reordered["plan"]["accepted_batch"] = [
+        {key: statement[key] for key in reversed(list(statement))}
+        for statement in batch
+    ]
+    ok, error = validate_candidate_transaction(reordered)
+    assert (ok, error) == (True, None), error
+
+    # Semantic-equivalent numeric respelling of the SAME value.
+    respelled = json.loads(json.dumps(transaction))
+    respelled["plan"]["accepted_batch"][0]["op"]["value"] = 30.0
+    ok, error = validate_candidate_transaction(respelled)
+    assert (ok, error) == (True, None), error
+
+    # Full JSON round trip (the §9 replay reproduction).
+    round_tripped = json.loads(json.dumps(transaction))
+    ok, error = validate_candidate_transaction(round_tripped)
+    assert (ok, error) == (True, None), error
+
+
+def test_fix4_genuinely_different_delta_still_fails_hash_check():
+    """Tamper evidence: a semantically DIFFERENT delta matches neither the
+    semantic hash nor the legacy rendering — fail closed."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        validate_candidate_transaction,
+    )
+
+    # Start from a VALID transaction, then swap the persisted Δ for a
+    # semantically different one while keeping the stored digest.
+    tampered = _fix2_structural_transaction(30)
+    assert validate_candidate_transaction(tampered) == (True, None)
+    tampered["plan"]["accepted_batch"][0]["op"]["value"] = "EXTERNALLY_MUTATED"
+    ok, error = validate_candidate_transaction(tampered)
+    assert ok is False
+    # The authority validator's accepted_batch_digest binding rejects the swap
+    # first; persisted_delta_hash_mismatch is the plan-level backstop.
+    assert error in {"accepted_batch_digest_mismatch", "persisted_delta_hash_mismatch"}
+

@@ -589,6 +589,10 @@ def _record_judge_result(
             "criteria": verdict.get("criteria") or {},
             "rationale": verdict.get("rationale", ""),
             "error": verdict.get("error"),
+            # §28 fix 3: additive typed metadata (e.g. verdict class
+            # "applied_unverified") so outcome classes survive into the
+            # recorded assessment without renaming the tri-state vocabulary.
+            "metadata": dict(verdict.get("metadata") or {}),
         }
     )
     if tri == "fail":
@@ -820,7 +824,11 @@ def assess_live_output_dir(
     The returned dict has:
 
     * ``passed`` — True iff ``verdict`` is ``pass``.
-    * ``verdict`` — ``pass``, ``fail``, or ``undetermined``.
+    * ``verdict`` — ``pass``, ``fail``, or ``undetermined`` (stable vocabulary).
+    * ``outcome_class`` — additive honest class for the leg: ``safe_refusal``,
+      ``applied-unverified`` (landed + replay-verified edit without an
+      accepted Δ), ``non_edit_route_answered`` (canonical research/inspect/
+      respond route correctly made no edit), or ``None``.
     * ``expect_graph_changed`` — whether the scenario expected an edit.
     * ``issue_count`` / ``error_count`` — counts.
     * ``issues`` — list of ``{"check", "severity", "detail"}`` dicts.
@@ -843,6 +851,8 @@ def assess_live_output_dir(
     safe_refusal_accepted = False
     refusal_outage = False
     outcome_kind: Any = None
+    non_edit_route = False
+    answered_without_edit = False
     lineage_assessment: dict[str, Any] = {
         "issues": [],
         "present": False,
@@ -852,6 +862,28 @@ def assess_live_output_dir(
     }
 
     if response is not None:
+        # §28 fix 3: canonical non-edit route recognition.  The envelope's
+        # canonical route (research/inspect/respond/clarify/
+        # requires_custom_nodes) decides whether a no-edit run is a legitimate
+        # outcome class rather than a missing edit; the route is read exactly
+        # as everywhere else in this module (_canonical_route machinery).
+        non_edit_route = _explicitly_non_edit_route(response)
+        answered_without_edit = (
+            non_edit_route and response.get("graph_unchanged") is True
+        )
+        if answered_without_edit:
+            issues.append(
+                {
+                    "check": "non_edit_route_no_edit",
+                    "severity": "info",
+                    "detail": (
+                        f"Canonical non-edit route {non_edit_route!r} completed "
+                        "without a graph edit; scored by its structured "
+                        "non-edit checks (research evidence, census, rubric), "
+                        "not by the expected-edit guards."
+                    ),
+                }
+            )
         outcome = response.get("outcome") or {}
         outcome_kind = outcome.get("kind")
         refusal_candidate = (
@@ -1105,9 +1137,16 @@ def assess_live_output_dir(
         # effective edits) above remain fully authoritative.
 
         # Critical upstream failures (Hivemind 500, etc.). Infra is not a
-        # product fail: semantic_product rows and successful candidates keep
-        # these as warnings (RC9 / B6 S7).
-        if _scenario_kind(scenario) == "semantic_product" or _has_successful_candidate(response):
+        # product fail: semantic_product rows, successful candidates, and —
+        # §28 fix 3 — canonical non-edit-route runs that correctly made no
+        # edit keep these as warnings (RC9 / B6 S7).  A research/inspect leg
+        # whose question was answered on a truthful non-edit route must not
+        # product-fail because transient infra noise crossed the envelope.
+        if (
+            _scenario_kind(scenario) == "semantic_product"
+            or _has_successful_candidate(response)
+            or answered_without_edit
+        ):
             upstream_severity = "warning"
         else:
             upstream_severity = "error"
@@ -1152,14 +1191,19 @@ def assess_live_output_dir(
         lineage_issues = lineage_assessment["issues"]
         kind = _scenario_kind(scenario)
         expect_edit = bool(_assessment_config(scenario).get("expect_graph_changed"))
-        if kind in ("health_control", "semantic_product") and not expect_edit:
+        if (
+            kind in ("health_control", "semantic_product") and not expect_edit
+        ) or answered_without_edit:
+            # §28 fix 3: a canonical non-edit route that truthfully reports an
+            # unchanged graph carries no edit authority either, so the
+            # lineage-presence gate cannot apply to it (same parity as the
+            # health_control / semantic_product exemption above).
             lineage_issues = [
                 iss
                 for iss in lineage_issues
                 if iss.get("check")
                 not in ("artifact_lineage_absent", "artifact_lineage_sidecar_unverified")
             ]
-        issues.extend(lineage_issues)
 
     # Semantic-answer judge runs for every D13 rubric scenario regardless
     # of edit expectation or response presence. Health controls are
@@ -1214,12 +1258,30 @@ def assess_live_output_dir(
     else:
         verdict = "pass"
 
+    # §28 fix 3: additive outcome-class attribution.  The verdict vocabulary
+    # (pass/fail/undetermined) is unchanged; this field only records WHICH
+    # honest class the leg fell into so research/inspect no-edit runs and
+    # landed-but-not-re-derivable edits are distinguishable from bare
+    # undetermined rows.  New classes are additions, never renames.
+    if safe_refusal_accepted:
+        outcome_class = "safe_refusal"
+    elif any(
+        isinstance(judge.get("metadata"), Mapping)
+        and judge["metadata"].get("verdict") == "applied_unverified"
+        for judge in judge_results
+    ):
+        outcome_class = "applied-unverified"
+    elif answered_without_edit:
+        outcome_class = "non_edit_route_answered"
+    else:
+        outcome_class = None
+
     original_ui_path = output_dir / "original.ui.json"
     final_ui_path = output_dir / "final.ui.json"
     assessment = {
         "passed": verdict == "pass",
         "verdict": verdict,
-        "expect_graph_changed": expect_graph_changed,
+        "outcome_class": outcome_class,
         "expected_outcome_kinds": sorted(expected_outcome_kinds),
         "allow_safe_refusal_outcome_kinds": sorted(allowed_safe_refusal_outcome_kinds),
         "issue_count": len(deduped),
