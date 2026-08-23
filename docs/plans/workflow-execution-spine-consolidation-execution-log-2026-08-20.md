@@ -5444,3 +5444,121 @@ This entry RECORDS only — three settled cards executed by dispatched agents, n
   - **No push:** this is a docs-only STOP record; the push remains blocked as above.
   - **JUDGMENT_REQUIRED: none** (stable IDs: `evidence-log-STOP-PUSH-SECRET` `JUDGMENT_REQUIRED: none`; `FINAL-INTEGRATION-PUSH` `stop_or_judgment ""`).
 
+
+## evidence-log-DEEP-AUDIT-1 — §28 deep-audit batch 1: DEEP-AUDIT-FIX-1 card (fixes 1+2) — REVIEW-1 musts → REVISION (`d66dea19` + reverted ALLOWANCE_VIOLATION) → REREVIEW-1 musts → ADJUDICATION `continue` + directive → REVISION-2 output-capture gap → REVISION-2-CONTINUATION `bbf4f596` — 2026-08-23 ~20:40Z
+
+> [!NOTE]
+> **§28 deep-audit batch 1 COMPLETE (2026-08-23 ~20:40Z):** fix 1 (schema snapshot completeness) + fix 2 (batch parser robustness) landed as reviewed commits `32287882` → `d66dea19` → `bbf4f596` through the full chain REVIEW-1 → REVISION → REREVIEW-1 → ADJUDICATION (`continue`, directive) → REVISION-2(-CONTINUATION). The original 50-leg authoritative result (**5/50** honest `5 pass / 31 fail / 13 undetermined / 1 blocked`) stands as-is; improvement fixes are additional labeled evidence, never a re-run or replacement of the authoritative finale. **G7 remains `status: open`; PUSH-BLOCKED-001 unchanged (secret still at log line 4521; no history op authorized).**
+
+This entry RECORDS only — no review, classification, fix, integration, push, or code change is performed by this recorder; every window below was executed by its dispatched wrapper. No receipt is committed; receipts remain untracked run artifacts under `receipts/` (dirty-state exception). This recorder's own `end_ts`, wrapper PID, and receipt digest are written post-exit by the wrapper and are intentionally NOT recorded here. The OpenRouter key already in local history is referenced ONLY as "the secret at log line 4521" and is never re-printed.
+
+### Window A — DEEP-AUDIT-FIX-1 (implementer, stealth/ox-alpha, ~29m, exit 0, `32287882`, 5 files +404/−41)
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-FIX-1` / `G7` / `DEEP-AUDIT-FIX-1 — §28 deep-audit: fix 1 SCHEMA SNAPSHOT COMPLETENESS + fix 2 BATCH PARSER ROBUSTNESS` / implementer / `ox-alpha` → `stealth/ox-alpha` (hermes launcher, `--model=stealth/ox-alpha:max`).
+- **Allowance:** `g0/DEEP-AUDIT-FIX-1-allowance.json` — 16 allowed files (types/provider/on_demand/normalize schema seams + tests), forbidden includes `docs/plans/**`, validator/wrapper scripts, `arnold/**`.
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-FIX-1-receipt.json`, file SHA-256 `d4346dc9272961270f3973f28dcdd9af2e914679d9da864684702fd9a2bebf8b`):**
+  - `task_id: DEEP-AUDIT-FIX-1`, `gate: G7`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: 44c43c73e65a27c24d69b1aa27fb79206d10ab40` (the §9 STOP record commit), `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/DEEP-AUDIT-FIX-1.md`, `brief_sha256: 7b6aa5e41d4792ed39f7be8ed73b1b2a60603365e5ade389be09d9292bccd3a8`, `result_sha256: aaaa5e7fa1392553e08a905ae980d15c2170717aff3814d45c66be828cbe4223`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=stealth/ox-alpha:max", "--query-file=…/g0/DEEP-AUDIT-FIX-1.md", "--project-dir=…/exec-spine", "--timeout=7200"]`
+  - `pid: 238778`, `start_ts: 2026-08-23T17:08:49Z`, `end_ts: 2026-08-23T17:37:32Z` (~29m; dispatch log `done in 1722.6s`), `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files` (5): `tests/test_comfy_nodes_agent_backend_spine.py`, `tests/test_comfy_nodes_agent_edit.py`, `tests/test_schema.py`, `vibecomfy/comfy_nodes/agent/provider.py`, `vibecomfy/schema/types.py`; `commits: ["32287882f2474437a3fb07226e653c41263ddfc5"]` (5 files, +404/−41).
+- **Work:** fix 1 initial implementation — schema snapshot external custom-node completion pass on the `types.py` capture path; fix 2 — `extract_batch_fence` merges multiple batch fences in order with `parse_reason="merged_batch_fences"` + `fence_count` provenance, prose handling preserved, missing/empty bodies still fail closed. 15 focused tests passed.
+- **Disposition:** implemented; superseded by the revision chain below (REVIEW-1 opened musts). `JUDGMENT_REQUIRED: none`.
+
+### Window B — DEEP-AUDIT-REVIEW-1 (review, codex REAL, ~6m, exit 0) — Fix 1 FAIL, Fix 2 PASS
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-REVIEW-1` / `G7` / `DEEP-AUDIT-REVIEW-1 — §28 batch review (codex): review DEEP-AUDIT-FIX-1 commit 32287882 (fix 1 schema snapshot completeness + fix 2 batch parser robustness)` / review / `codex:gpt-5.6-sol` → real `openai-codex/gpt-5.6-sol` (read-only, `allowed: [] forbidden: ["**"]`).
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-REVIEW-1-receipt.json`, file SHA-256 `61fd61b3b444f0511fda995fdff3e898c6138a37677b2edf218c3d0849c72d15`):**
+  - `task_id: DEEP-AUDIT-REVIEW-1`, `gate: G7`, `role: review`, `model_route: codex:gpt-5.6-sol`, `resolved_model: openai-codex/gpt-5.6-sol`
+  - `base_sha: 32287882f2474437a3fb07226e653c41263ddfc5`, `brief_sha256: 7ccceb0fbf0aebe63f8b85e8d753817d74297d5fb5de6aa80e6cc74f574e3ac0`, `result_sha256: 21eca5d18f20e8de3133716fed82b227e1243847bce45982b5a2e2c9bc5679b2`
+  - `pid: 243855`, `start_ts: 2026-08-23T17:38:05Z`, `end_ts: 2026-08-23T17:44:10Z` (~6m), `exit: 0`, `stop_or_judgment: ""`, `changed_files: []`, `commits: []`
+- **Verdict: Fix 1 FAIL, Fix 2 PASS.** Must-findings:
+  - `DEEP-AUDIT-REVIEW-1-001`: frozen/persisted snapshots ambiently re-resolved — `types.py:594-602` runs external completion even for explicit `request_snapshot`; digest/missing_classes can change during reconstruction; violates frozen identity + replay.
+  - `DEEP-AUDIT-REVIEW-1-002`: capture not wired at the production ingest door — `_frag_entrypoint.py` never calls `capture_schema_snapshot`; `SchemaSnapshotProvider` test-only; completion only reached late in `build_schema_witness`.
+  - `DEEP-AUDIT-REVIEW-1-003`: genuinely absent class still admitted — `_add_node_provisional_allows` (`admit.py:607-614`) converts `require_known_touched_schema` failure into admission (`AdmissionAllowed allowed=true` reproduced for `GenuinelyAbsentNode12345`); fail-closed invariant unmet.
+- **Disposition:** **findings-opened** — revision required for fix 1; fix 2 PASS untouched. `JUDGMENT_REQUIRED: none`.
+
+### Window C — DEEP-AUDIT-FIX-1-REVISION (implementer, stealth/ox-alpha, ~67m, exit 0, `d66dea19`, 8 files +694/−43) + ALLOWANCE_VIOLATION (reverted)
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-FIX-1-REVISION` / `G7` / `DEEP-AUDIT-FIX-1-REVISION — §28 fix-1 revision: resolve REVIEW-1 musts 001 (frozen snapshot re-resolution) 002 (ingress-bound capture) 003 (absent class fail-closed admission)` / implementer / `ox-alpha` → `stealth/ox-alpha:max`. Allowance: 10 allowed files; `docs/plans/**` explicitly forbidden.
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-FIX-1-REVISION-receipt.json`, file SHA-256 `01c28abc972a79e4849bc66ad1086800b3b350fbd083ec49ce14b3f8a18ce2c4`):**
+  - `task_id: DEEP-AUDIT-FIX-1-REVISION`, `gate: G7`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: 32287882f2474437a3fb07226e653c41263ddfc5`, `brief_sha256: 19bba93245c65ba55eea1b38003737056ebdea3dad64ef62bc31f3c6ca221f62`, `result_sha256: 35c0e03d15218ab6f93cf74e2e1bbd25b5e00c23101256af9d733454f8d931ac`
+  - `pid: 244173`, `start_ts: 2026-08-23T17:45:13Z`, `end_ts: 2026-08-23T18:52:37Z` (~67m), `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files` (9, WORKING TREE): the 8 allowed code/test files PLUS the FORBIDDEN execution log; `commits: ["d66dea190e81a1924c18901a95838c41cd2c6079"]`.
+- **ALLOWANCE_VIOLATION (recorded by wrapper — `receipts/DEEP-AUDIT-FIX-1-REVISION-violation.json`, file SHA-256 `ed595be7c772e854e85c2be43112b3f9bf6e5d4b8061d359a57f7efc54ff3552`, `type: "ALLOWANCE_VIOLATION"`):** during the session the forbidden execution log was modified in the WORKING TREE only — a broken redaction attempt on the secret at log line 4521 that mangled surrounding smoke text near line 4518. NOT staged, NOT committed: commit `d66dea19` excludes it (8 committed files ⊆ allowance). Orchestrator reverted the log to HEAD `44c43c73`; post-revert commit clean.
+- **Claims resolved:** 001 exact frozen reconstruction (identity-faithful re-entry, digest-stable env-change test); 002 ingress capture `capture_ingress_schema_snapshot` + `_IngestBoundSchemaProvider` + state retention + admission/receipt consumption; 003 `_add_node_provisional_allows` no longer admits genuinely-absent classes (typed `missing_touched_schema`; provisional hydration preserved). Test evidence: 31 pre-existing failures identical at base vs head; 6 new revision tests pass; agent `provider.py` byte-stable.
+- **Disposition:** **revision landed (`d66dea19`) but rereview found it insufficient (Window D); violation disclosed and remediated pre-commit.** `JUDGMENT_REQUIRED: none`.
+
+### Window D — DEEP-AUDIT-REVIEW-1-REREVIEW (review, codex REAL, ~7m, exit 0) — revision insufficient
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-REVIEW-1-REREVIEW` / `G7` / `DEEP-AUDIT-REVIEW-1-REREVIEW — codex re-review of complete DEEP-AUDIT-FIX-1 card diff (32287882+d66dea19) after musts 001/002/003` / review / `codex:gpt-5.6-sol` → real `openai-codex/gpt-5.6-sol` (read-only).
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-REVIEW-1-REREVIEW-receipt.json`, file SHA-256 `72c28e81208c6d17895d6835ff84892127eb112be2bdae51b81e3bc61efe62af`):**
+  - `task_id: DEEP-AUDIT-REVIEW-1-REREVIEW`, `gate: G7`, `role: review`, `model_route: codex:gpt-5.6-sol`, `resolved_model: openai-codex/gpt-5.6-sol`
+  - `base_sha: d66dea190e81a1924c18901a95838c41cd2c6079`, `brief_sha256: ad456d5b8512ada61a24bba0484ea9c2d27f74151411d09fd8c59546130a4654`, `result_sha256: 03addec849ebf487df7d3b57753d37457a8abc518f933c78bbc02361e92a65b1`
+  - `pid: 251180`, `start_ts: 2026-08-23T18:54:27Z`, `end_ts: 2026-08-23T19:01:41Z` (~7m), `exit: 0`, `stop_or_judgment: ""`, `changed_files: []`, `commits: []`
+- **Must-findings (revision insufficient):**
+  - `DEEP-AUDIT-REVIEW-1-REREVIEW-001`: receipt construction still rewrites frozen authority — `build_schema_witness` probes live provider for touched classes, rewrites `schemas`/`missing_classes`, passes through `capture_schema_snapshot` with receipt-time `class_types`/`node_classes`; broad ingress surface loses untouched schemas; digest changes; `late_healed_after_witness=True` reproduction.
+  - `DEEP-AUDIT-REVIEW-1-REREVIEW-002`: tests insufficient — env-change test installs `ApplyWhisperNode` instead of `LateExternal` (wrong class, never becomes available); production-path test monkeypatches `_run_batch_repl_product_path` + `_build_batch_repl_response` (bypasses admission/witness/receipt).
+  - `DEEP-AUDIT-REVIEW-1-REREVIEW-003`: provisional completion provenance-blind — `_add_node_class_genuinely_absent`/`_retained_provider_completes_touched_schema` accept ANY provider-resolved class incl. live runtime delegate (`AdmissionAllowed None True` reproduction); late-provider fail-open.
+  - Fix 2 byte-stable confirmed: agent `provider.py` SHA-256 `4876489e…` (blob identical since `32287882`; zero diff through `bbf4f596`).
+- **Disposition:** **findings-opened — escalated to adjudication per §13 single-escalation policy.** `JUDGMENT_REQUIRED: none`.
+
+### Window E — DEEP-AUDIT-FIX-1-ADJUDICATION (adjudication, codex REAL, ~9m, exit 0) — `continue`, directive ready (chain closed)
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-FIX-1-ADJUDICATION` / `G7` / `DEEP-AUDIT-FIX-1-ADJUDICATION — single §13 escalation (codex): frozen-authority exclusivity + provenance-blind provisional completion ruling` / adjudication / `codex:gpt-5.6-sol` → real `openai-codex/gpt-5.6-sol` (read-only).
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-FIX-1-ADJUDICATION-receipt.json`, file SHA-256 `9f99baf848af79b4b67992aa25d1803affffa226af3b48863ce911a06f22b70e`):**
+  - `task_id: DEEP-AUDIT-FIX-1-ADJUDICATION`, `gate: G7`, `role: adjudication`, `model_route: codex:gpt-5.6-sol`, `resolved_model: openai-codex/gpt-5.6-sol`
+  - `base_sha: d66dea190e81a1924c18901a95838c41cd2c6079`, `brief_sha256: 93f7581fc2ea0ef85317c913c56375ba6b49aba354fb627e21dfac8d356d40e3`, `result_sha256: ae57a9562b621bf046f2e4ff66d878978a060c2bad51e84f492aa97b34a753e1`
+  - `pid: 251478`, `start_ts: 2026-08-23T19:02:54Z`, `end_ts: 2026-08-23T19:12:06Z` (~9m; dispatch log `done in 550.9s`), `exit: 0`, `stop_or_judgment: ""`, `changed_files: []`, `commits: []`
+- **RULING: `continue` — option (a): the frozen snapshot is the SOLE admission authority** (single §13 escalation; chain closed):
+  - Generation 0 captured at the production ingest door (runtime/source/object-info/cache/on-demand contribute only during capture); a class absent from the admission snapshot is REJECTED `missing_touched_schema` (live provider irrelevant); evidence-backed registry/workflow hydration creates generation N+1 as a NEW immutable `SchemaSnapshot` BEFORE admission; one immutable generation locked per admitted batch (admission, receipt, replay use the exact generation); later hydration applies to a subsequent batch only; missing catalog/invalid snapshot/provider error/invalid provenance/absent class all fail closed.
+  - Directive seams A–F: `types.py` true-frozen reconstruction + `_complete_schema_snapshot_with_provisional` (bounded generation, provenance-approved additions only, no lookups); `schema/provider.py` `_EVIDENCE_BACKED_PROVISIONAL_SOURCES` allowlist (`workflow_json_provisional`/`comfy_registry_provisional`/`comfy_registry_class_map` + `ignored_evidence` conditions) + `ProvisionalRegistrySchemaProvider.authority_completion_schemas()` + pinned `CompositeSchemaProvider.snapshot` + `with_provisional_gap_filler`; callsite wiring (`_frag_batch_loop`/`_frag_research`/`_frag_response_contract`/`edit_batch_repl` → `state.schema_provider = enriched` + `state.schema_snapshot = enriched.snapshot`; `_frag_state` explicit `schema_snapshot`/`admission_schema_snapshot`; receipt via `FrozenSchemaSnapshotProvider(state.admission_schema_snapshot)`); `admit.py` DELETE `_add_node_class_genuinely_absent` + `_retained_provider_completes_touched_schema`, sequence bind immutable pair.schema → require_known_touched_schema → reject → validate vs frozen provider; `candidate_transaction.py` keep ingress capture, witness serializes locked snapshot directly (no schema_for/capture/node-overlay/lookup; `SchemaSnapshotError(code="missing_schema_snapshot")`); entrypoint docs advisory boundary. Minimum honest test contract incl. NO authority-path monkeypatch.
+- **Disposition:** **continue — binding directive issued; no further escalations for this card.** `JUDGMENT_REQUIRED: none`.
+
+### Window F — DEEP-AUDIT-FIX-1-REVISION-2 (implementer, stealth/ox-alpha, ~57m, exit 0, `commits: []`) — output-capture gap
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-FIX-1-REVISION-2` / `G7` / `DEEP-AUDIT-FIX-1-REVISION-2 — implement ADJUDICATION directive (frozen snapshot sole admission authority; bounded generation completion; provenance allowlist; honest witness + tests)` / implementer / `ox-alpha` → `stealth/ox-alpha:max`. Allowance: 15 allowed files.
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-FIX-1-REVISION-2-receipt.json`, file SHA-256 `c38639ab33eccd7a57bb6ae650fc5845cff556c3d267100c30046d99bf62079c`):**
+  - `task_id: DEEP-AUDIT-FIX-1-REVISION-2`, `gate: G7`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: d66dea190e81a1924c18901a95838c41cd2c6079`, `brief_sha256: 92e91076b3c74cf9b83b9e8bdad9a925a87a092870915d86d603c263861d9981`, `result_sha256: 9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa`
+  - `pid: 251720`, `start_ts: 2026-08-23T19:13:16Z`, `end_ts: 2026-08-23T20:09:57Z` (~57m; dispatch log `done in 3399.1s`), `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files` (12, working tree): `_frag_batch_loop.py`, `_frag_entrypoint.py`, `_frag_research.py`, `_frag_response_contract.py`, `_frag_state.py`, `candidate_transaction.py`, `edit_batch_repl.py`, `porting/edit/admit.py`, `schema/provider.py`, `schema/types.py` (+ 2 test files) — all within allowance; **`commits: []`**.
+- **Output-capture gap:** the directive WAS implemented in the working tree (12 files, +903/−369 measured before continuation) but the session EXITED WITHOUT COMMITTING; the wrapper recorded `commits: []` and the result body was lost (dispatch log contains only the launcher banner + `done in 3399.1s (exit=0)`). Honest corroboration: the recorded `result_sha256 9a271f2a…` is byte-identical to the degenerate-empty `R2-FAILURE-ANALYSIS` result digest (sequence 20) — an empty/degenerate output artifact, not a real report. No violation (all edits within allowance). Continuation dispatched immediately.
+- **Disposition:** **work preserved in working tree; uncommitted; recovered by Window G.** `JUDGMENT_REQUIRED: none`.
+
+### Window G — DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION (implementer, stealth/ox-alpha, ~29m, exit 0, `bbf4f596`, 13 files +942/−370)
+
+- **Task/gate/label/role/route:** `DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION` / `G7` / `DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION — verify uncommitted REVISION-2 edits vs adjudication directive, fix gaps, test, commit one coherent commit` / implementer / `ox-alpha` → `stealth/ox-alpha:max`. Allowance: same 15 files.
+- **Wrapper receipt (verbatim summary — `receipts/DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION-receipt.json`, file SHA-256 `8d0f71c6cf296e52ae2870903fa71bf09e02819bdd96c85a056e0d25b09003b1`):**
+  - `task_id: DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION`, `gate: G7`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: d66dea190e81a1924c18901a95838c41cd2c6079`, `brief_sha256: fe3c76fdb406a5b41fdfb8182cc41d9626bf1ef3a6d3f8e121c07a1942207ceb`, `result_sha256: 5625a10bbd63aeb0f2e713d4bddb9d39b544cdf747c64edbbf2ba783274ab45c`
+  - `pid: 257057`, `start_ts: 2026-08-23T20:11:10Z`, `end_ts: 2026-08-23T20:40:20Z` (~29m), `exit: 0`, `stop_or_judgment: ""`
+  - Own edits (2): `tests/test_comfy_nodes_agent_backend_spine.py`, `vibecomfy/comfy_nodes/agent/_frag_entrypoint.py`; `commits: ["bbf4f5965ed7e8a66f663b03580c21cb39a8aded"]` — ONE coherent commit, 13 files +942/−370 (inherited 12 + own gap fixes).
+- **Verified directive seams (all present at `bbf4f596`):** `_complete_schema_snapshot_with_provisional` (`types.py:712`); `_EVIDENCE_BACKED_PROVISIONAL_SOURCES` + `authority_completion_schemas` + pinned `snapshot` (`schema/provider.py`); provisional helpers DELETED (`admit.py`); witness `missing_schema_snapshot` fail-closed (`candidate_transaction.py:476`); `capture_ingress_schema_snapshot` at the ingest door (`_frag_entrypoint.py:195-198`); explicit `schema_snapshot`/`admission_schema_snapshot` state fields (`_frag_state.py:259-260`). Agent `provider.py` zero-diff since `32287882` (SHA-256 `4876489efa47ae1c8ab180c5bdfa94ddc23ac7ca4c4a93dd6b96e2e9d2691244`). No violation.
+- **Disposition:** **directive implemented and committed as `bbf4f596` (current HEAD).** `JUDGMENT_REQUIRED: none`.
+
+### Card disposition — DEEP-AUDIT-FIX-1 CLOSED (batch-1 review chain complete)
+
+- **Chain:** REVIEW-1 (Fix 1 FAIL / Fix 2 PASS) → REVISION `d66dea19` (+ reverted working-tree-only ALLOWANCE_VIOLATION) → REREVIEW-1 (musts persist) → ADJUDICATION `continue` + directive (single §13 escalation; chain closed) → REVISION-2 `commits: []` (output-capture gap, work preserved) → REVISION-2-CONTINUATION `bbf4f596`.
+- **No open must findings** per the §13 single-escalation policy: fix 1 implemented per the adjudicated design; fix 2 PASS throughout (byte-stable `provider.py` `4876489e…`). The original authoritative 50-leg result (5/50) is untouched — these commits are additional labeled improvement evidence under `G7 open`, not a re-run.
+- **Next:** DEEP-AUDIT-FIX-2 (fixes 3+4) → codex batch review → evidence/validator; then batch 3 (fixes 5+6+7), batch 4 (fix 8 data audit) each with codex review, then DEEP-AUDIT-RE-RUN-20 (non-authoritative) and operator authorization for any fresh authoritative finale.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**). `label` unchanged. `evidence_sequence` now **38 records** (31 prior + `32 DEEP-AUDIT-FIX-1` `d4346dc9…`/`aaaa5e7f…` implementer `32287882` + `33 DEEP-AUDIT-REVIEW-1` `61fd61b3…`/`21eca5d1…` review findings-opened + `34 DEEP-AUDIT-FIX-1-REVISION` `01c28abc…`/`35c0e03d…` implementer `d66dea19` violation-reverted + `35 DEEP-AUDIT-REVIEW-1-REREVIEW` `72c28e81…`/`03addec8…` review findings-opened + `36 DEEP-AUDIT-FIX-1-ADJUDICATION` `9f99baf8…`/`ae57a956…` adjudication continue/directive + `37 DEEP-AUDIT-FIX-1-REVISION-2` `c38639ab…`/`9a271f2a…` implementer commits-[] gap + `38 DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION` `8d0f71c6…`/`5625a10b…` implementer `bbf4f596` card closed). Roles/model_routes/exits/dispositions promoted truthfully from receipts (`nested_record_accounting`). No `findings`/`live_runs` mutation; authoritative T7.2 live_run untouched.
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724…`, 12 shards S0→S11 + singleton `broad_suite_once_v1` T6.3-owned). No shard rewrite required; included in allowance only.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree (§ Controls). `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`).
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `evidence-log-DEEP-AUDIT-1` section) + `manifest.json` G7 `evidence_sequence[32..38]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call beyond the recorded windows, secret access, wrapper dispatch, review, classification, or integration performed by this recorder.
+- **Protected state:** base `5fc6be9d` IS ancestor of HEAD (`git merge-base --is-ancestor` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `54467724…` (`TEST_SINGLETON` green); single authoritative live_run T7.2 intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** the OpenRouter key at log line 4521 is referenced only by location, never re-printed (STOP record `44c43c73` documents it); PUSH-BLOCKED-001 unchanged — branch remains local-only, no push/merge/rebase/reset/history-op.
+- **No push:** G7 did NOT pass; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at base `bbf4f596` + new commit.
+- **JUDGMENT_REQUIRED: none** (stable IDs: all seven §28 batch-1 windows `JUDGMENT_REQUIRED: none`; ADJUDICATION returned `continue` with a binding directive, chain closed).
+
+### Position — G7 open, §28 batch 1 complete locally, batch 2 next
+
+- **G7 not passed; §28 deep-audit batch 1 (fixes 1+2) complete locally.** The 50-leg authoritative finale (`T7.2`, `authoritative:true`) stands at 5/50; deep-audit fixes are labeled additional evidence under `G7 open`.
+- **Remaining plan (sequential, codex review after each batch):** batch 2 (fixes 3+4) → codex review → batch 3 (fixes 5+6+7) → codex review → batch 4 (fix 8 data audit) → codex review → DEEP-AUDIT-RE-RUN-20 (non-authoritative) → request operator authorization for a fresh authoritative finale. PUSH-BLOCKED-001 unchanged until the operator rules on the secret-history escalation.
