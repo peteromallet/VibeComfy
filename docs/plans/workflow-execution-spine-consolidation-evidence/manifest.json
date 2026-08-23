@@ -722,6 +722,45 @@
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
           "disposition": "stop \u2014 done-when unmet (5/50 product passes) \u2014 HOLD, DO NOT MERGE \u2014 escalated to operator; JUDGMENT_REQUIRED: none"
+        },
+        {
+          "sequence": 11,
+          "canonical_slot": "G7",
+          "task_id": "R1-FAILURE-ANALYSIS",
+          "receipt_path": "receipts/R1-FAILURE-ANALYSIS-receipt.json",
+          "sha256": "c3d51a94d36ef28153dcb788e49369e6fee2c77162502bc73d489bcfa5f7f2b4",
+          "result_sha256": "4cb189fac974e05d18ebd354a8a76bfd17d483ea04cd43f8dc31d445a1fb04cb",
+          "role": "review",
+          "label": "R1 failure analysis - section 27 round 1: deep per-leg understanding of 5 failed/undetermined finale legs (round-robin across modes), understanding only, NO fixes",
+          "model_route": "stealth/ox-alpha",
+          "exit": 0,
+          "disposition": "continue - analysis usable, violation reverted (b8c7126f), re-landed as WRAPPER-ROUTE-FIX; JUDGMENT_REQUIRED: none"
+        },
+        {
+          "sequence": 12,
+          "canonical_slot": "G7",
+          "task_id": "WRAPPER-ROUTE-FIX",
+          "receipt_path": "receipts/WRAPPER-ROUTE-FIX-receipt.json",
+          "sha256": "d92fe19da91c3134477d0ea1746ca987807190d8daf516b43258cca1ea070ee7",
+          "result_sha256": "46be08de9cd7a2d15591ffe04b04aef4b09e8d8c2bf3fbd8347fe1b83421ddd0",
+          "commit": "3bee5b46f98d13fd3e77d7eaffa7ba0fc9c83ce2",
+          "role": "implementer",
+          "label": "WRAPPER-ROUTE-FIX \u2014 \u00a727 route correction: ROUTE_LAUNCHERS maps ox-alpha \u2192 stealth/ox-alpha and codex:gpt-5.6-sol \u2192 real codex (semantic, not muse blanket remap); legacy ids unchanged",
+          "model_route": "codex:gpt-5.6-luna",
+          "exit": 0
+        },
+        {
+          "sequence": 13,
+          "canonical_slot": "G7",
+          "task_id": "WRAPPER-ROUTE-THINKING",
+          "receipt_path": "receipts/WRAPPER-ROUTE-THINKING-receipt.json",
+          "sha256": "2a914ca1cfb1751680600cbb76d7bb601ddcb453891668cecf92295e3ba89962",
+          "result_sha256": "a2e1e513a0d09a1149ff471bed85c93654ce1f923d5dd7d87dca1076333fb3e5",
+          "commit": "96c50d31e9b075ae9b48067fe0441ea6ee69345f",
+          "role": "implementer",
+          "label": "WRAPPER-ROUTE-THINKING \u2014 stealth/ox-alpha tool-use fix: ROUTE_LAUNCHERS stealth entries append :max thinking (tool-using dispatches currently return degenerate empty output)",
+          "model_route": "codex:gpt-5.6-luna",
+          "exit": 0
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1145,7 +1184,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "77138e7306336efda7393a3f785e88a2a1ba6642e2a90977f82cf565bd544353",
+        "sha256": "c0db02e219affd2e604c0d2e94cde4ca9fb5d40cd066d6ab309997bfa84e60a3",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
