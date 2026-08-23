@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
@@ -175,6 +176,207 @@ def load_candidate_transaction_with_migration(
         "state": payload.get("state"),
         "plan_hash": plan_hash,
     }
+
+
+@dataclass(frozen=True)
+class BoundCandidateReplayEvidence:
+    """A validated persisted ``(candidate_transaction, authority_receipt)`` pair.
+
+    ``transaction`` passed ``validate_candidate_transaction`` (V2 contract),
+    ``receipt`` passed strict raw-JSON validation
+    (``validate_authority_receipt_v2``), and ``receipt_digest`` is the sole
+    owner's digest (``authority_receipt_digest_v2``) already proven equal to
+    BOTH receipt-hash fields of the transaction envelope.
+    """
+
+    turn_dir: Path
+    transaction: dict[str, Any]
+    #: :class:`AuthorityReceipt` — kept untyped here to avoid an import cycle;
+    #: this module must stay importable from inside ``session``'s own body.
+    receipt: Any
+    receipt_digest: str
+
+
+def load_bound_candidate_replay_evidence(
+    turn_dir: Path,
+    *,
+    session_id: str,
+    turn_id: str,
+    plan_hash: str,
+) -> tuple[BoundCandidateReplayEvidence | None, str | None]:
+    """Load and bind the ONE persisted transaction/receipt pair for *turn_dir*.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: single production seam for replay-landed
+    authority.  Every binding check runs here, fail-closed, returning
+    ``(None, typed_reason)`` on any mismatch:
+
+    1. the persisted V2 transaction via ``load_candidate_transaction_with_migration``;
+    2. the raw persisted ``authority/receipt.json`` through strict
+       ``validate_authority_receipt_v2`` BEFORE dataclass coercion;
+    3. receipt-digest binding: the complete-canonical receipt digest recomputed
+       by the sole owner must equal ``candidate_authority.authority_receipt_digest``
+       AND ``hashes.authority_receipt_hash`` (a present ``prepared_authority``
+       was already checked key-by-key against ``candidate_authority`` by the
+       V2 transition validation inside step 1);
+    4. the receipt's ACTUAL verdict: ``replay_ok``, ``candidate_matches``,
+       no replay error, and ``is_applyable`` — the transaction's copied booleans
+       are consistency evidence only (they must EQUAL the receipt) and can
+       never override it;
+    5. delta-digest and candidate-hash chains: receipt Δ == derived plan Δ ==
+       operation digest; payload-family candidate hash equals the transaction's
+       ``candidate_graph_hash`` while the structural replay family identifies
+       the same replayed candidate;
+    6. every identity each carrier owns: session/turn/plan across envelope,
+       authority, and receipt; ``transaction_id``/``candidate_id`` RECOMPUTED
+       through the shared mint function ``candidate_transaction_identities_v2``;
+    7. any embedded SOURCE-TURN ``response["candidate_transaction"]`` must equal
+       the persisted transaction when present.
+
+    The assessor's manually embedded replay booleans are never inspected or
+    trusted: only the durable files under *turn_dir* are read.
+    """
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        AuthorityReceiptValidationError,
+        authority_receipt_digest_v2,
+        authority_receipt_path,
+        validate_authority_receipt_v2,
+    )  # T-044-style late import: avoids the session → _artifact_store → authority_receipts cycle at import time
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        candidate_transaction_identities_v2,
+        content_hash,
+        legacy_rendering_hash,
+    )
+    from vibecomfy.comfy_nodes.agent.session import _load_json
+
+    transaction, legacy_migration = load_candidate_transaction_with_migration(
+        turn_dir, plan_hash
+    )
+    if transaction is None:
+        if isinstance(legacy_migration, Mapping):
+            return None, str(
+                legacy_migration.get("classification") or "legacy_non_resumable"
+            )
+        return None, "missing_candidate_transaction"
+    if (
+        transaction.get("session_id") != session_id
+        or transaction.get("turn_id") != turn_id
+        or transaction.get("plan_hash") != plan_hash
+    ):
+        return None, "candidate_transaction_identity_mismatch"
+    candidate_authority = transaction.get("candidate_authority")
+    hashes = transaction.get("hashes")
+    plan = transaction.get("plan")
+    authority_block = transaction.get("authority")
+    if not all(
+        isinstance(item, Mapping)
+        for item in (candidate_authority, hashes, plan, authority_block)
+    ):
+        return None, "malformed_candidate_transaction"
+
+    # Deterministic identities are RECOMPUTED through the mint-time formulas;
+    # non-empty syntax alone is insufficient.
+    expected_transaction_id, expected_candidate_id = (
+        candidate_transaction_identities_v2(session_id, turn_id, plan_hash)
+    )
+    if (
+        candidate_authority.get("transaction_id"),
+        candidate_authority.get("candidate_id"),
+    ) != (expected_transaction_id, expected_candidate_id):
+        return None, "candidate_identity_mismatch"
+
+    raw_receipt = _load_json(authority_receipt_path(turn_dir))
+    if not isinstance(raw_receipt, Mapping):
+        return None, "missing_authority_receipt"
+    try:
+        receipt = validate_authority_receipt_v2(raw_receipt)
+    except AuthorityReceiptValidationError as exc:
+        return None, f"invalid_authority_receipt:{exc}"
+    receipt_digest = authority_receipt_digest_v2(receipt)
+
+    if (
+        candidate_authority.get("authority_receipt_digest") != receipt_digest
+        or hashes.get("authority_receipt_hash") != receipt_digest
+    ):
+        return None, "authority_receipt_digest_mismatch"
+    if (
+        candidate_authority.get("authority_receipt_contract_version")
+        != receipt.contract_version
+        or candidate_authority.get("authority_receipt_delta_schema")
+        != receipt.schema_version
+    ):
+        return None, "candidate_authority_receipt_binding_mismatch"
+
+    # Tamper consistency: the transaction copies must equal the receipt fields
+    # (strict bool identity — an int 1 copy fails here), but they can never
+    # override the receipt's actual verdict below.
+    if (
+        type(authority_block.get("replay_ok")) is not bool
+        or authority_block["replay_ok"] is not receipt.replay.replay_ok
+        or type(authority_block.get("candidate_matches")) is not bool
+        or authority_block["candidate_matches"] is not receipt.replay.candidate_matches
+        or authority_block.get("verification_kind") != receipt.replay.verification_kind
+        or authority_block.get("schema_witness_hash") != receipt.schema_witness_hash
+    ):
+        return None, "transaction_authority_copy_mismatch"
+
+    accepted = plan.get("accepted_batch")
+    if not isinstance(accepted, list):
+        return None, "missing_persisted_delta_plan"
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
+    plan_envelope = derived_accepted_delta_envelope({"accepted_batch": accepted})
+    receipt_delta = receipt.accepted_batch_digest or receipt.cumulative_delta_hash
+    if receipt_delta not in {
+        content_hash(plan_envelope),
+        legacy_rendering_hash(plan_envelope),
+    }:
+        return None, "authority_delta_mismatch"
+    if plan.get("delta_hash") != receipt.cumulative_delta_hash:
+        return None, "authority_delta_hash_mismatch"
+    operation = candidate_authority.get("operation")
+    if (
+        not isinstance(operation, Mapping)
+        or operation.get("accepted_batch_digest") != receipt_delta
+    ):
+        return None, "operation_delta_digest_mismatch"
+
+    # Candidate-hash chain.  Two hash families describe the SAME candidate:
+    # the payload family binds exact bytes (receipt.candidate_hash ↔ the
+    # transaction's candidate_graph_hash); the structural family proves the
+    # replay re-derived the persisted structure (persisted == recomputed).
+    # verify_replay computed both families over that one candidate object.
+    if hashes.get("candidate_graph_hash") != receipt.candidate_hash:
+        return None, "authority_candidate_hash_mismatch"
+    if receipt.replay.persisted_candidate_hash != receipt.replay.recomputed_candidate_hash:
+        return None, "replay_candidate_hash_inconsistent"
+
+    # The receipt's ACTUAL verdict is the only upgrade authority.
+    if not (
+        receipt.replay.replay_ok is True
+        and receipt.replay.candidate_matches is True
+        and not receipt.replay.error
+        and receipt.is_applyable
+    ):
+        return None, "authority_receipt_not_applyable"
+
+    # The receipt carries session/turn (not plan_hash): with the accepted-delta
+    # digest, candidate hash, and full receipt digest bound above, it is bound
+    # transitively to the transaction plan without changing its version.
+    if receipt.session_id != session_id or receipt.turn_id != turn_id:
+        return None, "receipt_identity_mismatch"
+
+    response = _load_json(turn_dir / "response.json")
+    if isinstance(response, Mapping):
+        response_transaction = response.get("candidate_transaction")
+        if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
+            return None, "response_transaction_mismatch"
+
+    return BoundCandidateReplayEvidence(
+        turn_dir=turn_dir,
+        transaction=transaction,
+        receipt=receipt,
+        receipt_digest=receipt_digest,
+    ), None
 
 
 def _transaction_log_path(transaction_dir: Path) -> Path:

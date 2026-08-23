@@ -417,54 +417,197 @@ def _load_accepted_batch(
     return accepted, None
 
 
-def _landed_replay_verified(response: Mapping[str, Any] | None) -> bool:
-    """True when the run carries durable replay-verified landed-edit authority.
+def _resolve_durable_turn_dir(
+    output_dir: Path,
+    response: Mapping[str, Any] | None,
+) -> Path | None:
+    """Return the durable per-turn directory for this run, or ``None``.
 
-    DEEP-AUDIT-REVIEW-2-002: the ONLY accepted evidence is a VALIDATED
-    persisted ``candidate_transaction_v2`` embedded in the response — the same
-    contract validation the authority validator performs (candidate/receipt
-    identity issuance, authority-receipt binding, accepted-batch digest,
-    transaction hashes, state/action consistency) plus the envelope↔authority
-    identity cross-check.  Untyped evidence never qualifies:
-
-    * an arbitrary top-level ``authority`` mapping is NOT production evidence
-      (the authority-receipt path stamps ``authority_receipt``, never a bare
-      ``authority`` block) and must not classify as replay-verified;
-    * a transaction that fails contract validation fails closed.
-
-    Fail-closed: any absent/malformed/unvalidated shape returns False.
+    DEEP-AUDIT-FIX-2-REVISION-2 seam: *output_dir* when it IS the turn
+    directory itself (it carries the immutable ``authority/`` namespace);
+    otherwise the production paths stamped into the envelope —
+    ``detail_json_path`` or ``session_path + turns/<turn_id>``.  The
+    presentation resolver in ``_agentic_replay_service.py`` is deliberately
+    NOT consulted: it neither validates transactions nor receipts.
     """
-    if not isinstance(response, Mapping):
-        return False
-    transaction = response.get("candidate_transaction")
-    if not isinstance(transaction, Mapping):
-        return False
-    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
-        CANDIDATE_TRANSACTION_V2,  # noqa: PLC0415
-        validate_candidate_transaction,  # noqa: PLC0415
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        AUTHORITY_NAMESPACE,  # noqa: PLC0415
+        AUTHORITY_RECEIPT_FILENAME,  # noqa: PLC0415
     )
 
-    if transaction.get("contract_version") != CANDIDATE_TRANSACTION_V2:
+    candidates: list[Path] = [Path(output_dir)]
+    if isinstance(response, Mapping):
+        detail = (
+            response.get("detail_json_path")
+            or response.get("detail_json_path_resolved")
+        )
+        if isinstance(detail, str) and detail:
+            candidates.append(Path(detail).parent)
+        session_path = (
+            response.get("session_path")
+            or response.get("session_path_resolved")
+        )
+        turn_id = response.get("turn_id")
+        if (
+            isinstance(session_path, str)
+            and session_path
+            and isinstance(turn_id, str)
+            and turn_id
+        ):
+            candidates.append(Path(session_path) / "turns" / turn_id)
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if (candidate / AUTHORITY_NAMESPACE / AUTHORITY_RECEIPT_FILENAME).is_file():
+            return candidate
+    return None
+
+
+def _path_identities_agree(
+    turn_dir: Path,
+    response: Mapping[str, Any] | None,
+    lineage: Mapping[str, Any] | None,
+) -> bool:
+    """True when path-derived identities agree with response + lineage.
+
+    The turn directory layout is ``<root>/<session_id>/turns/<turn_id>``; both
+    derived components must match every carrier that claims them.  Empty
+    lineage values mean "unknown at this carrier" and are tolerated; known
+    values must agree exactly (lineage is an identity fence, never authority).
+    """
+    path_turn_id = turn_dir.name
+    parents = turn_dir.parents
+    path_session_id = parents[1].name if len(parents) >= 2 else ""
+    if not path_turn_id or not path_session_id:
         return False
-    ok, _error = validate_candidate_transaction(transaction)
-    if not ok:
+    if isinstance(response, Mapping):
+        for key, derived in (("session_id", path_session_id), ("turn_id", path_turn_id)):
+            claimed = response.get(key)
+            if isinstance(claimed, str) and claimed and claimed != derived:
+                return False
+    if isinstance(lineage, Mapping):
+        for key, derived in (("session_id", path_session_id), ("turn_id", path_turn_id)):
+            claimed = lineage.get(key)
+            if claimed and claimed != derived:
+                return False
+    return True
+
+
+def _durable_plan_hash(turn_dir: Path) -> str | None:
+    """Read the mint-time plan hash from the durable turn response."""
+    try:
+        payload = json.loads(
+            (turn_dir / "response.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    candidate = payload.get("candidate")
+    plan_hash = (
+        candidate.get("plan_hash")
+        if isinstance(candidate, Mapping)
+        else None
+    )
+    if not isinstance(plan_hash, str) or not plan_hash:
+        plan_hash = payload.get("plan_hash")
+    return plan_hash if isinstance(plan_hash, str) and plan_hash else None
+
+
+def _load_persisted_pair_evidence(
+    turn_dir: Path,
+) -> tuple[Any | None, str | None]:
+    """Call the single production persisted-pair loader for *turn_dir*.
+
+    Path-derived session/turn identities are authoritative inputs; every
+    binding check runs inside
+    ``_artifact_store.load_bound_candidate_replay_evidence``.
+    """
+    from vibecomfy.comfy_nodes.agent._artifact_store import (  # noqa: PLC0415
+        load_bound_candidate_replay_evidence,
+    )
+
+    plan_hash = _durable_plan_hash(turn_dir)
+    if plan_hash is None:
+        return None, "missing_plan_hash"
+    return load_bound_candidate_replay_evidence(
+        turn_dir,
+        session_id=turn_dir.parents[1].name,
+        turn_id=turn_dir.name,
+        plan_hash=plan_hash,
+    )
+
+
+def _landed_replay_verified(
+    evidence: Any | None,
+    *,
+    assessed_post_graph: Mapping[str, Any],
+    lineage: Mapping[str, Any] | None = None,
+) -> bool:
+    """True only when the FULL persisted-pair chain binds the assessed graph.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: contract validation alone does NOT establish
+    receipt or graph binding.  *evidence* is the ``(evidence, reason)`` result
+    of the single production loader
+    (``_artifact_store.load_bound_candidate_replay_evidence``), which has
+    already validated BOTH persisted contracts, bound the complete-canonical
+    receipt digest to BOTH transaction fields, enforced the receipt's ACTUAL
+    replay verdict (transaction copies cannot override), chained the candidate
+    hashes, and reconciled every deterministic session/turn/plan/identity.
+
+    On top of that chain this check binds the candidate authority to the exact
+    post graph being graded: the transaction's declared projection family is
+    recomputed over ``assessed_post_graph`` and must equal the persisted
+    postcondition; layout authority must additionally re-match the structural
+    witness postcondition digest so a layout-only comparison can never admit an
+    unrelated structural change; and lineage identities must fence the pair.
+
+    Fail-closed: any absent/malformed/unbound evidence returns False.
+    """
+    if evidence is None:
+        return False
+    transaction = getattr(evidence, "transaction", None)
+    if not isinstance(transaction, Mapping):
         return False
     candidate_authority = transaction.get("candidate_authority")
     if not isinstance(candidate_authority, Mapping):
         return False
-    # Candidate/receipt identity binding: the envelope-level identity must
-    # agree with the validated authority it carries.
-    if any(
-        transaction.get(key) != candidate_authority.get(key)
-        for key in ("session_id", "turn_id", "plan_hash")
-    ):
-        return False
-    replay = transaction.get("authority")
-    return (
-        isinstance(replay, Mapping)
-        and replay.get("replay_ok") is True
-        and replay.get("candidate_matches") is True
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (  # noqa: PLC0415
+        projection_reference_v1,
     )
+
+    family = candidate_authority.get("operation_family")
+    projection = "layout_v1" if family == "layout" else "structural_v1"
+    try:
+        recomputed_post = projection_reference_v1(assessed_post_graph, projection)
+    except Exception:  # noqa: BLE001 - unprojectable evidence stays unverified
+        return False
+    if candidate_authority.get("postcondition") != recomputed_post:
+        return False
+    if family == "layout":
+        structural_witness = candidate_authority.get("structural_witness")
+        try:
+            recomputed_structural = projection_reference_v1(
+                assessed_post_graph, "structural_v1"
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        if (
+            not isinstance(structural_witness, Mapping)
+            or structural_witness.get("postcondition_digest")
+            != recomputed_structural.get("digest")
+        ):
+            return False
+    if isinstance(lineage, Mapping):
+        for key in ("session_id", "turn_id"):
+            claimed = lineage.get(key)
+            bound = transaction.get(key)
+            if claimed and bound and claimed != bound:
+                return False
+    return True
 
 
 def _ui_node_value_fields(node: Mapping[str, Any], *, schema_provider: Any = None) -> dict[str, Any]:
@@ -884,6 +1027,13 @@ def judge_edit_intent(
     Returns a dict with ``pass_``, ``criteria``, ``rationale``, and ``metadata``.
     If required artifacts are missing or the model call fails, ``pass_`` is None
     and ``error`` describes why.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: landed replay authority is never read off the
+    response.  The durable turn directory is resolved from *output_dir* / the
+    production envelope paths, the single persisted-pair loader validates and
+    binds the persisted transaction + receipt, and the candidate postcondition
+    projection must recompute over the exact post graph graded here before
+    ``judge_graph_pair`` may see ``landed_replay_verified=True``.
     """
     output_dir = Path(output_dir)
     query = str(scenario.get("query", "")).strip()
@@ -970,6 +1120,23 @@ def judge_edit_intent(
             }
         pre_wf = pre_view.workflow
         post_wf = post_view.workflow
+
+        # DEEP-AUDIT-FIX-2-REVISION-2: resolve the durable turn, require the
+        # path-derived identities to agree with response + canonical lineage,
+        # then load the persisted (transaction, receipt) pair through the one
+        # production loader.  The verdict upgrade below fires only after every
+        # binding — including the postcondition recomputed over THIS post_ir.
+        bound_evidence: Any = None
+        turn_dir = _resolve_durable_turn_dir(output_dir, response)
+        if turn_dir is not None and _path_identities_agree(
+            turn_dir, response, pair_lineage
+        ):
+            bound_evidence, _binding_reason = _load_persisted_pair_evidence(turn_dir)
+        landed_verified = _landed_replay_verified(
+            bound_evidence,
+            assessed_post_graph=post_ir,
+            lineage=pair_lineage if isinstance(pair_lineage, Mapping) else None,
+        )
     else:
         # Legacy artifacts without typed lineage (non-canonical mode).
         try:
@@ -999,7 +1166,7 @@ def judge_edit_intent(
                 post_view,
                 accepted_ops,
                 schema_provider=schema_provider,
-                landed_replay_verified=_landed_replay_verified(response),
+                landed_replay_verified=landed_verified,
             )
             if pair_verdict.outcome == "no_edit":
                 return {

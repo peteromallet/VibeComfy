@@ -652,6 +652,28 @@ def schema_provenance_summary(witness: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def candidate_transaction_identities_v2(
+    session_id: str,
+    turn_id: str,
+    plan_hash: str,
+) -> tuple[str, str]:
+    """Return the deterministic ``(transaction_id, candidate_id)`` pair.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: sole owner of the identity formulas.
+    ``build_candidate_transaction`` mints through this function and bound
+    authority verification (``_artifact_store.load_bound_candidate_replay_evidence``)
+    recomputes through the SAME function, so non-empty syntax alone can never
+    pass an identity check.  The formulas are unchanged:
+    ``sha256(f"{session_id}:{turn_id}:{plan_hash}:transaction")`` and
+    ``sha256(f"{session_id}:{turn_id}:{plan_hash}:candidate")``.
+    """
+    seed = f"{session_id}:{turn_id}:{plan_hash}"
+    return (
+        hashlib.sha256(f"{seed}:transaction".encode()).hexdigest(),
+        hashlib.sha256(f"{seed}:candidate".encode()).hexdigest(),
+    )
+
+
 def build_candidate_transaction(
     *,
     workflow_id: str,
@@ -699,8 +721,9 @@ def build_candidate_transaction(
         or any(character not in "0123456789abcdef" for character in authority_receipt_hash)
     ):
         raise ValueError("Candidate authority requires an exact lowercase 64-hex receipt digest.")
-    transaction_id = hashlib.sha256(f"{session_id}:{turn_id}:{plan_hash}:transaction".encode()).hexdigest()
-    candidate_id = hashlib.sha256(f"{session_id}:{turn_id}:{plan_hash}:candidate".encode()).hexdigest()
+    transaction_id, candidate_id = candidate_transaction_identities_v2(
+        session_id, turn_id, plan_hash
+    )
     family = "layout" if verification_kind == "layout_structural_noop" else "structural"
     projection = "layout_v1" if family == "layout" else "structural_v1"
     precondition = projection_reference_v1(submit_graph, projection)
@@ -1062,6 +1085,7 @@ __all__ = [
     "validate_candidate_transaction_v2",
     "validate_prepared_authority_v1",
     "classify_legacy_migration_v1",
+    "candidate_transaction_identities_v2",
     "legacy_rendering_hash",
     "validate_schema_witness",
 ]

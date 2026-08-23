@@ -826,9 +826,10 @@ def assess_live_output_dir(
     * ``passed`` — True iff ``verdict`` is ``pass``.
     * ``verdict`` — ``pass``, ``fail``, or ``undetermined`` (stable vocabulary).
     * ``outcome_class`` — additive honest class for the leg: ``safe_refusal``,
-      ``applied-unverified`` (landed + replay-verified edit without an
-      accepted Δ), ``non_edit_route_answered`` (canonical research/inspect/
-      respond route correctly made no edit), or ``None``.
+      ``applied-unverified`` (landed + replay-verified edit proven by the FULLY
+      BOUND persisted transaction/receipt pair — DEEP-AUDIT-FIX-2-REVISION-2 —
+      without an accepted Δ), ``non_edit_route_answered`` (canonical
+      research/inspect/respond route correctly made no edit), or ``None``.
     * ``expect_graph_changed`` — whether the scenario expected an edit.
     * ``issue_count`` / ``error_count`` — counts.
     * ``issues`` — list of ``{"check", "severity", "detail"}`` dicts.

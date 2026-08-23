@@ -296,10 +296,13 @@ def judge_graph_pair(
       changed without durable authority — C11 forbids guessing) — UNLESS the
       run carries durable replay-verified landed-edit authority
       (``landed_replay_verified``, DEEP-AUDIT-FIX-2 §28 fix 3): then the honest
-      class is ``applied_unverified`` — the edit landed and replay verified,
-      but this judge holds no accepted Δ to re-derive, so it stays distinct
-      from both ``applied_edit`` (pass-grade evidence) and bare
-      ``undetermined`` (missing evidence).
+      class is ``applied_unverified`` — the edit landed, and a FULLY BOUND
+      persisted transaction/receipt pair (DEEP-AUDIT-FIX-2-REVISION-2:
+      validated contracts, receipt-digest binding, actual receipt verdict,
+      identity reconciliation, postcondition recomputed over the assessed
+      graph) proves it — but this judge holds no accepted Δ to re-derive, so
+      it stays distinct from both ``applied_edit`` (pass-grade evidence) and
+      bare ``undetermined`` (missing evidence).
     * accepted delta present ⇒ replay ``interpret(pre, Δ)`` must reconstruct
       the post product; contradiction is ``delta_replay_mismatch`` (fail-closed),
       reconstruction success is ``applied_edit``.
@@ -318,13 +321,15 @@ def judge_graph_pair(
                 },
             )
         if landed_replay_verified and not queue_gate_failed:
-            # §28 fix 3: the candidate graph landed and the durable candidate
-            # transaction replay-verified it; only the accepted-Δ envelope is
-            # absent from this response.  Record the honest applied-unverified
-            # class with the landed-edit evidence instead of a bare
-            # undetermined.  Never a pass: without an accepted Δ this judge
-            # cannot re-derive the edit, and a withheld batch (queue gate
-            # failed) can never back any verdict.
+            # §28 fix 3 / DEEP-AUDIT-FIX-2-REVISION-2: the caller established
+            # the full persisted-pair chain (validated receipt + transaction,
+            # digest/verdict/identity binding, postcondition bound to this
+            # exact post graph); only the accepted-Δ envelope is absent from
+            # this response.  Record the honest applied-unverified class with
+            # the landed-edit evidence instead of a bare undetermined.  Never
+            # a pass: without an accepted Δ this judge cannot re-derive the
+            # edit, and a withheld batch (queue gate failed) can never back
+            # any verdict.
             return PairVerdict(
                 outcome="applied_unverified",
                 reason="landed_edit_replay_verified_without_accepted_delta",

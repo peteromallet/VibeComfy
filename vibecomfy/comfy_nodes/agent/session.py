@@ -23,8 +23,6 @@ from .candidate_transaction import (
     build_candidate_transaction,
     canonical_transaction_state,
     classify_legacy_migration_v1,
-    content_hash,
-    legacy_rendering_hash,
     project_transaction_state,
     validate_candidate_transaction,
 )
@@ -1511,77 +1509,40 @@ def _load_authoritative_candidate_transaction(
     turn_id: str,
     plan_hash: str,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Load and cross-check the immutable aggregate and replay receipt."""
-    transaction, legacy_migration = load_candidate_transaction_with_migration(
-        turn_dir, plan_hash
+    """Load and cross-check the immutable aggregate and replay receipt.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: contract validation, receipt-digest binding,
+    verdict enforcement, hash chains, and deterministic identity reconciliation
+    are delegated to the single persisted-pair loader
+    (``_artifact_store.load_bound_candidate_replay_evidence``).  Only the
+    rehydration-specific durable-response delta comparison runs here
+    afterwards: the source-turn response envelope must re-derive the SAME Δ as
+    the persisted plan (semantic numeric view or legacy exact rendering), and a
+    present embedded transaction copy must equal the persisted aggregate.
+    """
+    from ._artifact_store import load_bound_candidate_replay_evidence
+
+    evidence, error = load_bound_candidate_replay_evidence(
+        turn_dir,
+        session_id=session_id,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
     )
-    if transaction is None:
-        if isinstance(legacy_migration, Mapping):
-            return None, str(
-                legacy_migration.get("classification") or "legacy_non_resumable"
-            )
-        return None, "missing_candidate_transaction"
-    if (
-        transaction.get("session_id") != session_id
-        or transaction.get("turn_id") != turn_id
-        or transaction.get("plan_hash") != plan_hash
-    ):
-        return None, "candidate_transaction_identity_mismatch"
-
-    from .authority_receipts import load_authority_receipt
-
-    authority = load_authority_receipt(turn_dir)
-    if authority is None:
-        return None, "missing_authority_receipt"
-    if not authority.is_applyable:
-        return None, "authority_receipt_not_applyable"
-    candidate_authority = transaction.get("candidate_authority")
-    receipt_digest = payload_hash(authority.to_dict())
-    if not isinstance(candidate_authority, Mapping):
-        return None, "missing_candidate_authority"
-    if (
-        candidate_authority.get("authority_receipt_contract_version")
-        != authority.contract_version
-        or candidate_authority.get("authority_receipt_delta_schema")
-        != authority.schema_version
-        or candidate_authority.get("authority_receipt_digest") != receipt_digest
-    ):
-        return None, "candidate_authority_receipt_binding_mismatch"
-    hashes = transaction.get("hashes")
-    plan = transaction.get("plan")
-    if not isinstance(hashes, Mapping) or not isinstance(plan, Mapping):
-        return None, "malformed_candidate_transaction"
-    if hashes.get("authority_receipt_hash") != receipt_digest:
-        return None, "authority_receipt_hash_mismatch"
-    accepted = plan.get("accepted_batch")
-    if not isinstance(accepted, list):
-        return None, "missing_persisted_delta_plan"
-    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
-
-    plan_envelope = derived_accepted_delta_envelope({"accepted_batch": accepted})
-    # DEEP-AUDIT-REVIEW-2-001: same canonical Δ digest as every other seam —
-    # the semantic numeric view minted by ``build_authority_receipt``.  The
-    # exact legacy rendering of THIS envelope stays accepted so receipts and
-    # plans persisted before the semantic minter still rehydrate; both
-    # candidates are pure functions of the persisted batch, so a genuinely
-    # different Δ matches neither (fail-closed unchanged).
-    receipt_digest = authority.accepted_batch_digest or authority.cumulative_delta_hash
-    if receipt_digest not in {
-        content_hash(plan_envelope),
-        legacy_rendering_hash(plan_envelope),
-    }:
-        return None, "authority_delta_mismatch"
-    if plan.get("delta_hash") != authority.cumulative_delta_hash:
-        return None, "authority_delta_hash_mismatch"
-    if hashes.get("candidate_graph_hash") != authority.candidate_hash:
-        return None, "authority_candidate_hash_mismatch"
+    if evidence is None:
+        return None, error
+    transaction = evidence.transaction
     response = _load_turn_response_payload(
         session_dir=turn_dir.parents[1],
         turn_id=turn_id,
     )
     if not isinstance(response, Mapping):
         return None, "missing_turn_response"
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
     response_envelope = derived_accepted_delta_envelope(response)
+    plan_envelope = derived_accepted_delta_envelope(
+        {"accepted_batch": transaction["plan"]["accepted_batch"]}
+    )
     if response_envelope != plan_envelope:
         return None, "response_delta_mismatch"
     response_transaction = response.get("candidate_transaction")
@@ -3656,7 +3617,12 @@ def record_idempotent_response(
                     workflow_identity_v1(workflow_id)
                     if not isinstance(submit_graph, Mapping):
                         raise ValueError("V2 candidate issuance requires the persisted submit graph.")
-                    from .authority_receipts import build_and_persist_authority_receipt
+                    # DEEP-AUDIT-FIX-2-REVISION-2: the digest owner is the
+                    # sole receipt-digest source for mint AND binding.
+                    from .authority_receipts import (
+                        authority_receipt_digest_v2,
+                        build_and_persist_authority_receipt,
+                    )
 
                     from vibecomfy.comfy_nodes.agent._frag_state import (
                         derived_accepted_delta_envelope,
@@ -3829,7 +3795,7 @@ def record_idempotent_response(
             candidate_structural_graph_hash=candidate_structural_graph_hash,
             candidate_layout_graph_hash=candidate_layout_graph_hash,
             layout_verification=layout_verification,
-            authority_receipt_hash=payload_hash(authority_receipt.to_dict()),
+            authority_receipt_hash=authority_receipt_digest_v2(authority_receipt),
             schema_witness=authority_receipt.schema_witness,
             replay_ok=authority_receipt.replay.replay_ok,
             candidate_matches=authority_receipt.replay.candidate_matches,

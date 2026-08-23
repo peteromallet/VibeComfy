@@ -25,11 +25,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
 from .candidate_transaction import (
+    AUTHORITY_RECEIPT_DELTA_SCHEMA,
     build_schema_witness,
     content_hash,
     missing_touched_class_types,
@@ -233,6 +235,141 @@ class AuthorityReceipt:
             and self.replay.candidate_matches
             and isinstance(self.replay.verification_kind, str)
         )
+
+
+# ---------------------------------------------------------------------------
+# Strict V2 validation and digest ownership
+# ---------------------------------------------------------------------------
+
+#: The only replay proofs a persisted V2 receipt may carry.
+_ALLOWED_REPLAY_VERIFICATION_KINDS = frozenset(
+    {"delta_replay", "layout_structural_noop"}
+)
+
+_HEX64_RE = re.compile(r"[0-9a-f]{64}")
+
+
+class AuthorityReceiptValidationError(ValueError):
+    """A raw persisted receipt failed strict ``authority_receipt_v2`` validation."""
+
+
+def _require_hex64(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not _HEX64_RE.fullmatch(value):
+        raise AuthorityReceiptValidationError(f"invalid_hash:{field_name}")
+    return value
+
+
+def validate_authority_receipt_v2(raw: Mapping[str, Any]) -> AuthorityReceipt:
+    """Strictly validate a raw persisted receipt BEFORE dataclass coercion.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: ``AuthorityReceipt.from_dict`` coerces fields
+    through ``bool(...)``/``int(...)`` and silently defaults missing values, so
+    it can never be the first gate over untrusted bytes.  This validator checks
+    exact raw JSON types first and only then returns the coerced dataclass.
+
+    Contract shape only: a receipt that validates here may still record a
+    FAILED replay (``is_applyable`` False).  Verdict enforcement is the
+    binding decision of the persisted-pair loader, not of this validator.
+    """
+    if not isinstance(raw, Mapping):
+        raise AuthorityReceiptValidationError("not_a_mapping")
+    if raw.get("contract_version") != AUTHORITY_RECEIPT_CONTRACT_VERSION:
+        raise AuthorityReceiptValidationError("unsupported_contract_version")
+    if raw.get("schema_version") != AUTHORITY_RECEIPT_DELTA_SCHEMA:
+        raise AuthorityReceiptValidationError("unsupported_delta_schema_version")
+    for identity_field in ("session_id", "turn_id"):
+        value = raw.get(identity_field)
+        if not isinstance(value, str) or not value:
+            raise AuthorityReceiptValidationError(f"missing_{identity_field}")
+    required_hashes = (
+        "submit_graph_hash",
+        "submit_graph_bytes_sha256",
+        "accepted_batch_digest",
+        "cumulative_delta_hash",
+        "candidate_hash",
+        "schema_witness_hash",
+    )
+    for hash_field in required_hashes:
+        _require_hex64(raw.get(hash_field), hash_field)
+    if raw["accepted_batch_digest"] != raw["cumulative_delta_hash"]:
+        raise AuthorityReceiptValidationError("accepted_batch_digest_mismatch")
+
+    witness = raw.get("schema_witness")
+    witness_ok, _witness_error = validate_schema_witness(witness)
+    if not witness_ok or not isinstance(witness, Mapping):
+        raise AuthorityReceiptValidationError("invalid_schema_witness")
+    if raw["schema_witness_hash"] != witness.get("witness_hash"):
+        raise AuthorityReceiptValidationError("schema_witness_hash_mismatch")
+
+    replay = raw.get("replay")
+    if not isinstance(replay, Mapping):
+        raise AuthorityReceiptValidationError("missing_replay")
+    replay_ok = replay.get("replay_ok")
+    candidate_matches = replay.get("candidate_matches")
+    if type(replay_ok) is not bool or type(candidate_matches) is not bool:
+        raise AuthorityReceiptValidationError("replay_boolean_type")
+    replay_error = replay.get("error")
+    if replay_error is not None and not isinstance(replay_error, str):
+        raise AuthorityReceiptValidationError("invalid_replay_error_type")
+    op_count = replay.get("op_count", 0)
+    if type(op_count) is not int or op_count < 0:
+        raise AuthorityReceiptValidationError("invalid_op_count_type")
+    verification_kind = replay.get("verification_kind")
+    if verification_kind not in _ALLOWED_REPLAY_VERIFICATION_KINDS:
+        raise AuthorityReceiptValidationError("unknown_verification_kind")
+    recomputed = replay.get("recomputed_candidate_hash")
+    persisted = replay.get("persisted_candidate_hash")
+    for replay_hash_field, replay_hash_value in (
+        ("recomputed_candidate_hash", recomputed),
+        ("persisted_candidate_hash", persisted),
+    ):
+        if replay_hash_value is not None:
+            _require_hex64(replay_hash_value, replay_hash_field)
+    # Internally consistent replay candidate hashes: a successful matching
+    # replay must identify ONE candidate on both sides and record no error.
+    if replay_ok and candidate_matches:
+        if (
+            not isinstance(recomputed, str)
+            or not isinstance(persisted, str)
+            or recomputed != persisted
+        ):
+            raise AuthorityReceiptValidationError("replay_candidate_hash_mismatch")
+        if replay_error is not None:
+            raise AuthorityReceiptValidationError("replay_error_on_success")
+
+    metadata = raw.get("response_metadata")
+    if not isinstance(metadata, Mapping):
+        raise AuthorityReceiptValidationError("missing_response_metadata")
+    for metadata_field in ("response_hash", "eligibility_hash", "outcome_hash"):
+        value = metadata.get(metadata_field)
+        if value is not None:
+            _require_hex64(value, f"response_metadata.{metadata_field}")
+    created_at = raw.get("created_at")
+    if not isinstance(created_at, str) or not created_at:
+        raise AuthorityReceiptValidationError("missing_created_at")
+
+    return AuthorityReceipt.from_dict(raw)
+
+
+def authority_receipt_digest_v2(
+    receipt: AuthorityReceipt | Mapping[str, Any],
+) -> str:
+    """Return THE digest of the complete persisted receipt dictionary.
+
+    DEEP-AUDIT-FIX-2-REVISION-2: sole owner of the receipt digest.  SHA-256
+    over the canonical JSON of ``AuthorityReceipt.to_dict()``.  Minting
+    (``session.record_idempotent_response``), binding
+    (``_artifact_store.load_bound_candidate_replay_evidence``), and any future
+    verifier MUST call this function instead of duplicating
+    ``payload_hash(receipt.to_dict())`` locally, so mint and verify can never
+    diverge.
+    """
+    data = (
+        receipt.to_dict()
+        if isinstance(receipt, AuthorityReceipt)
+        else dict(receipt)
+    )
+    return hashlib.sha256(canonical_json_bytes(data)).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -982,15 +1119,18 @@ __all__ = [
     "AUTHORITY_RECEIPT_CONTRACT_VERSION",
     "AUTHORITY_RECEIPT_FILENAME",
     "AuthorityReceipt",
+    "AuthorityReceiptValidationError",
     "ReplayReceipt",
     "ResponseMetadataHashes",
     "authority_dir_for",
+    "authority_receipt_digest_v2",
     "authority_receipt_path",
     "build_and_persist_authority_receipt",
     "build_authority_receipt",
     "load_authority_receipt",
     "recompute_apply",
     "stamp_response_with_authority",
+    "validate_authority_receipt_v2",
     "verify_replay",
     "write_authority_receipt",
 ]

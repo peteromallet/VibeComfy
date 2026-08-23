@@ -14105,54 +14105,330 @@ def test_fix3_applied_unverified_never_fabricates_or_fail_opens():
     assert "reconstruct" in contradictory.reason
 
 
-def test_fix3_landed_replay_extractor_requires_validated_persisted_candidate():
-    """DEEP-AUDIT-REVIEW-2-002: ``landed_replay_verified`` derives ONLY from a
-    VALIDATED persisted ``candidate_transaction_v2`` (contract validation +
-    receipt/hash/identity binding).  Untyped evidence never qualifies: bare
-    top-level ``authority`` booleans are not production-stamped shapes, and an
-    unvalidated transaction fails closed instead of classifying as
-    replay-verified."""
-    from tests.live_agentic_harness.intent_judge import _landed_replay_verified
-    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
-        validate_candidate_transaction,
+
+
+def _persist_real_receipt_and_transaction(tmp_path, *, session_id="sess-fix3b"):
+    """Mint AND persist a real bound pair through the FULL production path:
+    ``allocate_turn`` → ``record_idempotent_response`` (receipt + transaction
+    writers) → durable ``turns/<turn_id>`` artifacts."""
+    from vibecomfy.comfy_nodes.agent.session import (
+        allocate_turn,
+        record_idempotent_response,
+        session_dir_for,
+        structural_graph_hash,
+        v2_mutation_plan_hash,
     )
 
-    assert _landed_replay_verified(None) is False
-    assert _landed_replay_verified({}) is False
-
-    # Production-minted V2 candidate: classified as replay-verified.
-    _receipt, transaction = _fix2_production_receipt_and_transaction()
-    assert validate_candidate_transaction(transaction) == (True, None)
-    assert _landed_replay_verified({"candidate_transaction": transaction}) is True
-
-    # A tampered persisted Δ breaks the accepted-batch digest binding →
-    # unvalidated → NOT replay-verified.
-    tampered = json.loads(json.dumps(transaction))
-    tampered["plan"]["accepted_batch"][0]["op"]["value"] = 99
-    assert validate_candidate_transaction(tampered)[0] is False
-    assert _landed_replay_verified({"candidate_transaction": tampered}) is False
-
-    # The previously blessed unsupported shapes are now fail-closed evidence:
-    # inline/booleans-only authority blocks are never durable replay authority.
-    assert (
-        _landed_replay_verified(
-            {"candidate_transaction": {"authority": {"replay_ok": True}}}
-        )
-        is False
-    )
-    assert (
-        _landed_replay_verified(
+    root = tmp_path / "sessions"
+    submit_graph = {
+        "nodes": [
             {
-                "candidate_transaction": {
-                    "authority": {"replay_ok": True, "candidate_matches": True}
-                }
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [7, "fixed", 20, 8, "euler", "normal", 1],
             }
-        )
+        ],
+        "links": [],
+    }
+    candidate_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph["nodes"][0]["widgets_values"][3] = 16.0
+    request = {
+        "task": "set cfg",
+        "workflow_id": "123e4567-e89b-12d3-a456-426614174000",
+        "graph": submit_graph,
+    }
+    allocation = allocate_turn(
+        session_root=root, session_id=session_id, request_payload=request
+    )
+    turn_id = str(allocation.context.turn_id)
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps(request), encoding="utf-8"
+    )
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {"op": "set_node_field", "target": ["", "1", "cfg"], "value": 16.0}
+        ],
+    }
+    structural_before = structural_graph_hash(submit_graph)
+    structural_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=structural_before,
+        structural_hash_after=structural_after,
+    )
+    response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "session_id": session_id,
+        "graph": candidate_graph,
+        "candidate": {
+            "graph": candidate_graph,
+            "plan_hash": plan_hash,
+            "structural_hash_before": structural_before,
+            "structural_hash_after": structural_after,
+        },
+        "eligibility": {"applyable": True},
+        "agent_edit_protocol": "v2_delta",
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id=session_id,
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+        schema_provider=_frozen_ingest_provider(None, submit_graph),
+    )
+    assert (allocation.turn_dir / "authority" / "receipt.json").is_file()
+    return SimpleNamespace(
+        root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        turn_dir=allocation.turn_dir,
+        plan_hash=plan_hash,
+        submit_graph=submit_graph,
+        candidate_graph=candidate_graph,
+    )
+
+
+def _persist_false_replay_pair(tmp_path, *, session_id="sess-fix3f"):
+    """Persist a REAL false/non-applyable receipt + transaction pair.
+
+    Both artifacts come from the production builders: the delta claims
+    ``cfg=16`` while the persisted candidate took an unrelated ``steps``
+    change, so the server replay genuinely re-derives a DIFFERENT candidate
+    (``replay_ok=True``, ``candidate_matches=False``,
+    ``error=candidate_hash_mismatch``, ``is_applyable=False``)."""
+    from vibecomfy.comfy_nodes.agent._artifact_store import (
+        write_candidate_transaction,
+    )
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        build_authority_receipt,
+        write_authority_receipt,
+    )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        build_candidate_transaction,
+    )
+    from vibecomfy.comfy_nodes.agent.session import (
+        payload_hash,
+        session_dir_for,
+        structural_graph_hash,
+        turn_dir_for,
+        v2_mutation_plan_hash,
+    )
+
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [7, "fixed", 20, 8, "euler", "normal", 1],
+            }
+        ],
+        "links": [],
+    }
+    candidate_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph["nodes"][0]["widgets_values"][2] = 25
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {"op": "set_node_field", "target": ["", "1", "cfg"], "value": 16.0}
+        ],
+    }
+    structural_before = structural_graph_hash(submit_graph)
+    structural_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=structural_before,
+        structural_hash_after=structural_after,
+    )
+    receipt = build_authority_receipt(
+        session_id=session_id,
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=candidate_graph,
+        response={"ok": True},
+        schema_provider=_frozen_ingest_provider(None, submit_graph),
+    )
+    assert receipt.replay.replay_ok is True
+    assert receipt.replay.candidate_matches is False
+    assert receipt.is_applyable is False
+    transaction = build_candidate_transaction(
+        workflow_id="123e4567-e89b-12d3-a456-426614174000",
+        session_id=session_id,
+        turn_id="0001",
+        plan_hash=plan_hash,
+        submit_graph=submit_graph,
+        candidate_graph=candidate_graph,
+        accepted_batch=[{"op": op} for op in envelope["ops"]],
+        delta_hash=receipt.cumulative_delta_hash,
+        submit_graph_hash=receipt.submit_graph_hash,
+        submit_structural_graph_hash=structural_before,
+        candidate_graph_hash=payload_hash(candidate_graph),
+        candidate_structural_graph_hash=structural_after,
+        authority_receipt_hash=payload_hash(receipt.to_dict()),
+        schema_witness=receipt.schema_witness,
+        replay_ok=receipt.replay.replay_ok,
+        # The tamper under test: ONLY the transaction copies claim success.
+        candidate_matches=True,
+        applyable=True,
+    )
+    turn_dir = turn_dir_for(session_dir_for(tmp_path / "sessions", session_id), session_id, "0001")
+    turn_dir.mkdir(parents=True, exist_ok=True)
+    write_authority_receipt(turn_dir, receipt)
+    write_candidate_transaction(turn_dir, transaction)
+    source_turn_response = {
+        "ok": True,
+        "turn_id": "0001",
+        "session_id": session_id,
+        "candidate": {"plan_hash": plan_hash},
+        "candidate_transaction": transaction,
+    }
+    (turn_dir / "response.json").write_text(
+        json.dumps(source_turn_response), encoding="utf-8"
+    )
+    return SimpleNamespace(
+        root=tmp_path / "sessions",
+        session_id=session_id,
+        turn_id="0001",
+        turn_dir=turn_dir,
+        session_dir=session_dir_for(tmp_path / "sessions", session_id),
+        plan_hash=plan_hash,
+        submit_graph=submit_graph,
+        candidate_graph=candidate_graph,
+    )
+
+
+_FIX3_SCENARIO = {
+    "query": "set the cfg to 16",
+    "assessment": {"expect_graph_changed": True},
+}
+
+
+def _assemble_harness_run(tmp_path, pair, *, final_ui=None, name="run"):
+    """Assemble the harness output directory: UI renderings + a response copy
+    WITHOUT any top-level accepted Δ or embedded transaction, but with the
+    genuine source-turn identities and durable paths."""
+    from vibecomfy.comfy_nodes.agent.artifact_lineage import (
+        LINK_KINDS,
+        FALLBACK_REASONS,
+        build_artifact_lineage,
+        fallback_row,
+    )
+    from vibecomfy.comfy_nodes.agent.session import session_dir_for
+
+    run_dir = tmp_path / name
+    run_dir.mkdir(exist_ok=True)
+    manifest = build_artifact_lineage(
+        lineage={
+            "scenario_id": "s1",
+            "session_id": pair.session_id,
+            "turn_id": pair.turn_id,
+            "baseline_id": "0000",
+        },
+        rows=[
+            fallback_row(kind, sorted(FALLBACK_REASONS[kind])[0])
+            for kind in LINK_KINDS
+        ],
+    )
+    response = {
+        "ok": True,
+        "report": {"executor": {"artifact_lineage": manifest}},
+        "session_id": pair.session_id,
+        "turn_id": pair.turn_id,
+        "session_path": str(session_dir_for(pair.root, pair.session_id)),
+        "detail_json_path": str(pair.turn_dir / "response.json"),
+    }
+    (run_dir / "original.ui.json").write_text(
+        json.dumps(pair.submit_graph), encoding="utf-8"
+    )
+    (run_dir / "final.ui.json").write_text(
+        json.dumps(pair.candidate_graph if final_ui is None else final_ui),
+        encoding="utf-8",
+    )
+    (run_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    return run_dir
+
+
+def test_fix3_landed_replay_extractor_requires_bound_persisted_pair(tmp_path):
+    """DEEP-AUDIT-FIX-2-REVISION-2: ``_landed_replay_verified`` accepts ONLY
+    the evidence of the single production loader — validated persisted pair,
+    receipt-digest/verdict/identity binding — plus the postcondition recomputed
+    over the exact assessed post graph.  A real positive pair binds; an
+    unrelated assessed graph, a rebound digest, and untyped shapes do not.
+    Contract validation alone never establishes receipt or graph binding."""
+    from tests.live_agentic_harness.intent_judge import (
+        _landed_replay_verified,
+        _load_persisted_pair_evidence,
+    )
+
+    assert (
+        _landed_replay_verified(None, assessed_post_graph={"nodes": []})
         is False
     )
     assert (
+        _landed_replay_verified(object(), assessed_post_graph={"nodes": []})
+        is False
+    )
+
+    pair = _persist_real_receipt_and_transaction(tmp_path, session_id="sess-x1")
+    evidence, reason = _load_persisted_pair_evidence(pair.turn_dir)
+    assert evidence is not None, reason
+    lineage = {"session_id": pair.session_id, "turn_id": pair.turn_id}
+    assert (
         _landed_replay_verified(
-            {"authority": {"replay_ok": True, "candidate_matches": True}}
+            evidence,
+            assessed_post_graph=pair.candidate_graph,
+            lineage=lineage,
+        )
+        is True
+    )
+
+    # The same valid pair against an UNRELATED assessed post graph: the
+    # postcondition projection differs → not landed-verified.
+    unrelated = json.loads(json.dumps(pair.candidate_graph))
+    unrelated["nodes"][0]["widgets_values"][0] = 99
+    assert (
+        _landed_replay_verified(
+            evidence, assessed_post_graph=unrelated, lineage=lineage
+        )
+        is False
+    )
+    # A lineage fence mismatch refuses too.
+    assert (
+        _landed_replay_verified(
+            evidence,
+            assessed_post_graph=pair.candidate_graph,
+            lineage={"session_id": "other-session", "turn_id": pair.turn_id},
+        )
+        is False
+    )
+
+    # Rebinding both receipt-hash fields to another valid-looking digest makes
+    # the loader refuse → no upgrade evidence exists at all.
+    tx_path = pair.turn_dir / "transactions" / pair.plan_hash / "candidate_transaction.json"
+    tampered = json.loads(tx_path.read_text(encoding="utf-8"))
+    tampered["candidate_authority"]["authority_receipt_digest"] = "f" * 64
+    tampered["hashes"]["authority_receipt_hash"] = "f" * 64
+    tx_path.write_text(json.dumps(tampered), encoding="utf-8")
+    rebinding_evidence, rebinding_reason = _load_persisted_pair_evidence(
+        pair.turn_dir
+    )
+    assert rebinding_evidence is None
+    assert rebinding_reason == "authority_receipt_digest_mismatch"
+    assert (
+        _landed_replay_verified(
+            rebinding_evidence,
+            assessed_post_graph=pair.candidate_graph,
+            lineage=lineage,
         )
         is False
     )
@@ -14413,84 +14689,167 @@ def test_fix4_genuinely_different_delta_still_fails_hash_check():
 
 
 
-def test_fix3_applied_unverified_real_path_requires_validated_persisted_candidate(
+def test_fix3_applied_unverified_rejects_false_receipt_with_flipped_transaction_booleans(
     tmp_path,
 ):
-    """DEEP-AUDIT-REVIEW-2-002: the REAL assessment path —
-    ``assess_live_output_dir`` → ``judge_edit_intent`` → validated persisted
-    ``candidate_transaction_v2`` → canonical graph pair → recorded
-    ``outcome_class``.  A validated persisted candidate with matching replay
-    authority records ``applied-unverified`` (never a pass); unsupported
-    top-level ``authority`` booleans are NOT replay-verified and stay bare
-    ``undetermined``."""
+    """A real false/non-applyable receipt + transaction whose copies are flipped
+    to ``replay_ok=True``/``candidate_matches=True``: the transaction's standalone
+    contract can still validate where applicable, but the full assessment must
+    produce NO ``applied-unverified`` — the no-delta lane stays ``undetermined``."""
     from tests.live_agentic_harness.assessor import assess_live_output_dir
-    from vibecomfy.comfy_nodes.agent.artifact_lineage import (
-        LINK_KINDS,
-        FALLBACK_REASONS,
-        build_artifact_lineage,
-        fallback_row,
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        validate_candidate_transaction,
     )
 
-    lineage = {
-        "scenario_id": "s1",
-        "session_id": "sess",
-        "turn_id": "0001",
-        "baseline_id": "0000",
-    }
-    manifest = build_artifact_lineage(
-        lineage=lineage,
-        rows=[
-            fallback_row(kind, sorted(FALLBACK_REASONS[kind])[0])
-            for kind in LINK_KINDS
-        ],
+    pair = _persist_false_replay_pair(tmp_path)
+
+    persisted = json.loads(
+        (
+            pair.turn_dir / "transactions" / pair.plan_hash / "candidate_transaction.json"
+        ).read_text(encoding="utf-8")
     )
-    base_response = {
-        "ok": True,
-        "report": {"executor": {"artifact_lineage": manifest}},
-    }
+    ok, error = validate_candidate_transaction(persisted)
+    assert ok is True, error  # standalone contract validation passes…
+    assert persisted["authority"]["candidate_matches"] is True  # …with flipped copies
 
-    def _write_run(response: dict) -> Path:
-        (tmp_path / "original.ui.json").write_text(
-            json.dumps(_fix2_ui_graph(7)), encoding="utf-8"
-        )
-        (tmp_path / "final.ui.json").write_text(
-            json.dumps(_fix2_ui_graph(30)), encoding="utf-8"
-        )
-        (tmp_path / "artifact_lineage.json").write_text(
-            json.dumps(manifest), encoding="utf-8"
-        )
-        (tmp_path / "response.json").write_text(
-            json.dumps(response), encoding="utf-8"
-        )
-        return tmp_path
-
-    scenario = {
-        "query": "set the cfg to 16",
-        "assessment": {"expect_graph_changed": True},
-    }
-
-    # Leg 1: validated persisted V2 candidate with matching receipt/replay
-    # authority → honest applied-unverified class, still not a pass.
-    _receipt, transaction = _fix2_production_receipt_and_transaction()
-    run_dir = _write_run({**base_response, "candidate_transaction": transaction})
-    assessment = assess_live_output_dir(run_dir, scenario=scenario)
-    assert assessment["outcome_class"] == "applied-unverified"
-    assert any(
-        isinstance(judge.get("metadata"), dict)
-        and judge["metadata"].get("verdict") == "applied_unverified"
+    run_dir = _assemble_harness_run(tmp_path, pair)
+    assessment = assess_live_output_dir(run_dir, scenario=_FIX3_SCENARIO)
+    assert assessment["outcome_class"] is None
+    assert not any(
+        judge.get("metadata", {}).get("verdict") == "applied_unverified"
         for judge in assessment["judge_results"]
     )
     assert assessment["verdict"] == "undetermined"
     assert assessment["passed"] is False
 
-    # Leg 2: unsupported top-level authority booleans are NOT production
-    # evidence → NOT replay-verified → bare undetermined, no outcome class.
-    unsupported = {
-        **base_response,
-        "authority": {"replay_ok": True, "candidate_matches": True},
-    }
-    run_dir = _write_run(unsupported)
-    assessment = assess_live_output_dir(run_dir, scenario=scenario)
+
+def test_fix3_applied_unverified_rejects_receipt_digest_mismatch(tmp_path):
+    """A real persisted pair whose BOTH transaction receipt-hash fields are
+    rebound to another valid-looking digest: the standalone contract still
+    validates, but the receipt-digest binding refuses — no upgrade, an
+    ``undetermined`` assessment."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+    from vibecomfy.comfy_nodes.agent._artifact_store import (
+        load_bound_candidate_replay_evidence,
+    )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        validate_candidate_transaction,
+    )
+
+    pair = _persist_real_receipt_and_transaction(tmp_path)
+    tx_path = (
+        pair.turn_dir / "transactions" / pair.plan_hash / "candidate_transaction.json"
+    )
+    tampered = json.loads(tx_path.read_text(encoding="utf-8"))
+    tampered["candidate_authority"]["authority_receipt_digest"] = "f" * 64
+    tampered["hashes"]["authority_receipt_hash"] = "f" * 64
+    tx_path.write_text(json.dumps(tampered), encoding="utf-8")
+    assert validate_candidate_transaction(tampered) == (True, None)
+
+    evidence, reason = load_bound_candidate_replay_evidence(
+        pair.turn_dir,
+        session_id=pair.session_id,
+        turn_id=pair.turn_id,
+        plan_hash=pair.plan_hash,
+    )
+    assert evidence is None
+    assert reason == "authority_receipt_digest_mismatch"
+
+    run_dir = _assemble_harness_run(tmp_path, pair)
+    assessment = assess_live_output_dir(run_dir, scenario=_FIX3_SCENARIO)
     assert assessment["outcome_class"] is None
     assert assessment["verdict"] == "undetermined"
     assert assessment["passed"] is False
+
+
+def test_fix3_applied_unverified_rejects_unrelated_assessed_post_graph(tmp_path):
+    """A valid persisted pair for edit A assessed against a final graph holding
+    unrelated edit B: the recomputed structural projection over the ASSESSED
+    post graph differs from the transaction's persisted postcondition digest —
+    no ``applied-unverified``."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        projection_reference_v1,
+    )
+
+    pair = _persist_real_receipt_and_transaction(tmp_path)
+    unrelated = json.loads(json.dumps(pair.candidate_graph))
+    unrelated["nodes"][0]["widgets_values"][0] = 30  # unrelated edit B
+
+    stored_postcondition = json.loads(
+        (
+            pair.turn_dir / "transactions" / pair.plan_hash / "candidate_transaction.json"
+        ).read_text(encoding="utf-8")
+    )["candidate_authority"]["postcondition"]
+    recomputed = projection_reference_v1(unrelated, "structural_v1")
+    assert recomputed != stored_postcondition
+    assert recomputed["digest"] != stored_postcondition["digest"]
+
+    run_dir = _assemble_harness_run(tmp_path, pair, final_ui=unrelated)
+    assessment = assess_live_output_dir(run_dir, scenario=_FIX3_SCENARIO)
+    assert assessment["outcome_class"] is None
+    assert not any(
+        judge.get("metadata", {}).get("verdict") == "applied_unverified"
+        for judge in assessment["judge_results"]
+    )
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+def test_fix3_applied_unverified_record_idempotent_response_real_path(tmp_path):
+    """THE positive real path: ``allocate_turn()`` +
+    ``record_idempotent_response()`` persist the real receipt/transaction; the
+    matching persisted candidate UI is the assessed final graph;
+    ``assess_live_output_dir`` → ``judge_edit_intent`` resolves the durable
+    turn from the envelope paths, binds the persisted pair, and re-derives the
+    postcondition over THIS post graph.  The harness response copy carries no
+    top-level accepted Δ and no embedded transaction — only genuine identities
+    and paths.  ``applied-unverified`` ONLY because every binding holds; still
+    ``verdict == "undetermined"`` and ``passed is False``."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    pair = _persist_real_receipt_and_transaction(tmp_path)
+    run_dir = _assemble_harness_run(tmp_path, pair)
+    response = json.loads((run_dir / "response.json").read_text(encoding="utf-8"))
+    assert "accepted_batch" not in response
+    assert "candidate_transaction" not in response
+
+    assessment = assess_live_output_dir(run_dir, scenario=_FIX3_SCENARIO)
+    assert assessment["outcome_class"] == "applied-unverified"
+    assert any(
+        judge.get("metadata", {}).get("verdict") == "applied_unverified"
+        for judge in assessment["judge_results"]
+    )
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+    # Keep-parity: an arbitrary top-level ``authority`` mapping is never
+    # production evidence.  With NO resolvable durable turn (identity/path
+    # fields stripped) nothing can bind, so the run stays bare
+    # ``undetermined`` with no outcome class.
+    unsupported_run = tmp_path / "run-authority"
+    unsupported_run.mkdir()
+    (unsupported_run / "original.ui.json").write_text(
+        json.dumps(pair.submit_graph), encoding="utf-8"
+    )
+    (unsupported_run / "final.ui.json").write_text(
+        json.dumps(pair.candidate_graph), encoding="utf-8"
+    )
+    unsupported_response = json.loads(
+        (run_dir / "response.json").read_text(encoding="utf-8")
+    )
+    for path_field in ("session_path", "detail_json_path"):
+        unsupported_response.pop(path_field, None)
+    unsupported_response["authority"] = {
+        "replay_ok": True,
+        "candidate_matches": True,
+    }
+    (unsupported_run / "response.json").write_text(
+        json.dumps(unsupported_response), encoding="utf-8"
+    )
+    unsupported_assessment = assess_live_output_dir(
+        unsupported_run, scenario=_FIX3_SCENARIO
+    )
+    assert unsupported_assessment["outcome_class"] is None
+    assert unsupported_assessment["verdict"] == "undetermined"
+    assert unsupported_assessment["passed"] is False
