@@ -831,12 +831,15 @@ def test_second_wrapper_completes_while_first_child_still_sleeping(tmp_path: Pat
     assert not json.loads((evidence / "active-allowances.json").read_text())
 
 def test_route_launchers_semantic_section27_mapping() -> None:
-    """WRAPPER-ROUTE-FIX §27: semantic routes resolve directly, legacy ids stay on muse."""
+    """WRAPPER-ROUTE-FIX §27: semantic routes resolve directly, legacy ids stay on muse.
+
+    WRAPPER-ROUTE-THINKING: stealth entries append :max so hermes launcher sets --thinking max.
+    """
     wrapper = _load_wrapper("workflow_execution_wrapper_route_fix")
     launchers = wrapper.ROUTE_LAUNCHERS
-    # semantic §27 correction — NOT muse blanket remap
-    assert launchers["ox-alpha"][1] == "stealth/ox-alpha"
-    assert launchers["stealth/ox-alpha"][1] == "stealth/ox-alpha"
+    # stealth entries — thinking=max suffix for tool-use fix
+    assert launchers["ox-alpha"][1] == "stealth/ox-alpha:max"
+    assert launchers["stealth/ox-alpha"][1] == "stealth/ox-alpha:max"
     assert launchers["codex:gpt-5.6-sol"][1] == "codex:gpt-5.6-sol"
     # legacy §24 translation unchanged
     assert launchers["codex:gpt-5.6-luna"][1] == "openrouter/meta/muse-spark-1.2-contributor"
