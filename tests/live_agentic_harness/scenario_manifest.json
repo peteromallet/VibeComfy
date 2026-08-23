@@ -19,7 +19,7 @@
     {
       "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-preview-workflow-cc0df7.json",
-      "descriptor_sha256": "cace0fcd18209e4aa4197e4f4571bb4de4d15bc8f1b9148edf5b63e2906cbb43",
+      "descriptor_sha256": "1cfb6896b256d1822aebbf9368c770c5378c96bf2cf4fa3484f0a795b7f75b36",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",

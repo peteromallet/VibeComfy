@@ -488,3 +488,119 @@ def test_generic_replay_mismatch_replaces_success_and_retains_audit_evidence(
     assert stamped["candidate"]["graph"] == tampered_candidate
     assert stamped["graph"] == tampered_candidate
     assert stamped["accepted_batch"] == accepted_batch
+
+
+def test_pure_clarify_survives_authority_stamping_without_replay_mismatch(
+    tmp_path: Path,
+) -> None:
+    """R1 leg 4 regression: a terminal pure clarification (question only — no
+    operations, no accepted batch, no candidate graph, graph unchanged) must
+    keep its question, ``outcome.kind="clarify"`` and ``no_candidate_reason``
+    instead of being overwritten as ``authority_replay_mismatch``.
+    """
+    class_type = "Rodin3D_Regular"
+    provider = _Provider(
+        {
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack="test",
+                inputs={"widget_0": InputSpec(type="CHOICE", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    submit_graph = _single_widget_graph(class_type)
+    question = (
+        "Which Rodin variant should stay enabled: Regular, Detail, Smooth, "
+        "or Sketch?"
+    )
+    response = {
+        "message": question,
+        "graph_unchanged": True,
+        "no_candidate_reason": "clarification_requested",
+        "outcome": {
+            "kind": "clarify",
+            "question": question,
+            "graph_unchanged": True,
+        },
+        "apply_eligible": False,
+        "canvas_apply_allowed": False,
+        "queue_allowed": False,
+    }
+    assert _response_claims_applyable(response) is False
+
+    receipt, stamped = build_and_persist_authority_receipt(
+        turn_dir=tmp_path / "turns" / "0001",
+        session_id="pure-clarify",
+        turn_id="0001",
+        request_payload={"graph": submit_graph},
+        response=response,
+        schema_version="2.0.0",
+        schema_provider=provider,
+    )
+
+    assert receipt.is_applyable is False
+    # The clarification envelope survives verbatim; nothing is rewritten.
+    assert stamped["message"] == question
+    assert stamped["outcome"]["kind"] == "clarify"
+    assert stamped["outcome"]["question"] == question
+    assert stamped["no_candidate_reason"] == "clarification_requested"
+    assert stamped["no_candidate_reason"] != "authority_replay_mismatch"
+    assert stamped["graph_unchanged"] is True
+    assert stamped.get("accepted_batch") is None
+    assert "candidate" not in stamped
+    # Receipt reference is still stamped so the turn stays auditable.
+    assert isinstance(stamped.get("authority_receipt"), dict)
+
+
+def test_edit_with_clarify_and_operations_still_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """An edit response whose outcome says clarify but which carries accepted
+    operations and a candidate graph is NOT a pure clarification: it must
+    still be rejected as authority_replay_mismatch."""
+    class_type = "KnownPromptNode"
+    provider = _Provider(
+        {
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack="test",
+                inputs={"prompt": InputSpec(type="STRING", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    submit_graph = _single_widget_graph(class_type)
+    # Tamper the product so replay cannot match: the response claims clarify
+    # but ships a candidate graph its own accepted delta never produced.
+    candidate = _single_widget_graph(class_type)
+    candidate["nodes"][0]["widgets_values"] = ["not the accepted value"]
+    op = {
+        "op": "set_node_field",
+        "target": ["", "133", "prompt"],
+        "value": "maybe this?",
+    }
+    response = {
+        "message": "I tentatively changed the prompt — clarify first?",
+        "graph": candidate,
+        "candidate": {"state": "candidate_ready", "graph": candidate},
+        "accepted_batch": [{"statement_index": 1, "op": op}],
+        "agent_edit_protocol": "v2_delta",
+        "apply_eligibility": {"applyable": True, "reason": "applyable"},
+        "graph_unchanged": False,
+        "outcome": {"kind": "clarify", "question": "Did you mean this?"},
+    }
+
+    receipt, stamped = build_and_persist_authority_receipt(
+        turn_dir=tmp_path / "turns" / "0001",
+        session_id="edit-with-clarify",
+        turn_id="0001",
+        request_payload={"graph": submit_graph},
+        response=response,
+        schema_version="2.0.0",
+        schema_provider=provider,
+    )
+
+    assert receipt.is_applyable is False
+    assert stamped["no_candidate_reason"] == "authority_replay_mismatch"
+    assert stamped["apply_eligible"] is False

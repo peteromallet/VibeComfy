@@ -222,6 +222,17 @@ def test_agent_executor_and_agent_edit_submit_share_executor_adapter(monkeypatch
     captured = []
     to_thread_calls = []
 
+    accepted_batch = [
+        {
+            "statement_index": 1,
+            "op": {
+                "op": "set_node_field",
+                "target": ["", "1", "widgets_values"],
+                "value": ["result"],
+            },
+        }
+    ]
+
     def _fake_run_executor(request, *, client_id=None):
         captured.append((request, client_id))
         graph = {"nodes": [{"id": 1, "type": "PreviewImage"}], "links": []}
@@ -245,6 +256,7 @@ def test_agent_executor_and_agent_edit_submit_share_executor_adapter(monkeypatch
             },
             "graph": graph,
             "outcome": {"kind": "candidate"},
+            "accepted_batch": accepted_batch,
             "change_details": {"summary": "Changed the graph."},
         }
         return ExecutorResult.success(
@@ -423,6 +435,13 @@ def test_agent_executor_and_agent_edit_submit_share_executor_adapter(monkeypatch
         # change_details must be present.
         assert isinstance(body.get("change_details"), dict), (
             "Executor response missing durable change_details"
+        )
+
+        # The canonical durable delta must survive the final-envelope
+        # projection unchanged (not synthesized from candidate diffs).
+        assert body.get("accepted_batch") == accepted_batch, (
+            "Executor response dropped or altered durable accepted_batch; got %r"
+            % body.get("accepted_batch")
         )
 
         # Executor metadata must be nested under report.executor (not flattened).

@@ -43,9 +43,9 @@
     },
     {
       "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
-      "descriptor_sha256": "cace0fcd18209e4aa4197e4f4571bb4de4d15bc8f1b9148edf5b63e2906cbb43",
+      "descriptor_sha256": "1cfb6896b256d1822aebbf9368c770c5378c96bf2cf4fa3484f0a795b7f75b36",
       "source_workflow_sha256": "f59807058734a50e245e4d97446e42d378a6589457f9359a05f9b5da09400583",
-      "locked_input_sha256": "ab3ca5a35d1289c327ae69e1b4f695ab3c30b48c8901abd5bcd2bcfcf2e2d51f"
+      "locked_input_sha256": "b7cd2dda58c2b47fb218f481811c08b4aba63555d8aa663e1a308f4f3cbf6e0b"
     },
     {
       "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",

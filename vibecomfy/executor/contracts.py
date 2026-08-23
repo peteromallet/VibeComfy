@@ -2586,6 +2586,7 @@ _DURABLE_ENVELOPE_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "candidate_graph_hash",
     "candidate_structural_graph_hash",
     "outcome",
+    "accepted_batch",
     "apply_eligibility",
     "graph_unchanged",
     "no_candidate_reason",

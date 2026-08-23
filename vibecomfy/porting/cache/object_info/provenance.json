@@ -59,10 +59,10 @@
     },
     "ComfyUI-LayerMask@local.json": {
       "classes": 2,
-      "locked_commit": "local-smoke-cache-20260822",
-      "pack": "ComfyUI-LayerMask",
-      "repo": "https://github.com/chrisgoringe/ComfyUI-LayerMask.git",
-      "schema_sha256": "local"
+      "locked_commit": "7b678b401a38307a4a7e99ef6630bd48f9cecedb",
+      "pack": "ComfyUI_LayerStyle_Advance",
+      "repo": "https://github.com/chflame163/ComfyUI_LayerStyle_Advance.git",
+      "schema_sha256": "d5e771a4c0dfc4eeea6aff87ed708d435fcdb249250baf804306d692ed9980cb"
     },
     "ComfyUI-Qwen3-TTS@local-17c22ad.json": {
       "classes": 11,

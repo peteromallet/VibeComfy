@@ -3353,6 +3353,52 @@ def test_c8_audio_transcribes_emits_valid_links_no_missing_stable_from_port() ->
     assert drops == []
 
 
+
+def test_layermask_segment_anything_ultra_v3_snapshot_ingests_corpus_links() -> None:
+    """R1 leg 3 regression: the hand-written local LayerMask schema declared a
+    single ``mask`` output at slot 0, so the live corpus link ``34[1] ->
+    36.mask`` (GrowMaskWithBlur) dangled at graph ingest — BEFORE any model
+    call. The pinned authoritative snapshot
+    (ComfyUI_LayerStyle_Advance@7b678b401a38307a4a7e99ef6630bd48f9cecedb)
+    declares RETURN_TYPES ("IMAGE", "MASK") and the ``sam_models`` loader
+    input, so the original workflow must ingest and emit every link without
+    dangling endpoints.
+    """
+    import json as _json
+
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        _graph_link_identities,
+        project_graph_v1,
+    )
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.schema import get_schema_provider
+
+    raw = _corpus("tests/fixtures/live_agentic_corpus/8e5619299bafee56.json")
+    provider = get_schema_provider("authoring")
+    v3 = provider.get_schema("LayerMask: SegmentAnythingUltra V3")
+    assert v3 is not None, "authoring provider must resolve SegmentAnythingUltra V3"
+    assert [(o.type, o.name) for o in v3.outputs] == [("IMAGE", "image"), ("MASK", "mask")]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _, ui = ingest_workflow_and_ui(raw, schema_provider=provider)
+
+    by_id = {str(n["id"]): n for n in ui["nodes"]}
+    mask_link = next(
+        link for link in ui["links"] if str(link[1]) == "34" and link[2] == 1
+    )
+    assert mask_link[3] == 36 and mask_link[5] == "MASK"
+    target_inputs = [slot.get("name") for slot in by_id["36"].get("inputs", [])]
+    assert "mask" in target_inputs
+    for link in ui.get("links", []):
+        assert 0 <= link[2] < len(by_id[str(link[1])].get("outputs", []))
+        assert 0 <= link[4] < len(by_id[str(link[3])].get("inputs", []))
+    assert len(_graph_link_identities(ui, ui["nodes"])) == len(ui["links"])
+    assert len(project_graph_v1(ui, "structural_v1")["links"]) == len(ui["links"])
+    assert not [
+        str(w.message) for w in caught if "dropping link" in str(w.message)
+    ]
+
 def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
     """Setting a widget value on a LINKED input (``CLIPTextEncodeSDXL.text_g``
     fed by a PrimitiveNode) deletes that input slot; every other link targeting

@@ -754,13 +754,34 @@ def stamp_response_with_authority(
         else ()
     )
     if not receipt.is_applyable:
-        # Narrow: discovery-stop clarify must be preserved even when replay
-        # is not applyable (candidate_hash_mismatch / accepted_batch==[]).
-        # Only this specific report key maps to clarify; all other
-        # non-applyable cases remain fail-closed.
+        # Preserve non-applyable terminal clarifications instead of rewriting
+        # them as authority_replay_mismatch.  Two shapes are preserved:
+        #   1. discovery-stop clarify (report key present); and
+        #   2. ANY pure clarification: original outcome kind is ``clarify``,
+        #      the graph is unchanged, the accepted batch is empty, and no
+        #      candidate graph exists — there is nothing to replay, so the
+        #      question must survive verbatim.  Edit-with-clarify responses
+        #      carrying operations or a candidate graph still fail closed.
         _orig_outcome = response.get("outcome") if isinstance(response.get("outcome"), Mapping) else None
         _report = response.get("report") if isinstance(response.get("report"), Mapping) else None
-        if isinstance(_orig_outcome, Mapping) and _orig_outcome.get("kind") == "clarify" and isinstance(_report, Mapping) and "discovery_stop" in _report:
+        _accepted_batch = response.get("accepted_batch")
+        _candidate = response.get("candidate")
+        _has_candidate_graph = isinstance(response.get("graph"), Mapping) or (
+            isinstance(_candidate, Mapping) and isinstance(_candidate.get("graph"), Mapping)
+        )
+        _is_pure_clarify = (
+            isinstance(_orig_outcome, Mapping)
+            and _orig_outcome.get("kind") == "clarify"
+            and response.get("graph_unchanged") is True
+            and not _accepted_batch
+            and not _has_candidate_graph
+        )
+        if _is_pure_clarify or (
+            isinstance(_orig_outcome, Mapping)
+            and _orig_outcome.get("kind") == "clarify"
+            and isinstance(_report, Mapping)
+            and "discovery_stop" in _report
+        ):
             return stamped
         # Fail closed: force applyability fields to False. Row 4, not row 3:
         from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state

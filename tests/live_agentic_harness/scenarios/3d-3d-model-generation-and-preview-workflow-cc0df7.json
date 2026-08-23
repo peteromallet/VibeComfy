@@ -1,6 +1,6 @@
 {
   "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
-  "query": "Swap the Rodin3D generation model from Rodin Large to Rodin Fusion and ensure all downstream nodes (detailing, smoothing, preview) remain connected and functional.",
+  "query": "Enable the Rodin3D_Detail generation branch: set its Preview3D node to enabled so the detailed model previews, and bypass the Rodin3D_Regular node together with its Preview3D node. Keep the shared input-image batching feeding all branches and leave every other node wired as it is.",
   "workflow_path": "external_workflows/corpus/cc0df70583f28c98.json",
   "network": true,
   "timeout": 420,
@@ -9,8 +9,8 @@
     "expect_graph_changed": true
   },
   "desired": {
-    "outcome": "The generation backbone is replaced and the modified pipeline still produces a previewable 3D model.",
-    "quality": "The workflow has no disconnected or missing nodes, all original stages (detailing, smoothing, preview) function with the new model.",
+    "outcome": "The Rodin3D_Detail branch is active and its Preview3D shows the generated model, while the Rodin3D_Regular branch and its Preview3D are bypassed.",
+    "quality": "The shared input-image batch still feeds all four Rodin variants; only Rodin3D_Regular and its Preview3D are bypassed, and no links are removed or left dangling.",
     "alternatives_ok": true
   },
   "_tags": {
