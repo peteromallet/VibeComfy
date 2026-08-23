@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextvars
 import dataclasses
 import json
+from collections.abc import Mapping
 from typing import Any
 
 _TURN_EVENT_BUFFER: contextvars.ContextVar[list[tuple[dict[str, Any], str | None]] | None] = (
@@ -23,13 +24,16 @@ _TURN_EVENT_BUFFER: contextvars.ContextVar[list[tuple[dict[str, Any], str | None
 class _IngestBoundSchemaProvider:
     """Live runtime schema provider carrying the ingest door's frozen snapshot.
 
-    DEEP-AUDIT-FIX-1-REVISION 002: schema lookups delegate to the live
-    runtime provider so authoring/lowering/validation stages behave exactly
-    as before, while ``snapshot`` exposes the ingress-frozen SchemaSnapshot
-    consumed by batch admission (``admission_snapshot_for`` /
-    ``_bind_schema_from_provider``) and by ``build_schema_witness`` —
-    admission and receipts use the ingress-bound authority instead of a late
-    ambient re-resolution.
+    DEEP-AUDIT-FIX-1-ADJUDICATION (authority boundary): schema lookups still
+    delegate to the live runtime provider, but those delegated live lookups
+    are ADVISORY ONLY after ingress — they assist authoring, lowering, and
+    validation ergonomics and NEVER decide admission or receipts. Admission,
+    receipt construction, and replay consume exclusively the retained frozen
+    generations exposed via ``snapshot`` (the door's ingress capture, advanced
+    only by bounded provisional completion and locked per admitted batch as
+    ``state.admission_schema_snapshot``). A class the live delegate resolves
+    after ingest but that is absent from the locked generation fails closed in
+    admission with ``missing_touched_schema``.
     """
 
     def __init__(self, provider: Any, snapshot: Any) -> None:
@@ -52,6 +56,42 @@ class _IngestBoundSchemaProvider:
     def schemas(self) -> Any:
         getter = getattr(self._provider, "schemas", None)
         return getter() if callable(getter) else None
+
+
+def _receipt_schema_provider(state: Any, response: Any) -> Any:
+    """Batch-locked schema authority handed to durable receipt persistence.
+
+    DEEP-AUDIT-FIX-1-ADJUDICATION: when a batch was admitted, receipts persist
+    from ``FrozenSchemaSnapshotProvider(state.admission_schema_snapshot)`` —
+    the exact generation locked at final admission — and never re-read or
+    complete the live delegate at finalization. A semantic V2 candidate that
+    claims applyability with NO locked snapshot has no honest authority, so
+    this returns ``None`` and receipt construction fails closed with typed
+    ``SchemaSnapshotError(code="missing_schema_snapshot")``. Turns without an
+    admitted semantic batch (answer-only, reorganise layout previews) keep
+    their prior persistence source unchanged.
+    """
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, SchemaSnapshot
+
+    locked = getattr(state, "admission_schema_snapshot", None)
+    if isinstance(locked, SchemaSnapshot):
+        return FrozenSchemaSnapshotProvider(locked)
+    eligibility = (
+        response.get("eligibility")
+        if isinstance(response.get("eligibility"), Mapping)
+        else response.get("apply_eligibility")
+        if isinstance(response.get("apply_eligibility"), Mapping)
+        else None
+    )
+    accepted_batch = response.get("accepted_batch") if isinstance(response, Mapping) else None
+    if (
+        isinstance(eligibility, Mapping)
+        and eligibility.get("applyable") is True
+        and bool(accepted_batch)
+    ):
+        # Applyable semantic candidate with no locked generation: fail closed.
+        return None
+    return getattr(state, "schema_provider", None)
 
 
 def begin_turn_event_buffer() -> None:
@@ -384,7 +424,7 @@ def handle_agent_edit(
             response_path=turn_dir / "response.json",
             operation="edit",
             turn_id=context.turn_id,
-            schema_provider=state.schema_provider,
+            schema_provider=_receipt_schema_provider(state, response),
         )
         # Publication adds immutable authority and (for V2) the canonical
         # candidate transaction. Return that exact published envelope to the
@@ -452,7 +492,7 @@ def handle_agent_edit(
             response_path=turn_dir / "response.json",
             operation="edit",
             turn_id=context.turn_id,
-            schema_provider=state.schema_provider,
+            schema_provider=_receipt_schema_provider(state, response),
         )
         return response
 
@@ -530,7 +570,7 @@ def handle_agent_edit(
         response_path=turn_dir / "response.json",
         operation="edit",
         turn_id=context.turn_id,
-        schema_provider=state.schema_provider,
+        schema_provider=_receipt_schema_provider(state, response),
     )
     return response
 

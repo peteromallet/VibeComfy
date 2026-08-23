@@ -64,6 +64,7 @@ from .contracts import (
 )
 from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.schema.validate import validation_errors_payload
+from vibecomfy.schema.types import SchemaSnapshot
 from vibecomfy.workflow import ValidationIssue
 from .gates import (
     apply_stage_gate_updates,
@@ -247,6 +248,16 @@ class AgentEditState:
     narrative_response_path: Path = Path("narrative_response.json")
     narrative_validation_path: Path = Path("narrative_validation.json")
     post_edit_reorganisation_advisory: dict[str, Any] | None = None
+    # DEEP-AUDIT-FIX-1-ADJUDICATION: schema-authority generations are explicit
+    # state, never dynamically attached attributes.
+    #   schema_snapshot:            the CURRENT completed frozen generation
+    #                               (ingress gen 0, advanced only by bounded
+    #                               provisional completion);
+    #   admission_schema_snapshot:  the generation LOCKED when the candidate
+    #                               batch passed final admission — the sole
+    #                               authority for receipts and replay.
+    schema_snapshot: Any = None
+    admission_schema_snapshot: SchemaSnapshot | None = None
 
 
 def _hydrate_execution_plan_from_protocol_notes(

@@ -17,10 +17,9 @@ from typing import Any, Literal
 from vibecomfy.schema import (
     SCHEMA_SNAPSHOT_VERSION,
     FrozenSchemaSnapshotProvider,
-    InputSpec,
     NodeSchema,
-    OutputSpec,
     SchemaSnapshot,
+    SchemaSnapshotError,
     capture_schema_snapshot,
     schema_for,
     schema_payload_from_node_schema,
@@ -173,18 +172,6 @@ def _graph_class_types(graph: Mapping[str, Any] | None) -> set[str]:
 
     if isinstance(graph, Mapping):
         visit(graph)
-    return result
-
-
-def _delta_class_types(delta_envelope: Mapping[str, Any] | None) -> set[str]:
-    result: set[str] = set()
-    ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
-    for op in ops if isinstance(ops, list) else ():
-        if not isinstance(op, Mapping):
-            continue
-        class_type = op.get("class_type")
-        if isinstance(class_type, str) and class_type:
-            result.add(class_type)
     return result
 
 
@@ -383,35 +370,6 @@ def missing_touched_class_types(
 
 
 
-def _json_safe(value: Any) -> Any:
-    try:
-        return json.loads(json.dumps(value))
-    except (TypeError, ValueError):
-        return repr(value)[:512]
-
-
-def _input_spec_payload(spec: Any) -> dict[str, Any]:
-    return {
-        "type": getattr(spec, "type", None),
-        "required": bool(getattr(spec, "required", False)),
-        "default": _json_safe(getattr(spec, "default", None)),
-        "choices": _json_safe(getattr(spec, "choices", None)),
-        "min": getattr(spec, "min", None),
-        "max": getattr(spec, "max", None),
-    }
-
-
-def _output_spec_payload(spec: Any) -> dict[str, Any]:
-    return {
-        "type": getattr(spec, "type", None),
-        "name": getattr(spec, "name", None),
-    }
-
-
-def _schema_payload(class_type: str, schema: Any) -> dict[str, Any]:
-    return schema_payload_from_node_schema(class_type, schema)
-
-
 def capture_ingress_schema_snapshot(
     *,
     schema_provider: Any,
@@ -465,6 +423,21 @@ def capture_ingress_schema_snapshot(
     )
 
 
+def _locked_schema_snapshot_from_provider(schema_provider: Any) -> SchemaSnapshot | None:
+    """Extract the locked frozen snapshot the receipt caller supplied, or None."""
+    if isinstance(schema_provider, FrozenSchemaSnapshotProvider):
+        return schema_provider.snapshot
+    if isinstance(schema_provider, SchemaSnapshot):
+        return schema_provider
+    candidate = getattr(schema_provider, "snapshot", None)
+    if callable(candidate):
+        try:
+            candidate = candidate()
+        except Exception:  # noqa: BLE001 - a failing read is not a locked authority
+            return None
+    return candidate if isinstance(candidate, SchemaSnapshot) else None
+
+
 def build_schema_witness(
     *,
     schema_provider: Any,
@@ -474,109 +447,42 @@ def build_schema_witness(
 ) -> dict[str, Any]:
     """Freeze every schema that can affect replay of this candidate.
 
-    The witness carries an ingress-bound SchemaSnapshot so replay reconstructs
-    from the persisted snapshot and cannot perform a fresh ambient lookup.
+    DEEP-AUDIT-FIX-1-ADJUDICATION: the witness is a DIRECT SERIALIZATION of
+    the locked admission ``SchemaSnapshot`` supplied by the receipt caller —
+    the exact generation locked when the candidate batch passed final
+    admission. It preserves the FULL frozen surface (classes untouched by the
+    candidate included) and performs no completion, no re-capture, no
+    node-class overlay, and no live/source/cache/registry/on-demand lookup:
+
+    - no ``schema_for`` call;
+    - no ``capture_schema_snapshot`` call;
+    - no narrowing to the candidate's touched classes;
+    - no provider probing of any kind.
+
+    If the caller supplies no valid frozen snapshot, this raises typed
+    ``SchemaSnapshotError(code="missing_schema_snapshot")`` — a witness is
+    never manufactured from a live provider. Replay reconstructs exactly this
+    payload via ``schema_provider_from_witness``, so for every digest-bearing
+    field (``schemas``, ``missing_classes``, ``input_order``, ``node_classes``,
+    ``generation``, ``content_digest``):
+    ``schema_snapshot_from_payload(witness["schema_snapshot"]) == admission_snapshot``.
     """
-    class_types = (
-        _graph_class_types(submit_graph)
-        | _graph_class_types(candidate_payload)
-        | _delta_class_types(delta_envelope)
-    )
-    request_snapshot = None
-    if isinstance(schema_provider, FrozenSchemaSnapshotProvider):
-        request_snapshot = schema_provider.snapshot
-    elif isinstance(schema_provider, SchemaSnapshot):
-        request_snapshot = schema_provider
-    elif hasattr(schema_provider, "snapshot") and isinstance(getattr(schema_provider, "snapshot"), SchemaSnapshot):
-        request_snapshot = schema_provider.snapshot
-
-    if request_snapshot is not None:
-        # DEEP-AUDIT-FIX-1-REVISION: the frozen ingress authority is never
-        # ambient-healed here. One completion seam remains — a touched class
-        # the RETAINED turn provider can still resolve (evidence-backed
-        # provisional registry/workflow schema hydrated during the turn)
-        # completes the frozen payload exactly as the ingest door would
-        # have; everything else stays byte-frozen.
-        base = (
-            dict(request_snapshot)
-            if isinstance(request_snapshot, Mapping)
-            else schema_snapshot_to_payload(request_snapshot)
+    del submit_graph, candidate_payload, delta_envelope  # authority is the locked snapshot only
+    snapshot = _locked_schema_snapshot_from_provider(schema_provider)
+    if snapshot is None:
+        raise SchemaSnapshotError(
+            "receipt persistence requires a frozen admission-schema snapshot; "
+            "no live-provider witness may be manufactured",
+            code="missing_schema_snapshot",
         )
-        raw_frozen_schemas = base.get("schemas")
-        if not isinstance(raw_frozen_schemas, Mapping):
-            raw_frozen_schemas = {}
-        frozen_schemas = {str(name) for name in raw_frozen_schemas}
-        raw_frozen_missing = (
-            base.get("missing_classes") or base.get("missing_class_types")
-        )
-        frozen_missing = {
-            str(item) for item in raw_frozen_missing if isinstance(item, str)
-        } if isinstance(raw_frozen_missing, list) else set()
-        additions: dict[str, Any] = {}
-        new_missing: list[str] = []
-        for class_type in sorted(class_types):
-            if class_type in frozen_schemas:
-                continue
-            schema = schema_for(schema_provider, class_type)
-            payload = None
-            if schema is not None:
-                try:
-                    payload = _schema_payload(class_type, schema)
-                except Exception:  # noqa: BLE001 - unusable schema reads as absence
-                    payload = None
-            if payload is None:
-                new_missing.append(class_type)
-            else:
-                additions[class_type] = payload
-        if additions or new_missing:
-            base["schemas"] = {**(raw_frozen_schemas or {}), **additions}
-            base["missing_classes"] = sorted(
-                (frozen_missing | set(new_missing)) - set(additions)
-            )
-            request_snapshot = base
-
-    snapshot = capture_schema_snapshot(
-        class_types=sorted(class_types),
-        request_snapshot=request_snapshot,
-        node_classes=_graph_node_class_by_identity(submit_graph)
-        | _graph_node_class_by_identity(candidate_payload),
-    )
     schemas: dict[str, Any] = dict(snapshot.schemas)
-    missing: list[str] = list(snapshot.missing_classes)
-    if request_snapshot is None:
-        schemas = {}
-        missing = []
-        for class_type in sorted(class_types):
-            schema = schema_for(schema_provider, class_type)
-            if schema is None:
-                missing.append(class_type)
-                continue
-            schemas[class_type] = _schema_payload(class_type, schema)
-        snapshot = capture_schema_snapshot(
-            class_types=sorted(class_types),
-            request_snapshot={
-                "contract_version": "schema-snapshot-v1",
-                "schemas": schemas,
-                "missing_classes": missing,
-                "generation": snapshot.generation,
-                "timestamp": snapshot.timestamp,
-                "version": snapshot.version,
-                "conflicts": list(snapshot.conflicts),
-                "node_classes": dict(snapshot.node_classes),
-            },
-            node_classes=snapshot.node_classes,
-        )
-        schemas = dict(snapshot.schemas)
-        missing = list(snapshot.missing_classes)
-        for class_type in sorted(class_types):
-            if class_type not in schemas and class_type not in missing:
-                missing.append(class_type)
+    missing_class_types: list[str] = list(snapshot.missing_classes)
     snapshot_payload = schema_snapshot_to_payload(snapshot)
     body = {
         "contract_version": SCHEMA_WITNESS_CONTRACT_VERSION,
-        "provider_mode": "none" if schema_provider is None else "frozen",
+        "provider_mode": "frozen",
         "schemas": schemas,
-        "missing_class_types": missing,
+        "missing_class_types": missing_class_types,
         "schema_snapshot": snapshot_payload,
     }
     return {**body, "witness_hash": content_hash({

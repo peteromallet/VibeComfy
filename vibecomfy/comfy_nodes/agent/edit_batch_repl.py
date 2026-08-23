@@ -322,13 +322,19 @@ def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
         return
     landed = tuple(getattr(session, "landed_ops", ()) or ())
     if landed:
+        # DEEP-AUDIT-FIX-1-ADJUDICATION: the final canonical admit_operations
+        # call binds ONE AdmissionSnapshot for the whole atomic batch and locks
+        # its schema generation on success only. Receipts persist from this
+        # locked generation, never from a newer ambient provider.
+        pair = admission_snapshot_for(workflow, getattr(state, "schema_provider", None))
         admitted = admit_operations(
-            admission_snapshot_for(workflow, getattr(state, "schema_provider", None)),
+            pair,
             landed,
             working_workflow=getattr(session, "workflow", None),
         )
         if isinstance(admitted, AdmissionRejected):
             return
+        state.admission_schema_snapshot = pair.schema
     state.edited_workflow = workflow
     _emit_ui_json(
         workflow,
@@ -719,7 +725,9 @@ def _hydrate_actionable_registry_dependencies(deps, state: AgentEditState) -> No
                 *(deps._candidate_stable_key(candidate) for candidate in new_candidates),
             }
         )
-        state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
+        enriched = with_provisional_gap_filler(state.schema_provider, provisional)
+        state.schema_provider = enriched
+        state.schema_snapshot = enriched.snapshot
     except Exception as exc:  # noqa: BLE001 - workflow evidence may still hydrate it
         deps.LOGGER.debug("planned registry dependency hydration unavailable: %s", exc)
 

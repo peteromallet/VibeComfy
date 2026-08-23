@@ -8,6 +8,7 @@ import socket
 import subprocess
 import threading
 import time
+from typing import Any
 import warnings
 from pathlib import Path
 
@@ -126,6 +127,54 @@ class _Provider:
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)
+
+
+class _DoorSurface:
+    """Test-door schema surface for receipt persistence (DEEP-AUDIT-FIX-1-
+    ADJUDICATION parity): the test's live provider resolves first and the
+    committed offline builtin object_info fills the gaps. No enumerable
+    ``schemas()`` on purpose — the production door freezes the submit-graph
+    classes it must resolve, not the whole runtime catalog."""
+
+    def __init__(self, primary: Any = None) -> None:
+        from vibecomfy.schema.provider import AuthoringSchemaProvider
+
+        self._primary = primary
+        self._builtin = AuthoringSchemaProvider(on_demand_schemas=False)
+
+    def get_schema(self, class_type: str) -> NodeSchema | None:
+        got = (
+            self._primary.get_schema(class_type)
+            if self._primary is not None
+            else None
+        )
+        return got if got is not None else self._builtin.get_schema(class_type)
+
+
+def _frozen_ingest_provider(
+    schema_provider: Any = None,
+    graph: dict | None = None,
+) -> Any:
+    """Model the production ingest door BEFORE candidate publication.
+
+    Production freezes generation 0 at ``handle_agent_edit`` and receipts
+    persist from that locked frozen generation; a bare live provider may
+    never manufacture a witness. Tests route their fixture providers through
+    this door so receipt-building fixtures match the shipped behavior."""
+    from vibecomfy.comfy_nodes.agent._frag_entrypoint import (
+        _IngestBoundSchemaProvider,
+    )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+
+    surface = _DoorSurface(schema_provider)
+    frozen = capture_ingress_schema_snapshot(
+        schema_provider=surface,
+        graph=graph if graph is not None else {"nodes": [], "links": []},
+    )
+    return _IngestBoundSchemaProvider(surface, frozen)
+
 
 
 def _schema(class_type: str, *, required_inputs: tuple[str, ...] = ()) -> NodeSchema:
@@ -340,6 +389,10 @@ def _record_candidate_response(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        # DEEP-AUDIT-FIX-1-ADJUDICATION parity: production freezes the ingest
+        # door before publication and receipts persist from that frozen
+        # generation — a bare live provider never manufactures a witness.
+        schema_provider=_frozen_ingest_provider(None, persisted_request["graph"]),
     )
     return candidate_graph
 
@@ -10842,6 +10895,9 @@ def test_response_durability_explicit_v2_persists_canonical_plan_binding(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
+        # DEEP-AUDIT-FIX-1-ADJUDICATION parity: receipts persist from the
+        # door-frozen generation, never a bare live provider.
+        schema_provider=_frozen_ingest_provider(None, submit_graph),
     )
 
     turn_record = read_state(session_dir_for(root, "explicit-v2"))["turns"][turn_id]
@@ -12348,7 +12404,10 @@ def _setup_v2_session_with_candidate(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
-        schema_provider=schema_provider,
+        # DEEP-AUDIT-FIX-1-ADJUDICATION parity: freeze the ingest door from
+        # this fixture's live surface before publication; receipts persist
+        # from the locked frozen generation.
+        schema_provider=_frozen_ingest_provider(schema_provider, request["graph"]),
     )
     persisted_response = json.loads(
         (allocation.turn_dir / "response.json").read_text(encoding="utf-8")

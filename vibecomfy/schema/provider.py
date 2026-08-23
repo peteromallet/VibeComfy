@@ -27,11 +27,27 @@ from .types import (
     InputSpec,
     OutputSpec,
     SchemaSnapshot,
+    _complete_schema_snapshot_with_provisional,
     capture_schema_snapshot,
+    schema_payload_from_node_schema,
     schema_snapshot_from_payload,
 )
 
 _logger = logging.getLogger(__name__)
+
+# DEEP-AUDIT-FIX-1-ADJUDICATION: exact provenance allowlist for bounded
+# generation completion. Only evidence-backed registry/workflow tags may enter
+# a new frozen generation through the explicit mid-turn completion seam.
+# Runtime/live, object-info, source-parser, on-demand, local-index, widget,
+# unknown, and persisted-snapshot sources may contribute at ingress only —
+# never through the mid-turn seam.
+_EVIDENCE_BACKED_PROVISIONAL_SOURCES = frozenset(
+    {
+        "workflow_json_provisional",
+        "comfy_registry_provisional",
+        "comfy_registry_class_map",
+    }
+)
 
 
 @dataclass
@@ -561,8 +577,13 @@ class ObjectInfoIndexSchemaProvider:
 
 
 class CompositeSchemaProvider:
-    def __init__(self, *providers: SchemaProvider) -> None:
+    def __init__(
+        self,
+        *providers: SchemaProvider,
+        snapshot: SchemaSnapshot | None = None,
+    ) -> None:
         self.providers = providers
+        self._pinned_snapshot = snapshot
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self.get_schema(class_type)
@@ -584,25 +605,32 @@ class CompositeSchemaProvider:
 
     @property
     def snapshot(self) -> SchemaSnapshot | None:
-        """Ingress-frozen snapshot passthrough (DEEP-AUDIT-FIX-1-REVISION 002).
+        """Pinned immutable generation stored at composite construction.
 
-        Composition must not sever the door's frozen authority: when any
-        composed provider carries a :class:`SchemaSnapshot` (e.g. the ingest
-        door's bound wrapper), it stays visible through the composite so
-        ``_bind_schema_from_provider`` and ``build_schema_witness`` keep
-        consuming the ingress-bound snapshot after provisional gap-filler
-        hydration re-wraps ``state.schema_provider``.
+        DEEP-AUDIT-FIX-1-ADJUDICATION: composition no longer dynamically
+        forwards an inner provider's snapshot. :func:`with_provisional_gap_filler`
+        pins the exact completed generation it built onto the returned
+        composite; a bare composite has no authority snapshot (``None``), so a
+        consumer with no door-bound authority fails closed instead of silently
+        inheriting whatever an inner live provider happens to carry. Generic
+        lookup ordering stays live/runtime first for non-authority authoring
+        assistance — that never grants admission, because admission consumes
+        only ``CompositeSchemaProvider.snapshot``.
         """
-        for provider in self.providers:
-            candidate = getattr(provider, "snapshot", None)
-            if callable(candidate):
-                try:
-                    candidate = candidate()
-                except Exception:  # noqa: BLE001 - passthrough never breaks lookups
-                    continue
-            if isinstance(candidate, SchemaSnapshot):
-                return candidate
-        return None
+        return self._pinned_snapshot
+
+
+def _pinned_authority_snapshot(provider: Any) -> SchemaSnapshot | None:
+    """Read the already-frozen snapshot a provider pins, or None."""
+    if isinstance(provider, SchemaSnapshot):
+        return provider
+    candidate = getattr(provider, "snapshot", None)
+    if callable(candidate):
+        try:
+            candidate = candidate()
+        except Exception:  # noqa: BLE001 - a failing read is no authority
+            return None
+    return candidate if isinstance(candidate, SchemaSnapshot) else None
 
 
 def with_provisional_gap_filler(
@@ -618,9 +646,27 @@ def with_provisional_gap_filler(
     real schema (semantic names/choices), only answer classes the
     authoritative provider cannot. Every agent hydration site composes through
     this helper so the ordering invariant lives in exactly one place.
-    """
-    return CompositeSchemaProvider(authoritative, provisional)
 
+    DEEP-AUDIT-FIX-1-ADJUDICATION: the returned composite also carries the
+    bounded NEXT AUTHORITY GENERATION. It reads the already-frozen snapshot
+    from ``authoritative``, takes additions ONLY through
+    ``ProvisionalRegistrySchemaProvider.authority_completion_schemas`` (never
+    by calling the authoritative/live delegate to complete missing classes),
+    builds the completed generation once via
+    ``_complete_schema_snapshot_with_provisional``, and pins that exact
+    snapshot on the composite. Nested provisional composition starts from the
+    prior composite's pinned generation. If no frozen base snapshot exists, no
+    authoritative generation can be manufactured; admission remains fail
+    closed while ordinary authoring lookups keep working.
+    """
+    base = _pinned_authority_snapshot(authoritative)
+    if base is None:
+        return CompositeSchemaProvider(authoritative, provisional)
+    additions: dict[str, NodeSchema] = {}
+    if isinstance(provisional, ProvisionalRegistrySchemaProvider):
+        additions = provisional.authority_completion_schemas()
+    completed = _complete_schema_snapshot_with_provisional(base, additions)
+    return CompositeSchemaProvider(authoritative, provisional, snapshot=completed)
 
 class ProvisionalRegistrySchemaProvider:
     """Evidence-backed schemas for missing custom nodes discovered by registry research.
@@ -638,6 +684,56 @@ class ProvisionalRegistrySchemaProvider:
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self.get_schema(class_type)
+
+    def authority_completion_schemas(self) -> dict[str, NodeSchema]:
+        """Schemas eligible for bounded frozen-generation completion.
+
+        DEEP-AUDIT-FIX-1-ADJUDICATION: this explicit capability is the ONLY
+        way admission/witness code may discover provisional evidence — never
+        by traversing a generic provider or calling generic ``get_schema``. A
+        schema is eligible only when every condition holds:
+
+        1. mapping key, requested class, and ``NodeSchema.class_type`` are
+           identical and non-empty;
+        2. ``source_provider`` is exactly one of
+           ``_EVIDENCE_BACKED_PROVISIONAL_SOURCES``;
+        3. ``ignored_evidence`` contains ``not_runtime_validated``;
+        4. for ``comfy_registry_class_map``, ``ignored_evidence`` also
+           contains ``class_only`` and ``schema_backed_resolution_required``;
+        5. serialization through ``schema_payload_from_node_schema`` succeeds.
+
+        Everything else — runtime/live provider, object-info,
+        source-parser, on-demand static resolver, local index, widget schema,
+        unknown, persisted snapshot — is ineligible for the mid-turn seam.
+        """
+        eligible: dict[str, NodeSchema] = {}
+        for mapping_key, schema in self._schemas.items():
+            class_type = getattr(schema, "class_type", None)
+            if (
+                not isinstance(mapping_key, str)
+                or not mapping_key
+                or not isinstance(class_type, str)
+                or not class_type
+                or class_type != mapping_key
+            ):
+                continue
+            source_provider = getattr(schema, "source_provider", None)
+            if source_provider not in _EVIDENCE_BACKED_PROVISIONAL_SOURCES:
+                continue
+            ignored = set(getattr(schema, "ignored_evidence", ()) or ())
+            required_evidence = {"not_runtime_validated"}
+            if source_provider == "comfy_registry_class_map":
+                required_evidence.update(
+                    {"class_only", "schema_backed_resolution_required"}
+                )
+            if not required_evidence.issubset(ignored):
+                continue
+            try:
+                schema_payload_from_node_schema(mapping_key, schema)
+            except Exception:  # noqa: BLE001 - unusable serialization is ineligible
+                continue
+            eligible[mapping_key] = schema
+        return eligible
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)

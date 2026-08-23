@@ -918,7 +918,9 @@ def _hydrate_actionable_registry_dependencies(state: AgentEditState) -> None:
                 *(_candidate_stable_key(candidate) for candidate in new_candidates),
             }
         )
-        state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
+        enriched = with_provisional_gap_filler(state.schema_provider, provisional)
+        state.schema_provider = enriched
+        state.schema_snapshot = enriched.snapshot
     except Exception as exc:  # noqa: BLE001 - workflow evidence may still hydrate it
         LOGGER.debug("planned registry dependency hydration unavailable: %s", exc)
 

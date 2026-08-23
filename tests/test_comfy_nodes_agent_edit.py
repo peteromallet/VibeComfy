@@ -246,6 +246,25 @@ def _batch_repl_provider() -> _Provider:
     )
 
 
+def _frozen_receipt_provider(graph: dict) -> Any:
+    """Batch-locked receipt authority (DEEP-AUDIT-FIX-1-ADJUDICATION).
+
+    Receipt persistence consumes the door's frozen snapshot — captured once
+    over the graph plus provider surface — never a live provider. Used by
+    tests that simulate durable applyable V2 candidate persistence directly.
+    """
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    return FrozenSchemaSnapshotProvider(
+        capture_ingress_schema_snapshot(
+            schema_provider=_batch_repl_provider(), graph=graph
+        )
+    )
+
+
 def test_schema_less_existing_widget_value_edit_warns_when_shape_is_unchanged() -> None:
     """A bounded value-only edit warns; schema/shape uncertainty still blocks."""
     from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
@@ -5282,48 +5301,51 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
         "links": [],
     }
 
+    registry_candidate = {
+        "pack": {
+            "slug": "ComfyUI-AnimateDiff-Evolved",
+            "source": "comfy-registry",
+        },
+        "expected_classes": ["ADE_AnimateDiffUniformContextOptions"],
+        "provisional_schema": {
+            "version": "1.0.0",
+            "runnable": False,
+            "schema": {
+                "nodes": {
+                    "ADE_AnimateDiffUniformContextOptions": {
+                        "input": {
+                            "required": {},
+                            "optional": {
+                                "context_length": {"type": "INT", "default": 8},
+                                "context_stride": {"type": "INT", "default": 1},
+                                "context_overlap": {"type": "INT", "default": 3},
+                                "context_schedule": {"type": "STRING", "default": "uniform"},
+                                "closed_loop": {"type": "BOOLEAN", "default": False},
+                            },
+                        },
+                        "output": ["CONTEXT_OPTIONS"],
+                        "output_name": ["CONTEXT_OPTIONS"],
+                    }
+                }
+            },
+        },
+        "stable_install_hash": "ade-context-options-schema",
+    }
+
     def fake_resolve_missing_nodes(query: str, *, query_intent: str | None = None, **_kwargs: object) -> object:
         assert query == "ADE_AnimateDiffUniformContextOptions"
         assert query_intent == "class_name"
-        candidate = {
-            "pack": {
-                "slug": "ComfyUI-AnimateDiff-Evolved",
-                "source": "comfy-registry",
-            },
-            "expected_classes": ["ADE_AnimateDiffUniformContextOptions"],
-            "provisional_schema": {
-                "version": "1.0.0",
-                "runnable": False,
-                "schema": {
-                    "nodes": {
-                        "ADE_AnimateDiffUniformContextOptions": {
-                            "input": {
-                                "required": {},
-                                "optional": {
-                                    "context_length": {"type": "INT", "default": 8},
-                                    "context_stride": {"type": "INT", "default": 1},
-                                    "context_overlap": {"type": "INT", "default": 3},
-                                    "context_schedule": {"type": "STRING", "default": "uniform"},
-                                    "closed_loop": {"type": "BOOLEAN", "default": False},
-                                },
-                            },
-                            "output": ["CONTEXT_OPTIONS"],
-                            "output_name": ["CONTEXT_OPTIONS"],
-                        }
-                    }
-                },
-            },
-            "stable_install_hash": "ade-context-options-schema",
-        }
-        return types.SimpleNamespace(candidates=(candidate,))
+        return types.SimpleNamespace(candidates=(registry_candidate,))
 
     monkeypatch.setattr(
         "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
         fake_resolve_missing_nodes,
     )
 
+    providers: dict[str, _Provider] = {}
+
     def run_turn(session_id: str, *, warm_schema_lookup: bool) -> dict:
-        provider = _Provider({})
+        provider = providers.setdefault(session_id, _Provider({}))
         if warm_schema_lookup:
             # Exercise the provider's cached miss path before hydration.  The
             # registry candidate must still become the per-turn authority
@@ -5435,6 +5457,49 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
             ).read_text(encoding="utf-8")
         )["schema_witness"]["witness_hash"]
     )
+
+    # DEEP-AUDIT-FIX-1-ADJUDICATION extensions: the receipt snapshot IS the
+    # locked admission generation — independently reconstructed here from the
+    # door capture plus the same evidence-backed provisional additions.
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema.types import _complete_schema_snapshot_with_provisional
+    from vibecomfy.schema import (
+        ProvisionalRegistrySchemaProvider,
+        schema_snapshot_to_payload,
+    )
+    for result in results:
+        witness = json.loads(
+            (
+                tmp_path
+                / result["session_id"]
+                / "turns"
+                / "0001"
+                / "authority"
+                / "receipt.json"
+            ).read_text(encoding="utf-8")
+        )["schema_witness"]
+        base = capture_ingress_schema_snapshot(
+            schema_provider=_Provider({}), graph=graph
+        )
+        assert "ADE_AnimateDiffUniformContextOptions" in base.missing_classes
+        provisional = ProvisionalRegistrySchemaProvider([registry_candidate])
+        completed = _complete_schema_snapshot_with_provisional(
+            base, provisional.authority_completion_schemas()
+        )
+        payload = witness["schema_snapshot"]
+        # Receipt generation and digest equal the locked admission generation.
+        assert payload["generation"] == completed.generation == base.generation + 1
+        assert payload["content_digest"] == completed.content_digest
+        # The admitted class rides the locked generation with the SAME schema
+        # and provenance the receipt records.
+        locked_class = payload["schemas"]["ADE_AnimateDiffUniformContextOptions"]
+        assert locked_class == witness["schemas"]["ADE_AnimateDiffUniformContextOptions"]
+        assert locked_class["provenance"]["source_provider"] == "comfy_registry_provisional"
+        # No ingress-surface schema was dropped by hydration.
+        assert set(base.schemas) <= set(payload["schemas"])
+        assert payload["missing_classes"] == []
 
 
 def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
@@ -10007,7 +10072,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
-        schema_provider=_batch_repl_provider(),
+        schema_provider=_frozen_receipt_provider(graph),
     )
     submit_hash = payload_hash(graph)
     candidate_hash = payload_hash(candidate_graph)
@@ -10226,6 +10291,7 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
         },
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
+        schema_provider=_frozen_receipt_provider(graph),
         turn_id=turn_id,
     )
     submit_hash = payload_hash(graph)
@@ -10770,7 +10836,7 @@ def test_route_reject_idempotency_replays_same_request_body(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
-        schema_provider=_batch_repl_provider(),
+        schema_provider=_frozen_receipt_provider(graph),
     )
     submit_graph_hash = payload_hash(graph)
     payload = {
@@ -10878,7 +10944,7 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
-        schema_provider=_batch_repl_provider(),
+        schema_provider=_frozen_receipt_provider(graph),
     )
     submit_graph_hash = payload_hash(graph)
     first_payload = {
@@ -19710,3 +19776,137 @@ def test_ingest_door_binds_frozen_schema_snapshot_for_admission_and_receipts(
         },
     )
     assert not isinstance(allowed, AdmissionRejected)
+
+
+def test_admission_rejects_class_added_only_to_live_provider_after_ingress() -> None:
+    """DEEP-AUDIT-FIX-1-ADJUDICATION: the frozen ingress generation is the
+    SOLE admission authority. A class added ONLY to the retained live provider
+    after ingest never admits through ``admission_snapshot_for`` — the retained
+    live delegate is irrelevant to the decision."""
+    from vibecomfy.comfy_nodes.agent._frag_entrypoint import (
+        _IngestBoundSchemaProvider,
+    )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+    )
+
+    provider = _batch_repl_provider()
+    graph = {
+        "nodes": [
+            {"id": "1", "type": "SaveImage", "properties": {"vibecomfy_uid": "1"}}
+        ],
+        "links": [],
+    }
+    frozen = capture_ingress_schema_snapshot(schema_provider=provider, graph=graph)
+    assert "LateLiveOnly" not in frozen.schemas
+
+    # The class appears ONLY on the retained LIVE surface after ingress.
+    provider._schemas["LateLiveOnly"] = NodeSchema(
+        class_type="LateLiveOnly",
+        pack=None,
+        inputs={"value": InputSpec("STRING")},
+        outputs=[],
+        source_provider="test",
+        confidence=1.0,
+    )
+    assert provider.get_schema("LateLiveOnly") is not None
+
+    pair = admission_snapshot_for(
+        schema_provider=_IngestBoundSchemaProvider(provider, frozen)
+    )
+    assert pair.schema is frozen
+    rejected = admit_operation(
+        pair,
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "LateLiveOnly",
+            "fields": {},
+            "inputs": {},
+            "uid": "u-late",
+        },
+    )
+    assert isinstance(rejected, AdmissionRejected)
+    assert rejected.typed_reason == "missing_touched_schema"
+
+
+def test_handle_agent_edit_product_path_rejects_late_live_only_class(
+    tmp_path: Path,
+) -> None:
+    """DEEP-AUDIT-FIX-1-ADJUDICATION: the REAL ``handle_agent_edit`` product
+    path. The deterministic model-client callback mutates the LIVE delegate
+    after the ingest door froze generation 0 and returns a batch adding that
+    late class. No authority consumer is patched (no
+    ``_run_batch_repl_product_path`` / ``_build_batch_repl_response`` /
+    ``admit_operation(s)`` / ``build_schema_witness`` /
+    ``build_authority_receipt`` / provider ``.snapshot`` monkeypatch): the
+    batch-locked frozen generation rejects the op with typed
+    ``missing_touched_schema`` and nothing applyable is published."""
+    import os
+
+    os.environ["VIBECOMFY_AGENT_EDIT_BATCH_REPL"] = "1"
+    from vibecomfy.schema import InputSpec, NodeSchema
+    from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
+
+    provider = _batch_repl_provider()
+
+    def client(_messages):
+        # Runs AFTER the ingest door captured generation 0.
+        if "LateLiveOnly" not in provider._schemas:
+            provider._schemas["LateLiveOnly"] = NodeSchema(
+                class_type="LateLiveOnly",
+                pack=None,
+                inputs={"value": InputSpec("STRING")},
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            )
+        return {"batch": "late = LateLiveOnly()\ndone()", "message": "adding node"}
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "add a LateLiveOnly node",
+            "session_id": "late-live-only-rejection",
+            "max_batches": 2,
+            "max_consecutive_errors": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=client,
+        session_root=tmp_path,
+    )
+
+    # The late-live-only add statement is rejected with the typed reason.
+    node_calls = [
+        statement
+        for turn in (result.get("batch_turns") or [])
+        for statement in (turn.get("statements") or [])
+        if statement.get("op_kind") == "node_call"
+    ]
+    assert node_calls, "the batch should have attempted exactly the add"
+    codes = {
+        diagnostic.get("code")
+        for statement in node_calls
+        for diagnostic in (statement.get("diagnostics") or [])
+        if isinstance(diagnostic, dict)
+    }
+    assert all(statement.get("ok") is False for statement in node_calls)
+    assert "missing_touched_schema" in codes
+
+    # No applyable candidate is published.
+    eligibility = result.get("eligibility")
+    if not isinstance(eligibility, dict):
+        eligibility = result.get("apply_eligibility")
+    assert isinstance(eligibility, dict)
+    assert eligibility.get("applyable") is not True
+    assert result.get("graph") is None
+    assert result.get("graph_unchanged") is True
+    assert result.get("apply_allowed") is False
+    assert result.get("canvas_apply_allowed") is False
+    assert result.get("accepted_delta_ids") == []

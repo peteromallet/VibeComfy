@@ -513,7 +513,9 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
                         *(_candidate_stable_key(candidate) for candidate in workflow_candidates),
                     }
                 )
-                state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
+                enriched = with_provisional_gap_filler(state.schema_provider, provisional)
+                state.schema_provider = enriched
+                state.schema_snapshot = enriched.snapshot
         except Exception as exc:  # noqa: BLE001 - keep registry fallback below available
             LOGGER.debug("workflow schema provisional hydration unavailable: %s", exc)
 
@@ -566,7 +568,9 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
             *(_candidate_stable_key(candidate) for candidate in new_candidates),
         }
     )
-    state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
+    enriched = with_provisional_gap_filler(state.schema_provider, provisional)
+    state.schema_provider = enriched
+    state.schema_snapshot = enriched.snapshot
     return (*workflow_candidates, *new_candidates)
 
 
@@ -614,7 +618,9 @@ def _hydrate_current_graph_unknown_node_schemas(state: AgentEditState) -> tuple[
             *(_candidate_stable_key(candidate) for candidate in new_candidates),
         }
     )
-    state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
+    enriched = with_provisional_gap_filler(state.schema_provider, provisional)
+    state.schema_provider = enriched
+    state.schema_snapshot = enriched.snapshot
     return tuple(new_candidates)
 
 

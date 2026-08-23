@@ -774,11 +774,12 @@ def _validate_delta_evidence_for_apply(
 
         ops = cumulative.get("ops")
         if isinstance(ops, list) and ops:
+            pair = admission_snapshot_for(
+                getattr(state, "workflow", None) or getattr(state, "workflow_snapshot", None),
+                getattr(state, "schema_provider", None),
+            )
             admitted = admit_operations(
-                admission_snapshot_for(
-                    getattr(state, "workflow", None) or getattr(state, "workflow_snapshot", None),
-                    getattr(state, "schema_provider", None),
-                ),
+                pair,
                 ops,
                 working_workflow=getattr(state, "workflow", None),
             )
@@ -786,6 +787,11 @@ def _validate_delta_evidence_for_apply(
                 valid = False
                 code = admitted.typed_reason
                 detail = {"evidence_refs": list(admitted.evidence_refs)}
+            else:
+                # DEEP-AUDIT-FIX-1-ADJUDICATION: one AdmissionSnapshot for the
+                # whole atomic batch; its schema generation is locked for the
+                # batch only on admission success.
+                state.admission_schema_snapshot = pair.schema
     diagnostics["delta_evidence_valid"] = valid
     diagnostics["delta_evidence_code"] = code
     if detail:
@@ -951,6 +957,7 @@ def _enrich_schema_provider_from_resolver_candidates(
     enriched = with_provisional_gap_filler(session.schema_provider, provisional)
     session.schema_provider = enriched
     state.schema_provider = enriched
+    state.schema_snapshot = enriched.snapshot
 
 
 def _legacy_failure_response(

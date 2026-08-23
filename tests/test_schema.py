@@ -2690,6 +2690,23 @@ def test_write_object_info_cache_freezes_generation_and_timestamp(tmp_path) -> N
 # ── §28 deep-audit fix 1: schema snapshot completeness ──────────────────────
 
 
+_LATE_EXTERNAL_SOURCE = '''
+class LateExternal:
+    """External custom node that appears only AFTER the ingress capture."""
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("value",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "value": ("STRING", {"default": ""}),
+            },
+        }
+'''
+
+
 _EXTERNAL_WHISPER_SOURCE = '''
 class ApplyWhisperNode:
     """External custom node that exists only in an installed source tree."""
@@ -2855,20 +2872,23 @@ def test_build_schema_witness_reconstructs_frozen_snapshot_without_ambient_heali
     assert witness_a["missing_class_types"] == ["ApplyWhisperNode"]
     assert "ApplyWhisperNode" not in witness_a["schemas"]
 
-    # A live provider that cannot resolve the class keeps it missing too:
-    # no ambient custom-node healing remains at witness construction.
+    # A live provider with NO frozen snapshot can no longer manufacture a
+    # witness at all: receipt construction fails closed with the typed
+    # missing-snapshot error (DEEP-AUDIT-FIX-1-ADJUDICATION).
+    from vibecomfy.schema import SchemaSnapshotError
+
     class _RuntimeOnlyProvider:
         def get_schema(self, class_type):
             return None
 
-    unhealed = build_schema_witness(
-        schema_provider=_RuntimeOnlyProvider(),
-        submit_graph=graph,
-        candidate_payload=graph,
-        delta_envelope=None,
-    )
-    assert validate_schema_witness(unhealed)[0] is True
-    assert unhealed["missing_class_types"] == ["ApplyWhisperNode"]
+    with pytest.raises(SchemaSnapshotError) as excinfo:
+        build_schema_witness(
+            schema_provider=_RuntimeOnlyProvider(),
+            submit_graph=graph,
+            candidate_payload=graph,
+            delta_envelope=None,
+        )
+    assert excinfo.value.code == "missing_schema_snapshot"
 
 
 def test_capture_on_demand_leg_resolves_uninstalled_pack_offline(
@@ -2900,19 +2920,22 @@ def test_capture_on_demand_leg_resolves_uninstalled_pack_offline(
     )
 
 
-def test_frozen_snapshot_reentry_is_digest_stable_when_environment_changes(
+def test_frozen_snapshot_reentry_is_digest_stable_when_same_class_becomes_available(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """DEEP-AUDIT-FIX-1-REVISION 001: re-entering a persisted request
-    snapshot reconstructs it EXACTLY as frozen — no ambient re-resolution,
-    no on-demand lookup, no missing-class healing. A class installed AFTER
-    the original capture stays missing with the identical content_digest."""
+    """DEEP-AUDIT-FIX-1-ADJUDICATION: re-entering a persisted request snapshot
+    reconstructs it EXACTLY as frozen — even when the EXACT SAME class that was
+    frozen as missing becomes available in an installed source tree. No
+    ambient re-resolution, no on-demand lookup, no missing-class healing: the
+    full surface, ``missing_classes``, ``input_order``, ``node_classes``,
+    ``generation``, and ``content_digest`` are all identical."""
     from vibecomfy.schema import (
         capture_schema_snapshot,
         schema_snapshot_from_payload,
         schema_snapshot_to_payload,
     )
+    from vibecomfy.schema.provider import SourceSchemaProvider
 
     monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
     known = {
@@ -2924,32 +2947,246 @@ def test_frozen_snapshot_reentry_is_digest_stable_when_environment_changes(
         connected_object_info={"KnownPromptNode": known},
         connected_object_info_verified=True,
         source_roots=[tmp_path],  # nothing installed yet -> LateExternal missing
+        node_classes={"3": "KnownPromptNode", "9": "LateExternal"},
     )
     assert list(snapshot.missing_classes) == ["LateExternal"]
+    assert snapshot.generation == 0
     payload = schema_snapshot_to_payload(snapshot)
 
-    # The environment changes after capture: the external pack is installed.
-    _write_external_custom_node(tmp_path / "custom_nodes")
+    # The environment changes after capture: THE SAME CLASS that was frozen as
+    # missing is now genuinely resolvable from an installed source tree.
+    _write_external_custom_node(
+        tmp_path / "custom_nodes",
+        class_type="LateExternal",
+        source=_LATE_EXTERNAL_SOURCE,
+    )
+    # Honesty guard: the late source really does resolve the class now, so the
+    # digest-stability assertions below are not vacuously true.
+    assert SourceSchemaProvider([tmp_path / "custom_nodes"]).get_schema("LateExternal") is not None
 
     recaptured = capture_schema_snapshot(
         class_types=["KnownPromptNode", "LateExternal"],
         request_snapshot=payload,
         source_roots=[tmp_path / "custom_nodes"],
     )
-    assert recaptured.selected_source == snapshot.selected_source
-    assert list(recaptured.missing_classes) == ["LateExternal"]
-    assert "LateExternal" not in recaptured.schemas
     assert dict(recaptured.schemas) == dict(snapshot.schemas)
+    assert list(recaptured.missing_classes) == list(snapshot.missing_classes)
+    assert dict(recaptured.input_order) == dict(snapshot.input_order)
+    assert dict(recaptured.node_classes) == dict(snapshot.node_classes)
+    assert recaptured.generation == snapshot.generation
     assert recaptured.content_digest == snapshot.content_digest
+    assert "LateExternal" not in recaptured.schemas
 
     # SchemaSnapshot instances are equally frozen on re-entry.
     from_instance = capture_schema_snapshot(
         request_snapshot=snapshot,
         source_roots=[tmp_path / "custom_nodes"],
     )
+    assert dict(from_instance.schemas) == dict(snapshot.schemas)
+    assert list(from_instance.missing_classes) == list(snapshot.missing_classes)
+    assert dict(from_instance.input_order) == dict(snapshot.input_order)
+    assert dict(from_instance.node_classes) == dict(snapshot.node_classes)
+    assert from_instance.generation == snapshot.generation
     assert from_instance.content_digest == snapshot.content_digest
-    assert list(from_instance.missing_classes) == ["LateExternal"]
 
     # Persisted-payload reconstruction still validates its frozen digest.
     rebuilt = schema_snapshot_from_payload(payload)
     assert rebuilt.content_digest == snapshot.content_digest
+
+
+def test_build_schema_witness_preserves_complete_frozen_snapshot_identity() -> None:
+    """DEEP-AUDIT-FIX-1-ADJUDICATION: the witness serializes the LOCKED
+    snapshot exactly — full surface preserved (unrelated ingress schemas and
+    missing classes included), digest/generation untouched, repeated
+    construction stable, and a live provider that resolves a missing class
+    after capture has zero influence."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        build_schema_witness,
+    )
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        NodeSchema,
+        OutputSpec,
+        SchemaSnapshotError,
+        capture_schema_snapshot,
+        schema_snapshot_from_payload,
+        schema_snapshot_to_payload,
+    )
+
+    snapshot = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "UnrelatedIngressNode", "MissingLateNode"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            },
+            "UnrelatedIngressNode": {
+                "input": {"required": {"image": ["IMAGE", {}]}},
+                "output": ["LATENT"],
+            },
+        },
+        connected_object_info_verified=True,
+        node_classes={"3": "KnownPromptNode", "4": "UnrelatedIngressNode"},
+    )
+    assert set(snapshot.schemas) == {"KnownPromptNode", "UnrelatedIngressNode"}
+    assert snapshot.missing_classes == ("MissingLateNode",)
+
+    class _LiveAlsoResolves:
+        """Frozen authority plus a LIVE surface that resolves the missing class."""
+
+        def __init__(self, frozen):
+            self._frozen = frozen
+
+        @property
+        def snapshot(self):
+            return self._frozen
+
+        def get_schema(self, class_type):
+            if class_type == "MissingLateNode":
+                return NodeSchema(
+                    class_type=class_type,
+                    pack=None,
+                    inputs={},
+                    outputs=[OutputSpec(type="STRING", name="value")],
+                    source_provider="object_info",
+                )
+            return None
+
+        def schemas(self):
+            return {}
+
+    graph = {"nodes": [{"id": "3", "type": "KnownPromptNode"}]}
+    kwargs = {
+        "submit_graph": graph,
+        "candidate_payload": graph,
+        "delta_envelope": {"ops": [{"op": "set_node_field", "target": ["", "3", "prompt"], "value": "red"}]},
+    }
+    witness_a = build_schema_witness(
+        schema_provider=FrozenSchemaSnapshotProvider(snapshot), **kwargs
+    )
+    witness_b = build_schema_witness(
+        schema_provider=_LiveAlsoResolves(snapshot), **kwargs
+    )
+    # Byte/dict stable across construction AND across a late live resolution.
+    assert witness_a == witness_b
+    assert witness_b["schema_snapshot"] == schema_snapshot_to_payload(snapshot)
+    # Round-trip equality on ALL digest-bearing fields.
+    assert schema_snapshot_from_payload(witness_b["schema_snapshot"]) == snapshot
+    payload = witness_b["schema_snapshot"]
+    assert payload["generation"] == snapshot.generation
+    assert payload["content_digest"] == snapshot.content_digest
+    # The unrelated ingress-surface schema is NOT dropped; missing stays.
+    assert witness_b["schemas"]["UnrelatedIngressNode"] == snapshot.schemas["UnrelatedIngressNode"]
+    assert set(witness_b["schemas"]) == {"KnownPromptNode", "UnrelatedIngressNode"}
+    assert witness_b["missing_class_types"] == ["MissingLateNode"]
+    # A provider with no frozen snapshot at all still fails closed.
+    with pytest.raises(SchemaSnapshotError) as excinfo:
+        build_schema_witness(
+            schema_provider=_LiveAlsoResolves(None),
+            submit_graph=graph,
+            candidate_payload=graph,
+            delta_envelope=None,
+        )
+    assert excinfo.value.code == "missing_schema_snapshot"
+
+
+def test_provisional_completion_creates_one_digest_stable_generation() -> None:
+    """DEEP-AUDIT-FIX-1-ADJUDICATION: evidence-backed provisional hydration is
+    ONE bounded next generation — single increment, allowed provenance only,
+    missing-class removal, unrelated surface preserved, idempotent under
+    repeated composition, digest-stable through payload round-trip. Runtime/
+    source/on-demand-tagged evidence cannot use the completion API."""
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        NodeSchema,
+        ProvisionalRegistrySchemaProvider,
+        capture_schema_snapshot,
+        schema_snapshot_from_payload,
+        schema_snapshot_to_payload,
+        with_provisional_gap_filler,
+    )
+    from vibecomfy.schema.types import _complete_schema_snapshot_with_provisional
+
+    base = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "GapNode_KJ"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+    )
+    assert base.generation == 0
+    assert base.missing_classes == ("GapNode_KJ",)
+
+    candidate = {
+        "stable_install_hash": "adj:gap-node",
+        "pack": {"slug": "gap-pack"},
+        "provisional_schema": {
+            "version": "1.0.0",
+            "schema": {
+                "nodes": {
+                    "GapNode_KJ": {
+                        "input": {"required": {"model": ["MODEL", {}]}},
+                        "output": [["MODEL", "MODEL"]],
+                    }
+                }
+            },
+        },
+        "expected_classes": ["GapNode_KJ"],
+    }
+    provisional = ProvisionalRegistrySchemaProvider([candidate])
+    # Mid-turn evidence tagged runtime/source/on-demand can NEVER pass the
+    # allowlist; nor can a mismatched mapping key/class_type pair; nor can a
+    # class-map row lacking its required extra evidence markers.
+    provisional._schemas["RuntimeOnly_KJ"] = NodeSchema(
+        class_type="RuntimeOnly_KJ", pack=None, inputs={}, outputs=[],
+        source_provider="object_info", ignored_evidence=("not_runtime_validated",),
+    )
+    provisional._schemas["SourceOnly_KJ"] = NodeSchema(
+        class_type="SourceOnly_KJ", pack=None, inputs={}, outputs=[],
+        source_provider="source_parser", ignored_evidence=("not_runtime_validated",),
+    )
+    provisional._schemas["OnDemand_KJ"] = NodeSchema(
+        class_type="OnDemand_KJ", pack=None, inputs={}, outputs=[],
+        source_provider="on_demand_static", ignored_evidence=("not_runtime_validated",),
+    )
+    provisional._schemas["Mismatched_KJ"] = NodeSchema(
+        class_type="SomethingElse", pack=None, inputs={}, outputs=[],
+        source_provider="comfy_registry_provisional",
+        ignored_evidence=("not_runtime_validated",),
+    )
+    provisional._schemas["ClassMapWeak_KJ"] = NodeSchema(
+        class_type="ClassMapWeak_KJ", pack=None, inputs={}, outputs=[],
+        source_provider="comfy_registry_class_map",
+        ignored_evidence=("not_runtime_validated",),
+    )
+    eligible = provisional.authority_completion_schemas()
+    assert set(eligible) == {"GapNode_KJ"}
+
+    composite = with_provisional_gap_filler(FrozenSchemaSnapshotProvider(base), provisional)
+    completed = composite.snapshot
+    assert completed is not None
+    assert completed.generation == base.generation + 1
+    added = completed.schemas["GapNode_KJ"]
+    assert added["class_type"] == "GapNode_KJ"
+    assert added["provenance"]["source_provider"] == "comfy_registry_provisional"
+    assert completed.missing_classes == ()
+    # Unrelated surface unchanged.
+    assert completed.schemas["KnownPromptNode"] == base.schemas["KnownPromptNode"]
+    assert dict(completed.input_order)["KnownPromptNode"] == dict(base.input_order)["KnownPromptNode"]
+    assert dict(completed.node_classes) == dict(base.node_classes)
+    # Payload round-trip preserves the completed digest exactly.
+    round_tripped = schema_snapshot_from_payload(schema_snapshot_to_payload(completed))
+    assert round_tripped.content_digest == completed.content_digest
+    assert round_tripped.generation == completed.generation
+
+    # Repeated composition with the same evidence does NOT increment again:
+    # no accepted addition returns the ORIGINAL generation unchanged.
+    recomposed = with_provisional_gap_filler(composite, provisional)
+    assert recomposed.snapshot is completed
+    assert recomposed.snapshot.generation == completed.generation
+    assert recomposed.snapshot.content_digest == completed.content_digest
+    # No additions at all: identity, not a copy.
+    assert _complete_schema_snapshot_with_provisional(base, {}) is base

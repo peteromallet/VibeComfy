@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dataclass_replace
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -446,20 +446,40 @@ def capture_schema_snapshot(
     ``/object_info``, then configured content-addressed cache. Workflow
     observation is recorded as non-authoritative and never selected.
 
+    DEEP-AUDIT-FIX-1-ADJUDICATION: TRUE FROZEN RECONSTRUCTION is separate
+    from fresh capture. A ``request_snapshot`` that is already a
+    :class:`SchemaSnapshot`, or a serialized snapshot payload carrying a
+    ``contract_version`` and ``content_digest`` (validated through
+    :func:`schema_snapshot_from_payload`), is returned/reconstructed EXACTLY
+    as frozen: ``class_types``, receipt-time ``node_classes``, ``generation``,
+    timestamps, source roots, and ambient sources are ignored; the full
+    schema surface is preserved unfiltered; requested classes are never added
+    to ``missing_classes``; no generation/identity/precedence override runs;
+    and no external custom-node re-resolution happens. An UNSIGNED request
+    mapping remains a fresh input payload, not a persisted frozen snapshot.
+
     §28 deep-audit fix 1 (revision DEEP-AUDIT-FIX-1-REVISION 001): on a FRESH
     capture — verified connected ``/object_info``, configured cache, or no
     selected source — requested classes still reported missing after payload
     selection are resolved through the external custom-node sources
     (``source_roots`` → :class:`SourceSchemaProvider`, then the gated
     on-demand resolver) and their schemas ride inside the frozen snapshot;
-    classes no resolver can produce stay missing and fail closed. When the
-    selected source is an explicit persisted ``request_snapshot`` (payload or
-    :class:`SchemaSnapshot`), the snapshot is reconstructed EXACTLY as
-    frozen: no ambient re-resolution, no on-demand lookup, no missing-class
-    healing — ``missing_classes`` and ``content_digest`` are byte-stable on
-    round-trip even when the environment changed after capture.
+    classes no resolver can produce stay missing and fail closed.
     """
     del workflow_observation  # non-authoritative by contract
+    # DEEP-AUDIT-FIX-1-ADJUDICATION: a retained snapshot instance IS the
+    # frozen authority — return it exactly, ignoring every ambient hint.
+    if isinstance(request_snapshot, SchemaSnapshot):
+        return request_snapshot
+    # A serialized snapshot payload with contract marker and digest is
+    # reconstructed through the validating constructor — exact, fail-closed.
+    if (
+        isinstance(request_snapshot, Mapping)
+        and request_snapshot
+        and request_snapshot.get("contract_version") == SCHEMA_SNAPSHOT_VERSION
+        and request_snapshot.get("content_digest")
+    ):
+        return schema_snapshot_from_payload(request_snapshot)
     selected_source = ""
     selected_payload: Mapping[str, Any] | None = None
     conflicts: list[str] = []
@@ -474,22 +494,7 @@ def capture_schema_snapshot(
     frozen_version = SCHEMA_SNAPSHOT_VERSION
 
     reconstructing_request_snapshot = False
-    if isinstance(request_snapshot, SchemaSnapshot):
-        reconstructing_request_snapshot = True
-        # Revision 001: reconstruct EXACTLY as frozen. The original selection
-        # marker is kept so re-entering a persisted snapshot is digest-stable.
-        selected_source = request_snapshot.selected_source or "explicit_request_snapshot"
-        selected_payload = schema_snapshot_to_payload(request_snapshot)
-        identity = SchemaSnapshotIdentity(
-            runtime_fingerprint=request_snapshot.identity.runtime_fingerprint or runtime_fingerprint,
-            cache_fingerprint=request_snapshot.identity.cache_fingerprint,
-            request_fingerprint=request_snapshot.identity.request_fingerprint,
-            server_url=request_snapshot.identity.server_url or server_url,
-        )
-        frozen_generation = request_snapshot.generation
-        frozen_timestamp = request_snapshot.timestamp or timestamp
-        frozen_version = request_snapshot.version
-    elif isinstance(request_snapshot, Mapping) and request_snapshot:
+    if isinstance(request_snapshot, Mapping) and request_snapshot:
         reconstructing_request_snapshot = True
         selected_payload = request_snapshot
         raw_identity = request_snapshot.get("identity")
@@ -650,9 +655,7 @@ def capture_schema_snapshot(
 
     frozen_node_classes: dict[str, str] = {}
     inherited = None
-    if isinstance(request_snapshot, SchemaSnapshot):
-        inherited = request_snapshot.node_classes
-    elif isinstance(request_snapshot, Mapping):
+    if isinstance(request_snapshot, Mapping):
         inherited = request_snapshot.get("node_classes")
     if inherited is None:
         inherited = node_classes
@@ -703,6 +706,79 @@ def capture_schema_snapshot(
         node_classes=snapshot.node_classes,
         workflow_observation_authoritative=False,
         ambient_lookup_forbidden=True,
+    )
+
+
+def _complete_schema_snapshot_with_provisional(
+    snapshot: SchemaSnapshot,
+    additions: Mapping[str, Any],
+) -> SchemaSnapshot:
+    """Bounded next authority generation from provenance-approved additions.
+
+    DEEP-AUDIT-FIX-1-ADJUDICATION: this is the ONLY mid-turn completion
+    constructor. It accepts additions already approved by the explicit
+    provisional-provider capability
+    (``ProvisionalRegistrySchemaProvider.authority_completion_schemas``) and
+    performs no provider lookup, filesystem scan, network operation, or
+    on-demand resolution of its own. Behavior:
+
+    - add only classes absent from ``snapshot.schemas`` (never overwrite a
+      frozen schema);
+    - remove accepted classes from ``missing_classes``;
+    - preserve every unrelated schema, missing class, input order, node-class
+      mapping, identity field, selected source, precedence entry, conflict,
+      timestamp, and version;
+    - increment ``generation`` exactly once when at least one class is added;
+    - recompute ``content_digest`` from the complete resulting snapshot;
+    - return the original snapshot unchanged when no addition is accepted.
+
+    This is an immutable copy plus the canonical digest constructor — never a
+    modified payload fed back through :func:`capture_schema_snapshot`.
+    """
+    accepted: dict[str, dict[str, Any]] = {}
+    for raw_key, schema in additions.items():
+        class_type = str(raw_key)
+        if not class_type or class_type in snapshot.schemas:
+            continue
+        if getattr(schema, "class_type", None) != class_type:
+            continue
+        try:
+            payload = schema_payload_from_node_schema(class_type, schema)
+        except Exception:  # noqa: BLE001 - an unusable schema is not an addition
+            continue
+        accepted[class_type] = payload
+    if not accepted:
+        return snapshot
+    schemas = dict(snapshot.schemas)
+    schemas.update(accepted)
+    missing_classes = tuple(
+        class_type for class_type in snapshot.missing_classes if class_type not in accepted
+    )
+    input_order = dict(snapshot.input_order)
+    for class_type, payload in accepted.items():
+        order = payload.get("input_order")
+        input_order[class_type] = tuple(
+            str(name) for name in order if isinstance(name, str)
+        ) if isinstance(order, list) else ()
+    completed = SchemaSnapshot(
+        identity=snapshot.identity,
+        content_digest="",
+        precedence=snapshot.precedence,
+        selected_source=snapshot.selected_source,
+        generation=snapshot.generation + 1,
+        conflicts=snapshot.conflicts,
+        timestamp=snapshot.timestamp,
+        version=snapshot.version,
+        schemas=schemas,
+        missing_classes=missing_classes,
+        input_order=input_order,
+        node_classes=dict(snapshot.node_classes),
+        workflow_observation_authoritative=False,
+        ambient_lookup_forbidden=True,
+    )
+    return _dataclass_replace(
+        completed,
+        content_digest=_schema_snapshot_digest(_digest_body(completed)),
     )
 
 
