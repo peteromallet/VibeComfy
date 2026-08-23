@@ -851,6 +851,82 @@
           "model_route": "ox-alpha",
           "exit": 0,
           "disposition": "non_authoritative"
+        },
+        {
+          "sequence": 21,
+          "canonical_slot": "G7",
+          "task_id": "R2-FAILURE-ANALYSIS",
+          "receipt_path": "receipts/R2-FAILURE-ANALYSIS-receipt.json",
+          "sha256": "fabf3f0488c2bcb9c072f82949416aa66ff9e97f4da57ce5b6605a86f439c0a3",
+          "result_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "role": "review",
+          "label": "R2 failure analysis \u2014 \u00a727 round 2: deep per-leg understanding of 5 failed finale legs (f65774, 352066, 90a1d5, d66a66, 8800a9), understanding only, NO fixes",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "disposition": "degenerate-empty-reverted"
+        },
+        {
+          "sequence": 22,
+          "canonical_slot": "G7",
+          "task_id": "R2-FAILURE-ANALYSIS-2",
+          "receipt_path": "receipts/R2-FAILURE-ANALYSIS-2-receipt.json",
+          "sha256": "ae1c3cf952845cb1409fff52a2912b7307d008f5d868cdeacf30645854bea50b",
+          "result_sha256": "b5b56aeac11020291e2f56f880b90cc2e3b4664a212029ec02c27e478c3babbb",
+          "role": "review",
+          "label": "R2 failure analysis -2 \u2014 \u00a727 round 2 redispatch (codex): deep per-leg understanding of 5 failed finale legs (f65774, 352066, 90a1d5, d66a66, 8800a9), understanding only, NO fixes",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
+        },
+        {
+          "sequence": 23,
+          "canonical_slot": "G7",
+          "task_id": "R2-ROOT-CAUSE",
+          "receipt_path": "receipts/R2-ROOT-CAUSE-receipt.json",
+          "sha256": "58edc193e74d893ee1238973f59e8d2f6748ceb49c8b3e5cef7ddb7cd73a842b",
+          "result_sha256": "cff70367779b2c11382c6d95ba53d868082f5f72553c8fa293bdba52b22f3824",
+          "role": "review",
+          "label": "R2 root-cause \u2014 \u00a727 round 2: deep root-cause of 5-leg batch (f65774, 352066, 90a1d5, d66a66, 8800a9), CLEAR WINS ONLY, verify vs R1 fixes",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
+        },
+        {
+          "sequence": 24,
+          "canonical_slot": "G7",
+          "task_id": "R2-FIX-APPLY",
+          "receipt_path": "receipts/R2-FIX-APPLY-receipt.json",
+          "sha256": "8d4cb860183e9504f0712d4255df29bacedfb6c0fa8dc8af53e125822bd2a354",
+          "result_sha256": "1900f393514f704185f9d221afc405352e2164a51a5f297f5c6875e2fdc8f46a",
+          "commit": "d93e8bedf6d70818bb68c777c9780065f4507e2c",
+          "role": "implementer",
+          "label": "R2-FIX-APPLY \u2014 \u00a727 round 2: 8800a9 scenario data fix (0.4\u21920.5, digests, safe-refusal disallowed)",
+          "model_route": "ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 25,
+          "canonical_slot": "G7",
+          "task_id": "R2-BATCH-REVIEW",
+          "receipt_path": "receipts/R2-BATCH-REVIEW-receipt.json",
+          "sha256": "f372209848ed282592439f555dcaf453ae14b21b91b144dc799ebd86eb0b9f01",
+          "result_sha256": "098926c83a9bec10409ffb660db17fa02b211d2d04ee23f003f9fb7f3e132bdd",
+          "role": "review",
+          "label": "R2-BATCH-REVIEW \u2014 \u00a727 round 2 single batch review: R2-FIX-APPLY d93e8bed (8800a9 scenario data fix)",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "closed"
+        },
+        {
+          "sequence": 26,
+          "canonical_slot": "G7",
+          "task_id": "R2-RE-RUN-20",
+          "receipt_path": "receipts/R2-RE-RUN-20-receipt.json",
+          "sha256": "128cc890555d85ec26bc5ef3a5d2a2d472d3dc4cd344da0c94e9a4769d540f3d",
+          "result_sha256": "9e68abce20e201e0dfce347e2fabce8bfb0283902206a10a8bd6787f0f6794ef",
+          "role": "implementer",
+          "label": "R2-RE-RUN-20 \u2014 \u00a727 round 2: NON-authoritative validation window, same 20 scenarios as R1, validate-only first (zero model calls)",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "disposition": "non_authoritative"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1274,7 +1350,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "e4eff7797c1a0b1f9768e05d2101d96f40f73635dec1a95894daa259b60f6a4e",
+        "sha256": "ef656f3dc243cab42221d167f28140e1c2d375df03743993f42c79851884204b",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -5329,6 +5405,40 @@
         "infra_blocked": 2
       },
       "comparison_path": "/tmp/t7-r1/out/comparison.json",
+      "validate_only": {
+        "entries": 20,
+        "model_calls": 0,
+        "exit": 0
+      }
+    },
+    {
+      "task_id": "R2-RE-RUN-20",
+      "gate": "G7",
+      "status": "non_authoritative",
+      "authoritative": false,
+      "tag": "r2-20",
+      "manifest": "/tmp/t7-r1/manifest20.json",
+      "manifest_sha256": "f21fd46043bb306e1a8c5e94f1e3d01b6f46308f9db63d93c12649f3b321c51f",
+      "concurrency": 10,
+      "scenario_count": 20,
+      "leg_count": 20,
+      "split": {
+        "staged": 10,
+        "threaded": 10
+      },
+      "note": "Round-2 validation window on the SAME 20 scenarios as R1, post-R2-FIX-APPLY (base d93e8bed). Validation only; NEVER counted toward the authoritative G7.2 finale; validator LIVE_RUN_SINGLETON ignores non_authoritative records.",
+      "receipt_path": "receipts/R2-RE-RUN-20-receipt.json",
+      "receipt_sha256": "128cc890555d85ec26bc5ef3a5d2a2d472d3dc4cd344da0c94e9a4769d540f3d",
+      "result_path": "/tmp/t7-r1/out2/R2-RE-RUN-20-result-record.json",
+      "result_sha256": "a8dde8e9bfc7e5ea1cc64955ef8e73f5d7761f8142efd076ca8b79d9ad1a14ea",
+      "outcome": {
+        "pass": 2,
+        "fail": 17,
+        "blocked": 1,
+        "product_fail": 15,
+        "infra_blocked": 3
+      },
+      "comparison_path": "/tmp/t7-r1/out2/comparison.json",
       "validate_only": {
         "entries": 20,
         "model_calls": 0,
