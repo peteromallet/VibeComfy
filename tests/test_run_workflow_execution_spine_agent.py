@@ -829,3 +829,20 @@ def test_second_wrapper_completes_while_first_child_still_sleeping(tmp_path: Pat
     interrupted = json.loads((evidence / "first-dispatch-receipt.json").read_text())
     assert interrupted["status"] == "interrupted"
     assert not json.loads((evidence / "active-allowances.json").read_text())
+
+def test_route_launchers_semantic_section27_mapping() -> None:
+    """WRAPPER-ROUTE-FIX §27: semantic routes resolve directly, legacy ids stay on muse."""
+    wrapper = _load_wrapper("workflow_execution_wrapper_route_fix")
+    launchers = wrapper.ROUTE_LAUNCHERS
+    # semantic §27 correction — NOT muse blanket remap
+    assert launchers["ox-alpha"][1] == "stealth/ox-alpha"
+    assert launchers["stealth/ox-alpha"][1] == "stealth/ox-alpha"
+    assert launchers["codex:gpt-5.6-sol"][1] == "codex:gpt-5.6-sol"
+    # legacy §24 translation unchanged
+    assert launchers["codex:gpt-5.6-luna"][1] == "openrouter/meta/muse-spark-1.2-contributor"
+    assert launchers["grok-4.6"][1] == "openrouter/meta/muse-spark-1.2-contributor"
+    # explicit alias for the legacy blanket target
+    assert launchers["muse-spark"][1] == "openrouter/meta/muse-spark-1.2-contributor"
+    # launcher executable unchanged for all routes
+    for _route, (launcher, _model) in launchers.items():
+        assert launcher == wrapper.HERMES_LAUNCHER
