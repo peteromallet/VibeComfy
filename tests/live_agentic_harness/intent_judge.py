@@ -420,27 +420,51 @@ def _load_accepted_batch(
 def _landed_replay_verified(response: Mapping[str, Any] | None) -> bool:
     """True when the run carries durable replay-verified landed-edit authority.
 
-    DEEP-AUDIT-FIX-2 (§28 fix 3): the durable candidate transaction embeds its
-    replay verification under ``authority`` (``replay_ok`` + ``candidate_matches``
-    both true).  When that evidence is present but the response carries no
-    accepted-Δ envelope, the honest pair class is ``applied_unverified`` rather
-    than a bare ``changed_product_without_accepted_delta`` undetermined.
-    Fail-closed: any absent/malformed block returns False.
+    DEEP-AUDIT-REVIEW-2-002: the ONLY accepted evidence is a VALIDATED
+    persisted ``candidate_transaction_v2`` embedded in the response — the same
+    contract validation the authority validator performs (candidate/receipt
+    identity issuance, authority-receipt binding, accepted-batch digest,
+    transaction hashes, state/action consistency) plus the envelope↔authority
+    identity cross-check.  Untyped evidence never qualifies:
+
+    * an arbitrary top-level ``authority`` mapping is NOT production evidence
+      (the authority-receipt path stamps ``authority_receipt``, never a bare
+      ``authority`` block) and must not classify as replay-verified;
+    * a transaction that fails contract validation fails closed.
+
+    Fail-closed: any absent/malformed/unvalidated shape returns False.
     """
     if not isinstance(response, Mapping):
         return False
-    blocks: list[Any] = [response.get("authority")]
     transaction = response.get("candidate_transaction")
-    if isinstance(transaction, Mapping):
-        blocks.append(transaction.get("authority"))
-    for block in blocks:
-        if (
-            isinstance(block, Mapping)
-            and block.get("replay_ok") is True
-            and block.get("candidate_matches") is True
-        ):
-            return True
-    return False
+    if not isinstance(transaction, Mapping):
+        return False
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        CANDIDATE_TRANSACTION_V2,  # noqa: PLC0415
+        validate_candidate_transaction,  # noqa: PLC0415
+    )
+
+    if transaction.get("contract_version") != CANDIDATE_TRANSACTION_V2:
+        return False
+    ok, _error = validate_candidate_transaction(transaction)
+    if not ok:
+        return False
+    candidate_authority = transaction.get("candidate_authority")
+    if not isinstance(candidate_authority, Mapping):
+        return False
+    # Candidate/receipt identity binding: the envelope-level identity must
+    # agree with the validated authority it carries.
+    if any(
+        transaction.get(key) != candidate_authority.get(key)
+        for key in ("session_id", "turn_id", "plan_hash")
+    ):
+        return False
+    replay = transaction.get("authority")
+    return (
+        isinstance(replay, Mapping)
+        and replay.get("replay_ok") is True
+        and replay.get("candidate_matches") is True
+    )
 
 
 def _ui_node_value_fields(node: Mapping[str, Any], *, schema_provider: Any = None) -> dict[str, Any]:

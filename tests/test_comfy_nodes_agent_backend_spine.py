@@ -10830,7 +10830,7 @@ def test_response_durability_explicit_v2_persists_canonical_plan_binding(
         "nodes": [
             {
                 "id": 1,
-                "type": "Note",
+                "type": "SaveImage",
                 "properties": {"vibecomfy_uid": "1"},
                 "widgets_values": ["before"],
             }
@@ -14105,17 +14105,41 @@ def test_fix3_applied_unverified_never_fabricates_or_fail_opens():
     assert "reconstruct" in contradictory.reason
 
 
-def test_fix3_landed_replay_extractor_is_fail_closed():
+def test_fix3_landed_replay_extractor_requires_validated_persisted_candidate():
+    """DEEP-AUDIT-REVIEW-2-002: ``landed_replay_verified`` derives ONLY from a
+    VALIDATED persisted ``candidate_transaction_v2`` (contract validation +
+    receipt/hash/identity binding).  Untyped evidence never qualifies: bare
+    top-level ``authority`` booleans are not production-stamped shapes, and an
+    unvalidated transaction fails closed instead of classifying as
+    replay-verified."""
     from tests.live_agentic_harness.intent_judge import _landed_replay_verified
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        validate_candidate_transaction,
+    )
 
     assert _landed_replay_verified(None) is False
     assert _landed_replay_verified({}) is False
+
+    # Production-minted V2 candidate: classified as replay-verified.
+    _receipt, transaction = _fix2_production_receipt_and_transaction()
+    assert validate_candidate_transaction(transaction) == (True, None)
+    assert _landed_replay_verified({"candidate_transaction": transaction}) is True
+
+    # A tampered persisted Δ breaks the accepted-batch digest binding →
+    # unvalidated → NOT replay-verified.
+    tampered = json.loads(json.dumps(transaction))
+    tampered["plan"]["accepted_batch"][0]["op"]["value"] = 99
+    assert validate_candidate_transaction(tampered)[0] is False
+    assert _landed_replay_verified({"candidate_transaction": tampered}) is False
+
+    # The previously blessed unsupported shapes are now fail-closed evidence:
+    # inline/booleans-only authority blocks are never durable replay authority.
     assert (
         _landed_replay_verified(
             {"candidate_transaction": {"authority": {"replay_ok": True}}}
         )
         is False
-    )  # candidate_matches missing → fail closed
+    )
     assert (
         _landed_replay_verified(
             {
@@ -14124,109 +14148,349 @@ def test_fix3_landed_replay_extractor_is_fail_closed():
                 }
             }
         )
-        is True
+        is False
     )
     assert (
         _landed_replay_verified(
             {"authority": {"replay_ok": True, "candidate_matches": True}}
         )
-        is True
+        is False
     )
 
 
 # ── DEEP-AUDIT-FIX-2 (§28 fix 4: replay/live canonicalization) ──────────────
 
 
-def _fix2_structural_transaction(seed_value=30):
+def _fix2_production_receipt_and_transaction(seed_value=16.0):
+    """Mint receipt + transaction through the REAL production seams.
+
+    DEEP-AUDIT-REVIEW-2-001: ``build_authority_receipt`` mints the durable Δ
+    digest and ``build_candidate_transaction`` consumes it as
+    ``delta_hash=authority_receipt.cumulative_delta_hash`` — exactly what
+    ``session.record_idempotent_response`` does.  The builder-only
+    ``delta_hash=None`` fallback is never used, so the test cannot bless a
+    path production does not take.  The delta targets the typed FLOAT ``cfg``
+    widget so an integral-float value (``16.0``) is genuinely accepted and its
+    semantic digest differs from the exact-rendering hash."""
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        build_authority_receipt,
+    )
     from vibecomfy.comfy_nodes.agent.candidate_transaction import (
         build_candidate_transaction,
     )
+    from vibecomfy.comfy_nodes.agent.session import (
+        payload_hash,
+        structural_graph_hash,
+    )
 
-    graph = {
+    submit_graph = {
         "nodes": [
             {
                 "id": 1,
-                "type": "Note",
-                "mode": 0,
-                "properties": {"vibecomfy_uid": "n1"},
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [7, "fixed", 20, 8, "euler", "normal", 1],
             }
         ],
         "links": [],
     }
-    accepted_batch = [
-        {"op": {"op": "set_node_field", "target": ["", "n1", "title"], "value": seed_value}},
-    ]
+    candidate_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph["nodes"][0]["widgets_values"][3] = seed_value
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {"op": "set_node_field", "target": ["", "1", "cfg"], "value": seed_value}
+        ],
+    }
+    structural_before = structural_graph_hash(submit_graph)
+    structural_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=structural_before,
+        structural_hash_after=structural_after,
+    )
+    receipt = build_authority_receipt(
+        session_id="s-fix4",
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=candidate_graph,
+        response={"ok": True},
+        schema_provider=_frozen_ingest_provider(None, submit_graph),
+    )
     transaction = build_candidate_transaction(
         workflow_id="123e4567-e89b-12d3-a456-426614174000",
-        session_id="s",
-        turn_id="t",
-        plan_hash="p",
-        submit_graph=graph,
-        candidate_graph=graph,
-        accepted_batch=accepted_batch,
-        delta_hash=None,  # mint over the derived semantic Δ
-        submit_graph_hash="a" * 64,
-        submit_structural_graph_hash="a" * 64,
-        candidate_graph_hash="b" * 64,
-        candidate_structural_graph_hash="c" * 64,
-        authority_receipt_hash="d" * 64,
-        schema_witness={"witness_hash": "e" * 64},
-        replay_ok=True,
-        candidate_matches=True,
-        applyable=False,
+        session_id="s-fix4",
+        turn_id="0001",
+        plan_hash=plan_hash,
+        submit_graph=submit_graph,
+        candidate_graph=candidate_graph,
+        accepted_batch=[{"op": op} for op in envelope["ops"]],
+        # The production seam under test: the RECEIPT's durable digest.
+        delta_hash=receipt.cumulative_delta_hash,
+        submit_graph_hash=receipt.submit_graph_hash,
+        submit_structural_graph_hash=structural_before,
+        candidate_graph_hash=payload_hash(candidate_graph),
+        candidate_structural_graph_hash=structural_after,
+        authority_receipt_hash=payload_hash(receipt.to_dict()),
+        schema_witness=receipt.schema_witness,
+        replay_ok=receipt.replay.replay_ok,
+        candidate_matches=receipt.replay.candidate_matches,
+        applyable=True,
     )
-    return transaction
+    return receipt, transaction
 
 
-def test_fix4_persisted_delta_survives_numeric_respelling_and_key_order():
-    """Replay law across renderings: re-deriving the persisted Δ under a
-    different dict key order or numeric spelling (browser ``Number`` carriers
-    collapse ``30.0`` → ``30``) must NOT fail as persisted_delta_hash_mismatch."""
+def test_fix4_production_delta_chain_semantic_end_to_end(tmp_path):
+    """DEEP-AUDIT-REVIEW-2-001: the REAL chain — ``build_authority_receipt``
+    → ``record_idempotent_response`` (which calls
+    ``build_candidate_transaction(delta_hash=authority_receipt.cumulative_delta_hash)``)
+    → ``validate_candidate_transaction`` → persisted load → rehydration —
+    shares ONE semantic Δ digest.  Integral-float (``16.0`` vs browser-collapsed
+    ``16``) and key-order respellings of the persisted Δ verify identically;
+    rehydration over the durable turn accepts the same digest."""
+    from vibecomfy.comfy_nodes.agent._frag_state import (
+        derived_accepted_delta_envelope,
+    )
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        load_authority_receipt,
+    )
     from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        content_hash,
         validate_candidate_transaction,
     )
+    from vibecomfy.comfy_nodes.agent.session import (
+        _load_authoritative_candidate_transaction,
+        allocate_turn,
+        payload_hash,
+        read_state,
+        record_idempotent_response,
+        session_dir_for,
+        structural_graph_hash,
+    )
 
-    transaction = _fix2_structural_transaction(30)
-    ok, error = validate_candidate_transaction(transaction)
-    assert (ok, error) == (True, None)
+    root = tmp_path / "sessions"
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [7, "fixed", 20, 8, "euler", "normal", 1],
+            }
+        ],
+        "links": [],
+    }
+    candidate_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph["nodes"][0]["widgets_values"][3] = 16.0
+    request = {
+        "task": "set cfg",
+        "workflow_id": "123e4567-e89b-12d3-a456-426614174000",
+        "graph": submit_graph,
+    }
+    allocation = allocate_turn(
+        session_root=root, session_id="fix4", request_payload=request
+    )
+    turn_id = str(allocation.context.turn_id)
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps(request), encoding="utf-8"
+    )
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {"op": "set_node_field", "target": ["", "1", "cfg"], "value": 16.0}
+        ],
+    }
+    structural_before = structural_graph_hash(submit_graph)
+    structural_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=structural_before,
+        structural_hash_after=structural_after,
+    )
+    response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "graph": candidate_graph,
+        "candidate": {
+            "graph": candidate_graph,
+            "plan_hash": plan_hash,
+            "structural_hash_before": structural_before,
+            "structural_hash_after": structural_after,
+        },
+        "eligibility": {"applyable": True},
+        "agent_edit_protocol": "v2_delta",
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
+    }
 
-    # Dict ordering + whitespace round trip.
-    reordered = json.loads(json.dumps(transaction))
+    record_idempotent_response(
+        session_root=root,
+        session_id="fix4",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+        schema_provider=_frozen_ingest_provider(None, submit_graph),
+    )
+
+    # The V2 publication advanced only because validation passed end to end.
+    assert (
+        read_state(session_dir_for(root, "fix4"))["turns"][turn_id]["state"]
+        == "candidate_ready"
+    )
+    response_payload = json.loads(
+        (allocation.turn_dir / "response.json").read_text(encoding="utf-8")
+    )
+    persisted = response_payload["candidate_transaction"]
+    assert validate_candidate_transaction(persisted) == (True, None)
+
+    # ONE canonical semantic digest across receipt ↔ plan ↔ authority block.
+    derived = derived_accepted_delta_envelope(
+        {"accepted_batch": persisted["plan"]["accepted_batch"]}
+    )
+    semantic = content_hash(derived)
+    receipt = load_authority_receipt(allocation.turn_dir)
+    assert receipt.cumulative_delta_hash == semantic
+    assert persisted["plan"]["delta_hash"] == semantic
+    assert (
+        persisted["candidate_authority"]["operation"]["accepted_batch_digest"]
+        == semantic
+    )
+    # The boundary is genuinely exercised: an integral-float Δ has a
+    # different exact-rendering hash than its semantic hash.
+    assert payload_hash(derived) != semantic
+
+    # Replay law across renderings of THIS production-minted record:
+    # dict-order respelling, integral-float collapse, and a full JSON round
+    # trip all re-derive the same semantic digest.
+    reordered = json.loads(json.dumps(persisted))
     batch = reordered["plan"]["accepted_batch"]
     reordered["plan"]["accepted_batch"] = [
         {key: statement[key] for key in reversed(list(statement))}
         for statement in batch
     ]
-    ok, error = validate_candidate_transaction(reordered)
-    assert (ok, error) == (True, None), error
+    assert validate_candidate_transaction(reordered) == (True, None)
 
-    # Semantic-equivalent numeric respelling of the SAME value.
-    respelled = json.loads(json.dumps(transaction))
-    respelled["plan"]["accepted_batch"][0]["op"]["value"] = 30.0
-    ok, error = validate_candidate_transaction(respelled)
-    assert (ok, error) == (True, None), error
+    respelled = json.loads(json.dumps(persisted))
+    respelled["plan"]["accepted_batch"][0]["op"]["value"] = 16
+    assert validate_candidate_transaction(respelled) == (True, None), (
+        "browser Number collapse 16.0 → 16 must not fail the digest binding"
+    )
 
-    # Full JSON round trip (the §9 replay reproduction).
-    round_tripped = json.loads(json.dumps(transaction))
-    ok, error = validate_candidate_transaction(round_tripped)
-    assert (ok, error) == (True, None), error
+    round_tripped = json.loads(json.dumps(persisted))
+    assert validate_candidate_transaction(round_tripped) == (True, None)
+
+    # Rehydration over the durable turn verifies against the same digest.
+    loaded, load_error = _load_authoritative_candidate_transaction(
+        turn_dir=allocation.turn_dir,
+        session_id="fix4",
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+    )
+    assert load_error is None, load_error
+    assert loaded == persisted
 
 
 def test_fix4_genuinely_different_delta_still_fails_hash_check():
-    """Tamper evidence: a semantically DIFFERENT delta matches neither the
-    semantic hash nor the legacy rendering — fail closed."""
+    """Tamper evidence through the production seams: a semantically DIFFERENT
+    delta matches neither the semantic hash nor the legacy rendering of the
+    derived Δ — fail closed at the authority-validator binding first, with the
+    plan-level check as backstop."""
     from vibecomfy.comfy_nodes.agent.candidate_transaction import (
         validate_candidate_transaction,
     )
 
-    # Start from a VALID transaction, then swap the persisted Δ for a
-    # semantically different one while keeping the stored digest.
-    tampered = _fix2_structural_transaction(30)
-    assert validate_candidate_transaction(tampered) == (True, None)
+    _receipt, transaction = _fix2_production_receipt_and_transaction()
+    assert validate_candidate_transaction(transaction) == (True, None)
+    tampered = json.loads(json.dumps(transaction))
     tampered["plan"]["accepted_batch"][0]["op"]["value"] = "EXTERNALLY_MUTATED"
     ok, error = validate_candidate_transaction(tampered)
     assert ok is False
-    # The authority validator's accepted_batch_digest binding rejects the swap
-    # first; persisted_delta_hash_mismatch is the plan-level backstop.
     assert error in {"accepted_batch_digest_mismatch", "persisted_delta_hash_mismatch"}
 
+
+
+def test_fix3_applied_unverified_real_path_requires_validated_persisted_candidate(
+    tmp_path,
+):
+    """DEEP-AUDIT-REVIEW-2-002: the REAL assessment path —
+    ``assess_live_output_dir`` → ``judge_edit_intent`` → validated persisted
+    ``candidate_transaction_v2`` → canonical graph pair → recorded
+    ``outcome_class``.  A validated persisted candidate with matching replay
+    authority records ``applied-unverified`` (never a pass); unsupported
+    top-level ``authority`` booleans are NOT replay-verified and stay bare
+    ``undetermined``."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+    from vibecomfy.comfy_nodes.agent.artifact_lineage import (
+        LINK_KINDS,
+        FALLBACK_REASONS,
+        build_artifact_lineage,
+        fallback_row,
+    )
+
+    lineage = {
+        "scenario_id": "s1",
+        "session_id": "sess",
+        "turn_id": "0001",
+        "baseline_id": "0000",
+    }
+    manifest = build_artifact_lineage(
+        lineage=lineage,
+        rows=[
+            fallback_row(kind, sorted(FALLBACK_REASONS[kind])[0])
+            for kind in LINK_KINDS
+        ],
+    )
+    base_response = {
+        "ok": True,
+        "report": {"executor": {"artifact_lineage": manifest}},
+    }
+
+    def _write_run(response: dict) -> Path:
+        (tmp_path / "original.ui.json").write_text(
+            json.dumps(_fix2_ui_graph(7)), encoding="utf-8"
+        )
+        (tmp_path / "final.ui.json").write_text(
+            json.dumps(_fix2_ui_graph(30)), encoding="utf-8"
+        )
+        (tmp_path / "artifact_lineage.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        (tmp_path / "response.json").write_text(
+            json.dumps(response), encoding="utf-8"
+        )
+        return tmp_path
+
+    scenario = {
+        "query": "set the cfg to 16",
+        "assessment": {"expect_graph_changed": True},
+    }
+
+    # Leg 1: validated persisted V2 candidate with matching receipt/replay
+    # authority → honest applied-unverified class, still not a pass.
+    _receipt, transaction = _fix2_production_receipt_and_transaction()
+    run_dir = _write_run({**base_response, "candidate_transaction": transaction})
+    assessment = assess_live_output_dir(run_dir, scenario=scenario)
+    assert assessment["outcome_class"] == "applied-unverified"
+    assert any(
+        isinstance(judge.get("metadata"), dict)
+        and judge["metadata"].get("verdict") == "applied_unverified"
+        for judge in assessment["judge_results"]
+    )
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+    # Leg 2: unsupported top-level authority booleans are NOT production
+    # evidence → NOT replay-verified → bare undetermined, no outcome class.
+    unsupported = {
+        **base_response,
+        "authority": {"replay_ok": True, "candidate_matches": True},
+    }
+    run_dir = _write_run(unsupported)
+    assessment = assess_live_output_dir(run_dir, scenario=scenario)
+    assert assessment["outcome_class"] is None
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False

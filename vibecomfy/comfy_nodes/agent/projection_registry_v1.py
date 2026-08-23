@@ -977,10 +977,21 @@ def _validate_candidate_authority_common(raw: Any, *, accepted_batch: Any = None
     forward_ops = _forward_ops_from_accepted_batch(accepted_batch)
     if accepted_batch is not None:
         from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
-        from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+        from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+            content_hash,
+            legacy_rendering_hash,
+        )
 
-        expected = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
-        if digest != expected:
+        derived = derived_accepted_delta_envelope({"accepted_batch": accepted_batch})
+        # DEEP-AUDIT-REVIEW-2-001: the semantic numeric view is the canonical
+        # Δ digest (what ``build_authority_receipt`` mints since the fix).  The
+        # exact legacy rendering of THIS derived envelope stays accepted so
+        # persisted V2 records minted before the semantic minter remain
+        # readable — the outer plan-level fallback alone is unreachable after
+        # this inner rejection.  Both candidates are pure functions of the
+        # persisted batch: a genuinely different delta matches neither and the
+        # binding keeps failing closed.
+        if digest not in {content_hash(derived), legacy_rendering_hash(derived)}:
             raise ContractError("accepted_batch_digest does not match plan.accepted_batch", "accepted_batch_digest_mismatch")
         _strict_delta(forward_ops)
     family = raw.get("operation_family")

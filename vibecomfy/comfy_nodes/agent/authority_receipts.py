@@ -31,6 +31,7 @@ from typing import Any, Mapping
 
 from .candidate_transaction import (
     build_schema_witness,
+    content_hash,
     missing_touched_class_types,
     schema_provider_from_witness,
     validate_schema_witness,
@@ -599,8 +600,17 @@ def build_authority_receipt(
     delta_envelope_dict = (
         dict(cumulative_delta_envelope) if isinstance(cumulative_delta_envelope, Mapping) else None
     )
+    # DEEP-AUDIT-REVIEW-2-001: ONE canonical semantic Δ digest.  The
+    # numeric-canonical view (``content_hash``) is authoritative for the
+    # delta-hash chain and is consumed unchanged by candidate construction,
+    # both validation layers, and rehydration — minting the exact-rendering
+    # ``payload_hash`` here made integral-float deltas fail as
+    # ``accepted_batch_digest_mismatch`` on the semantic verify side.
+    # ``payload_hash`` remains only where it hashes a genuinely byte-meaningful
+    # envelope applied identically at mint and verify (receipt digest, graph
+    # and response-metadata hashes).
     cumulative_delta_hash = (
-        payload_hash(delta_envelope_dict) if delta_envelope_dict is not None else None
+        content_hash(delta_envelope_dict) if delta_envelope_dict is not None else None
     )
     candidate_hash = payload_hash(candidate) if candidate is not None else None
 

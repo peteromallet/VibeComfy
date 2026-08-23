@@ -23,6 +23,8 @@ from .candidate_transaction import (
     build_candidate_transaction,
     canonical_transaction_state,
     classify_legacy_migration_v1,
+    content_hash,
+    legacy_rendering_hash,
     project_transaction_state,
     validate_candidate_transaction,
 )
@@ -1557,9 +1559,17 @@ def _load_authoritative_candidate_transaction(
     from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
 
     plan_envelope = derived_accepted_delta_envelope({"accepted_batch": accepted})
-    plan_digest = payload_hash(plan_envelope)
+    # DEEP-AUDIT-REVIEW-2-001: same canonical Δ digest as every other seam —
+    # the semantic numeric view minted by ``build_authority_receipt``.  The
+    # exact legacy rendering of THIS envelope stays accepted so receipts and
+    # plans persisted before the semantic minter still rehydrate; both
+    # candidates are pure functions of the persisted batch, so a genuinely
+    # different Δ matches neither (fail-closed unchanged).
     receipt_digest = authority.accepted_batch_digest or authority.cumulative_delta_hash
-    if plan_digest != receipt_digest:
+    if receipt_digest not in {
+        content_hash(plan_envelope),
+        legacy_rendering_hash(plan_envelope),
+    }:
         return None, "authority_delta_mismatch"
     if plan.get("delta_hash") != authority.cumulative_delta_hash:
         return None, "authority_delta_hash_mismatch"
