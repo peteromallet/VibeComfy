@@ -761,6 +761,96 @@
           "label": "WRAPPER-ROUTE-THINKING \u2014 stealth/ox-alpha tool-use fix: ROUTE_LAUNCHERS stealth entries append :max thinking (tool-using dispatches currently return degenerate empty output)",
           "model_route": "codex:gpt-5.6-luna",
           "exit": 0
+        },
+        {
+          "sequence": 14,
+          "canonical_slot": "G7",
+          "task_id": "R1-ROOT-CAUSE",
+          "receipt_path": "receipts/R1-ROOT-CAUSE-receipt.json",
+          "sha256": "61014111488198b27019cc05d66de35580e4f0c476f6e61c31c9a4fc974ede99",
+          "result_sha256": "0689ce811a6245e62849c4ba8a8fa1d5020cfc02610e5bc44e626037947bf1bf",
+          "role": "review",
+          "label": "R1-ROOT-CAUSE \u2014 \u00a727 round 1: deep root-cause of the R1-FAILURE-ANALYSIS batch (5 legs), CLEAR WINS ONLY, classified (a) spine (b) data (c) instruction (d) model gap SKIP (e) infra; prioritized fix list with exact files",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0
+        },
+        {
+          "sequence": 15,
+          "canonical_slot": "G7",
+          "task_id": "R1-FIX-APPLY",
+          "receipt_path": "receipts/R1-FIX-APPLY-receipt.json",
+          "sha256": "0ad6308df1d547f30902b8101494030d3982ce0f1f2c0f5c048d4364f99ab1a4",
+          "result_sha256": "fe3a6ea5db3bd82344738c81bbef683633ede911ec95bf96388a3d6bf759a0af",
+          "commit": "c4619693b99d7f2cf0eae91a9d075a508d8b1cbb",
+          "role": "implementer",
+          "label": "R1-FIX-APPLY \u2014 \u00a727 round 1: apply R1-ROOT-CAUSE clear wins (accepted_batch envelope, LayerMask schema, cc0df7 descriptor, pure-clarify receipt)",
+          "model_route": "ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 16,
+          "canonical_slot": "G7",
+          "task_id": "R1-FIX-REVISION",
+          "receipt_path": "receipts/R1-FIX-REVISION-receipt.json",
+          "sha256": "8ada1cb3ca69423f0070a801a7445c711d60a1b6e9b38dc362e3130255e90d40",
+          "result_sha256": "16f8be1574858f3b865597147274da3a10c51b7e8d2601f83bbcfe0e869005e3",
+          "commit": "f52c981c38a72c33d519bf39c57bb93dd85e5d11",
+          "role": "implementer",
+          "label": "R1-FIX-REVISION \u2014 mechanical remedy: refresh cc0df7 digests in compact threaded_comparison_manifest.json",
+          "model_route": "ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 17,
+          "canonical_slot": "G7",
+          "task_id": "R1-BATCH-REVIEW",
+          "receipt_path": "receipts/R1-BATCH-REVIEW-receipt.json",
+          "sha256": "698149b36c744c1afcd3d34da174bcf4f731722d67e7236c85814a8ba6af4eb4",
+          "result_sha256": "4b7578eda4c92dcada596f1d2279386cd9c1d358508b1586ee1a4d4f7e558088",
+          "role": "review",
+          "label": "R1-BATCH-REVIEW \u2014 \u00a727 round 1 single batch review: R1-FIX-APPLY c4619693 + R1-FIX-REVISION f52c981c",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "findings-opened"
+        },
+        {
+          "sequence": 18,
+          "canonical_slot": "G7",
+          "task_id": "R1-FIX-REVISION-2",
+          "receipt_path": "receipts/R1-FIX-REVISION-2-receipt.json",
+          "sha256": "b8b7ef37c40f4026ff37e98b02ad6bd9a8c7ca2a580df8c479ea40c0072df497",
+          "result_sha256": "f68c284a3b5367a9d7edd7a6431fdebe79edc6825b6b8779a198dc53a9398b85",
+          "commit": "d5f2aeeaa61fee65daf17fd7ec75ac0a788c1f7a",
+          "role": "implementer",
+          "label": "R1-FIX-REVISION-2 \u2014 fix R1BR-001 (LayerMask pack identity vs schema obligations) + R1BR-002 (pure-clarify spoofable early return)",
+          "model_route": "ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 19,
+          "canonical_slot": "G7",
+          "task_id": "R1-BATCH-REREVIEW",
+          "receipt_path": "receipts/R1-BATCH-REREVIEW-receipt.json",
+          "sha256": "866516d0881a51a21fc6c48b37237d7ca268f7403cd6e995bd872f60eac1157a",
+          "result_sha256": "8709c68c86093893c8e9660bebab759f663fc8d935d869eacc045b05f4c6d98a",
+          "role": "review",
+          "label": "R1-BATCH-REREVIEW \u2014 fresh independent review of complete R1 fix batch (44d022eb..d5f2aeea) after R1BR-001/002 revision",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "closed"
+        },
+        {
+          "sequence": 20,
+          "canonical_slot": "G7",
+          "task_id": "R1-RE-RUN-20",
+          "receipt_path": "receipts/R1-RE-RUN-20-receipt.json",
+          "sha256": "9694c4552b40fe4eef66f4584e7a5a839141b6b3bd3e1c65333fa2dccabffb3c",
+          "result_sha256": "36e3fe385016ffa87ac6c1b9e4961c6221e2ff1d3d8b307cb08508942ff0c822",
+          "role": "implementer",
+          "label": "R1-RE-RUN-20 \u2014 \u00a727 round 1: NON-authoritative validation window, 20 previously-failed scenarios (10 staged + 10 threaded), validate-only first (zero model calls)",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "disposition": "non_authoritative"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1184,7 +1274,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "c0db02e219affd2e604c0d2e94cde4ca9fb5d40cd066d6ab309997bfa84e60a3",
+        "sha256": "e4eff7797c1a0b1f9768e05d2101d96f40f73635dec1a95894daa259b60f6a4e",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
@@ -5211,6 +5301,39 @@
       "dispatch_log": "/workspace/vibecomfy-exec-spine-20260820/g0/T7.2-FINALE-SPLIT-dispatch.log",
       "receipt_path": "docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T7.2-FINALE-SPLIT-receipt.json",
       "receipt_sha256": "390bd99f78207b964206c90e5aca444cbe4ce4472b0bc6812d5fd565c1deebe4"
+    },
+    {
+      "task_id": "R1-RE-RUN-20",
+      "gate": "G7",
+      "status": "non_authoritative",
+      "authoritative": false,
+      "tag": "r1-20",
+      "manifest": "/tmp/t7-r1/manifest20.json",
+      "manifest_sha256": "559acdec5e3cd84d1e929f7c68aa69e693836d6af4f69a6f889d51467a7ccf28",
+      "concurrency": 10,
+      "scenario_count": 20,
+      "leg_count": 20,
+      "split": {
+        "staged": 10,
+        "threaded": 10
+      },
+      "note": "Validation window only; NEVER counted toward the authoritative G7.2 finale; validator LIVE_RUN_SINGLETON ignores non_authoritative records.",
+      "receipt_path": "receipts/R1-RE-RUN-20-receipt.json",
+      "receipt_sha256": "9694c4552b40fe4eef66f4584e7a5a839141b6b3bd3e1c65333fa2dccabffb3c",
+      "result_path": "/tmp/t7-r1/out/R1-RE-RUN-20-result-record.json",
+      "result_sha256": "4f3a93324d559804ee6ac000e23d514ba8d3c2a3ddc8f11ff9f473ab958bcb3d",
+      "outcome": {
+        "pass": 2,
+        "fail": 18,
+        "undetermined": 0,
+        "infra_blocked": 2
+      },
+      "comparison_path": "/tmp/t7-r1/out/comparison.json",
+      "validate_only": {
+        "entries": 20,
+        "model_calls": 0,
+        "exit": 0
+      }
     }
   ],
   "findings": [

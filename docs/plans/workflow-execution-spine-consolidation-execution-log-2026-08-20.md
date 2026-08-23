@@ -5021,3 +5021,143 @@ This entry RECORDS only — three settled cards executed by dispatched agents, n
   5. R1 round score (compare 20-leg subset vs baseline; authoritative 50-leg T7.2 unchanged).
 - **Authoritative finale stands:** `T7.2` `G7.2` 50-leg `split 25/25` `199f231f…` `concurrency 10` `authoritative:true` (never deleted/gamified). R1's 20-leg re-run is non-authoritative validation.
 
+
+## evidence-log-R1-BATCH-3 — §27 Round 1: R1-ROOT-CAUSE → R1-FIX-APPLY → R1-FIX-REVISION → R1-BATCH-REVIEW (+REREVIEW) → R1-FIX-REVISION-2 → R1-RE-RUN-20 windows + round-1 score — 2026-08-23 ~12:56Z
+
+- **Task/gate/label/role:** `evidence-log-R1-BATCH-3` / `G7` / `evidence-log-R1-BATCH-3 — record §27 Round 1: R1-ROOT-CAUSE, R1-FIX-APPLY, R1-FIX-REVISION, R1-BATCH-REVIEW (+REREVIEW), R1-FIX-REVISION-2, R1-RE-RUN-20 windows + round-1 score` / evidence recorder.
+- **Model route:** `codex:gpt-5.6-luna` (resolves to muse — the working evidence model; do NOT treat the id as a hard model binding; do NOT mix routes mid-card).
+- **Base HEAD:** `d5f2aeea` (R1 fix batch); `git rev-parse HEAD` verified `d5f2aeeaa61fee65daf17fd7ec75ac0a788c1f7a`. Commit ONLY the three allowed docs files, ONE commit. No push, no merge, no rebase, no reset. G7 remains OPEN; §27 improvement loop Round 1 COMPLETE (score recorded below); Round 2 next.
+- **Banner:** §27 Round 1 complete 2026-08-23 ~12:56Z; G7 remains `open`; original 50-leg authoritative result stands as-is; improvement rounds are additional labeled evidence.
+
+### Window A — R1-ROOT-CAUSE (review, codex:gpt-5.6-sol REAL codex, read-only)
+
+- **Task/gate/label/role/route:** `R1-ROOT-CAUSE` / `G7` (receipt `gate: ""` — improvement-loop root-cause counted under G7 open) / `R1-ROOT-CAUSE — §27 round 1: deep root-cause of the R1-FAILURE-ANALYSIS batch (5 legs), CLEAR WINS ONLY, classified (a) spine (b) data (c) instruction (d) model gap SKIP (e) infra; prioritized fix list with exact files` / review / `codex:gpt-5.6-sol` (→ `openai-codex/gpt-5.6-sol`, REAL codex read-only).
+- **Allowance:** `g0/R1-ROOT-CAUSE-allowance.json` `allowed: []` `forbidden: ["**"]` (read-only).
+- **Wrapper receipt (verbatim — `receipts/R1-ROOT-CAUSE-receipt.json`, file SHA-256 `61014111488198b27019cc05d66de35580e4f0c476f6e61c31c9a4fc974ede99`):**
+  - `task_id: R1-ROOT-CAUSE`, `gate: ""`, `label: R1-ROOT-CAUSE — §27 round 1: deep root-cause of the R1-FAILURE-ANALYSIS batch (5 legs), CLEAR WINS ONLY, classified (a) spine (b) data (c) instruction (d) model gap SKIP (e) infra; prioritized fix list with exact files`, `role: review`, `model_route: codex:gpt-5.6-sol`, `resolved_model: openai-codex/gpt-5.6-sol`
+  - `base_sha: 44d022eb22205ae0f656d8ce7b2c1e0457ab78cd`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-ROOT-CAUSE.md`, `brief_sha256: 66099083566510b3305628b64dabf43f479e4ce4c6963e4e249332ad821a21c7`, `result_sha256: 0689ce811a6245e62849c4ba8a8fa1d5020cfc02610e5bc44e626037947bf1bf`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=codex:gpt-5.6-sol", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-ROOT-CAUSE.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=3600"]`
+  - `pid: 218013`, `start_ts: 2026-08-23T10:56:43Z`, `end_ts: 2026-08-23T11:12:14Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: []`, `commits: []`
+  - **Dispatch:** `g0/R1-ROOT-CAUSE-dispatch.log` (review read-only; no commits).
+- **Result persisted:** `g0/R1-ROOT-CAUSE-result.md` (read-only root-cause).
+- **Findings (verbatim summary):** 4 clear wins: accepted_batch envelope allowlist — leg 2 + 13-leg undetermined cluster; LayerMask authoritative schema snapshot — leg 3; cc0df7 scenario descriptor — leg 4; pure-clarify authority receipt — leg 4 + all clarifications. SKIPs: leg 1 infra, leg 5 model gap. `JUDGMENT_REQUIRED: none`. Fix table exact files: `vibecomfy/executor/contracts.py` + `tests/test_agent_executor_routes.py` (envelope); `vibecomfy/porting/cache/object_info/ComfyUI-LayerMask@local.json` + `index.json` + `provenance.json` + `tests/test_porting_ui_emitter.py` (LayerMask); `tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-preview-workflow-cc0df7.json` + `scenario_manifest.json` + `threaded_comparison_manifest_final50.json` (cc0df7); `vibecomfy/comfy_nodes/agent/authority_receipts.py` + `tests/test_shared_authority_canonicalization.py` (pure-clarify).
+- **Disposition:** **review complete — CLEAR WINS ONLY**; no mutation; `JUDGMENT_REQUIRED: none`.
+
+### Window B — R1-FIX-APPLY (implementer, commit `c4619693`)
+
+- **Task/gate/label/role/route:** `R1-FIX-APPLY` / `G7` (receipt `gate: ""`) / `R1-FIX-APPLY — §27 round 1: apply R1-ROOT-CAUSE clear wins (accepted_batch envelope, LayerMask schema, cc0df7 descriptor, pure-clarify receipt)` / implementer / `stealth/ox-alpha` → `stealth/ox-alpha:max` (hermes launcher, tool use via `:max` thinking).
+- **Allowance:** `g0/R1-FIX-APPLY-allowance.json` allows the 4 fix surfaces (envelope + LayerMask snapshot + cc0df7 descriptor + pure-clarify) plus their test/provenance/manifest files; forbids wrapper/validator/log/manifest/shards/plan/goal/receipts beyond scope.
+- **Wrapper receipt (verbatim — `receipts/R1-FIX-APPLY-receipt.json`, file SHA-256 `0ad6308df1d547f30902b8101494030d3982ce0f1f2c0f5c048d4364f99ab1a4`):**
+  - `task_id: R1-FIX-APPLY`, `gate: ""`, `label: R1-FIX-APPLY — §27 round 1: apply R1-ROOT-CAUSE clear wins (accepted_batch envelope, LayerMask schema, cc0df7 descriptor, pure-clarify receipt)`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: 44d022eb22205ae0f656d8ce7b2c1e0457ab78cd`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-FIX-APPLY.md`, `brief_sha256: 85346b0fa50fa09ebda940547a4850126a88253a0e86f4ea91048d39c45dbf7b`, `result_sha256: fe3a6ea5db3bd82344738c81bbef683633ede911ec95bf96388a3d6bf759a0af`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=stealth/ox-alpha:max", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-FIX-APPLY.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=7200"]`
+  - `pid: 218611`, `start_ts: 2026-08-23T11:13:49Z`, `end_ts: 2026-08-23T11:51:10Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: ["tests/live_agentic_harness/scenario_manifest.json", "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-preview-workflow-cc0df7.json", "tests/live_agentic_harness/threaded_comparison_manifest_final50.json", "tests/test_agent_executor_routes.py", "tests/test_porting_ui_emitter.py", "tests/test_shared_authority_canonicalization.py", "vibecomfy/comfy_nodes/agent/authority_receipts.py", "vibecomfy/executor/contracts.py", "vibecomfy/porting/cache/object_info/ComfyUI-LayerMask@local.json", "vibecomfy/porting/cache/object_info/index.json", "vibecomfy/porting/cache/object_info/provenance.json"]`, `commits: ["c4619693b99d7f2cf0eae91a9d075a508d8b1cbb"]`
+- **Work:** All 4 fixes landed; +3 regression tests; focused suite `14 failed, 180 passed, 3 skipped` vs baseline `14 failed, 177 passed` (pre-existing failures unchanged); returned `JUDGMENT_REQUIRED: R1-FIX-APPLY/threaded_comparison_manifest.json-stale-cc0df7-digests` (compact 6-entry manifest not in allowance pinned old cc0df7 digests, breaking 2 committed tests).
+- **Disposition:** **implementer complete — fixes 4/4 landed**; `JUDGMENT_REQUIRED: R1-FIX-APPLY/threaded_comparison_manifest.json-stale-cc0df7-digests` (mechanical digest staleness; remedied next window).
+
+### Window C — R1-FIX-REVISION (implementer, commit `f52c981c`)
+
+- **Task/gate/label/role/route:** `R1-FIX-REVISION` / `G7` / `R1-FIX-REVISION — mechanical remedy: refresh cc0df7 digests in compact threaded_comparison_manifest.json` / implementer / `stealth/ox-alpha:max`.
+- **Allowance:** `g0/R1-FIX-REVISION-allowance.json` allows ONLY `tests/live_agentic_harness/threaded_comparison_manifest.json`; forbids wrapper/validator/docs/plan/goal/final5/final50/scenario_manifest.
+- **Wrapper receipt (verbatim — `receipts/R1-FIX-REVISION-receipt.json`, file SHA-256 `8ada1cb3ca69423f0070a801a7445c711d60a1b6e9b38dc362e3130255e90d40`):**
+  - `task_id: R1-FIX-REVISION`, `gate: ""`, `label: R1-FIX-REVISION — mechanical remedy: refresh cc0df7 digests in compact threaded_comparison_manifest.json`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: c4619693b99d7f2cf0eae91a9d075a508d8b1cbb`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-FIX-REVISION.md`, `brief_sha256: 9d9c880fc390430128356def760efb3a463e70db51e544a6adee4bf2329ee965`, `result_sha256: 16f8be1574858f3b865597147274da3a10c51b7e8d2601f83bbcfe0e869005e3`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=stealth/ox-alpha:max", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-FIX-REVISION.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=3600"]`
+  - `pid: 220161`, `start_ts: 2026-08-23T11:51:42Z`, `end_ts: 2026-08-23T11:56:03Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: ["tests/live_agentic_harness/threaded_comparison_manifest.json"]`, `commits: ["f52c981c38a72c33d519bf39c57bb93dd85e5d11"]`
+- **Work (ONLY change):** refreshed cc0df7 digests in compact `threaded_comparison_manifest.json` (`descriptor_sha256 1cfb6896…`, `locked_input_sha256 b7cd2dda…`, recomputed + matched); 2/2 focused tests pass.
+- **Disposition:** **mechanical remedy complete**; `JUDGMENT_REQUIRED: none`.
+
+### Window D — R1-BATCH-REVIEW (review, codex, read-only)
+
+- **Task/gate/label/role/route:** `R1-BATCH-REVIEW` / `G7` / `R1-BATCH-REVIEW — §27 round 1 single batch review: R1-FIX-APPLY c4619693 + R1-FIX-REVISION f52c981c` / review / `codex:gpt-5.6-sol` (→ `openai-codex/gpt-5.6-sol`, REAL codex, read-only).
+- **Allowance:** `g0/R1-BATCH-REVIEW-allowance.json` `allowed: []` `forbidden: ["**"]` (read-only).
+- **Wrapper receipt (verbatim — `receipts/R1-BATCH-REVIEW-receipt.json`, file SHA-256 `698149b36c744c1afcd3d34da174bcf4f731722d67e7236c85814a8ba6af4eb4`):**
+  - `task_id: R1-BATCH-REVIEW`, `gate: ""`, `label: R1-BATCH-REVIEW — §27 round 1 single batch review: R1-FIX-APPLY c4619693 + R1-FIX-REVISION f52c981c`, `role: review`, `model_route: codex:gpt-5.6-sol`, `resolved_model: openai-codex/gpt-5.6-sol`
+  - `base_sha: f52c981c38a72c33d519bf39c57bb93dd85e5d11`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-BATCH-REVIEW.md`, `brief_sha256: bccb457ddc87e60b4b7afea8cd657b38e8a91889a18592ea56fe428e44b6cf62`, `result_sha256: 4b7578eda4c92dcada596f1d2279386cd9c1d358508b1586ee1a4d4f7e558088`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=codex:gpt-5.6-sol", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-BATCH-REVIEW.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=3600"]`
+  - `pid: 220409`, `start_ts: 2026-08-23T11:56:36Z`, `end_ts: 2026-08-23T12:07:34Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: []`, `commits: []`
+  - `result_sha256: 4b7578eda4c92dcada596f1d2279386cd9c1d358508b1586ee1a4d4f7e558088`
+- **Findings — MUST-FIX 2:**
+  - **R1BR-001 (LayerMask obligation pack):** obligation packs still `ComfyUI-LayerMask` vs repointed `ComfyUI_LayerStyle_Advance` → exact-match preflight rejects → multi-video blocked.
+  - **R1BR-002 (pure-clarify early return):** spoofable: no `_response_claims_applyable` requirement, candidate_transaction gap.
+  - Fixes 1/3 PASS; pre-existing-14 claim confirmed.
+- **Disposition:** **2 must findings opened** (`R1BR-001`, `R1BR-002`); `JUDGMENT_REQUIRED: none` (corrective revision required next).
+
+### Window E — R1-FIX-REVISION-2 (implementer, commit `d5f2aeea`)
+
+- **Task/gate/label/role/route:** `R1-FIX-REVISION-2` / `G7` / `R1-FIX-REVISION-2 — fix R1BR-001 (LayerMask pack identity vs schema obligations) + R1BR-002 (pure-clarify spoofable early return)` / implementer / `stealth/ox-alpha:max`.
+- **Allowance:** `g0/R1-FIX-REVISION-2-allowance.json` allows ONLY `tests/live_agentic_harness/scenario_obligations.py`, `tests/test_scenario_obligation_preflight.py`, `vibecomfy/comfy_nodes/agent/authority_receipts.py`, `tests/test_shared_authority_canonicalization.py`.
+- **Wrapper receipt (verbatim — `receipts/R1-FIX-REVISION-2-receipt.json`, file SHA-256 `b8b7ef37c40f4026ff37e98b02ad6bd9a8c7ca2a580df8c479ea40c0072df497`):**
+  - `task_id: R1-FIX-REVISION-2`, `gate: ""`, `label: R1-FIX-REVISION-2 — fix R1BR-001 (LayerMask pack identity vs schema obligations) + R1BR-002 (pure-clarify spoofable early return)`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: f52c981c38a72c33d519bf39c57bb93dd85e5d11`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-FIX-REVISION-2.md`, `brief_sha256: fe72a5b95d16c2431cf3fbf9f73627e1a3e9e39b67d4bf8b82728056900b7aa9`, `result_sha256: f68c284a3b5367a9d7edd7a6431fdebe79edc6825b6b8779a198dc53a9398b85`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=stealth/ox-alpha:max", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-FIX-REVISION-2.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=3600"]`
+  - `pid: 220812`, `start_ts: 2026-08-23T12:08:00Z`, `end_ts: 2026-08-23T12:24:32Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: ["tests/live_agentic_harness/scenario_obligations.py", "tests/test_scenario_obligation_preflight.py", "tests/test_shared_authority_canonicalization.py", "vibecomfy/comfy_nodes/agent/authority_receipts.py"]`, `commits: ["d5f2aeeaa61fee65daf17fd7ec75ac0a788c1f7a"]`
+- **Work:**
+  - **R1BR-001 fixed:** obligation packs → `ComfyUI_LayerStyle_Advance`, positive preflight locks, negative tests root-isolated honestly.
+  - **R1BR-002 fixed:** pure-clarify requires canonical `_response_claims_applyable is False` + no candidate authority in any recognized spelling; 6-spelling spoof regressions + candidate-authority regressions fail closed; discovery-stop path kept; edit-with-clarify still fails closed.
+  - Focused tests `27 passed, 4 warnings` (baseline 5 failed); fixes 1/3 byte-stable.
+- **Disposition:** **both must fixes landed**; `JUDGMENT_REQUIRED: none`.
+
+### Window F — R1-BATCH-REREVIEW (review, codex, read-only) — PASS
+
+- **Task/gate/label/role/route:** `R1-BATCH-REREVIEW` / `G7` / `R1-BATCH-REREVIEW — fresh independent review of complete R1 fix batch (44d022eb..d5f2aeea) after R1BR-001/002 revision` / review / `codex:gpt-5.6-sol` (→ `openai-codex/gpt-5.6-sol`).
+- **Allowance:** `g0/R1-BATCH-REREVIEW-allowance.json` `allowed: []` `forbidden: ["**"]` (read-only).
+- **Wrapper receipt (verbatim — `receipts/R1-BATCH-REREVIEW-receipt.json`, file SHA-256 `866516d0881a51a21fc6c48b37237d7ca268f7403cd6e995bd872f60eac1157a`):**
+  - `task_id: R1-BATCH-REREVIEW`, `gate: ""`, `label: R1-BATCH-REREVIEW — fresh independent review of complete R1 fix batch (44d022eb..d5f2aeea) after R1BR-001/002 revision`, `role: review`, `model_route: codex:gpt-5.6-sol`, `resolved_model: openai-codex/gpt-5.6-sol`
+  - `base_sha: d5f2aeeaa61fee65daf17fd7ec75ac0a788c1f7a`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-BATCH-REREVIEW.md`, `brief_sha256: f9cf98c0e681370c3a3788e33bcfdd6fe36f747a70ee6b503291cf134a2d12cd`, `result_sha256: 8709c68c86093893c8e9660bebab759f663fc8d935d869eacc045b05f4c6d98a`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=codex:gpt-5.6-sol", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-BATCH-REREVIEW.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=3600"]`
+  - `pid: 221544`, `start_ts: 2026-08-23T12:24:56Z`, `end_ts: 2026-08-23T12:32:59Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: []`, `commits: []`
+- **Findings:** No must findings; all 5 surfaces confirmed with code evidence; fail-closed law holds; G7 integrable. `JUDGMENT_REQUIRED: none`.
+- **Disposition:** **PASS** — no must findings; batch confirmed.
+
+### Window G — R1-RE-RUN-20 (implementer run card, non-authoritative)
+
+- **Task/gate/label/role/route:** `R1-RE-RUN-20` / `G7` / `R1-RE-RUN-20 — §27 round 1: NON-authoritative validation window, 20 previously-failed scenarios (10 staged + 10 threaded), validate-only first (zero model calls)` / implementer / `stealth/ox-alpha:max`.
+- **Allowance:** `g0/R1-RE-RUN-20-allowance.json` `allowed: []` `forbidden: ["**"]` (run-only; no repo file mutation beyond logs/receipts).
+- **Wrapper receipt (verbatim — `receipts/R1-RE-RUN-20-receipt.json`, file SHA-256 `9694c4552b40fe4eef66f4584e7a5a839141b6b3bd3e1c65333fa2dccabffb3c`):**
+  - `task_id: R1-RE-RUN-20`, `gate: ""`, `label: R1-RE-RUN-20 — §27 round 1: NON-authoritative validation window, 20 previously-failed scenarios (10 staged + 10 threaded), validate-only first (zero model calls)`, `role: implementer`, `model_route: ox-alpha`, `resolved_model: stealth/ox-alpha`
+  - `base_sha: d5f2aeeaa61fee65daf17fd7ec75ac0a788c1f7a`, `brief_path: /workspace/vibecomfy-exec-spine-20260820/g0/R1-RE-RUN-20.md`, `brief_sha256: a39ba49f8156410a4fe891be84ff6f336d1a51a6155a9ce5e6d52842617cd569`, `result_sha256: 36e3fe385016ffa87ac6c1b9e4961c6221e2ff1d3d8b307cb08508942ff0c822`
+  - `launcher_command: ["/root/.codex/skills/subagent-launcher/launch_hermes_agent.py", "--model=stealth/ox-alpha:max", "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/R1-RE-RUN-20.md", "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine", "--timeout=7200"]`
+  - `pid: 221858`, `start_ts: 2026-08-23T12:33:47Z`, `end_ts: 2026-08-23T12:56:29Z`, `exit: 0`, `stop_or_judgment: ""`
+  - `changed_files: []`, `commits: []`
+- **Validate-only (barrier-proven):** `python3 -m tests.live_agentic_harness.compare_pipeline_modes --validate-only --manifest /tmp/t7-r1/manifest20.json` exit `0`, exactly `20` entries, `model_calls: 0` (barrier-proven: dead-proxy env `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY=http://127.0.0.1:9`, `no_proxy` empty → identical byte-equivalent payload; see `/tmp/t7-r1/out/validate_only.json` + `validate_only_barrier.json`). No live call.
+- **Validation run:** one invocation, `--split --concurrency 10 --leg-isolation process`, `10` staged + `10` threaded, exit `0`, wall `641.85s`, `124` calls / `554,579` tokens / `$0.238073`, no cap hits. Split digest `f1ce97c42dfa9c46de80db7f7453da6a458bf0bec40a83271b84336b071308a0`. Costs: staged `$0.151536` / `2370.59s` latency, threaded `$0.086537` / `1628.48s`; threaded `−$0.065` / `−742.11s` vs staged.
+- **Score: pass 2 / fail 18 / undetermined 0 / infra-blocked 2** (aggregate `fail 18, pass 2`). **Flips vs baseline: 2** — `3d-3d-model-generation-and-preview-workflow-cc0df7` (staged, the exact fix target; judge `pass`, delta `db49a980abf2…`, IR `7564eda9a813…`) and `audio-acestep-audio-generation-with-ksampler-e8c20a` (staged). Near-miss: `multi-video…replacement-using` ValidationError → real product assessment. Infra-blocked: `audio-tts-narration…` + `audio-audio-processing-with-chatterbox…` (ProviderError/OpenRouter availability; not counted as assessable fails). Result record `/tmp/t7-r1/out/R1-RE-RUN-20-result-record.json` sha256 `4f3a9332…958bcb3d`, `authoritative: false` / `status: non_authoritative`. cc0df7 entry in /tmp manifest refreshed to reviewed digests (new manifest sha256 `559acdec5e3cd84d1e929f7c68aa69e693836d6af4f69a6f889d51467a7ccf28`).
+- **Legs (20, `/tmp/t7-r1/out/legs_full.json`; `comparison.json` + `legs_table.json` + `_legs/` + `staged/`/`threaded/` preserved):** 18 fail, 2 pass, 0 undetermined; 2 infra-blocked not counted as assessable product fails; staged-half flips only; threaded half unchanged `0/10` flips.
+- **Disposition:** **non-authoritative validation complete**; `authoritative: false` / `status: non_authoritative` (validator `LIVE_RUN_SINGLETON` ignores it); `JUDGMENT_REQUIRED: none`.
+
+### Round 1 score (record prominently)
+
+- **Baseline (authoritative finale, these 20 scenarios):** `0/20` passed (of these scenarios; authoritative finale is 50-leg `5/50` passes).
+- **Post-fix (R1 validation window, same 20):** **2/20 pass** (`pass 2 / fail 18 / undetermined 0 / infra-blocked 2` inclusive; `aggregate fail 18, pass 2`; `infra-blocked 2` observed but not counted as assessable product fails per this score).
+- Threaded half unchanged (`0/10` flips); staged half `2/10` (`cc0df7` exact fix target + `acestep` staged).
+- Classification totals to date: spine bug (a) ×2 fixed, data (b) ×2 fixed (schema snapshot, scenario descriptor), instruction (c) ×0, model gap (d) ×1 skipped, infra (e) ×2 (1 skipped at root-cause; 2 re-run infra-blocked observed).
+- Residual: 16 product-fails persist (MalformedModelJSON ×4, ValidationError ×3 across both modes); OpenRouter empty-response storms.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**) until operator adjudicates the §27 improvement loop. `label` unchanged. `evidence_sequence` now **20 records** (13 prior + **`14 R1-ROOT-CAUSE` `61014111…`/`0689ce81…` review + `15 R1-FIX-APPLY` `0ad6308d…`/`fe3a6ea5…` implementer `c4619693` + `16 R1-FIX-REVISION` `8ada1cb3…`/`16f8be15…` implementer `f52c981c` + `17 R1-BATCH-REVIEW` `698149b3…`/`4b7578ed…` review `2× MUST` + `18 R1-FIX-REVISION-2` `b8b7ef37…`/`f68c284a…` implementer `d5f2aeea` + `19 R1-BATCH-REREVIEW` `866516d0…`/`8709c68c…` review PASS + `20 R1-RE-RUN-20` `9694c455…`/`36e3fe38…` implementer non-authoritative validation**). `live_runs` retains authoritative `T7.2-FINALE-SPLIT` (`authoritative: true`, `concurrency 10`, `split 25/25`, 50 legs) unchanged; **added** non-authoritative `R1-RE-RUN-20` (`authoritative: false`, `status: non_authoritative`, `concurrency 10`, `split staged 10 / threaded 10`, 20 legs) which `LIVE_RUN_SINGLETON` ignores. `final_five` intact; `shards` unchanged.
+- **Shards:** `docs/plans/workflow-execution-spine-consolidation-evidence/test-shards.json` **byte-identical** to `54467724` base (`source_sha 54467724`, `head_sha 54467724`, 12 shards `S0`→`S11` + singleton `broad_suite_once_v1` pending `T6.3`-owned); no shard mutation on this docs-only recorder (shards frozen; validator `TEST_SINGLETON` allowance satisfied). Shard pins in `tasks[5].evidence_links` + `tasks[6]/tasks[20].shard_integrity` remain `f7d6408e771a15b3…` (unchanged).
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` on the working tree (see § Controls). `LIVE_RUN_SINGLETON` (single authoritative 50-leg split `concurrency 10`), `FINAL_FIVE_INTEGRITY`, `TEST_SINGLETON`, `nested_record_accounting` (7 new R1 records flattened via `evidence_sequence` + receipt-enriched `role`/`model_route`/`exit`), `FINDING_CHAIN`, and `artifact_digests` (`recovery_note.sha256` refreshed to this log's new SHA-256) all green. `recovery_note.sha256` and shard pins refreshed as validator-required.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed docs files in one coherent commit authored by `POM <peter@omalley.io>`: execution log (this `evidence-log-R1-BATCH-3` window section) plus validator-enforced `manifest.tasks[5].recovery_note.sha256` refresh and `manifest.json` G7 `evidence_sequence[14..20]` + non-authoritative `live_runs` promotion; `test-shards.json` is byte-identical (no rewrite needed but included in allowance). No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file is changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call beyond the recorded R1-RE-RUN-20 window, secret access, wrapper dispatch beyond recorded windows, or review/classification/integration beyond recorded windows is performed by this recorder.
+- **Protected state:** base `5fc6be9d` (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `54467724`; no wrapper/validator/plan/code/fixture file changed; `5fc6be9d` IS ancestor of `d5f2aeea` and of the new commit.
+- **No push:** G7 did **NOT** pass — `REPORT-ASSEMBLY` (terminal push) is **BLOCKED**; the §27 Round 1 batch (`R1-ROOT-CAUSE` → `R1-FIX-APPLY` `c4619693` → `R1-FIX-REVISION` `f52c981c` → `R1-BATCH-REVIEW` → `R1-FIX-REVISION-2` `d5f2aeea` → `R1-BATCH-REREVIEW` PASS → `R1-RE-RUN-20` non-authoritative `2/20`) plus T7.2 authoritative finale and G7-REVIEW hold are **local-only** on `fixer/workflow-execution-spine-consolidation`; no merge to `main`, no live promotion; No push, no merge, no rebase, no reset per task `evidence-log-R1-BATCH-3`.
+- **JUDGMENT_REQUIRED: none** (stable IDs: R1-ROOT-CAUSE `none`; R1-FIX-APPLY `R1-FIX-APPLY/threaded_comparison_manifest.json-stale-cc0df7-digests` remedied; R1-FIX-REVISION `none`; R1-BATCH-REVIEW `R1BR-001` + `R1BR-002` closed; R1-FIX-REVISION-2 `none`; R1-BATCH-REREVIEW `none`; R1-RE-RUN-20 `none`).
+- **G7 NOT passed; REPORT-ASSEMBLY BLOCKED; improvement loop in progress — Round 1 COMPLETE, Round 2 next.**
+
+### Position — G7 open, next unblocked cards (improvement loop §27)
+
+- **G7 not passed.** The 50-leg split contract is deterministic and honest; completion `all 50 required scenario outcomes passing` (`§14` done-when) remains UNMET. Round 1 raised the validation window from `0/20` to `2/20` on the 20-scenario subset; authoritative 50-leg T7.2 (`5/50`) stands as-is. Improvement rounds are additional labeled evidence, not authority.
+- **Next unblocked cards (sequential, one review per phase, Round 2 next):**
+  - `R2-FAILURE-ANALYSIS` → `R2-ROOT-CAUSE` → `R2-FIX-APPLY` → `R2-BATCH-REVIEW` → `R2-RE-RUN-20`, same pattern as Round 1, legs 6-10 by manifest order round-robin across modes (operator §27).
+  - Round 2 next: same pattern as Round 1, legs 6-10 by manifest order round-robin across modes.
+- **Authoritative finale stands:** `T7.2` `G7.2` 50-leg `split 25/25` `concurrency 10` `authoritative:true` (never deleted/gamified). R1's 20-leg re-run is non-authoritative validation.
