@@ -2346,7 +2346,12 @@ def test_schema_snapshot_request_beats_verified_object_info_and_cache(tmp_path) 
         workflow_observation={"PromptNode": {"guess": True}},
     )
 
-    assert provider.snapshot.selected_source == "explicit_request_snapshot"
+    # DEEP-AUDIT-FIX-1-REVISION 001: re-entering a persisted snapshot
+    # reconstructs it EXACTLY as frozen — identity and original selection
+    # marker are preserved verbatim (digest-stable round-trip), so the
+    # request payload still WINS over connected object_info and cache, but
+    # the reconstruction keeps the source it was originally captured from.
+    assert provider.snapshot.selected_source == request.selected_source
     assert provider.snapshot.precedence == SCHEMA_SNAPSHOT_PRECEDENCE
     assert provider.snapshot.generation == 3
     assert provider.snapshot.timestamp == "2026-08-21T00:00:00Z"
@@ -2801,51 +2806,69 @@ def test_captured_external_schemas_survive_snapshot_round_trip(
     assert dict(recaptured.schemas) == dict(snapshot.schemas)
 
 
-def test_build_schema_witness_receipts_drop_healed_missing_class(
+def test_build_schema_witness_reconstructs_frozen_snapshot_without_ambient_healing(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Authority receipts improve: build_schema_witness over a provider that
-    cannot resolve an installed external node captures it at witness time,
-    so missing_class_types shrinks and replay reconstructs identically."""
+    """DEEP-AUDIT-FIX-1-REVISION 001/002: witness construction no longer
+    ambient-heals missing classes at receipt time. Over a BOUND frozen
+    snapshot it reconstructs EXACTLY as frozen — an external custom node
+    installed after capture must not appear — and over a live provider that
+    cannot resolve a class, that class stays missing. Ingress completion is
+    the door's job (capture_ingress_schema_snapshot), never the witness's."""
     from vibecomfy.comfy_nodes.agent.candidate_transaction import (
         build_schema_witness,
         validate_schema_witness,
     )
-    from vibecomfy.schema.types import schema_snapshot_from_payload
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, capture_schema_snapshot
 
     monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
-    _write_external_custom_node(tmp_path)
-    monkeypatch.chdir(tmp_path)  # default source roots are repo-relative
-    graph = {"nodes": [{"id": "5", "type": "ApplyWhisperNode"}]}
-    delta = {
-        "schema_version": "2.0.0",
-        "ops": [
-            {
-                "op": "set_node_field",
-                "target": ["", "5", "model"],
-                "value": "base",
-            }
-        ],
-    }
+    # Bound frozen authority: captured while ApplyWhisperNode was absent.
+    frozen_snapshot = capture_schema_snapshot(
+        class_types=["ApplyWhisperNode"],
+        connected_object_info={},
+        source_roots=[tmp_path / "not_installed_yet"],
+    )
+    assert frozen_snapshot.missing_classes == ("ApplyWhisperNode",)
+    bound = FrozenSchemaSnapshotProvider(frozen_snapshot)
 
+    # The environment CHANGES: the pack is installed in the default source
+    # roots the superseded late completion pass would have scanned here.
+    _write_external_custom_node(tmp_path / "custom_nodes")
+    monkeypatch.chdir(tmp_path)
+
+    graph = {"nodes": [{"id": "5", "type": "ApplyWhisperNode"}]}
+    witness_a = build_schema_witness(
+        schema_provider=bound,
+        submit_graph=graph,
+        candidate_payload=graph,
+        delta_envelope=None,
+    )
+    witness_b = build_schema_witness(
+        schema_provider=bound,
+        submit_graph=graph,
+        candidate_payload=graph,
+        delta_envelope=None,
+    )
+    assert validate_schema_witness(witness_a)[0] is True
+    assert witness_a == witness_b
+    assert witness_a["missing_class_types"] == ["ApplyWhisperNode"]
+    assert "ApplyWhisperNode" not in witness_a["schemas"]
+
+    # A live provider that cannot resolve the class keeps it missing too:
+    # no ambient custom-node healing remains at witness construction.
     class _RuntimeOnlyProvider:
         def get_schema(self, class_type):
-            return None  # live runtime object_info without the external pack
+            return None
 
-    witness = build_schema_witness(
+    unhealed = build_schema_witness(
         schema_provider=_RuntimeOnlyProvider(),
         submit_graph=graph,
         candidate_payload=graph,
-        delta_envelope=delta,
+        delta_envelope=None,
     )
-    assert validate_schema_witness(witness)[0] is True
-    assert witness["missing_class_types"] == []
-    assert "ApplyWhisperNode" in witness["schemas"]
-    # Replay reconstruction from the frozen witness payload is identical.
-    rebuilt = schema_snapshot_from_payload(witness["schema_snapshot"])
-    assert list(rebuilt.missing_classes) == []
-    assert "ApplyWhisperNode" in rebuilt.schemas
+    assert validate_schema_witness(unhealed)[0] is True
+    assert unhealed["missing_class_types"] == ["ApplyWhisperNode"]
 
 
 def test_capture_on_demand_leg_resolves_uninstalled_pack_offline(
@@ -2875,3 +2898,58 @@ def test_capture_on_demand_leg_resolves_uninstalled_pack_offline(
     assert snapshot.schemas["ApplyWhisperNode"]["provenance"]["source_provider"] == (
         "on_demand_static"
     )
+
+
+def test_frozen_snapshot_reentry_is_digest_stable_when_environment_changes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """DEEP-AUDIT-FIX-1-REVISION 001: re-entering a persisted request
+    snapshot reconstructs it EXACTLY as frozen — no ambient re-resolution,
+    no on-demand lookup, no missing-class healing. A class installed AFTER
+    the original capture stays missing with the identical content_digest."""
+    from vibecomfy.schema import (
+        capture_schema_snapshot,
+        schema_snapshot_from_payload,
+        schema_snapshot_to_payload,
+    )
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    known = {
+        "input": {"required": {"prompt": ["STRING", {}]}},
+        "output": ["CONDITIONING"],
+    }
+    snapshot = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "LateExternal"],
+        connected_object_info={"KnownPromptNode": known},
+        connected_object_info_verified=True,
+        source_roots=[tmp_path],  # nothing installed yet -> LateExternal missing
+    )
+    assert list(snapshot.missing_classes) == ["LateExternal"]
+    payload = schema_snapshot_to_payload(snapshot)
+
+    # The environment changes after capture: the external pack is installed.
+    _write_external_custom_node(tmp_path / "custom_nodes")
+
+    recaptured = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "LateExternal"],
+        request_snapshot=payload,
+        source_roots=[tmp_path / "custom_nodes"],
+    )
+    assert recaptured.selected_source == snapshot.selected_source
+    assert list(recaptured.missing_classes) == ["LateExternal"]
+    assert "LateExternal" not in recaptured.schemas
+    assert dict(recaptured.schemas) == dict(snapshot.schemas)
+    assert recaptured.content_digest == snapshot.content_digest
+
+    # SchemaSnapshot instances are equally frozen on re-entry.
+    from_instance = capture_schema_snapshot(
+        request_snapshot=snapshot,
+        source_roots=[tmp_path / "custom_nodes"],
+    )
+    assert from_instance.content_digest == snapshot.content_digest
+    assert list(from_instance.missing_classes) == ["LateExternal"]
+
+    # Persisted-payload reconstruction still validates its frozen digest.
+    rebuilt = schema_snapshot_from_payload(payload)
+    assert rebuilt.content_digest == snapshot.content_digest

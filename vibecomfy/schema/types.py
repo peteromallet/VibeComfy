@@ -446,11 +446,18 @@ def capture_schema_snapshot(
     ``/object_info``, then configured content-addressed cache. Workflow
     observation is recorded as non-authoritative and never selected.
 
-    §28 deep-audit fix 1: after payload selection, requested classes still
-    reported missing are resolved through the external custom-node sources
+    §28 deep-audit fix 1 (revision DEEP-AUDIT-FIX-1-REVISION 001): on a FRESH
+    capture — verified connected ``/object_info``, configured cache, or no
+    selected source — requested classes still reported missing after payload
+    selection are resolved through the external custom-node sources
     (``source_roots`` → :class:`SourceSchemaProvider`, then the gated
     on-demand resolver) and their schemas ride inside the frozen snapshot;
-    classes no resolver can produce stay missing and fail closed.
+    classes no resolver can produce stay missing and fail closed. When the
+    selected source is an explicit persisted ``request_snapshot`` (payload or
+    :class:`SchemaSnapshot`), the snapshot is reconstructed EXACTLY as
+    frozen: no ambient re-resolution, no on-demand lookup, no missing-class
+    healing — ``missing_classes`` and ``content_digest`` are byte-stable on
+    round-trip even when the environment changed after capture.
     """
     del workflow_observation  # non-authoritative by contract
     selected_source = ""
@@ -466,27 +473,67 @@ def capture_schema_snapshot(
     frozen_timestamp = timestamp
     frozen_version = SCHEMA_SNAPSHOT_VERSION
 
+    reconstructing_request_snapshot = False
     if isinstance(request_snapshot, SchemaSnapshot):
-        selected_source = "explicit_request_snapshot"
+        reconstructing_request_snapshot = True
+        # Revision 001: reconstruct EXACTLY as frozen. The original selection
+        # marker is kept so re-entering a persisted snapshot is digest-stable.
+        selected_source = request_snapshot.selected_source or "explicit_request_snapshot"
         selected_payload = schema_snapshot_to_payload(request_snapshot)
         identity = SchemaSnapshotIdentity(
             runtime_fingerprint=request_snapshot.identity.runtime_fingerprint or runtime_fingerprint,
             cache_fingerprint=request_snapshot.identity.cache_fingerprint,
-            request_fingerprint=request_snapshot.content_digest,
+            request_fingerprint=request_snapshot.identity.request_fingerprint,
             server_url=request_snapshot.identity.server_url or server_url,
         )
         frozen_generation = request_snapshot.generation
         frozen_timestamp = request_snapshot.timestamp or timestamp
         frozen_version = request_snapshot.version
     elif isinstance(request_snapshot, Mapping) and request_snapshot:
-        selected_source = "explicit_request_snapshot"
+        reconstructing_request_snapshot = True
         selected_payload = request_snapshot
-        identity = SchemaSnapshotIdentity(
-            runtime_fingerprint=runtime_fingerprint,
-            cache_fingerprint=None,
-            request_fingerprint=_schema_snapshot_digest(_freeze_jsonable(request_snapshot)),
-            server_url=server_url,
-        )
+        raw_identity = request_snapshot.get("identity")
+        if isinstance(raw_identity, Mapping):
+            # Serialized SchemaSnapshot payload: restore the frozen identity
+            # and selection marker verbatim so the reconstruction is
+            # byte-identical (stable missing_classes AND content_digest).
+            identity = SchemaSnapshotIdentity(
+                runtime_fingerprint=(
+                    raw_identity.get("runtime_fingerprint")
+                    if isinstance(raw_identity.get("runtime_fingerprint"), str)
+                    else None
+                ),
+                cache_fingerprint=(
+                    raw_identity.get("cache_fingerprint")
+                    if isinstance(raw_identity.get("cache_fingerprint"), str)
+                    else None
+                ),
+                request_fingerprint=(
+                    raw_identity.get("request_fingerprint")
+                    if isinstance(raw_identity.get("request_fingerprint"), str)
+                    else None
+                ),
+                server_url=(
+                    raw_identity.get("server_url")
+                    if isinstance(raw_identity.get("server_url"), str)
+                    else None
+                )
+                or server_url,
+            )
+            selected_source = (
+                request_snapshot.get("selected_source")
+                if isinstance(request_snapshot.get("selected_source"), str)
+                and request_snapshot.get("selected_source")
+                else "explicit_request_snapshot"
+            )
+        else:
+            selected_source = "explicit_request_snapshot"
+            identity = SchemaSnapshotIdentity(
+                runtime_fingerprint=runtime_fingerprint,
+                cache_fingerprint=None,
+                request_fingerprint=_schema_snapshot_digest(_freeze_jsonable(request_snapshot)),
+                server_url=server_url,
+            )
         frozen_generation = int(request_snapshot.get("generation") or 0)
         frozen_timestamp = (
             request_snapshot.get("timestamp")
@@ -556,7 +603,7 @@ def capture_schema_snapshot(
     missing: list[str] = []
     input_order: dict[str, tuple[str, ...]] = {}
     requested = [str(item) for item in (class_types or ()) if str(item)]
-    if selected_source == "explicit_request_snapshot" and isinstance(selected_payload, Mapping) and "schemas" in selected_payload:
+    if reconstructing_request_snapshot and isinstance(selected_payload, Mapping) and "schemas" in selected_payload:
         raw_schemas = selected_payload.get("schemas")
         if isinstance(raw_schemas, Mapping):
             for class_type, raw in raw_schemas.items():
@@ -591,7 +638,7 @@ def capture_schema_snapshot(
         for class_type in requested:
             if class_type not in schemas and class_type not in missing:
                 missing.append(class_type)
-    if missing:
+    if missing and not reconstructing_request_snapshot:
         healed = _capture_external_custom_node_schemas(
             [item for item in missing if item not in schemas],
             source_roots=source_roots,

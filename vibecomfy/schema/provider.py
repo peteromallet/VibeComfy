@@ -582,6 +582,28 @@ class CompositeSchemaProvider:
                 merged.update({str(key): value for key, value in schemas.items() if isinstance(value, NodeSchema)})
         return merged
 
+    @property
+    def snapshot(self) -> SchemaSnapshot | None:
+        """Ingress-frozen snapshot passthrough (DEEP-AUDIT-FIX-1-REVISION 002).
+
+        Composition must not sever the door's frozen authority: when any
+        composed provider carries a :class:`SchemaSnapshot` (e.g. the ingest
+        door's bound wrapper), it stays visible through the composite so
+        ``_bind_schema_from_provider`` and ``build_schema_witness`` keep
+        consuming the ingress-bound snapshot after provisional gap-filler
+        hydration re-wraps ``state.schema_provider``.
+        """
+        for provider in self.providers:
+            candidate = getattr(provider, "snapshot", None)
+            if callable(candidate):
+                try:
+                    candidate = candidate()
+                except Exception:  # noqa: BLE001 - passthrough never breaks lookups
+                    continue
+            if isinstance(candidate, SchemaSnapshot):
+                return candidate
+        return None
+
 
 def with_provisional_gap_filler(
     authoritative: SchemaProvider,

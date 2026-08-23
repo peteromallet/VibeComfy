@@ -20,6 +20,40 @@ _TURN_EVENT_BUFFER: contextvars.ContextVar[list[tuple[dict[str, Any], str | None
 )
 
 
+class _IngestBoundSchemaProvider:
+    """Live runtime schema provider carrying the ingest door's frozen snapshot.
+
+    DEEP-AUDIT-FIX-1-REVISION 002: schema lookups delegate to the live
+    runtime provider so authoring/lowering/validation stages behave exactly
+    as before, while ``snapshot`` exposes the ingress-frozen SchemaSnapshot
+    consumed by batch admission (``admission_snapshot_for`` /
+    ``_bind_schema_from_provider``) and by ``build_schema_witness`` —
+    admission and receipts use the ingress-bound authority instead of a late
+    ambient re-resolution.
+    """
+
+    def __init__(self, provider: Any, snapshot: Any) -> None:
+        self._provider = provider
+        self._snapshot = snapshot
+
+    @property
+    def snapshot(self) -> Any:
+        return self._snapshot
+
+    def get(self, class_type: str) -> Any:
+        getter = getattr(self._provider, "get", None)
+        if callable(getter):
+            return getter(class_type)
+        return self.get_schema(class_type)
+
+    def get_schema(self, class_type: str) -> Any:
+        return self._provider.get_schema(class_type)
+
+    def schemas(self) -> Any:
+        getter = getattr(self._provider, "schemas", None)
+        return getter() if callable(getter) else None
+
+
 def begin_turn_event_buffer() -> None:
     """Buffer websocket turn events until commit or abort."""
     _TURN_EVENT_BUFFER.set([])
@@ -110,6 +144,22 @@ def handle_agent_edit(
             graph,
             schema_provider=schema_provider,
         )
+
+        # DEEP-AUDIT-FIX-1-REVISION 002: freeze the ingress-bound schema
+        # authority AT the production door (external custom-node completion
+        # from the runtime provider happens here, per the revision-001
+        # fresh-capture rule — never again at witness/receipt time). The
+        # frozen snapshot rides on the provider so batch admission and
+        # witness construction consume it.
+        from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+            capture_ingress_schema_snapshot,
+        )
+
+        _frozen_schema = capture_ingress_schema_snapshot(
+            schema_provider=schema_provider,
+            graph=canonical_graph,
+        )
+        schema_provider = _IngestBoundSchemaProvider(schema_provider, _frozen_schema)
     except Exception as exc:
         failure = failure_envelope(
             FailureKind.VALIDATION_ERROR,
@@ -247,6 +297,10 @@ def handle_agent_edit(
         narrative_response_path=turn_dir / "narrative_response.json",
         narrative_validation_path=turn_dir / "narrative_validation.json",
     )
+    # DEEP-AUDIT-FIX-1-REVISION 002: the door's frozen schema authority is
+    # retained on the state alongside the retained workflow IR — the Batch-3
+    # "one retained ingest authority" pattern.
+    state.schema_snapshot = _frozen_schema
     # D03: legacy executor research payload fields (research_summary,
     # research_warnings, executor_research, research_sources, precedent_slices,
     # adaptation_plan, research_brief, research_context_packet) are NOT

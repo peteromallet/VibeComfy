@@ -13800,3 +13800,64 @@ def test_classify_failure_report_has_no_invented_respond_plan(
     for invented_key in ("route", "task", "intent"):
         assert invented_key not in executor_payload
     assert "respond" not in json.dumps(executor_payload)
+
+
+def test_capture_ingress_schema_snapshot_freezes_door_authority() -> None:
+    """DEEP-AUDIT-FIX-1-REVISION 002: the ingest-door helper freezes ONE
+    ingress-bound authority covering the graph classes plus the runtime
+    provider surface, each resolved through the LIVE provider (revision-001
+    fresh-capture rule). Graph classes the runtime cannot resolve stay
+    genuinely missing so admission fails closed on them."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema.provider import NodeSchema
+
+    class _SurfaceProvider:
+        def __init__(self, schemas):
+            self._schemas = schemas
+
+        def get_schema(self, class_type):
+            return self._schemas.get(class_type)
+
+        def schemas(self):
+            return dict(self._schemas)
+
+    def _schema(class_type):
+        return NodeSchema(
+            class_type=class_type,
+            pack=None,
+            inputs={},
+            outputs=[],
+            source_provider="test",
+            confidence=1.0,
+        )
+
+    provider = _SurfaceProvider(
+        {"LoadImage": _schema("LoadImage"), "SaveImage": _schema("SaveImage")}
+    )
+    graph = {
+        "nodes": [
+            {"id": "1", "type": "LoadImage"},
+            {"id": "2", "type": "SaveImage"},
+        ]
+    }
+    frozen = capture_ingress_schema_snapshot(schema_provider=provider, graph=graph)
+    assert frozen.ambient_lookup_forbidden is True
+    assert frozen.selected_source == "explicit_request_snapshot"
+    assert set(frozen.schemas) == {"LoadImage", "SaveImage"}
+    assert frozen.missing_classes == ()
+    assert frozen.node_classes["1"] == "LoadImage"
+    assert frozen.node_classes["2"] == "SaveImage"
+
+    # Deterministic: re-capturing the same door state yields the identical
+    # digest, so receipts and admission see one stable authority.
+    again = capture_ingress_schema_snapshot(schema_provider=provider, graph=graph)
+    assert again.content_digest == frozen.content_digest
+
+    absent = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph={"nodes": [{"id": "9", "type": "GenuinelyAbsentDoorNode12345"}]},
+    )
+    assert absent.missing_classes == ("GenuinelyAbsentDoorNode12345",)
+    assert "GenuinelyAbsentDoorNode12345" not in absent.schemas

@@ -19514,3 +19514,199 @@ def test_handle_agent_edit_batch_stage_exception_preserves_structured_issue(
         for item in issues
     )
     assert "Traceback" not in json.dumps(issues)
+
+
+def test_admit_operation_fails_closed_on_genuinely_absent_add_node() -> None:
+    """DEEP-AUDIT-FIX-1-REVISION 003 (§28 fail-closed law): admit_operation
+    REJECTS a canonical add_node whose class_type is genuinely absent from
+    the frozen authority — the provisional-add branch never resurrects it.
+    Classes the snapshot KNOWS are still admitted."""
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+    )
+    from vibecomfy.schema import capture_schema_snapshot
+
+    snapshot = capture_schema_snapshot(
+        class_types=["KnownPromptNode", "GenuinelyAbsentNode12345"],
+        connected_object_info={
+            "KnownPromptNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["CONDITIONING"],
+            }
+        },
+        connected_object_info_verified=True,
+    )
+    assert snapshot.missing_classes == ("GenuinelyAbsentNode12345",)
+    pair = admission_snapshot_for(schema_snapshot=snapshot)
+
+    rejected = admit_operation(
+        pair,
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "GenuinelyAbsentNode12345",
+            "fields": {},
+            "inputs": {},
+            "uid": "u-new",
+        },
+    )
+    assert isinstance(rejected, AdmissionRejected)
+    assert rejected.typed_reason == "missing_touched_schema"
+
+    allowed = admit_operation(
+        pair,
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "KnownPromptNode",
+            "fields": {},
+            "inputs": {},
+            "uid": "u-new",
+        },
+    )
+    assert not isinstance(allowed, AdmissionRejected)
+    assert allowed.allowed is True
+
+
+def test_admit_operation_provisional_add_survives_for_schema_known_classes() -> None:
+    """DEEP-AUDIT-FIX-1-REVISION 003 preserves legitimate provisional-add
+    semantics for classes that ARE schema-known: an add_node whose anchor
+    identity is unresolved in the frozen map but present in the sequential
+    working workflow is still admitted."""
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+    )
+    from vibecomfy.schema import capture_schema_snapshot
+
+    workflow_id = _AGENT_EDIT_TEST_WORKFLOW_ID
+    wf = VibeWorkflow(workflow_id, WorkflowSource(workflow_id))
+    wf.nodes["7"] = VibeNode("7", "SaveImage", inputs={"filename_prefix": "x"})
+
+    # No node_classes captured: the anchor uid is unresolved in the frozen
+    # map, so require_known_touched_schema raises and the provisional path
+    # decides.
+    snapshot = capture_schema_snapshot(
+        class_types=["LoadImage", "SaveImage"],
+        connected_object_info={
+            "LoadImage": {"input": {}, "output": ["IMAGE"]},
+            "SaveImage": {"input": {}, "output": []},
+        },
+        connected_object_info_verified=True,
+    )
+    assert set(snapshot.schemas) == {"LoadImage", "SaveImage"}
+    assert snapshot.node_classes == {}
+
+    allowed = admit_operation(
+        admission_snapshot_for(schema_snapshot=snapshot),
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "LoadImage",
+            "fields": {},
+            "inputs": {},
+            "uid": "u-new",
+            "anchor": {"relation": "near", "near": ["", "7"]},
+        },
+        working_workflow=wf,
+    )
+    assert not isinstance(allowed, AdmissionRejected)
+
+
+def test_ingest_door_binds_frozen_schema_snapshot_for_admission_and_receipts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DEEP-AUDIT-FIX-1-REVISION 002: handle_agent_edit captures the frozen
+    schema snapshot AT the production door (external custom-node completion
+    from the runtime provider), retains it on the state alongside the
+    retained workflow IR, binds it onto schema_provider.snapshot, and batch
+    admission consumes exactly that ingress-bound authority."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+    )
+    from vibecomfy.schema import SchemaSnapshot
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    captured_states: list = []
+
+    def _fake_runner(state, _context, **_kwargs):
+        captured_states.append(state)
+        state.user_message = "door authority"
+        state.batch_exit_mode = "done"
+        return state
+
+    def _batch_builder(state, _context):
+        return {
+            "ok": True,
+            "message": state.user_message,
+            "outcome": {"kind": "candidate"},
+            "candidate": {"state": "candidate", "graph_hash": "batch"},
+            "eligibility": {"applyable": False, "reason": "no_candidate", "message": "none"},
+        }
+
+    monkeypatch.setattr(agent_edit_module, "_run_batch_repl_product_path", _fake_runner)
+    monkeypatch.setattr(agent_edit_module, "_build_batch_repl_response", _batch_builder)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "door-schema-authority",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+    assert result["ok"] is True
+    assert result["message"] == "door authority"
+    assert len(captured_states) == 1
+    state = captured_states[0]
+
+    provider = state.schema_provider
+    frozen = provider.snapshot
+    assert isinstance(frozen, SchemaSnapshot)
+    assert frozen.ambient_lookup_forbidden is True
+    assert set(frozen.schemas) >= {"LoadImage", "SaveImage"}
+    assert frozen.missing_classes == ()
+    # Retained on the allocation state (Batch-3 one-ingest-authority pattern).
+    assert state.schema_snapshot is frozen
+    # Live lookups still delegate to the runtime provider.
+    assert provider.get_schema("LoadImage") is not None
+
+    # Batch admission consumes the ingress-bound snapshot itself...
+    pair = admission_snapshot_for(getattr(state, "workflow", None), provider)
+    assert pair.schema is frozen
+    # ...fails closed for a class absent from it...
+    rejected = admit_operation(
+        pair,
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "GenuinelyAbsentNode12345",
+            "fields": {},
+            "inputs": {},
+            "uid": "u-new",
+        },
+    )
+    assert isinstance(rejected, AdmissionRejected)
+    assert rejected.typed_reason == "missing_touched_schema"
+    # ...and admits classes the door froze as known.
+    allowed = admit_operation(
+        pair,
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "SaveImage",
+            "fields": {},
+            "inputs": {},
+            "uid": "u-new",
+        },
+    )
+    assert not isinstance(allowed, AdmissionRejected)

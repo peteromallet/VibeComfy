@@ -94,6 +94,85 @@ def _add_node_provisional_allows(
         _LOGGER.debug("provisional add_node check failed: %s", exc)
         return False
 
+def _add_node_class_genuinely_absent(
+    operation: Mapping[str, Any],
+    catalog: SchemaSnapshot | Mapping[str, Any] | None,
+    *,
+    schema_provider: Any = None,
+) -> bool:
+    """True when an add_node's own class_type is absent from the schema authority.
+
+    Genuinely absent = not among the captured schemas OR listed in
+    ``missing_classes`` (``_snapshot_known_and_missing`` semantics) AND the
+    RETAINED turn provider cannot resolve it either. A catalog that cannot
+    be read counts as absent so this check can never fail open
+    (DEEP-AUDIT-FIX-1-REVISION 003; §28 fail-closed law). No ambient source
+    scan happens here — only the caller-retained provider is consulted, so
+    evidence-backed provisional registry/workflow schemas hydrated during
+    the turn keep their documented authoring path.
+    """
+    if str(operation.get("op") or "") != "add_node":
+        return False
+    class_type = operation.get("class_type")
+    if not isinstance(class_type, str) or not class_type:
+        return False
+    try:
+        from vibecomfy.schema import schema_for
+        from vibecomfy.schema.types import _snapshot_known_and_missing
+
+        known, missing = _snapshot_known_and_missing(catalog)
+        if class_type in known and class_type not in missing:
+            return False
+    except Exception as exc:  # noqa: BLE001 - unreadable authority fails closed
+        _LOGGER.debug("genuinely-absent add_node check failed: %s", exc)
+        return True
+    if schema_provider is not None:
+        try:
+            if schema_for(schema_provider, class_type) is not None:
+                return False
+        except Exception as exc:  # noqa: BLE001 - a failing probe reads as absence
+            _LOGGER.debug("provisional schema probe failed for %s: %s", class_type, exc)
+    return True
+
+
+def _retained_provider_completes_touched_schema(
+    operation: Mapping[str, Any],
+    catalog: SchemaSnapshot | Mapping[str, Any] | None,
+    *,
+    schema_provider: Any = None,
+) -> bool:
+    """True when every unknown/missing touched class resolves via the retained
+    turn provider (DEEP-AUDIT-FIX-1-REVISION 003 completion seam).
+
+    The frozen ingress authority is never ambient-healed; but evidence-backed
+    provisional schemas hydrated into ``state.schema_provider`` during the
+    turn are part of the retained authority, so an operation whose touched
+    closure they complete is admitted instead of rejected. Any probe failure
+    reads as incompleteness (fail closed).
+    """
+    if schema_provider is None:
+        return False
+    try:
+        from vibecomfy.schema import schema_for, touched_schema_classes
+        from vibecomfy.schema.types import _snapshot_known_and_missing
+
+        known, missing = _snapshot_known_and_missing(catalog)
+        unknown = [
+            class_type
+            for class_type in touched_schema_classes(operation, catalog)
+            if class_type not in known or class_type in missing
+        ]
+        if not unknown:
+            return False
+        for class_type in unknown:
+            if schema_for(schema_provider, class_type) is None:
+                return False
+    except Exception as exc:  # noqa: BLE001 - incomplete reads as not completed
+        _LOGGER.debug("retained-provider completion check failed: %s", exc)
+        return False
+    return True
+
+
 def _is_provisional_touched(
     operation: Mapping[str, Any],
     workflow: Any | None,
@@ -608,7 +687,21 @@ def admit_operation(
         try:
             require_known_touched_schema(canonical_operation, schema_catalog)
         except SchemaSnapshotError as exc:
-            if _add_node_provisional_allows(operation, schema_catalog, working_workflow=workflow):
+            # DEEP-AUDIT-FIX-1-REVISION 003 (§28 fail-closed law): a class
+            # genuinely absent from BOTH the frozen authority and the
+            # retained turn provider never admits. Evidence-backed provisional
+            # schemas hydrated into the retained provider DO complete the
+            # touched closure (add_node still passes endpoint discipline).
+            completed = _retained_provider_completes_touched_schema(
+                operation, schema_catalog, schema_provider=pair.schema_provider,
+            )
+            if not completed and _add_node_class_genuinely_absent(
+                operation, schema_catalog, schema_provider=pair.schema_provider,
+            ):
+                return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)
+            if completed and str(operation.get("op") or "") != "add_node":
+                pass
+            elif _add_node_provisional_allows(operation, schema_catalog, working_workflow=workflow):
                 pass
             else:
                 return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)

@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from vibecomfy.schema import (
+    SCHEMA_SNAPSHOT_VERSION,
     FrozenSchemaSnapshotProvider,
     InputSpec,
     NodeSchema,
@@ -411,6 +412,59 @@ def _schema_payload(class_type: str, schema: Any) -> dict[str, Any]:
     return schema_payload_from_node_schema(class_type, schema)
 
 
+def capture_ingress_schema_snapshot(
+    *,
+    schema_provider: Any,
+    graph: Mapping[str, Any] | None = None,
+) -> SchemaSnapshot:
+    """Freeze the ingress-bound schema authority at the production ingest door.
+
+    DEEP-AUDIT-FIX-1-REVISION 002: ``handle_agent_edit`` captures ONCE at
+    allocation/ingest time and retains the result on the turn state (the
+    Batch-3 "one retained ingest authority" pattern). The frozen surface is
+    the ingest graph's classes plus every class the runtime provider can
+    enumerate, each resolved through the LIVE provider — external
+    custom-node completion happens here at the door per the revision-001
+    fresh-capture rule and is never re-resolved at witness/receipt time.
+    Classes the provider cannot resolve stay genuinely missing and fail
+    closed in admission.
+    """
+    requested = set(_graph_class_types(graph))
+    surface = None
+    if schema_provider is not None:
+        try:
+            from vibecomfy.schema.provider import schemas_for
+
+            surface = schemas_for(schema_provider)
+        except Exception:  # noqa: BLE001 - surface enumeration must never break ingest
+            surface = None
+    if surface:
+        requested.update(str(name) for name in surface)
+    schemas: dict[str, Any] = {}
+    missing: list[str] = []
+    for class_type in sorted(requested):
+        payload = None
+        schema = schema_for(schema_provider, class_type)
+        if schema is not None:
+            try:
+                payload = schema_payload_from_node_schema(class_type, schema)
+            except Exception:  # noqa: BLE001 - an unusable schema reads as absence
+                payload = None
+        if payload is None:
+            missing.append(class_type)
+            continue
+        schemas[class_type] = payload
+    return capture_schema_snapshot(
+        class_types=sorted(requested),
+        request_snapshot={
+            "contract_version": SCHEMA_SNAPSHOT_VERSION,
+            "schemas": schemas,
+            "missing_classes": missing,
+        },
+        node_classes=_graph_node_class_by_identity(graph),
+    )
+
+
 def build_schema_witness(
     *,
     schema_provider: Any,
@@ -435,6 +489,51 @@ def build_schema_witness(
         request_snapshot = schema_provider
     elif hasattr(schema_provider, "snapshot") and isinstance(getattr(schema_provider, "snapshot"), SchemaSnapshot):
         request_snapshot = schema_provider.snapshot
+
+    if request_snapshot is not None:
+        # DEEP-AUDIT-FIX-1-REVISION: the frozen ingress authority is never
+        # ambient-healed here. One completion seam remains — a touched class
+        # the RETAINED turn provider can still resolve (evidence-backed
+        # provisional registry/workflow schema hydrated during the turn)
+        # completes the frozen payload exactly as the ingest door would
+        # have; everything else stays byte-frozen.
+        base = (
+            dict(request_snapshot)
+            if isinstance(request_snapshot, Mapping)
+            else schema_snapshot_to_payload(request_snapshot)
+        )
+        raw_frozen_schemas = base.get("schemas")
+        if not isinstance(raw_frozen_schemas, Mapping):
+            raw_frozen_schemas = {}
+        frozen_schemas = {str(name) for name in raw_frozen_schemas}
+        raw_frozen_missing = (
+            base.get("missing_classes") or base.get("missing_class_types")
+        )
+        frozen_missing = {
+            str(item) for item in raw_frozen_missing if isinstance(item, str)
+        } if isinstance(raw_frozen_missing, list) else set()
+        additions: dict[str, Any] = {}
+        new_missing: list[str] = []
+        for class_type in sorted(class_types):
+            if class_type in frozen_schemas:
+                continue
+            schema = schema_for(schema_provider, class_type)
+            payload = None
+            if schema is not None:
+                try:
+                    payload = _schema_payload(class_type, schema)
+                except Exception:  # noqa: BLE001 - unusable schema reads as absence
+                    payload = None
+            if payload is None:
+                new_missing.append(class_type)
+            else:
+                additions[class_type] = payload
+        if additions or new_missing:
+            base["schemas"] = {**(raw_frozen_schemas or {}), **additions}
+            base["missing_classes"] = sorted(
+                (frozen_missing | set(new_missing)) - set(additions)
+            )
+            request_snapshot = base
 
     snapshot = capture_schema_snapshot(
         class_types=sorted(class_types),
@@ -994,6 +1093,7 @@ __all__ = [
     "bounded_error_diagnostic",
     "build_candidate_transaction",
     "build_schema_witness",
+    "capture_ingress_schema_snapshot",
     "canonical_transaction_state",
     "content_hash",
     "missing_touched_class_types",
