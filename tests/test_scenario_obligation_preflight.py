@@ -69,7 +69,39 @@ def test_audio_and_multivideo_declare_exact_schema_evidence() -> None:
         "LayerMask: SegmentAnythingUltra V3",
     } <= video_classes
     for req in multivideo.schema_evidence_requirements:
-        assert req["pack"] == "ComfyUI-LayerMask"
+        assert req["pack"] == "ComfyUI_LayerStyle_Advance"
+
+
+def test_multivideo_requirements_resolve_against_repointed_snapshot() -> None:
+    """R1BR-001 regression: the pinned LayerMask snapshot is owned by
+    ComfyUI_LayerStyle_Advance, so both multi-video requirements must resolve
+    POSITIVELY from local authoritative evidence (the stale 'ComfyUI-LayerMask'
+    alias failed the exact pack comparison and blocked paid preflight)."""
+    obligation = so.load_scenario_obligation(
+        "multi-video-based-character-replacement-using"
+    )
+    resolutions = {
+        str(req["class_type"]): so._resolve_schema_locally(req)
+        for req in obligation.schema_evidence_requirements
+    }
+    assert set(resolutions) == {
+        "LayerMask: LoadSegmentAnythingModels",
+        "LayerMask: SegmentAnythingUltra V3",
+    }
+    for class_type, (resolved, failures) in resolutions.items():
+        assert resolved, f"{class_type}: {failures}"
+
+
+def test_preflight_schema_resolution_succeeds_with_pinned_snapshot() -> None:
+    """The shipped authoritative cache carries exact evidence for every gated
+    class, so the paid-call preflight passes with schema resolution enforced."""
+    result = so.preflight_scenario_obligations(FINAL5, require_schema_resolution=True)
+    assert result["ok"] is True
+    assert result["schema_resolution_enforced"] is True
+    assert result["resolution"]["multi-video-based-character-replacement-using"] == {
+        "LayerMask: LoadSegmentAnythingModels": True,
+        "LayerMask: SegmentAnythingUltra V3": True,
+    }
 
 
 def test_undeclared_gated_class_is_a_coverage_violation(monkeypatch) -> None:
@@ -137,8 +169,14 @@ def test_preflight_schema_resolution_fails_closed_without_local_evidence(
     tmp_path, monkeypatch
 ) -> None:
     """No local authoritative source carries the gated classes here, so the
-    paid-call gate MUST refuse (r5 failure #2/#3 discovery before spend)."""
-    monkeypatch.setenv("VIBECOMFY_OBJECT_INFO_CACHE_DIR", str(tmp_path / "empty"))
+    paid-call gate MUST refuse (r5 failure #2/#3 discovery before spend).
+    R1BR-001: the shipped repo cache is itself an authoritative root now
+    (pinned ComfyUI_LayerStyle_Advance snapshot), so the no-evidence world
+    isolates every authoritative root away from it."""
+    empty_root = tmp_path / "empty"
+    monkeypatch.setattr(
+        so, "_authoritative_cache_roots", lambda: [empty_root]
+    )
     with pytest.raises(so.ScenarioObligationError) as excinfo:
         so.preflight_scenario_obligations(FINAL5, require_schema_resolution=True)
     message = str(excinfo.value)
@@ -148,7 +186,13 @@ def test_preflight_schema_resolution_fails_closed_without_local_evidence(
 
 def test_env_var_enables_schema_resolution(monkeypatch) -> None:
     monkeypatch.setenv(so.SCHEMA_RESOLUTION_ENV_VAR, "1")
-    monkeypatch.setenv("VIBECOMFY_OBJECT_INFO_CACHE_DIR", "/tmp/b4-impl/no-such-cache")
+    # R1BR-001: exclude the shipped authoritative cache so the gate still has
+    # nothing local to resolve against and refuses paid calls fail-closed.
+    monkeypatch.setattr(
+        so,
+        "_authoritative_cache_roots",
+        lambda: [Path("/tmp/b4-impl/no-such-cache")],
+    )
     with pytest.raises(so.ScenarioObligationError):
         so.preflight_scenario_obligations(FINAL5)
 

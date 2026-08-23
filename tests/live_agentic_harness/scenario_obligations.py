@@ -68,12 +68,12 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
     "multi-video-based-character-replacement-using": (
         {
             "class_type": "LayerMask: LoadSegmentAnythingModels",
-            "pack": "ComfyUI-LayerMask",
+            "pack": "ComfyUI_LayerStyle_Advance",
             "source": "authoritative_object_info",
         },
         {
             "class_type": "LayerMask: SegmentAnythingUltra V3",
-            "pack": "ComfyUI-LayerMask",
+            "pack": "ComfyUI_LayerStyle_Advance",
             "source": "authoritative_object_info",
         },
     ),

@@ -210,8 +210,11 @@ def test_r5_missing_touched_layermask_preserves_untouched_unknown_fixture(
     assert receipt.replay.replay_ok is False
     assert receipt.replay.error == fixture["expected"]["error"]
     assert receipt.is_applyable is False
-    assert stamped["candidate"]["graph"]["nodes"][1] == candidate["nodes"][1]
-    assert fixture["expected"]["untouched_unknown_preserved"] is True
+    # Row 4 contract: the rejected product is audit-only; public keys must
+    # not carry it.  The untouched unknown neighbor survives byte-for-byte.
+    assert stamped["audit"]["rejected_candidate"]["state"] == "rejected"
+    assert stamped["audit"]["rejected_candidate"]["graph"]["nodes"][1] == candidate["nodes"][1]
+    assert "candidate" not in stamped and "graph" not in stamped
 
 
 def test_r5_persisted_replay_fixture_has_success_and_mismatch_paths() -> None:
@@ -259,7 +262,13 @@ def test_r5_persisted_replay_fixture_has_success_and_mismatch_paths() -> None:
     } == fixture["expected"]["mismatch"]
 
 
-def test_unresolved_positional_widget_is_rejected_before_delta_is_sealed() -> None:
+def test_positional_widget_seals_via_shipped_schema_and_reports_old_unresolved() -> None:
+    """Contract evolution note (R1BR-001 follow-on): the shipped
+    authoritative object_info cache resolves IndexTTSEmotionOptionsNode's
+    positional widget_0, so the statement seals a named delta and surfaces an
+    explicit old-unresolved diagnostic instead of failing the batch as
+    widget_unknown.  Fail-closed enforcement for unverifiable products stays
+    with the authority-receipt replay gate."""
     session = EditSession(
         _single_widget_graph("IndexTTSEmotionOptionsNode", uid="125"),
         schema_provider=_Provider({}),
@@ -269,10 +278,12 @@ def test_unresolved_positional_widget_is_rejected_before_delta_is_sealed() -> No
         "indexttsemotionoptionsnode.widget_0 = 'cannot be named honestly'"
     )
 
-    assert result.ok is False
-    assert result.landed_ops == ()
-    assert result.statements[0].reason == "widget_unknown"
-    assert result.statements[0].diagnostics[0].code == "widget_unknown"
+    assert result.ok is True
+    assert len(result.landed_ops) == 1
+    assert result.landed_ops[0].target.field_path == "emotion_control"
+    diagnostic = result.statements[0].diagnostics[0]
+    assert diagnostic.code == "field_change_old_unresolved"
+    assert diagnostic.detail == {"uid": "125", "field_path": "emotion_control"}
 
 
 def test_missing_touched_schema_rejects_candidate_and_replaces_success_narration(
@@ -318,18 +329,25 @@ def test_missing_touched_schema_rejects_candidate_and_replaces_success_narration
     assert stamped["apply_eligible"] is False
     assert stamped["eligibility"]["applyable"] is False
     assert stamped["apply_eligibility"]["applyable"] is False
-    assert stamped["apply_eligibility"]["reason"] == "authority_replay_mismatch"
+    assert stamped["eligibility"]["reason"] == "authority_rejected"
+    assert stamped["terminal_reason"] == "authority_rejected"
     assert stamped["graph_unchanged"] is True
     assert stamped["no_candidate_reason"] == "authority_replay_mismatch"
     assert stamped["schema_witness_error"] == {
         "code": "missing_touched_schema",
         "class_types": [class_type],
     }
-    assert stamped["outcome"]["kind"] == "clarify"
+    # Never let a replay mismatch masquerade as clarify/candidate on the wire.
+    assert stamped["outcome"]["kind"] == "error"
+    assert stamped["outcome"]["failure_kind"] == "SchemaGap"
     assert "schema evidence is unavailable" in stamped["message"]
-    assert stamped["candidate"]["state"] == "rejected"
-    assert stamped["accepted_batch"] == accepted_batch
-    assert stamped["graph"] == candidate
+    # Row 4: rejected product is audit-only; public keys must not carry it.
+    rejected_candidate = stamped["audit"]["rejected_candidate"]
+    assert rejected_candidate["state"] == "rejected"
+    assert rejected_candidate["graph"] == candidate
+    assert "candidate" not in stamped
+    assert "graph" not in stamped
+    assert "accepted_batch" not in stamped
 
 
 def test_prompt_wrapped_api_graph_cannot_evade_missing_touched_schema_gate() -> None:
@@ -479,15 +497,18 @@ def test_generic_replay_mismatch_replaces_success_and_retains_audit_evidence(
     assert stamped["eligibility"]["applyable"] is False
     assert stamped["apply_eligibility"]["applyable"] is False
     assert stamped["graph_unchanged"] is True
-    assert stamped["outcome"]["kind"] == "clarify"
-    assert stamped["internal_outcome"]["kind"] == "clarify"
+    # Never let a replay mismatch masquerade as clarify on the public wire.
+    assert stamped["outcome"]["kind"] == "error"
+    assert stamped["outcome"]["failure_kind"] == "ValidationError"
     assert "replay verification failed" in stamped["message"]
     assert "changed the prompt" not in stamped["message"]
-    # Rejected candidate and accepted delta are retained for immutable audit.
-    assert stamped["candidate"]["state"] == "rejected"
-    assert stamped["candidate"]["graph"] == tampered_candidate
-    assert stamped["graph"] == tampered_candidate
-    assert stamped["accepted_batch"] == accepted_batch
+    # Row 4: the rejected product survives as immutable audit evidence only.
+    rejected_candidate = stamped["audit"]["rejected_candidate"]
+    assert rejected_candidate["state"] == "rejected"
+    assert rejected_candidate["graph"] == tampered_candidate
+    assert "candidate" not in stamped
+    assert "graph" not in stamped
+    assert "accepted_batch" not in stamped
 
 
 def test_pure_clarify_survives_authority_stamping_without_replay_mismatch(
@@ -551,6 +572,138 @@ def test_pure_clarify_survives_authority_stamping_without_replay_mismatch(
     assert "candidate" not in stamped
     # Receipt reference is still stamped so the turn stays auditable.
     assert isinstance(stamped.get("authority_receipt"), dict)
+
+
+def test_pure_clarify_with_apply_claim_fails_closed(tmp_path: Path) -> None:
+    """R1BR-002 regression: a clarify-labeled response carrying ANY
+    applyability claim (every spelling of the canonical detector) is NOT a
+    pure clarification — preservation is refused and the false authority
+    fails closed as a generic authority rejection."""
+    class_type = "Rodin3D_Regular"
+    provider = _Provider(
+        {
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack="test",
+                inputs={"widget_0": InputSpec(type="CHOICE", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    submit_graph = _single_widget_graph(class_type)
+    question = "Which Rodin variant should stay enabled?"
+    base_response = {
+        "message": question,
+        "graph_unchanged": True,
+        "no_candidate_reason": "clarification_requested",
+        "outcome": {
+            "kind": "clarify",
+            "question": question,
+            "graph_unchanged": True,
+        },
+    }
+    spoofs = (
+        {"apply_eligible": True},
+        {"canvas_apply_allowed": True},
+        {"apply_allowed": True},
+        {"queue_allowed": True},
+        {"eligibility": {"applyable": True}},
+        {"apply_eligibility": {"applyable": True}},
+    )
+    for index, spoof in enumerate(spoofs):
+        response = dict(base_response)
+        response.update(spoof)
+        assert _response_claims_applyable(response) is True
+
+        receipt, stamped = build_and_persist_authority_receipt(
+            turn_dir=tmp_path / "turns" / f"{index:04d}",
+            session_id="pure-clarify-apply-spoof",
+            turn_id=f"{index:04d}",
+            request_payload={"graph": submit_graph},
+            response=response,
+            schema_version="2.0.0",
+            schema_provider=provider,
+        )
+
+        assert receipt.is_applyable is False
+        # Not preserved: generic rejection strips every authority claim.
+        assert stamped["no_candidate_reason"] == "authority_replay_mismatch"
+        assert stamped["message"] != question
+        for field in (
+            "apply_eligible",
+            "apply_allowed",
+            "canvas_apply_allowed",
+            "queue_allowed",
+        ):
+            assert stamped[field] is False
+        for eligibility_field in ("eligibility", "apply_eligibility"):
+            assert stamped[eligibility_field]["applyable"] is False
+        assert stamped["outcome"]["kind"] == "error"
+
+
+def test_pure_clarify_with_candidate_transaction_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """R1BR-002 regression: candidate authority WITHOUT a ``candidate.graph``
+    (a top-level ``candidate_transaction`` aggregate, or a bare
+    ``candidate``/``candidate_graph`` payload) also vetoes the pure-clarify
+    preservation path — such a response must fail closed."""
+    class_type = "Rodin3D_Regular"
+    provider = _Provider(
+        {
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack="test",
+                inputs={"widget_0": InputSpec(type="CHOICE", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    submit_graph = _single_widget_graph(class_type)
+    question = "Which Rodin variant should stay enabled?"
+    base_response = {
+        "message": question,
+        "graph_unchanged": True,
+        "no_candidate_reason": "clarification_requested",
+        "outcome": {
+            "kind": "clarify",
+            "question": question,
+            "graph_unchanged": True,
+        },
+    }
+    candidate_authority_payloads = (
+        {
+            "candidate_transaction": {
+                "contract_version": "candidate_transaction_v2",
+                "state": "candidate",
+            },
+        },
+        {"candidate": {"state": "candidate_ready"}},
+        {"candidate_graph": {"last_node_id": 1}},
+    )
+    for index, payload in enumerate(candidate_authority_payloads):
+        response = dict(base_response)
+        response.update(payload)
+        assert _response_claims_applyable(response) is False
+
+        receipt, stamped = build_and_persist_authority_receipt(
+            turn_dir=tmp_path / "turns" / f"{index:04d}",
+            session_id="pure-clarify-candidate-spoof",
+            turn_id=f"{index:04d}",
+            request_payload={"graph": submit_graph},
+            response=response,
+            schema_version="2.0.0",
+            schema_provider=provider,
+        )
+
+        assert receipt.is_applyable is False
+        assert stamped["no_candidate_reason"] == "authority_replay_mismatch"
+        assert stamped["message"] != question
+        assert "candidate" not in stamped
+        assert "graph" not in stamped
+        assert "candidate_graph" not in stamped
+        assert "candidate_transaction" not in stamped
+        assert stamped["outcome"]["kind"] == "error"
 
 
 def test_edit_with_clarify_and_operations_still_fails_closed(

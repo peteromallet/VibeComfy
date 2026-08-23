@@ -758,23 +758,33 @@ def stamp_response_with_authority(
         # them as authority_replay_mismatch.  Two shapes are preserved:
         #   1. discovery-stop clarify (report key present); and
         #   2. ANY pure clarification: original outcome kind is ``clarify``,
-        #      the graph is unchanged, the accepted batch is empty, and no
-        #      candidate graph exists — there is nothing to replay, so the
-        #      question must survive verbatim.  Edit-with-clarify responses
-        #      carrying operations or a candidate graph still fail closed.
+        #      the graph is unchanged, the canonical applyability detector
+        #      (_response_claims_applyable) finds NO claim, the accepted
+        #      batch is empty, and NO candidate authority exists in any
+        #      recognized spelling (``graph``, ``candidate``,
+        #      ``candidate_graph``, ``candidate_transaction``) — there is
+        #      nothing to replay, so the question must survive verbatim.
+        #      A malformed edit response carrying an apply claim or candidate
+        #      authority under a clarify label still fails closed.
         _orig_outcome = response.get("outcome") if isinstance(response.get("outcome"), Mapping) else None
         _report = response.get("report") if isinstance(response.get("report"), Mapping) else None
         _accepted_batch = response.get("accepted_batch")
-        _candidate = response.get("candidate")
-        _has_candidate_graph = isinstance(response.get("graph"), Mapping) or (
-            isinstance(_candidate, Mapping) and isinstance(_candidate.get("graph"), Mapping)
+        _has_candidate_authority = any(
+            response.get(key)
+            for key in (
+                "graph",
+                "candidate",
+                "candidate_graph",
+                "candidate_transaction",
+            )
         )
         _is_pure_clarify = (
             isinstance(_orig_outcome, Mapping)
             and _orig_outcome.get("kind") == "clarify"
             and response.get("graph_unchanged") is True
             and not _accepted_batch
-            and not _has_candidate_graph
+            and not _response_claims_applyable(response)
+            and not _has_candidate_authority
         )
         if _is_pure_clarify or (
             isinstance(_orig_outcome, Mapping)
