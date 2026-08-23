@@ -5404,3 +5404,43 @@ This entry RECORDS only — three settled cards executed by dispatched agents, n
 - **Next unblocked cards (sequential, one review per phase — CLOSED):** Final report assembly (original scorecard `5/31/13/1` + trajectory `0→2→2→2/20` + classifications + unresolved legs) → push execution branch → final checkpoint + STOP (no merge, no promote). No further R* windows; R3 was final.
 - **Authoritative finale stands:** `T7.2` `G7.2` 50-leg `split 25/25` `concurrency 10` `authoritative:true` (never deleted/gamified). R1/R2/R3 20-leg re-runs are non-authoritative validation (validator ignores them). Improvement rounds are additional labeled evidence under `G7` open.
 
+### §9 STOP — FINAL-INTEGRATION-PUSH blocked by GitHub secret protection (2026-08-23 ~16:45Z)
+
+> [!CAUTION]
+> **⛔ STOP (plan §9: secrets readiness contradictory / no unauthorized history op) — FINAL-INTEGRATION-PUSH REJECTED by GitHub push protection. No history rewrite, no force-push, no secret scrub, no merge, no promotion. Branch NOT pushed; remote unchanged. G7 remains OPEN pending operator decision. ⛔**
+
+- **Task/gate/label/role:** `evidence-log-STOP-PUSH-SECRET` / `G7` / `evidence-log-STOP-PUSH-SECRET — record §9 STOP: FINAL-INTEGRATION-PUSH rejected by GitHub push protection (OpenRouter API key in execution log line 4521, commit 1f2fa5f7+); branch NOT pushed; remote unchanged` / `evidence` / `codex:gpt-5.6-luna` (`muse` — working evidence model).
+- **Base/branch:** `d9936b64` (`REPORT-ASSEMBLY` final report) on `fixer/workflow-execution-spine-consolidation` — verified `git rev-parse HEAD` → `d9936b64`; allowance `evidence-log-STOP-PUSH-SECRET-allowance.json` allows ONLY the three docs files (execution log + `manifest.json` + `test-shards.json`); commit author `POM <peter@omalley.io>`; **no push, no merge, no rebase, no reset, no history op, no secret scrubbing**.
+- **The closeout push was REJECTED — verbatim server response:**
+  ```
+  git push origin HEAD:fixer/workflow-execution-spine-consolidation
+  ! [remote rejected] HEAD -> fixer/workflow-execution-spine-consolidation (push declined due to repository rule violations)
+  remote: error: GH013: Repository rule violations found for refs/heads/fixer/workflow-execution-spine-consolidation.
+  remote: - GITHUB PUSH PROTECTION — Push cannot contain secrets
+  remote:       —— OpenRouter API Key ——
+  remote:        locations:
+  remote:          - commit: 362fcde7 ... path: docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md:4521
+  remote:          - commit: c63b77be ... path: docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md:4521
+  remote:          - commit: d05371a5 ... path: docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md:4521
+  ```
+  (GitHub push protection scanned every pushed commit; `362fcde7`, `c63b77be`, `d05371a5` are three samples — the key exists in every local commit from `1f2fa5f7` onward that carries the log at line 4521; see Secret below.)
+- **Secret:** a live OpenRouter API key `sk-or-v1-9fed…` already present verbatim at line 4521 (the log already contains it — this STOP record does **not** duplicate it further) was written into the execution log at **line 4521** by the `SMOKE-RUN` evidence card, commit `1f2fa5f7` (`docs(exec-spine): record SMOKE-RUN window, B6 §18 pre-finale validation`) — the smoke command line embedded `OPENROUTER_API_KEY=sk-or-v1-9fed…` verbatim. It was then carried forward by every subsequent evidence commit that appended to the same log file; the full local range `1f2fa5f7..d9936b64` therefore contains the secret at the same path/line.
+- **Scope of impact:** the secret is in **LOCAL git history only**. The remote branch `fixer/workflow-execution-spine-consolidation` is **UNCHANGED** at `743cc102` (G6 push, pre-smoke — does NOT contain the secret). `origin/main` unchanged at `054bce5b` (`Merge pull request #155`). **No secret ever reached the remote** — GitHub blocked it before any bytes were accepted. Local history is the sole exposure surface.
+- **Why this is a STOP, not a routine rejection:** pushing the local branch now requires removing the key from history (every commit from `1f2fa5f7` onward that touches the log), which is a history rewrite + force-push — explicitly unauthorized per plan law (§7 no force-push/history ops; §9 stop on secrets contradiction). A follow-up redacting commit would NOT help: GitHub push protection scans the pushed commits' content, and the key would still exist in the older commits. There is no allowed way to push the current local branch as-is.
+- **Disposition — STOP enforced:**
+  - No history rewrite, no force-push, no secret scrub, no merge, no promotion performed by this card (or by `FINAL-INTEGRATION-PUSH` — its receipt `receipts/FINAL-INTEGRATION-PUSH-receipt.json` records `exit 0` for the wrapper but the underlying `git push` was **REJECTED**; the integration card correctly did not modify anything: `commits: []`, `changed_files: []`, `base_sha: d9936b64`).
+  - All §27 loop work, the final report (`d9936b64`), and evidence commits remain **LOCAL** on `fixer/workflow-execution-spine-consolidation`.
+  - `FINAL-INTEGRATION-PUSH` receipt: `pid 237034`, `2026-08-23T16:44:23Z` → `2026-08-23T16:45:14Z`, `model_route: codex:gpt-5.6-luna` → `openrouter/meta/muse-spark-1.2-contributor`, `brief_sha256 69690c86…`, `result_sha256 664e6a5d…`, `exit 0`, `stop_or_judgment ""`, `commits []`.
+- **Escalation — operator decision required (pick one; hygiene item applies regardless):**
+  1. **Authorize a secret-history scrub + force-push of the rewritten branch** (e.g. `git filter-repo` / `filter-branch` / `BFG` removing `sk-or-v1-9fed…` from all commits, or truncating history at `743cc102` and re-applying the reviewed commits with the secret redacted) — requires explicit operator authorization for the history op and force-push;
+  2. **Authorize a new clean branch/PR containing only the reviewed final state with the secret redacted in the log**, pushed under a different ref (no history rewrite of the existing branch);
+  3. **Accept the run as locally-complete with the execution branch NOT pushed** (G7 remains open; done-when push clause unmet — documented truthfully);
+  4. **Rotate/revoke the key regardless** (it is exposed in local history; even though never pushed, hygiene requires rotation) — do this even if option 1/2/3 is chosen.
+- **Position:** **G7 NOT passed; execution branch NOT pushed; §27 loop CLOSED (3 rounds, 2/20 steady, final report assembled locally at `d9936b64`); everything else complete and validator-clean.** The `fixer/workflow-execution-spine-consolidation` branch at `d9936b64` plus this STOP record (new commit) remains local-only. Next: **operator adjudication on the push-blocked state** — no further evidence, push, or merge until the operator chooses an escalation path.
+- **Controls (this evidence append):**
+  - This evidence append changes ONLY the three allowed docs files in one coherent commit authored by `POM <peter@omalley.io>`: execution log (this `§9 STOP` window section) plus validator-enforced `manifest.tasks[5].recovery_note.sha256` refresh; `test-shards.json` is byte-identical and not rewritten (but included in allowance). No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file is changed; no push, merge, rebase, reset, or promotion beyond the allowed evidence promotion; no secret access or wrapper dispatch beyond this evidence record; no live/model/runtime call.
+  - **Protected state:** base `5fc6be9d` (`git merge-base --is-ancestor 5fc6be9d HEAD` exit `0`); canonical six-entry manifest unchanged at SHA-256 `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`; `manifest.json` `final_five` intact; `test-shards.json` frozen at `54467724`; no wrapper/validator/plan/code/fixture file changed.
+  - **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: .../manifest.json` on the post-edit working tree (see manifest `recovery_note.sha256` refresh). `test-shards.json` byte-identical to `54467724` base — validator `TEST_SINGLETON` allowance satisfied.
+  - **No push:** this is a docs-only STOP record; the push remains blocked as above.
+  - **JUDGMENT_REQUIRED: none** (stable IDs: `evidence-log-STOP-PUSH-SECRET` `JUDGMENT_REQUIRED: none`; `FINAL-INTEGRATION-PUSH` `stop_or_judgment ""`).
+
