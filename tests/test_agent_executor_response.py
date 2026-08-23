@@ -4,6 +4,11 @@ import json
 import subprocess
 import sys
 
+from collections.abc import Mapping
+
+import pytest
+
+
 from vibecomfy.comfy_nodes.agent.executor_response import serialize_executor_result
 
 
@@ -338,3 +343,66 @@ def test_reply_change_claims_must_reference_accepted_delta() -> None:
     violations = validate_reply_change_claims(invalid_response)
     assert len(violations) == 1
     assert "not in the accepted Δ" in violations[0]
+
+
+def test_implement_failure_projection_retains_structured_stage_issue() -> None:
+    """R3 fix 3: the executor implement-failure projection flattens the
+    agent's structured ``agent_batch_stage_exception`` issue and preserves the
+    originating stage as ``cause_stage`` instead of returning empty
+    diagnostics."""
+    from unittest import mock
+
+    from vibecomfy.executor import core as executor_core
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.profiles import AgentSpecShape
+
+    issue = {
+        "code": "agent_batch_stage_exception",
+        "exception_type": "TypeError",
+        "stage": "agent_batch",
+        "message": "'NoneType' object is not iterable",
+        "file": "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
+        "function": "_stage_agent_batch_repl",
+        "line": 123,
+    }
+    response = {
+        "ok": False,
+        "kind": "ValidationError",
+        "failure_kind": "ValidationError",
+        "stage": "agent_batch",
+        "message": "Stage agent_batch blocked the agent edit.",
+        "graph_unchanged": True,
+        # Legacy empty placeholder must not replace the real structured issue.
+        "diagnostics": {},
+        "agent_failure_context": {
+            "explanation": "Stage agent_batch blocked the agent edit.",
+            "issues": [issue],
+        },
+    }
+    request = ExecutorRequest(
+        query="replace the mp3 save node with a wav save node",
+        graph={"nodes": [{"id": 1, "type": "SaveAudio"}], "links": []},
+        profile="default",
+    )
+    plan = ClassifyDecision(route="adapt", implement=True, intent="edit", task="edit_graph")
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", return_value=response
+    ):
+        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
+            executor_core._run_implement(
+                request,
+                AgentSpecShape(agent="codex", model="gpt-5.4", effort="high"),
+                plan=plan,
+            )
+
+    envelope = excinfo.value.failure_envelope
+    context = dict(envelope.agent_failure_context)
+    assert excinfo.value.stage == "implement"
+    flattened_issues = list(context.get("issues") or [])
+    assert any(
+        isinstance(item, Mapping) and item.get("code") == "agent_batch_stage_exception"
+        for item in flattened_issues
+    )
+    assert context.get("cause_stage") == "agent_batch"
+    assert not context.get("diagnostics")

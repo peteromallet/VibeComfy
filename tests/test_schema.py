@@ -354,6 +354,30 @@ def test_socket_types_compatible_public_helper_preserves_validation_semantics() 
     assert socket_types_compatible("IMAGE", "LATENT") is False
 
 
+def test_socket_types_compatible_tokenizes_comma_delimited_unions() -> None:
+    """R3 fix 2 (converts-image): comma-delimited socket types are unions —
+    compatibility is token-set intersection, not whole-string equality."""
+    # Scalar output into a comma-delimited union that admits it.
+    assert socket_types_compatible("FILE_3D_GLB", "STRING,FILE_3D_GLB,FILE_3D") is True
+    assert socket_types_compatible("STRING", "STRING,FILE_3D_GLB") is True
+    assert socket_types_compatible("INT", "INT,FLOAT,BOOLEAN") is True
+    # Union on both sides with a nonempty intersection.
+    assert (
+        socket_types_compatible("STRING,FILE_3D_GLB", "FILE_3D_GLB,FILE_3D")
+        is True
+    )
+    # Disjoint unions stay incompatible.
+    assert socket_types_compatible("IMAGE,MASK", "STRING,FILE_3D_GLB") is False
+    assert socket_types_compatible("LATENT,IMAGE", "AUDIO,VIDEO") is False
+    # Case/whitespace normalization per token.
+    assert socket_types_compatible("file_3d_glb", " string , FILE_3D_GLB ") is True
+    # Unknown/wildcard sides remain permissive.
+    assert socket_types_compatible("IMAGE", "STRING,UNKNOWN") is True
+    assert socket_types_compatible("*", "STRING,FILE_3D_GLB") is True
+    assert socket_types_compatible(None, "STRING,FILE_3D_GLB") is True
+    assert socket_types_compatible("IMAGE", "STRING,FILE_3D_GLB") is False
+
+
 def test_validate_node_call_reports_structured_primitive_errors() -> None:
     provider = FakeSchemaProvider(
         {

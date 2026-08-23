@@ -6344,3 +6344,94 @@ def test_session_close_projects_one_typed_terminal() -> None:
     assert checkpoint.project(mode="staged").authority_fields() == checkpoint.project(
         mode="threaded"
     ).authority_fields()
+
+
+def test_preview3d_model_file_admits_file_3d_glb_output_edge() -> None:
+    """R3 fix 2 (converts-image) integration: Preview3D.model_file declares a
+    comma-delimited accepted set; a FILE_3D_GLB output (and a STRING output)
+    must be admitted by schema edge validation instead of being rejected as
+    type_mismatch."""
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+    from vibecomfy.schema.validate import validate_api_against_schema
+
+    model_file_union = (
+        "STRING,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_FBX,"
+        "FILE_3D_OBJ,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+    )
+    class _FakePreview3DProvider:
+        def __init__(self, schemas: dict[str, Any]) -> None:
+            self._schemas = schemas
+
+        def get_schema(self, class_type: str) -> Any | None:
+            return self._schemas.get(class_type)
+
+    provider = _FakePreview3DProvider(
+        {
+            "Rodin3D_Detail": NodeSchema(
+                class_type="Rodin3D_Detail",
+                pack="core",
+                inputs={"image": InputSpec(type="IMAGE", required=True)},
+                outputs=[OutputSpec(type="FILE_3D_GLB", name="FILE_3D_GLB")],
+                confidence=1.0,
+            ),
+            "LoadImage": NodeSchema(
+                class_type="LoadImage",
+                pack="core",
+                inputs={},
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+                confidence=1.0,
+            ),
+            "Preview3D": NodeSchema(
+                class_type="Preview3D",
+                pack="core",
+                inputs={
+                    "model_file": InputSpec(
+                        type=model_file_union, required=True
+                    )
+                },
+                outputs=[],
+                confidence=1.0,
+            ),
+        }
+    )
+
+    def _api(source_class: str) -> dict[str, Any]:
+        return {
+            "1": {
+                "class_type": source_class,
+                "inputs": {"image": ["3", 0]},
+                "_meta": {"title": "source"},
+            },
+            "2": {
+                "class_type": "Preview3D",
+                "inputs": {"model_file": ["1", 0]},
+                "_meta": {"title": "preview"},
+            },
+            "3": {
+                "class_type": "LoadImage",
+                "inputs": {},
+                "_meta": {"title": "image"},
+            },
+        }
+
+    glb_issues = [
+        issue
+        for issue in validate_api_against_schema(_api("Rodin3D_Detail"), provider)
+        if issue.code == "type_mismatch"
+    ]
+    assert glb_issues == []
+
+    string_source = NodeSchema(
+        class_type="StringConstant",
+        pack="core",
+        inputs={},
+        outputs=[OutputSpec(type="STRING", name="STRING")],
+        confidence=1.0,
+    )
+    provider._schemas["StringConstant"] = string_source
+    string_issues = [
+        issue
+        for issue in validate_api_against_schema(_api("StringConstant"), provider)
+        if issue.code == "type_mismatch"
+    ]
+    assert string_issues == []

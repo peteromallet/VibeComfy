@@ -395,6 +395,10 @@ def _ui_widget_aliases_covering_compact_keys(
     for item in inputs:
         if not isinstance(item, Mapping):
             continue
+        if item.get("link") is not None:
+            # A linked widget-converted socket is a graph edge, not a compact
+            # widgets_values position: its widget name must never claim a slot.
+            continue
         widget = item.get("widget")
         if not isinstance(widget, Mapping):
             continue

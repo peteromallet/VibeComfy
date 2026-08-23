@@ -1053,17 +1053,40 @@ def _normalize_type(value: Any) -> str | None:
 
 
 def socket_types_compatible(output_type: Any, input_type: Any) -> bool:
-    """Return whether a Comfy output socket type can connect to an input type."""
+    """Return whether a Comfy output socket type can connect to an input type.
 
-    normalized_output = _normalize_type(output_type)
-    normalized_input = _normalize_type(input_type)
-    if normalized_output is None or normalized_input is None:
+    ComfyUI declares several sockets as comma-delimited unions (e.g. ``Preview3D``
+    accepts ``STRING,FILE_3D_GLB,FILE_3D``); compatibility is set intersection
+    over the normalized tokens, not whole-string equality.
+    """
+
+    output_tokens = _socket_type_tokens(output_type)
+    input_tokens = _socket_type_tokens(input_type)
+    if output_tokens is None or input_tokens is None:
         return True
-    if normalized_output == normalized_input:
-        return True
-    if normalized_output in {"*", "ANY"} or normalized_input in {"*", "ANY"}:
-        return True
-    return False
+    return bool(output_tokens & input_tokens)
+
+
+_WILDCARD_TYPE_TOKENS = frozenset({"*", "ANY", "UNKNOWN"})
+
+
+def _socket_type_tokens(value: Any) -> frozenset[str] | None:
+    """Return the normalized token set for a (possibly comma-delimited) type.
+
+    ``None`` means unknown/wildcard — the side imposes no constraint, matching
+    :func:`_normalize_type` semantics for scalar values.
+    """
+
+    if value is None:
+        return None
+    tokens = frozenset(
+        token
+        for token in (part.strip().upper() for part in str(value).split(","))
+        if token
+    )
+    if not tokens or tokens & _WILDCARD_TYPE_TOKENS:
+        return None
+    return tokens
 
 
 def _primitive_expected_type(value: Any) -> str | None:

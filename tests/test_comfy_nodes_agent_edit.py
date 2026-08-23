@@ -19418,3 +19418,70 @@ def test_protocol_duplicate_submit_replays_then_conflicts_by_idempotency_key(
         idempotency_key="dup-key-1",
     )
     assert conflict.conflict.failure.kind == FailureKind.STALE_STATE_MISMATCH
+
+
+def test_handle_agent_edit_batch_stage_exception_preserves_structured_issue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R3 fix 3 (0eb676/b55994): an unexpected crash inside the batch loop
+    after a normalized batch response surfaces as a bounded structured issue
+    that identifies the originating batch stage and the exception type, with
+    per-turn diagnostics retained and no raw traceback in the public context."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _crashing_stage(state, _context, *_args, **_kwargs):
+        # A normalized batch response was already recorded when the loop crashed.
+        state.batch_turns.append(
+            {
+                "turn": 1,
+                "statements": [
+                    {
+                        "op": "set_node_field",
+                        "diagnostics": [
+                            {"code": "schema_drift", "message": "stale field"}
+                        ],
+                    }
+                ],
+                "diagnostics": [],
+            }
+        )
+        raise TypeError("'NoneType' object is not iterable")
+
+    monkeypatch.setattr(
+        agent_edit_module, "_stage_agent_batch_repl", _crashing_stage
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "batch-stage-exception",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    issues = result["agent_failure_context"]["issues"]
+    issue = next(
+        item
+        for item in issues
+        if isinstance(item, dict) and item.get("code") == "agent_batch_stage_exception"
+    )
+    assert issue["exception_type"] == "TypeError"
+    assert issue["stage"] in {"agent_batch", "agent_batch_repl"}
+    assert "'NoneType' object is not iterable" in issue["message"]
+    assert isinstance(issue["file"], str) and issue["file"]
+    assert isinstance(issue["function"], str) and issue["function"]
+    assert isinstance(issue["line"], int)
+    # Per-turn diagnostics survive alongside the crash issue; the full
+    # traceback stays out of the public failure context.
+    assert any(
+        isinstance(item, dict) and item.get("code") == "schema_drift"
+        for item in issues
+    )
+    assert "Traceback" not in json.dumps(issues)

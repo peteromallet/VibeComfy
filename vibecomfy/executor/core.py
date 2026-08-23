@@ -1625,20 +1625,28 @@ def _run_implement(
         fk = result.get("failure_kind", result.get("kind", "ValidationError"))
         fm = result.get("message", result.get("user_facing_message", "Implementation failed."))
         failure_context = result.get("agent_failure_context")
+        cause_stage = result.get("stage")
         failure_payload: dict[str, Any] = {
             "failure_kind": fk,
             "stage": result.get("stage", "implement"),
             "message": fm,
         }
+        if isinstance(cause_stage, str) and cause_stage and cause_stage != "implement":
+            # Preserve the agent-side originating stage (e.g. "agent_batch")
+            # alongside the generic executor "implement" stage so failures
+            # identify the batch stage that actually crashed.
+            failure_payload["cause_stage"] = cause_stage
         if isinstance(failure_context, Mapping):
             for key in ("issues", "diagnostics", "validation_errors"):
                 value = failure_context.get(key)
-                if value is not None:
+                # Flatten the structured diagnostics; empty placeholders must
+                # not replace real content already flattened from the context.
+                if value:
                     failure_payload[key] = value
             failure_payload["agent_failure_context"] = failure_context
         for key in ("diagnostics", "validation_errors"):
             value = result.get(key)
-            if value is not None:
+            if value:
                 failure_payload[key] = value
         make_failure = ports.failure_envelope
         failure_context_payload = {

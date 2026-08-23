@@ -15,6 +15,7 @@ import dataclasses
 import json
 import os
 import threading
+import traceback
 from typing import Any, Mapping
 
 
@@ -37,7 +38,8 @@ def _run_stage(
             else name
         )
         failure = _classify_stage_failure(failure_stage, exc, context)
-        if name == "agent_batch_repl":
+        batch_stage_traceback: str | None = None
+        if name in {"agent_batch", "agent_batch_repl"}:
             # Retain structured validation issues even when the loop raised:
             # the accumulated per-turn diagnostics are the only actionable
             # evidence the agent can repair from, so they must survive into
@@ -47,20 +49,38 @@ def _run_stage(
             turn_diagnostics = _batch_turn_diagnostics(
                 list(getattr(state, "batch_turns", ()) or ())
             )
-            if turn_diagnostics:
-                failure_context = dict(failure.agent_failure_context or {})
-                existing_issues = failure_context.get("issues")
-                if not (isinstance(existing_issues, (list, tuple)) and existing_issues):
-                    failure_context["issues"] = turn_diagnostics
+            failure_context = dict(failure.agent_failure_context or {})
+            existing_issues = failure_context.get("issues")
+            issues = (
+                list(existing_issues)
+                if isinstance(existing_issues, (list, tuple)) and existing_issues
+                else list(turn_diagnostics)
+            )
+            if not _is_provider_exception(exc):
+                # Unexpected crash inside the batch loop (e.g. 'NoneType'
+                # object is not iterable): expose one bounded structured issue
+                # identifying the internal stage and terminal frame so the
+                # executor surfaces a real diagnostic instead of `{}`.
+                issues.append(_batch_stage_exception_issue(name, exc))
+                batch_stage_traceback = traceback.format_exc()
+            if issues:
+                failure_context["issues"] = issues
                 failure = dataclasses.replace(
                     failure,
                     agent_failure_context=failure_context,
                 )
+        result_issues: list[Any] = [failure.agent_failure_context]
+        if batch_stage_traceback is not None:
+            # Full traceback stays in the private turn/audit record only; the
+            # public failure envelope carries just the bounded issue above.
+            result_issues.append(
+                {"code": "agent_batch_stage_traceback", "traceback": batch_stage_traceback}
+            )
         result = StageResult(
             stage=name,
             ok=False,
             blocking=True,
-            issues=(failure.agent_failure_context,),
+            issues=tuple(result_issues),
         )
         _record(context, result)
         raise _StageBlocked(result, failure) from exc
@@ -145,6 +165,39 @@ def _is_provider_exception(exc: Exception) -> bool:
         "ProviderError",
     }
     return any(type_.__name__ in provider_exception_names for type_ in type(exc).__mro__)
+
+
+def _terminal_traceback_frame(exc: BaseException) -> dict[str, Any]:
+    """Return the deepest traceback frame as a repository-relative location."""
+
+    deepest = None
+    frame_tb = exc.__traceback__
+    while frame_tb is not None:
+        deepest = frame_tb
+        frame_tb = frame_tb.tb_next
+    if deepest is None:
+        return {}
+    code = deepest.tb_frame.f_code
+    filename = code.co_filename
+    try:
+        repo_root = Path(__file__).resolve().parents[3]
+        filename = Path(filename).resolve().relative_to(repo_root).as_posix()
+    except (ValueError, OSError):
+        pass
+    return {"file": filename, "function": code.co_name, "line": int(deepest.tb_lineno)}
+
+
+def _batch_stage_exception_issue(stage: str, exc: BaseException) -> dict[str, Any]:
+    """Bounded public issue identifying an unexpected crash inside a batch stage."""
+
+    issue: dict[str, Any] = {
+        "code": "agent_batch_stage_exception",
+        "exception_type": type(exc).__name__,
+        "stage": stage,
+        "message": str(exc),
+    }
+    issue.update(_terminal_traceback_frame(exc))
+    return issue
 
 
 def _classify_stage_failure(

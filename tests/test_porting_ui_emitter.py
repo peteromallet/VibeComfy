@@ -3937,3 +3937,97 @@ def test_ir_door_property_untouched_corpus_round_trips_byte_identically() -> Non
         )
         checked += 1
     assert checked > 0
+
+
+def test_voxel_to_mesh_threshold_apply_emits_single_compact_slot() -> None:
+    """R3 fix 1 (generates-mesh) emitter leg: applying ``threshold`` lands in
+    the single compact widgets_values slot; no extra positional slot is grown
+    and the linked voxel socket keeps its graph edge."""
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.edit.ops import parse_edit_delta
+
+    provider = _Provider(
+        {
+            "VoxelSource": NodeSchema(
+                class_type="VoxelSource",
+                pack="core",
+                inputs={},
+                outputs=[OutputSpec(type="VOXEL", name="voxel")],
+                confidence=1.0,
+            ),
+            "VoxelToMeshBasic": NodeSchema(
+                class_type="VoxelToMeshBasic",
+                pack="core",
+                inputs={
+                    "voxel": InputSpec(type="VOXEL", required=True),
+                    "threshold": InputSpec(type="FLOAT", required=True, default=0.6),
+                },
+                outputs=[OutputSpec(type="MESH", name="mesh")],
+                confidence=1.0,
+            ),
+        }
+    )
+    ui = {
+        "last_node_id": 2,
+        "last_link_id": 7,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "VoxelSource",
+                "pos": [0, 0],
+                "size": [100, 40],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [{"name": "voxel", "type": "VOXEL", "links": [7]}],
+                "properties": {},
+                "widgets_values": [],
+            },
+            {
+                "id": 2,
+                "type": "VoxelToMeshBasic",
+                "pos": [300, 0],
+                "size": [210, 58],
+                "flags": {},
+                "order": 1,
+                "mode": 0,
+                "inputs": [
+                    {
+                        "name": "voxel",
+                        "type": "VOXEL",
+                        "link": 7,
+                        "widget": {"name": "voxel"},
+                    }
+                ],
+                "outputs": [],
+                "properties": {},
+                "widgets_values": [0.6],
+            },
+        ],
+        "links": [[7, 1, 0, 2, 0, "VOXEL"]],
+    }
+
+    ops = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "2", "threshold"], "value": 0.8}]
+    )
+
+    # The baseline was captured before a schema snapshot existed for the class
+    # (no ingest-time input_aliases); the edit turn applies with an on-demand
+    # schema provider — exactly the generates-mesh loss shape.
+    workflow = from_ui(dict(ui), use_comfy_converter=False)
+    result = interpret(workflow, ops, schema_provider=provider)
+    assert result.ok is True, result.diagnostics
+
+    emitted = emit_ui_json(
+        result.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=ui,
+    )
+    by_id = {str(node["id"]): node for node in emitted["nodes"]}
+    mesh_node = by_id["2"]
+    assert mesh_node["widgets_values"] == [0.8]
+    assert [slot["name"] for slot in mesh_node["inputs"]] == ["voxel"]
+    assert len(emitted["links"]) == 1

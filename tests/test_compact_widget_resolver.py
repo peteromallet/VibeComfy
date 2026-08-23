@@ -680,3 +680,60 @@ def test_filter_signature_rows_drops_schema_drifted_literals_for_in_graph_nodes(
     # full current schema).
     untouched = filter_signature_rows_to_in_graph_nodes(rows, {"nodes": []})
     assert {field.name for field in untouched[0].inputs} == full_names
+
+
+class _ExplicitSchemaProvider:
+    """Minimal schema provider backed by an explicit class→NodeSchema dict."""
+
+    def __init__(self, schemas: dict[str, Any]) -> None:
+        self._schemas = schemas
+
+    def get_schema(self, class_type: str) -> Any | None:
+        return self._schemas.get(class_type)
+
+
+def test_linked_widget_input_stub_defers_compact_alias_to_schema_provider() -> None:
+    """R3 fix 1 (generates-mesh): a linked widget-converted socket is a graph
+    edge, not a compact widgets_values position. The linked ``voxel`` stub must
+    not claim the compact slot, so the schema-provider roster wins."""
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    provider = _ExplicitSchemaProvider(
+        {
+            "VoxelToMeshBasic": NodeSchema(
+                class_type="VoxelToMeshBasic",
+                pack="core",
+                inputs={
+                    "voxel": InputSpec(type="VOXEL", required=True),
+                    "threshold": InputSpec(type="FLOAT", required=True, default=0.6),
+                },
+                outputs=[OutputSpec(type="MESH", name="mesh")],
+                confidence=1.0,
+            )
+        }
+    )
+    node: dict[str, Any] = {
+        "class_type": "VoxelToMeshBasic",
+        "widgets_values": [0.6],
+        "metadata": {
+            "_ui": {
+                "inputs": [
+                    {
+                        "name": "voxel",
+                        "type": "VOXEL",
+                        "link": 7,
+                        "widget": {"name": "voxel"},
+                    },
+                ]
+            }
+        },
+    }
+
+    resolution = compact_widget_names_for_node(
+        node, "VoxelToMeshBasic", schema_provider=provider
+    )
+
+    assert resolution.names == ("threshold",)
+    assert resolution.source == "schema_provider"
+    assert widget_value_for_field(node, "threshold", schema_provider=provider) == 0.6
+    assert widget_value_for_field(node, "voxel", schema_provider=provider) != 0.6
