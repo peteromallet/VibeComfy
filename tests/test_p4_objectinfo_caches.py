@@ -26,7 +26,10 @@ import pytest
 
 import vibecomfy.porting.object_info.consume as consume
 from tests.live_agentic_harness.scenario_obligations import _provenance_row
+from vibecomfy.porting.edit.validate import validate_literal_value
+from vibecomfy.schema import InputSpec
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider, SourceSchemaProvider
+from vibecomfy.schema.types import node_schema_from_payload, schema_payload_from_node_schema
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / "vibecomfy" / "porting" / "cache" / "object_info"
 
@@ -270,6 +273,128 @@ def test_every_provisioned_file_carries_real_provenance() -> None:
         assert row.get("repo"), f"{filename} provenance lacks repo"
         locked = row.get("locked_commit")
         assert isinstance(locked, str) and len(locked) >= 7, f"{filename} provenance lacks locked commit"
+
+
+
+# ---------------------------------------------------------------------------
+# P4-R2C -- constrained salvage + payload round-trip + fail-closed validation
+# ---------------------------------------------------------------------------
+
+
+_P4R2C_DYNAMIC_SOURCE = textwrap.dedent(
+    """
+    import folder_paths
+
+
+    class P4R2CProvenDynamicNode:
+        @classmethod
+        def INPUT_TYPES(cls):
+            models = folder_paths.get_filename_list("checkpoints")
+            return {
+                "required": {
+                    "dynamic_pick": (models, {"default": "fallback"}),
+                }
+            }
+
+        RETURN_TYPES = ("STRING",)
+    """
+)
+
+
+_P4R2C_STATIC_SOURCE = textwrap.dedent(
+    """
+    class P4R2CStaticStringNode:
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "text": ("STRING", {"default": unknown_symbol}),
+                }
+            }
+
+        RETURN_TYPES = ("STRING",)
+    """
+)
+
+
+class TestP4R2CUnresolvedComboCoverage:
+    """Regression coverage for P4-R2C (fc155565): (a)-(e)."""
+
+    def test_a_proven_dynamic_choice_salvaged_to_unresolved_combo(self, tmp_path: Path) -> None:
+        """(a) proven dynamic-choice entry becomes visible unresolved COMBO."""
+        source = tmp_path / "p4r2c_dynamic.py"
+        source.write_text(_P4R2C_DYNAMIC_SOURCE, encoding="utf-8")
+        schema = SourceSchemaProvider([tmp_path]).get_schema("P4R2CProvenDynamicNode")
+        assert schema is not None, "proven dynamic node must still parse"
+        assert "dynamic_pick" in schema.inputs, "dynamic input must remain visible (not dropped)"
+        spec = schema.inputs["dynamic_pick"]
+        assert spec.type == "COMBO"
+        assert spec.unresolved_choices is True
+        assert not spec.choices, "unresolved choices must be empty/None, not fabricated"
+
+    def test_b_static_string_does_not_get_combo_marked(self, tmp_path: Path) -> None:
+        """(b) statically-typed non-dynamic entry does NOT get combo-marked."""
+        source = tmp_path / "p4r2c_static.py"
+        source.write_text(_P4R2C_STATIC_SOURCE, encoding="utf-8")
+        schema = SourceSchemaProvider([tmp_path]).get_schema("P4R2CStaticStringNode")
+        assert schema is not None, "static node must still parse"
+        # Static STRING with unparseable default must not be salvaged as COMBO.
+        if "text" in schema.inputs:
+            spec = schema.inputs["text"]
+            assert spec.type == "STRING", "static STRING must keep its type"
+            assert spec.unresolved_choices is False, "static entry must not carry unresolved marker"
+            assert spec.type != "COMBO" or not spec.unresolved_choices
+        else:
+            # Reverts to drop is also acceptable per spec, but must not appear as unresolved COMBO.
+            assert "text" not in schema.inputs or not schema.inputs["text"].unresolved_choices
+
+    def test_c_marker_survives_payload_round_trip(self, tmp_path: Path) -> None:
+        """(c) unresolved_choices survives payload normalization round-trip."""
+        source = tmp_path / "p4r2c_roundtrip.py"
+        source.write_text(_P4R2C_DYNAMIC_SOURCE, encoding="utf-8")
+        schema = SourceSchemaProvider([tmp_path]).get_schema("P4R2CProvenDynamicNode")
+        assert schema is not None and "dynamic_pick" in schema.inputs
+        assert schema.inputs["dynamic_pick"].unresolved_choices is True
+        payload = schema_payload_from_node_schema("P4R2CProvenDynamicNode", schema)
+        assert payload["inputs"]["dynamic_pick"]["unresolved_choices"] is True
+        restored = node_schema_from_payload("P4R2CProvenDynamicNode", payload)
+        assert restored.inputs["dynamic_pick"].unresolved_choices is True
+        assert restored.inputs["dynamic_pick"].type == "COMBO"
+
+    def test_d_validate_rejects_literal_against_unresolved(self) -> None:
+        """(d) validate_literal_value fails closed on unresolved spec."""
+        spec = InputSpec(type="COMBO", required=True, choices=None, unresolved_choices=True)
+        issues = validate_literal_value(
+            value="anything",
+            spec=spec,
+            class_type="P4R2CProvenDynamicNode",
+            input_name="dynamic_pick",
+            context="test",
+        )
+        assert len(issues) == 1
+        assert issues[0].code == "unresolved_choices"
+        assert issues[0].severity == "error"
+
+    def test_e_static_combo_validates_normally(self) -> None:
+        """(e) static combo binding still validates normally."""
+        spec = InputSpec(type="COMBO", required=True, default="a", choices=["a", "b"], unresolved_choices=False)
+        ok = validate_literal_value(
+            value="a",
+            spec=spec,
+            class_type="SomeNode",
+            input_name="pick",
+            context="test",
+        )
+        assert ok == [], "valid enum value must pass clean"
+        bad = validate_literal_value(
+            value="c",
+            spec=spec,
+            class_type="SomeNode",
+            input_name="pick",
+            context="test",
+        )
+        assert len(bad) == 1
+        assert bad[0].code == "value_not_in_enum"
 
 
 @pytest.mark.parametrize(
