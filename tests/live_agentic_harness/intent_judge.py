@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -884,7 +885,11 @@ def _verify_delta_replay(
             "interpret(pre, Δ) failed to apply: " + ", ".join(codes[:4] or ["apply_failed"])
         )
     else:
-        leftover = diff(result.workflow, post_wf)
+        leftover = tuple(
+            op
+            for op in diff(result.workflow, post_wf)
+            if not _spelling_equivalent_leftover(op, result.workflow)
+        )
         if leftover:
             mismatches.append(
                 f"interpret(pre, Δ) does not reconstruct post: "
@@ -909,17 +914,119 @@ def _verify_delta_replay(
     }
 
 
-def _op_fingerprint(op: Any) -> tuple[Any, ...]:
-    """Stable comparable fingerprint of an edit op (dict or typed)."""
-    if isinstance(op, Mapping):
-        return (op.get("op"), json.dumps(op, sort_keys=True, default=str))
-    try:
-        from vibecomfy.porting.edit.ops import op_to_dict
+_CANONICAL_INT_TEXT_RE = re.compile(r"-?[0-9]+")
 
-        payload = op_to_dict(op)
+
+def _canonical_edit_value(value: Any) -> Any:
+    """Hashable canonical projection whose equality mirrors the edit layer.
+
+    The diff layer compares IR values with plain Python ``!=`` over the
+    numeric tower (``1 == 1.0 == True``), while a claimed Δ arrives as JSON
+    where the same widget number may be spelled ``30``, ``30.0``, or text
+    ``"30"`` and node/slot identities arrive as ints or digit strings.  The
+    projection collapses exactly those spellings — never more:
+
+    - bool/int/float collapse to their exact :class:`decimal.Decimal`
+      identity, so cross-spelling equality matches diff-layer equality and
+      huge seeds stay exact (no float precision loss);
+    - a string collapses to its number only when it IS a canonical integer
+      spelling (``str(int(text)) == text``); every other string (leading
+      zeros, decimal text, names) stays itself;
+    - mappings drop ``None``-valued entries — the same absence-vs-default
+      equality ``op_to_dict``/``dict.get`` give the diff layer;
+    - lists/tuples stay order-significant; any other object projects through
+      ``repr``.
+
+    Pure function of the value: same input, same projection (deterministic).
+    """
+    if isinstance(value, bool):
+        return ("n", Decimal(int(value)))
+    if isinstance(value, (int, float)):
+        return ("n", Decimal(value))
+    if isinstance(value, str):
+        if _CANONICAL_INT_TEXT_RE.fullmatch(value) and str(int(value)) == value:
+            return ("n", Decimal(int(value)))
+        return ("s", value)
+    if isinstance(value, Mapping):
+        return tuple(
+            sorted(
+                (_canonical_edit_value(str(key)), _canonical_edit_value(item))
+                for key, item in value.items()
+                if item is not None
+            )
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_canonical_edit_value(item) for item in value)
+    return ("o", repr(value))
+
+
+def _spelling_equivalent_leftover(op: Any, workflow: Any) -> bool:
+    """True when a replay-vs-post leftover op is pure value-spelling drift.
+
+    ``diff`` compares stored IR values with Python ``!=``, so a claimed
+    numeric literal that replayed through the raw apply boundary (e.g. text
+    ``"8"`` where the post IR stores ``8``) shows up as a leftover
+    ``set_node_field`` even though the edit layer treats the two spellings as
+    the same value (window P8 shape).  Only such canonically-equal
+    set_node_field leftovers may be dropped; add/remove/link ops and any
+    canonically-different value stay — the check remains exactly as strict
+    for genuine divergence.
+    """
+    from vibecomfy.porting.edit.ops import SetNodeFieldOp  # noqa: PLC0415
+
+    if not isinstance(op, SetNodeFieldOp):
+        return False
+    target_uid = str(getattr(op.target, "uid", "") or "")
+    field_path = str(getattr(op.target, "field_path", "") or "")
+    if not target_uid or not field_path:
+        return False
+    for node in getattr(workflow, "nodes", {}).values():
+        if str(getattr(node, "uid", "") or "") != target_uid:
+            continue
+        widgets = dict(getattr(node, "widgets", {}) or {})
+        inputs = dict(getattr(node, "inputs", {}) or {})
+        # Same channel precedence as the apply boundary: widgets first.
+        if field_path in widgets:
+            current = widgets[field_path]
+        elif field_path in inputs:
+            current = inputs[field_path]
+        else:
+            return False
+        return _canonical_edit_value(current) == _canonical_edit_value(op.value)
+    return False
+
+
+def _op_fingerprint(op: Any) -> tuple[Any, ...]:
+    """Stable comparable fingerprint of an edit op (dict or typed).
+
+    Two ops fingerprint equal exactly when the edit layer treats them as
+    identical statements: same op kind, same targets in their canonical
+    string form, and values equal under :func:`_canonical_edit_value`.
+    Genuinely different operations — wrong node, wrong field, a different
+    target value beyond numeric identity, an extra or missing op — still
+    fingerprint apart.
+    """
+    if isinstance(op, Mapping):
+        payload = {key: item for key, item in op.items() if item is not None}
+        return (payload.get("op"), _canonical_edit_value(payload))
+    try:
+        from vibecomfy.porting.edit.ops import SubgraphInterfaceOp, op_to_dict
+
+        if isinstance(op, SubgraphInterfaceOp):
+            payload = {
+                "op": op.op,
+                "action": op.action,
+                "name": op.name,
+                "inputs": [list(port) for port in op.inputs],
+                "outputs": [list(port) for port in op.outputs],
+            }
+            if op.id is not None:
+                payload["id"] = op.id
+        else:
+            payload = op_to_dict(op)
     except Exception:
-        return (getattr(op, "op", type(op).__name__), str(op))
-    return (payload.get("op"), json.dumps(payload, sort_keys=True, default=str))
+        return (getattr(op, "op", type(op).__name__), _canonical_edit_value(str(op)))
+    return (payload.get("op"), _canonical_edit_value(payload))
 
 
 def _nodes_by_uid(ir: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
