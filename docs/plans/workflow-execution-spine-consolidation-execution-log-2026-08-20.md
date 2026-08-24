@@ -6343,3 +6343,63 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 ### Position — P1 closed at d457318b, queue advances to P5
 
 - **P1-REPLAY-HASH-DOMAIN CLOSED at `d457318b`: single replay hash domain = frozen snapshot table (never re-ingests raw UI), empty-graph clarify survives verbatim behind the non-empty candidate-payload requirement, apply_eligible = non-empty accepted_batch ∧ candidate_matches with fail-closed direction preserved; 5 focused tests passed. Pre-existing adjacent-module failures (12F/6P on both sides of the diff, class `missing_touched_schema`) belong to no open card — flagged for the §30 frozen-commit batch review. Serial queue: P5-ACCEPTEDBATCH-TERMINAL next; after P0–P5 all close: ONE frozen commit + pinned BOTH-MODES 50-scenario validation window (staged ≥25/50 AND threaded ≥25/50). G7 remains `status: open`.**
+
+## EVIDENCE-P5 — record P5-ACCEPTEDBATCH-TERMINAL closure — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied P5-ACCEPTEDBATCH-TERMINAL provenance — the killed first dispatch and its clean duplicate-guard re-dispatch, the TESTS-ONLY disposition with its grounded R1-already-at-HEAD finding, the transient probe artifact trail, and the orchestrator's mechanical verification — into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts (`receipts/P5-ACCEPTEDBATCH-TERMINAL-receipt.json`, `receipts/P5-ACCEPTEDBATCH-TERMINAL-violation.json`). This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a. No card, gate, or receipt status beyond the recorded dispositions is changed by this entry.
+
+### 1. Card P5-ACCEPTEDBATCH-TERMINAL [XHARD] (§30 item 4): pin accepted_batch persistence onto terminal response — implemented via TWO dispatches
+
+- **Dispatch 1 — KILLED by supervisor relaunch (infrastructure anomaly; not a card failure):**
+  - Wrapper PID `34713`, start `2026-08-24T14:56:13Z`; killed by the `2026-08-24T15:16:42Z` supervisor relaunch of the orchestrator (untrappable kill path).
+  - NO receipt, NO death note, NO commits, zero mutations — verified mechanically by the orchestrator.
+  - Re-dispatch was lawful under the duplicate-guard law: no prior receipt existed, so the card was NOT active-duplicate at relaunch.
+- **Dispatch 2 — clean re-dispatch, CLOSED (`receipts/P5-ACCEPTEDBATCH-TERMINAL-receipt.json`, untracked):**
+  - Route `ox-alpha` (launcher `--model=stealth/ox-alpha:max`; receipt `resolved_model` `stealth/ox-alpha`), wrapper exit `0`.
+  - Wrapper PID `37173` (launcher child PID `37179`); base `1aa6d8681c45778b54eadbdf5c60459addf38878`; wrapper `2026-08-24T15:19:56Z` → `2026-08-24T15:41:57Z` (~22 min). Brief SHA-256 `a341819fd833e1a719b9860395fb079ad6d259e20072bf27a9ca012adfe489ed`.
+  - Result digest `7ef7cddc8b0baa4d91d82fc8befeb19158c7dc27df651cb9832f65ca6ff80522` (prefix `7ef7cddc8b0baa4d`). Receipt `stop_or_judgment` empty.
+  - Commit `65473633af20e93ebad747284fe8f658d6567f42` — subject `test(spine): P5-ACCEPTEDBATCH-TERMINAL — pin accepted_batch persistence onto terminal response (R1/R2/R3)`; changed files (committed): `tests/test_p5_accepted_batch_terminal.py` (new, 421 lines).
+  - **Transient probe:** a temporary untracked `scratch_p5_probe.py` was created and removed by the implementer during verification; NEVER committed; absent from tree at HEAD (verified: file gone, `git ls-files` count 0). A companion `ALLOWANCE_VIOLATION` artifact (`P5-ACCEPTEDBATCH-TERMINAL-violation.json`) names exactly that one file as outside the allowed globs; resolved by the removal — recorded verbatim, no new judgment.
+
+### 2. Disposition is TESTS-ONLY and grounded (orchestrator-supplied)
+
+- The implementer enumerated the touched closure end-to-end: admission (porting/edit `_parse_execute` → `session.landed_ops` → batch_turns statements) → terminal builder write (`_build_batch_repl_response`) → session publication (`record_idempotent_response` receipt+transaction) → executor envelope (`ExecutorResult.to_dict`) → agent-owned merge → harness `response.json`. Consumers pinned: judge loaders, reply-claims law, apply/plan digest derivation.
+- **The R1 mechanism ALREADY exists at HEAD:** `vibecomfy/comfy_nodes/agent/_frag_response_contract.py:1657` — `response["accepted_batch"] = _json_safe(list(_accepted_batch_statements(state)))` — landed with G6 (`743cc102`) mid-spine, i.e. AFTER the finale build that produced the 13 `accepted_batch:null` legs (their artifacts predate the fix). The card therefore lands focused tests that demonstrate R1–R3 and regression-lock the seam; production diff is empty.
+- Orchestrator mechanical verification: seam grep confirms persistence at `:1657` AND focused tests `tests/test_p5_accepted_batch_terminal.py` **5 passed** in 1.64 s at HEAD `65473633`. Re-corroborated by this recorder at HEAD `65473633`: seam present at `:1657`, **5 passed** in 1.66 s.
+
+### 3. Contract satisfied per brief R1/R2/R3 (orchestrator-supplied disposition)
+
+- **R1:** accepted_batch persistence onto terminal response pinned by test (a).
+- **R2:** anti-gaming invariant asserted — scoring fields untouched; `tests/live_agentic_harness/**` untouched (the allowance forbidden list enforced it mechanically).
+- **R3:** fail-closed preserved — no fabrication path added; production diff empty.
+
+### 4. Review model
+
+- Per §18 batch model: NO per-card post-implementation review dispatched; batch/round review comes with the §34 round sense-check.
+
+### 5. Wrapper-survival note (§15 residual risk)
+
+- Dispatch 1 died WITH its parent despite the SIGTERM trap: the supervisor used an untrappable kill path. The detached setsid launch pattern (used for the successful dispatch 2) is now the standing orchestrator practice for EVERY dispatch.
+
+### 6. Next unblocked cards (serial mutating queue)
+
+- **P3-SIGNATURE-LITERALS → P4-OBJECTINFO-CACHES → P6-CORPUS-G1-ORPHAN → P7-LINEAGE-EVIDENCE → HIVEMIND-SEARCH-SHAPE (§36) → FINAL50-LOCK-REGEN (authorized §33.2; validate-only currently fails on f65774 descriptor lock drift — re-verified 15:24Z) → ONE frozen commit → §34 validation campaign (≤3 rounds to ≥56% either mode; §35 parallel assessors one per 5-leg batch).**
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **71 records** (70 prior + `71 EVIDENCE-P5` evidence dispatch recording both P5 dispatches and the TESTS-ONLY closure at `65473633`; canonical_slot `EVIDENCE-P5`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`).
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-P5` section) + `manifest.json` G7 `evidence_sequence[71]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `1aa6d8681c45778b54eadbdf5c60459addf38878` IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; commit `65473633` is itself HEAD); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at HEAD `65473633` + new commit.
+- **JUDGMENT_REQUIRED: none** (dispatch-1 wrapper death was an infrastructure anomaly resolved upstream by the orchestrator's clean duplicate-guard re-dispatch; recorded verbatim — this recorder makes no new judgment).
+
+### Position — P5 closed at 65473633, queue advances to P3
+
+- **P5-ACCEPTEDBATCH-TERMINAL CLOSED at `65473633`: accepted_batch terminal-response persistence regression-locked by focused tests (R1 pinned, R2 anti-gaming asserted, R3 fail-closed preserved) with ZERO production diff — the R1 mechanism already exists at HEAD via G6 `743cc102`, so the 13 finale legs' `accepted_batch:null` artifacts are pre-fix and stand. First dispatch was killed by the 15:16:42Z supervisor relaunch (no receipt/death note/mutations); clean duplicate-guard re-dispatch closed in ~22 min; detached setsid launch is now standing practice. Serial queue: P3-SIGNATURE-LITERALS next → P4-OBJECTINFO-CACHES → P6-CORPUS-G1-ORPHAN → P7-LINEAGE-EVIDENCE → HIVEMIND-SEARCH-SHAPE → FINAL50-LOCK-REGEN → ONE frozen commit → §34 validation campaign. G7 remains `status: open`.**
