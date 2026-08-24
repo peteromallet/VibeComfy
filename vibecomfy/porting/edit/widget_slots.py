@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 from vibecomfy.porting.widgets.compact_resolver import widget_index_for_field
@@ -33,8 +33,11 @@ def _widget_index_for_field(
     field_name: str,
     *,
     schema_provider: Any | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> int | None:
-    return widget_index_for_field(node, field_name, schema_provider=schema_provider)
+    return widget_index_for_field(
+        node, field_name, schema_provider=schema_provider, name_authority=name_authority
+    )
 
 
 def _canonical_ui_only_widget_field(

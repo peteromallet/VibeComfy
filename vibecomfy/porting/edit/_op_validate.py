@@ -91,10 +91,14 @@ def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
     positional_index: int | None = None
     if spec is None and field not in widgets and field not in inputs:
         try:
+            from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
             from vibecomfy.porting.widgets.compact_resolver import widget_index_for_field
 
             positional_index = widget_index_for_field(
-                node, field, schema_provider=provider
+                node,
+                field,
+                schema_provider=provider,
+                name_authority=frozen_widget_names_by_uid(workflow),
             )
         except Exception:  # noqa: BLE001 - optional schema/name evidence
             positional_index = None

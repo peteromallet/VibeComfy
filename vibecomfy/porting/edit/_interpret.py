@@ -461,6 +461,11 @@ class _InterpretRunner:
             if str(getattr(node, "uid", "") or "")
             and str(node.class_type) in HELPER_NODE_TYPES
         }
+        # P0-WIDGET-CANON: sealed snapshot table is the sole name authority
+        # for widget_N → canonical-name canonicalization in this batch.
+        from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
+
+        self.name_authority = frozen_widget_names_by_uid(pre_workflow)
         self._refresh_bindings()
         self.placement_facts = None
 
@@ -1260,6 +1265,7 @@ class _InterpretRunner:
             resolution = compact_widget_names_for_node(
                 node,
                 schema_provider=self.schema_provider,
+                name_authority=self.name_authority,
             )
             if 0 <= index < len(resolution.names):
                 named = resolution.names[index]

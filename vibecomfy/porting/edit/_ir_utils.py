@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
@@ -33,12 +33,36 @@ def _is_primitive_widget_alias_class(class_type: str) -> bool:
     return class_type in {"Float", "Int"} or class_type.startswith("Primitive")
 
 
+def _write_compact_slot_mirrors(node: Any, index: int, value: Any) -> bool:
+    """Write one compact slot across its parallel raw/UI carrier copies.
+
+    ``node.widgets['widget_N']``, ``raw_widgets.values[N]`` and the retained
+    ``metadata._ui`` widgets_values row are representations of the SAME
+    positional slot; an assignment updates all of them or emit/compile see
+    divergent values for one logical field.
+    """
+    wrote = False
+    raw_widgets = getattr(node, "raw_widgets", None)
+    raw_values = getattr(raw_widgets, "values", None)
+    if isinstance(raw_values, list) and 0 <= index < len(raw_values):
+        raw_values[index] = value
+        wrote = True
+    metadata = getattr(node, "metadata", None)
+    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    ui_values = door_get_widgets_values(raw_ui) if isinstance(raw_ui, Mapping) else None
+    if isinstance(ui_values, list) and 0 <= index < len(ui_values):
+        ui_values[index] = value
+        wrote = True
+    return wrote
+
+
 def _apply_primitive_widget_alias_write(
     node: Any,
     field: str,
     value: Any,
     *,
     schema_provider: Any,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> bool:
     """Write every retained carrier for a primitive serialized widget.
 
@@ -49,7 +73,9 @@ def _apply_primitive_widget_alias_write(
     """
     if not _is_primitive_widget_alias_class(str(node.class_type)):
         return False
-    index = widget_index_for_field(node, field, schema_provider=schema_provider)
+    index = widget_index_for_field(
+        node, field, schema_provider=schema_provider, name_authority=name_authority
+    )
     if index is None and field == "value":
         raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
         has_widget_zero = (
@@ -64,6 +90,7 @@ def _apply_primitive_widget_alias_write(
     resolution = compact_widget_names_for_node(
         node,
         schema_provider=schema_provider,
+        name_authority=name_authority,
     )
     named_field = resolution.names[index] if index < len(resolution.names) else None
     widget_field = f"widget_{index}"
@@ -80,18 +107,42 @@ def _apply_primitive_widget_alias_write(
             node.widgets[carrier_name] = value
             wrote_carrier = True
 
-    raw_widgets = getattr(node, "raw_widgets", None)
-    raw_values = getattr(raw_widgets, "values", None)
-    if isinstance(raw_values, list) and 0 <= index < len(raw_values):
-        raw_values[index] = value
-        wrote_carrier = True
-    metadata = getattr(node, "metadata", None)
-    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
-    ui_values = door_get_widgets_values(raw_ui) if isinstance(raw_ui, Mapping) else None
-    if isinstance(ui_values, list) and 0 <= index < len(ui_values):
-        ui_values[index] = value
+    if _write_compact_slot_mirrors(node, index, value):
         wrote_carrier = True
     return wrote_carrier
+
+
+def _rewrite_positional_carrier(
+    node: Any,
+    field: str,
+    value: Any,
+    *,
+    schema_provider: Any,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
+) -> bool:
+    """Assign a schema name onto its RETAINED positional carrier (R2).
+
+    When ``field`` resolves to compact position N stored as
+    ``widgets['widget_N']``, the rewrite targets that positional carrier
+    itself.  A named key is NOT dual-written beside it: after every name
+    assignment the slot has exactly one carrier.
+    """
+    index = widget_index_for_field(
+        node, field, schema_provider=schema_provider, name_authority=name_authority
+    )
+    if index is None:
+        return False
+    carrier = f"widget_{index}"
+    if carrier not in getattr(node, "widgets", {}) and carrier not in getattr(
+        node, "inputs", {}
+    ):
+        return False
+    if carrier in getattr(node, "widgets", {}):
+        node.widgets[carrier] = value
+    elif carrier in getattr(node, "inputs", {}):
+        node.inputs[carrier] = value
+    _write_compact_slot_mirrors(node, index, value)
+    return True
 
 
 def _resolve_class_type_from_alias(
@@ -845,6 +896,11 @@ def apply_edit_cow(
     from vibecomfy.workflow import VibeEdge, VibeNode, litegraph_to_mode
 
     post = _cow_workflow_copy(workflow)
+    # P0-WIDGET-CANON: the sealed snapshot table is the sole name authority
+    # for name→slot resolution during apply (and therefore replay).
+    from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
+
+    name_authority = frozen_widget_names_by_uid(workflow)
 
     if isinstance(op, SetNodeFieldOp):
         node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
@@ -871,12 +927,23 @@ def apply_edit_cow(
             field,
             op.value,
             schema_provider=schema_provider,
+            name_authority=name_authority,
         ):
             pass
         elif field in node.widgets:
             node.widgets[field] = op.value
         elif field in node.inputs:
             node.inputs[field] = op.value
+        elif _rewrite_positional_carrier(
+            node,
+            field,
+            op.value,
+            schema_provider=schema_provider,
+            name_authority=name_authority,
+        ):
+            # R2: the schema name's slot was stored positionally; the
+            # positional carrier itself was rewritten — no dual-write.
+            pass
         else:
             # Unknown channel: the IR's canonical value channel is inputs.
             node.inputs[field] = op.value
