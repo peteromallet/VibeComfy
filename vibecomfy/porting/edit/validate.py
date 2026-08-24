@@ -30,6 +30,19 @@ def validate_literal_value(
 ) -> list[PortIssue]:
     if spec is None:
         return []
+    # Fail-closed against statically-unresolvable combo choices.
+    if bool(getattr(spec, "unresolved_choices", False)):
+        return [
+            _issue(
+                "unresolved_choices",
+                f"{context} rejected {class_type}.{input_name}: literal value {value!r} cannot be validated against unresolved choices.",
+                detail={
+                    "class_type": class_type,
+                    "input": input_name,
+                    "value": value,
+                },
+            )
+        ]
     issues: list[PortIssue] = []
     choices = getattr(spec, "choices", None) or []
     if choices and value not in choices and _coerce_choice_value(value, choices) is _NO_MATCH:

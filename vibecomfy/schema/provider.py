@@ -1476,8 +1476,8 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
         choices=choices,
         min=attrs.get("min"),
         max=attrs.get("max"),
+        unresolved_choices=attrs.get("unresolved_choices") is True,
     )
-
 
 def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:
     normalized_outputs = info.get("outputs")
@@ -1653,15 +1653,49 @@ _UNPARSEABLE = object()
 _UNRESOLVED_COMBO_SPEC = ["COMBO", {"unresolved_choices": True}]
 
 
+def _is_proven_dynamic_choice_node(node: ast.AST) -> bool:
+    """Return True for shapes that prove a combo's choices are computed at runtime."""
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        return True
+    if isinstance(node, ast.Call):
+        return True
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        return True
+    if isinstance(node, (ast.List, ast.Tuple)):
+        if node.elts:
+            first = node.elts[0]
+            # Starred unpacking like (*models, {...}) still counts.
+            if isinstance(first, ast.Starred):
+                first = first.value
+            if isinstance(first, (ast.Name, ast.Attribute, ast.Call, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                return True
+            # Nested tuple/list wrapper (unlikely) — recurse one level.
+            if isinstance(first, (ast.List, ast.Tuple)) and first.elts and isinstance(first.elts[0], (ast.Name, ast.Attribute, ast.Call)):
+                return True
+        return False
+    return False
+
 def _literal_eval_node(node: ast.AST, class_values: dict[str, Any], *, salvage: bool = False) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.List):
-        values = [_literal_eval_node(item, class_values, salvage=salvage) for item in node.elts]
-        return _UNPARSEABLE if _UNPARSEABLE in values else values
+        values: list[Any] = []
+        for idx, item in enumerate(node.elts):
+            salvage_for_item = salvage and not (idx == 1 and len(node.elts) == 2 and isinstance(item, ast.Dict))
+            v = _literal_eval_node(item, class_values, salvage=salvage_for_item)
+            if v is _UNPARSEABLE:
+                return _UNPARSEABLE
+            values.append(v)
+        return values
     if isinstance(node, ast.Tuple):
-        values = [_literal_eval_node(item, class_values, salvage=salvage) for item in node.elts]
-        return _UNPARSEABLE if _UNPARSEABLE in values else tuple(values)
+        values_tuple: list[Any] = []
+        for idx, item in enumerate(node.elts):
+            salvage_for_item = salvage and not (idx == 1 and len(node.elts) == 2 and isinstance(item, ast.Dict))
+            v = _literal_eval_node(item, class_values, salvage=salvage_for_item)
+            if v is _UNPARSEABLE:
+                return _UNPARSEABLE
+            values_tuple.append(v)
+        return tuple(values_tuple)
     if isinstance(node, ast.Dict):
         out: dict[Any, Any] = {}
         for key_node, value_node in zip(node.keys, node.values, strict=False):
@@ -1672,7 +1706,7 @@ def _literal_eval_node(node: ast.AST, class_values: dict[str, Any], *, salvage: 
             if key is _UNPARSEABLE:
                 return _UNPARSEABLE
             if value is _UNPARSEABLE:
-                if salvage and isinstance(key, str):
+                if salvage and isinstance(key, str) and _is_proven_dynamic_choice_node(value_node):
                     # Dynamic INPUT_TYPES entry (e.g. combo choices computed at
                     # runtime): keep the input as an unresolved COMBO widget
                     # instead of silently dropping it -- dropping hides real
@@ -1691,7 +1725,6 @@ def _literal_eval_node(node: ast.AST, class_values: dict[str, Any], *, salvage: 
         if isinstance(value, (int, float)):
             return -value
     return _UNPARSEABLE
-
 
 def _first_string(row: dict[str, Any], *keys: str) -> str | None:
     for key in keys:

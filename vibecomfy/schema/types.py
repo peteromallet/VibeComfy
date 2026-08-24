@@ -21,7 +21,7 @@ class InputSpec:
     choices: list[Any] | None = None
     min: int | float | None = None
     max: int | float | None = None
-
+    unresolved_choices: bool = False
 
 @dataclass(frozen=True)
 class OutputSpec:
@@ -122,6 +122,7 @@ def _input_spec_payload(spec: Any) -> dict[str, Any]:
         "choices": _freeze_jsonable(getattr(spec, "choices", None)),
         "min": getattr(spec, "min", None),
         "max": getattr(spec, "max", None),
+        "unresolved_choices": bool(getattr(spec, "unresolved_choices", False)),
     }
 
 
@@ -192,6 +193,7 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
             choices=list(choices) if isinstance(choices, list) else None,
             min=spec.get("min") if isinstance(spec.get("min"), (int, float)) else None,
             max=spec.get("max") if isinstance(spec.get("max"), (int, float)) else None,
+            unresolved_choices=spec.get("unresolved_choices") is True,
         )
     raw_outputs = raw.get("outputs")
     outputs = [
@@ -230,10 +232,10 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
             else 1.0
         ),
         conflicts=tuple(
-            str(item) for item in provenance.get("conflicts", []) if isinstance(item, str)
+            str(item) for item in (provenance.get("conflicts") or []) if isinstance(item, str)
         ),
         ignored_evidence=tuple(
-            str(item) for item in provenance.get("ignored_evidence", []) if isinstance(item, str)
+            str(item) for item in (provenance.get("ignored_evidence") or []) if isinstance(item, str)
         ),
     )
 
