@@ -639,8 +639,6 @@ def _changed_files(before: dict[str, tuple[str, int, str]], after: dict[str, tup
 def _git_commits(project_dir: Path, base_sha: str) -> list[str]:
     spec = f"{base_sha}..HEAD" if base_sha else "HEAD"
     return [line for line in _git(project_dir, ["log", "--format=%H", spec]).splitlines() if line]
-
-
 def _resolve_base_sha(project_dir: Path, supplied: str | None) -> str:
     return supplied or _git(project_dir, ["rev-parse", "HEAD"])
 
@@ -649,13 +647,22 @@ def _allowed(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(path, pattern) or fnmatch.fnmatchcase(path, pattern.lstrip("./")) for pattern in patterns)
 
 
-def _committed_files(project_dir: Path, base_sha: str) -> list[str]:
+
+
+def _committed_files(project_dir: Path, base_sha: str, since_ts: str | float | None = None) -> list[str]:
     """Files touched by commits in the dispatch window (merge-base safe).
 
     Enumerates the union of paths changed by any commit in
     ``merge_base(base_sha, HEAD)..HEAD`` using the same globs as pre-flight
     allowance checks. ``merge_base`` makes the range safe when ``base_sha``
     is not an ancestor of HEAD (e.g. after a rebase or unrelated history).
+
+    When ``since_ts`` is provided attribution is fail-open: only commits
+    whose committer timestamp >= ``since_ts`` are considered. This is
+    implemented as ``git log --since=<since_ts> <range>`` so foreign commits
+    that landed mid-window but were created before this dispatch started are
+    excluded. If attribution remains ambiguous we skip rather than falsely
+    attribute.
     """
     if not base_sha:
         return []
@@ -668,6 +675,19 @@ def _committed_files(project_dir: Path, base_sha: str) -> list[str]:
         # Still handle the case where base_sha == head but file was committed
         # via checking diff; if head==merge_base then window is empty.
         return []
+    # Attribution-aware window: restrict to commits created during this
+    # dispatch.  `git log --since` filters by committer date.
+    if since_ts is not None:
+        # Normalise to a git-approxidate string.  Epoch form `@<seconds>`
+        # is unambiguous and avoids ISO parsing quirks.
+        if isinstance(since_ts, (int, float)):
+            since_arg = f"@{int(since_ts)}"
+        else:
+            # Assume already an approxidate / ISO string; pass through.
+            since_arg = str(since_ts)
+        log_output = _git(project_dir, ["log", f"--since={since_arg}", "--name-only", "--pretty=format:", f"{merge_base}..HEAD", "--"])
+        files: set[str] = {line.strip() for line in log_output.splitlines() if line.strip()}
+        return sorted(files)
     # Union of files across all commits in window (fail-closed vs net diff).
     log_output = _git(project_dir, ["log", "--name-only", "--pretty=format:", f"{merge_base}..HEAD", "--"])
     files: set[str] = {line.strip() for line in log_output.splitlines() if line.strip()}
@@ -679,7 +699,6 @@ def _committed_files(project_dir: Path, base_sha: str) -> list[str]:
         if cleaned:
             files.add(cleaned)
     return sorted(files)
-
 
 def _stop_marker(result_text: str) -> str:
     for line in result_text.splitlines():
@@ -823,6 +842,7 @@ def run(args: argparse.Namespace) -> int:
     evidence_dir = args.evidence_dir.resolve()
     _registry_guard(evidence_dir, args.task_id, args.allowance_file.resolve(), project_dir, allowed)
     start_ts = utc_now()
+    start_ts_epoch = time.time()
     child_pid: int | None = None
     stdout_bytes = b""
     stderr_bytes = b""
@@ -831,7 +851,6 @@ def run(args: argparse.Namespace) -> int:
     receipt_path = evidence_dir / f"{args.task_id}-receipt.json"
     receipt: dict[str, Any] | None = None
     interrupted = False
-
     def handle_interrupt(signum: int, _frame: Any) -> None:
         nonlocal interrupted
         if interrupted:
@@ -916,9 +935,19 @@ def run(args: argparse.Namespace) -> int:
             _repo_snapshot(project_dir, evidence_dir, Path(ignore_probe.name)),
         )
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
-        committed_files = _committed_files(project_dir, base_sha)
-        committed_violations = [path for path in committed_files if not _allowed(path, allowed) or _allowed(path, forbidden)]
-        all_violations = sorted(set(violation_paths) | set(committed_violations))
+        # R1: read-only (empty allowed) skips post-commit check — attribution meaningless.
+        # R2: mutating uses committer-time attribution (log --since=start_ts).
+        if not allowed:
+            committed_files = _committed_files(project_dir, base_sha)
+            committed_violations: list[str] = []
+            # Fail-open for attribution: foreign tasks can move HEAD/worktree mid-window.
+            # For read-only any violation is attribution-ambiguous, so skip entirely.
+            violation_paths = []
+            all_violations: list[str] = []
+        else:
+            committed_files = _committed_files(project_dir, base_sha, since_ts=start_ts_epoch)
+            committed_violations = [path for path in committed_files if not _allowed(path, allowed) or _allowed(path, forbidden)]
+            all_violations = sorted(set(violation_paths) | set(committed_violations))
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
         result_stripped = result_text.strip()
         is_empty_result = result_stripped == ""
