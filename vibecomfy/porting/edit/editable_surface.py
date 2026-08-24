@@ -137,8 +137,17 @@ def editable_surface_for(
     *,
     schema_provider: Any = None,
     edges: Sequence[Any] | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> EditableSurface:
-    """Hydrate the writable surface of *node* from the instance, then schema."""
+    """Hydrate the writable surface of *node* from the instance, then schema.
+
+    ``schema_provider`` classifies fields against the class schema (pass the
+    frozen ``SchemaSnapshot``-backed provider when one is bound).  When
+    ``name_authority`` — the sealed per-uid roster from
+    ``WorkflowSnapshot.field_snapshot`` — names this node, it is the sole
+    name authority: ambient aliases, object_info, and live providers are
+    never consulted for that node.
+    """
     class_type = _node_class_type(node)
     status = schema_status_for(node, schema_provider=schema_provider)
     schema = schema_for(schema_provider, class_type) if schema_provider is not None else None
@@ -148,7 +157,14 @@ def editable_surface_for(
 
     connected = _connected_input_names(node, edges)
     socket_names = _instance_socket_names(node, schema_inputs, connected)
-    literals = _instance_literals(node, schema_inputs, socket_names, status)
+    literals = _instance_literals(
+        node,
+        schema_inputs,
+        socket_names,
+        status,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+    )
     inputs = _instance_input_sockets(
         node, schema_inputs, socket_names, connected, status
     )
@@ -313,8 +329,43 @@ def _instance_socket_names(
     return names
 
 
-def _widget_items(node: Any) -> list[tuple[str, Any, bool]]:
-    """Return (name, value, named) pairs. ``named`` is False when the name is unknown."""
+def _resolve_widget_names(
+    node: Any,
+    *,
+    schema_provider: Any = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
+) -> Any:
+    """Name *node*'s compact carriers with provider evidence as last resort.
+
+    A frozen-authority hit short-circuits inside the resolver; without one,
+    ambient/curated/object-info sources are consulted first and the caller's
+    provider is retried only when no usable name was found.
+    """
+    resolution = compact_widget_names_for_node(node, name_authority=name_authority)
+    if schema_provider is None or any(
+        isinstance(name, str) and name and not is_positional_alias(name)
+        for name in resolution.names
+    ):
+        return resolution
+    return compact_widget_names_for_node(
+        node, schema_provider=schema_provider, name_authority=name_authority
+    )
+
+
+def _widget_items(
+    node: Any,
+    *,
+    schema_provider: Any = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
+) -> list[tuple[str, Any, bool]]:
+    """Return (name, value, named) pairs. ``named`` is False when the name is unknown.
+
+    Positional carriers are named through ``compact_widget_names_for_node``:
+    the frozen name authority (P0) when sealed, else instance/curated/
+    object-info evidence.  The caller's schema provider only fills carriers
+    nothing else can name — a drifted live provider must never out-rank
+    local evidence (P0 replay canonicalization depends on this order).
+    """
     items: list[tuple[str, Any, bool]] = []
     seen: set[str] = set()
 
@@ -344,7 +395,9 @@ def _widget_items(node: Any) -> list[tuple[str, Any, bool]]:
             seen.add(key)
             items.append((key, value, True))
     elif isinstance(values, list) and not seen:
-        resolution = compact_widget_names_for_node(node)
+        resolution = _resolve_widget_names(
+            node, schema_provider=schema_provider, name_authority=name_authority
+        )
         for index, value in enumerate(values):
             name = resolution.names[index] if index < len(resolution.names) else None
             if isinstance(name, str) and name and not is_positional_alias(name):
@@ -358,7 +411,9 @@ def _widget_items(node: Any) -> list[tuple[str, Any, bool]]:
     payload = _instance_payload(node)
     widget_rows = door_get_widgets_values(payload)
     if isinstance(widget_rows, list) and not items:
-        resolution = compact_widget_names_for_node(node)
+        resolution = _resolve_widget_names(
+            node, schema_provider=schema_provider, name_authority=name_authority
+        )
         for index, value in enumerate(widget_rows):
             name = resolution.names[index] if index < len(resolution.names) else None
             if isinstance(name, str) and name and not is_positional_alias(name):
@@ -373,10 +428,15 @@ def _instance_literals(
     schema_inputs: Mapping[str, Any],
     socket_names: set[str],
     status: SchemaStatus,
+    *,
+    schema_provider: Any = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> list[LiteralField]:
     fields: list[LiteralField] = []
     seen: set[str] = set()
-    for name, value, named in _widget_items(node):
+    for name, value, named in _widget_items(
+        node, schema_provider=schema_provider, name_authority=name_authority
+    ):
         if named and name in socket_names:
             continue
         spec = schema_inputs.get(name) if named else None

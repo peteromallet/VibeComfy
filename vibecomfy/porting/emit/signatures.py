@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from vibecomfy.ingest.normalize import door_get_nodes
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Mapping
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 
 from vibecomfy.porting.authoring_names import constructor_aliases_for_class_types
 from vibecomfy.porting.authoring_surface import (
@@ -268,9 +269,37 @@ def _iter_graph_nodes(nodes: Any):
         )
 
 
+def _frozen_widget_names_by_uid(nodes: Any) -> Mapping[str, tuple[str, ...]]:
+    """Sealed per-uid widget-name roster (P0 ``WorkflowSnapshot.field_snapshot``).
+
+    Empty for graphs that carry no seal — plain UI dicts and unsealed
+    workflows resolve through the live surface alone.
+    """
+    try:
+        from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
+
+        return frozen_widget_names_by_uid(nodes)
+    except Exception:  # noqa: BLE001 - filtering must not fail on exotic graphs
+        return {}
+
+
+def _sealed_roster_for_node(
+    frozen_names: Mapping[str, tuple[str, ...]], node: Any
+) -> Sequence[str]:
+    """Names the frozen table seals onto *node* (uid first, then raw id)."""
+    uid = getattr(node, "uid", None)
+    if not uid and isinstance(node, Mapping):
+        uid = node.get("uid") or node.get("id")
+    if not uid:
+        return ()
+    return frozen_names.get(str(uid), ())
+
+
 def filter_signature_rows_to_in_graph_nodes(
     rows: list[NodeSignatureRow],
     nodes: Any,
+    *,
+    schema_provider: Any = None,
 ) -> list[NodeSignatureRow]:
     """Restrict literal inputs to fields the in-graph nodes can actually resolve.
 
@@ -282,8 +311,23 @@ def filter_signature_rows_to_in_graph_nodes(
     can resolve are dropped from the row so the catalog does not advertise
     them as writable; socket inputs are never dropped.  Classes without
     in-graph nodes keep their full schema (they may be added new).
+    P3-SIGNATURE-LITERALS: *schema_provider* — the frozen
+    ``SchemaSnapshot``/``FrozenSchemaSnapshotProvider`` domain of record when
+    one is bound — reaches editable-surface resolution, and the sealed
+    per-uid widget-name roster from ``WorkflowSnapshot.field_snapshot``
+    (P0-WIDGET-CANON) is the name authority.  Two invariants on top of PR-D:
+
+    * a literal field sealed onto an in-graph node by the frozen roster is
+      NEVER dropped, even when the live provider/object_info disagrees
+      (stale-live must not erase a real field); positional ``widget_N``
+      carriers therefore keep their snapshot-backed names discoverable;
+    * rows are only ever restricted, never extended — no signature row is
+      invented for a field absent from both the snapshot and the provider.
     """
+
     from vibecomfy.porting.edit.editable_surface import editable_surface_for
+
+    frozen_names = _frozen_widget_names_by_uid(nodes)
 
     nodes_by_class: dict[str, list[Any]] = {}
     for node in _iter_graph_nodes(nodes):
@@ -303,10 +347,17 @@ def filter_signature_rows_to_in_graph_nodes(
         resolvable: set[str] = set()
         for node in nodes_of_class:
             try:
-                surface = editable_surface_for(node)
+                surface = editable_surface_for(
+                    node,
+                    schema_provider=schema_provider,
+                    name_authority=frozen_names,
+                )
             except Exception:
                 continue
             resolvable.update(surface.literal_names())
+            # Snapshot wins over live drift: a sealed name is never stripped,
+            # independent of surface-hydration quirks.
+            resolvable.update(_sealed_roster_for_node(frozen_names, node))
         inputs: list[InputSignatureField] = [
             field
             for field in row.inputs
