@@ -165,7 +165,9 @@ def _known_output(node: Any, slot: str | int, provider: Any) -> bool:
                     return True
             elif str(item) == str(slot) or index == slot:
                 return True
-        if str(slot) in {str(name) for name in names if name is not None}:
+        if isinstance(names, (list, tuple)) and str(slot) in {
+            str(name) for name in names if name is not None
+        }:
             return True
     schema = _schema_for(node, provider)
     outputs = getattr(schema, "outputs", None) or ()
