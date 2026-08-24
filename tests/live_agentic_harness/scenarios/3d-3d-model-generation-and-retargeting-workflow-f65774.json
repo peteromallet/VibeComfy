@@ -1,6 +1,6 @@
 {
   "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
-  "query": "Replace the Tripo texture node with a procedural PBR material generator and ensure the rigged model's materials are correctly applied in the final preview.",
+  "query": "Raise the Tripo texture node's texture quality from 'standard' to 'detailed' and keep its PBR texturing enabled, so the rigged model's materials come through with finer detail in the final 3D preview.",
   "workflow_path": "external_workflows/corpus/f657743bc2a3db17.json",
   "network": true,
   "timeout": 420,
@@ -9,8 +9,8 @@
     "expect_graph_changed": true
   },
   "desired": {
-    "outcome": "Texturing is handled by the new procedural node, and the final rigged output displays correct PBR materials in the 3D preview.",
-    "quality": "All nodes upstream and downstream remain properly connected; conversion, refinement, rigging, and retargeting stages still function without errors.",
+    "outcome": "The Tripo texture node runs with texture quality set to 'detailed' and PBR texturing kept enabled, so the final rigged model shows finer material detail in the 3D preview.",
+    "quality": "Only the texture node's texture-quality widget changes ('standard' -> 'detailed'); conversion, refinement, rigging, retargeting, and preview stages stay connected and functional.",
     "alternatives_ok": true
   },
   "_tags": {

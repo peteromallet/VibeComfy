@@ -1,6 +1,6 @@
 {
   "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
-  "query": "Increase the geometric detail level in the refinement step to capture more surface features like wrinkles and folds, without increasing the polygon count.",
+  "query": "Set the text-to-3D generation node's geometry quality to 'detailed' so the model captures more surface features like wrinkles and folds, and leave its face-limit and quad settings exactly as they are so the polygon count does not grow.",
   "workflow_path": "external_workflows/corpus/90a1d5ff9044902e.json",
   "network": true,
   "timeout": 360,
@@ -9,8 +9,8 @@
     "expect_graph_changed": true
   },
   "desired": {
-    "outcome": "The model has more surface detail (e.g., wrinkles, folds) while still being polygon-efficient and not bloated.",
-    "quality": "The refine node is properly configured with the detail parameter increased, all other nodes remain connected and functional, no dangling nodes, and the original pipeline stages (texturing, rigging, retargeting) still work correctly.",
+    "outcome": "The generated model has more surface detail (e.g., wrinkles, folds) from the detailed geometry-quality setting while keeping the same polygon budget.",
+    "quality": "The generation node's geometry quality is set to 'detailed', its face-limit and quad settings are unchanged, all other nodes remain connected with no dangling nodes, and the pipeline stages (texturing, rigging, retargeting) still work correctly.",
     "alternatives_ok": true
   },
   "_tags": {

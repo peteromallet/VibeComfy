@@ -4,13 +4,15 @@
   "workflow_path": "external_workflows/corpus/d813fedaabea87b7.json",
   "network": true,
   "timeout": 260,
-  "apply": true,
+  "apply": false,
   "assessment": {
-    "expect_graph_changed": true
+    "expect_graph_changed": false,
+    "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+    "expected_no_candidate_reason": "GroundingDINO exists neither in this corpus workflow (detection is UltralyticsDetectorProvider + SAMLoader + Impact SEGS detectors) nor anywhere in the local authoritative object_info schema, so no graph edit can swap the detector. The query deliberately demands an absent class; a correct run reports no candidate / requires_custom_nodes instead of fabricating an edit."
   },
   "desired": {
-    "outcome": "A functional pipeline where GroundingDINO replaces Ultralytics, producing compatible SEGS masks for SAM segmentation.",
-    "quality": "All wires correctly connected, original inpainting and generation stages preserved, no dangling nodes.",
+    "outcome": "The agent inspects the detection chain, determines that no GroundingDINO class is authorable in this environment, and truthfully reports that no candidate change exists; the graph stays unchanged.",
+    "quality": "The refusal names the detectors actually present (UltralyticsDetectorProvider, SAMLoader, Impact SEGS) and gives the grounded absence reason; no fabricated edit is submitted and existing nodes remain intact.",
     "alternatives_ok": true
   },
   "_tags": {
