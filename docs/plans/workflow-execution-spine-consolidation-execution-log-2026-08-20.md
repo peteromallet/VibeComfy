@@ -6403,3 +6403,56 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 ### Position — P5 closed at 65473633, queue advances to P3
 
 - **P5-ACCEPTEDBATCH-TERMINAL CLOSED at `65473633`: accepted_batch terminal-response persistence regression-locked by focused tests (R1 pinned, R2 anti-gaming asserted, R3 fail-closed preserved) with ZERO production diff — the R1 mechanism already exists at HEAD via G6 `743cc102`, so the 13 finale legs' `accepted_batch:null` artifacts are pre-fix and stand. First dispatch was killed by the 15:16:42Z supervisor relaunch (no receipt/death note/mutations); clean duplicate-guard re-dispatch closed in ~22 min; detached setsid launch is now standing practice. Serial queue: P3-SIGNATURE-LITERALS next → P4-OBJECTINFO-CACHES → P6-CORPUS-G1-ORPHAN → P7-LINEAGE-EVIDENCE → HIVEMIND-SEARCH-SHAPE → FINAL50-LOCK-REGEN → ONE frozen commit → §34 validation campaign. G7 remains `status: open`.**
+
+## EVIDENCE-P3 — record P3-SIGNATURE-LITERALS closure — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied P3-SIGNATURE-LITERALS provenance and the orchestrator's mechanical verification into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts (`receipts/P3-SIGNATURE-LITERALS-receipt.json`, `receipts/EVIDENCE-P3-receipt.json`). This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a.
+
+### 1. Card P3-SIGNATURE-LITERALS [HARD] (§30 item 5): discovery signatures keep snapshot-backed literals — implemented, CLOSED (`receipts/P3-SIGNATURE-LITERALS-receipt.json`, untracked)
+
+- Route `ox-alpha` (launcher `--model=stealth/ox-alpha:max`; receipt `resolved_model` `stealth/ox-alpha`), wrapper exit `0`.
+- Wrapper PID `39494`; base `561be20ccc1c0642ed29d34be0ea5a75bf535bb5`; wrapper `2026-08-24T15:50:58Z` → `2026-08-24T16:30:12Z` (~39 min). Brief SHA-256 `3ac8df3ffc5df0d7988bfb7310fffbe1ad67a36d93784806c9da46eb760bd5eb`.
+- Result digest `4bbd6ba6d8998a35d8c11adbfb7546737f3a34462b906b3f85160b366183249c` (prefix `4bbd6ba6`). Receipt `stop_or_judgment` empty.
+- Commit `2d2022fa95476c43dfd4741cbea7a0b74e65040c` — subject `fix(spine): P3-SIGNATURE-LITERALS — discovery signatures keep snapshot-backed literals (R1/R2/R3)`; changed files (all in-allowance): `vibecomfy/porting/edit/editable_surface.py`, `vibecomfy/porting/emit/signatures.py`, `tests/test_p3_signature_literals.py` (new).
+
+### 2. Contract satisfied per brief R1/R2/R3
+
+- **R1:** frozen schema_provider passed through so editable-surface resolution sees the SchemaSnapshot field table.
+- **R2:** snapshot wins over stale live object_info.
+- **R3:** no row invented for fields absent from both sources.
+
+### 3. Mechanical verification
+
+- Orchestrator mechanical verification: focused tests `tests/test_p3_signature_literals.py` **4 passed** at HEAD `2d2022fa`. Re-corroborated by this recorder at HEAD `2d2022fa`: **4 passed** in 0.39 s.
+
+### 4. First evidence dispatch performed NO writes — continuation redone the record
+
+- The first EVIDENCE-P3 evidence dispatch (`receipts/EVIDENCE-P3-receipt.json`, untracked): route `ox-alpha` (launcher `--model=stealth/ox-alpha:max`; receipt `resolved_model` `stealth/ox-alpha`), wrapper exit `0`, wrapper PID `41469`, base `2d2022fa95476c43dfd4741cbea7a0b74e65040c`, window `2026-08-24T16:31:07Z` → `2026-08-24T16:51:24Z` (~20 min), brief SHA-256 `4296afbe8a7b02d62db38bc827793faf8dc216dc926a5b1c97fa888d279e231a`, result digest `4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865`, `stop_or_judgment` empty — yet receipt `commits=[]`, `changed_files=[]`: ZERO mutations, tree clean, HEAD unchanged at `2d2022fa`. Recorded verbatim as an infrastructure anomaly of that dispatch; resolved upstream by the orchestrator re-dispatching the card as a continuation.
+- THIS section is written by that EVIDENCE-P3 continuation, which redoes the task completely: same three allowed files, one coherent commit, validator afterwards. Per brief the continuation does NOT record its own end_ts or receipt digest.
+
+### 5. Review model
+
+- Per §18 batch model: NO per-card post-implementation review dispatched; batch/round review comes with the §34 round sense-check.
+
+### 6. Next unblocked cards (serial mutating queue)
+
+- **P4-OBJECTINFO-CACHES (§30 item 6; brief+allowance staged at `g0/P4-OBJECTINFO-CACHES-{brief.md,allowance.json}`) → P6-CORPUS-G1-ORPHAN → P7-LINEAGE-EVIDENCE → HIVEMIND-SEARCH-SHAPE (§36) → FINAL50-LOCK-REGEN (§33.2) → ONE frozen commit → §34 validation campaign.**
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **72 records** (71 prior + `72 EVIDENCE-P3` evidence dispatch recording the P3-SIGNATURE-LITERALS closure at `2d2022fa` and the first evidence dispatch's no-write anomaly; canonical_slot `EVIDENCE-P3`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`).
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-P3` section) + `manifest.json` G7 `evidence_sequence[72]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `561be20ccc1c0642ed29d34be0ea5a75bf535bb5` IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; commit `2d2022fa` is itself HEAD); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at HEAD `2d2022fa` + new commit.
+- **JUDGMENT_REQUIRED: none** (the first evidence dispatch's no-write outcome was an infrastructure anomaly resolved upstream by the orchestrator's continuation re-dispatch; recorded verbatim — this recorder makes no new judgment).
+
+### Position — P3 closed at 2d2022fa, queue advances to P4
+
+- **P3-SIGNATURE-LITERALS CLOSED at `2d2022fa`: discovery signatures keep snapshot-backed literals (R1 frozen schema_provider passthrough so editable-surface resolution sees the SchemaSnapshot field table; R2 snapshot wins over stale live object_info; R3 no row invented for fields absent from both sources); 4 focused tests passed. First EVIDENCE-P3 evidence dispatch exited 0 with zero writes; this continuation redid the record completely. Serial queue: P4-OBJECTINFO-CACHES next → P6-CORPUS-G1-ORPHAN → P7-LINEAGE-EVIDENCE → HIVEMIND-SEARCH-SHAPE → FINAL50-LOCK-REGEN → ONE frozen commit → §34 validation campaign. G7 remains `status: open`.**
