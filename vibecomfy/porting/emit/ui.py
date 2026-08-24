@@ -60,7 +60,7 @@ import warnings
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -1147,8 +1147,13 @@ def _widget_names_for_emission(
     *,
     node: Any | None = None,
     schema_provider: Any | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> list[str | None]:
-    """Return widget names in the value domain this node can safely emit."""
+    """Return widget names in the value domain this node can safely emit.
+
+    ``name_authority`` (the sealed snapshot table) wins over every ambient
+    source when the node carries a uid present in it (P0-WIDGET-CANON).
+    """
     from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
 
     committed = widget_names_for_class(class_type)
@@ -1170,6 +1175,7 @@ def _widget_names_for_emission(
                     class_type,
                     value_count=count,
                     schema_provider=schema_provider,
+                    name_authority=name_authority,
                 ).names
             )
 
@@ -1618,8 +1624,11 @@ def _emit_litegraph_node_dict(
     schema: Any | None,
     include_main_positions: bool,
     widget_default_values: Mapping[str, Any] | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> dict[str, Any]:
-    widget_names = _widget_names_for_emission(node.class_type, schema, node=node)
+    widget_names = _widget_names_for_emission(
+        node.class_type, schema, node=node, name_authority=name_authority
+    )
 
     # Step 6 (T8): re-stamp the verbatim captured properties blob as the base,
     # then overlay the IR identity keys.  When no captured blob exists (e.g.
@@ -2496,6 +2505,12 @@ def emit_ui_json(
     """
     _raise_embedded_api_links(wf, surface="UI serialization")
 
+    # P0-WIDGET-CANON: sealed snapshot table is the sole name authority for
+    # widget-name derivation during UI emission.
+    from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
+
+    name_authority = frozen_widget_names_by_uid(wf)
+
     # ── Law 1 door passthrough (batch 2) ───────────────────────────────────
     # An UNTOUCHED graph (fingerprint unchanged since offline ingest) is
     # re-emitted byte-faithfully from the wire data captured at the ingest
@@ -3023,6 +3038,7 @@ def emit_ui_json(
             schema,
             node=node,
             schema_provider=schema_provider,
+            name_authority=name_authority,
         )
         widget_name_set = {name for name in widget_names if name is not None}
         full_committed = widget_names_for_class(node.class_type)
@@ -3068,6 +3084,7 @@ def emit_ui_json(
                 schema=schema,
                 include_main_positions=include_main_positions,
                 widget_default_values=widget_shape_default_values[node_id],
+                name_authority=name_authority,
             )
         )
 

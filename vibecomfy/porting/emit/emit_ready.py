@@ -676,7 +676,9 @@ def _emit_ready_template_python_inner(
     var_names = prepared["var_names"]
 
     # Hoist constants and build section groups
-    constant_lines, constant_map = _hoist_constants(workflow_nodes, edges_in, var_names)
+    constant_lines, constant_map = _hoist_constants(
+        workflow_nodes, edges_in, var_names, name_authority=prepared.get("name_authority")
+    )
     constant_lines, constant_map = _drop_output_prefix_constants(constant_lines, constant_map)
     section_groups = _build_section_groups(workflow_nodes, edges_in)
     wrapper_imports = _wrapper_imports_for_nodes(_all_nodes_for_imports(workflow_nodes, subgraph_definitions))
@@ -1096,6 +1098,7 @@ def _emit_build_function(
             emit_reserved_keyword_args=wrapper_module is not None,
             preserve_fields=preserve_fields,
             external_refs=external_refs,
+            name_authority=prepared.get("name_authority"),
         )
 
         if use_shared_helpers:

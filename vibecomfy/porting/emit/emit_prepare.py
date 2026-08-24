@@ -53,6 +53,18 @@ _VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = (
 # _prepare_workflow_for_emit
 # ---------------------------------------------------------------------------
 
+
+
+def _frozen_name_authority(workflow: Any) -> dict[str, tuple[str, ...]]:
+    """Read the sealed node→widget-names table off *workflow* (P0-WIDGET-CANON)."""
+    from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
+
+    try:
+        return dict(frozen_widget_names_by_uid(workflow))
+    except Exception:  # noqa: BLE001 - emit must not fail on exotic snapshots
+        return {}
+
+
 def _prepare_workflow_for_emit(
     workflow: Any,
     *,
@@ -154,6 +166,9 @@ def _prepare_workflow_for_emit(
         [edge for edges in edges_in.values() for edge in edges] + extracted_edges_for_naming,
     )
     return {
+        # P0-WIDGET-CANON: sealed snapshot table rides with the prepared
+        # workflow so every emitter stage consumes the frozen name authority.
+        "name_authority": _frozen_name_authority(workflow),
         "nodes": workflow_nodes,
         "edges_in": edges_in,
         "var_names": var_names,
@@ -447,7 +462,9 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         edge_fields = {str(edge.to_input) for edge in edges_in.get(nid, [])}
         primitive_aliases: dict[str, str] = {}
         if str(node.class_type) in {"Float", "Int"} or str(node.class_type).startswith("Primitive"):
-            resolution = compact_widget_names_for_node(node)
+            resolution = compact_widget_names_for_node(
+                node, name_authority=prepared.get("name_authority")
+            )
             for index, name in enumerate(resolution.names):
                 positional = f"widget_{index}"
                 if (

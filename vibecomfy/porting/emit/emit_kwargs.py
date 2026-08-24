@@ -13,7 +13,8 @@ from __future__ import annotations
 import keyword
 import re
 import warnings
-from typing import TYPE_CHECKING, Any, Mapping
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 from vibecomfy.porting.object_info import (
     class_has_list_output,
@@ -955,6 +956,7 @@ def _node_kwargs(
     emit_reserved_keyword_args: bool = False,
     preserve_fields: set[str] | None = None,
     external_refs: dict[tuple[str, str], str] | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> list[tuple[str, str]]:
     # Lazy imports to avoid circular dependency
     from vibecomfy.porting.emitter import (  # noqa: PLC0415
@@ -973,7 +975,7 @@ def _node_kwargs(
     # that schema-source evidence wins - the static table is only a fallback.
     node_metadata: dict[str, Any] = getattr(node, "metadata", None) or {}
     input_aliases: list[str | None] | None = None
-    compact_names = compact_widget_names_for_node(node, cls).names
+    compact_names = compact_widget_names_for_node(node, cls, name_authority=name_authority).names
     if compact_names:
         input_aliases = list(compact_names)
     elif use_ui_widget_aliases:

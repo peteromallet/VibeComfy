@@ -17,7 +17,7 @@ import logging
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Mapping
+from collections.abc import Mapping, Sequence
 
 from vibecomfy.porting.emit.emit_kwargs import (
     _format_value,
@@ -675,6 +675,7 @@ def _hoist_constants(
     workflow_nodes: dict[str, Any],
     edges_in: dict[str, list[Any]],
     var_names: dict[str, str],
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> tuple[list[str], dict[tuple[str, str], str]]:
     """Scan workflow nodes for hoistable constants.
 
@@ -691,7 +692,7 @@ def _hoist_constants(
     for nid, node in workflow_nodes.items():
         cls = node.class_type
         schema = [name for name in WIDGET_SCHEMA.get(cls, []) if name is not None]
-        input_aliases = _compact_input_aliases_for_node(node)
+        input_aliases = _compact_input_aliases_for_node(node, name_authority)
 
         for key, value in node.inputs.items():
             if _is_link(value):
@@ -778,7 +779,7 @@ def _hoist_constants(
     all_values: Counter[tuple[str, Any]] = Counter()
     for nid, node in workflow_nodes.items():
         cls = node.class_type
-        input_aliases = _compact_input_aliases_for_node(node)
+        input_aliases = _compact_input_aliases_for_node(node, name_authority)
         for key, value in {**node.inputs, **node.widgets}.items():
             if _is_link(value):
                 continue
@@ -872,8 +873,15 @@ def _translate_widget_for_key(
     ).name
 
 
-def _compact_input_aliases_for_node(node: Any) -> list[str | None] | None:
-    names = compact_widget_names_for_node(node, str(getattr(node, "class_type", ""))).names
+def _compact_input_aliases_for_node(
+    node: Any,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
+) -> list[str | None] | None:
+    names = compact_widget_names_for_node(
+        node,
+        str(getattr(node, "class_type", "")),
+        name_authority=name_authority,
+    ).names
     return list(names) if names else None
 
 
