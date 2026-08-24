@@ -1354,6 +1354,84 @@
           "label": "MANIFEST-REGEN-FIX4 \u2014 regenerate scenario_manifest.json digests post-FIX-4 descriptor alignment (mechanical, zero model calls)",
           "model_route": "ox-alpha",
           "exit": 0
+        },
+        {
+          "sequence": 59,
+          "canonical_slot": "T29A",
+          "task_id": "T29A-REDACT-WRITEPATH",
+          "receipt_path": "receipts/T29A-REDACT-WRITEPATH-receipt.json",
+          "sha256": "80dc955f5454a77efca77a509b42e211a8dbd0ae9c96267187b5f9e65d695fdf",
+          "result_sha256": "d0b29a9181cf75e141ad8b211d132e60beee175211e64b09bf0448f749ee8635",
+          "commit": "c95b1d40f99d47eec05b9301b29ae410ffdbd1d7",
+          "role": "implement",
+          "label": "REDACT-WRITEPATH 29a",
+          "model_route": "ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 60,
+          "canonical_slot": "T29A",
+          "task_id": "T29A-REVIEW",
+          "receipt_path": "receipts/T29A-REVIEW-receipt.json",
+          "sha256": "573a460d633b30fa2bcb808367cd696fc20f299386279214febd49c8b8588c7d",
+          "result_sha256": "1b192304b850c15707ce052571285502c77cd89262f583bc2df26b387b5767b9",
+          "role": "review",
+          "label": "T29A review",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "continue"
+        },
+        {
+          "sequence": 61,
+          "canonical_slot": "T29A",
+          "task_id": "T29A-REVISION",
+          "receipt_path": "receipts/T29A-REVISION-receipt.json",
+          "sha256": "675d3500b798628dfca19a568e05cd435dd411d3554071dbd4a4c6ac45f3abc0",
+          "result_sha256": "45b17f1a1920cbbe75ad487800f7ee5715a99647bae8fc02373e8a361d76c0c0",
+          "commit": "845ee9d22e5c8f9dbb76d8ca5dc9f1fd0ab7c329",
+          "role": "implement",
+          "label": "T29A revision",
+          "model_route": "ox-alpha",
+          "exit": 0
+        },
+        {
+          "sequence": 62,
+          "canonical_slot": "T29A",
+          "task_id": "T29A-REREVIEW",
+          "receipt_path": "receipts/T29A-REREVIEW-receipt.json",
+          "sha256": "971fd556aa7bc9b77ca68efba926b21d6ddf46abe15a19d8f76a412f63620ed9",
+          "result_sha256": "dfcf36b33c20dce352fb3f2dc9a24b90ad24d3e4e47496a23678e6cc184d7458",
+          "role": "review",
+          "label": "T29A rereview",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "continue"
+        },
+        {
+          "sequence": 63,
+          "canonical_slot": "T29A",
+          "task_id": "T29A-ADJUDICATION",
+          "receipt_path": "receipts/T29A-ADJUDICATION-receipt.json",
+          "sha256": "0952de7948d753dea18c8455c19e10c2d326fe6c55f876fa0623e74eca62102e",
+          "result_sha256": "52b6ed76aedf878d26c844caba212a77f836a05e8339b0d19d9e87bd763510c6",
+          "role": "review",
+          "label": "T29A adjudication",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "disposition": "continue"
+        },
+        {
+          "sequence": 64,
+          "canonical_slot": "T29A",
+          "task_id": "T29A-REVISION-2",
+          "receipt_path": "receipts/T29A-REVISION-2-receipt.json",
+          "sha256": "178f9a87e807f466531a9af56d9a6ebc4473dfbb6cadfec1ae2a4cc7b3633e66",
+          "result_sha256": "a08cea96d2cd1a8ad29e0e033fed9cebb42f5879a804623e29b21ba1272d18a5",
+          "commit": "3fcd2601a252fba864d7b4ffb80e5c98ce076fdf",
+          "role": "implement",
+          "label": "T29A revision 2",
+          "model_route": "ox-alpha",
+          "exit": 0
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1777,7 +1855,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "59367f7e3bea41de2a5f8cc6e62378a5903d02916cab19249bb173ce7bfc0db2",
+        "sha256": "2cf41474cd6a69c8b0c85ac26bf5297970d665e32bf9d6f5725a03ac676035d0",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
