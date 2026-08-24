@@ -309,33 +309,44 @@ def _same_worktree(left: str, right: str) -> bool:
 
 
 def _star_fragment(pattern: str) -> tuple[str, str] | None:
-    """Reduce a glob to ``(prefix, suffix)`` around its single star; a plain
-    literal reduces to ``(literal, "")``; anything else (``?``, ``[...]``,
-    multiple independent stars) returns None = undecidable."""
+    """Reduce a star-carrying glob to ``(prefix, suffix)`` around its single
+    ``*`` (runs of ``*``/``**`` collapse to one star, matching fnmatch
+    semantics where both translate to ``.*``); plain literals and undecidable
+    fragments (``?``, ``[...]``, multiple independent stars) return None.
+
+    A literal must NOT be modeled as ``(literal, "")``: that fragment denotes
+    ``literal.*``, not the singleton ``{literal}`` (R2 re-review finding).
+    """
     collapsed = re.sub(r"\*{2,}", "*", pattern)
-    if collapsed == "*":
-        return ("", "")
     if "?" in collapsed or "[" in collapsed:
         return None
-    if "*" not in collapsed:
-        return (collapsed, "")
     if collapsed.count("*") != 1:
         return None
     prefix, _, suffix = collapsed.partition("*")
     return prefix, suffix
 
 
+def _literal_matches_fragment(literal: str, prefix: str, suffix: str) -> bool:
+    """Exact test of ``literal`` against the ``prefix.*suffix`` language."""
+    return (
+        literal.startswith(prefix)
+        and literal.endswith(suffix)
+        and len(literal) >= len(prefix) + len(suffix)
+    )
+
+
 def _patterns_may_intersect(pat_a: str, pat_b: str) -> bool:
     """Conservative FAIL-CLOSED decision on whether two allowance globs can
     both match some literal path (WRAPPER-OVERLAP-NARROW-R2 F-a).
 
-    Exact where decidable: two wildcard-free patterns intersect iff equal;
-    otherwise each side reduces to a ``prefix*suffix`` fragment (runs of
-    ``*``/``**`` collapse to one star, matching fnmatch semantics where both
-    translate to ``.*``), and the languages intersect iff one prefix is a
-    prefix of the other AND one suffix is a suffix of the other (witness:
-    ``longer_prefix + longer_suffix``). This decides crossings like
-    ``docs/*.md`` vs ``docs/x*`` that plain fnmatch cross-checks miss.
+    Exact where decidable. Two wildcard-free patterns intersect iff equal.
+    Literal vs single-star glob uses the exact membership test above.
+    Two single-star globs intersect iff one prefix is a prefix of the other
+    AND one suffix is a suffix of the other (witness:
+    ``longer_prefix + longer_suffix``; both sides carry a real star, so the
+    middle absorbs any gap). This decides crossings like ``docs/*.md`` vs
+    ``docs/x*`` that plain fnmatch cross-checks miss, while keeping pairs
+    like ``.../intent_judge.py`` vs ``.../*.json`` correctly disjoint.
     ANY UNDECIDABLE CROSSING returns True: patterns carrying ``?``,
     ``[...]`` classes, or multiple independent stars are not analyzed, so
     admission serializes rather than risking unsound parallel approval.
@@ -344,6 +355,16 @@ def _patterns_may_intersect(pat_a: str, pat_b: str) -> bool:
         return True
     if not any(ch in pat_a + pat_b for ch in "*?["):
         return False
+    lit_a = not any(ch in pat_a for ch in "*?[")
+    lit_b = not any(ch in pat_b for ch in "*?[")
+    if lit_a != lit_b:
+        literal, glob = (pat_a, pat_b) if lit_a else (pat_b, pat_a)
+        frag = _star_fragment(glob)
+        if frag is None:
+            return True
+        return _literal_matches_fragment(literal, *frag)
+    if lit_a:
+        return False  # both literal here implies distinct (equal handled above)
     frag_a = _star_fragment(pat_a)
     frag_b = _star_fragment(pat_b)
     if frag_a is None or frag_b is None:

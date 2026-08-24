@@ -528,6 +528,13 @@ def test_allowances_overlap_narrowed_to_intersecting_mutating_paths(tmp_path: Pa
     assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(other, ["docs/**"])) is True
     # Different worktrees + decidable disjoint.
     assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(other, ["vibecomfy/**"])) is False
+    # Different worktrees + literal vs star glob with conflicting suffix:
+    # decidable disjoint, so ordinary dispatches must NOT serialize
+    # (R2 re-review NEW-MUST regression at the allowance level).
+    assert wrapper._allowances_overlap(
+        entry(shared, ["tests/live_agentic_harness/intent_judge.py"]),
+        entry(other, ["tests/live_agentic_harness/*.json"]),
+    ) is False
 
 
 def test_allowances_overlap_serializes_mutating_same_worktree_pairs(tmp_path: Path) -> None:
@@ -590,11 +597,23 @@ def test_patterns_may_intersect_crossing_globs_fail_closed(tmp_path: Path) -> No
     assert wrapper._patterns_may_intersect("docs/**", "vibecomfy/**") is False
     assert wrapper._patterns_may_intersect("docs/a*", "docs/b.md") is False
     assert wrapper._patterns_may_intersect("docs/*z", "docs/*y") is False
+    # R2 re-review NEW-MUST regression: a literal is the singleton {L}, NOT
+    # L.* -- suffix/prefix conflicts against a star glob must stay disjoint.
+    assert wrapper._patterns_may_intersect(
+        "tests/live_agentic_harness/intent_judge.py", "tests/live_agentic_harness/*.json"
+    ) is False
+    assert wrapper._patterns_may_intersect(
+        "tests/live_agentic_harness/intent_judge.json", "tests/live_agentic_harness/*.json"
+    ) is True
+    assert wrapper._patterns_may_intersect("docs/a.md", "vibe/*") is False
+    assert wrapper._patterns_may_intersect("abc", "ab*c") is True
+    assert wrapper._patterns_may_intersect("ab", "abc*") is False
     # Undecidable fragments (?/class/multi-star): fail closed to True even
     # when a human might prove disjointness.
     assert wrapper._patterns_may_intersect("docs/?z", "docs/literal") is True
     assert wrapper._patterns_may_intersect("doc[s]/x", "vibe/y") is True
     assert wrapper._patterns_may_intersect("docs/*/x/*/y", "docs/a/x/b/y") is True
+    assert wrapper._patterns_may_intersect("intent_judge.py", "*.j?n") is True
 
 
 def test_registry_guard_allows_second_dispatch_with_empty_allowed(tmp_path: Path) -> None:
