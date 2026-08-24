@@ -686,6 +686,27 @@ def build_batch_failure_evidence(
         payload["failure_context"] = _json_safe(_thaw_evidence_value(agent_failure_context))
     if len(raw_turns) > len(turns):
         payload["transcript_truncated_from"] = len(raw_turns)
+    # P7 Sub-fix B: durable references into the graph state the failed turn
+    # was operating on — baseline/submit identity hashes plus the canonical
+    # artifact directories — so the transcript can be correlated against the
+    # request/original/candidate artifacts without guessing.
+    graph_state_refs: dict[str, Any] = {}
+    for field in (
+        "baseline_graph_hash",
+        "submit_graph_hash",
+        "submit_structural_graph_hash",
+        "submitted_client_graph_hash",
+        "submitted_client_structural_graph_hash",
+    ):
+        value = getattr(state, field, None)
+        if isinstance(value, str) and value:
+            graph_state_refs[field] = value
+    for field in ("session_dir", "turn_dir"):
+        value = getattr(state, field, None)
+        if value is not None:
+            graph_state_refs[field] = str(value)
+    if graph_state_refs:
+        payload["graph_state_refs"] = graph_state_refs
     return payload
 
 

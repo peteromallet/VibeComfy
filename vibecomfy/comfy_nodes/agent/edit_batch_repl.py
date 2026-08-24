@@ -371,6 +371,44 @@ def _capture_aborted_inflight_turn(
             "aborted-turn inflight capture failed", exc_info=True
         )
 
+def _record_protocol_failure_turn(
+    state: Any,
+    deps: Any,
+    *,
+    turn_number: int,
+    exc: BaseException,
+) -> None:
+    """Durable aborted-turn marker for failures BEFORE the journaled apply.
+
+    P7 Sub-fix B: the model-call handlers (parse/protocol failure and any
+    other pre-apply exception) re-raise from OUTSIDE the journaled apply
+    region below, whose except captures in-flight evidence.  Without this
+    marker the durable ``batch_failure_evidence.json`` carries no trace of
+    the failing turn at all.  Best-effort: a capture failure never masks
+    the original exception.
+    """
+    try:
+        state.batch_aborted_turns = tuple(
+            getattr(state, "batch_aborted_turns", ()) or ()
+        ) + (
+            {
+                "turn_number": turn_number,
+                "aborted_mid_turn": True,
+                # Nothing was applied, so there was nothing to roll back.
+                "rolled_back": False,
+                "abort": {
+                    "code": "batch_abort_before_apply",
+                    "error_type": type(exc).__name__,
+                    "message": str(exc)[:_ABORTED_TURN_MESSAGE_LIMIT],
+                    "fault_point": getattr(exc, "fault_point", None),
+                },
+            },
+        )
+    except Exception:  # noqa: BLE001 - evidence capture is additive, never fatal
+        deps.LOGGER.debug(
+            "pre-apply aborted-turn evidence capture failed", exc_info=True
+        )
+
 
 def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """The UI door (porting/emit/ui.py) — the designed Agent Edit exit.
@@ -1349,6 +1387,14 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                     client_id=client_id,
                     status="error",
                 )
+            # P7 Sub-fix B: this abort bypasses the journaled apply region's
+            # capture — record the failing turn before re-raising.
+            _record_protocol_failure_turn(
+                state,
+                deps,
+                turn_number=turn_number,
+                exc=exc,
+            )
             raise
         except Exception as exc:
             error_record = {
@@ -1372,6 +1418,14 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             deps.write_json_artifact(state.model_response_path, {"turns": response_log})
             state.messages_path.open("a", encoding="utf-8").write(
                 json.dumps(error_record, sort_keys=True) + "\n"
+            )
+            # P7 Sub-fix B: this abort bypasses the journaled apply region's
+            # capture — record the failing turn before re-raising.
+            _record_protocol_failure_turn(
+                state,
+                deps,
+                turn_number=turn_number,
+                exc=exc,
             )
             raise
 

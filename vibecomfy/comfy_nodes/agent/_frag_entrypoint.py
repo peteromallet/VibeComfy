@@ -570,6 +570,16 @@ def handle_agent_edit(
             if blocked.failure is not None
             else blocked.result.stage
         )
+        # §28 deep-audit fix 6 / P7 Sub-fix B: persist the mid-turn evidence
+        # (batch transcript, submitted ops, structured failure context)
+        # BEFORE any response building/validation can raise — the abort path
+        # must never lose the failing batch because a later step crashed.
+        # Best-effort: an evidence write failure leaves the abort unchanged.
+        _persist_batch_failure_evidence(
+            state,
+            stage=stage_name,
+            failure=blocked.failure,
+        )
         response = _validated_agent_edit_response(
             _failure_response(
                 state,
@@ -580,15 +590,10 @@ def handle_agent_edit(
             ),
             stage=stage_name,
         )
-        # §28 deep-audit fix 6: persist the mid-turn evidence (batch
-        # transcript, submitted ops, structured failure context) BEFORE the
-        # product-failure envelope is returned — the failure path must not
-        # skip persistence.
-        _persist_batch_failure_evidence(
-            state,
-            stage=stage_name,
-            failure=blocked.failure,
-        )
+        # Publication adds immutable authority and (for V2) the canonical
+        # candidate transaction. Return that exact published envelope to the
+        # browser; returning the pre-publication draft made freshly-created
+        # layout candidates look like legacy/read-only candidates until reload.
         if context.idempotency_key is not None:
             response["idempotency_key"] = context.idempotency_key
         _write_turn_chat_artifact(state, context, response, contract)
