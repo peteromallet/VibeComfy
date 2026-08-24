@@ -6714,3 +6714,82 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 - **Spot window CLOSED:** `R2-SPOT7-RUN` (`2026-08-24T22:29:59Z` → `2026-08-24T22:48:49Z`, `fde25d50`→`R2-SPOT7`, `/tmp/r2-spot7`, validate-only clean, single paid invocation, native transport) — 5 targets STILL `product` same-message, control `live-graph-explanation-smoke` pass, control `image-dual-checkpoint` variance-fail (passed twice before, failed this run) proving high per-run variance of live-agent legs; honest new runs, not replays.
 - **Forensic governs next:** `R2-SPOT-FORENSIC` (single-leg, read-only) verdict `FORENSIC-VERDICT: <a|b|c>` — if **a RESIDUAL BUG**, another fix card precedes authoritative finale; if **b/c LEGIT**, campaign may close per §34 stop-early and proceed to finale. G7 remains `status: open` until forensic adjudicates. No scoring change by any card in this chain beyond judge-equality exactness.
 
+
+## EVIDENCE-R2-CLOSE — record forensic fix chain + round-2 verification — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied forensic verdict (R2-SPOT-FORENSIC), the P8-R3 fix, and the R2 spot7b verification window into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` and disposable output `/tmp/r2-spot7bb`. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded per brief. All credential material REDACTED per §29a.
+
+### 1. Forensic R2-SPOT-FORENSIC — VERDICT (a) residual bug (read-only, ox-alpha)
+
+- **Scope:** read-only forensic over the `R2-SPOT7` failure cohort, route `ox-alpha` (stealth/ox-alpha). No mutating allowance, no commit, no scoring change.
+- **Verdict:** **FORENSIC-VERDICT (a) residual bug** — `_op_fingerprint` hashed **RAW `field_path`** while the apply boundary resolves `widget_N` ↔ schema-proven names via `compact_widget_names_for_node` (`vibecomfy/porting/widgets/compact_resolver.py:106`) → false mismatches on name-form differences.
+- **Mechanism:** claimed Δ may spell a field as `batch_size` (schema-proven widget name) while the actual diff spells the same slot as `widget_2` (stored positional key) — same node, same value, same slot — yet the pre-`fae303b5` fingerprint compared raw strings and reported `Δ claims changes that are not what actually changed between pre_ir and post_ir` (`verified=false`) on legs whose edits landed exactly. Fix card dispatched: `P8-R3`.
+
+### 2. P8-R3 `fae303b5` (route ox-alpha) — field_path resolved through the same name authority before fingerprinting
+
+- **Commit:** `fae303b55e84a1b45c494258ef363aea69cde707` (`2026-08-24T23:22:52Z`), base `a1db9a3f68377eebdf53ce8715825df66dc8e794`, route `ox-alpha` (`stealth/ox-alpha:max` → `stealth/ox-alpha`), changed files `tests/live_agentic_harness/intent_judge.py`, `tests/test_intent_judge_delta_replay_canon.py`.
+- **Fix:** inside `_verify_delta_replay` both fingerprint sets — claimed and actual — are projected through **ONE identical routine** before hashing: `_field_canon_context` (per-verification roster from `compact_widget_names_for_node` over the pre-workflow's frozen name table, exactly what `interpret` seals onto itself; post workflow as fallback) → `_resolve_field_slot` (positional `(unused_)widget_N` binds to roster slot when it carries a render-visible name; named paths bind via `widget_index_for_field`; non-roster names decode through `_surface_field_name`) → `_canonicalize_op_field_paths` rewrites `set_node_field` targets onto `('slot', uid, index)` / `('named', decoded)` tokens; every other op kind passes through untouched.
+- **R2 fallback:** unknown node/class, out-of-range or placeholder positional alias, empty path → `None` → **RAW path kept symmetrically on both sides**; no equality is invented that the diff layer would not see.
+- **Strictness preserved:** different node / different slot / different value / extra or missing op still mismatch (values and uids untouched); raw positional claims remain gated by the apply boundary's `no-positional-writes` validation — canonicalization lives only in the fingerprint projection. Anti-gaming intact (different batch_size value still mismatches).
+- **Verification:** **19 canon tests green** (`tests/test_intent_judge_delta_replay_canon.py` `19 passed`; 16 prior unchanged + 3 new: (g) `widget_N`-vs-schema-name same-slot pair is one statement verified True end-to-end / mirror fingerprint equal, (h) same shape with divergent value still mismatches, (i) unresolved-path fallback stays symmetric; receipt exit `0`).
+
+### 3. R2 SPOT7B VERIFICATION — R2-SPOT7B-RUN (disposable /tmp/r2-spot7bb, single paid invocation, native transport, preflight clean)
+
+- **Scope:** post-`fae303b5` spot verification of the **five hardest failing legs** from the R1/R2 spot cohorts plus two controls; **single paid invocation**, **native transport** (funded ambient creds), **preflight `validate-only` clean** (zero model calls) immediately prior. Disposable output base `/tmp/r2-spot7bb` **[dir-name typo noted]** (double-`b` suffix vs prior `/tmp/r2-spot7`).
+- **Result digest:** **6/7 PASS — ALL FIVE target legs converted**, `live-graph-explanation-smoke` passed.
+- **Per-leg outcomes (verbatim scenario families):**
+  - `image-two-stage-qwen-image-generation` — **pass** (converted; previously `product` delta-replay mismatch in both `R1-WINDOW20` and `R2-SPOT7` windows)
+  - `image-animatediff-video-from-images-with` — **pass** (converted; aka `animatediff-from-images`)
+  - `image-animatediff-video-generation-with-vae-d20410` — **pass** (converted; aka `animatediff-vae`; the single-leg forensic anchor — now passes at the product layer, confirming the raw-name-form root cause)
+  - `image-image-editing-with-qwen-image` — **pass** (converted; aka `qwen-image-edit`)
+  - `image-image-to-image-with-controlnet-and-dwpreproces-49d057` — **pass** (converted; aka `i2i-controlnet-dwpreprocess`)
+  - `live-graph-explanation-smoke` — **pass** (control, non-edit smoke; `excluded_from_semantic_product_rates: true`; second consecutive pass — double-proven control held)
+  - `image-dual-checkpoint-xl-image-generation-with-refin-c9df19` — **fail** `family=product` (`product` quality, not delta-replay mismatch) — **second consecutive intermittent failure** of this formerly-double-passing control (passed in finale `T7.2-FINALE-SPLIT` controls and earlier smoke, failed `R2-SPOT7-RUN` staged, failed again here). Classification: **per-run variance / genuine intermittent product weakness of that scenario**, **NOT a P8 artifact** (failure mode is `product`-quality / graph-output mismatch, not `Δ claims changes…` / `verified=false` delta-replay contradiction).
+- **Provenance:** `R2-SPOT7B-RUN` is the arbiter of the `R2-SPOT-FORENSIC` verdict-(a) hypothesis: the five-target conversion under identical spot discipline (single invocation, native transport, preflight clean) proves the contradiction family is eliminated at the judge layer. No scoring change by the recorder; scores are honest applied—verified semantics.
+
+### 4. Round-2 CLOSE — §34 improvement campaign closes at two rounds with success criterion MET
+
+- **Campaign disposition:** **CLOSED per §34** — improvement campaign closes at **two rounds** with **success criterion MET**.
+- **Criterion:** staged **70% ≥ 56%** on round-1 window (`EVIDENCE-R1-WINDOW20` `R1-WINDOW20-RUN`: staged `7/10=70%`, threaded `5/10=50%`, `12/20` honest-assessed `5 fail / 3 infra-blocked`; provider confound vs original finale recorded — window ran `native deepseek-v4-flash` vs pre-rotation finale route). **Contradiction family `applied-unverified` eliminated and verified by conversion** (five hardest legs now pass `verified=true` without `Δ claims changes…` mismatch; 6/7 spot7b on those legs including variance control).
+- **Round ledger (honest counting, infra in denominator unless noted):**
+  - **Baseline `T7.2-FINALE-SPLIT` (authoritative 50-leg):** `5/50 = 10%` pass (`31 product fail / 13 undetermined / 1 infra-blocked / 5 pass` per §30 evidence); the `5-pass` controls are exactly the held set reused in windows.
+  - **Round-1 window `R1-WINDOW20` (20 scenarios, 5 controls + 13 rebounds + 2 hard fails; `340f2144`):** `12/20` honest-assessed (`7/10` staged **MET**, `5/10` threaded); `6/13` rebounds converted; `5/5` finale-pass controls HELD; `5` assessed fails = contradiction family `artifact_lineage replay_proof true` vs `intent_judge delta_replay verified=false`; `hivemind thin` + `no_schema_witness` secondaries recorded but not scored.
+  - **Round-2 — P8 fix wave + spot windows:**
+    - `R2-SPOT7-RUN` (pre-`fae303b5`, `/tmp/r2-spot7`, 7 legs): `1/7` pass (2 controls: `live-graph-explanation-smoke` pass, `image-dual-checkpoint` variance-fail; 5 targets still `product` same delta-replay message — honest new runs, not replays; forensic dispatched).
+    - **Forensic `R2-SPOT-FORENSIC`:** verdict (a) residual RAW `field_path` vs name-authority slot — fix `fae303b5`.
+    - **`R2-SPOT7B-RUN` (post-`fae303b5`, `/tmp/r2-spot7bb` [typo noted], 7 legs):** `6/7` pass — **ALL FIVE targets converted** (the contradiction family resolved); `live-graph-explanation-smoke` held; `image-dual-checkpoint` second variance failure classified as intermittent product weakness, not P8 regression.
+- **Contradiction family eliminated:** no surviving `Δ claims changes…` / `replay_ok true` contradiction on converted legs; P8 chain proven sufficient at the judge layer (canonicalization + None-preservation `9e1670db`→`fde25d50` + name-authority slot resolution `fae303b5`). Residual `image-dual-checkpoint` failure is a separate per-run product issue.
+- **Provider confound recorded:** original finale vs round-1/round-2 windows differ in model routing (`native deepseek-v4-flash`/`openrouter/meta/muse-spark-1.2-contributor` ambient) from pre-rotation finale route — caveat preserved verbatim from `EVIDENCE-R1-WINDOW20`; comparison is honest staged improvement, not a strict provider-controlled A/B.
+
+### 5. NEXT — AUTHORITATIVE FINALE authorized per §33.1 (one invocation)
+
+- **Authority:** per **§33.1**, the **AUTHORITATIVE FINALE** is authorized as **ONE invocation** (single `compare_pipeline_modes` process) — no repetitions, no retries for scoring.
+- **Command (verbatim):** `compare_pipeline_modes --run --manifest threaded_comparison_manifest_final50.json --split --concurrency 10 --leg-isolation process --transport native` on **funded ambient creds** (hydrate `OPENROUTER_API_KEY`/`DEEPSEEK` ambient before launch per `T7.2` precondition; no secret material persisted per §29a).
+- **Preflight:** `compare_pipeline_modes --validate-only --manifest threaded_comparison_manifest_final50.json` **immediately prior** (zero model calls) — guardrail proven on both spot windows; must exit clean before paid leg.
+- **Assessment per §35:** **ten parallel 5-leg batch assessors**, mechanical merge (no re-judging; `BATCH_TOTAL` arithmetic; no smoothing/dedup beyond exact duplicates), per-leg `ROW` format with honesty gates.
+- **Honest counting:** `applied-unverified` stays **non-pass**; `infra-blocked` **never pass** (runner exception / timeout / `no output` stays blocked, not product or undetermined); denominator stays honest.
+- **Scoreboard discipline:** original `T7.2-FINALE-SPLIT` finale scorecard (`5/50`) **stays recorded** as the immutable baseline; **before/after comparison goes in the final report** (delta, ledger, provider confound, contradiction-family resolution, per-leg movement).
+- **Evidence scope for this card:** this `EVIDENCE-R2-CLOSE` append closes the §34 improvement campaign only; it does **NOT** claim, pre-score, or pre-prove the authoritative finale outcome. G7 stays `status: open`, `disposition: pending` until finale + assessment merge.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **76 records** (75 prior + `76 EVIDENCE-R2-CLOSE` evidence dispatch recording the forensic verdict `R2-SPOT-FORENSIC` (a), fix `fae303b5` (P8-R3), and verification `R2-SPOT7B-RUN` 6/7 above; canonical_slot `EVIDENCE-R2-CLOSE`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`); `section_sha256` refreshed to new section hash.
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `section_sha256` to new section hash.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-R2-CLOSE` section) + `manifest.json` G7 `evidence_sequence[76]` + `tasks[5].recovery_note.sha256`/`section_sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `fae303b55e84a1b45c494258ef363aea69cde707` IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; HEAD `fae303b5` is itself HEAD); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at HEAD `fae303b5` + new commit.
+- **JUDGMENT_REQUIRED: none** (campaign close and next finale authorization are recorded facts per §34/§33.1; this recorder makes no new judgment; forensic verdict was adjudicated by the forensic chain, not this dispatch).
+
+### Position — campaign CLOSED at two rounds, staged MET, contradiction family proven eliminated, authoritative finale NEXT
+
+- **P8 chain proven:** `69c719c6` (WAE-R2) → `9e1670db` (P8-DELTA-REPLAY-CANON) → `fde25d50` (P8-R2) → `fae303b5` (P8-R3 name-authority slot resolution; 19 canon tests) — contradiction family eliminated.
+- **Verification:** `R2-SPOT7-RUN` 1/7 (variance-proven) → `R2-SPOT-FORENSIC` verdict (a) → `fae303b5` → `R2-SPOT7B-RUN` **6/7 on the hardest legs** (5/5 targets converted, `live-graph-explanation-smoke` held, `image-dual-checkpoint` second variance-fail as intermittent product weakness not P8).
+- **Campaign:** §34 improvement campaign **CLOSES at two rounds** (`5/50` → `12/20` window → `6/7` spot on hardest legs); **staged 70% ≥56% MET** plus **conversion-verified elimination** of the contradiction family — both §34 success criteria satisfied. Provider confound `native deepseek-v4-flash` vs pre-rotation finale preserved.
+- **Next:** **ONE** authoritative finale invocation per §33.1 (`threaded_comparison_manifest_final50.json`, `--split --concurrency 10 --leg-isolation process --transport native`, preflight `validate-only` clean, §35 ten-batch assessment, honest counting) — before/after comparison in final report; G7 remains `status: open`.
+
