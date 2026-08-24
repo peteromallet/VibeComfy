@@ -1750,6 +1750,35 @@ def test_classify_stage_json_decode_error_is_malformed_model_json() -> None:
     assert fe.kind is FailureKind.MALFORMED_MODEL_JSON
 
 
+def test_classify_failure_preserves_malformed_model_json_parse_evidence() -> None:
+    """DEEP-AUDIT-FIX-3-REVISION-2 (ADJUDICATION-3): the MALFORMED_MODEL_JSON
+    envelope carries the provider signature gate's typed parse evidence —
+    ``parse_reason`` plus the already bounded/redacted ``raw_response_preview``
+    — under BOTH the "agent_response" and "classify" stages, preserving the
+    existing explanation. The unbounded ``raw_response`` is never persisted."""
+    from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+    ctx = TurnContext(session_id="s1")
+    exc = MalformedModelJSON(
+        "Agent classify response does not contain a classify-contract decision "
+        "object (needs one of route/intent/implement/reply).",
+        raw_response='{"latency_ms": 42}',
+        parse_reason="missing_classify_json",
+    )
+
+    for stage in ("agent_response", "classify"):
+        envelope = classify_failure(stage, exc, ctx)
+
+        assert envelope.kind is FailureKind.MALFORMED_MODEL_JSON
+        assert (
+            envelope.agent_failure_context["parse_reason"]
+            == "missing_classify_json"
+        )
+        assert envelope.agent_failure_context["raw_response_preview"]
+        assert envelope.agent_failure_context["explanation"] == str(exc)
+        assert "raw_response" not in envelope.agent_failure_context
+
+
 def test_classify_stage_unknown_error_is_provider_error() -> None:
     """Unrecognized classify-stage failures stay PROVIDER_ERROR, not a graph
     validation lie."""

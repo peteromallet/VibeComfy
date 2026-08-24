@@ -1971,28 +1971,54 @@ def _normalize_turn_response(
     most complete object carrying strong decision keys wins, and decision-less
     JSON fails closed instead of masquerading as the classification.
     The raw model text is preserved on ``raw_content``; the canonical JSON is
-    published on ``content``/``json`` with typed provenance. Genuinely
-    missing JSON keeps the existing fail-closed parse machinery untouched.
+    published on ``content``/``json`` with typed provenance.
+
+    DEEP-AUDIT-FIX-3-REVISION-2 (ADJUDICATION-3): for every classify-phase
+    ``json`` contract this helper IS the authority gate. The validation text
+    follows the same authority order consumed downstream (non-empty string
+    ``content``, else the serialized mapping-valued ``json``, else empty) and
+    is passed through :func:`extract_classify_json` UNCONDITIONALLY: bare or
+    prose-wrapped decisionless JSON raises typed ``MalformedModelJSON``
+    evidence here instead of flowing to downstream parsing, and the
+    unqualified response is never returned. Qualified direct JSON returns the
+    original response byte-identical; qualified prose-wrapped JSON keeps the
+    fix-7 normalization above.
     """
     if not isinstance(response, Mapping):
         raise ProviderError("Generic model turn returned a non-dict response.")
     if response_contract != "json" or phase != "classify":
         return response
     content = response.get("content")
-    if not isinstance(content, str) or not content.strip():
+    if isinstance(content, str) and content.strip():
+        validation_text = content
+    else:
+        # Same authority order consumed downstream: when ``content`` is
+        # missing or blank, validate the serialized mapping-valued ``json``
+        # payload; fully missing output validates as the empty string so it
+        # fails through extract_classify_json with typed "empty" evidence.
+        json_payload = response.get("json")
+        if isinstance(json_payload, Mapping):
+            try:
+                validation_text = json.dumps(json_payload)
+            except (TypeError, ValueError):
+                validation_text = ""
+        else:
+            validation_text = ""
+    # Authority gate — unconditional strong-signature validation: an object
+    # with zero strong decision keys (bare or prose-wrapped) raises typed
+    # missing_classify_json here; it is never suppressed or passed through.
+    extracted = extract_classify_json(validation_text)
+    if validation_text != content:
+        # Qualified structured payload (no prose wrapper involved): the
+        # original response already carries the canonical object on "json".
         return response
     try:
         direct = json.loads(content.strip())
     except ValueError:
         direct = None
-    if isinstance(direct, dict):
-        # Already clean JSON: nothing to extract, evidence stays byte-identical.
-        return response
-    try:
-        extracted = extract_classify_json(content)
-    except MalformedModelJSON:
-        # Fail closed: leave the result untouched so the downstream parser's
-        # typed ``parse_reason`` machinery reports the failure unchanged.
+    if isinstance(direct, dict) and direct == extracted:
+        # Qualified clean JSON: nothing to normalize, evidence stays
+        # byte-identical.
         return response
     normalized = dict(response)
     normalized["raw_content"] = content

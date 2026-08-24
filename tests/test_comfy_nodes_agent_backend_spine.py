@@ -15109,8 +15109,10 @@ def test_run_model_turn_normalizes_prose_wrapped_classify_json_at_seam(
 ) -> None:
     """§28 fix 7: a successful json-contract classify turn whose content is
     prose around a JSON object gets its decision extracted at the provider
-    seam; the raw text stays on ``raw_content`` with typed provenance. Clean
-    or unparseable content passes through untouched (fail-closed)."""
+    seam; the raw text stays on ``raw_content`` with typed provenance.
+    Qualified clean JSON stays byte-identical; unqualified classify content
+    is rejected at this same signature gate (ADJUDICATION-3 — see
+    ``test_run_model_turn_rejects_unqualified_classify_content_at_seam``)."""
     raw = (
         'The {LoRA} bit. {"some_decoy": 1}\n'
         'Answer: {"research": false, "implement": false, "reply": true, '
@@ -15141,16 +15143,191 @@ def test_run_model_turn_normalizes_prose_wrapped_classify_json_at_seam(
     )
     assert untouched["content"] == clean and "raw_content" not in untouched
 
+
+def test_run_model_turn_rejects_unqualified_classify_content_at_seam(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DEEP-AUDIT-FIX-3-REVISION-2 (ADJUDICATION-3): the classify passthrough
+    expectation is invalid — decisionless classify content fails CLOSED at the
+    provider signature gate with typed missing_classify_json evidence instead
+    of passing downstream untouched."""
     prose_only = "no object anywhere in here"
     runtime = _ScriptedRuntime([{"content": prose_only}])
     monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
+    with pytest.raises(agent_provider.MalformedModelJSON) as excinfo:
+        agent_provider.run_model_turn(
+            "q",
+            route="openrouter",
+            model="m",
+            response_contract="json",
+            profiling_context={"backend_phase": "classify"},
+        )
+
+    assert excinfo.value.parse_reason == "missing_classify_json"
+    assert excinfo.value.raw_response_preview
+
+
+def test_run_model_turn_reply_phase_keeps_prose_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADJUDICATION-3 phase scope: the classify signature gate applies ONLY to
+    ``response_contract="json"`` + ``backend_phase="classify"``. Reply-phase
+    (``response_contract="text"``) output keeps byte-identical passthrough."""
+    prose_only = "no object anywhere in here"
+    runtime = _ScriptedRuntime([{"content": prose_only}])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
     passthrough = agent_provider.run_model_turn(
         "q",
         route="openrouter",
         model="m",
-        profiling_context={"backend_phase": "classify"},
+        response_contract="text",
+        profiling_context={"backend_phase": "reply"},
     )
+
     assert passthrough["content"] == prose_only and "raw_content" not in passthrough
+
+
+def test_run_classify_turn_rejects_bare_decisionless_json_with_typed_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADJUDICATION-3: through the REAL authority path
+    ``agent_backend.run_classify_turn → provider.run_model_turn →
+    _normalize_turn_response``, bare decisionless JSON never reaches the
+    downstream parser — the provider signature gate raises typed
+    ``missing_classify_json`` evidence. Only the worker subprocess boundary is
+    stubbed; no authority-path symbol is monkeypatched."""
+    from vibecomfy.executor import agent_backend
+
+    dispatch_contexts: list[dict[str, Any]] = []
+
+    def _fake_worker_once(
+        agent_kwargs: dict[str, Any],
+        system_msg: str | None,
+        user_msg: str,
+        *,
+        response_contract: str = "json",
+        agent_id: str = "hermes",
+        model: str | None = None,
+        requested_model: str | None = None,
+        effort: str | None = None,
+        profiling_context: Mapping[str, Any] | None = None,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        dispatch_contexts.append(dict(profiling_context or {}))
+        return {"content": '{"latency_ms": 42}', "json": {"latency_ms": 42}}
+
+    monkeypatch.setattr(runtime, "_run_worker_once", _fake_worker_once)
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    with pytest.raises(agent_provider.MalformedModelJSON) as excinfo:
+        agent_backend.run_classify_turn(
+            "classify this request",
+            route="openrouter",
+            model="deepseek-chat",
+        )
+
+    assert excinfo.value.parse_reason == "missing_classify_json"
+    assert excinfo.value.raw_response_preview
+    # Terminated at the PROVIDER signature gate: exactly one model dispatch —
+    # the downstream-parser path would have dispatched twice (bounded
+    # parse-repair loop, _CLASSIFY_MAX_PARSE_ATTEMPTS == 2).
+    assert len(dispatch_contexts) == 1
+
+
+def test_run_classify_turn_rejects_prose_wrapped_decisionless_json_with_typed_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADJUDICATION-3: prose around decisionless JSON buys nothing — the real
+    classify authority path raises the same typed failure at the provider
+    signature gate instead of letting the wrapper masquerade as a decision."""
+    from vibecomfy.executor import agent_backend
+
+    dispatch_contexts: list[dict[str, Any]] = []
+
+    def _fake_worker_once(
+        agent_kwargs: dict[str, Any],
+        system_msg: str | None,
+        user_msg: str,
+        *,
+        response_contract: str = "json",
+        agent_id: str = "hermes",
+        model: str | None = None,
+        requested_model: str | None = None,
+        effort: str | None = None,
+        profiling_context: Mapping[str, Any] | None = None,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        dispatch_contexts.append(dict(profiling_context or {}))
+        return {
+            "content": 'Timing note: {"latency_ms": 42}. No classification followed.',
+            "json": {"latency_ms": 42},
+        }
+
+    monkeypatch.setattr(runtime, "_run_worker_once", _fake_worker_once)
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    with pytest.raises(agent_provider.MalformedModelJSON) as excinfo:
+        agent_backend.run_classify_turn(
+            "classify this request",
+            route="openrouter",
+            model="deepseek-chat",
+        )
+
+    assert excinfo.value.parse_reason == "missing_classify_json"
+    assert excinfo.value.raw_response_preview
+    assert len(dispatch_contexts) == 1
+
+
+def test_run_classify_turn_extracts_prose_wrapped_qualified_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADJUDICATION-3 positive control: the COMPLETE provider-to-parser path —
+    prose + weak decoy + qualified adapt decision → the provider signature
+    gate extracts the qualified object → the real ``parse_classify_response``
+    returns the ``ClassifyDecision``. Only the worker boundary is stubbed."""
+    from vibecomfy.executor import agent_backend
+    from vibecomfy.executor.contracts import ClassifyDecision
+
+    raw = (
+        'Example metadata: {"task": "not the decision"}.\n'
+        'Final: {"route":"adapt","intent":"edit","implement":true,"reply":true}'
+    )
+
+    def _fake_worker_once(
+        agent_kwargs: dict[str, Any],
+        system_msg: str | None,
+        user_msg: str,
+        *,
+        response_contract: str = "json",
+        agent_id: str = "hermes",
+        model: str | None = None,
+        requested_model: str | None = None,
+        effort: str | None = None,
+        profiling_context: Mapping[str, Any] | None = None,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        # Worker-level lenient parsing locked onto the weak decoy sidecar;
+        # the provider gate must still recover the qualified decision.
+        return {"content": raw, "json": {"task": "not the decision"}}
+
+    monkeypatch.setattr(runtime, "_run_worker_once", _fake_worker_once)
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    decision = agent_backend.run_classify_turn(
+        "classify this request",
+        route="openrouter",
+        model="deepseek-chat",
+    )
+
+    assert isinstance(decision, ClassifyDecision)
+    assert decision.effective_route == "adapt"
+    assert decision.implement is True
+    assert decision.reply is True
 
 
 def test_classify_timeout_retry_evidence_feeds_runner_infra_classification() -> None:

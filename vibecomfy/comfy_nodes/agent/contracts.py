@@ -2289,6 +2289,26 @@ def _context_ids(context: TurnContext | Mapping[str, Any] | None) -> dict[str, A
     return {"session_id": None, "turn_id": None, "baseline_turn_id": None}
 
 
+def _malformed_json_failure_context(exc_or_issue: Any) -> dict[str, Any]:
+    """Typed parse evidence for MALFORMED_MODEL_JSON envelopes.
+
+    DEEP-AUDIT-FIX-3-REVISION-2 (ADJUDICATION-3): the failure kind alone
+    loses WHY the model response failed to parse. Copy non-empty
+    ``parse_reason`` and the already bounded/redacted ``raw_response_preview``
+    off a ``MalformedModelJSON`` exception into ``agent_failure_context``
+    (never ``raw_response`` itself) so terminal classify lowering keeps the
+    provider gate's evidence.
+    """
+    failure_context: dict[str, Any] = {"explanation": str(exc_or_issue)}
+    parse_reason = getattr(exc_or_issue, "parse_reason", None)
+    if isinstance(parse_reason, str) and parse_reason.strip():
+        failure_context["parse_reason"] = parse_reason
+    raw_response_preview = getattr(exc_or_issue, "raw_response_preview", None)
+    if isinstance(raw_response_preview, str) and raw_response_preview.strip():
+        failure_context["raw_response_preview"] = raw_response_preview
+    return failure_context
+
+
 def classify_failure(
     stage: str,
     exc_or_issue: Any,
@@ -2401,7 +2421,7 @@ def classify_failure(
                 FailureKind.MALFORMED_MODEL_JSON,
                 stage,
                 context,
-                agent_failure_context={"explanation": str(exc_or_issue)},
+                agent_failure_context=_malformed_json_failure_context(exc_or_issue),
             )
         if "jsondecodeerror" in lower_message:
             return failure_envelope(
@@ -2463,7 +2483,7 @@ def classify_failure(
                 FailureKind.MALFORMED_MODEL_JSON,
                 stage,
                 context,
-                agent_failure_context={"explanation": str(exc_or_issue)},
+                agent_failure_context=_malformed_json_failure_context(exc_or_issue),
             )
         if isinstance(exc_or_issue, (json.JSONDecodeError, TypeError, ValueError)):
             return failure_envelope(
