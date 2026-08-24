@@ -49,21 +49,21 @@
     },
     {
       "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
-      "descriptor_sha256": "56ec24c8f324bb7d0f94befd5e3392d6f90d850e3556a25e970f54754adff64d",
+      "descriptor_sha256": "f00572c6cf8e56e3ef061b51ae064593f7b683b568532ae362ab7fd470e4c40f",
       "source_workflow_sha256": "4874162874ab6ddce8b7a248382e5ee20a392158f423c14f8ce1fffd4f21833e",
-      "locked_input_sha256": "f988e12d1887d0b2a0729a00b33c7be04848377a8bcc1004fc4a25d4c2bc2a5a"
+      "locked_input_sha256": "2ef1ff9f6addf7b9093c60b92555c6fcbf2d3b930ca2118cc8226487500710e0"
     },
     {
       "id": "3d-3d-model-generation-and-rigging-from-image-352066",
-      "descriptor_sha256": "d071f50f251ca718363ae04177d35f66ad1e26b305be7b7dd220ed10f62b6dee",
+      "descriptor_sha256": "4f875566cdfc542a798240bd2eb678af760683d0626452a272f2dc83db795d0f",
       "source_workflow_sha256": "cb759b44eeef9b28df2ed3f0d0e835ce3d2d35770930a7d0a95cbaccb80b68f3",
-      "locked_input_sha256": "221a5c18c2b33e307fd56b3690d3bcebd9b00e6954399339853afebc239eaa18"
+      "locked_input_sha256": "f7cbdf5236caef6c29820e67eeb765773557679a493fae3d7c3e2128de8daecd"
     },
     {
       "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
-      "descriptor_sha256": "7555873253d66728e17ec5180d8d61063e9aa25d4704c5e63101fecd0541ad94",
+      "descriptor_sha256": "171b43c967b4c73b2030c7637b7d51c39fba40044b401b4d473a13719d8c0818",
       "source_workflow_sha256": "3f7fe8c665328f4ffa8db8f851da2081f288c9e2d107fd697c89de8655cf5f63",
-      "locked_input_sha256": "03b3a451a88b00ce1c76783614bb68ecd54b11126a0ac1e14bc3387c1e5ea764"
+      "locked_input_sha256": "cd1864bbe93781f5841c16071937e8fc917c82a1b2144d7ee727c154ee503996"
     },
     {
       "id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
@@ -91,9 +91,9 @@
     },
     {
       "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
-      "descriptor_sha256": "d25924f826c59d4fd1a41191ef495638dc2d2d80f2456ed41bd9648213b916ba",
+      "descriptor_sha256": "1bea80b24b15dfa6de0d0e1ab0d22de564bcfa694043a7d84bf0bae60c733da9",
       "source_workflow_sha256": "e5846011433a2fe294236d76ed89c90f3d5e14fdd2046720d2d3db8eaba23fa9",
-      "locked_input_sha256": "e3cc6b8ffebf1be62bc0fd3d7a539a3b4d9be43d3291317ea888562e6a19908f"
+      "locked_input_sha256": "3a1e6f9a4ed339073219b52e8cf47cf0eee9e1edf91f6ee4beb8cacfa28fd3f6"
     },
     {
       "id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
@@ -121,9 +121,9 @@
     },
     {
       "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
-      "descriptor_sha256": "aa3859ee4661d125044bdb9d1ba907ed3944c1e28010cacbd0826ed0baea1de4",
+      "descriptor_sha256": "16d64e5ee2b4a1aa702f23b11276f16c5aa5b4c0f09ffea7875adb2f2a53184d",
       "source_workflow_sha256": "cf18d35e10586b45a798da007c09965f0abd89a5339a1d15507605c651fcdc22",
-      "locked_input_sha256": "8f819606e03f3bb46aca8b6ecf945881a171663c8c20e760c7d5bab17f3f5cdf"
+      "locked_input_sha256": "b0d534d075ea3c625debf610fe3798bba2a4519056a169460f6dc90fed6c15de"
     },
     {
       "id": "audio-audio-processing-with-voice-tts-and-noise-remo-b80848",
@@ -133,9 +133,9 @@
     },
     {
       "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
-      "descriptor_sha256": "c10b4644cd9431a288e5d3726eecc1032a25da914c1c7b640cf4ee4a39d82a45",
+      "descriptor_sha256": "b07103aae29c19ab08d216b7cbcb2bc054f5c18c303df76db1d7cc98349e318f",
       "source_workflow_sha256": "50d0bae8056606a96cef8612a070d362eefefaf4863c1650a7ba073ae8cc3726",
-      "locked_input_sha256": "841d257588f997d0c2546a110c72d353e277cfd5e19618e8b2196b6174d3a24b"
+      "locked_input_sha256": "e441915be320511675da8b3b58c5d6817630872c3be77077560469dc0e566ada"
     },
     {
       "id": "audio-transcribes-audio-appends-text-regenerates",
@@ -145,9 +145,9 @@
     },
     {
       "id": "hotshot-16-frames-agent-edit",
-      "descriptor_sha256": "f2a78c2f6c5a1ec022488456b98de9aca73006152f682dfb8db0a83d045a1b9e",
+      "descriptor_sha256": "8d265d7d527cae151fdbb3fb3490031810a34e1ff1b5d942a48eb190d5ff0b12",
       "source_workflow_sha256": "13ed4f77db40b41c6378c596c24f6c0ad29e24aaa661e6ca04f6712a57baf7b6",
-      "locked_input_sha256": "92c020cf3ce7aac2d634244f42c3450acf39eafff2d4ddc76cd50f413e6abf02"
+      "locked_input_sha256": "00dbcbbbd209629d1efff4533ae45b777d73fb273ac8d8fc4d7a173cb89f0b09"
     },
     {
       "id": "image-animatediff-image-to-video-with-latent-composi-17dc9b",
@@ -187,9 +187,9 @@
     },
     {
       "id": "image-face-detection-and-cropping-workflow-949658",
-      "descriptor_sha256": "44591849becb2e16c6ade497c6e9af3cac3e293782c77be5468d779b92e02fbb",
+      "descriptor_sha256": "25bf07d86481a91cee23b2c8b20fdeb32512d85ec044506a51d2fb60c445e2e0",
       "source_workflow_sha256": "040a264e5eccfb3dd142f3e4af327cd3bcf7ae09c5e67e72534c83ff7efccab7",
-      "locked_input_sha256": "ef7ec1b56efc3cffb25a93b316f3c1583d5fc5d0fb705f69d121475f2b86a2b2"
+      "locked_input_sha256": "28d825c778473097246d811623a4686f9253860fbc0b8b7ced4ef85db99f286f"
     },
     {
       "id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
@@ -247,9 +247,9 @@
     },
     {
       "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
-      "descriptor_sha256": "ef8986a84b013095867c780445bb5bead578be31973f398e7c0245396c79a790",
+      "descriptor_sha256": "5fd27f90d9aed4e864fe7e4eb657845d1b2d291ec1ed31c4ab8a0540be515c6c",
       "source_workflow_sha256": "501fe619c5f4f686d93053390843ade4100e8c8b8b20556e68c35451a4afccc0",
-      "locked_input_sha256": "9b1ac4a1f7dec9c6e194bd634db3f4c962a7b0fb038b26193e2cb80970b1266c"
+      "locked_input_sha256": "c04c91eb9957dcc1e0cc637d2f189e2e7c73c19baba3bfdc961c2dc453a09aad"
     },
     {
       "id": "image-llama-cpp-instruct-image-preview-and-save-5b54bf",
