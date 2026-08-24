@@ -6173,3 +6173,65 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 
 - **§30 directive (2026-08-24T11:56Z, P2→P0→P1→P5→P3→P4→P6→P7, BOTH-MODES validation staged ≥25/50 AND threaded ≥25/50, escalate <13/25 to codex:gpt-5.6-sol) supersedes §27/§28 for remaining work. P2-KNOWNOUTPUT-GUARD closed at `bc1054c8` (ox-alpha implement + codex-sol review continue, 3 focused tests passed, guard `isinstance(names,(list,tuple))` on name-set membership). Advisory `f13bf302` preserved. P0-WIDGET-CANON dispatched concurrently. G7 remains `status: open` until ONE frozen commit after P0–P5 and pinned BOTH-MODES validation.** Evidence/validator discipline continues.
 
+## EVIDENCE-P0 — record WRAPPER-OVERLAP-NARROW + review musts + P0-WIDGET-CANON closure — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied WRAPPER-OVERLAP-NARROW implementer provenance, the OVERLAP-NARROW-REVIEW MUST-findings disposition, and the P0-WIDGET-CANON closure into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts (`receipts/WRAPPER-OVERLAP-NARROW-receipt.json`, `receipts/OVERLAP-NARROW-REVIEW-receipt.json`, `receipts/P0-WIDGET-CANON-receipt.json`). This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a — values never quoted; refer by name and line identity only. No card, gate, or receipt status beyond the recorded dispositions is changed by this entry.
+
+### 1. Card WRAPPER-OVERLAP-NARLOW→NARROW [§15 item 3]: narrow `ALLOWANCE_OVERLAP` to intersecting mutating paths — implemented
+
+- **Defect:** the wrapper registry rejected ANY two concurrently active mutating dispatches wholesale; the card narrows overlap rejection to intersecting non-empty mutating paths so genuinely disjoint mutating work can proceed.
+- **Implementer — WRAPPER-OVERLAP-NARROW:**
+  - Route `ox-alpha` (resolved `stealth/ox-alpha`), wrapper exit `0`.
+  - Base `2f31fbd4b31bbee9db449ab1cacc04b9a5d4a9bd`, commit `837b8142f6bfd9f49650d2e86ea8e14e35bcfd25` — subject `fix(spine): WRAPPER-OVERLAP-NARLOW — narrow ALLOWANCE_OVERLAP to intersecting mutating paths` (the subject's `NARLOW` spelling was committed as-is; card identity is `-NARROW`).
+  - Changed files (within allowance): `scripts/run_workflow_execution_spine_agent.py` (adds `_pattern_overlap` path-pattern narrowing), `tests/test_run_workflow_execution_spine_agent.py`.
+  - Focused tests: `python3 -m pytest tests/test_run_workflow_execution_spine_agent.py -q` — `61 passed` (implementer-reported; re-verified by this recorder at HEAD `61bdfdc0`).
+  - Result digest `0f67db69a1d26dfda33c9eb8132793480f474b21be0d0b5692c4ccba7c78485d` (prefix `0f67db69a1d26dfd`); wrapper `2026-08-24T12:24:03Z` → `2026-08-24T12:29:12Z`, PID `21674`.
+  - F1/F2/F4 verified already present per session #11 audit (no additional change required for those findings).
+
+### 2. Review OVERLAP-NARROW-REVIEW (single review phase) — VERDICT: MUST-FINDINGS ×3
+
+- Route `codex:gpt-5.6-sol` (resolved `openai-codex/gpt-5.6-sol`), READ-ONLY (zero changed files), wrapper exit `0`.
+- Base `837b8142f6bfd9f49650d2e86ea8e14e35bcfd25`; wrapper `2026-08-24T12:31:25Z` → `2026-08-24T12:35:35Z` (249.3 s reported), PID `22608`.
+- Result digest `56564ad5bf9e90f3b965be32d86ed5e8b5f624595b5b0d8ac8e126ffd9cb6f76` (prefix `56564ad5bf9e90f3`).
+- MUST findings:
+  - **(F-a)** `_pattern_overlap` does not implement real path-pattern intersection; crossing globs (e.g. `docs/*.md` vs `docs/x*`) return False negative overlap — `scripts/run_workflow_execution_spine_agent.py:302-315`. Fix direction: real glob intersection or a restricted validated grammar + a crossing-glob case.
+  - **(F-b)** whole-worktree snapshots misattribute concurrent same-worktree mutations → false `ALLOWANCE_VIOLATION` for disjoint mutating dispatches — `scripts/run_workflow_execution_spine_agent.py:762-793`. Reviewer recommends isolated worktrees OR retaining serialization for mutually-mutating same-worktree pairs + an end-to-end concurrent test.
+  - **(F-c)** registry keyed by `task_id` but `_registry_guard` does not reject an already-active ID; a second same-worktree dispatch can overwrite the live entry and either release then unregisters the survivor — `scripts/run_workflow_execution_spine_agent.py:375-380,399-421`. Fix direction: reject duplicate active `task_id` before overlap evaluation + a concurrent duplicate-ID test.
+- MINOR notes from review: requested suite passed; five predicate cases + registry-guard case exist and fail pre-change; dead-PID sweep textually unchanged.
+- **Disposition:** ONE revision card **WRAPPER-OVERLAP-NARROW-R2** queued per §13.1 (single revision + single re-review). Until R2 lands, the orchestrator keeps ALL mutating dispatches strictly serial on the shared worktree (read-only parallel unaffected).
+
+### 3. Card P0-WIDGET-CANON [§30 item 2]: widget_N→named-slot canonicalization before seal — CLOSED (§18 batch model)
+
+- **Implementer — P0-WIDGET-CANON:**
+  - Route `ox-alpha` (launcher `--model=stealth/ox-alpha:max`, thinking=max; receipt `resolved_model` `stealth/ox-alpha`), wrapper exit `0`.
+  - Base `837b8142f6bfd9f49650d2e86ea8e14e35bcfd25`; wrapper `2026-08-24T12:31:28Z` → `2026-08-24T13:13:01Z` (2492.7 s), PID `22654`.
+  - Result digest `97a8470889d5f2c60afa33a532a95f3025381159c3bc02da0daf5c80ff18ba60` (prefix `97a8470889d5f2c6`).
+  - Commits (3, coherent staged series): `b2084982fa5b798c174c5ce3417052252eef4773` R1 linked-socket exclusion + frozen field_snapshot name table; `b50a92014c6243a91be477a6ad54c60082e4ba70` R2 positional-carrier rewrite + frozen-table consumption in interpret/apply/replay; `61bdfdc0fc7bf0b19885f77211a954bb2a7ff11d` emit consumes frozen name table + focused tests.
+  - Changed files (12, all within allowance): `tests/test_p0_widget_canon.py`; `vibecomfy/ingest/snapshot.py`; `vibecomfy/porting/edit/_interpret.py`, `vibecomfy/porting/edit/_ir_utils.py`, `vibecomfy/porting/edit/_op_validate.py`; `vibecomfy/porting/edit/widget_slots.py`; `vibecomfy/porting/emit/emit_constants.py`, `emit_kwargs.py`, `emit_prepare.py`, `emit_ready.py`, `ui.py`; `vibecomfy/porting/widgets/compact_resolver.py`.
+  - Focused tests: `python3 -m pytest tests/test_p0_widget_canon.py -q` — `9 passed` (implementer-reported; re-verified by this recorder at HEAD `61bdfdc0`).
+  - Implementer self-report highlights: widget_N→named-slot canonicalization BEFORE seal via the frozen snapshot field table as sole name authority; semantic digest bit-stable across identical ingests; no golden regeneration needed; no STOP/JUDGMENT lines (receipt `stop_or_judgment` empty).
+  - No ALLOWANCE_VIOLATION artifact emitted (none present under `g0/`).
+  - Per §18 batch model: NO per-card post-review; card-level verification rides the next batch/gate review.
+
+### 4. Next unblocked cards (serial queue)
+
+- **WRAPPER-OVERLAP-NARROW-R2** (revision, ox-alpha) → **R2 re-review** (codex:gpt-5.6-sol, single) → **P1-REPLAY-HASH-DOMAIN** → **P5-ACCEPTEDBATCH-TERMINAL**.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **68 records** (67 prior + `68 EVIDENCE-P0` evidence dispatch recording the WRAPPER-OVERLAP-NARROW implementation, the OVERLAP-NARROW-REVIEW MUST findings + R2 queue, and P0-WIDGET-CANON closure; canonical_slot `EVIDENCE-P0`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`, 12 shards S0→S11 + singleton `broad_suite_once_v1` T6.3-owned). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `test-shards.json` byte-identical — `TEST_SINGLETON` green. Credential hygiene green: receipts 0 hits, execution-log identity set exact-five match, plan/goal 0 hits.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-P0` section) + `manifest.json` G7 `evidence_sequence[68]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** bases `2f31fbd4b31bbee9db449ab1cacc04b9a5d4a9bd` and `837b8142f6bfd9f49650d2e86ea8e14e35bcfd25` ARE ancestors of HEAD (`git merge-base --is-ancestor` exit 0 each); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED (`[REDACTED]` canonical only); suffixed `[REDACTED]<suffix>` never emitted; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only. Receipts verified to contain no live credential bearer material (validator `CREDENTIAL_HYGIENE` green).
+- **No push / no history rewrite:** G7 did NOT pass via this evidence; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at base `61bdfdc0` + new commit; no rebase/reset/amend/history rewrite of the leaked key.
+- **JUDGMENT_REQUIRED: none** (review MUST findings were adjudicated upstream by the orchestrator into ONE queued revision card R2 plus interim strict serialization; recorded here verbatim — this recorder makes no new judgment).
+
+### Position — OVERLAP-NARROW landed but gated by review musts, P0 closed
+
+- **WRAPPER-OVERLAP-NARROW landed at `837b8142` but its parallel-dispatch relaxation is NOT operative until WRAPPER-OVERLAP-NARROW-R2 resolves review MUST-FINDINGS F-a (no true glob intersection, `scripts/run_workflow_execution_spine_agent.py:302-315`), F-b (whole-worktree snapshot misattribution, `:762-793`), and F-c (duplicate active `task_id` overwrite, `:375-380` / `:399-421`); until then ALL mutating dispatches stay strictly serial on the shared worktree. P0-WIDGET-CANON closed at `61bdfdc0` (3 commits, 12 files, 9 focused tests passed, frozen field-name table as sole authority before seal). Serial queue: R2 → R2 re-review → P1-REPLAY-HASH-DOMAIN → P5-ACCEPTEDBATCH-TERMINAL. G7 remains `status: open` until ONE frozen commit after P0–P5 and pinned BOTH-MODES validation.** Evidence/validator discipline continues.
