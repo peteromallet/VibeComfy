@@ -308,10 +308,10 @@ def _pattern_overlap(left: str, right: str) -> bool:
 
 
 def _allowances_overlap(current: dict[str, Any], other: dict[str, Any]) -> bool:
-    if Path(current["worktree"]).resolve() == Path(other["worktree"]).resolve():
-        return True
     current_allowed = current.get("allowed", [])
     other_allowed = other.get("allowed", [])
+    if not current_allowed or not other_allowed:
+        return False
     return any(_pattern_overlap(str(a), str(b)) for a in current_allowed for b in other_allowed)
 
 

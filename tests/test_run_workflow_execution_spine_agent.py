@@ -490,13 +490,67 @@ def test_overlap_rejection_does_not_launch(tmp_path: Path) -> None:
         "other": {
             "task_id": "other", "allowance_file": "other.json",
             "worktree": str(project), "start_ts": "now", "pid": os.getpid(),
-            "allowed": ["other.txt"],
+            "allowed": ["allowed.txt"],
         }
     }))
     result = _invoke(project, evidence, brief, allowance, fake)
     assert result.returncode == 2
     assert "ALLOWANCE_OVERLAP" in result.stderr
     assert not (project / "allowed.txt").exists()
+
+
+def test_allowances_overlap_narrowed_to_intersecting_mutating_paths(tmp_path: Path) -> None:
+    """WRAPPER-OVERLAP-NARLOW: overlap requires BOTH sides to carry non-empty
+    ``allowed`` lists that intersect; sharing a resolved worktree alone is no
+    longer an automatic overlap, so read-only/evidence dispatches never block.
+    """
+    wrapper = _load_wrapper("workflow_execution_wrapper_overlap_narlow")
+    shared = tmp_path / "shared-worktree"
+    other = tmp_path / "other-worktree"
+
+    def entry(worktree: Path, allowed: list[str]) -> dict[str, object]:
+        return {"task_id": "t", "worktree": str(worktree), "allowed": allowed}
+
+    # Same worktree + one side empty: a read-only task blocks nothing.
+    assert wrapper._allowances_overlap(entry(shared, []), entry(shared, ["allowed.txt"])) is False
+    assert wrapper._allowances_overlap(entry(shared, ["allowed.txt"]), entry(shared, [])) is False
+    # Same worktree + disjoint non-empty alloweds: path-scoped tasks coexist.
+    assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(shared, ["vibecomfy/**"])) is False
+    # Same worktree + intersecting non-empty alloweds.
+    assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(shared, ["docs/x.md"])) is True
+    # Different worktrees + intersecting.
+    assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(other, ["docs/**"])) is True
+    # Different worktrees + disjoint.
+    assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(other, ["vibecomfy/**"])) is False
+
+
+def test_registry_guard_allows_second_dispatch_with_empty_allowed(tmp_path: Path) -> None:
+    """A second dispatch with an empty ``allowed`` list registers alongside a
+    live same-worktree entry instead of raising ALLOWANCE_OVERLAP; the active
+    entry survives and the candidate is stored verbatim.
+    """
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_empty_allowed_guard")
+    task_id = "evidence-active"
+    _write_registry(evidence, task_id, {
+        "task_id": task_id,
+        "allowance_file": str(allowance),
+        "worktree": str(project),
+        "start_ts_epoch": time.time(),
+        "pid": os.getpid(),
+        "allowed": ["allowed.txt"],
+    })
+
+    registry, candidate = wrapper._registry_guard(
+        evidence, "next-dispatch", allowance, project, []
+    )
+    try:
+        assert set(registry) == {task_id, "next-dispatch"}
+        assert candidate["allowed"] == []
+    finally:
+        wrapper._registry_release(evidence, "next-dispatch")
+    stored = json.loads((evidence / "active-allowances.json").read_text())
+    assert set(stored) == {task_id}
 
 
 def test_missing_allowance_rejects_before_launch(tmp_path: Path) -> None:
