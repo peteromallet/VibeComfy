@@ -6125,3 +6125,51 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 
 - **Orphaned grok-4.6 advisory (f13bf302, 19093 bytes, 11m read-only) recorded as non-authoritative input to FRESH-FINALE-AUTHORIZATION; P2 residual VERIFIED TRUE at HEAD (`_op_validate.py:168` None-iterable); updated decision package: (a) fresh finale 8-12/50, (b) P0-P5 campaign then rerun, (c) stop-and-document. Four blockers unchanged. G7 remains `status: open` until operator authorizes next card.** No further local cards actionable without operator authorization; evidence/validator discipline continues.
 
+## EVIDENCE-P2 — record §30 start + P2-KNOWNOUTPUT-GUARD closure — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied §30 directive provenance, the P2-KNOWNOUTPUT-GUARD implementer + review dispositions, and the next-card unblock into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a — values never quoted; refer by name and line identity only. No card, gate, or receipt status beyond the recorded closures is changed by this entry.
+
+### 1. Operator directive §30 (2026-08-24)
+
+- Discovered in orchestrator brief (mtime 2026-08-24T11:56:00Z). Orders P-card plan `P2→P0→P1→P5→P3→P4→P6→P7`, then ONE frozen commit after P0–P5 and a pinned BOTH-MODES validation on the same 50 scenarios (gate `staged ≥25/50 AND threaded ≥25/50`; either `<13/25` → escalate structural subset to `codex:gpt-5.6-sol`). Supersedes §27 round ordering / §28 batching for remaining work.
+- Grok advisory basis preserved at `g0/grok50-advisory-result.md` (19093 bytes, sha256 `f13bf3027dc3363d662485bfab8e56cfe10e81eb36d6d49ae37499c61ff45515`) — non-authoritative input to prior FRESH-FINALE-AUTHORIZATION blocker, now the pinned §30 validation design.
+
+### 2. Card P2-KNOWNOUTPUT-GUARD [HARD] (§30 item 1): finish FIX-3 `_known_output` None-guard — CLOSED
+
+- **Defect:** `vibecomfy/porting/edit/_op_validate.py` function `_known_output` at line 168 `if str(slot) in {str(name) for name in names if name is not None}:` iterates `names` bound from `metadata.get("output_names")`. The `isinstance(names,(list,tuple))` guard covered only the int-slot branch; when `_ui.outputs` is a list/tuple but `output_names` is absent/None the comprehension raises `TypeError: 'NoneType' object is not iterable`. Production class legs 12/13/14-r3 (AUDIO_0 / empty output_names). FIX-3 claimed closure; verified still live at HEAD `96b9cdc5`.
+- **Implementer — P2-KNOWNOUTPUT-GUARD:**
+  - Route `ox-alpha` (resolved `stealth/ox-alpha:max`), wrapper exit `0`.
+  - Base `96b9cdc5f6d56a86c0f9e5fa12b85876ec497c19`, commit `bc1054c8b6464718673c2b964aa983ed46d66d19`.
+  - Changed files: `vibecomfy/porting/edit/_op_validate.py` (+4/-1 guard: `isinstance(names,(list,tuple))` gate on the name-set membership), `tests/test_op_validate_known_output.py` (new, 3 cases).
+  - Focused tests: `python3 -m pytest tests/test_op_validate_known_output.py -q` — `3 passed`.
+  - Result digest `cf23cf84c75bddfd112611a6e469e531e88832caccaedcba9973109e554b12b5` (prefix `cf23cf84c75bddfd`); wrapper `2026-08-24T12:07:00Z` → `2026-08-24T12:10:36Z`, PID `20739`.
+- **Review — P2-REVIEW (single review phase):**
+  - Route `codex:gpt-5.6-sol` (resolved `openai-codex/gpt-5.6-sol`), READ-ONLY (zero changed files), wrapper exit `0`.
+  - Base `bc1054c8b6464718673c2b964aa983ed46d66d19`, wrapper `2026-08-24T12:14:58Z` → `2026-08-24T12:17:17Z`, PID `21239`.
+  - Result digest `63033ebcf19a644d443e6af4954d3a57834e5372194367512bb519960608f0b5` (prefix `63033ebcf19a644d`).
+  - VERDICT: **continue** — guard correctly scoped inside `outputs_ui` branch, prior True paths unchanged, `names=None` falls through to schema branch, regression module demonstrated failing pre-change.
+- **Disposition:** CARD CLOSED, no open findings. Residual risk noted by advisory: this unblocks legs 12/13/14-r3 class only; product-rate impact realized at validation run (not claimed here).
+
+### 3. Next unblocked card
+
+- **P0-WIDGET-CANON** — dispatched concurrently with this evidence card per §30 ordering (P2→P0→P1→P5→P3→P4→P6→P7). G7 remains `status: open` pending the ONE frozen commit after P0–P5 and the pinned BOTH-MODES validation.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**). `label` unchanged. `evidence_sequence` now **67 records** (66 prior + `67 EVIDENCE-P2` `EVIDENCE-P2` evidence dispatch `bc1054c8` P2 closure; canonical_slot `EVIDENCE-P2`; no receipt — §30 start + P2 closure only).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`, 12 shards S0→S11 + singleton `broad_suite_once_v1` T6.3-owned). No shard rewrite required; included in allowance only.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `test-shards.json` byte-identical — `TEST_SINGLETON` green. Credential hygiene green: receipts 0 hits, execution-log identity set exact-five match, plan/goal 0 hits.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-P2` section) + `manifest.json` G7 `evidence_sequence[67]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `bc1054c8b6464718673c2b964aa983ed46d66d19` IS ancestor of HEAD (`git merge-base --is-ancestor bc1054c8 HEAD` exit 0); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green); canonical six-entry manifest unchanged at `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`.
+- **Secret hygiene:** all credential material REDACTED (`[REDACTED]` canonical only); suffixed `[REDACTED]<suffix>` never emitted; the five historical secret lines are referenced only by (lineno, sha256) identities above, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only. Receipts verified to contain no live credential bearer material (validator `CREDENTIAL_HYGIENE` green).
+- **No push / no history rewrite:** G7 did NOT pass via this evidence; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at base `bc1054c8` + new commit; no rebase/reset/amend/history rewrite of the leaked key.
+- **JUDGMENT_REQUIRED: none** (§30 start recorded; P2 closed with continue; P0 unblocked — deferred work, not new judgments).
+
+### Position — §30 started, P2 closed, P0 unblocked
+
+- **§30 directive (2026-08-24T11:56Z, P2→P0→P1→P5→P3→P4→P6→P7, BOTH-MODES validation staged ≥25/50 AND threaded ≥25/50, escalate <13/25 to codex:gpt-5.6-sol) supersedes §27/§28 for remaining work. P2-KNOWNOUTPUT-GUARD closed at `bc1054c8` (ox-alpha implement + codex-sol review continue, 3 focused tests passed, guard `isinstance(names,(list,tuple))` on name-set membership). Advisory `f13bf302` preserved. P0-WIDGET-CANON dispatched concurrently. G7 remains `status: open` until ONE frozen commit after P0–P5 and pinned BOTH-MODES validation.** Evidence/validator discipline continues.
+
