@@ -1638,33 +1638,47 @@ def _input_types_return(node: ast.ClassDef, class_values: dict[str, Any]) -> Any
             continue
         for child in ast.walk(stmt):
             if isinstance(child, ast.Return) and child.value is not None:
-                parsed = _literal_eval_node(child.value, class_values)
+                # salvage=True keeps dynamic per-input entries (see
+                # _UNRESOLVED_COMBO_SPEC) instead of dropping them.
+                parsed = _literal_eval_node(child.value, class_values, salvage=True)
                 return None if parsed is _UNPARSEABLE else parsed
     return None
 
 
 _UNPARSEABLE = object()
 
+# Placeholder for INPUT_TYPES entries whose value cannot be parsed statically
+# (typically combo choices computed at runtime). Emitted as a COMBO widget with
+# unresolved choices so the input stays authorable instead of vanishing.
+_UNRESOLVED_COMBO_SPEC = ["COMBO", {"unresolved_choices": True}]
 
-def _literal_eval_node(node: ast.AST, class_values: dict[str, Any]) -> Any:
+
+def _literal_eval_node(node: ast.AST, class_values: dict[str, Any], *, salvage: bool = False) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.List):
-        values = [_literal_eval_node(item, class_values) for item in node.elts]
+        values = [_literal_eval_node(item, class_values, salvage=salvage) for item in node.elts]
         return _UNPARSEABLE if _UNPARSEABLE in values else values
     if isinstance(node, ast.Tuple):
-        values = [_literal_eval_node(item, class_values) for item in node.elts]
+        values = [_literal_eval_node(item, class_values, salvage=salvage) for item in node.elts]
         return _UNPARSEABLE if _UNPARSEABLE in values else tuple(values)
     if isinstance(node, ast.Dict):
         out: dict[Any, Any] = {}
         for key_node, value_node in zip(node.keys, node.values, strict=False):
             if key_node is None:
                 return _UNPARSEABLE
-            key = _literal_eval_node(key_node, class_values)
-            value = _literal_eval_node(value_node, class_values)
+            key = _literal_eval_node(key_node, class_values, salvage=salvage)
+            value = _literal_eval_node(value_node, class_values, salvage=salvage)
             if key is _UNPARSEABLE:
                 return _UNPARSEABLE
             if value is _UNPARSEABLE:
+                if salvage and isinstance(key, str):
+                    # Dynamic INPUT_TYPES entry (e.g. combo choices computed at
+                    # runtime): keep the input as an unresolved COMBO widget
+                    # instead of silently dropping it -- dropping hides real
+                    # authorable fields (e.g. QwenEmotionNode.qwen_model) from
+                    # the authoring surface and admission.
+                    out[key] = list(_UNRESOLVED_COMBO_SPEC)
                 continue
             out[key] = value
         return out
@@ -1673,7 +1687,7 @@ def _literal_eval_node(node: ast.AST, class_values: dict[str, Any]) -> Any:
     if isinstance(node, ast.Name):
         return class_values.get(node.id, _UNPARSEABLE)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        value = _literal_eval_node(node.operand, class_values)
+        value = _literal_eval_node(node.operand, class_values, salvage=salvage)
         if isinstance(value, (int, float)):
             return -value
     return _UNPARSEABLE

@@ -1,0 +1,243 @@
+{
+  "Hy3DTools_BackProjectInpaint": {
+    "pack": "ComfyUI-Hunyuan3DTools",
+    "pack_version": "local-621fb54",
+    "python_module": "ComfyUI-Hunyuan3DTools.nodes",
+    "category": "Hunyuan3DTools",
+    "name": "Hy3DTools_BackProjectInpaint",
+    "display_name": "Hy3DTools_BackProjectInpaint",
+    "description": "",
+    "inputs": {
+      "required": {
+        "original_mesh": [
+          "TRIMESH"
+        ],
+        "inpainted_view": [
+          "IMAGE"
+        ],
+        "camera_params": [
+          "CAMERA_PARAMS"
+        ],
+        "blend_threshold": [
+          "FLOAT",
+          {
+            "default": 0.8,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "tooltip": "Confidence threshold (from cos map) to use inpainted pixels."
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "original_mesh",
+        "inpainted_view",
+        "camera_params",
+        "blend_threshold"
+      ]
+    },
+    "input_order_all": [
+      "original_mesh",
+      "inpainted_view",
+      "camera_params",
+      "blend_threshold"
+    ],
+    "object_info_widget_order": [
+      "original_mesh",
+      null,
+      "camera_params",
+      "blend_threshold"
+    ],
+    "outputs": [
+      {
+        "type": "TRIMESH",
+        "name": "updated_mesh",
+        "is_list": false
+      }
+    ],
+    "function": "back_project_inpaint"
+  },
+  "Hy3DTools_RenderSpecificView": {
+    "pack": "ComfyUI-Hunyuan3DTools",
+    "pack_version": "local-621fb54",
+    "python_module": "ComfyUI-Hunyuan3DTools.nodes",
+    "category": "Hunyuan3DTools",
+    "name": "Hy3DTools_RenderSpecificView",
+    "display_name": "Hy3DTools_RenderSpecificView",
+    "description": "",
+    "inputs": {
+      "required": {
+        "trimesh": [
+          "TRIMESH"
+        ],
+        "render_size": [
+          "INT",
+          {
+            "default": 512,
+            "min": 64,
+            "max": 4096,
+            "step": 16
+          }
+        ],
+        "camera_type": [
+          [
+            "orth",
+            "perspective"
+          ],
+          {
+            "default": "orth"
+          }
+        ],
+        "camera_distance": [
+          "FLOAT",
+          {
+            "default": 1.45,
+            "min": 0.1,
+            "max": 10.0,
+            "step": 0.001
+          }
+        ],
+        "pan_x": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": -1.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        ],
+        "pan_y": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": -1.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        ],
+        "ortho_scale": [
+          "FLOAT",
+          {
+            "default": 1.2,
+            "min": 0.1,
+            "max": 10.0,
+            "step": 0.001
+          }
+        ],
+        "azimuth": [
+          "FLOAT",
+          {
+            "default": 0,
+            "min": -360,
+            "max": 360,
+            "step": 1
+          }
+        ],
+        "elevation": [
+          "FLOAT",
+          {
+            "default": 0,
+            "min": -360,
+            "max": 360,
+            "step": 1
+          }
+        ],
+        "bg_color_rgb": [
+          "STRING",
+          {
+            "default": "128, 128, 255",
+            "tooltip": "Background Color (RGB 0-255). Used for textured, world normal, and position views."
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "trimesh",
+        "render_size",
+        "camera_type",
+        "camera_distance",
+        "pan_x",
+        "pan_y",
+        "ortho_scale",
+        "azimuth",
+        "elevation",
+        "bg_color_rgb"
+      ]
+    },
+    "input_order_all": [
+      "trimesh",
+      "render_size",
+      "camera_type",
+      "camera_distance",
+      "pan_x",
+      "pan_y",
+      "ortho_scale",
+      "azimuth",
+      "elevation",
+      "bg_color_rgb"
+    ],
+    "object_info_widget_order": [
+      "trimesh",
+      "render_size",
+      "camera_type",
+      "camera_distance",
+      "pan_x",
+      "pan_y",
+      "ortho_scale",
+      "azimuth",
+      "elevation",
+      "bg_color_rgb"
+    ],
+    "outputs": [
+      {
+        "type": "IMAGE",
+        "name": "textured_view",
+        "is_list": false
+      },
+      {
+        "type": "IMAGE",
+        "name": "tangent_normal",
+        "is_list": false
+      },
+      {
+        "type": "IMAGE",
+        "name": "world_normal",
+        "is_list": false
+      },
+      {
+        "type": "IMAGE",
+        "name": "position",
+        "is_list": false
+      },
+      {
+        "type": "IMAGE",
+        "name": "depth",
+        "is_list": false
+      },
+      {
+        "type": "MASK",
+        "name": "mask",
+        "is_list": false
+      },
+      {
+        "type": "TRIMESH",
+        "name": "original_mesh_out",
+        "is_list": false
+      },
+      {
+        "type": "CAMERA_PARAMS",
+        "name": "camera_params",
+        "is_list": false
+      },
+      {
+        "type": "STRING",
+        "name": "detected_texture_size_WH",
+        "is_list": false
+      }
+    ],
+    "function": "render_view"
+  }
+}

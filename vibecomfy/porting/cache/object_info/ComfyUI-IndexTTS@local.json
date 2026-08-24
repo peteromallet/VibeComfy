@@ -1,31 +1,820 @@
 {
-  "IndexTTSEngineNode": {
-    "category": "IndexTTS",
-    "display_name": "IndexTTS Engine Node",
-    "inputs": {
-      "required": {
-        "text": ["STRING", {"multiline": true, "default": ""}],
-        "audio": ["AUDIO", {}],
-        "emotion": ["STRING", {}]
-      }
-    },
-    "outputs": [{"name": "audio", "type": "AUDIO", "is_list": false}],
+  "CharacterVoicesNode": {
     "pack": "ComfyUI-IndexTTS",
     "pack_version": "local",
-    "object_info_widget_order": ["text", "audio", "emotion"]
+    "python_module": "ComfyUI-IndexTTS.nodes.shared.character_voices_node",
+    "category": "TTS Audio Suite/\ud83c\udfad Voice & Character",
+    "name": "CharacterVoicesNode",
+    "display_name": "CharacterVoicesNode",
+    "description": "",
+    "inputs": {
+      "required": {
+        "voice_name": [
+          [],
+          {
+            "default": "none",
+            "tooltip": "Use 'none' to rely on direct audio input + input text.\n\nSelect character voice from models/voices/ or voices_examples/ folders.\n\nIMPORTANT: Character Voices node requires a .txt file with the same name as the audio file to recognize it as a character.\n\nFILE REQUIREMENTS:\n\u2022 filename.wav + filename.txt (basic setup)\n\u2022 filename.wav + filename.reference.txt\n\u2022 filename.wav + filename.txt + filename.reference.txt (both files)\n\nPRIORITY SYSTEM - When both .txt and .reference.txt exist:\n\u2022 .reference.txt = actual spoken text transcription (used for voice cloning)\n\u2022 .txt = audio information/metadata (license, etc.)"
+          }
+        ],
+        "reference_text": [
+          "STRING",
+          {
+            "multiline": true,
+            "default": "",
+            "tooltip": "Create reference text on-the-fly for connected audio input.\n\nENGINE REQUIREMENTS:\n\u2022 F5-TTS: REQUIRES reference text (must match spoken audio exactly)\n\u2022 Higgs Audio 2: Optional but uses reference text if provided\n\u2022 ChatterBox/VibeVoice/IndexTTS: Don't use reference text\n\nSelecting a library voice loads its transcription here automatically. Edits are temporary workflow overrides and never modify the source .txt file."
+          }
+        ],
+        "trim_start": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 100000.0,
+            "step": 0.01,
+            "tooltip": "Start of the derived reference clip in seconds. The custom timeline controls this value."
+          }
+        ],
+        "trim_end": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 100000.0,
+            "step": 0.01,
+            "tooltip": "End of the derived reference clip in seconds. 0 means the end of the source audio."
+          }
+        ],
+        "customized": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Internal UI state: the selected library voice has a temporary text or trim override."
+          }
+        ]
+      },
+      "optional": {
+        "opt_audio_input": [
+          "AUDIO",
+          {
+            "tooltip": "Direct audio input for voice reference (used when voice_name is 'none' or to override selected voice)"
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "voice_name",
+        "reference_text",
+        "trim_start",
+        "trim_end",
+        "customized"
+      ],
+      "optional": [
+        "opt_audio_input"
+      ]
+    },
+    "input_order_all": [
+      "voice_name",
+      "reference_text",
+      "trim_start",
+      "trim_end",
+      "customized",
+      "opt_audio_input"
+    ],
+    "object_info_widget_order": [
+      "voice_name",
+      "reference_text",
+      "trim_start",
+      "trim_end",
+      "customized",
+      null
+    ],
+    "outputs": [
+      {
+        "type": "NARRATOR_VOICE",
+        "name": "opt_narrator",
+        "is_list": false
+      },
+      {
+        "type": "STRING",
+        "name": "character_name",
+        "is_list": false
+      },
+      {
+        "type": "AUDIO",
+        "name": "reference_audio_only",
+        "is_list": false
+      }
+    ],
+    "function": "get_voice_reference"
   },
   "IndexTTSEmotionOptionsNode": {
-    "category": "IndexTTS",
-    "display_name": "IndexTTS Emotion Options",
-    "inputs": {
-      "required": {
-        "emotion_control": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0}],
-        "other_param": ["FLOAT", {"default": 0.5}]
-      }
-    },
-    "outputs": [{"name": "emotion_options", "type": "EMOTION_OPTIONS", "is_list": false}],
     "pack": "ComfyUI-IndexTTS",
     "pack_version": "local",
-    "object_info_widget_order": ["emotion_control", "other_param"]
+    "python_module": "ComfyUI-IndexTTS.nodes.engines.index_tts_emotion_options_node",
+    "category": "TTS Audio Suite/Engines/IndexTTS-2",
+    "name": "IndexTTSEmotionOptionsNode",
+    "display_name": "Configure emotion vector intensities for IndexTTS-2. Connect to IndexTTS-2 Engine node for advanced emotion control using 8 different emotion types.",
+    "description": "",
+    "inputs": {
+      "required": {},
+      "optional": {
+        "Happy": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Happy emotion intensity (0.0-1.2). Higher values make speech sound more joyful and upbeat."
+          }
+        ],
+        "Angry": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Angry emotion intensity (0.0-1.2). Higher values make speech sound more aggressive and harsh."
+          }
+        ],
+        "Sad": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Sad emotion intensity (0.0-1.2). Higher values make speech sound more melancholic and downcast."
+          }
+        ],
+        "Surprised": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Surprised emotion intensity (0.0-1.2). Higher values make speech sound more shocked and amazed."
+          }
+        ],
+        "Afraid": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Afraid emotion intensity (0.0-1.2). Higher values make speech sound more scared and anxious."
+          }
+        ],
+        "Disgusted": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Disgusted emotion intensity (0.0-1.2). Higher values make speech sound more repulsed and revolted."
+          }
+        ],
+        "Calm": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Calm emotion intensity (0.0-1.2). Higher values make speech sound more peaceful and relaxed."
+          }
+        ],
+        "Melancholic": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.2,
+            "step": 0.01,
+            "display": "slider",
+            "tooltip": "Melancholic emotion intensity (0.0-1.2). Higher values make speech sound more thoughtfully sad and wistful."
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [],
+      "optional": [
+        "Happy",
+        "Angry",
+        "Sad",
+        "Surprised",
+        "Afraid",
+        "Disgusted",
+        "Calm",
+        "Melancholic"
+      ]
+    },
+    "input_order_all": [
+      "Happy",
+      "Angry",
+      "Sad",
+      "Surprised",
+      "Afraid",
+      "Disgusted",
+      "Calm",
+      "Melancholic"
+    ],
+    "object_info_widget_order": [
+      "Happy",
+      "Angry",
+      "Sad",
+      "Surprised",
+      "Afraid",
+      "Disgusted",
+      "Calm",
+      "Melancholic"
+    ],
+    "outputs": [
+      {
+        "type": "EMOTION_CONTROL",
+        "name": "emotion_control",
+        "is_list": false
+      }
+    ],
+    "function": "create_emotion_vectors"
+  },
+  "IndexTTSEngineNode": {
+    "pack": "ComfyUI-IndexTTS",
+    "pack_version": "local",
+    "python_module": "ComfyUI-IndexTTS.nodes.engines.index_tts_engine_node",
+    "category": "TTS Audio Suite/\u2699\ufe0f Engines",
+    "name": "IndexTTSEngineNode",
+    "display_name": "IndexTTSEngineNode",
+    "description": "",
+    "inputs": {
+      "required": {
+        "model_path": [
+          [],
+          {
+            "default": "IndexTTS-2",
+            "tooltip": "IndexTTS model version selection:\n\u2022 IndexTTS-2.5: multilingual model with official duration-factor scaling\n\u2022 IndexTTS-2: legacy emotion-disentanglement model\n\u2022 local:ModelName: use a locally installed model\n\u2022 Downloads respect extra_model_paths.yaml"
+          }
+        ],
+        "device": [
+          [
+            "auto",
+            "cuda",
+            "xpu",
+            "cpu",
+            "mps"
+          ],
+          {
+            "default": "auto",
+            "tooltip": "Device to run IndexTTS-2 model on:\n\u2022 auto: Automatically select best available (MPS on Apple Silicon, CUDA on NVIDIA, XPU on Intel, CPU fallback)\n\u2022 cuda: NVIDIA GPU (requires CUDA-capable GPU)\n\u2022 xpu: Intel GPU (requires Intel PyTorch XPU)\n\u2022 cpu: CPU-only processing (slower)\n\u2022 mps: Apple Metal Performance Shaders (Apple Silicon Macs only)"
+          }
+        ],
+        "emotion_alpha": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05,
+            "tooltip": "Emotion conditioning strength (0.0-1.0). Applies to connected audio/vector/text emotion controls."
+          }
+        ],
+        "use_random": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Enable random sampling for more varied generation. Can improve diversity."
+          }
+        ],
+        "max_text_tokens_per_segment": [
+          "INT",
+          {
+            "default": 120,
+            "min": 50,
+            "max": 300,
+            "step": 10,
+            "tooltip": "Maximum text tokens per segment. Longer segments may cause quality issues."
+          }
+        ],
+        "interval_silence": [
+          "INT",
+          {
+            "default": 200,
+            "min": 0,
+            "max": 1000,
+            "step": 50,
+            "tooltip": "Silence duration between segments in milliseconds."
+          }
+        ],
+        "temperature": [
+          "FLOAT",
+          {
+            "default": 0.8,
+            "min": 0.1,
+            "max": 2.0,
+            "step": 0.1,
+            "tooltip": "Controls randomness. Higher values = more creative, lower = more consistent."
+          }
+        ],
+        "top_p": [
+          "FLOAT",
+          {
+            "default": 0.8,
+            "min": 0.1,
+            "max": 1.0,
+            "step": 0.05,
+            "tooltip": "Nucleus sampling threshold. Controls probability mass of tokens to consider."
+          }
+        ],
+        "top_k": [
+          "INT",
+          {
+            "default": 30,
+            "min": 1,
+            "max": 100,
+            "step": 5,
+            "tooltip": "Top-k sampling parameter. Lower values = more focused generation."
+          }
+        ],
+        "do_sample": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "tooltip": "Enable sampling for generation. Disable for deterministic output."
+          }
+        ],
+        "length_penalty": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": -2.0,
+            "max": 2.0,
+            "step": 0.1,
+            "tooltip": "Length penalty for beam search. Positive values favor longer sequences."
+          }
+        ],
+        "num_beams": [
+          "INT",
+          {
+            "default": 3,
+            "min": 1,
+            "max": 10,
+            "step": 1,
+            "tooltip": "Number of beams for beam search. Higher values = better quality but slower."
+          }
+        ],
+        "repetition_penalty": [
+          "FLOAT",
+          {
+            "default": 10.0,
+            "min": 1.0,
+            "max": 20.0,
+            "step": 0.5,
+            "tooltip": "Penalty for repeated tokens. Higher values reduce repetition."
+          }
+        ],
+        "max_mel_tokens": [
+          "INT",
+          {
+            "default": 1500,
+            "min": 500,
+            "max": 3000,
+            "step": 100,
+            "tooltip": "Maximum mel-spectrogram tokens to generate. Controls output length limit."
+          }
+        ],
+        "use_fp16": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "tooltip": "Use reduced precision: FP16 for IndexTTS-2 and BF16 for IndexTTS-2.5. Unsupported devices fall back safely."
+          }
+        ],
+        "use_deepspeed": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Use DeepSpeed optimization. Requires DeepSpeed installation."
+          }
+        ]
+      },
+      "optional": {
+        "emotion_control": [
+          [],
+          {
+            "tooltip": "Vector/text emotion control (legacy unified input):\n\u2022 \ud83c\udf08 Emotion Vectors - Manual emotion control sliders\n\u2022 \ud83c\udf08 Text Emotion - AI-analyzed emotion from text\nConnect audio separately to 'emotion_audio' when you want to blend both.\nCharacter emotion tags [Alice:emotion_ref] can provide per-segment audio emotion."
+          }
+        ],
+        "emotion_audio": [
+          [],
+          {
+            "tooltip": "Dedicated emotion-reference audio input.\nConnect Character Voices, opt_narrator, or AUDIO here.\nThis can be connected together with the vector/text emotion input above; IndexTTS-2 blends both."
+          }
+        ],
+        "use_cuda_kernel": [
+          [
+            "auto",
+            "true",
+            "false"
+          ],
+          {
+            "default": "auto",
+            "tooltip": "Use BigVGAN CUDA kernels for faster vocoding. Auto-detects availability."
+          }
+        ],
+        "use_torch_compile": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Enable torch.compile optimization for S2Mel mel-spectrogram generation stage. Provides 1.5-2x speedup. Requires a compatible PyTorch version and Triton on CUDA systems (triton-windows on Windows)."
+          }
+        ],
+        "use_accel": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Enable GPT2 acceleration with FlashAttention and KV-cache optimization. Provides 1.5-3x speedup for GPT2 stage. REQUIRES: flash-attn library (pip install flash-attn)"
+          }
+        ],
+        "stream_return": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Enable streaming mode for low-latency audio generation. Returns generator yielding audio chunks instead of complete file."
+          }
+        ],
+        "more_segment_before": [
+          "INT",
+          {
+            "default": 0,
+            "min": 0,
+            "max": 80,
+            "step": 5,
+            "tooltip": "Streaming segmentation parameter. Higher values produce first audio chunk faster but may affect quality. Only used when stream_return is enabled. Recommended: 0-20."
+          }
+        ],
+        "low_vram": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Enable IndexTTS low-VRAM behavior. Legacy 2.0 uses sequential offloading; 2.5 uses more aggressive text splitting."
+          }
+        ],
+        "language": [
+          [
+            "English",
+            "Chinese",
+            "Japanese",
+            "Spanish",
+            "Arabic"
+          ],
+          {
+            "default": "English",
+            "tooltip": "IndexTTS-2.5 generation language. Character language tags override this per segment. Legacy IndexTTS-2 ignores this control."
+          }
+        ],
+        "duration_factor": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.5,
+            "max": 2.0,
+            "step": 0.01,
+            "tooltip": "Official IndexTTS-2.5 internal feature-duration scaling; legacy IndexTTS-2 ignores it. 0.5 is shorter/faster speech; 1.0 is unchanged; 2.0 is longer/slower. This uses nearest-neighbor scaling of semantic features, not natural prosody or exact-duration planning, and extreme values can sound stretched. It does not improve inference speed."
+          }
+        ],
+        "text_normalization": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "tooltip": "Enable IndexTTS-2.5 multilingual text normalization and pronunciation-annotation protection."
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "model_path",
+        "device",
+        "emotion_alpha",
+        "use_random",
+        "max_text_tokens_per_segment",
+        "interval_silence",
+        "temperature",
+        "top_p",
+        "top_k",
+        "do_sample",
+        "length_penalty",
+        "num_beams",
+        "repetition_penalty",
+        "max_mel_tokens",
+        "use_fp16",
+        "use_deepspeed"
+      ],
+      "optional": [
+        "emotion_control",
+        "emotion_audio",
+        "use_cuda_kernel",
+        "use_torch_compile",
+        "use_accel",
+        "stream_return",
+        "more_segment_before",
+        "low_vram",
+        "language",
+        "duration_factor",
+        "text_normalization"
+      ]
+    },
+    "input_order_all": [
+      "model_path",
+      "device",
+      "emotion_alpha",
+      "use_random",
+      "max_text_tokens_per_segment",
+      "interval_silence",
+      "temperature",
+      "top_p",
+      "top_k",
+      "do_sample",
+      "length_penalty",
+      "num_beams",
+      "repetition_penalty",
+      "max_mel_tokens",
+      "use_fp16",
+      "use_deepspeed",
+      "emotion_control",
+      "emotion_audio",
+      "use_cuda_kernel",
+      "use_torch_compile",
+      "use_accel",
+      "stream_return",
+      "more_segment_before",
+      "low_vram",
+      "language",
+      "duration_factor",
+      "text_normalization"
+    ],
+    "object_info_widget_order": [
+      "model_path",
+      "device",
+      "emotion_alpha",
+      "use_random",
+      "max_text_tokens_per_segment",
+      "interval_silence",
+      "temperature",
+      "top_p",
+      "top_k",
+      "do_sample",
+      "length_penalty",
+      "num_beams",
+      "repetition_penalty",
+      "max_mel_tokens",
+      "use_fp16",
+      "use_deepspeed",
+      "emotion_control",
+      "emotion_audio",
+      "use_cuda_kernel",
+      "use_torch_compile",
+      "use_accel",
+      "stream_return",
+      "more_segment_before",
+      "low_vram",
+      "language",
+      "duration_factor",
+      "text_normalization"
+    ],
+    "outputs": [
+      {
+        "type": "TTS_ENGINE",
+        "name": "TTS_engine",
+        "is_list": false
+      }
+    ],
+    "function": "create_engine_adapter"
+  },
+  "QwenEmotionNode": {
+    "pack": "ComfyUI-IndexTTS",
+    "pack_version": "local",
+    "python_module": "ComfyUI-IndexTTS.nodes.index_tts.qwen_emotion_node",
+    "category": "TTS Audio Suite/Engines/IndexTTS-2",
+    "name": "QwenEmotionNode",
+    "display_name": "QwenEmotionNode",
+    "description": "",
+    "inputs": {
+      "required": {
+        "qwen_model": [
+          [],
+          {
+            "default": "qwen0.6bemo4-merge",
+            "tooltip": "QwenEmotion model for text emotion analysis. Use 'local:' prefix for local models or select from available downloadable models."
+          }
+        ],
+        "emotion_text": [
+          "STRING",
+          {
+            "default": "Happy character speaking: {seg}",
+            "multiline": true,
+            "tooltip": "Text describing the desired emotion. Use {seg} placeholder for dynamic per-segment analysis (e.g., 'Angry man shouting: {seg}', 'Calm narrator: {seg}'). Without {seg}, applies same emotion to all segments."
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "qwen_model",
+        "emotion_text"
+      ]
+    },
+    "input_order_all": [
+      "qwen_model",
+      "emotion_text"
+    ],
+    "object_info_widget_order": [
+      "qwen_model",
+      "emotion_text"
+    ],
+    "outputs": [
+      {
+        "type": "EMOTION_CONTROL",
+        "name": "emotion_control",
+        "is_list": false
+      }
+    ],
+    "function": "create_emotion_control"
+  },
+  "UnifiedTTSTextNode": {
+    "pack": "ComfyUI-IndexTTS",
+    "pack_version": "local",
+    "python_module": "ComfyUI-IndexTTS.nodes.unified.tts_text_node",
+    "category": "TTS Audio Suite/\ud83c\udfa4 Text to Speech",
+    "name": "UnifiedTTSTextNode",
+    "display_name": "UnifiedTTSTextNode",
+    "description": "",
+    "inputs": {
+      "required": {
+        "TTS_engine": [
+          "TTS_ENGINE",
+          {
+            "tooltip": "TTS engine configuration from ChatterBox Engine or F5 TTS Engine nodes"
+          }
+        ],
+        "text": [
+          "STRING",
+          {
+            "multiline": true,
+            "default": "Hello! This is unified TTS with character switching support.\n[Alice] Hi there! I'm Alice speaking with the selected TTS engine.\n[Bob] And I'm Bob! This works with any TTS engine.\nBack to the main narrator voice for the conclusion.",
+            "tooltip": "Text to convert to speech. Use [Character] tags for voice switching. Characters not found in voice folders will use the narrator voice."
+          }
+        ],
+        "narrator_voice": [
+          [],
+          {
+            "default": "none",
+            "tooltip": "Fallback narrator voice from voice folders. Used when opt_narrator is not connected. Select 'none' for engines that support direct TTS without voice cloning, such as MOSS."
+          }
+        ],
+        "seed": [
+          "INT",
+          {
+            "default": 1,
+            "min": 0,
+            "max": 4294967295,
+            "tooltip": "Seed for reproducible TTS generation. Same seed with same inputs will produce identical results. Set to 0 for random generation."
+          }
+        ]
+      },
+      "optional": {
+        "opt_narrator": [
+          [],
+          {
+            "tooltip": "Voice reference: Connect Character Voices node output OR direct audio input. Takes priority over narrator_voice dropdown when connected."
+          }
+        ],
+        "enable_chunking": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "tooltip": "Enable text chunking for long texts. When enabled, long texts are split into smaller chunks for more stable generation."
+          }
+        ],
+        "max_chars_per_chunk": [
+          "INT",
+          {
+            "default": 400,
+            "min": 100,
+            "max": 1000,
+            "step": 50,
+            "tooltip": "Maximum characters per chunk when chunking is enabled. Smaller chunks = more stable but potentially less coherent speech."
+          }
+        ],
+        "chunk_combination_method": [
+          [
+            "auto",
+            "concatenate",
+            "silence_padding",
+            "crossfade"
+          ],
+          {
+            "default": "auto",
+            "tooltip": "Method to combine audio chunks: 'auto' chooses best method, 'concatenate' joins directly, 'silence_padding' adds silence between chunks, 'crossfade' smoothly blends chunks."
+          }
+        ],
+        "silence_between_chunks_ms": [
+          "INT",
+          {
+            "default": 100,
+            "min": 0,
+            "max": 500,
+            "step": 25,
+            "tooltip": "Silence duration between chunks in milliseconds when using 'silence_padding' combination method. Longer silences = more distinct separation between chunks."
+          }
+        ],
+        "enable_audio_cache": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "tooltip": "If enabled, generated audio segments will be cached in memory to speed up subsequent runs with identical parameters."
+          }
+        ],
+        "batch_size": [
+          "INT",
+          {
+            "default": 0,
+            "min": 0,
+            "max": 32,
+            "step": 1,
+            "tooltip": "Parallel processing workers. 0-1 = sequential (recommended for most cases), 2+ = streaming mode. Note: Streaming may be slower than sequential for small texts. F5-TTS doesn't support streaming yet."
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "TTS_engine",
+        "text",
+        "narrator_voice",
+        "seed"
+      ],
+      "optional": [
+        "opt_narrator",
+        "enable_chunking",
+        "max_chars_per_chunk",
+        "chunk_combination_method",
+        "silence_between_chunks_ms",
+        "enable_audio_cache",
+        "batch_size"
+      ]
+    },
+    "input_order_all": [
+      "TTS_engine",
+      "text",
+      "narrator_voice",
+      "seed",
+      "opt_narrator",
+      "enable_chunking",
+      "max_chars_per_chunk",
+      "chunk_combination_method",
+      "silence_between_chunks_ms",
+      "enable_audio_cache",
+      "batch_size"
+    ],
+    "object_info_widget_order": [
+      "TTS_engine",
+      "text",
+      "narrator_voice",
+      "seed",
+      "opt_narrator",
+      "enable_chunking",
+      "max_chars_per_chunk",
+      "chunk_combination_method",
+      "silence_between_chunks_ms",
+      "enable_audio_cache",
+      "batch_size"
+    ],
+    "outputs": [
+      {
+        "type": "AUDIO",
+        "name": "audio",
+        "is_list": false
+      },
+      {
+        "type": "STRING",
+        "name": "generation_info",
+        "is_list": false
+      }
+    ],
+    "function": "generate_speech"
   }
 }

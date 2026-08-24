@@ -62,7 +62,11 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
             "class_type": "IndexTTSEmotionOptionsNode",
             "pack": "ComfyUI-IndexTTS",
             "source": "authoritative_object_info",
-            "required_field_evidence": ("emotion_control",),
+            # Real per-emotion slider inputs on the regenerated cache (the
+            # former 2-input stub fabricated an ``emotion_control`` input;
+            # reality: eight named FLOAT sliders, ``emotion_control`` is the
+            # node OUTPUT). Leg edits target these sliders by name.
+            "required_field_evidence": ("Sad", "Disgusted", "Calm"),
         },
     ),
     "multi-video-based-character-replacement-using": (

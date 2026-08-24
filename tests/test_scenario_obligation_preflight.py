@@ -62,7 +62,7 @@ def test_audio_and_multivideo_declare_exact_schema_evidence() -> None:
         if r["class_type"] == "IndexTTSEmotionOptionsNode"
     )
     assert emotion_req["pack"] == "ComfyUI-IndexTTS"
-    assert "emotion_control" in emotion_req.get("required_field_evidence", ())
+    assert {"Sad", "Disgusted", "Calm"} <= set(emotion_req.get("required_field_evidence", ()))
     video_classes = {req["class_type"] for req in multivideo.schema_evidence_requirements}
     assert {
         "LayerMask: LoadSegmentAnythingModels",

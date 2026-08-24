@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import json
+import operator
 import subprocess
 import sys
 import tempfile
@@ -198,6 +199,11 @@ STUB_ROOTS = {
 
 
 class StubModule(types.ModuleType):
+    def __bool__(self):
+        # Falsy so version-detection shims behave like their ImportError
+        # fallbacks (e.g. stdlib ``copy``'s ``if PyStringMap is not None``).
+        return False
+
     def __getattr__(self, name):
         # Dunders a pack may read off a stubbed module (e.g. ``server.__file__``
         # for path math). Return benign defaults rather than raising, so a pack's
@@ -218,18 +224,29 @@ class StubModule(types.ModuleType):
             return ""
         if name.startswith("__"):
             return None
-        # A permissive dummy: callable, instantiable, and attribute-accessible.
-        dummy = type(
-            name,
-            (),
-            {
-                "__init__": lambda self, *a, **k: None,
-                "__call__": lambda self, *a, **k: None,
-                "__getattr__": lambda self, n: None,
-            },
-        )
-        setattr(self, name, dummy)
-        return dummy
+        return _dummy_class(name)
+
+
+class _DummyMeta(type):
+    def __getattr__(cls, name):
+        # Class-level attribute access must stay permissive too: packs write
+        # ``class Wrapper(torch.nn.Module)`` at import time, which reads the
+        # attribute off the CLASS object, not an instance.
+        return _dummy_class(f"{cls.__name__}.{name}")
+
+
+def _dummy_class(name):
+    # A permissive dummy: subclassable, instantiable, callable, and both
+    # instance- and class-attribute-accessible.
+    return _DummyMeta(
+        name,
+        (),
+        {
+            "__init__": lambda self, *a, **k: None,
+            "__call__": lambda self, *a, **k: None,
+            "__getattr__": lambda self, n: None,
+        },
+    )
 
 
 class _StubLoader(importlib.abc.Loader):
@@ -262,6 +279,15 @@ class CatchAllStubFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname == pack_name or fullname.startswith(pack_name + "."):
             return None  # never stub the pack under test or its submodules
+        # Yield to reality: when a genuine module exists on disk (stdlib or an
+        # installed dep), let the real loaders handle it. Shadowing live modules
+        # corrupts their importers -- e.g. stubbing ``org.python.core`` makes
+        # stdlib ``copy`` take its Jython branch and crash on import.
+        try:
+            if importlib.machinery.PathFinder.find_spec(fullname) is not None:
+                return None
+        except Exception:  # noqa: BLE001 - probing must never abort stubbing
+            pass
         return importlib.machinery.ModuleSpec(fullname, _StubLoader(), is_package=True)
 
 
@@ -321,7 +347,7 @@ def _run_import_extractor(
     timeout: int,
 ) -> dict[str, dict[str, Any]]:
     """Run the stubbed subprocess extractor; return ``{class: payload}`` (empty on failure)."""
-    script = scratch_dir / "_import_extract.py"
+    script = (scratch_dir / "_import_extract.py").resolve()
     script.write_text(_IMPORT_EXTRACTOR, encoding="utf-8")
     result = subprocess.run(
         [sys.executable, str(script), str(pack_dir), pack_name, version],
@@ -377,6 +403,16 @@ class SafeEval:
     def __init__(self, env: dict[str, Any]):
         self.env = env
 
+    _BIN_OPS: dict[type, Any] = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+    }
+
     def eval(self, node: ast.AST) -> Any:
         if isinstance(node, ast.Constant):
             return node.value
@@ -394,8 +430,23 @@ class SafeEval:
             return node.id
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
             return -self.eval(node.operand)
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            return self.eval(node.left) + self.eval(node.right)
+        if isinstance(node, ast.BinOp):
+            op = self._BIN_OPS.get(type(node.op))
+            if op is not None:
+                try:
+                    return op(self.eval(node.left), self.eval(node.right))
+                except Exception:
+                    # Dynamic operand (e.g. ``"auto" + helper()``): degrade to
+                    # an empty value instead of failing the whole extraction.
+                    return []
+        if isinstance(node, ast.IfExp):
+            return self.eval(node.body) if self.eval(node.test) else self.eval(node.orelse)
+        if isinstance(node, ast.DictComp):
+            return {}
+        if isinstance(node, ast.ListComp) or isinstance(node, ast.GeneratorExp):
+            return []
+        if isinstance(node, ast.SetComp):
+            return set()
         if isinstance(node, ast.Attribute):
             return node.attr
         if isinstance(node, ast.Subscript):
@@ -413,6 +464,15 @@ class SafeEval:
                 return ""
             return []
         raise ValueError(f"unsupported AST node: {type(node).__name__}")
+
+    def scoped_eval(self, node: ast.AST, local_env: dict[str, Any]) -> Any:
+        """Evaluate *node* with *local_env* layered over the module-level env."""
+        outer = self.env
+        self.env = {**outer, **local_env}
+        try:
+            return self.eval(node)
+        finally:
+            self.env = outer
 
 
 def dotted_name(node: ast.AST) -> str | None:
@@ -453,14 +513,70 @@ def class_attrs(class_def: ast.ClassDef, evaluator: SafeEval) -> dict[str, Any]:
     return attrs
 
 
+def _iter_fn_statements(stmts: list[ast.stmt]):
+    """Yield statements in source order, descending into branch/loop bodies."""
+    for stmt in stmts:
+        yield stmt
+        if isinstance(stmt, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
+            yield from _iter_fn_statements(stmt.body)
+            yield from _iter_fn_statements(getattr(stmt, "orelse", []) or [])
+        elif isinstance(stmt, ast.Try):
+            yield from _iter_fn_statements(stmt.body)
+            for handler in stmt.handlers:
+                yield from _iter_fn_statements(handler.body)
+            yield from _iter_fn_statements(getattr(stmt, "orelse", []) or [])
+
+
 def input_types_return(class_def: ast.ClassDef, evaluator: SafeEval) -> Any:
     for stmt in class_def.body:
         if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) or stmt.name != "INPUT_TYPES":
             continue
-        for inner in ast.walk(stmt):
+        # Track simple local bindings (``choices = helper()`` etc.) so the
+        # return statement can reference names assigned inside INPUT_TYPES.
+        # Unresolvable values degrade to [] (empty combo choices), keeping the
+        # input present instead of failing the whole class extraction.
+        local_env: dict[str, Any] = {}
+        for inner in _iter_fn_statements(stmt.body):
+            if (
+                isinstance(inner, ast.Assign)
+                and len(inner.targets) == 1
+                and isinstance(inner.targets[0], ast.Name)
+                and isinstance(inner.value, ast.AST)
+            ):
+                try:
+                    local_env[inner.targets[0].id] = evaluator.scoped_eval(inner.value, local_env)
+                except Exception:
+                    local_env[inner.targets[0].id] = []
+                continue
             if isinstance(inner, ast.Return) and inner.value is not None:
-                return evaluator.eval(inner.value)
+                return evaluator.scoped_eval(inner.value, local_env)
     raise ValueError("missing literal INPUT_TYPES return")
+
+
+def _node_mapping_aliases(tree: ast.Module, evaluator: SafeEval) -> dict[str, str]:
+    """Statically resolve ``NODE_CLASS_MAPPINGS`` literals: exposed key -> class name.
+
+    Live ``/object_info`` is keyed by the mapping key, which frequently differs
+    from the Python class name (e.g. ``"easy int" -> Int``). Cache entries must
+    use the exposed key or downstream lookups miss the class.
+    """
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict)):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "NODE_CLASS_MAPPINGS" for t in node.targets):
+            continue
+        for key_node, value_node in zip(node.value.keys, node.value.values):
+            if key_node is None:
+                continue
+            try:
+                key = evaluator.eval(key_node)
+                value = evaluator.eval(value_node)
+            except Exception:
+                continue
+            if isinstance(key, str) and isinstance(value, str):
+                aliases[key] = value.rsplit(".", 1)[-1]
+    return aliases
 
 
 def extract_by_ast(
@@ -473,6 +589,8 @@ def extract_by_ast(
     """Rung 1: statically parse INPUT_TYPES return literals across the pack source."""
     entries: dict[str, OrderedDict[str, Any]] = {}
     failures: list[str] = []
+    trees: list[tuple[Path, ast.Module, SafeEval]] = []
+    aliases: dict[str, str] = {}
     for path in sorted(pack_dir.rglob("*.py")):
         if any(part.startswith(".") for part in path.relative_to(pack_dir).parts):
             continue
@@ -482,24 +600,33 @@ def extract_by_ast(
             continue
         env = static_env(tree)
         evaluator = SafeEval(env)
+        trees.append((path, tree, evaluator))
+        aliases.update(_node_mapping_aliases(tree, evaluator))
+    for path, tree, evaluator in trees:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            if only_classes is not None and node.name not in only_classes:
-                continue
-            try:
-                raw_inputs = input_types_return(node, evaluator)
-                attrs = class_attrs(node, evaluator)
-                entries[node.name] = normalize_entry(
-                    class_name=node.name,
-                    raw_inputs=raw_inputs,
-                    pack_name=pack_name,
-                    version=version,
-                    python_module=f"{pack_name}.{path.relative_to(pack_dir).with_suffix('').as_posix().replace('/', '.')}",
-                    attrs=attrs,
-                )
-            except Exception as exc:
-                failures.append(f"{node.name}: {exc}")
+            served_keys = [node.name] + sorted(
+                key for key, cls_name in aliases.items() if cls_name == node.name
+            )
+            if only_classes is not None:
+                served_keys = [key for key in served_keys if key in only_classes]
+                if not served_keys:
+                    continue
+            for entry_key in served_keys:
+                try:
+                    raw_inputs = input_types_return(node, evaluator)
+                    attrs = class_attrs(node, evaluator)
+                    entries[entry_key] = normalize_entry(
+                        class_name=entry_key,
+                        raw_inputs=raw_inputs,
+                        pack_name=pack_name,
+                        version=version,
+                        python_module=f"{pack_name}.{path.relative_to(pack_dir).with_suffix('').as_posix().replace('/', '.')}",
+                        attrs=attrs,
+                    )
+                except Exception as exc:
+                    failures.append(f"{entry_key}: {exc}")
     return entries, "ast", failures
 
 

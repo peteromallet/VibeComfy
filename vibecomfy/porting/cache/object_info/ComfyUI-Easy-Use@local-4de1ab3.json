@@ -1,0 +1,779 @@
+{
+  "easy controlnetLoader++": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.loaders",
+    "category": "EasyUse/Loaders",
+    "name": "easy controlnetLoader++",
+    "display_name": "easy controlnetLoader++",
+    "description": "",
+    "inputs": {
+      "required": {
+        "pipe": [
+          "PIPE_LINE"
+        ],
+        "image": [
+          "IMAGE"
+        ],
+        "control_net_name": [
+          []
+        ]
+      },
+      "optional": {
+        "control_net": [
+          "CONTROL_NET"
+        ],
+        "strength": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.01
+          }
+        ],
+        "start_percent": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        ],
+        "end_percent": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        ],
+        "scale_soft_weights": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        ],
+        "union_type": [
+          []
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "pipe",
+        "image",
+        "control_net_name"
+      ],
+      "optional": [
+        "control_net",
+        "strength",
+        "start_percent",
+        "end_percent",
+        "scale_soft_weights",
+        "union_type"
+      ]
+    },
+    "input_order_all": [
+      "pipe",
+      "image",
+      "control_net_name",
+      "control_net",
+      "strength",
+      "start_percent",
+      "end_percent",
+      "scale_soft_weights",
+      "union_type"
+    ],
+    "object_info_widget_order": [
+      "pipe",
+      null,
+      "control_net_name",
+      "control_net",
+      "strength",
+      "start_percent",
+      "end_percent",
+      "scale_soft_weights",
+      "union_type"
+    ],
+    "outputs": [
+      {
+        "type": "PIPE_LINE",
+        "name": "pipe",
+        "is_list": false
+      },
+      {
+        "type": "CONDITIONING",
+        "name": "positive",
+        "is_list": false
+      },
+      {
+        "type": "CONDITIONING",
+        "name": "negative",
+        "is_list": false
+      }
+    ],
+    "function": "controlnetApply"
+  },
+  "easy forLoopEnd": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "category": "EasyUse/Logic/For Loop",
+    "name": "easy forLoopEnd",
+    "display_name": "easy forLoopEnd",
+    "description": "",
+    "inputs": {
+      "required": {
+        "flow": [
+          "FLOW_CONTROL",
+          {
+            "rawLink": true
+          }
+        ]
+      },
+      "optional": {}
+    },
+    "input_order": {
+      "required": [
+        "flow"
+      ],
+      "optional": []
+    },
+    "input_order_all": [
+      "flow"
+    ],
+    "object_info_widget_order": [
+      "flow"
+    ],
+    "outputs": [],
+    "function": "for_loop_end"
+  },
+  "easy forLoopStart": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "category": "EasyUse/Logic/For Loop",
+    "name": "easy forLoopStart",
+    "display_name": "easy forLoopStart",
+    "description": "",
+    "inputs": {
+      "required": {
+        "total": [
+          "INT",
+          {
+            "default": 1,
+            "min": 1,
+            "max": 100000,
+            "step": 1
+          }
+        ]
+      },
+      "optional": {}
+    },
+    "input_order": {
+      "required": [
+        "total"
+      ],
+      "optional": []
+    },
+    "input_order_all": [
+      "total"
+    ],
+    "object_info_widget_order": [
+      "total"
+    ],
+    "outputs": [],
+    "function": "for_loop_start"
+  },
+  "easy imageRemBg": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.image",
+    "category": "EasyUse/Image",
+    "name": "easy imageRemBg",
+    "display_name": "easy imageRemBg",
+    "description": "",
+    "inputs": {
+      "required": {
+        "images": [
+          "IMAGE"
+        ],
+        "rem_mode": [
+          [
+            "RMBG-2.0",
+            "RMBG-1.4",
+            "Inspyrenet",
+            "BEN2"
+          ],
+          {
+            "default": "RMBG-1.4"
+          }
+        ],
+        "image_output": [
+          [
+            "Hide",
+            "Preview",
+            "Save",
+            "Hide/Save"
+          ],
+          {
+            "default": "Preview"
+          }
+        ],
+        "save_prefix": [
+          "STRING",
+          {
+            "default": "ComfyUI"
+          }
+        ]
+      },
+      "optional": {
+        "torchscript_jit": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ],
+        "add_background": [
+          [
+            "none",
+            "white",
+            "black"
+          ],
+          {
+            "default": "none"
+          }
+        ],
+        "refine_foreground": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "images",
+        "rem_mode",
+        "image_output",
+        "save_prefix"
+      ],
+      "optional": [
+        "torchscript_jit",
+        "add_background",
+        "refine_foreground"
+      ]
+    },
+    "input_order_all": [
+      "images",
+      "rem_mode",
+      "image_output",
+      "save_prefix",
+      "torchscript_jit",
+      "add_background",
+      "refine_foreground"
+    ],
+    "object_info_widget_order": [
+      null,
+      "rem_mode",
+      "image_output",
+      "save_prefix",
+      "torchscript_jit",
+      "add_background",
+      "refine_foreground"
+    ],
+    "outputs": [
+      {
+        "type": "IMAGE",
+        "name": "image",
+        "is_list": false
+      },
+      {
+        "type": "MASK",
+        "name": "mask",
+        "is_list": false
+      }
+    ],
+    "function": "remove"
+  },
+  "easy kSamplerInpainting": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.samplers",
+    "category": "EasyUse/Sampler",
+    "name": "easy kSamplerInpainting",
+    "display_name": "easy kSamplerInpainting",
+    "description": "",
+    "inputs": {
+      "required": {
+        "pipe": [
+          "PIPE_LINE"
+        ],
+        "grow_mask_by": [
+          "INT",
+          {
+            "default": 6,
+            "min": 0,
+            "max": 64,
+            "step": 1
+          }
+        ],
+        "image_output": [
+          [
+            "Hide",
+            "Preview",
+            "Save",
+            "Hide&Save",
+            "Sender",
+            "Sender&Save"
+          ],
+          {
+            "default": "Preview"
+          }
+        ],
+        "link_id": [
+          "INT",
+          {
+            "default": 0,
+            "min": 0,
+            "max": "maxsize",
+            "step": 1
+          }
+        ],
+        "save_prefix": [
+          "STRING",
+          {
+            "default": "ComfyUI"
+          }
+        ],
+        "additional": [
+          [
+            "None",
+            "InpaintModelCond",
+            "Differential Diffusion",
+            "Fooocus Inpaint",
+            "Fooocus Inpaint + DD",
+            "Brushnet Random",
+            "Brushnet Random + DD",
+            "Brushnet Segmentation",
+            "Brushnet Segmentation + DD"
+          ],
+          {
+            "default": "None"
+          }
+        ]
+      },
+      "optional": {
+        "model": [
+          "MODEL"
+        ],
+        "mask": [
+          "MASK"
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "pipe",
+        "grow_mask_by",
+        "image_output",
+        "link_id",
+        "save_prefix",
+        "additional"
+      ],
+      "optional": [
+        "model",
+        "mask"
+      ]
+    },
+    "input_order_all": [
+      "pipe",
+      "grow_mask_by",
+      "image_output",
+      "link_id",
+      "save_prefix",
+      "additional",
+      "model",
+      "mask"
+    ],
+    "object_info_widget_order": [
+      "pipe",
+      "grow_mask_by",
+      "image_output",
+      "link_id",
+      "save_prefix",
+      "additional",
+      null,
+      null
+    ],
+    "outputs": [
+      {
+        "type": "PIPE_LINE",
+        "name": "pipe",
+        "is_list": false
+      },
+      {
+        "type": "IMAGE",
+        "name": "image",
+        "is_list": false
+      },
+      {
+        "type": "VAE",
+        "name": "vae",
+        "is_list": false
+      }
+    ],
+    "function": "inpainting"
+  },
+  "easy pipeIn": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.pipe",
+    "category": "EasyUse/Pipe",
+    "name": "easy pipeIn",
+    "display_name": "easy pipeIn",
+    "description": "",
+    "inputs": {
+      "required": {},
+      "optional": {
+        "pipe": [
+          "PIPE_LINE"
+        ],
+        "model": [
+          "MODEL"
+        ],
+        "pos": [
+          "CONDITIONING"
+        ],
+        "neg": [
+          "CONDITIONING"
+        ],
+        "latent": [
+          "LATENT"
+        ],
+        "vae": [
+          "VAE"
+        ],
+        "clip": [
+          "CLIP"
+        ],
+        "image": [
+          "IMAGE"
+        ],
+        "xyPlot": [
+          "XYPLOT"
+        ]
+      }
+    },
+    "input_order": {
+      "required": [],
+      "optional": [
+        "pipe",
+        "model",
+        "pos",
+        "neg",
+        "latent",
+        "vae",
+        "clip",
+        "image",
+        "xyPlot"
+      ]
+    },
+    "input_order_all": [
+      "pipe",
+      "model",
+      "pos",
+      "neg",
+      "latent",
+      "vae",
+      "clip",
+      "image",
+      "xyPlot"
+    ],
+    "object_info_widget_order": [
+      "pipe",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "xyPlot"
+    ],
+    "outputs": [
+      {
+        "type": "PIPE_LINE",
+        "name": "pipe",
+        "is_list": false
+      }
+    ],
+    "function": "flush"
+  },
+  "easy preSamplingCustom": {
+    "pack": "ComfyUI-Easy-Use",
+    "pack_version": "local-4de1ab3",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.preSampling",
+    "category": "EasyUse/PreSampling",
+    "name": "easy preSamplingCustom",
+    "display_name": "easy preSamplingCustom",
+    "description": "",
+    "inputs": {
+      "required": {
+        "pipe": [
+          "PIPE_LINE"
+        ],
+        "guider": [
+          [
+            "CFG",
+            "DualCFG",
+            "Basic",
+            "IP2P+CFG",
+            "IP2P+DualCFG",
+            "IP2P+Basic"
+          ],
+          {
+            "default": "Basic"
+          }
+        ],
+        "cfg": [
+          "FLOAT",
+          {
+            "default": 3.5,
+            "min": 0.0,
+            "max": 100.0
+          }
+        ],
+        "cfg_negative": [
+          "FLOAT",
+          {
+            "default": 1.5,
+            "min": 0.0,
+            "max": 100.0
+          }
+        ],
+        "sampler_name": [
+          []
+        ],
+        "scheduler": [
+          []
+        ],
+        "coeff": [
+          "FLOAT",
+          {
+            "default": 1.2,
+            "min": 0.8,
+            "max": 1.5,
+            "step": 0.05
+          }
+        ],
+        "steps": [
+          "INT",
+          {
+            "default": 20,
+            "min": 1,
+            "max": 10000
+          }
+        ],
+        "sigma_max": [
+          "FLOAT",
+          {
+            "default": 14.614642,
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 0.01,
+            "round": false
+          }
+        ],
+        "sigma_min": [
+          "FLOAT",
+          {
+            "default": 0.0291675,
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 0.01,
+            "round": false
+          }
+        ],
+        "rho": [
+          "FLOAT",
+          {
+            "default": 7.0,
+            "min": 0.0,
+            "max": 100.0,
+            "step": 0.01,
+            "round": false
+          }
+        ],
+        "beta_d": [
+          "FLOAT",
+          {
+            "default": 19.9,
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 0.01,
+            "round": false
+          }
+        ],
+        "beta_min": [
+          "FLOAT",
+          {
+            "default": 0.1,
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 0.01,
+            "round": false
+          }
+        ],
+        "eps_s": [
+          "FLOAT",
+          {
+            "default": 0.001,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.0001,
+            "round": false
+          }
+        ],
+        "flip_sigmas": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ],
+        "denoise": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        ],
+        "add_noise": [
+          [
+            "enable (CPU)",
+            "enable (GPU=A1111)",
+            "disable"
+          ],
+          {
+            "default": "enable (CPU)"
+          }
+        ],
+        "seed": [
+          "INT",
+          {
+            "default": 0,
+            "min": 0,
+            "max": "MAX_SEED_NUM"
+          }
+        ]
+      },
+      "optional": {
+        "image_to_latent": [
+          "IMAGE"
+        ],
+        "latent": [
+          "LATENT"
+        ],
+        "optional_sampler": [
+          "SAMPLER"
+        ],
+        "optional_sigmas": [
+          "SIGMAS"
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "pipe",
+        "guider",
+        "cfg",
+        "cfg_negative",
+        "sampler_name",
+        "scheduler",
+        "coeff",
+        "steps",
+        "sigma_max",
+        "sigma_min",
+        "rho",
+        "beta_d",
+        "beta_min",
+        "eps_s",
+        "flip_sigmas",
+        "denoise",
+        "add_noise",
+        "seed"
+      ],
+      "optional": [
+        "image_to_latent",
+        "latent",
+        "optional_sampler",
+        "optional_sigmas"
+      ]
+    },
+    "input_order_all": [
+      "pipe",
+      "guider",
+      "cfg",
+      "cfg_negative",
+      "sampler_name",
+      "scheduler",
+      "coeff",
+      "steps",
+      "sigma_max",
+      "sigma_min",
+      "rho",
+      "beta_d",
+      "beta_min",
+      "eps_s",
+      "flip_sigmas",
+      "denoise",
+      "add_noise",
+      "seed",
+      "image_to_latent",
+      "latent",
+      "optional_sampler",
+      "optional_sigmas"
+    ],
+    "object_info_widget_order": [
+      "pipe",
+      "guider",
+      "cfg",
+      "cfg_negative",
+      "sampler_name",
+      "scheduler",
+      "coeff",
+      "steps",
+      "sigma_max",
+      "sigma_min",
+      "rho",
+      "beta_d",
+      "beta_min",
+      "eps_s",
+      "flip_sigmas",
+      "denoise",
+      "add_noise",
+      "seed",
+      null,
+      null,
+      "optional_sampler",
+      "optional_sigmas"
+    ],
+    "outputs": [
+      {
+        "type": "PIPE_LINE",
+        "name": "pipe",
+        "is_list": false
+      }
+    ],
+    "function": "settings"
+  }
+}

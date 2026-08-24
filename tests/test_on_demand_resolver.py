@@ -3,14 +3,15 @@
 L1 (offline, CI): the provider relabels a static-parsed schema and degrades cleanly when no
 pack resolves — using a temp-dir sample pack source (no network, no execution).
 L1-ladder (offline, CI): the shared extraction core (``vibecomfy.schema.extract``) catches a
-static INPUT_TYPES via AST and a *dynamic* INPUT_TYPES via the import rung that AST provably
-misses.
+static INPUT_TYPES via AST; a *dynamic* INPUT_TYPES is retained in degraded form by AST
+(unresolved choices — never silently dropped) and fully resolved by the import rung.
 L3 (offline, CI, deterministic): the resolver's rung 2 (runtime INPUT_TYPES) resolves a node
-whose schema is built at runtime — AST misses it, the import rung catches it.
+whose schema is built at runtime.
 L2 (live, opt-in): resolves real uninstalled registry nodes by cloning their public source.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -105,19 +106,25 @@ def test_l1_no_pack_resolves_returns_none(tmp_path: Path, monkeypatch: pytest.Mo
     assert provider._cache["DoesNotExistNode"] is None
 
 
-def test_l1_ladder_ast_catches_static_import_catches_dynamic(tmp_path: Path) -> None:
-    """The shared extraction ladder: AST parses a literal INPUT_TYPES; the import rung catches a
-    dynamic INPUT_TYPES that AST provably misses."""
+def test_l1_ladder_ast_degrades_dynamic_import_catches_fully(tmp_path: Path) -> None:
+    """The shared extraction ladder: AST parses a literal INPUT_TYPES; a dynamic INPUT_TYPES
+    degrades to a retained-but-unresolved entry (never silently dropped), and the import rung
+    recovers the fully resolved surface."""
     # Static pack -> AST rung resolves it.
     static = _write_sample_pack(tmp_path / "static-pack")
     res_static = extract_pack_schemas(static, pack_name="static-pack", allow_import=False)
     assert "SampleWidgetNode" in res_static.entries
     assert res_static.method == "ast"
 
-    # Runtime-built pack -> AST misses (dict comprehension), import rung catches it.
+    # Runtime-built pack -> AST keeps the class but cannot resolve the
+    # comprehension-built inputs (P4: dynamic combos are retained, not dropped).
     runtime = _write_runtime_built_pack(tmp_path / "runtime-pack")
     res_ast_only = extract_pack_schemas(runtime, pack_name="runtime-pack", allow_import=False)
-    assert "RuntimeBuiltNode" not in res_ast_only.entries, "AST must miss the dynamic INPUT_TYPES"
+    assert "RuntimeBuiltNode" in res_ast_only.entries, "AST must retain the dynamic node"
+    degraded = res_ast_only.entries["RuntimeBuiltNode"]
+    assert not json.dumps(degraded["inputs"]).count("alpha"), (
+        "AST must not fabricate comprehension-built input names"
+    )
 
     res_with_import = extract_pack_schemas(runtime, pack_name="runtime-pack", allow_import=True)
     assert "RuntimeBuiltNode" in res_with_import.entries, "import rung must catch the dynamic node"

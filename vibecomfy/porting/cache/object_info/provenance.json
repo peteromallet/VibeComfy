@@ -22,12 +22,26 @@
       "repo": null,
       "schema_sha256": null
     },
+    "ComfyUI-AceStep_SFT@local-c2cfe8e.json": {
+      "classes": 8,
+      "locked_commit": "c2cfe8e64eed3ddb8700c3663122ce70628af71f",
+      "pack": "ComfyUI-AceStep_SFT",
+      "repo": "https://github.com/jeankassio/ComfyUI-AceStep_SFT.git",
+      "schema_sha256": "d304b6810476d245794f822c44fc22b17b6033623600c8d5e5fc7a6ce65cafe0"
+    },
     "ComfyUI-DepthAnythingV2@local-5531878.json": {
       "classes": 2,
       "locked_commit": "553187872eeb1d52e50dc53209fa57e569609a72",
       "pack": "ComfyUI-DepthAnythingV2",
       "repo": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git",
       "schema_sha256": "f4e181ab42ca179eda161acba5121e999cb54b1dbee0dc087a22bd42af7241ae"
+    },
+    "ComfyUI-Easy-Use@local-4de1ab3.json": {
+      "classes": 7,
+      "locked_commit": "4de1ab3b66e48da916b6f263bacd001df53a2720",
+      "pack": "ComfyUI-Easy-Use",
+      "repo": "https://github.com/yolain/ComfyUI-Easy-Use.git",
+      "schema_sha256": "043a2883c31a59388d3d32a9e9ba4486fb6d5d07c27a21f9c30d83c45df1f114"
     },
     "ComfyUI-GGUF@local-6ea2651.json": {
       "classes": 2,
@@ -36,12 +50,19 @@
       "repo": "https://github.com/city96/ComfyUI-GGUF.git",
       "schema_sha256": "1336fad984841444a9559b602c34ef11d1dd4b68a9a902437aaee6771ab5d2d3"
     },
-    "ComfyUI-IndexTTS@local.json": {
+    "ComfyUI-Hunyuan3DTools@local-621fb54.json": {
       "classes": 2,
-      "locked_commit": "local-smoke-cache-20260822",
+      "locked_commit": "621fb54cae1917279e1fc40ed861b2191d5e6896",
+      "pack": "ComfyUI-Hunyuan3DTools",
+      "repo": "https://github.com/hunzmusic/ComfyUI-Hunyuan3DTools.git",
+      "schema_sha256": "82ca443f2e25b682fce0eea380dbd4de5ae0c0010009d4a39c8eaca727d97104"
+    },
+    "ComfyUI-IndexTTS@local.json": {
+      "classes": 5,
+      "locked_commit": "f8faab1215ea478bf952c3ae4cce37c26183a0b0",
       "pack": "ComfyUI-IndexTTS",
-      "repo": "https://github.com/IndexTTS/ComfyUI-IndexTTS.git",
-      "schema_sha256": "local"
+      "repo": "https://github.com/diodiogod/TTS-Audio-Suite",
+      "schema_sha256": "37ad2e70f0062d161f099eff5050b3e38b88bedf1840ca6374b54f9a1534621a"
     },
     "ComfyUI-KJNodes@runpod-snapshot.json": {
       "classes": 230,
@@ -91,6 +112,13 @@
       "pack": "ComfyUI-WanVideoWrapper",
       "repo": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git",
       "schema_sha256": "80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f"
+    },
+    "ComfyUI-Whisper@local-006a709.json": {
+      "classes": 5,
+      "locked_commit": "006a709848259ed3d69e2f9fcfd7a75f6c860ddd",
+      "pack": "ComfyUI-Whisper",
+      "repo": "https://github.com/yuvraj108c/ComfyUI-Whisper.git",
+      "schema_sha256": "f3933350d1e63c45f36fe1dac1d56691b388c2faaee37e65ff458a5cd5200029"
     },
     "ComfyUI-segment-anything-2@local-0c35fff.json": {
       "classes": 6,

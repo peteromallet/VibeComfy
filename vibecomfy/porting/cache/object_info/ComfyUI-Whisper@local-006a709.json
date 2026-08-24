@@ -1,0 +1,456 @@
+{
+  "Add Subtitles To Background": {
+    "pack": "ComfyUI-Whisper",
+    "pack_version": "local-006a709",
+    "python_module": "ComfyUI-Whisper.add_subtitles_to_background",
+    "category": "whisper",
+    "name": "Add Subtitles To Background",
+    "display_name": "Add Subtitles To Background",
+    "description": "",
+    "inputs": {
+      "required": {
+        "images": [
+          "IMAGE"
+        ],
+        "alignment": [
+          "whisper_alignment"
+        ],
+        "font_family": [
+          [
+            "Chanakya Regular.ttf",
+            "YRDZST Semibold.ttf",
+            "Roboto-Regular.ttf",
+            "Roboto-Bold.ttf"
+          ]
+        ],
+        "num_words": [
+          "INT",
+          {
+            "default": 25,
+            "step": 1,
+            "display": "number"
+          }
+        ],
+        "text_displacement": [
+          "INT",
+          {
+            "default": 10,
+            "step": 1,
+            "display": "number"
+          }
+        ],
+        "font_size_displacement": [
+          "INT",
+          {
+            "default": 3,
+            "step": 1,
+            "display": "number"
+          }
+        ],
+        "min_font_size": [
+          "INT",
+          {
+            "default": 15,
+            "step": 1,
+            "display": "number"
+          }
+        ],
+        "max_font_size": [
+          "INT",
+          {
+            "default": 75,
+            "step": 1,
+            "display": "number"
+          }
+        ],
+        "video_fps": [
+          "FLOAT",
+          {
+            "default": 24.0,
+            "step": 1,
+            "display": "number"
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "images",
+        "alignment",
+        "font_family",
+        "num_words",
+        "text_displacement",
+        "font_size_displacement",
+        "min_font_size",
+        "max_font_size",
+        "video_fps"
+      ]
+    },
+    "input_order_all": [
+      "images",
+      "alignment",
+      "font_family",
+      "num_words",
+      "text_displacement",
+      "font_size_displacement",
+      "min_font_size",
+      "max_font_size",
+      "video_fps"
+    ],
+    "object_info_widget_order": [
+      null,
+      "alignment",
+      "font_family",
+      "num_words",
+      "text_displacement",
+      "font_size_displacement",
+      "min_font_size",
+      "max_font_size",
+      "video_fps"
+    ],
+    "outputs": [
+      {
+        "type": "IMAGE",
+        "name": "IMAGE",
+        "is_list": false
+      }
+    ],
+    "function": "add_subtitles_to_background"
+  },
+  "Add Subtitles To Frames": {
+    "pack": "ComfyUI-Whisper",
+    "pack_version": "local-006a709",
+    "python_module": "ComfyUI-Whisper.add_subtitles_to_frames",
+    "category": "whisper",
+    "name": "Add Subtitles To Frames",
+    "display_name": "Add Subtitles To Frames",
+    "description": "",
+    "inputs": {
+      "required": {
+        "images": [
+          "IMAGE"
+        ],
+        "alignment": [
+          "whisper_alignment"
+        ],
+        "font_color": [
+          "STRING",
+          {
+            "default": "white"
+          }
+        ],
+        "font_border_color": [
+          "STRING",
+          {
+            "default": "black"
+          }
+        ],
+        "font_border_width": [
+          "INT",
+          {
+            "default": 4,
+            "step": 1,
+            "display": "number"
+          }
+        ],
+        "font_family": [
+          [
+            "Chanakya Regular.ttf",
+            "YRDZST Semibold.ttf",
+            "Roboto-Regular.ttf",
+            "Roboto-Bold.ttf"
+          ]
+        ],
+        "font_size": [
+          "INT",
+          {
+            "default": 100,
+            "step": 5,
+            "display": "number"
+          }
+        ],
+        "x_position": [
+          "INT",
+          {
+            "default": 100,
+            "step": 50,
+            "display": "number"
+          }
+        ],
+        "y_position": [
+          "INT",
+          {
+            "default": 100,
+            "step": 50,
+            "display": "number"
+          }
+        ],
+        "center_x": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ],
+        "center_y": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ],
+        "video_fps": [
+          "FLOAT",
+          {
+            "default": 24.0,
+            "step": 1,
+            "display": "number"
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "images",
+        "alignment",
+        "font_color",
+        "font_border_color",
+        "font_border_width",
+        "font_family",
+        "font_size",
+        "x_position",
+        "y_position",
+        "center_x",
+        "center_y",
+        "video_fps"
+      ]
+    },
+    "input_order_all": [
+      "images",
+      "alignment",
+      "font_color",
+      "font_border_color",
+      "font_border_width",
+      "font_family",
+      "font_size",
+      "x_position",
+      "y_position",
+      "center_x",
+      "center_y",
+      "video_fps"
+    ],
+    "object_info_widget_order": [
+      null,
+      "alignment",
+      "font_color",
+      "font_border_color",
+      "font_border_width",
+      "font_family",
+      "font_size",
+      "x_position",
+      "y_position",
+      "center_x",
+      "center_y",
+      "video_fps"
+    ],
+    "outputs": [
+      {
+        "type": "IMAGE",
+        "name": "IMAGE",
+        "is_list": false
+      },
+      {
+        "type": "MASK",
+        "name": "MASK",
+        "is_list": false
+      },
+      {
+        "type": "IMAGE",
+        "name": "cropped_subtitles",
+        "is_list": false
+      },
+      {
+        "type": "subtitle_coord",
+        "name": "subtitle_coord",
+        "is_list": false
+      }
+    ],
+    "function": "add_subtitles_to_frames"
+  },
+  "Apply Whisper": {
+    "pack": "ComfyUI-Whisper",
+    "pack_version": "local-006a709",
+    "python_module": "ComfyUI-Whisper.apply_whisper",
+    "category": "whisper",
+    "name": "Apply Whisper",
+    "display_name": "Apply Whisper",
+    "description": "",
+    "inputs": {
+      "required": {
+        "audio": [
+          "AUDIO"
+        ],
+        "model": [
+          [
+            "tiny.en",
+            "tiny",
+            "base.en",
+            "base",
+            "small.en",
+            "small",
+            "medium.en",
+            "medium",
+            "large-v1",
+            "large-v2",
+            "large-v3",
+            "large",
+            "large-v3-turbo",
+            "turbo"
+          ]
+        ]
+      },
+      "optional": {
+        "language": [
+          [
+            "auto"
+          ]
+        ],
+        "prompt": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "audio",
+        "model"
+      ],
+      "optional": [
+        "language",
+        "prompt"
+      ]
+    },
+    "input_order_all": [
+      "audio",
+      "model",
+      "language",
+      "prompt"
+    ],
+    "object_info_widget_order": [
+      null,
+      "model",
+      "language",
+      "prompt"
+    ],
+    "outputs": [
+      {
+        "type": "STRING",
+        "name": "text",
+        "is_list": false
+      },
+      {
+        "type": "whisper_alignment",
+        "name": "segments_alignment",
+        "is_list": false
+      },
+      {
+        "type": "whisper_alignment",
+        "name": "words_alignment",
+        "is_list": false
+      }
+    ],
+    "function": "apply_whisper"
+  },
+  "Resize Cropped Subtitles": {
+    "pack": "ComfyUI-Whisper",
+    "pack_version": "local-006a709",
+    "python_module": "ComfyUI-Whisper.resize_cropped_subtitles",
+    "category": "whisper",
+    "name": "Resize Cropped Subtitles",
+    "display_name": "Resize Cropped Subtitles",
+    "description": "",
+    "inputs": {
+      "required": {
+        "cropped_subtitles": [
+          "IMAGE"
+        ],
+        "original_frames": [
+          "IMAGE"
+        ],
+        "subtitle_coord": [
+          "subtitle_coord"
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "cropped_subtitles",
+        "original_frames",
+        "subtitle_coord"
+      ]
+    },
+    "input_order_all": [
+      "cropped_subtitles",
+      "original_frames",
+      "subtitle_coord"
+    ],
+    "object_info_widget_order": [
+      null,
+      null,
+      "subtitle_coord"
+    ],
+    "outputs": [
+      {
+        "type": "IMAGE",
+        "name": "IMAGE",
+        "is_list": false
+      }
+    ],
+    "function": "resize_cropped_subtitles"
+  },
+  "Save SRT": {
+    "pack": "ComfyUI-Whisper",
+    "pack_version": "local-006a709",
+    "python_module": "ComfyUI-Whisper.save_srt",
+    "category": "whisper",
+    "name": "Save SRT",
+    "display_name": "Save SRT",
+    "description": "",
+    "inputs": {
+      "required": {
+        "alignment": [
+          "whisper_alignment"
+        ],
+        "name": [
+          "STRING",
+          {
+            "default": "subtitles"
+          }
+        ]
+      }
+    },
+    "input_order": {
+      "required": [
+        "alignment",
+        "name"
+      ]
+    },
+    "input_order_all": [
+      "alignment",
+      "name"
+    ],
+    "object_info_widget_order": [
+      "alignment",
+      "name"
+    ],
+    "outputs": [
+      {
+        "type": "STRING",
+        "name": "srt_path",
+        "is_list": false
+      }
+    ],
+    "function": "save_srt"
+  }
+}
