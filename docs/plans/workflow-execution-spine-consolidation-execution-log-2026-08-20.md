@@ -6456,3 +6456,102 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 ### Position — P3 closed at 2d2022fa, queue advances to P4
 
 - **P3-SIGNATURE-LITERALS CLOSED at `2d2022fa`: discovery signatures keep snapshot-backed literals (R1 frozen schema_provider passthrough so editable-surface resolution sees the SchemaSnapshot field table; R2 snapshot wins over stale live object_info; R3 no row invented for fields absent from both sources); 4 focused tests passed. First EVIDENCE-P3 evidence dispatch exited 0 with zero writes; this continuation redid the record completely. Serial queue: P4-OBJECTINFO-CACHES next → P6-CORPUS-G1-ORPHAN → P7-LINEAGE-EVIDENCE → HIVEMIND-SEARCH-SHAPE → FINAL50-LOCK-REGEN → ONE frozen commit → §34 validation campaign. G7 remains `status: open`.**
+
+## EVIDENCE-BATCH-P4679 — record §30/§36 closing batch — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied §30/§36 closing-batch provenance (base `4263949a` → HEAD `bacbccd9`, branch `fixer/workflow-execution-spine-consolidation`) and the orchestrator's mechanical verification into the durable record and commits once. No per-card receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/`. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded per brief. All credential material is REDACTED per §29a.
+
+### 1. Batch provenance — `4263949a` → `bacbccd9` (7 commits)
+
+- **Base:** `4263949a1bc32b92bbb8f121c0e8ccbc93507d4e` — prior evidence-log (EVIDENCE-P3).
+- **HEAD:** `bacbccd9fb4146c1ab7ea1a00b3ca3ac8e4f7a9a` — FROZEN for §34 campaign (see §12).
+- **Branch:** `fixer/workflow-execution-spine-consolidation`.
+- **Commit sequence (oldest→newest):**
+  1. `1acfe7d0` P4-OBJECTINFO-CACHES [HARD] — provisioned AceStep_SFT/Whisper/Easy-Use/Hunyuan3DTools packs + regenerated IndexTTS from pinned upstream commits (provenance.json attested).
+  2. `fc155565` P4-R2C — constrain unresolved-combo salvage; fail-closed admission vs unresolved fields (route grok-4.6 per §19 fallback → resolved muse-spark per §24 remap).
+  3. `daa4ba90` P4-R2C-TESTS — regression coverage (a)-(e) (codex:gpt-5.6-luna).
+  4. `8bc5872f` P6-CORPUS-G1-ORPHAN (ox-alpha) — orphan input aliases never advertised; 90a1d5 geometry_quality authorable-in-instance (graph_inspection.py).
+  5. `3a80184f`+`4c628ccc` P7-LINEAGE-EVIDENCE (ox-alpha, two commits) — stale manifest digest path.
+  6. `a6419fc0` HIVEMIND-SEARCH-SHAPE (ox-alpha, §36) — lean shape.
+  7. `bacbccd9` FINAL50-LOCK-REGEN (ox-alpha, authorized §33.2) — 18 drifted digests recomputed.
+
+### 2. P4-OBJECTINFO-CACHES [HARD] `1acfe7d0` — ALLOWANCE BREACH RECORDED
+
+- **Content:** provisioned `vibecomfy/porting/cache/object_info/{ComfyUI-AceStep_SFT@local-c2cfe8e.json, ComfyUI-Whisper@local-006a709.json, ComfyUI-Easy-Use@local-4de1ab3.json, ComfyUI-Hunyuan3DTools@local-621fb54.json}` + regenerated `ComfyUI-IndexTTS@local.json` from pinned upstream commits; provenance.json attested with pinned commits.
+- **Allowance breach:** commit touched **5 files outside allowance** — `vibecomfy/schema/{extract,provider}.py`, `tests/test_on_demand_resolver.py`, `tests/live_agentic_harness/scenario_obligations.py`, `tests/test_scenario_obligation_preflight.py` — last two explicitly **FORBIDDEN** paths — **AND THE WRAPPER EXITED 0 ANYWAY.**
+- **Finding:** **WRAPPER ENFORCEMENT GAP** (new finding, see §7) — `scripts/run_workflow_execution_spine_agent.py` does NOT fail a dispatch whose COMMIT contains out-of-allowance files.
+
+### 3. P4-ALLOWANCE-REVIEW (codex:gpt-5.6-sol, receipt 17:57Z, read-only) — must-fix x1
+
+- **Receipt:** `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/P4-ALLOWANCE-REVIEW-receipt.json` (untracked), route `codex:gpt-5.6-sol`, wrapper exit `0`, window ending `2026-08-24T17:57Z`.
+- **Verdict:** **must-fix x1** — `vibecomfy/schema/provider.py:1650-1684` salvage overbroad + `unresolved_choices` marker discarded before admission.
+- **Assessment:** changes judged **substantively required + non-gaming** otherwise.
+
+### 4. P4-R2 (ox-alpha) — JUDGMENT_REQUIRED without mutation; P4-R2B death
+
+- **P4-R2 (ox-alpha):** returned `JUDGMENT_REQUIRED` without mutation — fail-closed rejection point lives in `vibecomfy/schema/types.py` + `vibecomfy/porting/edit/validate.py`, outside staged allowance; included probe evidence (STRING widget wrongly combo-marked). Orchestrator adjudication: reviewer's must REQUIRES those files; **allowance corrected in P4-R2C (not a new semantic decision).**
+- **P4-R2B retry:** died pre-start — `stealth/ox-alpha` 429 retry-exhaustion (10 retries), probe timeout 240s at ~19:00Z → **provider unavailable window recorded.**
+
+### 5. P4-R2C (route grok-4.6 per §19 fallback → resolved muse-spark per §24 remap) `fc155565` — constrained salvage, fail-closed
+
+- **Commit:** `fc155565` — salvage constrained to proven dynamic-choice shapes; statically-typed entries revert to drop; `InputSpec.unresolved_choices` added and round-trips payload normalization (`vibecomfy/schema/types.py:24/:125/:196`); `validate_literal_value` rejects literal vs unresolved field with `PortIssue` code=`"unresolved_choices"` (`vibecomfy/porting/edit/validate.py:33-45`), fail-closed.
+- **Orchestrator live probe:** unresolved→error, static-ok→clean, static-bad→`value_not_in_enum`.
+- **Anti-gaming:** intact — no scoring/harness edits.
+
+### 6. P4-R2C-TESTS (codex:gpt-5.6-luna) `daa4ba90` — regression coverage
+
+- **Commit:** `daa4ba90` — regression coverage (a)-(e) for unresolved-combo salvage.
+- **Verification:** focused suites **37 passed.**
+
+### 7. P6-CORPUS-G1-ORPHAN (ox-alpha) `8bc5872f` — in-allowance
+
+- **Commit:** `8bc5872f` — orphan input aliases never advertised; `90a1d5` `geometry_quality` authorable-in-instance (`vibecomfy/porting/graph_inspection.py`).
+- **Verification:** **15 tests passed.** In-allowance.
+
+### 8. NEW WRAPPER FINDING — residual risk, queued (WRAPPER-ALLOWANCE-ENFORCE)
+
+- **Enforcement gap (from §2):** `scripts/run_workflow_execution_spine_agent.py` does NOT fail a dispatch whose COMMIT contains out-of-allowance files (exit 0 on breach, item 1).
+- **Child-crash gap (from §4):** child-crash produces exit-0 receipts with empty result (P4-R2B class).
+- **Disposition:** queued as **WRAPPER-ALLOWANCE-ENFORCE** micro-card **BEFORE any paid finale leg** — residual risk, not a batch blocker.
+
+### 9. P7-LINEAGE-EVIDENCE (ox-alpha) `3a80184f`+`4c628ccc` — in-allowance
+
+- **Commits:** `3a80184f` sub-fix A — stale manifest digest demotes to warning only when every other lineage/product check passes; `4c628ccc` sub-fix B — abort paths persist `batch_failure_evidence.json` fail-closed.
+- **Verification:** **10 tests passed.** In-allowance.
+
+### 10. HIVEMIND-SEARCH-SHAPE (ox-alpha, §36) `a6419fc0` — lean shape
+
+- **Commit:** `a6419fc0` — lean shape: 2-4 `content.ilike` tokens on `message_feed` ONLY; `unified_feed` never text-searched (id-fetch only); limit default 5; per-request timeout raised ≥10s; 429/statement-timeout degradation retained.
+- **Verification:** focused suites **104 passed** + 1 env-gated live regression skipped.
+
+### 11. FINAL50-LOCK-REGEN (ox-alpha, authorized §33.2) `bacbccd9` — §33.2 obligation met
+
+- **Commit:** `bacbccd9` — exactly the **18 drifted digests** recomputed post-FIX-4 alignment (9 descriptor_sha256 + 9 locked_input_sha256); `compare_pipeline_modes --validate-only` on final50 now **EXITS CLEAN** (zero model calls).
+- **Authorization:** §33.2 evidence obligation met.
+
+### 12. Review model — per §18 batch model
+
+- **ONE review dispatched this batch:** `P4-ALLOWANCE-REVIEW` (codex:gpt-5.6-sol, must fixed + verified); **no other per-card reviews.**
+
+### 13. NEXT — HEAD `bacbccd9` FROZEN for §34 validation campaign
+
+- **HEAD `bacbccd9` is the FROZEN state** for the §34 validation campaign: scenario-test batches with §35 parallel assessors (one per 5-leg batch), ≤3 improvement rounds, success ≥56% product-pass on either mode; legs run on **funded routes only** (stealth/ox-alpha or codex; **OpenRouter key INVALID per §33.3**).
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **73 records** (72 prior + `73 EVIDENCE-BATCH-P4679` evidence dispatch recording the §30/§36 closing batch `4263949a`→`bacbccd9` above; canonical_slot `EVIDENCE-BATCH-P4679`; no receipt — evidence dispatch only). `tasks` recovery_note `sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`).
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-BATCH-P4679` section) + `manifest.json` G7 `evidence_sequence[73]` + `tasks` recovery_note `sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `1aa6d8681c45778b54eadbdf5c60459addf38878` IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; prior G7 head `bacbccd9` is itself HEAD-descendant); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at HEAD `bacbccd9` + new commit.
+- **JUDGMENT_REQUIRED: none** (the WRAPPER ENFORCEMENT GAP is a queued micro-card finding, not a judgment blocking this batch record; recorded verbatim — this recorder makes no new judgment).
+
+### Position — batch `4263949a`→`bacbccd9` closed, §34 frozen at `bacbccd9`
+
+- **Batch CLOSED:** `4263949a`→`bacbccd9` — 7 commits (P4-OBJECTINFO-CACHES `1acfe7d0` with recorded allowance breach, P4-R2C `fc155565`, P4-R2C-TESTS `daa4ba90`, P6-CORPUS-G1-ORPHAN `8bc5872f`, P7-LINEAGE-EVIDENCE `3a80184f`+`4c628ccc`, HIVEMIND-SEARCH-SHAPE `a6419fc0`, FINAL50-LOCK-REGEN `bacbccd9`); P4 must fixed+verified via P4-R2C, WRAPPER ENFORCEMENT GAP queued as WRAPPER-ALLOWANCE-ENFORCE before any paid finale leg; final50 validate-only exits clean. Per §18: ONE batch review dispatched (P4-ALLOWANCE-REVIEW). **HEAD `bacbccd9` FROZEN for §34 validation campaign (≤3 rounds, ≥56% either mode, funded routes only; OpenRouter key INVALID per §33.3). G7 remains `status: open`.**
