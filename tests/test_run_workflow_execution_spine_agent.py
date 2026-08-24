@@ -963,3 +963,74 @@ def test_json_write_roundtrips_embedded_quote_secret_payloads(tmp_path: Path) ->
     wrapper._json_write(again, written)
     assert again.read_bytes() == target.read_bytes()
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_redact_secrets_rejects_dict_key_collision(tmp_path: Path) -> None:
+    """T29A-REVISION-2 F1: two distinct source keys that normalize to one
+    redacted key fail closed. The typed error carries no original key, no
+    normalized key, no value, and no path material; _json_write completes the
+    full structural pass before any filesystem effect (existing target stays
+    byte-identical, nonexistent target stays absent, no temp residue).
+    """
+    wrapper = _load_wrapper("workflow_execution_wrapper_redact_collision")
+    top_level = {
+        "sk-or-v1-LeftTokenLeft123456": "value-marker-alpha-777",
+        "sk-or-v1-RightTokenRight1234": "value-marker-beta-888",
+    }
+    with pytest.raises(wrapper.WrapperError) as caught:
+        wrapper._redact_secrets(top_level)
+    message = str(caught.value)
+    assert message.startswith("CREDENTIAL_REDACTION_KEY_COLLISION:")
+    for marker in ("LeftToken", "RightToken", "alpha-777", "beta-888", "sk-or-v1"):
+        assert marker not in message
+
+    nested = {
+        "outer": {
+            "note OPENROUTER_API_KEY=leaf-left-secret": {},
+            "note OPENROUTER_API_KEY=leaf-right-secret": [],
+        }
+    }
+    with pytest.raises(wrapper.WrapperError) as nested_caught:
+        wrapper._redact_secrets(nested)
+    assert str(nested_caught.value).startswith("CREDENTIAL_REDACTION_KEY_COLLISION:")
+    assert "leaf-left-secret" not in str(nested_caught.value)
+    assert "leaf-right-secret" not in str(nested_caught.value)
+
+    receipts = tmp_path / "receipts"
+    receipts.mkdir()
+    sentinel_target = receipts / "sentinel-receipt.json"
+    sentinel = b'{"locked": true}\n'
+    sentinel_target.write_bytes(sentinel)
+    with pytest.raises(wrapper.WrapperError) as caught:
+        wrapper._json_write(sentinel_target, dict(top_level))
+    assert str(caught.value).startswith("CREDENTIAL_REDACTION_KEY_COLLISION:")
+    assert "value-marker-alpha-777" not in str(caught.value)
+    assert "value-marker-beta-888" not in str(caught.value)
+    assert sentinel_target.read_bytes() == sentinel
+    absent_target = receipts / "absent-receipt.json"
+    with pytest.raises(wrapper.WrapperError):
+        wrapper._json_write(absent_target, dict(top_level))
+    assert not absent_target.exists()
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_redact_secrets_rewashes_suffixed_placeholders() -> None:
+    """T29A-REVISION-2 F2: on decoded leaves only canonical [REDACTED] followed
+    by whitespace or end-of-string is exempt. Suffixed placeholders are live
+    material and re-wash to the canonical form; canonical forms stay fixed points.
+    """
+    wrapper = _load_wrapper("workflow_execution_wrapper_redact_suffix")
+    suffixes = ("<suffix>", "suffix", "-suffix")
+    for name in ("OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
+        canonical = f"{name}=[REDACTED]"
+        assert wrapper._redact_secrets(canonical) == canonical
+        assert wrapper._redact_secrets(f"{canonical} tail") == f"{canonical} tail"
+        for suffix in suffixes:
+            assert wrapper._redact_secrets(f"{name}=[REDACTED]{suffix}") == canonical
+            assert wrapper._redact_secrets(f"note {name}=[REDACTED]{suffix} end") == f"note {canonical} end"
+    bearer_canonical = "Authorization: Bearer [REDACTED]"
+    for form in ("authorization: bearer [REDACTED]", "Authorization:\tBearer\t[REDACTED]", f"{bearer_canonical} "):
+        assert wrapper._redact_secrets(form) == form  # canonical (any case) is an exempt fixed point
+    for suffix in suffixes:
+        assert wrapper._redact_secrets(f"Authorization: Bearer [REDACTED]{suffix}") == bearer_canonical
+        assert wrapper._redact_secrets(f"authorization: bearer [REDACTED]{suffix}!") == bearer_canonical

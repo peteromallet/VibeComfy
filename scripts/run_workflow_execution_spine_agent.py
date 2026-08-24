@@ -156,17 +156,17 @@ def load_json(path: Path, label: str) -> Any:
 #: pass through untouched. Substitution runs on the STRUCTURED payload before
 #: serialization: decoded strings carry no JSON escape sequences, so greedy
 #: \S+ value classes cannot eat syntax that does not exist at that layer.
+#:
+#: T29A-REVISION-2: [REDACTED] is canonical ONLY when followed by whitespace
+#: or end-of-string on decoded leaves (\[REDACTED\](?=\s|$)). Suffixed forms
+#: such as [REDACTED]-suffix or [REDACTED]<suffix> are live material: the
+#: negative lookahead lets them match so they re-wash to the canonical form
+#: instead of staying exempt.
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"), "sk-or-v1-[REDACTED]"),
-    (re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\])\S+"), r"\g<1>=[REDACTED]"),
-    (re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\])\S+", re.IGNORECASE), "Authorization: Bearer [REDACTED]"),
+    (re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\](?=\s|$))\S+"), r"\g<1>=[REDACTED]"),
+    (re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\](?=\s|$))\S+", re.IGNORECASE), "Authorization: Bearer [REDACTED]"),
 )
-
-def _redact_secret_text(text: str) -> str:
-    """Leaf substitution: replace live-format credentials with [REDACTED]."""
-    for pattern, replacement in _SECRET_PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text
 
 
 def _redact_secrets(value: Any) -> Any:
@@ -175,14 +175,22 @@ def _redact_secrets(value: Any) -> Any:
     Non-str leaves pass through untouched. Idempotent fixed point. Runs on the
     structured payload BEFORE _json_write serializes it, so a secret value with
     an embedded quote can never desynchronize escape handling.
+
+    T29A-REVISION-2: dicts are rebuilt imperatively; when two distinct source
+    keys normalize to one redacted key, insertion fails closed with the typed
+    CREDENTIAL_REDACTION_KEY_COLLISION WrapperError, which deliberately carries
+    no original key, normalized key, value, or structural-path material.
     """
     if isinstance(value, str):
         return _redact_secret_text(value)
     if isinstance(value, dict):
-        return {
-            _redact_secret_text(key) if isinstance(key, str) else key: _redact_secrets(item)
-            for key, item in value.items()
-        }
+        redacted: dict[Any, Any] = {}
+        for key, item in value.items():
+            out_key = _redact_secret_text(key) if isinstance(key, str) else key
+            if out_key in redacted:
+                raise WrapperError("CREDENTIAL_REDACTION_KEY_COLLISION: distinct mapping keys normalize to one redacted key")
+            redacted[out_key] = _redact_secrets(item)
+        return redacted
     if isinstance(value, list):
         return [_redact_secrets(item) for item in value]
     if isinstance(value, tuple):
@@ -190,10 +198,20 @@ def _redact_secrets(value: Any) -> Any:
     return value
 
 
+def _redact_secret_text(text: str) -> str:
+    """Leaf substitution: replace live-format credentials with [REDACTED]."""
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _json_write(path: Path, value: Any) -> None:
+    #: T29A-REVISION-2: the COMPLETE structural pass runs before any
+    #: filesystem effect, so a collision leaves an existing target
+    #: byte-identical, a nonexistent target absent, and no temp residue.
+    payload = json.dumps(_redact_secrets(value), indent=2, sort_keys=True) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    payload = json.dumps(_redact_secrets(value), indent=2, sort_keys=True) + "\n"
     temporary.write_text(payload, encoding="utf-8")
     os.replace(temporary, path)
 

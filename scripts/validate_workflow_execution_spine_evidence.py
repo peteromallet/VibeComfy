@@ -488,20 +488,31 @@ def check_verdicts(manifest: dict[str, Any]) -> None:
 #: scripts/run_workflow_execution_spine_agent.py.
 SECRET_PATTERNS = (
     re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"),
-    # (?!\[REDACTED\]) keeps the writer's canonical sanitized output (§29a
-    # REDACT-WRITEPATH, _redact_secrets in run_workflow_execution_spine_agent.py)
-    # passing while any live-format secret still fails.
-    re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\])\S+"),
-    re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\])\S+", re.IGNORECASE),
+    # (?!\[REDACTED\](?=\s|$|"\s*(?:[:,}\]]|$))) keeps the writer's canonical
+    # sanitized output (§29a REDACT-WRITEPATH, _redact_secrets in
+    # run_workflow_execution_spine_agent.py) passing — bare AND serialized as
+    # JSON values/keys ("...[REDACTED]" followed by , : } ] or line end) —
+    # while any live-format secret OR suffixed placeholder still fails.
+    re.compile(r'(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\](?=\s|$|"\s*(?:[:,}\]]|$)))\S+'),
+    re.compile(r'Authorization:\s*Bearer\s+(?!\[REDACTED\](?=\s|$|"\s*(?:[:,}\]]|$)))\S+', re.IGNORECASE),
 )
 
 #: STOP record 44c43c73 / PUSH-BLOCKED-001: a rotated OpenRouter key reached
 #: git history via the committed execution log. History cleanup is an
-#: operator-reserved decision outside this validator's scope; this constant
-#: pins the matching-line count measured at HEAD so any NEW occurrence pushes
-#: the live count above baseline and fails validation. Only the count is
-#: pinned here — never embed secret material.
-BASELINE_EXECUTION_LOG_SECRET_LINES = 5
+#: operator-reserved decision outside this validator's scope. T29A-REVISION-2:
+#: this constant pins the EXACT matching-line identity set measured at HEAD
+#: 845ee9d2 — each entry is (one-based line number, sha256 hex digest of the
+#: UTF-8 line content excluding newline) — so addition, removal, replacement,
+#: modification, or movement of matching lines all fail validation, not just
+#: growth past a count. Only hashes and line numbers are pinned here — never
+#: embed secret material.
+BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES = frozenset({
+    (4517, "d25a270760f965e32760bbd129947bab4e95880d37f300d08a915dc5d78e8fa5"),
+    (4521, "b7be6bce2f3a92058876f0585cb6a57aee9cba280178092f9859d7ad78b2b2c4"),
+    (4522, "5cf40d04c58c43ab1a60720766ae0cc5e0ef5b47e2171b98c7fd63215f7058f0"),
+    (4629, "60784e66e3977d5431df0755cc5ce9deda64c567f6bd837e06f27c176f1dd1fa"),
+    (5427, "0e453303df6d6c5192548e1c4286094422b1643cdb72a603e3732f3ebb7f1811"),
+})
 
 _EXECUTION_LOG_DOC = "workflow-execution-spine-consolidation-execution-log-2026-08-20.md"
 _PLAN_DOC = "workflow-execution-spine-consolidation-plan-2026-08-20.md"
@@ -516,14 +527,24 @@ def _credential_hygiene_hits(path: Path) -> list[int]:
     return _secret_matching_lines(path.read_bytes().decode("utf-8", errors="replace"))
 
 
+def _execution_log_secret_line_identities(path: Path) -> frozenset[tuple[int, str]]:
+    """(one-based line number, sha256 of UTF-8 line content sans newline) per matching line."""
+    return frozenset(
+        (number, hashlib.sha256(line.encode("utf-8")).hexdigest())
+        for number, line in enumerate(path.read_bytes().decode("utf-8", errors="replace").splitlines(), 1)
+        if any(pattern.search(line) for pattern in SECRET_PATTERNS)
+    )
+
+
 def check_credential_hygiene(evidence_dir: Path | None, execution_log: Path | None, extra_docs: Iterable[Path] = ()) -> None:
     """Directive §29a: keep credential material out of committable evidence.
 
     Every file under ``evidence_dir`` must be free of secret-shaped content;
-    the execution log may carry only its pinned historical baseline (see
-    BASELINE_EXECUTION_LOG_SECRET_LINES); plan/goal docs must be clean.
+    the execution log must carry EXACTLY its pinned historical baseline
+    identities (see BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES); plan/goal docs must be clean.
     Absent paths are skipped so synthetic manifests stay validatable, and
-    failure details report locations only — never secret content.
+    failure details report locations, counts, line numbers, and digests
+    only — never secret content.
     """
     # Gate on the receipts/ subdir: synthetic manifests anchored elsewhere
     # (e.g. repo-root manifest.json in tests) must not trigger a repo-wide scan.
@@ -533,9 +554,17 @@ def check_credential_hygiene(evidence_dir: Path | None, execution_log: Path | No
             if lines:
                 _fail("CREDENTIAL_HYGIENE_VIOLATION", f"{path.name}: secret-pattern match on lines {lines}")
     if execution_log is not None and execution_log.is_file():
-        count = len(_credential_hygiene_hits(execution_log))
-        if count > BASELINE_EXECUTION_LOG_SECRET_LINES:
-            _fail("CREDENTIAL_HYGIENE_BASELINE", f"{execution_log.name}: {count} secret-pattern lines exceed pinned baseline {BASELINE_EXECUTION_LOG_SECRET_LINES} (STOP record 44c43c73 / PUSH-BLOCKED-001): new occurrences fail validation")
+        identities = _execution_log_secret_line_identities(execution_log)
+        if identities != BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES:
+            unexpected = sorted(identities - BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES)
+            missing_lines = sorted(lineno for lineno, _ in BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES - identities)
+            _fail(
+                "CREDENTIAL_HYGIENE_BASELINE",
+                f"{execution_log.name}: secret-line identity set drifted from pinned HEAD baseline "
+                f"({len(unexpected)} unexpected, {len(missing_lines)} missing of {len(BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES)} pinned); "
+                f"unexpected (line,digest) {unexpected}; missing lines {missing_lines} "
+                "(STOP record 44c43c73 / PUSH-BLOCKED-001): add/remove/replacement/modification/movement all fail",
+            )
     for doc in extra_docs:
         if doc.is_file() and _credential_hygiene_hits(doc):
             _fail("CREDENTIAL_HYGIENE_VIOLATION", f"{doc.name}: secret-pattern match")

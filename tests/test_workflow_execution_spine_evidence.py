@@ -433,9 +433,6 @@ PLAN_DOC_PATH = ROOT / "docs" / "plans" / validator._PLAN_DOC
 GOAL_DOC_PATH = ROOT / "docs" / "plans" / validator._GOAL_DOC
 
 
-def _measured_secret_lines(path: Path) -> int:
-    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if any(pattern.search(line) for pattern in validator.SECRET_PATTERNS))
-
 
 def test_planted_receipt_secret_fails_credential_hygiene(tmp_path: Path) -> None:
     evidence = tmp_path / "evidence"
@@ -469,8 +466,6 @@ def test_clean_synthetic_evidence_passes_hygiene_guard() -> None:
 
 
 def test_execution_log_baseline_matches_head_and_full_validation_stays_green() -> None:
-    measured = _measured_secret_lines(EXECUTION_LOG_PATH)
-    assert validator.BASELINE_EXECUTION_LOG_SECRET_LINES == measured == 5
     validator.check_credential_hygiene(EVIDENCE_DIR, EXECUTION_LOG_PATH, [PLAN_DOC_PATH, GOAL_DOC_PATH])
     manifest_path = EVIDENCE_DIR / "manifest.json"
     validator.validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")), manifest_path)
@@ -519,3 +514,90 @@ def test_writer_canonical_output_passes_scan_but_raw_fakes_fail(tmp_path: Path) 
         validator.check_credential_hygiene(evidence, None)
     assert str(caught.value).startswith("CREDENTIAL_HYGIENE_VIOLATION")
     assert "RAW-LEAK-receipt.json" in str(caught.value)
+
+
+def test_validator_rejects_suffixed_placeholders(tmp_path: Path) -> None:
+    """T29A-REVISION-2 F2: canonical placeholders pass the scan both as JSON
+    values AND keys; suffixed placeholders are live material and fail typed,
+    with env-var and Bearer classes failing independently.
+    """
+    evidence = tmp_path / "evidence"
+    (evidence / "receipts").mkdir(parents=True)
+    (evidence / "receipts" / "CANON-receipt.json").write_text(
+        json.dumps(
+            {
+                "OPENROUTER_API_KEY=[REDACTED]": "OPENROUTER_API_KEY=[REDACTED]",
+                "DEEPSEEK_API_KEY=[REDACTED]": "DEEPSEEK_API_KEY=[REDACTED]",
+                "OPENAI_API_KEY=[REDACTED]": "OPENAI_API_KEY=[REDACTED]",
+                "auth": "authorization: bearer [REDACTED]",
+                "trailing": "OPENAI_API_KEY=[REDACTED] tail",
+            }
+        ),
+        encoding="utf-8",
+    )
+    validator.check_credential_hygiene(evidence, None)
+
+    suffixed = [
+        ("env-openrouter", {"env": "OPENROUTER_API_KEY=[REDACTED]-suffix"}),
+        ("env-deepseek", {"env": "DEEPSEEK_API_KEY=[REDACTED]junk"}),
+        ("env-openai", {"env": "OPENAI_API_KEY=[REDACTED]<suffix>"}),
+        ("bearer-upper", {"auth": "Authorization: Bearer [REDACTED]-suffix"}),
+        ("bearer-lower", {"auth": "authorization: bearer [REDACTED]<suffix>"}),
+    ]
+    for label, payload in suffixed:
+        path = evidence / "receipts" / f"SUFFIX-{label}-receipt.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(validator.EvidenceValidationError) as caught:
+            validator.check_credential_hygiene(evidence, None)
+        assert str(caught.value).startswith("CREDENTIAL_HYGIENE_VIOLATION"), label
+        assert path.name in str(caught.value)
+        path.unlink()
+
+
+def test_execution_log_baseline_identity_matches_head() -> None:
+    """T29A-REVISION-2 F3: the computed matching-line identity set equals the
+    pinned five (line number, sha256) identities exactly, and canonical
+    validation stays green.
+    """
+    computed = validator._execution_log_secret_line_identities(EXECUTION_LOG_PATH)
+    assert len(computed) == len(validator.BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES) == 5
+    assert computed == validator.BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES
+    validator.check_credential_hygiene(EVIDENCE_DIR, EXECUTION_LOG_PATH, [PLAN_DOC_PATH, GOAL_DOC_PATH])
+
+
+def test_execution_log_baseline_rejects_add_remove_replace_and_move(tmp_path: Path) -> None:
+    """T29A-REVISION-2 F3: exact-set comparison — an added line, a removed
+    line, a same-count replacement with a fake live-format secret, and an
+    unchanged matching line moved elsewhere ALL fail CREDENTIAL_HYGIENE_BASELINE,
+    not merely growth past a count.
+    """
+    original = EXECUTION_LOG_PATH.read_text(encoding="utf-8")
+    matching_lines = validator._credential_hygiene_hits(EXECUTION_LOG_PATH)
+    assert len(matching_lines) == 5
+
+    def expect_baseline_failure(name: str, mutate) -> None:
+        lines = original.splitlines(keepends=True)
+        mutate(lines)
+        drifted = tmp_path / f"drifted-{name}.md"
+        drifted.write_text("".join(lines), encoding="utf-8")
+        with pytest.raises(validator.EvidenceValidationError) as caught:
+            validator.check_credential_hygiene(None, drifted)
+        assert str(caught.value).startswith("CREDENTIAL_HYGIENE_BASELINE"), name
+
+    target_index = matching_lines[0] - 1
+    expect_baseline_failure("added", lambda lines: lines.append("OPENROUTER_API_KEY=new-fake-occurrence\n"))
+
+    def remove(lines):
+        del lines[target_index]
+
+    expect_baseline_failure("removed", remove)
+
+    def replace(lines):
+        lines[target_index] = "OPENROUTER_API_KEY=replacement-fake-live-format-value\n"
+
+    expect_baseline_failure("replaced", replace)
+
+    def move(lines):
+        lines.append(lines.pop(target_index))
+
+    expect_baseline_failure("moved", move)
