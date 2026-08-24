@@ -649,6 +649,38 @@ def _allowed(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(path, pattern) or fnmatch.fnmatchcase(path, pattern.lstrip("./")) for pattern in patterns)
 
 
+def _committed_files(project_dir: Path, base_sha: str) -> list[str]:
+    """Files touched by commits in the dispatch window (merge-base safe).
+
+    Enumerates the union of paths changed by any commit in
+    ``merge_base(base_sha, HEAD)..HEAD`` using the same globs as pre-flight
+    allowance checks. ``merge_base`` makes the range safe when ``base_sha``
+    is not an ancestor of HEAD (e.g. after a rebase or unrelated history).
+    """
+    if not base_sha:
+        return []
+    merge_base = _git(project_dir, ["merge-base", base_sha, "HEAD"]).strip()
+    if not merge_base:
+        merge_base = base_sha.strip()
+    head = _git(project_dir, ["rev-parse", "HEAD"]).strip()
+    if not head or not merge_base or merge_base == head:
+        # No new commits in window.
+        # Still handle the case where base_sha == head but file was committed
+        # via checking diff; if head==merge_base then window is empty.
+        return []
+    # Union of files across all commits in window (fail-closed vs net diff).
+    log_output = _git(project_dir, ["log", "--name-only", "--pretty=format:", f"{merge_base}..HEAD", "--"])
+    files: set[str] = {line.strip() for line in log_output.splitlines() if line.strip()}
+    # Augment with diff --name-only to cover merge commits / renames where
+    # log --name-only may be incomplete; union is strictly more conservative.
+    diff_output = _git(project_dir, ["diff", "--name-only", f"{merge_base}..HEAD", "--"])
+    for line in diff_output.splitlines():
+        cleaned = line.strip()
+        if cleaned:
+            files.add(cleaned)
+    return sorted(files)
+
+
 def _stop_marker(result_text: str) -> str:
     for line in result_text.splitlines():
         if line.startswith("JUDGMENT_REQUIRED:") or line.startswith("STOP:"):
@@ -884,7 +916,21 @@ def run(args: argparse.Namespace) -> int:
             _repo_snapshot(project_dir, evidence_dir, Path(ignore_probe.name)),
         )
         violation_paths = [path for path in changed if not _allowed(path, allowed) or _allowed(path, forbidden)]
-        resolved_match = re.search(r"(?:^|\s)resolved=([^\s]+)", stderr_bytes.decode("utf-8", errors="replace"), re.MULTILINE)
+        committed_files = _committed_files(project_dir, base_sha)
+        committed_violations = [path for path in committed_files if not _allowed(path, allowed) or _allowed(path, forbidden)]
+        all_violations = sorted(set(violation_paths) | set(committed_violations))
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        result_stripped = result_text.strip()
+        is_empty_result = result_stripped == ""
+        child_failed = (exit_code != 0) or is_empty_result
+        # E1 takes precedence over E2: allowance violation is policy-level.
+        if all_violations:
+            receipt_status = "allowance_violation"
+        elif child_failed:
+            receipt_status = "child_failed"
+        else:
+            receipt_status = "success"
+        resolved_match = re.search(r"(?:^|\s)resolved=([^\s]+)", stderr_text, re.MULTILINE)
         receipt = {
             "task_id": args.task_id,
             "gate": args.gate or GATE_BY_TASK.get(args.task_id) or (re.search(r"G\d+", args.label) or [""])[0],
@@ -903,17 +949,30 @@ def run(args: argparse.Namespace) -> int:
             "base_sha": base_sha,
             "commits": _git_commits(project_dir, base_sha),
             "changed_files": changed,
+            "committed_files": committed_files,
             "allowance": {"file": str(args.allowance_file.resolve()), "allowed": allowed, "forbidden": forbidden},
             "evidence": [],
             "stop_or_judgment": _stop_marker(result_text),
+            "status": receipt_status,
         }
-        if violation_paths:
+        if receipt_status == "allowance_violation":
+            receipt["violating_files"] = all_violations
+            receipt["committed_violations"] = committed_violations
+            receipt["worktree_violations"] = violation_paths
+        elif receipt_status == "child_failed":
+            receipt["child_exit"] = exit_code
+            receipt["child_stderr_tail"] = stderr_text[-4000:]
+            receipt["empty_result"] = is_empty_result
+        if all_violations:
             violation_path = evidence_dir / f"{args.task_id}-violation.json"
             _json_write(violation_path, {
                 "task_id": args.task_id,
                 "type": "ALLOWANCE_VIOLATION",
                 "changed_files": changed,
-                "violations": violation_paths,
+                "committed_files": committed_files,
+                "violations": all_violations,
+                "committed_violations": committed_violations,
+                "worktree_violations": violation_paths,
                 "allowed": allowed,
                 "forbidden": forbidden,
                 "receipt": str(receipt_path),
@@ -923,8 +982,17 @@ def run(args: argparse.Namespace) -> int:
         if not _receipt_is_interrupted(receipt_path):
             receipt["evidence"] = _evidence_paths(evidence_dir)
             _json_write(receipt_path, receipt)
-        if violation_paths:
-            raise WrapperError(f"ALLOWANCE_VIOLATION: changed files outside allowance: {', '.join(violation_paths)}")
+        if receipt_status == "allowance_violation":
+            raise WrapperError(f"ALLOWANCE_VIOLATION: changed files outside allowance: {', '.join(all_violations)}")
+        if receipt_status == "child_failed":
+            # Keep interrupted/death-note paths intact - already handled via _receipt_is_interrupted guards.
+            tail = stderr_text[-2000:].strip()
+            detail = f"child exit {exit_code}"
+            if tail:
+                detail += f"; stderr tail: {tail[:2000]}"
+            if is_empty_result:
+                detail += "; empty result"
+            raise WrapperError(f"CHILD_FAILED: {detail}")
         return exit_code
     finally:
         in_flight_error = sys.exc_info()[1]
