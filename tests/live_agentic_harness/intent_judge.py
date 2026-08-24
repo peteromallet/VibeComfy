@@ -846,8 +846,13 @@ def _verify_delta_replay(
     The judge grades the accepted Δ directly: ``interpret(pre, Δ)`` must
     apply cleanly and reproduce post (``diff(interpret(pre, Δ), post) == ()``),
     and the Δ must equal the canonical diff of the IR pair — i.e. the Δ is
-    what actually changed.  When the IR pair cannot be lifted to a
-    VibeWorkflow, ``verified`` is None and the LLM judges (with the
+    what actually changed.  Field paths on both sides of that comparison are
+    first projected onto the same widget name authority
+    (:func:`_resolve_field_slot`), so a positional ``widget_N`` spelling and
+    the schema-proven name compare as the slot they both resolve to (P8-R3);
+    unresolvable paths stay raw, symmetrically on both sides.  When the IR
+    pair cannot be lifted to a VibeWorkflow, ``verified`` is None and the
+    LLM judges (with the
     EditableSurface-resolved field values as context).  Returns
     ``{"verified": bool | None, "checked": int, "mismatches": [...]}``.
     """
@@ -897,8 +902,17 @@ def _verify_delta_replay(
             )
     try:
         expected = diff(pre_wf, post_wf)
-        _actual = {_op_fingerprint(op) for op in expected}
-        _claimed = {_op_fingerprint(op) for op in ops}
+        _canon_ctx = _field_canon_context(
+            pre_wf, post_wf, schema_provider=schema_provider
+        )
+        _actual = {
+            _op_fingerprint(_canonicalize_op_field_paths(op, _canon_ctx))
+            for op in expected
+        }
+        _claimed = {
+            _op_fingerprint(_canonicalize_op_field_paths(op, _canon_ctx))
+            for op in ops
+        }
         if _claimed - _actual:
             mismatches.append(
                 "Δ claims changes that are not what actually changed between pre_ir and post_ir"
@@ -997,6 +1011,203 @@ def _spelling_equivalent_leftover(op: Any, workflow: Any) -> bool:
             return False
         return _canonical_edit_value(current) == _canonical_edit_value(op.value)
     return False
+
+
+
+def _field_canon_context(
+    pre_wf: Any, post_wf: Any, *, schema_provider: Any = None
+) -> dict[str, Any]:
+    """Shared resolution context for delta-replay fingerprint equality (P8-R3).
+
+    Both sides of the claimed-vs-actual comparison project field paths onto
+    the SAME name authority the apply boundary uses: per-node rosters from
+    :func:`compact_widget_names_for_node` over the pre-workflow's frozen name
+    table — exactly what ``interpret`` seals onto itself — with the post
+    workflow as fallback node context.
+    """
+
+    def _index(wf: Any) -> dict[str, Any]:
+        nodes: dict[str, Any] = {}
+        if wf is None:
+            return nodes
+        for node in getattr(wf, "nodes", {}).values():
+            uid = str(getattr(node, "uid", "") or "")
+            if uid:
+                nodes.setdefault(uid, node)
+        return nodes
+
+    name_authority: Mapping[str, Any] = {}
+    try:
+        from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
+
+        name_authority = frozen_widget_names_by_uid(pre_wf)
+    except Exception:
+        name_authority = {}
+    return {
+        "pre_nodes": _index(pre_wf),
+        "post_nodes": _index(post_wf),
+        "schema_provider": schema_provider,
+        "name_authority": name_authority,
+        "rosters": {},
+    }
+
+
+def _field_slot_roster(node: Any, ctx: Mapping[str, Any]) -> tuple[str | None, ...]:
+    """Per-node widget-name roster, resolved once per verification call."""
+    uid = str(getattr(node, "uid", "") or "")
+    cached = ctx["rosters"].get(uid)
+    if cached is not None:
+        return cached
+    names: tuple[str | None, ...] = ()
+    try:
+        from vibecomfy.porting.widgets.compact_resolver import (  # noqa: PLC0415
+            compact_widget_names_for_node,
+        )
+
+        names = tuple(
+            compact_widget_names_for_node(
+                node,
+                schema_provider=ctx["schema_provider"],
+                name_authority=ctx["name_authority"],
+            ).names
+        )
+    except Exception:
+        names = ()
+    ctx["rosters"][uid] = names
+    return names
+
+
+def _resolve_field_slot(
+    uid: Any, field_path: Any, ctx: Mapping[str, Any]
+) -> tuple[str, ...] | None:
+    """Project one op field path onto its name-authority slot identity.
+
+    The token BOTH sides of the delta-replay comparison project to:
+
+    - ``("slot", uid, index)`` — a positional ``(unused_)widget_N`` path whose
+      roster position carries a render-visible name, OR a named path that
+      binds to exactly one roster slot via the layer's own
+      :func:`widget_index_for_field` (which already rejects duplicate roster
+      names).  The two spellings address the same physical widget slot, so
+      they are the same edit statement exactly when node and value also match;
+    - ``("named", decoded_name)`` — a non-roster name (input sockets,
+      brand-new fields), decoded through the same surface-name routine the
+      apply boundary lands under;
+    - ``None`` — unresolved: unknown node/class, out-of-range or placeholder
+      positional alias.  The caller falls back to the RAW path on BOTH sides
+      symmetrically; no equality is invented that the diff layer would not see.
+    """
+    raw = str(field_path or "")
+    if not raw:
+        return None
+    node = ctx["pre_nodes"].get(str(uid)) or ctx["post_nodes"].get(str(uid))
+    if node is None:
+        return None
+    node_uid = str(getattr(node, "uid", "") or "")
+    class_type = str(getattr(node, "class_type", "") or "")
+    schema_provider = ctx["schema_provider"]
+    try:
+        from vibecomfy.porting.edit._interpret import _surface_field_name  # noqa: PLC0415
+        from vibecomfy.porting.edit.editable_surface import is_positional_alias  # noqa: PLC0415
+        from vibecomfy.porting.edit.widget_slots import (  # noqa: PLC0415
+            _POSITIONAL_WIDGET_FIELD_RE,
+            _canonical_ui_only_widget_field,
+        )
+        from vibecomfy.porting.widgets.compact_resolver import (  # noqa: PLC0415
+            widget_index_for_field,
+        )
+        from vibecomfy.schema import schema_for  # noqa: PLC0415
+    except Exception:
+        return None
+
+    # UI-only alias branch, mirroring the apply boundary's mapping build.
+    try:
+        mapping: dict[str, Any] = {"type": class_type, "class_type": class_type}
+        metadata = getattr(node, "metadata", None)
+        if isinstance(metadata, Mapping):
+            ui = metadata.get("_ui")
+            if isinstance(ui, Mapping):
+                mapping.update(ui)
+                mapping["type"] = class_type
+                mapping["class_type"] = class_type
+        alias = _canonical_ui_only_widget_field(mapping, raw, schema_provider=schema_provider)
+        if alias is not None:
+            return ("named", str(alias[0]))
+    except Exception:
+        pass
+
+    roster = _field_slot_roster(node, ctx)
+    positional = _POSITIONAL_WIDGET_FIELD_RE.fullmatch(raw)
+    if positional is not None:
+        index = int(positional.group(1))
+        if 0 <= index < len(roster):
+            named = roster[index]
+            if isinstance(named, str) and named and not is_positional_alias(named):
+                return ("slot", node_uid, index)
+        return None
+    try:
+        index = widget_index_for_field(
+            node, raw, schema_provider=schema_provider, name_authority=ctx["name_authority"]
+        )
+    except Exception:
+        index = None
+    if index is not None:
+        return ("slot", node_uid, index)
+    try:
+        schema_inputs = getattr(schema_for(schema_provider, class_type), "inputs", {}) or {}
+        decoded = _surface_field_name(
+            schema_inputs, class_type, raw, schema_provider=schema_provider
+        )
+    except Exception:
+        decoded = raw
+    return ("named", str(decoded))
+
+
+def _canonicalize_op_field_paths(op: Any, ctx: Mapping[str, Any]) -> Any:
+    """Rewrite ``set_node_field`` targets onto slot identities for fingerprinting.
+
+    Typed ops are rebuilt with the resolved target token; raw mappings get a
+    copied target row.  Every other op kind passes through untouched, and any
+    resolution failure keeps the RAW path — applied identically to the claimed
+    and actual sides (P8-R3 R2).  Op kinds, uids, values and the
+    extra/missing-op strictness of the comparison are untouched.
+    """
+    try:
+        if isinstance(op, Mapping):
+            if str(op.get("op") or "") != "set_node_field":
+                return op
+            target = op.get("target")
+            if not isinstance(target, (list, tuple)) or len(target) < 3:
+                return op
+            resolved = _resolve_field_slot(target[1], target[2], ctx)
+            if resolved is None:
+                return op
+            rewritten = list(target)
+            rewritten[2] = resolved
+            out = dict(op)
+            out["target"] = rewritten
+            return out
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp  # noqa: PLC0415
+
+        if isinstance(op, SetNodeFieldOp):
+            target = op.target
+            resolved = _resolve_field_slot(
+                getattr(target, "uid", ""), getattr(target, "field_path", ""), ctx
+            )
+            if resolved is None:
+                return op
+            return SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget(
+                    str(getattr(target, "scope_path", "") or ""),
+                    str(getattr(target, "uid", "") or ""),
+                    resolved,
+                ),
+                value=op.value,
+            )
+    except Exception:
+        return op
+    return op
 
 
 def _op_fingerprint(op: Any) -> tuple[Any, ...]:

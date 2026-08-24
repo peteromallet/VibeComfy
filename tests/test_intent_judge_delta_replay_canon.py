@@ -20,9 +20,15 @@ from collections.abc import Mapping
 from decimal import Decimal
 from tests.live_agentic_harness.intent_judge import (
     _canonical_edit_value,
+    _canonicalize_op_field_paths,
+    _field_canon_context,
     _op_fingerprint,
+    _resolve_field_slot,
+    _to_workflow_ir,
     _verify_delta_replay,
 )
+
+from vibecomfy.porting.edit._diff import diff
 
 from vibecomfy.porting.edit.ops import parse_edit_delta
 from vibecomfy.schema import get_schema_provider
@@ -394,3 +400,154 @@ def test_fingerprint_equality_iff_diff_layer_equality() -> None:
         for j, b in enumerate(_IFF_BATTERY):
             expected = _diff_layer_equal(a, b)
             assert (fps[i] == fps[j]) == expected, (i, a, j, b, fps[i], fps[j])
+
+
+def _empty_latent_ui(batch_size: object, *, uid: str = "9") -> dict:
+    """Schema-rostered node whose stored IR keeps positional widget keys.
+
+    ``EmptyLatentImage`` resolves through the widget name authority to
+    ``('width', 'height', 'batch_size')`` while the ingest stores its values
+    under ``widget_0..2`` — exactly the claimed-vs-actual spelling split the
+    R2-SPOT-FORENSIC verdict-(a) leg exhibited (claimed ``batch_size`` vs
+    actual ``widget_2``, same node, same value).
+    """
+    return {
+        "nodes": [
+            {
+                "id": uid,
+                "type": "EmptyLatentImage",
+                "mode": 0,
+                "properties": {"vibecomfy_uid": uid},
+                "widgets_values": [512, 512, batch_size],
+            }
+        ],
+        "links": [],
+    }
+
+
+def test_widget_n_and_named_slot_spellings_are_one_statement() -> None:
+    """(g) Same slot spelled ``widget_N`` vs schema-proven name, same node and
+    value → one edit statement.
+
+    End-to-end in the admitted direction: the accepted Δ spells the roster
+    name while the actual diff spells the stored positional key (the forensic
+    verdict-a shape) — verified True.  The mirror direction is decided at the
+    fingerprint-law layer: after name-authority resolution a claimed
+    ``widget_N`` op and the actual schema-named op share one fingerprint.
+    End-to-end, a raw positional claim stays gated by the layer's own
+    no-positional-writes rule (pinned by
+    ``test_positional_alias_claims_stay_rejected``); canonicalization never
+    bypasses that gate.
+    """
+    schema_provider = get_schema_provider("auto")
+    result = _verify_delta_replay(
+        _empty_latent_ui(16),
+        _empty_latent_ui(8),
+        [_set_field_op("9", "batch_size", 8)],
+        schema_provider=schema_provider,
+    )
+    assert result == {"verified": True, "checked": 1, "mismatches": []}
+
+    # Mirror direction: claimed widget_N vs actual schema-proven name.
+    pre_wf = _to_workflow_ir(_empty_latent_ui(16), schema_provider=schema_provider)
+    post_wf = _to_workflow_ir(_empty_latent_ui(8), schema_provider=schema_provider)
+    ctx = _field_canon_context(pre_wf, post_wf, schema_provider=schema_provider)
+    claimed = parse_edit_delta([_set_field_op("9", "widget_2", 8)])[0]
+    actual = next(
+        op
+        for op in diff(pre_wf, post_wf)
+        if getattr(getattr(op, "target", None), "field_path", "") == "widget_2"
+    )
+    assert _op_fingerprint(_canonicalize_op_field_paths(claimed, ctx)) == _op_fingerprint(
+        _canonicalize_op_field_paths(actual, ctx)
+    )
+    # The resolution itself is symmetric: both spellings bind to slot 2.
+    assert _resolve_field_slot("9", "widget_2", ctx) == ("slot", "9", 2)
+    assert _resolve_field_slot("9", "batch_size", ctx) == ("slot", "9", 2)
+
+
+def test_positional_named_pair_with_different_value_still_mismatches() -> None:
+    """(h) Same shape as (g) but a genuinely different target value never
+    passes — the spelling bridge must not carry value divergence."""
+    schema_provider = get_schema_provider("auto")
+    result = _verify_delta_replay(
+        _empty_latent_ui(16),
+        _empty_latent_ui(8),
+        [_set_field_op("9", "batch_size", 9)],
+        schema_provider=schema_provider,
+    )
+    assert result["verified"] is False
+    assert any(
+        "not what actually changed" in m for m in result["mismatches"]
+    ), result["mismatches"]
+
+    # And across the bridge: claimed widget_N=9 vs actual named-slot value 8
+    # fingerprints APART — only node/slot identity is canonicalized.
+    pre_wf = _to_workflow_ir(_empty_latent_ui(16), schema_provider=schema_provider)
+    post_wf = _to_workflow_ir(_empty_latent_ui(8), schema_provider=schema_provider)
+    ctx = _field_canon_context(pre_wf, post_wf, schema_provider=schema_provider)
+    claimed = parse_edit_delta([_set_field_op("9", "widget_2", 9)])[0]
+    actual = next(
+        op
+        for op in diff(pre_wf, post_wf)
+        if getattr(getattr(op, "target", None), "field_path", "") == "widget_2"
+    )
+    assert _op_fingerprint(_canonicalize_op_field_paths(claimed, ctx)) != _op_fingerprint(
+        _canonicalize_op_field_paths(actual, ctx)
+    )
+    # Wrong slot under the other spelling stays apart too (height ≠ batch_size).
+    wrong_slot = parse_edit_delta([_set_field_op("9", "widget_1", 8)])[0]
+    assert _op_fingerprint(_canonicalize_op_field_paths(wrong_slot, ctx)) != _op_fingerprint(
+        _canonicalize_op_field_paths(actual, ctx)
+    )
+
+
+def test_unresolved_path_fallback_keeps_both_sides_symmetric() -> None:
+    """(i) Unresolvable paths fall back to the RAW string on BOTH sides —
+    no invented equality, no lost equality."""
+    schema_provider = get_schema_provider("auto")
+    pre_wf = _to_workflow_ir(_empty_latent_ui(16), schema_provider=schema_provider)
+    post_wf = _to_workflow_ir(_empty_latent_ui(8), schema_provider=schema_provider)
+    ctx = _field_canon_context(pre_wf, post_wf, schema_provider=schema_provider)
+
+    # Resolution failures: unknown node, out-of-range position, empty path.
+    assert _resolve_field_slot("ghost", "widget_0", ctx) is None
+    assert _resolve_field_slot("9", "widget_7", ctx) is None
+    assert _resolve_field_slot("9", "", ctx) is None
+
+    def fp(uid: str, field: str, value: object = 8):
+        return _op_fingerprint(
+            _canonicalize_op_field_paths(
+                parse_edit_delta([_set_field_op(uid, field, value)])[0], ctx
+            )
+        )
+
+    # Raw fallback compares raw strings: identical raws stay equal, distinct
+    # raws stay unequal — exactly the pre-canonicalization relation.
+    assert fp("ghost", "widget_0") == fp("ghost", "widget_0")
+    assert fp("ghost", "widget_0") != fp("ghost", "steps")
+    assert fp("9", "widget_7") == fp("9", "widget_7")
+    assert fp("9", "widget_7") != fp("9", "batch_size")
+
+    # End-to-end: the schema-unresolved positional claim stays rejected by the
+    # apply boundary's own validation gate, NOT by fingerprint asymmetry — its
+    # fingerprint against the identically-spelled actual change is equal.
+    result = _verify_delta_replay(
+        _splitsigmas_ui(6),
+        _splitsigmas_ui(8),
+        [_set_field_op("47", "widget_0", 8)],
+        schema_provider=schema_provider,
+    )
+    assert result["verified"] is False
+    sig_pre = _to_workflow_ir(_splitsigmas_ui(6), schema_provider=schema_provider)
+    sig_post = _to_workflow_ir(_splitsigmas_ui(8), schema_provider=schema_provider)
+    sig_ctx = _field_canon_context(sig_pre, sig_post, schema_provider=schema_provider)
+    claimed = parse_edit_delta([_set_field_op("47", "widget_0", 8)])[0]
+    actual = next(
+        op
+        for op in diff(sig_pre, sig_post)
+        if getattr(getattr(op, "target", None), "uid", "") == "47"
+    )
+    assert _op_fingerprint(_canonicalize_op_field_paths(claimed, sig_ctx)) == _op_fingerprint(
+        _canonicalize_op_field_paths(actual, sig_ctx)
+    )
