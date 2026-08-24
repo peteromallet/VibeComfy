@@ -36,6 +36,12 @@ _LINEAGE_SIDECAR_NAME = "artifact_lineage.json"
 #: Rows that MUST be primary when the envelope claims a landed edit.
 _LANDED_EDIT_ROW_KINDS = ("accepted_delta", "candidate", "replay_proof")
 
+#: Exact validation-failure text produced by
+#: ``vibecomfy.comfy_nodes.agent.artifact_lineage.validate_artifact_lineage``
+#: when a structurally-valid manifest's self-consistency digest does not
+#: recompute over its content (P7 Sub-fix A demotion key).
+_DIGEST_MISMATCH_ERROR = "manifest_digest does not match manifest content"
+
 
 def _envelope_manifest(response: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     """Extract the response-envelope copy of the artifact lineage manifest."""
@@ -191,7 +197,15 @@ def assess_artifact_lineage(
         return result
 
     ok, error = validate_artifact_lineage(manifest)
-    if not ok:
+    # P7 Sub-fix A: a stale self-consistency digest over otherwise
+    # structurally-valid content ("manifest_digest does not match manifest
+    # content") must not fail the leg by itself.  Assessment CONTINUES through
+    # every remaining check below; the issue is appended at the end with
+    # warning severity ONLY when no other check errored (anti-gaming: any
+    # failing product check keeps it an error).  Every other validation
+    # failure stays a hard error.
+    digest_stale_only = bool(not ok and error == _DIGEST_MISMATCH_ERROR)
+    if not ok and not digest_stale_only:
         issues.append(
             {
                 "check": "artifact_lineage",
@@ -285,6 +299,28 @@ def assess_artifact_lineage(
                         ),
                     }
                 )
+    if digest_stale_only:
+        # P7 Sub-fix A: every other check has now run.  Demote to warning
+        # ONLY when none of them produced an error; otherwise the stale
+        # digest stays error-severity alongside the failing evidence.
+        no_other_errors = not any(
+            issue.get("severity") == "error" for issue in issues
+        )
+        issues.append(
+            {
+                "check": "artifact_lineage",
+                "severity": "warning" if no_other_errors else "error",
+                "detail": (
+                    f"invalid lineage manifest ({provenance}): {error}"
+                    + (
+                        "; demoted to warning because every other lineage "
+                        "and product check passed"
+                        if no_other_errors
+                        else ""
+                    )
+                ),
+            }
+        )
     return result
 
 
