@@ -6074,3 +6074,54 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 
 - **Mechanically complete through §29a; PARKED on four operator-reserved blockers: (1) FRESH-FINALE authorization — 2/20 steady data supplied; (2) FINAL50-LOCK-DRIFT 9-entry regen — 18 digests, draft at `g0/FINAL50-LOCK-REGEN-DRAFT.md`; (3) PROVIDER/CREDITS — ambient OPENROUTER_API_KEY absent, DEEPSEEK_API_KEY functional; (4) PUSH-BLOCKED-001 — 45 unpushed commits, history decision pending. CORPUS MOUNT resolved. G7 remains `status: open` until operator authorizes next card.** No further local cards actionable without operator authorization; evidence/validator discipline continues.
 
+## EVIDENCE-GROK50-ADVISORY — record orphaned advisory disposition + verified P2 residual + updated decision package — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied orphaned advisory provenance, advisory verdict, verified P2 residual, and updated decision package into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a — values never quoted; refer by name and line identity only. No card, gate, or receipt status is changed by this entry.
+
+### 1. Orphaned advisory dispatch (provenance)
+
+- Query `g0/grok50-query.md` authored ~2026-08-24T11:29:45Z by a prior orchestrator session that was subsequently killed.
+- Dispatched 2026-08-24T11:40:13Z via RAW launcher path (`launch_omp_agent.py --model=grok-4.6 --query-file=g0/grok50-query.md --project-dir=<exec-spine> --timeout=1800`), parent-reparented-to-init on session death; child survived per survival design; completed naturally ~2026-08-24T11:51:05Z (~11 min). Read-only advisory: no repo mutation (tracked tree clean verified post-completion).
+- Output preserved by orchestrator at `g0/grok50-advisory-result.md` (19093 bytes, sha256 prefix f13bf3027dc3363d).
+- Classification: non-authoritative advisory input to OPEN blocker FRESH-FINALE-AUTHORIZATION; not a card, no gate status change.
+
+### 2. Advisory verdict (summary for the log)
+
+- FIX-1..4 + 29a close parser/ingest/assessor MISGRADES, not the authoring/replay defects killing product. Post-FIX honest floor estimate: 8-12/50 (was projected 18-28 WITH D1-D8 also landed).
+- >50%-on-both-modes path requires, in order: P0 widget_N->named-slot canonicalization BEFORE seal with snapshot-frozen name table as sole name authority; P1 single replay-hash domain = frozen snapshot + empty-candidate clarify honesty; P2 finish `_known_output` None-guard; P5 persist accepted_batch on terminal so the undetermined-13 cohort can be rebound and intent-judged (the "50% lever": est. 6-9 of 13 honest flips); plus P3 signatures.py snapshot literals, P4 object_info provision, P6 corpus leftovers (90a1d5, graph.inputs.model orphan), P7 evidence hygiene, P8 executor-model choice (ox-alpha primary implement; codex-sol escalation only on structural subset if <13/25 after P0-P5).
+- Projected ceilings with full set: staged 16-22/25, threaded 14-20/25. Hard unique-ID product ceiling ~35-40/50 (schema-proven-absence G1 classes + judge-semantic residue are not model-purchasable).
+- Validation design: both modes on SAME 50 scenarios; mode_pass_rate = product_pass/50 per mode, gate both >= 25/50 (or >= 13/25 per split half); anti-gaming locks: never promote applied-unverified to pass; undetermined count must fall, leftover undetermined = spine bug; pre-registered pass lists forbidden; per-leg proof artifacts required.
+
+### 3. Orchestrator mechanical verification of advisory claim P2 (VERIFIED TRUE at HEAD)
+
+- File `vibecomfy/porting/edit/_op_validate.py`, function `_known_output`, line 168: `if str(slot) in {str(name) for name in names if name is not None}:` iterates `names`.
+- `names` is bound at line 153 from `metadata.get("output_names")`; the isinstance(list,tuple) guard at line 154 does NOT cover the fall-through where `metadata._ui.outputs` IS a list/tuple (line 159) but `output_names` is absent/None -> set comprehension over None raises TypeError ('NoneType' object is not iterable).
+- This is the exact residual fail-open crash class FIX-3 claimed closed. Still live at HEAD. Recorded as OPEN residual defect pending operator decision (NOT fixed in this card).
+
+### 4. Updated decision package for open blocker FRESH-FINALE-AUTHORIZATION
+
+- Operator options now:
+  (a) authorize fresh authoritative finale re-run on current state — expected honest outcome 8-12/50;
+  (b) authorize P0-P5 fix campaign first (advisory assessment: independently correct spine fixes), then rerun validation window + fresh finale authorization per established flow;
+  (c) stop-and-document.
+- All four existing blockers unchanged: fresh-finale authorization pending; FINAL50-LOCK-DRIFT regen reserved to operator; provider provisioning needed (OPENROUTER absent from env, DEEPSEEK ambient only); PUSH-BLOCKED-001 history op needs explicit authorization.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**). `label` unchanged. `evidence_sequence` now **66 records** (65 prior + `66 EVIDENCE-GROK50-ADVISORY` evidence `5329ae8f` advisory disposition; canonical_slot `EVIDENCE-GROK50-ADVISORY`; no receipt — non-authoritative advisory + verified P2 residual only).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`, 12 shards S0→S11 + singleton `broad_suite_once_v1` T6.3-owned). No shard rewrite required; included in allowance only.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `test-shards.json` byte-identical — `TEST_SINGLETON` green. Credential hygiene green: receipts 0 hits, execution-log identity set exact-five match, plan/goal 0 hits.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-GROK50-ADVISORY` section) + `manifest.json` G7 `evidence_sequence[66]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `5329ae8f` IS ancestor of HEAD (`git merge-base --is-ancestor 5329ae8f HEAD` exit 0); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green); canonical six-entry manifest unchanged at `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`.
+- **Secret hygiene:** all credential material REDACTED (`[REDACTED]` canonical only); suffixed `[REDACTED]<suffix>` never emitted; the five historical secret lines are referenced only by (lineno, sha256) identities above, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only. Receipts verified to contain no live credential bearer material (validator `CREDENTIAL_HYGIENE` green).
+- **No push / no history rewrite:** G7 did NOT pass via this evidence; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at base `5329ae8f` + new commit; no rebase/reset/amend/history rewrite of the leaked key.
+- **JUDGMENT_REQUIRED: none** (advisory disposition only; residual P2 + decision package are deferred operator decisions, not new judgments).
+
+### Position — advisory recorded, G7 still open pending operator
+
+- **Orphaned grok-4.6 advisory (f13bf302, 19093 bytes, 11m read-only) recorded as non-authoritative input to FRESH-FINALE-AUTHORIZATION; P2 residual VERIFIED TRUE at HEAD (`_op_validate.py:168` None-iterable); updated decision package: (a) fresh finale 8-12/50, (b) P0-P5 campaign then rerun, (c) stop-and-document. Four blockers unchanged. G7 remains `status: open` until operator authorizes next card.** No further local cards actionable without operator authorization; evidence/validator discipline continues.
+
