@@ -48,6 +48,11 @@ class NodeFieldSnapshot(TypedDict):
     outgoing_edge_sig: tuple
     # Sorted tuple of (public_input_name, bound_field)
     public_input_binding: tuple
+    # Canonical compact-widget field names aligned 1:1 with widgets_values
+    # positions (P0-WIDGET-CANON).  Frozen at seal time; the ONLY name
+    # authority consumed by admit / interpret / emit / replay.  Deliberately
+    # excluded from _semantic_preimage so digest equality is unchanged.
+    widget_names_sig: tuple
 
 
 class SnapshotAuthorityError(ValueError):
@@ -92,6 +97,35 @@ class WorkflowSnapshot:
     lineage: WorkflowLineage = field(default_factory=WorkflowLineage)
     field_snapshot: Mapping[str, NodeFieldSnapshot] = field(default_factory=dict)
     shape: str = "unknown"
+
+
+def _capture_widget_names(
+    node: Any,
+    node_id: str,
+    incoming: Mapping[str, list],
+) -> tuple[str, ...]:
+    """Seal one node's canonical compact-widget name roster (P0-WIDGET-CANON).
+
+    Resolved once here with the full source precedence (linked sockets
+    excluded via the incoming-edge truth), then frozen: later admit /
+    interpret / emit / replay stages read THIS table and never re-derive
+    names from ambient object_info or live provider state.
+
+    Lazy resolver import: ``compact_resolver`` sits above ingest in the
+    layering, and importing it at module load would cycle through
+    ``ingest.normalize``.
+    """
+    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
+
+    linked_inputs = frozenset(str(to_input) for to_input, _ in incoming.get(node_id, []))
+    try:
+        resolution = compact_widget_names_for_node(
+            node,
+            linked_inputs=linked_inputs,
+        )
+    except Exception:  # noqa: BLE001 - sealing must never fail on exotic nodes
+        return ()
+    return tuple(resolution.names)
 
 
 def capture_ingest_snapshot(
@@ -151,7 +185,6 @@ def capture_ingest_snapshot(
         # Combine non-link widget and input values into a sorted, canonicalized sig.
         all_values: dict[str, Any] = {**node.widgets, **node.inputs}
         widget_sig = tuple(sorted((k, repr(v)) for k, v in all_values.items()))
-
         incoming_sig = tuple(sorted(incoming.get(node_id, [])))
         outgoing_sig = tuple(sorted(outgoing.get(node_id, [])))
         binding_sig = tuple(sorted(public_bindings.get(node_id, [])))
@@ -162,8 +195,31 @@ def capture_ingest_snapshot(
             "incoming_edge_sig": incoming_sig,
             "outgoing_edge_sig": outgoing_sig,
             "public_input_binding": binding_sig,
+            "widget_names_sig": _capture_widget_names(node, node_id, incoming),
         }
+    return result
 
+
+
+def frozen_widget_names_by_uid(workflow: Any) -> Mapping[str, tuple[str, ...]]:
+    """Read the sealed node→field-names table off *workflow*'s snapshot.
+
+    Returns ``{uid: names}`` for every node whose seal captured a non-empty
+    roster.  This mapping is the single name authority handed to admit /
+    interpret / emit / replay; consumers never re-derive names from ambient
+    object_info or live provider state for sealed nodes.
+    """
+    snapshot = snapshot_of(workflow)
+    if snapshot is None:
+        return {}
+    field_snapshot = getattr(snapshot, "field_snapshot", None)
+    if not isinstance(field_snapshot, Mapping):
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for uid, snap in field_snapshot.items():
+        names = snap.get("widget_names_sig") if isinstance(snap, Mapping) else None
+        if isinstance(names, (list, tuple)) and names:
+            result[str(uid)] = tuple(str(name) for name in names if name)
     return result
 
 

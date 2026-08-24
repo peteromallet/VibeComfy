@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from collections import Counter
 from dataclasses import dataclass
 import re
@@ -29,6 +29,80 @@ _CONTROL_AFTER_GENERATE_VALUES = {"fixed", "randomize", "increment", "decrement"
 _PRIMITIVE_CONTROL_WIDGET_CLASSES = {"PrimitiveBoolean", "PrimitiveFloat", "PrimitiveInt"}
 
 
+_FIELD_SNAPSHOT_SOURCE = "field_snapshot"
+
+
+def _frozen_authority_names(
+    node: Mapping[str, Any] | Any,
+    name_authority: Mapping[str, Sequence[str | None]] | None,
+) -> Sequence[str | None] | None:
+    """Frozen per-uid names from the sealed ``WorkflowSnapshot`` table (R3).
+
+    A hit is the sole name authority: ambient sources (metadata aliases,
+    object_info, live providers) are never consulted for that node again.
+    """
+    if not isinstance(name_authority, Mapping) or not name_authority:
+        return None
+    uid = getattr(node, "uid", None)
+    if not uid and isinstance(node, Mapping):
+        uid = node.get("uid")
+    if not uid:
+        return None
+    names = name_authority.get(str(uid))
+    if names is None:
+        return None
+    return tuple(names)
+
+
+def _iter_input_slots(node: Mapping[str, Any] | Any) -> list[tuple[str, Any]]:
+    """Yield (name, payload) pairs for the node's input slots, both shapes."""
+    inputs = getattr(node, "inputs", None)
+    if isinstance(node, Mapping) and not isinstance(inputs, (Mapping, list)):
+        inputs = node.get("inputs")
+    slots: list[tuple[str, Any]] = []
+    if isinstance(inputs, Mapping):
+        slots.extend((str(name), value) for name, value in inputs.items())
+    elif isinstance(inputs, list):
+        for slot in inputs:
+            if isinstance(slot, Mapping) and slot.get("name"):
+                slots.append((str(slot["name"]), slot))
+    metadata = _metadata(node)
+    ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    ui_inputs = ui.get("inputs") if isinstance(ui, Mapping) else None
+    if isinstance(ui_inputs, list):
+        for slot in ui_inputs:
+            if isinstance(slot, Mapping) and slot.get("name"):
+                slots.append((str(slot["name"]), slot))
+    return slots
+
+
+def _resolved_linked_input_names(
+    node: Mapping[str, Any] | Any,
+    linked_inputs: Collection[str] | None,
+) -> frozenset[str]:
+    """Union explicit caller evidence with the node's own link state (R1)."""
+    linked = {str(name) for name in linked_inputs or ()}
+    for name, payload in _iter_input_slots(node):
+        if isinstance(payload, Mapping):
+            # Litegraph/UI stub shape: a non-null link id means connected.
+            if payload.get("link") is not None:
+                linked.add(name)
+        elif isinstance(payload, (list, tuple)) and len(payload) >= 2:
+            # Retained IR / API shape: a [source_id, slot] pair is a link.
+            linked.add(name)
+    return frozenset(linked)
+
+
+def _exclude_linked(
+    names: list[str | None],
+    linked: frozenset[str],
+) -> list[str | None]:
+    """Drop linked sockets from a candidate roster, keeping alignment (R1)."""
+    if not linked:
+        return names
+    return [None if isinstance(name, str) and name in linked else name for name in names]
+
+
 def compact_widget_names_for_node(
     node: Mapping[str, Any] | Any,
     class_type: str | None = None,
@@ -36,14 +110,30 @@ def compact_widget_names_for_node(
     value_count: int | None = None,
     schema_provider: Any | None = None,
     allow_object_info_fallback: bool = True,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
+    linked_inputs: Collection[str] | None = None,
 ) -> WidgetNameResolution:
-    """Return names aligned 1:1 to compact ``widgets_values`` positions."""
+    """Return names aligned 1:1 to compact ``widgets_values`` positions.
+
+    P0-WIDGET-CANON:
+    * ``name_authority`` — the frozen per-uid name table sealed onto
+      ``WorkflowSnapshot.field_snapshot``.  A hit short-circuits every
+      ambient source: the sealed table is the sole name authority.
+    * ``linked_inputs`` — input names carried by a graph connection.  A
+      linked socket never qualifies as a compact-widget name source (R1);
+      its slot falls back to honest positional ``widget_N`` addressing.
+    """
 
     class_type = class_type or _node_class_type(node)
     count = _compact_value_count(node, value_count)
     if count is None:
         count = 0
 
+    authority_names = _frozen_authority_names(node, name_authority)
+    if authority_names is not None:
+        return _align_names(list(authority_names), count, _FIELD_SNAPSHOT_SOURCE)
+
+    linked = _resolved_linked_input_names(node, linked_inputs)
     for source, names in _candidate_name_sources(
         node,
         class_type,
@@ -53,7 +143,7 @@ def compact_widget_names_for_node(
     ):
         if not names:
             continue
-        return _align_names(names, count, source)
+        return _align_names(_exclude_linked(names, linked), count, source)
 
     return _align_names([], count, "unresolved")
 
@@ -63,19 +153,24 @@ def widget_index_for_field(
     field_name: str,
     *,
     schema_provider: Any | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> int | None:
     count = _compact_value_count(node, None)
     match = _WIDGET_KEY_RE.fullmatch(field_name)
     if match is not None:
         index = int(match.group(1))
         if count is None or 0 <= index < count:
-            resolution = compact_widget_names_for_node(node, schema_provider=schema_provider)
+            resolution = compact_widget_names_for_node(
+                node, schema_provider=schema_provider, name_authority=name_authority
+            )
             if _is_leading_null_padded_placeholder(node, resolution, index):
                 return None
             return index
         return None
 
-    resolution = compact_widget_names_for_node(node, schema_provider=schema_provider)
+    resolution = compact_widget_names_for_node(
+        node, schema_provider=schema_provider, name_authority=name_authority
+    )
     duplicates = {
         name
         for name, total in Counter(name for name in resolution.names if name).items()
@@ -94,12 +189,15 @@ def widget_value_for_field(
     field_name: str,
     *,
     schema_provider: Any | None = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> Any:
     values = _compact_values(node)
     if isinstance(values, Mapping):
         return values[field_name] if field_name in values else _MISSING_WIDGET_VALUE
     if isinstance(values, list):
-        index = widget_index_for_field(node, field_name, schema_provider=schema_provider)
+        index = widget_index_for_field(
+            node, field_name, schema_provider=schema_provider, name_authority=name_authority
+        )
         if index is not None and 0 <= index < len(values):
             return values[index]
     return _MISSING_WIDGET_VALUE
