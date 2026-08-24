@@ -6018,3 +6018,59 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 
 - **§29a hardened: wrapper `_redact_secrets`+`_json_write` + validator `CREDENTIAL_HYGIENE`/`CREDENTIAL_HYGIENE_BASELINE` with exact-placeholder boundaries and identity-pinned baseline are LANDed and CLOSED per adjudication (3 commits, 2 reviews, 1 adjudication, 1 closure revision; 91 focused tests green). G7 remains `status: open` until operator-authorized finale (FINAL50 lock-regen + provider + corpus + push-strategy).** No further local cards actionable without operator authorization; evidence/validator discipline continues.
 
+## STATUS-ADDENDUM-001 — parked pending operator decisions (2026-08-24)
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-verified parked state (fresh 2026-08-24) into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a — values never quoted; refer by name and line identity only.
+
+### 1. Purpose
+
+- The branch is mechanically complete through §29a but PARKED: every remaining action crosses an operator-reserved boundary. The stop record (`44c43c73`) predates several sharpenings; this addendum is the single current decision package, verified fresh on 2026-08-24 by the orchestrator. Recorded verbatim-faithful; no editorializing.
+
+### 2. Verified state to record (fresh 2026-08-24)
+
+- **HEAD / remote / validator:** LOCAL HEAD `189bb74f` on `fixer/workflow-execution-spine-consolidation`; remote origin head still `743cc102`; local ahead by 45 commits (`git ls-remote` + `rev-list` verified 2026-08-24). Evidence validator exits 0 at HEAD.
+- **G0..G6 PASSED/CLOSED+pushed (`743cc102`). T7.2-FINALE-SPLIT authoritative 50-leg done (honest score 5/50: 31 product fail / 13 undetermined / 1 infra-blocked / 5 pass). §27 rounds R1–R3 steady at 2/20; report `d9936b64`; stop record `44c43c73`. §28 FIX-1..FIX-4 chains closed; post-fix RE-RUN-20 window (receipt start 2026-08-24T05:20:38Z, exit 0) shows NO improvement: still 2/20 (families: product 13 / ValidationError 2 / RefusedEmit 1 / infra 2). MANIFEST-REGEN-FIX4 `5d541979` (9 digests, 100/100 match). §29a REDACT-WRITEPATH chain closed at `189bb74f` (see evidence-log-T29A).**
+
+### 3. Open blocker 1 — FRESH-FINALE AUTHORIZATION (operator)
+
+- §28/§29b reserve the fresh authoritative finale re-run to the operator. Honest data supplied: post-fix window no improvement (2/20). Operator options: (a) authorize fresh authoritative 50-leg finale anyway, (b) more fix rounds, (c) stop-and-document. Request sent 2026-08-24.
+
+### 4. Open blocker 2 — FINAL50-LOCK-DRIFT (operator-reserved regen)
+
+- `validate-only` on `tests/live_agentic_harness/threaded_comparison_manifest_final50.json` fails fast: "descriptor lock drift for 3d-3d-model-generation-and-retargeting-workflow-f65774" (re-verified 2026-08-24). Exactly 9/50 entries drift — `descriptor_sha256` + `locked_input_sha256` only; `source_workflow_sha256` clean (0 drift). Regen = mechanical recompute of 18 digests (9 entries × 2) post-FIX-4 alignment; draft brief pre-staged at `g0/FINAL50-LOCK-REGEN-DRAFT.md`; reserved to operator because it touches frozen finale inputs.
+
+### 5. Open blocker 3 — PROVIDER/CREDITS (operator-provisioned)
+
+- `OPENROUTER_API_KEY` absent from ambient env and from `/workspace/.creds/omp.env` (rotated key dead; account also hit `INSUFFICIENT_CREDITS` mid-window — one leg infra-blocked). `DEEPSEEK_API_KEY` present and functional; RE-RUN-20 legs ran native `deepseek-v4-flash` (deviation from the openrouter endpoint used by R1–R3 noted). Any paid run needs operator-provisioned provider.
+
+### 6. Open blocker 4 — PUSH-BLOCKED-001 (operator-authorized history decision)
+
+- Push of HEAD rejected by GitHub secret protection: the rotated-dead OpenRouter key sits in committed execution-log history (introduced `1f2fa5f7`, log line ~4521 `OPENROUTER_API_KEY` pattern; 4 occurrences + 1 sk-or-v1 pattern). §29a write-path redaction prevents NEW secret material; historical lines remain (identity-pinned baseline guards drift). No history op without authorization (§9). Options: scrub+force-push / clean branch / accept locally-complete with 45 unpushed commits.
+
+### 7. Resolved item (no action needed)
+
+- CORPUS MOUNT resolved for final50: all 50 scenarios' workflow JSONs present under `external_workflows/corpus/` (36 files; id-suffix naming convention), content hashes match canonical registry with ZERO drift (verified 2026-08-24T09:40Z). Prior "59/100 gap" claim stale. No provisioning needed for a final50 run.
+
+### 8. Next unblocked card
+
+- None mechanically unblocked. All four blockers above are operator decisions; evidence/validator discipline resumes with whichever card the operator authorizes first.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**). `label` unchanged. `evidence_sequence` now **65 records** (64 prior + `65 STATUS-ADDENDUM-001` `STATUS-ADDENDUM-001` evidence `189bb74f` parked-state consolidation; canonical_slot `STATUS-ADDENDUM-001`; no receipt — parked decision package only).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`, 12 shards S0→S11 + singleton `broad_suite_once_v1` T6.3-owned). No shard rewrite required; included in allowance only.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `test-shards.json` byte-identical — `TEST_SINGLETON` green. Credential hygiene green: receipts 0 hits, execution-log identity set exact-five match, plan/goal 0 hits.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the three allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `STATUS-ADDENDUM-001` section) + `manifest.json` G7 `evidence_sequence[65]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `189bb74f` IS ancestor of HEAD (`git merge-base --is-ancestor 189bb74f HEAD` exit 0); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green); canonical six-entry manifest unchanged at `96b287c04718a59e09c4d8046ec4df9b7131644a709ee50eb8cb8a236086c323`.
+- **Secret hygiene:** all credential material REDACTED (`[REDACTED]` canonical only); suffixed `[REDACTED]<suffix>` never emitted; the five historical secret lines are referenced only by (lineno, sha256) identities above, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only. Receipts verified to contain no live credential bearer material (validator `CREDENTIAL_HYGIENE` green).
+- **No push / no history rewrite:** G7 did NOT pass via this evidence; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at base `189bb74f` + new commit; no rebase/reset/amend/history rewrite of the leaked key.
+- **JUDGMENT_REQUIRED: none** (parked-state consolidation; four operator blockers are deferred decisions, not new judgments).
+
+### Position — PARKED pending operator decisions (2026-08-24)
+
+- **Mechanically complete through §29a; PARKED on four operator-reserved blockers: (1) FRESH-FINALE authorization — 2/20 steady data supplied; (2) FINAL50-LOCK-DRIFT 9-entry regen — 18 digests, draft at `g0/FINAL50-LOCK-REGEN-DRAFT.md`; (3) PROVIDER/CREDITS — ambient OPENROUTER_API_KEY absent, DEEPSEEK_API_KEY functional; (4) PUSH-BLOCKED-001 — 45 unpushed commits, history decision pending. CORPUS MOUNT resolved. G7 remains `status: open` until operator authorizes next card.** No further local cards actionable without operator authorization; evidence/validator discipline continues.
+

@@ -1432,6 +1432,14 @@
           "label": "T29A revision 2",
           "model_route": "ox-alpha",
           "exit": 0
+        },
+        {
+          "sequence": 65,
+          "canonical_slot": "STATUS-ADDENDUM-001",
+          "task_id": "STATUS-ADDENDUM-001",
+          "label": "STATUS-ADDENDUM-001 \u2014 parked pending operator decisions (2026-08-24) \u2014 evidence dispatch (parked-state consolidation)",
+          "role": "evidence",
+          "disposition": "recorded"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1855,7 +1863,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "2cf41474cd6a69c8b0c85ac26bf5297970d665e32bf9d6f5725a03ac676035d0",
+        "sha256": "963063dd47d833a4bd2d17530ebfbab136e8eba2167d94762ba315fc5e9d7572",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
