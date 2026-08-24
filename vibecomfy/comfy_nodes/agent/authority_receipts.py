@@ -68,6 +68,11 @@ class ReplayReceipt:
     error: str | None = None
     op_count: int = 0
     verification_kind: str | None = None
+    # P1-REPLAY-HASH-DOMAIN: the frozen per-node widget-name roster this
+    # replay consumed, keyed by RAW submit-graph node id.  Recorded so the
+    # hash domain of record stays reproducible from persisted bytes alone;
+    # ``None`` on receipts minted before P1 (domain was implicit).
+    frozen_name_table: Mapping[str, tuple[str, ...]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -78,10 +83,29 @@ class ReplayReceipt:
             "error": self.error,
             "op_count": self.op_count,
             "verification_kind": self.verification_kind,
+            "frozen_name_table": (
+                {
+                    str(node_id): [name if isinstance(name, str) else None for name in names]
+                    for node_id, names in self.frozen_name_table.items()
+                    if isinstance(names, (list, tuple))
+                }
+                if isinstance(self.frozen_name_table, Mapping) and self.frozen_name_table
+                else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ReplayReceipt":
+        raw_table = data.get("frozen_name_table")
+        frozen_table: dict[str, tuple[str, ...]] | None = None
+        if isinstance(raw_table, Mapping) and raw_table:
+            parsed: dict[str, tuple[str, ...]] = {}
+            for node_id, names in raw_table.items():
+                if isinstance(node_id, str) and isinstance(names, (list, tuple)):
+                    roster = tuple(str(name) for name in names if isinstance(name, str) and name)
+                    if roster:
+                        parsed[node_id] = roster
+            frozen_table = parsed or None
         return cls(
             replay_ok=bool(data.get("replay_ok", False)),
             candidate_matches=bool(data.get("candidate_matches", False)),
@@ -90,6 +114,7 @@ class ReplayReceipt:
             error=data.get("error"),
             op_count=int(data.get("op_count", 0)),
             verification_kind=(data.get("verification_kind") if isinstance(data.get("verification_kind"), str) else None),
+            frozen_name_table=frozen_table,
         )
 
 
@@ -314,6 +339,19 @@ def validate_authority_receipt_v2(raw: Mapping[str, Any]) -> AuthorityReceipt:
     op_count = replay.get("op_count", 0)
     if type(op_count) is not int or op_count < 0:
         raise AuthorityReceiptValidationError("invalid_op_count_type")
+    # P1-REPLAY-HASH-DOMAIN: optional recorded name domain.  Receipts minted
+    # before P1 omit the key and stay valid; when present it must be a
+    # raw-node-id → roster mapping.  Recording an INVALID shape fails closed
+    # rather than silently ignoring tampered evidence.
+    frozen_name_table = replay.get("frozen_name_table")
+    if frozen_name_table is not None:
+        if not isinstance(frozen_name_table, Mapping) or not frozen_name_table:
+            raise AuthorityReceiptValidationError("invalid_frozen_name_table")
+        for node_id, names in frozen_name_table.items():
+            if not isinstance(node_id, str) or not node_id:
+                raise AuthorityReceiptValidationError("invalid_frozen_name_table")
+            if not isinstance(names, list):
+                raise AuthorityReceiptValidationError("invalid_frozen_name_table")
     verification_kind = replay.get("verification_kind")
     if verification_kind not in _ALLOWED_REPLAY_VERIFICATION_KINDS:
         raise AuthorityReceiptValidationError("unknown_verification_kind")
@@ -412,11 +450,147 @@ def _extract_delta_ops_from_envelope(envelope: Any) -> tuple[Any, ...]:
     }).ops
 
 
+def _seal_frozen_name_domain(
+    workflow: Any,
+    name_authority: Mapping[str, Any] | None,
+) -> Any:
+    """Seal the retained hash domain's widget-name roster over a fresh ingest.
+
+    P1-REPLAY-HASH-DOMAIN (R1).  ``name_authority`` maps RAW submit-graph
+    node ids to positional compact-widget rosters.  For every node present in
+    both the table and the freshly-ingested workflow this:
+
+    1. overwrites the ingest-sealed ``widget_names_sig`` roster — interpret,
+       apply, and emit read exactly this frozen table afterwards; and
+    2. re-keys the node's IR widget-literal fields onto the frozen roster
+       (positional alignment comes from the retained raw widget payload), so
+       provider-derived field names assigned at ingest cannot shift which
+       value occupies which emitted slot.
+
+    Nodes absent from the table keep their own ingest evidence.  The snapshot
+    is replaced wholesale via ``dataclasses.replace`` — the same pattern as
+    ``bind_snapshot_lineage`` — and ``widget_names_sig`` is excluded from the
+    semantic preimage, so digest equality is unchanged.
+    """
+    if not isinstance(name_authority, Mapping) or not name_authority:
+        return workflow
+    from dataclasses import replace as _dc_replace
+
+    from vibecomfy.ingest.snapshot import (
+        WORKFLOW_SNAPSHOT_METADATA_KEY,
+        snapshot_of,
+    )
+
+    snapshot = snapshot_of(workflow)
+    if snapshot is None:
+        return workflow
+    field_snapshot = getattr(snapshot, "field_snapshot", None)
+    if not isinstance(field_snapshot, Mapping):
+        return workflow
+
+    patched: dict[str, Any] = {}
+    hit = False
+    for node_id, node in getattr(workflow, "nodes", {}).items():
+        key = getattr(node, "uid", None) or node_id
+        current = field_snapshot.get(key)
+        roster = name_authority.get(str(node_id))
+        if current is None:
+            continue
+        if isinstance(roster, (list, tuple)) and roster:
+            names = tuple(str(name) for name in roster if name)
+            if names:
+                patched[str(key)] = {**current, "widget_names_sig": names}
+                hit = True
+                _rekey_ir_widget_fields(node, names)
+                continue
+        patched[str(key)] = current
+    if not hit:
+        return workflow
+    metadata = getattr(workflow, "metadata", None)
+    if isinstance(metadata, dict):
+        metadata[WORKFLOW_SNAPSHOT_METADATA_KEY] = _dc_replace(
+            snapshot, field_snapshot=patched
+        )
+    return workflow
+
+
+def _rekey_ir_widget_fields(node: Any, names: tuple[str, ...]) -> None:
+    """Rename one node's IR widget-literal fields onto the frozen roster.
+
+    Ingest assigns IR field names from whatever schema surface it resolved;
+    under a drifted provider those NAMES differ even when the positional
+    values are identical.  The retained raw widget payload is the positional
+    truth, so literal entries are rebuilt positionally under the frozen
+    roster.  Link-shaped values and count mismatches are left untouched
+    (fail-honest: the seal roster still pins interpretation).
+    """
+    inputs = getattr(node, "inputs", None)
+    if not isinstance(inputs, dict) or not inputs:
+        return
+    raw_widgets = getattr(node, "raw_widgets", None)
+    values = list(getattr(raw_widgets, "values", None) or ())
+    literals = [
+        (key, value)
+        for key, value in inputs.items()
+        if not (isinstance(value, (list, tuple)) and len(value) == 2)
+    ]
+    if not values or len(literals) != len(values):
+        return
+    rebuilt = dict(inputs)
+    for (key, value), name in zip(literals, names):
+        if key != name:
+            del rebuilt[key]
+            rebuilt[name] = value
+    node.inputs = rebuilt
+
+
+def canonical_frozen_name_table(
+    submit_graph: Mapping[str, Any] | None,
+    *,
+    schema_provider: Any = None,
+) -> dict[str, tuple[str, ...]]:
+    """Derive THE frozen widget-name domain of record for one replay.
+
+    P1-REPLAY-HASH-DOMAIN (R1): the domain is a deterministic function of the
+    persisted bytes — the submit graph plus the frozen admission schema
+    snapshot reconstructed by the caller (``schema_provider_from_witness``).
+    One canonical offline ingest seals each node's compact-widget roster once;
+    the resulting table is what ``build_authority_receipt`` records on the
+    receipt and stamps into every replay, so verification never depends on
+    ambient object_info or a drifted second provider.  Any error yields an
+    empty table (fail-closed: replay then runs unpinned and honest).
+    """
+    if not isinstance(submit_graph, Mapping) or not submit_graph:
+        return {}
+    try:
+        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
+
+        workflow = from_ui(
+            dict(submit_graph),
+            schema_provider=schema_provider,
+            use_comfy_converter=False,
+        )
+        sealed = frozen_widget_names_by_uid(workflow)
+        if not sealed:
+            return {}
+        table: dict[str, tuple[str, ...]] = {}
+        for node_id, node in getattr(workflow, "nodes", {}).items():
+            key = getattr(node, "uid", None) or node_id
+            roster = sealed.get(str(key))
+            if roster:
+                table[str(node_id)] = tuple(roster)
+        return table
+    except Exception:  # noqa: BLE001 - derivation must never break minting
+        return {}
+
+
 def recompute_apply(
     submit_graph: Mapping[str, Any],
     cumulative_delta_envelope: Mapping[str, Any] | None,
     *,
     schema_provider: Any = None,
+    name_authority: Mapping[str, Any] | None = None,
 ) -> tuple[bool, Any, str | None, int]:
     """Recompute ``apply(submit_graph, cumulative_delta)`` server-side.
 
@@ -436,6 +610,14 @@ def recompute_apply(
     receives. Determinism and fail-closed semantics are unchanged: the replay is
     still a pure function of ``(submit_graph, ops)`` and still rejects any
     candidate that does not equal its declared delta.
+
+    P1-REPLAY-HASH-DOMAIN (R1): ``name_authority`` — the frozen per-node
+    widget-name roster of the retained hash domain (raw node id → names).
+    When supplied, it is sealed over the fresh ingest BEFORE any name
+    resolution happens, so interpret/apply/emit consume exactly the domain
+    the receipt pins instead of re-deriving widget names under whatever
+    provider this verification runs with.  Hash-equality itself is untouched:
+    only the INPUTS to the hasher are pinned.
     """
     from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.edit._interpret import interpret
@@ -467,6 +649,10 @@ def recompute_apply(
             # fail closed with candidate_hash_mismatch.
             use_comfy_converter=False,
         )
+        # P1-R1: pin the hash domain before admit/interpret/emit run.  With no
+        # explicit table the freshly-sealed ingest roster remains authoritative
+        # (single self-consistent domain), preserving prior behavior.
+        workflow = _seal_frozen_name_domain(workflow, name_authority)
         from vibecomfy.porting.edit.admit import (
             AdmissionRejected,
             admission_snapshot_for,
@@ -507,6 +693,7 @@ def verify_replay(
     candidate: Mapping[str, Any] | None,
     *,
     schema_provider: Any = None,
+    name_authority: Mapping[str, Any] | None = None,
 ) -> ReplayReceipt:
     """Verify that replaying the delta on the submit graph equals the candidate.
 
@@ -529,6 +716,7 @@ def verify_replay(
         submit_graph,
         cumulative_delta_envelope,
         schema_provider=schema_provider,
+        name_authority=name_authority,
     )
     if not ok or recomputed is None:
         return ReplayReceipt(
@@ -589,6 +777,7 @@ def verify_layout_candidate(
     response: Mapping[str, Any],
     *,
     schema_provider: Any = None,
+    name_authority: Mapping[str, Any] | None = None,
 ) -> ReplayReceipt | None:
     """Verify a layout-only candidate on top of the semantic replay result.
 
@@ -609,6 +798,7 @@ def verify_layout_candidate(
         submit_graph or {},
         cumulative_delta_envelope,
         schema_provider=schema_provider,
+        name_authority=name_authority,
     )
     if not ok or semantic_candidate is None:
         return ReplayReceipt(
@@ -689,6 +879,15 @@ def build_authority_receipt(
         delta_envelope=cumulative_delta_envelope,
     )
     persisted_schema_provider = schema_provider_from_witness(schema_witness)
+    # P1-REPLAY-HASH-DOMAIN (R1): derive THE name domain of record once, from
+    # the frozen admission snapshot this witness reconstructs, and consume the
+    # SAME table in the replay below.  The table is recorded on the receipt so
+    # any future verification reproduces the identical hash domain from
+    # persisted bytes instead of re-resolving names under an ambient provider.
+    frozen_name_table = canonical_frozen_name_table(
+        submit_graph,
+        schema_provider=persisted_schema_provider,
+    )
     missing_touched = missing_touched_class_types(
         schema_witness=schema_witness,
         submit_graph=submit_graph,
@@ -721,12 +920,22 @@ def build_authority_receipt(
             candidate,
             response,
             schema_provider=persisted_schema_provider,
+            name_authority=frozen_name_table or None,
         ) or verify_replay(
             submit_graph,
             cumulative_delta_envelope,
             candidate,
             schema_provider=persisted_schema_provider,
+            name_authority=frozen_name_table or None,
         )
+    # Record the domain of record on the replay verdict itself (both the
+    # missing-touched-schema fail-closed receipt and a verified one).
+    from dataclasses import replace as _dc_replace
+
+    replay = _dc_replace(
+        replay,
+        frozen_name_table=dict(frozen_name_table) if frozen_name_table else None,
+    )
 
     submit_graph_hash = payload_hash(submit_graph) if submit_graph is not None else None
     submit_bytes = canonical_json_bytes(submit_graph) if submit_graph is not None else None
@@ -858,6 +1067,33 @@ def _response_claims_applyable(response: Mapping[str, Any]) -> bool:
     return False
 
 
+def _candidate_payload_has_content(value: Any) -> bool:
+    """True when a candidate-authority payload carries any non-empty content.
+
+    P1-R2: candidate authority requires a NON-EMPTY payload.  Empty mappings,
+    empty sequences, and containers that collapse to emptiness once their
+    empty children are stripped — e.g. ``{}``, ``{"graph": {}}``,
+    ``{"nodes": [], "links": []}`` — carry no candidate authority.  Any leaf
+    value (string, number, bool, nested content) counts as content, so real
+    candidates and malformed-but-populated payloads still fail closed.
+    """
+    if value is None:
+        return False
+    if isinstance(value, Mapping):
+        return any(_candidate_payload_has_content(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_candidate_payload_has_content(item) for item in value)
+    return True
+
+
+def _has_accepted_batch_content(response: Mapping[str, Any]) -> bool:
+    """True when the response admits at least one accepted delta entry."""
+    batch = response.get("accepted_batch")
+    if not isinstance(batch, (list, tuple)):
+        return False
+    return any(isinstance(item, Mapping) and item for item in batch)
+
+
 def stamp_response_with_authority(
     response: dict[str, Any],
     receipt: AuthorityReceipt,
@@ -916,8 +1152,12 @@ def stamp_response_with_authority(
         _orig_outcome = response.get("outcome") if isinstance(response.get("outcome"), Mapping) else None
         _report = response.get("report") if isinstance(response.get("report"), Mapping) else None
         _accepted_batch = response.get("accepted_batch")
+        # P1-R2 (empty graph ≠ candidate): a recognized carrier counts as
+        # candidate authority only when it carries NON-EMPTY payload content.
+        # ``candidate={"graph": {}}`` and other all-empty containers are NOT
+        # authority — a pure clarify carrying one must survive verbatim.
         _has_candidate_authority = any(
-            response.get(key)
+            _candidate_payload_has_content(response.get(key))
             for key in (
                 "graph",
                 "candidate",
@@ -1041,7 +1281,26 @@ def stamp_response_with_authority(
             evidence_refs=("authority_receipt",),
             accepted_delta_ids=(),
         )
-    elif receipt.replay.replay_ok and receipt.replay.candidate_matches:
+    elif (
+        receipt.replay.replay_ok
+        and receipt.replay.candidate_matches
+        # P1-R3 (apply eligibility gate): semantic applyability additionally
+        # requires a non-empty accepted batch whenever a REAL delta was
+        # declared.  A matched replay over a declared delta with nothing
+        # admitted must not project ``applyable`` — fail-closed per §25 item 2.
+        # Two documented exemptions keep prior contracts intact:
+        #   * layout structural-noop turns — their empty batch is the
+        #     documented contract (no executable graph edit) and their proof
+        #     is the dedicated layout evidence, not the delta chain; and
+        #   * zero-op identity matches — nothing was mutated, so there is no
+        #     unverified product to demote; identity-turn applyability stays
+        #     owned by the apply-gate layer (porting/edit/apply_gate.py).
+        and (
+            receipt.replay.verification_kind == "layout_structural_noop"
+            or receipt.replay.op_count == 0
+            or _has_accepted_batch_content(response)
+        )
+    ):
         from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
         from vibecomfy.porting.edit.checkpoint import TERMINAL_STATE_APPLIED
 
@@ -1065,8 +1324,48 @@ def stamp_response_with_authority(
             reason=TERMINAL_STATE_APPLIED,
             evidence_refs=("authority_receipt",),
         )
+    elif (
+        receipt.replay.replay_ok
+        and receipt.replay.candidate_matches
+        # P1-R3: a DECLARED, replay-matched delta whose accepted batch is
+        # empty.  Not an authority error — the delta verified but nothing was
+        # admitted — so the response survives, yet applyability is forced
+        # false: ``apply_eligible`` may only be true with a non-empty
+        # accepted batch AND a matching replay.  Zero-op identity matches and
+        # layout structural-noop turns never reach this branch.
+        and receipt.replay.verification_kind != "layout_structural_noop"
+        and receipt.replay.op_count > 0
+    ):
+        from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
+        from vibecomfy.porting.edit.checkpoint import TERMINAL_STATE_NO_CANDIDATE
+
+        stamped["canvas_apply_allowed"] = False
+        stamped["queue_allowed"] = False
+        stamped["apply_allowed"] = False
+        stamped["apply_eligible"] = False
+        eligibility_payload = {
+            "applyable": False,
+            "reason": "no_accepted_batch",
+            "message": (
+                "Replay verification matched, but no delta was admitted; "
+                "there is nothing to apply."
+            ),
+        }
+        for eligibility_field in ("eligibility", "apply_eligibility"):
+            existing = stamped.get(eligibility_field)
+            existing = dict(existing) if isinstance(existing, Mapping) else {}
+            existing.update(eligibility_payload)
+            stamped[eligibility_field] = existing
+        stamped = stamp_terminal_state(
+            stamped,
+            terminal_state=TERMINAL_STATE_NO_CANDIDATE,
+            eligibility=eligibility_payload,
+            reason="no_accepted_batch",
+            evidence_refs=("authority_receipt",),
+        )
 
     return stamped
+
 
 
 
@@ -1127,6 +1426,7 @@ __all__ = [
     "authority_receipt_path",
     "build_and_persist_authority_receipt",
     "build_authority_receipt",
+    "canonical_frozen_name_table",
     "load_authority_receipt",
     "recompute_apply",
     "stamp_response_with_authority",
