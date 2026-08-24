@@ -485,3 +485,37 @@ def test_execution_log_extra_occurrence_exceeds_baseline(tmp_path: Path) -> None
     with pytest.raises(validator.EvidenceValidationError) as caught:
         validator.check_credential_hygiene(None, drifted)
     assert str(caught.value).startswith("CREDENTIAL_HYGIENE_BASELINE")
+
+
+def test_writer_canonical_output_passes_scan_but_raw_fakes_fail(tmp_path: Path) -> None:
+    """MUST-002: writer/validator scan contract must agree on [REDACTED].
+
+    A receipt produced through the wrapper's own _json_write (real-format fake
+    secrets, some with embedded quotes) scans clean once sanitized, hand-written
+    canonical placeholders pass, and raw fake keys still raise the typed
+    CREDENTIAL_HYGIENE_VIOLATION.
+    """
+    evidence = tmp_path / "evidence"
+    (evidence / "receipts").mkdir(parents=True)
+    receipt = evidence / "receipts" / "WRITER-CANON-receipt.json"
+    wrapper._json_write(
+        receipt,
+        {
+            "env": 'OPENAI_API_KEY=fake-value"suffix',
+            "openrouter": "OPENROUTER_API_KEY=fake-live-key-000111222",
+            "deepseek": "DEEPSEEK_API_KEY=another-fake-value",
+            "auth": "Authorization: Bearer fake-bearer-token",
+            "token": "sk-or-v1-FakeKeyFakeKeyFake12",
+        },
+    )
+    placeholder = evidence / "receipts" / "PLACEHOLDER-receipt.json"
+    placeholder.write_text(json.dumps({"env": "OPENAI_API_KEY=[REDACTED]", "auth": "authorization: bearer [REDACTED]"}))
+    validator.check_credential_hygiene(evidence, None)
+
+    (evidence / "receipts" / "RAW-LEAK-receipt.json").write_text(
+        json.dumps({"task_id": "RAW-LEAK", "env": "OPENROUTER_API_KEY=fake-rotated-key-value"})
+    )
+    with pytest.raises(validator.EvidenceValidationError) as caught:
+        validator.check_credential_hygiene(evidence, None)
+    assert str(caught.value).startswith("CREDENTIAL_HYGIENE_VIOLATION")
+    assert "RAW-LEAK-receipt.json" in str(caught.value)

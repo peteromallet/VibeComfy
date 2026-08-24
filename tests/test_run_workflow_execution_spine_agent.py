@@ -908,3 +908,58 @@ def test_json_write_sanitizes_payload_before_disk(tmp_path: Path) -> None:
     assert written["token"] == "sk-or-v1-[REDACTED]"
     assert written["digest"] == "0" * 64
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_redact_secrets_walks_structured_leaves() -> None:
+    """MUST-001: _redact_secrets operates on Python objects before serialization."""
+    wrapper = _load_wrapper("workflow_execution_wrapper_redact_structured")
+    value = {
+        "OPENROUTER_API_KEY=live-key": (
+            "tok sk-or-v1-Ab12_-Zx9876543210cd",
+            [7, None, True, {"deep": "Authorization: Bearer live-token"}],
+        ),
+        "digest": "0" * 64,
+    }
+    out = wrapper._redact_secrets(value)
+    assert list(out) == ["OPENROUTER_API_KEY=[REDACTED]", "digest"]  # str dict keys are leaves too
+    branch = out["OPENROUTER_API_KEY=[REDACTED]"]
+    assert isinstance(branch, tuple)
+    assert branch[0] == "tok sk-or-v1-[REDACTED]"
+    assert branch[1][:3] == [7, None, True]  # non-str leaves untouched
+    assert branch[1][3]["deep"] == "Authorization: Bearer [REDACTED]"
+    assert out["digest"] == "0" * 64
+
+
+def test_json_write_roundtrips_embedded_quote_secret_payloads(tmp_path: Path) -> None:
+    """MUST-001 reviewer reproduction: secrets containing '"' corrupted the file.
+
+    Redacting the SERIALIZED string ate the escape backslash and left an
+    unescaped quote. Redaction now precedes serialization, so the write must
+    stay valid, parseable JSON with every fake secret gone.
+    """
+    wrapper = _load_wrapper("workflow_execution_wrapper_json_write_quotes")
+    target = tmp_path / "receipts" / "QUOTES-receipt.json"
+    payload = {
+        "env": 'OPENAI_API_KEY=fake-value"suffix',
+        "auth": 'Authorization: Bearer fake-bearer"suffix',
+        "nested": {"pair": ('DEEPSEEK_API_KEY=fake-ds"value', ['sk-or-v1-FakeKeyFakeKeyFake12"tail'])},
+        "digest": "0" * 64,
+        "count": 3,
+    }
+    wrapper._json_write(target, payload)
+    written = json.loads(target.read_text(encoding="utf-8"))
+    assert written["env"] == "OPENAI_API_KEY=[REDACTED]"
+    assert written["auth"] == "Authorization: Bearer [REDACTED]"
+    assert written["nested"]["pair"][0] == "DEEPSEEK_API_KEY=[REDACTED]"
+    # Token class is charclass-scoped (spec keeps it as-is): only the token
+    # itself redacts; trailing junk after the key material survives.
+    assert written["nested"]["pair"][1][0] == 'sk-or-v1-[REDACTED]"tail'
+    assert written["digest"] == "0" * 64
+    assert written["count"] == 3
+    flat = json.dumps(written)
+    assert "fake-" not in flat and "suffix" not in flat
+    # Re-writing sanitized output is a byte-identical fixed point.
+    again = tmp_path / "receipts" / "QUOTES-again.json"
+    wrapper._json_write(again, written)
+    assert again.read_bytes() == target.read_bytes()
+    assert not list(tmp_path.rglob("*.tmp"))

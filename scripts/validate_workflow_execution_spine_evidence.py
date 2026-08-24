@@ -488,8 +488,11 @@ def check_verdicts(manifest: dict[str, Any]) -> None:
 #: scripts/run_workflow_execution_spine_agent.py.
 SECRET_PATTERNS = (
     re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=\S+"),
-    re.compile(r"Authorization:\s*Bearer\s+\S+", re.IGNORECASE),
+    # (?!\[REDACTED\]) keeps the writer's canonical sanitized output (§29a
+    # REDACT-WRITEPATH, _redact_secrets in run_workflow_execution_spine_agent.py)
+    # passing while any live-format secret still fails.
+    re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\])\S+"),
+    re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\])\S+", re.IGNORECASE),
 )
 
 #: STOP record 44c43c73 / PUSH-BLOCKED-001: a rotated OpenRouter key reached

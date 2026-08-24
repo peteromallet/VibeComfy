@@ -153,27 +153,47 @@ def load_json(path: Path, label: str) -> Any:
 #: pair collapses to a fully redacted value, and every replacement is chosen
 #: so re-applying _redact_secrets is a fixed point ([REDACTED] output never
 #: re-matches). Hex digests (sha256 ...) contain none of these anchors and
-#: pass through untouched.
+#: pass through untouched. Substitution runs on the STRUCTURED payload before
+#: serialization: decoded strings carry no JSON escape sequences, so greedy
+#: \S+ value classes cannot eat syntax that does not exist at that layer.
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"), "sk-or-v1-[REDACTED]"),
-    # VAR=... and bearer-token values exclude the double quote: _json_write
-    # redacts the SERIALIZED payload, where every JSON string ends at '"'.
-    # Greedy \S+ would swallow that closing quote and corrupt the file.
-    (re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\])[^\s\"]+"), r"\g<1>=[REDACTED]"),
-    (re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\])[^\s\"]+", re.IGNORECASE), "Authorization: Bearer [REDACTED]"),
+    (re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\])\S+"), r"\g<1>=[REDACTED]"),
+    (re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\])\S+", re.IGNORECASE), "Authorization: Bearer [REDACTED]"),
 )
 
-def _redact_secrets(text: str) -> str:
-    """Replace live-format credentials with [REDACTED]; idempotent, hex-safe."""
+def _redact_secret_text(text: str) -> str:
+    """Leaf substitution: replace live-format credentials with [REDACTED]."""
     for pattern, replacement in _SECRET_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
 
 
+def _redact_secrets(value: Any) -> Any:
+    """Recursively redact every str leaf of ``value`` (dict keys and values).
+
+    Non-str leaves pass through untouched. Idempotent fixed point. Runs on the
+    structured payload BEFORE _json_write serializes it, so a secret value with
+    an embedded quote can never desynchronize escape handling.
+    """
+    if isinstance(value, str):
+        return _redact_secret_text(value)
+    if isinstance(value, dict):
+        return {
+            _redact_secret_text(key) if isinstance(key, str) else key: _redact_secrets(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secrets(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_secrets(item) for item in value)
+    return value
+
+
 def _json_write(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    payload = _redact_secrets(json.dumps(value, indent=2, sort_keys=True)) + "\n"
+    payload = json.dumps(_redact_secrets(value), indent=2, sort_keys=True) + "\n"
     temporary.write_text(payload, encoding="utf-8")
     os.replace(temporary, path)
 
