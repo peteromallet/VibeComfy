@@ -6286,3 +6286,60 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 ### Position — OVERLAP-NARROW chain closed, wrapper concurrency semantics settled
 
 - **WRAPPER-OVERLAP-NARROW-R2 landed at `bdfb2de2` (+`088b68a3`) resolving review musts F-a (conservative fail-closed pattern intersection: crossing globs → True, decidable-disjoint → False), F-b (same-worktree + both-non-empty-allowed → serialize; empty side parallel-free), and F-c (duplicate ACTIVE task_id refused before child launch/registry write; dead-PID-swept IDs reusable); the single §13.1 re-review returned `continue` with zero MINORs and 66 focused tests passed — OVERLAP-NARROW chain CLOSED. Read-only inventories may now run concurrently with mutating serial cards without false-violation risk; mutating cards remain strictly serial on the shared worktree. Serial queue: P1-REPLAY-HASH-DOMAIN → P5-ACCEPTEDBATCH-TERMINAL; after P0–P5: ONE frozen commit + pinned BOTH-MODES validation (staged ≥25/50 AND threaded ≥25/50). G7 remains `status: open` until ONE frozen commit after P0–P5 and pinned BOTH-MODES validation.** Evidence/validator discipline continues.
+
+## EVIDENCE-P1 — record P1-REPLAY-HASH-DOMAIN implementation + P1-COMMIT continuation closure — 2026-08-24
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied P1-REPLAY-HASH-DOMAIN implementer provenance, the initial-dispatch no-commit anomaly and its P1-COMMIT continuation disposition, and the orchestrator's mechanical verification into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts (`receipts/P1-REPLAY-HASH-DOMAIN-receipt.json`, `receipts/P1-COMMIT-receipt.json`). This recorder's own `end_ts`/receipt digest are intentionally NOT recorded. All credential material is REDACTED per §29a — values never quoted; refer by name and line identity only. No card, gate, or receipt status beyond the recorded dispositions is changed by this entry.
+
+### 1. Card P1-REPLAY-HASH-DOMAIN [XHARD] (§30 item 3): single replay hash domain = frozen snapshot — implemented (+ P1-COMMIT continuation)
+
+- **Implementer — P1-REPLAY-HASH-DOMAIN:**
+  - Route `ox-alpha` (launcher `--model=stealth/ox-alpha:max`, thinking=max; receipt `resolved_model` `stealth/ox-alpha`), wrapper exit `0`.
+  - Base `14303a01c673fdaefad5034ceaa0b8a395efb1b9`; wrapper `2026-08-24T14:03:11Z` → `2026-08-24T14:43:52Z` (~41 min), PID `32159`.
+  - Result digest `9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa` (prefix `9a271f2a916b0b6e`).
+  - Receipt `stop_or_judgment` empty (NO stop/judgment lines); no ALLOWANCE_VIOLATION artifact emitted.
+  - **Anomaly:** implementation finished but the initial dispatch exited WITHOUT committing — receipt `commits: []` with 2 changed files left in the working tree (`vibecomfy/comfy_nodes/agent/authority_receipts.py`, `tests/test_p1_replay_domain.py`).
+- **Continuation — P1-COMMIT `[HARD]` (`commit completed P1 working tree (no content edits)`), route `ox-alpha`, receipt exit `0`:**
+  - Base `14303a01c673fdaefad5034ceaa0b8a395efb1b9`; wrapper `2026-08-24T14:47:40Z` → `2026-08-24T14:48:30Z`, PID `34201`.
+  - Result digest `f4359278723a364a79f5138657da99d8dfce7e4f5f563a112f95636a475af93d` (prefix `f4359278723a364a`); receipt `stop_or_judgment` empty.
+  - Verified the focused tests, then committed the inherited working tree WITHOUT content edits: `d457318b6eebfab87b96d3cf8e3dcb3a0d4c95d9` — subject `fix(spine): P1-REPLAY-HASH-DOMAIN — single replay hash domain = frozen snapshot; empty-graph clarify survives verbatim; apply_eligible gate (receipt exit 0)`.
+  - Changed files (2, within allowance): `vibecomfy/comfy_nodes/agent/authority_receipts.py` (+302/−2), `tests/test_p1_replay_domain.py` (new, 409 lines, 5 cases).
+
+### 2. Orchestrator mechanical verification + residual risk
+
+- Focused tests: `python3 -m pytest tests/test_p1_replay_domain.py -q` — **5 passed** (orchestrator-reported; re-verified by this recorder at HEAD `d457318b`).
+- Adjacent existing modules `test_authority_receipts.py`, `test_authority_replay_sequential.py`, `test_candidate_transaction_layout_contract.py`: **12 failed / 6 passed BOTH WITH AND WITHOUT the P1 diff** (orchestrator stash-compare at HEAD base `14303a01`) → failures PRE-EXISTING, not introduced by P1 (failure class `'missing_touched_schema'`). Re-corroborated by this recorder at HEAD `d457318b`: same 12 failed / 6 passed, sample failure message asserts on `'missing_touched_schema'`.
+- **Residual risk:** these pre-existing adjacent-module failures belong to NO open card — flagged for the §30 frozen-commit batch review.
+
+### 3. Contract satisfied per brief R1/R2/R3 (orchestrator-supplied disposition)
+
+- **R1:** replay hashes retain IR + frozen snapshot table — replay never re-ingests raw UI.
+- **R2:** candidate authority requires non-empty payload — empty-graph clarify survives verbatim.
+- **R3:** apply_eligible requires non-empty `accepted_batch` AND `candidate_matches` — fail-closed direction preserved.
+
+### 4. Review model
+
+- Per §18 batch model: NO per-card post-implementation review dispatched; card-level verification rides the next batch/gate review.
+
+### 5. Next unblocked card
+
+- **P5-ACCEPTEDBATCH-TERMINAL** (§30 item 4; brief+allowance staged at `g0/P5-ACCEPTEDBATCH-TERMINAL-{brief.md,allowance.json}`). After P0–P5 all close: ONE frozen commit + pinned both-modes 50-scenario validation window (gate staged ≥25/50 AND threaded ≥25/50).
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **70 records** (69 prior + `70 EVIDENCE-P1` evidence dispatch recording the P1-REPLAY-HASH-DOMAIN implementation, the no-commit continuation via P1-COMMIT to closure at `d457318b`, and the pre-existing adjacent-module residual; canonical_slot `EVIDENCE-P1`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`, 12 shards S0→S11 + singleton `broad_suite_once_v1` T6.3-owned). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `test-shards.json` byte-identical — `TEST_SINGLETON` green.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-P1` section) + `manifest.json` G7 `evidence_sequence[70]` + `tasks[5].recovery_note.sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `14303a01c673fdaefad5034ceaa0b8a395efb1b9` IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; commit `d457318b` is itself HEAD); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED (`[REDACTED]` canonical only); suffixed `[REDACTED]<suffix>` never emitted; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only. Receipts verified to contain no live credential bearer material (validator `CREDENTIAL_HYGIENE` green).
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at HEAD `d457318b` + new commit; no rebase/reset/amend/history rewrite of the leaked key.
+- **JUDGMENT_REQUIRED: none** (initial-dispatch no-commit anomaly was resolved upstream by the orchestrator via the focused P1-COMMIT continuation card; recorded verbatim — this recorder makes no new judgment).
+
+### Position — P1 closed at d457318b, queue advances to P5
+
+- **P1-REPLAY-HASH-DOMAIN CLOSED at `d457318b`: single replay hash domain = frozen snapshot table (never re-ingests raw UI), empty-graph clarify survives verbatim behind the non-empty candidate-payload requirement, apply_eligible = non-empty accepted_batch ∧ candidate_matches with fail-closed direction preserved; 5 focused tests passed. Pre-existing adjacent-module failures (12F/6P on both sides of the diff, class `missing_touched_schema`) belong to no open card — flagged for the §30 frozen-commit batch review. Serial queue: P5-ACCEPTEDBATCH-TERMINAL next; after P0–P5 all close: ONE frozen commit + pinned BOTH-MODES 50-scenario validation window (staged ≥25/50 AND threaded ≥25/50). G7 remains `status: open`.**
