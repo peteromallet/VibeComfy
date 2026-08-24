@@ -32,7 +32,7 @@
     {
       "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-retargeting-workflow-f65774.json",
-      "descriptor_sha256": "56ec24c8f324bb7d0f94befd5e3392d6f90d850e3556a25e970f54754adff64d",
+      "descriptor_sha256": "f00572c6cf8e56e3ef061b51ae064593f7b683b568532ae362ab7fd470e4c40f",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -45,7 +45,7 @@
     {
       "id": "3d-3d-model-generation-and-rigging-from-image-352066",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-rigging-from-image-352066.json",
-      "descriptor_sha256": "d071f50f251ca718363ae04177d35f66ad1e26b305be7b7dd220ed10f62b6dee",
+      "descriptor_sha256": "4f875566cdfc542a798240bd2eb678af760683d0626452a272f2dc83db795d0f",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -58,7 +58,7 @@
     {
       "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-rigging-workflow-90a1d5.json",
-      "descriptor_sha256": "7555873253d66728e17ec5180d8d61063e9aa25d4704c5e63101fecd0541ad94",
+      "descriptor_sha256": "171b43c967b4c73b2030c7637b7d51c39fba40044b401b4d473a13719d8c0818",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -123,7 +123,7 @@
     {
       "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
       "path": "tests/live_agentic_harness/scenarios/audio-acestep-audio-generation-and-processing-workfl-1b1360.json",
-      "descriptor_sha256": "d25924f826c59d4fd1a41191ef495638dc2d2d80f2456ed41bd9648213b916ba",
+      "descriptor_sha256": "1bea80b24b15dfa6de0d0e1ab0d22de564bcfa694043a7d84bf0bae60c733da9",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -188,7 +188,7 @@
     {
       "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
       "path": "tests/live_agentic_harness/scenarios/audio-audio-processing-with-chatterbox-tts-and-vc-b55994.json",
-      "descriptor_sha256": "aa3859ee4661d125044bdb9d1ba907ed3944c1e28010cacbd0826ed0baea1de4",
+      "descriptor_sha256": "16d64e5ee2b4a1aa702f23b11276f16c5aa5b4c0f09ffea7875adb2f2a53184d",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -214,7 +214,7 @@
     {
       "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
       "path": "tests/live_agentic_harness/scenarios/audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf.json",
-      "descriptor_sha256": "c10b4644cd9431a288e5d3726eecc1032a25da914c1c7b640cf4ee4a39d82a45",
+      "descriptor_sha256": "b07103aae29c19ab08d216b7cbcb2bc054f5c18c303df76db1d7cc98349e318f",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -253,7 +253,7 @@
     {
       "id": "hotshot-16-frames-agent-edit",
       "path": "tests/live_agentic_harness/scenarios/hotshot-16-frames-agent-edit.json",
-      "descriptor_sha256": "f2a78c2f6c5a1ec022488456b98de9aca73006152f682dfb8db0a83d045a1b9e",
+      "descriptor_sha256": "8d265d7d527cae151fdbb3fb3490031810a34e1ff1b5d942a48eb190d5ff0b12",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -344,7 +344,7 @@
     {
       "id": "image-face-detection-and-cropping-workflow-949658",
       "path": "tests/live_agentic_harness/scenarios/image-face-detection-and-cropping-workflow-949658.json",
-      "descriptor_sha256": "44591849becb2e16c6ade497c6e9af3cac3e293782c77be5468d779b92e02fbb",
+      "descriptor_sha256": "25bf07d86481a91cee23b2c8b20fdeb32512d85ec044506a51d2fb60c445e2e0",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -487,7 +487,7 @@
     {
       "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
       "path": "tests/live_agentic_harness/scenarios/image-kolors-image-generation-with-segs-detailer-and-d813fe.json",
-      "descriptor_sha256": "ef8986a84b013095867c780445bb5bead578be31973f398e7c0245396c79a790",
+      "descriptor_sha256": "5fd27f90d9aed4e864fe7e4eb657845d1b2d291ec1ed31c4ab8a0540be515c6c",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
