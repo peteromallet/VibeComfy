@@ -1247,6 +1247,87 @@
           "exit": 0,
           "label": "DEEP-AUDIT-FIX-3-REVISION-2 \u2014 implement ADJUDICATION-3 directive (classify signature gate at _normalize_turn_response; propagate MalformedModelJSON; failure-envelope parse evidence; 4 authority-path tests)",
           "disposition": "card closed \u2014 directive implemented and committed as 8dc9d039; no open must findings (\u00a713 single-escalation policy); JUDGMENT_REQUIRED: none"
+        },
+{
+          "sequence": 51,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-4",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-4-receipt.json",
+          "sha256": "5f7d1701e48998890400dbec4ed9ac137d06fd86a5f0f53f05fb3119f0cf311d",
+          "result_sha256": "91535bd72d41d2f426fe251311208d8daf88cf69151aeeb89ca37b2ccfe80cf4",
+          "commit": "5d1fe83d49069da2243d1bf0885c8d043bb2d12e",
+          "role": "implementer",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-4 \u2014 \u00a728 deep-audit: fix 8 SCENARIO DATA AUDIT (align queries with graph contents or annotate expected-no-candidate honestly)",
+          "disposition": "implemented \u2014 reviewed in batch by DEEP-AUDIT-REVIEW-4; JUDGMENT_REQUIRED: none"
+        },
+{
+          "sequence": 52,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-REVIEW-4",
+          "receipt_path": "receipts/DEEP-AUDIT-REVIEW-4-receipt.json",
+          "sha256": "1707685667afa2ccdabbbd816309628506f55a4b2fa47b0adc78b211c034ca21",
+          "result_sha256": "9716d20bf5aa8ea4dbfa5847222fd6985006ee2e1767490199a530c04e85fe73",
+          "role": "review",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "label": "DEEP-AUDIT-REVIEW-4 \u2014 codex review of DEEP-AUDIT-FIX-4 commit 5d1fe83d (fix 8 scenario data audit)",
+          "disposition": "findings-opened \u2014 Fix 8 FAIL: musts 001 (expected-no-candidate annotations bypass grounded-refusal assessment) 002 (_tags inconsistent with rewritten descriptors) 003 (false Hotshot cache claim) 004 (full 50-descriptor audit table not supplied)"
+        },
+{
+          "sequence": 53,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-4-REVISION",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-4-REVISION-receipt.json",
+          "sha256": "9f73b51e8e24a87ea316908d485b0e4fa8a116f7805a0c6af496e80c4c1e23f6",
+          "result_sha256": "873a0407c2aa4d5ff21e6f642c48c285f620f9eff703454b9b5b1db9d71b39fc",
+          "commit": "f69e5a0a7fcc234b822f8996f6497884281fea21",
+          "role": "implementer",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-4-REVISION \u2014 resolve REVIEW-4 musts 001 (grounded no-candidate adjudication) 002 (_tags) 003 (accurate evidence) 004 (full 50-descriptor audit table)",
+          "disposition": "landed clean (commit \u2286 allowance, no violation) but rereview failed musts 001-003 on the grounded no-candidate path, d813fe metadata, and audit-row support"
+        },
+{
+          "sequence": 54,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-REVIEW-4-REREVIEW",
+          "receipt_path": "receipts/DEEP-AUDIT-REVIEW-4-REREVIEW-receipt.json",
+          "sha256": "29a30af932c9ca00bc74e1f24d6bf8c0ad838e67cef9e8d8bd2c3afb9a34f1dc",
+          "result_sha256": "00f18516ad233d5f9a8cd4841fad94305df496bdf6e650c8d5f5e88daf383e50",
+          "role": "review",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "label": "DEEP-AUDIT-REVIEW-4-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-4 card diff (5d1fe83d+f69e5a0a) after musts 001-004",
+          "disposition": "findings-opened \u2014 REREVIEW-001 FAIL (grounded no-candidate adjudication still fail-open) REREVIEW-002 FAIL (d813fe task_type/source metadata) REREVIEW-003 FAIL (unsupported audit rows + abbreviated IDs); escalated per single-\u00a713-escalation policy"
+        },
+{
+          "sequence": 55,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-4-ADJUDICATION",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-4-ADJUDICATION-receipt.json",
+          "sha256": "12977aef5bafabacd585f86e8bea7eb9532d219913f7f6e5ffa45d205bb1640c",
+          "result_sha256": "ee465032eb26c50a998785ae5ec631bea6b7df88302df484c32650dd06b96596",
+          "role": "adjudication",
+          "model_route": "codex:gpt-5.6-sol",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-4-ADJUDICATION \u2014 single \u00a713 escalation (codex): grounded no-candidate adjudication contract + metadata + audit integrity ruling",
+          "disposition": "continue \u2014 binding directive issued: tri-state grounded no-candidate contract outside the response guard; exact/family-prefix class matching; structural-feature evidence; metadata consistency; replayable 50-row scenario_data_audit.json; chain closed"
+        },
+{
+          "sequence": 56,
+          "canonical_slot": "G7",
+          "task_id": "DEEP-AUDIT-FIX-4-REVISION-2",
+          "receipt_path": "receipts/DEEP-AUDIT-FIX-4-REVISION-2-receipt.json",
+          "sha256": "8c5ec2ee43df99ab0f7ffd333d54dcb9ca2c8099a3de2226ebaccebe17f88c9a",
+          "result_sha256": "b650891dcb7fa874fadfe5aa8e36a49415d449edf5fce7c45470ae0790604190",
+          "commit": "b115b7a26b5e924c681d6fd4a3ce92c2e6580be1",
+          "role": "implementer",
+          "model_route": "ox-alpha",
+          "exit": 0,
+          "label": "DEEP-AUDIT-FIX-4-REVISION-2 \u2014 implement ADJUDICATION-4 directive (tri-state grounded no-candidate adjudication; exact/family-prefix matching; structural-feature evidence; scenario_data_audit.json; 15-test contract)",
+          "disposition": "card closed \u2014 directive implemented and committed as b115b7a2; no open must findings (\u00a713 single-escalation policy); ALL EIGHT \u00a728 deep-audit fixes landed; JUDGMENT_REQUIRED: none"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1670,7 +1751,7 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "7ff931804b28bd16f977d9c2f44a1bb296dd1bcfbffac651cbccdb81f79938af",
+        "sha256": "54eb7dd562dd371148d203e9df8dfc5f830f8a06ad7ebca042e111032fa1c8d2",
         "section_sha256": "2a3774850a84a4145cd6443f848d9ca70e658a611d362ca18049559f0532ee37"
       },
       "wrapper_death_recovery": {
