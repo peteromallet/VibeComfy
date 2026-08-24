@@ -15,17 +15,20 @@ passes were suppressed because semantically identical operations — int 30 vs
 from __future__ import annotations
 
 import json
-
+import re
+from collections.abc import Mapping
+from decimal import Decimal
 from tests.live_agentic_harness.intent_judge import (
     _canonical_edit_value,
     _op_fingerprint,
     _verify_delta_replay,
 )
+
 from vibecomfy.porting.edit.ops import parse_edit_delta
 from vibecomfy.schema import get_schema_provider
 
 
-def _ksampler_ui(steps: float | int | str, *, uid: str = "sampler") -> dict:
+def _ksampler_ui(steps: object, *, uid: str = "sampler") -> dict:
     return {
         "nodes": [
             {
@@ -262,3 +265,132 @@ def test_fingerprint_mapping_key_order_irrelevant() -> None:
     one = {"op": "add_node", "class_type": "X", "fields": {"a": 1, "b": 2}, "inputs": {}}
     two = {"op": "add_node", "class_type": "X", "fields": {"b": 2, "a": 1}, "inputs": {}}
     assert _op_fingerprint(one) == _op_fingerprint(two)
+
+
+# ── P8-R2: fingerprint equality ⟺ diff-layer value equality ────────────────
+
+
+_CANON_INT_TEXT = re.compile(r"-?[0-9]+")
+
+
+def _numeric_identity(value: object) -> Decimal | None:
+    """Decimal identity for exactly the R1 collapse set — numeric-tower
+    members and canonical integer text — else ``None``."""
+    if isinstance(value, bool):
+        return Decimal(int(value))
+    if isinstance(value, (int, float)):
+        return Decimal(value)
+    if isinstance(value, str) and _CANON_INT_TEXT.fullmatch(value) and str(int(value)) == value:
+        return Decimal(int(value))
+    return None
+
+
+def _diff_layer_equal(a: object, b: object) -> bool:
+    """The equality diff() applies to stored IR values, recursively.
+
+    ``vibecomfy.porting.edit._diff`` compares pre/post widget/input maps
+    with plain Python ``!=`` (``pre_widgets.get(name) != post_widgets.get(name)``)
+    at every level — key sets must match exactly, ``None`` entries are real
+    distinctions.  On top of plain ``==`` sits exactly one documented
+    carve-out, pinned by the R1 tests above and applied at every depth:
+    int/float/bool and canonical integer text are spellings of one widget
+    number (a claimed Δ arrives as JSON where the same value may be spelled
+    ``30``, ``30.0``, or ``"30"``, nested in fields just like at the top).
+    """
+    na, nb = _numeric_identity(a), _numeric_identity(b)
+    if na is not None and nb is not None:
+        return na == nb
+    if isinstance(a, Mapping) and isinstance(b, Mapping):
+        return set(a) == set(b) and all(_diff_layer_equal(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(
+            _diff_layer_equal(x, y) for x, y in zip(a, b)
+        )
+    return a == b
+
+
+def test_nested_none_and_value_shapes_never_collapse() -> None:
+    """(P8-R2 must a) These pairs fingerprinted EQUAL under None elision even
+    though diff() sees them unequal; every distinction is preserved now."""
+    collisions = [
+        ({"y": None}, {}),  # None-valued entry vs absent key
+        ({"y": None}, {"z": None}),  # two distinct None-only maps
+        ({"x": {"y": None}}, {"x": {}}),  # nested None vs nested absence
+        ({"x": {"y": None}}, {"x": {"z": None}}),  # distinct nested keys
+        ({"x": {"y": None}}, {"x": {"y": False}}),  # nested None vs falsy value
+        ([{"y": None}], []),  # None inside arrays too
+        ({}, []),  # empty map vs empty array
+        ("None", None),  # text vs absence sentinel
+    ]
+    for a, b in collisions:
+        assert _canonical_edit_value(a) != _canonical_edit_value(b), (a, b)
+        fa = _op_fingerprint(parse_edit_delta([_set_field_op("n", "steps", a)])[0])
+        fb = _op_fingerprint(parse_edit_delta([_set_field_op("n", "steps", b)])[0])
+        assert fa != fb, (a, b)
+
+    # No overcorrection: identical shapes still share a projection/fingerprint.
+    assert _canonical_edit_value({"x": {"y": None}}) == _canonical_edit_value(
+        {"x": {"y": None}}
+    )
+    same = parse_edit_delta([_set_field_op("n", "steps", {"x": {"y": None}})])[0]
+    assert _op_fingerprint(same) == _op_fingerprint(same)
+
+
+def test_delta_masked_by_none_elision_is_rejected_end_to_end() -> None:
+    """(P8-R2 must a, end-to-end) post stores {'y': None}; a claimed Δ of {}
+    used to verify True because elision collapsed both fingerprints AND the
+    leftover spelling filter. Both directions are rejected now."""
+    schema_provider = get_schema_provider("auto")
+    pre = _ksampler_ui(20)
+    for post_value, claimed_value in (({"y": None}, {}), ({}, {"y": None})):
+        result = _verify_delta_replay(
+            pre,
+            _ksampler_ui(post_value),
+            [_set_field_op("sampler", "steps", claimed_value)],
+            schema_provider=schema_provider,
+        )
+        assert result["verified"] is False, (post_value, claimed_value, result)
+
+    # Control: the honest nested claim still verifies.
+    honest = _verify_delta_replay(
+        pre,
+        _ksampler_ui({"y": None}),
+        [_set_field_op("sampler", "steps", {"y": None})],
+        schema_provider=schema_provider,
+    )
+    assert honest == {"verified": True, "checked": 1, "mismatches": []}
+
+
+_IFF_BATTERY = [
+    # spellings of one number (R1 collapse set)
+    30, 30.0, "30",
+    -2, "-2",
+    0, False,
+    True, 1, "1",
+    # numerics that must stay distinct
+    31, 30.5, "31", -1,
+    12345678901234567890,  # exactness: no float rounding in the projection
+    # non-canonical text stays text
+    "030", "1.50", "dpm_2", "",
+    # absence / falsy shapes
+    None,
+    # nested containers
+    {}, [], {"y": None}, {"y": {}}, {"y": 30}, {"y": "30"}, {"z": None},
+    {"x": {"y": None}}, {"x": {}},
+    [1, 2], [2, 1], [1, "2"], [{"a": 1}],
+]
+
+
+def test_fingerprint_equality_iff_diff_layer_equality() -> None:
+    """(P8-R2 must b) For EVERY ordered battery pair — both directions —
+    fingerprints are equal exactly when the diff layer sees the underlying
+    workflow values as equal (plain == over stored IR, plus the pinned R1
+    numeric-spelling collapse)."""
+    fps = [
+        _op_fingerprint(parse_edit_delta([_set_field_op("n", "steps", v)])[0])
+        for v in _IFF_BATTERY
+    ]
+    for i, a in enumerate(_IFF_BATTERY):
+        for j, b in enumerate(_IFF_BATTERY):
+            expected = _diff_layer_equal(a, b)
+            assert (fps[i] == fps[j]) == expected, (i, a, j, b, fps[i], fps[j])

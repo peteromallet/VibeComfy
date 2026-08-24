@@ -932,10 +932,14 @@ def _canonical_edit_value(value: Any) -> Any:
     - a string collapses to its number only when it IS a canonical integer
       spelling (``str(int(text)) == text``); every other string (leading
       zeros, decimal text, names) stays itself;
-    - mappings drop ``None``-valued entries — the same absence-vs-default
-      equality ``op_to_dict``/``dict.get`` give the diff layer;
-    - lists/tuples stay order-significant; any other object projects through
-      ``repr``.
+    - mappings project key/value pairs recursively and sort them for
+      order-independence; ``None``-valued entries are PRESERVED, because
+      ``diff`` compares stored IR values with plain ``!=`` (``None`` ≠
+      absent ≠ other falsy shapes) — see :func:`_op_fingerprint` for the
+      one place absence-vs-``None`` IS ignored;
+    - lists/tuples (JSON arrays) project as a tagged, order-significant
+      sequence — the tag keeps ``[]`` apart from ``{}`` exactly as plain
+      ``==`` does;
 
     Pure function of the value: same input, same projection (deterministic).
     """
@@ -952,11 +956,10 @@ def _canonical_edit_value(value: Any) -> Any:
             sorted(
                 (_canonical_edit_value(str(key)), _canonical_edit_value(item))
                 for key, item in value.items()
-                if item is not None
             )
         )
     if isinstance(value, (list, tuple)):
-        return tuple(_canonical_edit_value(item) for item in value)
+        return ("l", tuple(_canonical_edit_value(item) for item in value))
     return ("o", repr(value))
 
 
@@ -1005,6 +1008,15 @@ def _op_fingerprint(op: Any) -> tuple[Any, ...]:
     Genuinely different operations — wrong node, wrong field, a different
     target value beyond numeric identity, an extra or missing op — still
     fingerprint apart.
+
+    None handling is two-tiered, mirroring the edit boundary exactly: the
+    RAW-MAPPING path drops ``None``-valued keys from the op ENVELOPE only
+    (one level, never inside ``value``/``fields``), because
+    :func:`parse_edit_delta` reads every envelope key with ``data.get(...)``
+    — an explicit ``"id": None`` / ``"value": None`` parses to the identical
+    statement as the key's absence.  Values proper keep their ``None``
+    entries: ``diff`` compares stored IR values with plain ``!=``, where
+    ``{"y": None}`` ≠ ``{}``.
     """
     if isinstance(op, Mapping):
         payload = {key: item for key, item in op.items() if item is not None}
