@@ -425,3 +425,63 @@ def test_process_completion_is_not_a_product_verdict() -> None:
     manifest = _manifest()
     manifest["live_runs"] = [{"authoritative": False, "legs": [{"assessment": {"verdict": "process_completed"}}]}]
     _error(manifest, "PROCESS_COMPLETION_VERDICT")
+
+
+EVIDENCE_DIR = ROOT / "docs" / "plans" / "workflow-execution-spine-consolidation-evidence"
+EXECUTION_LOG_PATH = ROOT / "docs" / "plans" / validator._EXECUTION_LOG_DOC
+PLAN_DOC_PATH = ROOT / "docs" / "plans" / validator._PLAN_DOC
+GOAL_DOC_PATH = ROOT / "docs" / "plans" / validator._GOAL_DOC
+
+
+def _measured_secret_lines(path: Path) -> int:
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if any(pattern.search(line) for pattern in validator.SECRET_PATTERNS))
+
+
+def test_planted_receipt_secret_fails_credential_hygiene(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence"
+    (evidence / "receipts").mkdir(parents=True)
+    receipt = evidence / "receipts" / "FAKE-LEAK-receipt.json"
+    receipt.write_text(json.dumps({"task_id": "FAKE-LEAK", "env": "OPENROUTER_API_KEY=fake-rotated-key-value"}))
+    with pytest.raises(validator.EvidenceValidationError) as caught:
+        validator.check_credential_hygiene(evidence, None)
+    assert str(caught.value).startswith("CREDENTIAL_HYGIENE_VIOLATION")
+    assert "FAKE-LEAK-receipt.json" in str(caught.value)
+
+
+def test_planted_non_receipt_evidence_secret_also_fails(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence"
+    (evidence / "receipts").mkdir(parents=True)
+    (evidence / "manifest.json").write_text(json.dumps({"tasks": []}))
+    (evidence / "notes.json").write_text(json.dumps({"h": "sk-or-v1-FakeKeyFakeKeyFake12"}))
+    with pytest.raises(validator.EvidenceValidationError) as caught:
+        validator.check_credential_hygiene(evidence, None)
+    assert str(caught.value).startswith("CREDENTIAL_HYGIENE_VIOLATION")
+    assert "notes.json" in str(caught.value)
+
+
+def test_clean_synthetic_evidence_passes_hygiene_guard() -> None:
+    evidence = DISPOSABLE_ROOT / "hygiene-clean-evidence"
+    shutil.rmtree(evidence, ignore_errors=True)
+    (evidence / "receipts").mkdir(parents=True)
+    (evidence / "receipts" / "CLEAN-receipt.json").write_text(json.dumps({"task_id": "CLEAN", "status": "pass"}))
+    (evidence / "manifest.json").write_text(json.dumps({"tasks": []}))
+    validator.check_credential_hygiene(evidence, EXECUTION_LOG_PATH, [PLAN_DOC_PATH, GOAL_DOC_PATH])
+
+
+def test_execution_log_baseline_matches_head_and_full_validation_stays_green() -> None:
+    measured = _measured_secret_lines(EXECUTION_LOG_PATH)
+    assert validator.BASELINE_EXECUTION_LOG_SECRET_LINES == measured == 5
+    validator.check_credential_hygiene(EVIDENCE_DIR, EXECUTION_LOG_PATH, [PLAN_DOC_PATH, GOAL_DOC_PATH])
+    manifest_path = EVIDENCE_DIR / "manifest.json"
+    validator.validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")), manifest_path)
+
+
+def test_execution_log_extra_occurrence_exceeds_baseline(tmp_path: Path) -> None:
+    drifted = tmp_path / validator._EXECUTION_LOG_DOC
+    drifted.write_text(
+        EXECUTION_LOG_PATH.read_text(encoding="utf-8") + "\nOPENROUTER_API_KEY=new-fake-occurrence\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(validator.EvidenceValidationError) as caught:
+        validator.check_credential_hygiene(None, drifted)
+    assert str(caught.value).startswith("CREDENTIAL_HYGIENE_BASELINE")

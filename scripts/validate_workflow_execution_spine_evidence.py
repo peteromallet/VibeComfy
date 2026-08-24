@@ -484,6 +484,66 @@ def check_verdicts(manifest: dict[str, Any]) -> None:
             _fail("PROCESS_COMPLETION_VERDICT", f"unsupported final leg verdict: {verdict}")
 
 
+#: §29a REDACT-WRITEPATH: kept in lockstep with _redact_secrets in
+#: scripts/run_workflow_execution_spine_agent.py.
+SECRET_PATTERNS = (
+    re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=\S+"),
+    re.compile(r"Authorization:\s*Bearer\s+\S+", re.IGNORECASE),
+)
+
+#: STOP record 44c43c73 / PUSH-BLOCKED-001: a rotated OpenRouter key reached
+#: git history via the committed execution log. History cleanup is an
+#: operator-reserved decision outside this validator's scope; this constant
+#: pins the matching-line count measured at HEAD so any NEW occurrence pushes
+#: the live count above baseline and fails validation. Only the count is
+#: pinned here — never embed secret material.
+BASELINE_EXECUTION_LOG_SECRET_LINES = 5
+
+_EXECUTION_LOG_DOC = "workflow-execution-spine-consolidation-execution-log-2026-08-20.md"
+_PLAN_DOC = "workflow-execution-spine-consolidation-plan-2026-08-20.md"
+_GOAL_DOC = "goal-workflow-execution-spine-consolidation-2026-08-20.md"
+
+
+def _secret_matching_lines(text: str) -> list[int]:
+    return [number for number, line in enumerate(text.splitlines(), 1) if any(pattern.search(line) for pattern in SECRET_PATTERNS)]
+
+
+def _credential_hygiene_hits(path: Path) -> list[int]:
+    return _secret_matching_lines(path.read_bytes().decode("utf-8", errors="replace"))
+
+
+def check_credential_hygiene(evidence_dir: Path | None, execution_log: Path | None, extra_docs: Iterable[Path] = ()) -> None:
+    """Directive §29a: keep credential material out of committable evidence.
+
+    Every file under ``evidence_dir`` must be free of secret-shaped content;
+    the execution log may carry only its pinned historical baseline (see
+    BASELINE_EXECUTION_LOG_SECRET_LINES); plan/goal docs must be clean.
+    Absent paths are skipped so synthetic manifests stay validatable, and
+    failure details report locations only — never secret content.
+    """
+    # Gate on the receipts/ subdir: synthetic manifests anchored elsewhere
+    # (e.g. repo-root manifest.json in tests) must not trigger a repo-wide scan.
+    if evidence_dir is not None and (evidence_dir / "receipts").is_dir():
+        for path in sorted(candidate for candidate in evidence_dir.rglob("*") if candidate.is_file()):
+            lines = _credential_hygiene_hits(path)
+            if lines:
+                _fail("CREDENTIAL_HYGIENE_VIOLATION", f"{path.name}: secret-pattern match on lines {lines}")
+    if execution_log is not None and execution_log.is_file():
+        count = len(_credential_hygiene_hits(execution_log))
+        if count > BASELINE_EXECUTION_LOG_SECRET_LINES:
+            _fail("CREDENTIAL_HYGIENE_BASELINE", f"{execution_log.name}: {count} secret-pattern lines exceed pinned baseline {BASELINE_EXECUTION_LOG_SECRET_LINES} (STOP record 44c43c73 / PUSH-BLOCKED-001): new occurrences fail validation")
+    for doc in extra_docs:
+        if doc.is_file() and _credential_hygiene_hits(doc):
+            _fail("CREDENTIAL_HYGIENE_VIOLATION", f"{doc.name}: secret-pattern match")
+
+
+def _credential_hygiene_targets(manifest_path: Path) -> tuple[Path | None, Path | None, list[Path]]:
+    """Anchor §29a scan targets off the manifest's canonical evidence layout."""
+    docs_root = manifest_path.parent.parent
+    return manifest_path.parent, docs_root / _EXECUTION_LOG_DOC, [docs_root / _PLAN_DOC, docs_root / _GOAL_DOC]
+
+
 def validate_manifest(manifest: dict[str, Any], manifest_path: str | Path = "manifest.json") -> None:
     path = Path(manifest_path).resolve()
     if not isinstance(manifest, dict):
@@ -499,6 +559,7 @@ def validate_manifest(manifest: dict[str, Any], manifest_path: str | Path = "man
     check_final_five(manifest)
     check_live_run(manifest)
     check_verdicts(manifest)
+    check_credential_hygiene(*_credential_hygiene_targets(path))
 
 
 def main(argv: list[str] | None = None) -> int:

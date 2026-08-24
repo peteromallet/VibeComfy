@@ -849,3 +849,62 @@ def test_route_launchers_semantic_section27_mapping() -> None:
     # launcher executable unchanged for all routes
     for _route, (launcher, _model) in launchers.items():
         assert launcher == wrapper.HERMES_LAUNCHER
+
+
+def test_redact_secrets_covers_each_pattern_class() -> None:
+    wrapper = _load_wrapper("workflow_execution_wrapper_redact_classes")
+    text = "\n".join(
+        [
+            "token sk-or-v1-Ab12_-Zx9876543210cd tail",
+            "OPENROUTER_API_KEY=live-secret-value-001",
+            "DEEPSEEK_API_KEY=another-live-value",
+            "OPENAI_API_KEY=third-live-value",
+            "authorization: bearer abc.def.ghi",
+            "Authorization:\tBearer\tTok123",
+        ]
+    )
+    assert wrapper._redact_secrets(text) == "\n".join(
+        [
+            "token sk-or-v1-[REDACTED] tail",
+            "OPENROUTER_API_KEY=[REDACTED]",
+            "DEEPSEEK_API_KEY=[REDACTED]",
+            "OPENAI_API_KEY=[REDACTED]",
+            "Authorization: Bearer [REDACTED]",
+            "Authorization: Bearer [REDACTED]",
+        ]
+    )
+
+
+def test_redact_secrets_is_idempotent_and_preserves_non_secrets() -> None:
+    wrapper = _load_wrapper("workflow_execution_wrapper_redact_idempotent")
+    once = wrapper._redact_secrets("k=sk-or-v1-Ab12_-Zx9876543210cd OPENROUTER_API_KEY=v1 Authorization: Bearer t1")
+    assert wrapper._redact_secrets(once) == once
+    # token class runs first, then the VAR=... pass re-redacts the collapsed
+    # token, leaving the spec's canonical <VAR>=[REDACTED] form
+    combined = wrapper._redact_secrets("OPENROUTER_API_KEY=sk-or-v1-Ab12_-Zx9876543210cd")
+    assert combined == "OPENROUTER_API_KEY=[REDACTED]"
+    digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    plain = f"sha256={digest} note=ok"
+    assert wrapper._redact_secrets(plain) == plain
+
+
+def test_json_write_sanitizes_payload_before_disk(tmp_path: Path) -> None:
+    wrapper = _load_wrapper("workflow_execution_wrapper_json_write_redaction")
+    target = tmp_path / "receipts" / "REDACT-CHECK-receipt.json"
+    payload = {
+        "env": "OPENROUTER_API_KEY=fake-live-key-000111222",
+        "note": "bearer Authorization: Bearer fake-token-abc",
+        "token": "sk-or-v1-FakeKeyFakeKeyFake12",
+        "digest": "0" * 64,
+    }
+    wrapper._json_write(target, payload)
+    written = json.loads(target.read_text(encoding="utf-8"))
+    flat = json.dumps(written)
+    assert "fake-live-key-000111222" not in flat
+    assert "fake-token-abc" not in flat
+    assert "FakeKeyFakeKeyFake12" not in flat
+    assert written["env"] == "OPENROUTER_API_KEY=[REDACTED]"
+    assert written["note"] == "bearer Authorization: Bearer [REDACTED]"
+    assert written["token"] == "sk-or-v1-[REDACTED]"
+    assert written["digest"] == "0" * 64
+    assert not list(tmp_path.rglob("*.tmp"))

@@ -148,10 +148,33 @@ def load_json(path: Path, label: str) -> Any:
         raise WrapperError(f"ALLOWANCE_INVALID: invalid {label}: {path}") from exc
 
 
+#: §29a REDACT-WRITEPATH: credential material must never reach committable
+#: evidence. Patterns run in order so an sk-or-v1 token embedded in a VAR=...
+#: pair collapses to a fully redacted value, and every replacement is chosen
+#: so re-applying _redact_secrets is a fixed point ([REDACTED] output never
+#: re-matches). Hex digests (sha256 ...) contain none of these anchors and
+#: pass through untouched.
+_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"), "sk-or-v1-[REDACTED]"),
+    # VAR=... and bearer-token values exclude the double quote: _json_write
+    # redacts the SERIALIZED payload, where every JSON string ends at '"'.
+    # Greedy \S+ would swallow that closing quote and corrupt the file.
+    (re.compile(r"(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=(?!\[REDACTED\])[^\s\"]+"), r"\g<1>=[REDACTED]"),
+    (re.compile(r"Authorization:\s*Bearer\s+(?!\[REDACTED\])[^\s\"]+", re.IGNORECASE), "Authorization: Bearer [REDACTED]"),
+)
+
+def _redact_secrets(text: str) -> str:
+    """Replace live-format credentials with [REDACTED]; idempotent, hex-safe."""
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _json_write(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload = _redact_secrets(json.dumps(value, indent=2, sort_keys=True)) + "\n"
+    temporary.write_text(payload, encoding="utf-8")
     os.replace(temporary, path)
 
 
