@@ -500,9 +500,10 @@ def test_overlap_rejection_does_not_launch(tmp_path: Path) -> None:
 
 
 def test_allowances_overlap_narrowed_to_intersecting_mutating_paths(tmp_path: Path) -> None:
-    """WRAPPER-OVERLAP-NARLOW: overlap requires BOTH sides to carry non-empty
-    ``allowed`` lists that intersect; sharing a resolved worktree alone is no
-    longer an automatic overlap, so read-only/evidence dispatches never block.
+    """WRAPPER-OVERLAP-NARLOW + R2: read-only sides (empty ``allowed``) never
+    overlap; cross-worktree mutating pairs resolve via conservative fail-closed
+    pattern intersection; same-worktree mutating pairs serialize unconditionally
+    (covered by the R2 F-b test below).
     """
     wrapper = _load_wrapper("workflow_execution_wrapper_overlap_narlow")
     shared = tmp_path / "shared-worktree"
@@ -514,14 +515,86 @@ def test_allowances_overlap_narrowed_to_intersecting_mutating_paths(tmp_path: Pa
     # Same worktree + one side empty: a read-only task blocks nothing.
     assert wrapper._allowances_overlap(entry(shared, []), entry(shared, ["allowed.txt"])) is False
     assert wrapper._allowances_overlap(entry(shared, ["allowed.txt"]), entry(shared, [])) is False
-    # Same worktree + disjoint non-empty alloweds: path-scoped tasks coexist.
-    assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(shared, ["vibecomfy/**"])) is False
+    # Same worktree + disjoint non-empty alloweds: serialized since R2 (F-b),
+    # regardless of path reasoning.
+    assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(shared, ["vibecomfy/**"]), same_worktree=True) is True
     # Same worktree + intersecting non-empty alloweds.
     assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(shared, ["docs/x.md"])) is True
+    # Different worktrees + crossing globs that fnmatch cannot cross-check:
+    # conservative intersection must admit them as overlapping (R2 F-a;
+    # pre-R2 this pair returned False).
+    assert wrapper._allowances_overlap(entry(shared, ["docs/*.md"]), entry(other, ["docs/x*"])) is True
     # Different worktrees + intersecting.
     assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(other, ["docs/**"])) is True
-    # Different worktrees + disjoint.
+    # Different worktrees + decidable disjoint.
     assert wrapper._allowances_overlap(entry(shared, ["docs/**"]), entry(other, ["vibecomfy/**"])) is False
+
+
+def test_allowances_overlap_serializes_mutating_same_worktree_pairs(tmp_path: Path) -> None:
+    """WRAPPER-OVERLAP-NARROW-R2 F-b: same-worktree pairs whose BOTH allowed
+    lists are non-empty always overlap (whole-worktree snapshots cannot
+    attribute writes between concurrent children); read-only sides keep the
+    §15.3 / §21.4 guarantee of never blocking anything.
+    """
+    wrapper = _load_wrapper("workflow_execution_wrapper_same_worktree_serialize")
+    shared = tmp_path / "shared-worktree"
+    other = tmp_path / "other-worktree"
+
+    def entry(worktree: Path, allowed: list[str]) -> dict[str, object]:
+        return {"task_id": "t", "worktree": str(worktree), "allowed": allowed}
+
+    assert wrapper._allowances_overlap(
+        entry(shared, ["docs/**"]), entry(shared, ["vibecomfy/**"]), same_worktree=True
+    ) is True
+    assert wrapper._allowances_overlap(
+        entry(shared, ["allowed.txt"]), entry(shared, ["other.txt"]), same_worktree=True
+    ) is True
+    # Read-only sides never overlap, even on the same worktree.
+    assert wrapper._allowances_overlap(
+        entry(shared, []), entry(shared, ["allowed.txt"]), same_worktree=True
+    ) is False
+    assert wrapper._allowances_overlap(
+        entry(shared, ["allowed.txt"]), entry(shared, []), same_worktree=True
+    ) is False
+    # Cross-worktree pairs still resolve via path intersection.
+    assert wrapper._allowances_overlap(
+        entry(shared, ["docs/**"]), entry(other, ["vibecomfy/**"]), same_worktree=False
+    ) is False
+    assert wrapper._allowances_overlap(
+        entry(shared, ["docs/**"]), entry(other, ["docs/**"]), same_worktree=False
+    ) is True
+
+
+def test_patterns_may_intersect_crossing_globs_fail_closed(tmp_path: Path) -> None:
+    """WRAPPER-OVERLAP-NARROW-R2 F-a: ``_patterns_may_intersect`` decides
+    exact/suffix/prefix-star crossings exactly and returns True (overlap) for
+    any undecidable crossing. Pre-R2, ``docs/*.md`` vs ``docs/x*`` fell
+    through the fnmatch cross-check as False -- unsound parallel admission.
+    """
+    wrapper = _load_wrapper("workflow_execution_wrapper_pattern_intersection")
+    # The reviewer's crossing-glob case intersects at docs/x.md.
+    assert wrapper._patterns_may_intersect("docs/*.md", "docs/x*") is True
+    assert wrapper._patterns_may_intersect("docs/x*", "docs/*.md") is True
+    # Decidable intersections stay exact.
+    assert wrapper._patterns_may_intersect("docs/x*", "docs/x.md") is True
+    assert wrapper._patterns_may_intersect("*", "vibecomfy/anything.txt") is True
+    assert wrapper._patterns_may_intersect("**", "anything.txt") is True
+    # Two wildcard-free literals are decidable-disjoint unless equal -- the
+    # exact fnmatch semantics enforcement itself uses ("dir/" matches only a
+    # literal path "dir/"); adding a star restores prefix coverage.
+    assert wrapper._patterns_may_intersect("dir/", "dir/nested/file.txt") is False
+    assert wrapper._patterns_may_intersect("dir/*", "dir/nested/file.txt") is True
+    assert wrapper._patterns_may_intersect("a*b", "axxxyb") is True
+    # Decidable disjointness stays exact.
+    assert wrapper._patterns_may_intersect("allowed.txt", "forbidden.txt") is False
+    assert wrapper._patterns_may_intersect("docs/**", "vibecomfy/**") is False
+    assert wrapper._patterns_may_intersect("docs/a*", "docs/b.md") is False
+    assert wrapper._patterns_may_intersect("docs/*z", "docs/*y") is False
+    # Undecidable fragments (?/class/multi-star): fail closed to True even
+    # when a human might prove disjointness.
+    assert wrapper._patterns_may_intersect("docs/?z", "docs/literal") is True
+    assert wrapper._patterns_may_intersect("doc[s]/x", "vibe/y") is True
+    assert wrapper._patterns_may_intersect("docs/*/x/*/y", "docs/a/x/b/y") is True
 
 
 def test_registry_guard_allows_second_dispatch_with_empty_allowed(tmp_path: Path) -> None:
@@ -551,6 +624,89 @@ def test_registry_guard_allows_second_dispatch_with_empty_allowed(tmp_path: Path
         wrapper._registry_release(evidence, "next-dispatch")
     stored = json.loads((evidence / "active-allowances.json").read_text())
     assert set(stored) == {task_id}
+
+
+def test_registry_guard_refuses_duplicate_active_task_id(tmp_path: Path) -> None:
+    """WRAPPER-OVERLAP-NARROW-R2 F-c: an already-active task_id is refused
+    before overlap evaluation and before the live entry can be overwritten --
+    either side's release would otherwise unregister the survivor. The seeded
+    entry uses a different worktree and empty ``allowed`` so ONLY the
+    duplicate-ID check can fire.
+    """
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_duplicate_task_id")
+    seeded = {
+        "task_id": "dup-id",
+        "allowance_file": str(allowance),
+        "worktree": str(project.parent / "elsewhere"),
+        "start_ts_epoch": time.time(),
+        "pid": os.getpid(),
+        "allowed": [],
+    }
+    _write_registry(evidence, "dup-id", seeded)
+
+    with pytest.raises(wrapper.WrapperError) as excinfo:
+        wrapper._registry_guard(evidence, "dup-id", allowance, project, ["other.txt"])
+    assert "TASK_ALREADY_ACTIVE" in str(excinfo.value)
+
+    stored = json.loads((evidence / "active-allowances.json").read_text())
+    assert stored == {"dup-id": seeded}
+
+
+def test_registry_guard_allows_reuse_after_dead_pid_sweep_clears_entry(tmp_path: Path) -> None:
+    """WRAPPER-OVERLAP-NARROW-R2 F-c: a stale same-task_id entry cleared by the
+    dead-PID sweep does NOT count as active; reuse registers a fresh entry."""
+    project, evidence, _brief, allowance, _fake = _setup(tmp_path)
+    wrapper = _load_wrapper("workflow_execution_wrapper_stale_task_id_reuse")
+    dead_pid = _dead_pid(wrapper)
+    _write_registry(evidence, "reused-id", {
+        "task_id": "reused-id",
+        "allowance_file": str(allowance),
+        "worktree": str(project),
+        "start_ts_epoch": time.time() - wrapper.DEAD_PID_GRACE_SECONDS - 120,
+        "pid": dead_pid,
+        "allowed": ["allowed.txt"],
+    })
+
+    registry, candidate = wrapper._registry_guard(
+        evidence, "reused-id", allowance, project, ["allowed.txt"]
+    )
+    try:
+        assert set(registry) == {"reused-id"}
+        assert candidate["pid"] == os.getpid()
+    finally:
+        wrapper._registry_release(evidence, "reused-id")
+    note = json.loads((evidence / "stale-allowance-cleared.json").read_text())
+    assert note["cleared_task_ids"] == ["reused-id"]
+    assert not json.loads((evidence / "active-allowances.json").read_text())
+
+
+def test_duplicate_task_id_exits_nonzero_without_launching_child(tmp_path: Path) -> None:
+    """WRAPPER-OVERLAP-NARROW-R2 F-c end-to-end: a duplicate active task_id
+    makes the wrapper exit nonzero BEFORE launching a child; the live registry
+    entry survives byte-identical and no receipt appears.
+    """
+    project, evidence, brief, allowance, fake = _setup(tmp_path)
+    sentinel = evidence / "launcher-started"
+    seeded = {
+        "task_id": "T9.1",
+        "allowance_file": str(allowance),
+        "worktree": str(project.parent / "elsewhere"),
+        "start_ts_epoch": time.time(),
+        "pid": os.getpid(),
+        "allowed": [],
+    }
+    _write_registry(evidence, "T9.1", seeded)
+
+    result = _invoke(project, evidence, brief, allowance, fake, sentinel=sentinel)
+
+    assert result.returncode == 2
+    assert "TASK_ALREADY_ACTIVE" in result.stderr
+    assert not sentinel.exists()
+    assert not (project / "allowed.txt").exists()
+    assert not (evidence / "T9.1-receipt.json").exists()
+    stored = json.loads((evidence / "active-allowances.json").read_text())
+    assert stored == {"T9.1": seeded}
 
 
 def test_missing_allowance_rejects_before_launch(tmp_path: Path) -> None:

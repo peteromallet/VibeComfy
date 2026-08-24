@@ -299,20 +299,75 @@ def _workspace_root(project_dir: Path, evidence_dir: Path) -> Path:
     return evidence_dir.resolve().parent
 
 
-def _pattern_overlap(left: str, right: str) -> bool:
-    if left == right or left in {"*", "**"} or right in {"*", "**"}:
+#: WRAPPER-OVERLAP-NARROW-R2 F-a/F-b support.
+def _same_worktree(left: str, right: str) -> bool:
+    """Whether two registry worktree strings denote one resolved directory."""
+    try:
+        return Path(left).resolve() == Path(right).resolve()
+    except OSError:
+        return left == right
+
+
+def _star_fragment(pattern: str) -> tuple[str, str] | None:
+    """Reduce a glob to ``(prefix, suffix)`` around its single star; a plain
+    literal reduces to ``(literal, "")``; anything else (``?``, ``[...]``,
+    multiple independent stars) returns None = undecidable."""
+    collapsed = re.sub(r"\*{2,}", "*", pattern)
+    if collapsed == "*":
+        return ("", "")
+    if "?" in collapsed or "[" in collapsed:
+        return None
+    if "*" not in collapsed:
+        return (collapsed, "")
+    if collapsed.count("*") != 1:
+        return None
+    prefix, _, suffix = collapsed.partition("*")
+    return prefix, suffix
+
+
+def _patterns_may_intersect(pat_a: str, pat_b: str) -> bool:
+    """Conservative FAIL-CLOSED decision on whether two allowance globs can
+    both match some literal path (WRAPPER-OVERLAP-NARROW-R2 F-a).
+
+    Exact where decidable: two wildcard-free patterns intersect iff equal;
+    otherwise each side reduces to a ``prefix*suffix`` fragment (runs of
+    ``*``/``**`` collapse to one star, matching fnmatch semantics where both
+    translate to ``.*``), and the languages intersect iff one prefix is a
+    prefix of the other AND one suffix is a suffix of the other (witness:
+    ``longer_prefix + longer_suffix``). This decides crossings like
+    ``docs/*.md`` vs ``docs/x*`` that plain fnmatch cross-checks miss.
+    ANY UNDECIDABLE CROSSING returns True: patterns carrying ``?``,
+    ``[...]`` classes, or multiple independent stars are not analyzed, so
+    admission serializes rather than risking unsound parallel approval.
+    """
+    if pat_a == pat_b:
         return True
-    if not any(ch in left + right for ch in "*?["):
+    if not any(ch in pat_a + pat_b for ch in "*?["):
         return False
-    return fnmatch.fnmatchcase(left, right) or fnmatch.fnmatchcase(right, left)
+    frag_a = _star_fragment(pat_a)
+    frag_b = _star_fragment(pat_b)
+    if frag_a is None or frag_b is None:
+        return True
+    prefixes_compatible = frag_a[0].startswith(frag_b[0]) or frag_b[0].startswith(frag_a[0])
+    suffixes_compatible = frag_a[1].endswith(frag_b[1]) or frag_b[1].endswith(frag_a[1])
+    return prefixes_compatible and suffixes_compatible
 
 
-def _allowances_overlap(current: dict[str, Any], other: dict[str, Any]) -> bool:
-    current_allowed = current.get("allowed", [])
-    other_allowed = other.get("allowed", [])
+def _allowances_overlap(current: dict[str, Any], other: dict[str, Any], same_worktree: bool = False) -> bool:
+    """Overlap policy (WRAPPER-OVERLAP-NARROW-R2 F-b): read-only sides (empty
+    ``allowed``, the §21.4 orchestrator convention) never overlap; a
+    same-worktree pair whose BOTH allowed lists are non-empty overlaps
+    unconditionally -- whole-worktree snapshots cannot attribute writes
+    between concurrent children, so mutually-mutating pairs serialize;
+    cross-worktree pairs fall to conservative pattern intersection.
+    """
+    current_allowed = [str(a) for a in current.get("allowed", [])]
+    other_allowed = [str(b) for b in other.get("allowed", [])]
     if not current_allowed or not other_allowed:
         return False
-    return any(_pattern_overlap(str(a), str(b)) for a in current_allowed for b in other_allowed)
+    if same_worktree:
+        return True
+    return any(_patterns_may_intersect(a, b) for a in current_allowed for b in other_allowed)
 
 
 #: Descriptor holding this process's registry-guard critical-section lock, or
@@ -372,9 +427,26 @@ def _registry_guard(evidence_dir: Path, task_id: str, allowance_file: Path, work
                 "cleared_ts": utc_now(),
                 "reason": f"{' and '.join(classes)} allowance entries cleared",
             })
+        # WRAPPER-OVERLAP-NARROW-R2 F-c: an already-active task_id is refused
+        # BEFORE overlap evaluation and before the candidate write, so a second
+        # dispatch cannot clobber the live entry (either side's release would
+        # then unregister the survivor). Entries just swept above do NOT count.
+        if task_id in registry:
+            active_entry = registry[task_id]
+            detail = ""
+            if isinstance(active_entry, dict):
+                detail = f" (pid {active_entry.get('pid')}, started {active_entry.get('start_ts')})"
+            raise WrapperError(
+                f"TASK_ALREADY_ACTIVE: {task_id}{detail} is already registered as an active dispatch"
+            )
         candidate = {"task_id": task_id, "allowance_file": str(allowance_file), "worktree": str(worktree), "start_ts": utc_now(), "start_ts_epoch": now, "pid": os.getpid(), "allowed": allowed}
+        candidate_worktree = str(worktree)
         for active_id, entry in registry.items():
-            if isinstance(entry, dict) and _allowances_overlap(candidate, entry):
+            if isinstance(entry, dict) and _allowances_overlap(
+                candidate,
+                entry,
+                same_worktree=_same_worktree(str(entry.get("worktree", "")), candidate_worktree),
+            ):
                 raise WrapperError(f"ALLOWANCE_OVERLAP: {task_id} overlaps active task {active_id}")
         registry[task_id] = candidate
         _json_write(registry_path, registry)
