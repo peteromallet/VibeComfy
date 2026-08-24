@@ -255,13 +255,24 @@ def end_model_attempt_capture(token: contextvars.Token) -> None:
 
 
 def record_model_attempts(value: Any) -> None:
-    """Append canonical attempts to the active executor capture, without duplicates."""
+    """Append canonical attempts to the active executor capture, exactly once.
+
+    DEEP-AUDIT-REVIEW-3 finding 003: the runtime dispatch layer is the ONE
+    attempt-recording owner. Callers that replay merged rows from a provider
+    response (executor agent_backend) or re-record collected timeout rows
+    must never duplicate evidence, so a row whose canonical projection equals
+    an already-captured row is skipped — not only immediately-adjacent
+    duplicates.
+    """
     state = _MODEL_ATTEMPT_CAPTURE.get()
     if state is None:
         return
+    seen = [ModelAttemptEvidence.from_mapping(item).to_dict() for item in state]
     for attempt in coerce_model_attempts(value):
-        if state and state[-1] == attempt:
+        canonical = ModelAttemptEvidence.from_mapping(attempt).to_dict()
+        if canonical in seen:
             continue
+        seen.append(canonical)
         state.append(attempt)
 
 
@@ -1022,6 +1033,11 @@ def _run_worker(
     """
     accumulated_attempts: list[dict[str, Any]] = []
     iteration_corrections = 0
+    # DEEP-AUDIT-REVIEW-3 finding 003: continue the caller's logical dispatch
+    # sequence (the provider classify retry passes model_attempt=2) so attempt
+    # numbering stays MONOTONIC across the provider retry instead of every
+    # spawn restarting at 1.
+    base_attempt = max(1, int((profiling_context or {}).get("model_attempt") or 1))
     effective_deadline = _effective_turn_deadline(deadline)
     per_attempt_budget = _turn_timeout_seconds(
         user_msg,
@@ -1071,7 +1087,7 @@ def _run_worker(
                     requested_model=requested_model,
                     resolved_model=model,
                     profiling_context=profiling_context,
-                    attempt=len(accumulated_attempts) + 1,
+                    attempt=base_attempt + len(accumulated_attempts),
                 ),
                 deadline_seconds=attempt_timeout,
                 disposition=_RETRY_DISPOSITION_NOT_SAFE_SAME_IDENTITY,
@@ -1095,8 +1111,8 @@ def _run_worker(
             iteration_corrections=iteration_corrections,
         )
         attempts = list(coerce_model_attempts(result.get("model_attempts")))
-        for item in attempts:
-            item["attempt"] = len(accumulated_attempts) + 1
+        for offset, item in enumerate(attempts):
+            item["attempt"] = base_attempt + len(accumulated_attempts) + offset
             normalized = ModelAttemptEvidence.from_mapping(item).to_dict()
             normalized = _preserve_retry_evidence(normalized, item)
             normalized = _stamp_retry_evidence(

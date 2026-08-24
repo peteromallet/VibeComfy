@@ -337,6 +337,13 @@ _CLASSIFY_PARSE_RETRY_PROMPT = (
 )
 
 
+# DEEP-AUDIT-REVIEW-3 finding 002: the decision core of the classify
+# contract. A JSON object carrying NONE of these keys is unrelated metadata
+# or prose debris — never a classification — so both extraction and parsing
+# must fail closed instead of manufacturing a respond/reply=True default.
+CLASSIFY_DECISION_STRONG_KEYS = frozenset({"route", "intent", "implement", "reply"})
+
+
 _CLASSIFY_EXPECT_GRAPH_CHANGED = (
     "This interaction expects a graph change (expect_graph_changed=true). "
     "Classify route MUST be an edit route (\"revise\", \"adapt\", "
@@ -820,6 +827,16 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     """
     parsed = _extract_json_object(raw)
 
+    # DEEP-AUDIT-REVIEW-3 finding 002 (fail-closed): unrelated JSON —
+    # e.g. {"latency_ms": 42} — must become a typed parse failure, never a
+    # defaulted respond/reply=True decision. Legacy partial decisions keep
+    # working because they carry at least one strong decision key.
+    if not CLASSIFY_DECISION_STRONG_KEYS.intersection(parsed):
+        raise ValueError(
+            "Classify response JSON carries no classify-contract decision key "
+            f"(one of {sorted(CLASSIFY_DECISION_STRONG_KEYS)}); got keys "
+            f"{sorted(str(key) for key in parsed.keys())}."
+        )
     research = parsed.get("research")
     implement = parsed.get("implement")
     reply = parsed.get("reply")
@@ -1074,6 +1091,7 @@ def parse_reply_response(raw: str) -> str:
 
 
 __all__ = [
+    "CLASSIFY_DECISION_STRONG_KEYS",
     "build_classify_messages",
     "build_reply_messages",
     "parse_classify_response",

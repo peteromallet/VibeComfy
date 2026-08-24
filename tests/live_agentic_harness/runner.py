@@ -399,12 +399,29 @@ def _attempt_record(
 
 
 def _latest_failed_model_attempt(summary: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Latest UNRECOVERED failed attempt — a later success supersedes it.
+
+    DEEP-AUDIT-REVIEW-3 finding 004: scanning for any historical failure let
+    a RECOVERED classify timeout (a later successful attempt in the same
+    phase) reclassify a later product/assessment failure as retryable
+    infrastructure. Only failures that remain terminal for their phase — no
+    later successful attempt in that phase — may drive infra classification.
+    """
     attempts = summary.get("model_attempts")
     if not isinstance(attempts, (list, tuple)):
         return None
-    for attempt in reversed(attempts):
-        if isinstance(attempt, Mapping) and attempt.get("outcome") == "failure":
-            return attempt
+    records = [attempt for attempt in attempts if isinstance(attempt, Mapping)]
+    for index in range(len(records) - 1, -1, -1):
+        attempt = records[index]
+        if attempt.get("outcome") != "failure":
+            continue
+        phase = attempt.get("phase")
+        if any(
+            later.get("outcome") == "success" and later.get("phase") == phase
+            for later in records[index + 1 :]
+        ):
+            continue
+        return attempt
     return None
 
 

@@ -297,6 +297,81 @@ def _in_graph_nodes_from_session(session: Any) -> dict[str, Any] | None:
     return {"nodes": payload}
 
 
+_ABORTED_TURN_MAX_STATEMENTS = 64
+_ABORTED_TURN_MESSAGE_LIMIT = 500
+
+
+def _capture_aborted_inflight_turn(
+    state: Any,
+    deps: Any,
+    *,
+    turn_number: int,
+    batch: Any,
+    turn_result: Any,
+    batch_result: Any,
+    exc: BaseException,
+) -> None:
+    """Snapshot the CURRENT batch/ops/response BEFORE rollback erases them.
+
+    DEEP-AUDIT-REVIEW-3 finding 001: ``abort_journaled_batch`` restores
+    ``state.batch_turns`` and the journaled files to their loop-entry
+    snapshots, so without a pre-rollback capture the durable
+    ``batch_failure_evidence.json`` omitted the very batch and operations that
+    triggered the failure. The immutable record rides on
+    ``state.batch_aborted_turns`` — an attribute OUTSIDE the journaled state
+    fields — and is merged into the evidence by
+    ``_frag_batch_reports.build_batch_failure_evidence``. Best-effort: a
+    capture failure never masks the original exception.
+    """
+    try:
+        if batch is None and turn_result is None:
+            return
+        record: dict[str, Any] = {
+            "turn_number": turn_number,
+            "aborted_mid_turn": True,
+            "rolled_back": True,
+        }
+        if isinstance(batch, str) and batch.strip():
+            record["batch"] = batch
+        if turn_result is not None:
+            payload = turn_result.to_dict()
+            record["message"] = str(payload.get("message") or "")[
+                :_ABORTED_TURN_MESSAGE_LIMIT
+            ]
+            record["route"] = str(payload.get("route") or "")
+            record["model"] = payload.get("model")
+            audit_metadata = payload.get("audit_metadata")
+            if isinstance(audit_metadata, Mapping):
+                record["provider_metadata"] = deps._json_safe(dict(audit_metadata))
+        if batch_result is not None:
+            statement_report_entry = _import_from(
+                "vibecomfy.comfy_nodes.agent._frag_batch_reports",
+                "_statement_report_entry",
+            )
+            statements: list[dict[str, Any]] = []
+            for item in tuple(getattr(batch_result, "statements", ()) or ())[
+                :_ABORTED_TURN_MAX_STATEMENTS
+            ]:
+                try:
+                    statements.append(statement_report_entry(item))
+                except Exception:  # noqa: BLE001 - skip unserializable statements
+                    continue
+            record["statements"] = statements
+        record["abort"] = {
+            "code": "unexpected_batch_exception",
+            "error_type": type(exc).__name__,
+            "message": str(exc)[:_ABORTED_TURN_MESSAGE_LIMIT],
+            "fault_point": getattr(exc, "fault_point", None),
+        }
+        state.batch_aborted_turns = tuple(
+            getattr(state, "batch_aborted_turns", ()) or ()
+        ) + (record,)
+    except Exception:  # noqa: BLE001 - evidence capture is additive, never fatal
+        deps.LOGGER.debug(
+            "aborted-turn inflight capture failed", exc_info=True
+        )
+
+
 def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """The UI door (porting/emit/ui.py) — the designed Agent Edit exit.
 
@@ -1136,6 +1211,12 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             {"response_contract": "batch_repl", "turns": request_log},
         )
         protocol_retry_used = False
+        # DEEP-AUDIT-REVIEW-3 finding 001: pre-try sentinels so the except
+        # handler can capture whatever in-flight evidence already exists even
+        # when the failure precedes batch application.
+        turn_result = None
+        editable_batch = None
+        batch_result = None
 
         try:
             try:
@@ -2203,6 +2284,19 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 break
         except Exception as _batch_exc:
             _journal_failed = True
+            # DEEP-AUDIT-REVIEW-3 finding 001: snapshot the failing CURRENT
+            # batch, parsed statements, and response BEFORE abort_journaled_batch
+            # restores loop-entry state — otherwise the durable failure evidence
+            # loses the batch that triggered the abort.
+            _capture_aborted_inflight_turn(
+                state,
+                deps,
+                turn_number=turn_number,
+                batch=editable_batch,
+                turn_result=turn_result,
+                batch_result=batch_result,
+                exc=_batch_exc,
+            )
             _batch_journal_mod.abort_journaled_batch(
                 session=session,
                 state=state,

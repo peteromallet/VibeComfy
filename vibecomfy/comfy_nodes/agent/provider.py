@@ -17,6 +17,7 @@ from vibecomfy.executor.contracts import (
     coerce_model_attempts,
     redact_model_preview,
 )
+from vibecomfy.executor.prompts import CLASSIFY_DECISION_STRONG_KEYS
 from vibecomfy.executor.tool_specs import (
     PHASE_IMPLEMENT,
     PHASE_RESEARCH,
@@ -396,6 +397,9 @@ _CLASSIFY_JSON_CONTRACT_KEYS = frozenset({
     "clarification_question",
     "research_goal",
 })
+# DEEP-AUDIT-REVIEW-3 finding 002: only the strong decision core qualifies a
+# JSON object as the classification; the remaining contract keys are weak
+# sidecars (a prose example carrying ``task`` must never win).
 _CLASSIFY_EXTRACTION_MAX_CANDIDATES = 8
 _CLASSIFY_EXTRACTION_INPUT_LIMIT = 200_000
 
@@ -446,16 +450,33 @@ def _iter_json_object_candidates(text: str, *, max_candidates: int) -> list[dict
     return candidates
 
 
+def _classify_candidate_rank(candidate: Mapping[str, Any]) -> tuple[int, int]:
+    """Rank a JSON object by how completely it carries the classify decision.
+
+    Strong decision keys (route/intent/implement/reply) dominate; weak
+    sidecar keys (task, plan_summary, ...) only break ties. An object with
+    ZERO strong keys can never qualify as the decision.
+    """
+    strong = len(CLASSIFY_DECISION_STRONG_KEYS.intersection(candidate))
+    return (
+        strong,
+        len(_CLASSIFY_JSON_CONTRACT_KEYS.intersection(candidate)),
+    )
+
+
 def extract_classify_json(text: str) -> dict[str, Any]:
     """Extract the classify JSON object from prose-wrapped model output.
 
     §28 deep-audit fix 7 — same seam discipline as :func:`extract_batch_fence`:
     a response whose classify JSON is surrounded by prose/markdown still
-    yields its JSON object; a genuinely missing/empty classify JSON fails
-    CLOSED with typed ``parse_reason`` evidence. When several JSON objects
-    appear (e.g. a decoy example inside the prose), an object carrying a
-    classify-contract key wins over positional first-match so a brace-bearing
-    sentence can never masquerade as the decision.
+    yields its JSON object. DEEP-AUDIT-REVIEW-3 finding 002 (fail-closed):
+    an object qualifies ONLY with a sufficient classify signature — at least
+    one strong decision key (route/intent/implement/reply); the most complete
+    decision object wins over weak-key sidecars (a brace-bearing sentence or
+    ``{"latency_ms": ...}`` metadata can never masquerade as the decision),
+    and when NO qualifying object exists the seam raises typed
+    ``parse_reason="missing_classify_json"`` evidence instead of returning
+    an unrelated object.
     """
     if not text.strip():
         raise MalformedModelJSON(
@@ -468,19 +489,24 @@ def extract_classify_json(text: str) -> dict[str, Any]:
         direct = json.loads(stripped)
     except ValueError:
         direct = None
+    candidates: list[dict[str, Any]] = []
     if isinstance(direct, dict):
-        return direct
-    candidates = _iter_json_object_candidates(
-        stripped,
-        max_candidates=_CLASSIFY_EXTRACTION_MAX_CANDIDATES,
+        candidates.append(direct)
+    candidates.extend(
+        _iter_json_object_candidates(
+            stripped,
+            max_candidates=_CLASSIFY_EXTRACTION_MAX_CANDIDATES,
+        )
     )
-    for candidate in candidates:
-        if _CLASSIFY_JSON_CONTRACT_KEYS.intersection(candidate):
-            return candidate
-    if candidates:
-        return candidates[0]
+    qualified = [
+        candidate for candidate in candidates if _classify_candidate_rank(candidate)[0] >= 1
+    ]
+    if qualified:
+        # max() keeps document order among ties — earlier complete decisions win.
+        return max(qualified, key=_classify_candidate_rank)
     raise MalformedModelJSON(
-        "Agent classify response does not contain a JSON object.",
+        "Agent classify response does not contain a classify-contract decision "
+        "object (needs one of route/intent/implement/reply).",
         raw_response=text,
         parse_reason="missing_classify_json",
     )
@@ -1941,8 +1967,9 @@ def _normalize_turn_response(
     §28 deep-audit fix 7: when a CLASSIFY-phase ``json`` contract returns
     prose around a JSON object (worker-level lenient parsing can lock onto a
     decoy brace-bearing sentence instead of the decision), the bounded
-    :func:`extract_classify_json` seam re-extracts the decision object — an
-    object carrying a classify-contract key wins over positional first-match.
+    :func:`extract_classify_json` seam re-extracts the decision object — the
+    most complete object carrying strong decision keys wins, and decision-less
+    JSON fails closed instead of masquerading as the classification.
     The raw model text is preserved on ``raw_content``; the canonical JSON is
     published on ``content``/``json`` with typed provenance. Genuinely
     missing JSON keeps the existing fail-closed parse machinery untouched.
@@ -2074,18 +2101,11 @@ def run_model_turn(
                         except Exception:  # noqa: BLE001 - evidence attachment is best-effort
                             pass
                     raise
-                # §28 fix 7: record the timed-out attempt into the canonical
-                # capture BEFORE the single retry so persisted summaries reflect
-                # both attempts through the harness's typed infra machinery.
-                if collected_timeout_attempts:
-                    try:
-                        from vibecomfy.comfy_nodes.agent.runtime import (
-                            record_model_attempts,
-                        )
-
-                        record_model_attempts(list(collected_timeout_attempts))
-                    except Exception:  # noqa: BLE001 - evidence capture is additive
-                        pass
+                # DEEP-AUDIT-REVIEW-3 finding 003: the runtime dispatch layer
+                # ALREADY recorded the timed-out attempt into the canonical
+                # capture (runtime._run_worker). Re-recording the coerced
+                # copies here duplicated evidence ([T,S,T,S]); this provider
+                # only MERGES rows onto the returned response for callers.
                 LOGGER.warning(
                     "classify model turn timed out (attempt %d/%d); retrying once "
                     "with the same prompt",

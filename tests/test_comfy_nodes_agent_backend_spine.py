@@ -14923,59 +14923,129 @@ def test_extract_classify_json_missing_or_empty_fails_closed() -> None:
     assert missing_excinfo.value.parse_reason == "missing_classify_json"
 
 
-def test_run_model_turn_classify_timeout_retries_once_and_succeeds(
+def test_classify_timeout_retry_full_path_records_two_monotonic_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """§28 fix 7: a provider timeout in the CLASSIFY phase retries ONCE with
-    the same prompt; the returned evidence records both attempts (length 2:
-    timeout then success)."""
-    from vibecomfy.comfy_nodes.agent.runtime import (
-        begin_model_attempt_capture,
-        end_model_attempt_capture,
-        snapshot_model_attempt_capture,
-    )
+    """§28 fix 7 / DEEP-AUDIT-REVIEW-3 finding 003: through the REAL
+    production path ``agent_backend.run_classify_turn → provider.run_model_turn
+    → runtime._run_worker`` capture, a recovered classify timeout yields
+    EXACTLY TWO canonical rows — [timeout attempt=1, success attempt=2] — with
+    monotonic numbering across the provider retry and NO duplicated replayed
+    evidence. Only the worker subprocess boundary is stubbed; attempt capture,
+    recording ownership, and numbering normalization are the real code."""
+    from vibecomfy.executor import agent_backend
 
-    runtime = _ScriptedRuntime([
-        _timeout_with_row(attempt=1),
-        {
+    dispatch_contexts: list[dict[str, Any]] = []
+
+    def _fake_worker_once(
+        agent_kwargs: dict[str, Any],
+        system_msg: str | None,
+        user_msg: str,
+        *,
+        response_contract: str = "json",
+        agent_id: str = "hermes",
+        model: str | None = None,
+        requested_model: str | None = None,
+        effort: str | None = None,
+        profiling_context: Mapping[str, Any] | None = None,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        dispatch_contexts.append(dict(profiling_context or {}))
+        if len(dispatch_contexts) == 1:
+            raise TimeoutError("Agent worker timed out.")
+        return {
             "content": '{"route": "respond"}',
             "json": {"route": "respond"},
             "model_attempts": [
-                {"phase": "classify", "attempt": 2, "outcome": "success"}
+                {
+                    "phase": "classify",
+                    "outcome": "success",
+                    "requested_model": requested_model,
+                }
             ],
-        },
-    ])
-    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+        }
 
-    token = begin_model_attempt_capture()
+    monkeypatch.setattr(runtime, "_run_worker_once", _fake_worker_once)
+    # Production runtime module IS the Arnold runtime here — provider dispatch
+    # reaches the real runtime.run_model_turn/_run_worker capture path.
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    token = runtime.begin_model_attempt_capture()
     try:
-        result = agent_provider.run_model_turn(
+        decision = agent_backend.run_classify_turn(
             "classify this request",
-            [{"role": "user", "content": "classify this request"}],
             route="openrouter",
             model="deepseek-chat",
-            response_contract="json",
-            profiling_context={"backend_phase": "classify"},
         )
     finally:
-        attempts = snapshot_model_attempt_capture()
-        end_model_attempt_capture(token)
+        attempts = list(runtime.snapshot_model_attempt_capture())
+        runtime.end_model_attempt_capture(token)
 
-    # Exactly one bounded retry: two dispatches, same prompt.
-    assert len(runtime.calls) == 2
-    assert runtime.calls[0]["messages"] == runtime.calls[1]["messages"]
-    assert runtime.calls[1]["profiling_context"]["model_attempt"] == 2
+    assert decision.reply is True
 
-    # model_attempts length 2: [timed-out failure, success].
-    rows = result["model_attempts"]
-    assert len(rows) == 2
-    assert rows[0]["failure_type"] == "timeout" and rows[0]["outcome"] == "failure"
-    assert rows[1]["outcome"] == "success"
+    # Exactly one bounded retry: two dispatches, same prompt, second carries
+    # the retry's model_attempt=2 dispatch identity.
+    assert len(dispatch_contexts) == 2
+    assert "model_attempt" not in dispatch_contexts[0]
+    assert dispatch_contexts[1]["model_attempt"] == 2
 
-    # The canonical capture saw the timed-out attempt too.
-    assert any(
-        row.get("failure_type") == "timeout" for row in attempts
-    ), attempts
+    # Canonical evidence: exactly [timeout(1), success(2)] — monotonic across
+    # the retry, no duplicated replay of merged rows ([T,S,T,S] is dead).
+    assert [
+        (row["outcome"], row["failure_type"], row["attempt"])
+        for row in attempts
+    ] == [
+        ("failure", "timeout", 1),
+        ("success", None, 2),
+    ]
+
+
+def test_extract_classify_json_rejects_unrelated_json_fail_closed() -> None:
+    """DEEP-AUDIT-REVIEW-3 finding 002: metadata/prose JSON carrying none of
+    the strong decision keys fails CLOSED with typed missing_classify_json
+    evidence instead of becoming a defaulted respond/reply classification."""
+    from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+    with pytest.raises(MalformedModelJSON) as excinfo:
+        agent_provider.extract_classify_json(
+            'Metadata: {"latency_ms": 42}. No classification was returned.'
+        )
+    assert excinfo.value.parse_reason == "missing_classify_json"
+    assert excinfo.value.raw_response_preview
+
+    # Bare decision-less JSON (no prose wrapper) fails closed identically.
+    with pytest.raises(MalformedModelJSON) as bare_excinfo:
+        agent_provider.extract_classify_json('{"latency_ms": 42}')
+    assert bare_excinfo.value.parse_reason == "missing_classify_json"
+
+
+def test_extract_classify_json_weak_key_decoy_never_beats_real_decision() -> None:
+    """DEEP-AUDIT-REVIEW-3 finding 002: a weak-key sidecar ({\"task\": ...})
+    can never outrank the complete decision object that follows it."""
+    raw = (
+        'Example metadata: {"task": "not the decision"}.\n'
+        'Final: {"route":"adapt","intent":"edit","implement":true,"reply":true}'
+    )
+
+    decision = agent_provider.extract_classify_json(raw)
+
+    assert decision["route"] == "adapt"
+    assert decision["intent"] == "edit"
+    assert decision["implement"] is True
+
+
+def test_parse_classify_response_rejects_decisionless_json() -> None:
+    """DEEP-AUDIT-REVIEW-3 finding 002: the downstream parser shares the same
+    fail-closed gate — unrelated JSON raises instead of defaulting to
+    intent="respond", reply=True; legacy partial decisions keep parsing."""
+    from vibecomfy.executor.prompts import parse_classify_response
+
+    with pytest.raises(ValueError):
+        parse_classify_response('{"latency_ms": 42}')
+
+    legacy = parse_classify_response('{"reply": false}')
+    assert legacy.reply is False
 
 
 def test_run_model_turn_classify_timeout_twice_raises_with_merged_attempts(

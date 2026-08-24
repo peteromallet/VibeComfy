@@ -650,10 +650,22 @@ def build_batch_failure_evidence(
 
     Carries everything an assessor needs to reconstruct a failed leg: the
     batch transcript (turn records seen so far), every submitted op, and the
-    full structured failure context from the envelope. Bounded and JSON-safe;
-    never mutates *state* and never raises on malformed records.
+    full structured failure context from the envelope. DEEP-AUDIT-REVIEW-3
+    finding 001: the transcript also includes any aborted in-flight turn
+    captured BEFORE rollback, so the failing batch and its submitted ops
+    survive the loop-entry restore. Bounded and JSON-safe; never mutates
+    *state* and never raises on malformed records.
     """
     raw_turns = list(getattr(state, "batch_turns", ()) or ())
+    # DEEP-AUDIT-REVIEW-3 finding 001: the failing CURRENT batch was captured
+    # BEFORE rollback restored loop-entry state (edit_batch_repl
+    # _capture_aborted_inflight_turn); merge it so the durable evidence carries
+    # the batch and submitted ops that actually triggered the failure.
+    raw_turns.extend(
+        turn
+        for turn in (getattr(state, "batch_aborted_turns", ()) or ())
+        if isinstance(turn, Mapping)
+    )
     turns = [
         dict(_thaw_evidence_value(turn))
         for turn in raw_turns[:_BATCH_FAILURE_EVIDENCE_MAX_TURNS]

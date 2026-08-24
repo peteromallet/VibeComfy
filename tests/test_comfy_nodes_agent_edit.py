@@ -20023,54 +20023,50 @@ def test_ingest_workflow_and_ui_valid_graph_unchanged_by_fix5() -> None:
 # ── §28 DEEP-AUDIT-FIX-3 — fix 6: evidence capture on mid-turn failure ──────
 
 
-def test_mid_turn_stage_failure_persists_transcript_ops_and_failure_context(
+@pytest.mark.parametrize("fault_point", ("after_apply", "after_candidate_write"))
+def test_mid_turn_fault_evidence_survives_rollback_with_failing_batch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fault_point: str,
 ) -> None:
-    """§28 fix 6: when a turn dies mid-flight AFTER a batch was recorded, the
-    turn directory must contain batch_failure_evidence.json carrying the
-    batch transcript seen so far, the ops submitted, and the full structured
-    failure context — with the same lineage naming as a successful leg."""
-    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    """§28 fix 6 / DEEP-AUDIT-REVIEW-3 finding 001: REAL ordering.
+
+    A genuine ``InjectedBatchFault`` fires mid-flight (apply_batch → render →
+    emit), the loop-entry journal restores state/files, AND THEN the entrypoint
+    persists batch_failure_evidence.json — yet the durable artifact must still
+    carry the FAILING batch text and its submitted ops. The previous version of
+    this test monkeypatched ``_stage_agent_batch_repl`` and fabricated a turn,
+    bypassing exactly this rollback ordering."""
     from vibecomfy.comfy_nodes.agent._frag_entrypoint import (
         BATCH_FAILURE_EVIDENCE_FILENAME,
     )
     from vibecomfy.comfy_nodes.agent.session import turn_dir_for
 
+    provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    session_id = f"fix6-fault-{fault_point}"
+    _b05_install_fault(monkeypatch, fault_point)
 
-    def _crashing_stage(state, _context, *_args, **_kwargs):
-        state.batch_turns.append(
-            {
-                "turn": 1,
-                "statements": [
-                    {
-                        "op_kind": "set_node_field",
-                        "op": {
-                            "op": "set_node_field",
-                            "node_id": "2",
-                            "field": "filename_prefix",
-                            "value": "after",
-                        },
-                        "source": 'saveimage.filename_prefix = "after"',
-                    }
-                ],
-                "diagnostics": [],
-            }
-        )
-        raise TypeError("'NoneType' object is not iterable")
+    model_calls: list[list[dict[str, str]]] = []
 
-    monkeypatch.setattr(agent_edit_module, "_stage_agent_batch_repl", _crashing_stage)
+    def _fake_batch_client(messages):
+        model_calls.append(messages)
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        }
 
-    session_id = "fix6-mid-turn-failure"
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": session_id,
+            "max_batches": 3,
+            "max_consecutive_errors": 2,
         },
-        schema_provider=_batch_repl_provider(),
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
         session_root=tmp_path,
     )
 
@@ -20085,25 +20081,102 @@ def test_mid_turn_stage_failure_persists_transcript_ops_and_failure_context(
     assert evidence["stage"]
     assert evidence["failure_kind"]
 
-    # The transcript survived: one recorded turn with its statement source.
+    # THE FINDING: the failing CURRENT batch survives rollback into the
+    # durable artifact — raw batch text AND its parsed/submitted operations.
     assert evidence["transcript"], evidence.keys()
-    assert evidence["transcript"][0]["statements"][0]["source"] == (
-        'saveimage.filename_prefix = "after"'
-    )
+    failed_turn = evidence["transcript"][-1]
+    assert failed_turn.get("aborted_mid_turn") is True
+    assert failed_turn.get("rolled_back") is True
+    assert 'saveimage.filename_prefix = "after"' in failed_turn.get("batch", "")
+    assert failed_turn["abort"]["error_type"] == "InjectedBatchFault"
+    assert failed_turn["abort"]["fault_point"] == fault_point
 
-    # The submitted op survived next to it — not just the landed subset.
     assert evidence["ops_submitted"], evidence.keys()
     op = evidence["ops_submitted"][0]
     assert op["op"] == "set_node_field"
-    assert op["node_id"] == "2"
+    assert op["target"][1:] == ["2", "filename_prefix"]
+    assert op["value"] == "after"
     assert op["source"].endswith('"after"')
 
-    # Full failure context: the R3 structured stage-crash issue rides along.
+    # Full failure context: the structured stage-crash issue rides along.
     context_issues = evidence["failure_context"]["issues"]
     assert any(
         isinstance(issue, dict) and issue.get("code") == "agent_batch_stage_exception"
         for issue in context_issues
     )
+
+
+def test_second_turn_fault_evidence_includes_failing_again_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DEEP-AUDIT-REVIEW-3 finding 001 (production repro 2): a second-turn
+    after_candidate_write failure previously retained only the committed first
+    batch — the failing "again" batch vanished into the rollback. Now BOTH the
+    prior committed turn AND the failing current batch are in the evidence."""
+    from vibecomfy.comfy_nodes.agent._frag_entrypoint import (
+        BATCH_FAILURE_EVIDENCE_FILENAME,
+    )
+    from vibecomfy.comfy_nodes.agent.session import turn_dir_for
+
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    session_id = "fix6-second-turn-fault"
+    _b05_install_fault(monkeypatch, "after_candidate_write", fire_on_nth=2)
+
+    model_calls: list[list[dict[str, str]]] = []
+
+    def _fake_batch_client(messages):
+        model_calls.append(messages)
+        if len(model_calls) == 1:
+            return {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Applied the first change.",
+            }
+        return {
+            "batch": 'saveimage.filename_prefix = "again"',
+            "message": "Tried a second change.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix twice",
+            "session_id": session_id,
+            "max_batches": 3,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert len(model_calls) == 2
+    turn_dir = turn_dir_for(tmp_path, session_id, result["turn_id"])
+    evidence = json.loads(
+        (turn_dir / BATCH_FAILURE_EVIDENCE_FILENAME).read_text(encoding="utf-8")
+    )
+
+    # Prior COMMITTED first batch is still present…
+    committed = [
+        turn
+        for turn in evidence["transcript"]
+        if not turn.get("aborted_mid_turn")
+    ]
+    assert committed, evidence["transcript"]
+    assert any('"after"' in str(turn.get("batch", "")) for turn in committed)
+
+    # …and the FAILING second batch no longer vanishes.
+    failed_turn = evidence["transcript"][-1]
+    assert failed_turn.get("aborted_mid_turn") is True
+    assert '"again"' in failed_turn.get("batch", "")
+    submitted_values = [
+        str(op.get("value")) for op in evidence["ops_submitted"]
+    ]
+    assert "again" in submitted_values
+    assert "after" in submitted_values
 
 
 def test_successful_turn_does_not_write_failure_evidence_artifact(
