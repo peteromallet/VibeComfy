@@ -345,13 +345,13 @@ class GraphDerivations:
     """
 
     inputs: tuple[int | str, ...] = ()
-    """Node ids with no incoming linked edges (graph entry points)."""
+    """Entry-point node ids that feed an executed output chain (orphans excluded)."""
 
     outputs: tuple[int | str, ...] = ()
     """Node ids with no outgoing edges (graph exit points)."""
 
     model_stack: tuple[int | str, ...] = ()
-    """Node ids in the model-loading chain (CheckpointLoader* → MODEL consumers)."""
+    """Model-loading chain node ids (CheckpointLoader*/UNETLoader* feeding an executed output chain)."""
 
     dormant_branches: tuple[tuple[int | str, ...], ...] = ()
     """Disconnected subgraphs that are not reachable from the main output chain."""
@@ -377,33 +377,39 @@ def _incoming_linked_node_ids(evidence: GraphEvidence) -> set[int | str]:
 
 
 def derive_inputs(evidence: GraphEvidence) -> tuple[int | str, ...]:
-    """Return node ids that have no linked incoming edges.
+    """Return entry-point node ids on an executed output chain.
 
     A node is an input when none of its input slots carry a ``link_id``.
     This captures loader nodes (CheckpointLoaderSimple, LoadImage,
-    EmptyLatentImage, …) and any node whose inputs are all unconnected.
+    EmptyLatentImage, …) and any node whose inputs are all unconnected —
+    but only when the node structurally feeds an executed output chain.
+    Nodes that reach no output (P6 :func:`derive_orphans`) are never
+    advertised as inputs: an orphan loader would otherwise be presented
+    as the carrier of a value the executed graph does not read.
     """
     linked = _incoming_linked_node_ids(evidence)
+    orphans = set(derive_orphans(evidence))
     result: list[int | str] = []
     for node in evidence.nodes:
-        if node.node_id not in linked:
+        if node.node_id not in linked and node.node_id not in orphans:
             result.append(node.node_id)
     return tuple(result)
-
 
 def derive_outputs(evidence: GraphEvidence) -> tuple[int | str, ...]:
-    """Return node ids that have no outgoing edges.
+    """Return exit-point node ids that have no outgoing edges.
 
     A node is an output when no edge originates from it.  This naturally
-    captures SaveImage, PreviewImage, and any terminal node.
+    captures SaveImage, PreviewImage, and any terminal node — but never a
+    P6 orphan: a node that feeds no executed output chain is not an exit
+    point of the executed graph and is not advertised as one.
     """
     outgoing = _outgoing_node_ids(evidence)
+    orphans = set(derive_orphans(evidence))
     result: list[int | str] = []
     for node in evidence.nodes:
-        if node.node_id not in outgoing:
+        if node.node_id not in outgoing and node.node_id not in orphans:
             result.append(node.node_id)
     return tuple(result)
-
 
 def _model_stack_seed_ids(evidence: GraphEvidence) -> list[int | str]:
     """Return node ids whose class_type suggests a model-loader."""
@@ -435,15 +441,77 @@ def _reachable_from(
                 queue.append(nxt)
     return visited
 
+def _output_reachable_ids(evidence: GraphEvidence) -> set[int | str]:
+    """Return node ids on a structural path into an executed output chain.
+
+    Output seeds are nodes with no outgoing edges that receive at least one
+    link — terminals that actually consume the graph.  Fully isolated nodes
+    seed nothing.  The closure walks edges backwards from those seeds.
+    """
+    outgoing = _outgoing_node_ids(evidence)
+    receives = {e.target_node for e in evidence.edges}
+    seeds = {
+        node.node_id
+        for node in evidence.nodes
+        if node.node_id not in outgoing and node.node_id in receives
+    }
+    if not seeds:
+        return set()
+    reverse: dict[int | str, list[int | str]] = {}
+    for e in evidence.edges:
+        reverse.setdefault(e.target_node, []).append(e.origin_node)
+    visited: set[int | str] = set()
+    queue: list[int | str] = list(seeds)
+    while queue:
+        cur = queue.pop()
+        if cur in visited:
+            continue
+        visited.add(cur)
+        for prev in reverse.get(cur, ()):
+            if prev not in visited:
+                queue.append(prev)
+    return visited
+
+
+def derive_orphans(evidence: GraphEvidence) -> tuple[int | str, ...]:
+    """Return node ids structurally disconnected from every output chain.
+
+    An orphan is a node from which no directed path reaches an output node
+    (P6-CORPUS-G1-ORPHAN).  Detection is purely structural — backward
+    reachability from the consuming terminals; widget values and node
+    mode/bypass state are deliberately ignored.  Orphans must not be
+    advertised as value carriers (inputs, model stack): leg 11 applied a
+    checkpoint swap to an edge-less UNETLoader because ``graph.inputs``
+    named it as the checkpoint carrier while the executed chain read the
+    same value from a live generator node.
+
+    When no output chain exists at all (no linked terminal anywhere),
+    nothing is provably orphaned and every node is kept.
+    """
+    all_ids = [node.node_id for node in evidence.nodes]
+    if not all_ids:
+        return ()
+    live = _output_reachable_ids(evidence)
+    if not live:
+        return ()
+    return tuple(sorted((nid for nid in all_ids if nid not in live), key=str))
+
 
 def derive_model_stack(evidence: GraphEvidence) -> tuple[int | str, ...]:
     """Return node ids in the model-loading chain.
 
     Starts from every node whose ``class_type`` begins with
     ``CheckpointLoader`` or ``UNETLoader`` and follows outgoing edges.
-    The result is topologically sorted by discovery order (BFS).
+    Loaders that feed no executed output chain (:func:`derive_orphans`)
+    are skipped so an orphan loader is never advertised as the model
+    carrier.  The result is topologically sorted by discovery order (BFS).
     """
     seeds = _model_stack_seed_ids(evidence)
+    if not seeds:
+        return ()
+    live = _output_reachable_ids(evidence)
+    if live:
+        seeds = [nid for nid in seeds if nid in live]
     if not seeds:
         return ()
     reachable = _reachable_from(set(seeds), evidence.edges)
@@ -1039,12 +1107,12 @@ __all__ = [
     "GraphEvidence",
     "NodeEvidence",
     "SlotEvidence",
-    "WidgetEvidence",
     "compute_derivations",
     "derive_dormant_branches",
     "derive_expensive_or_risky",
     "derive_inputs",
     "derive_model_stack",
+    "derive_orphans",
     "derive_outputs",
     "inspect_graph",
     "inspect_workflow",
