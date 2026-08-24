@@ -34,6 +34,6 @@
     "source": "external_workflows/corpus",
     "staged": true,
     "authored_by": "deepseek-v4-flash",
-    "author_rationale": "This query targets the core refinement stage with a specific, actionable goal that forces the agent to locate the TripoRefineNode, understand its geometry parameters, and apply a sensible change\u2014balancing specificity with the need for reaso"
+    "author_rationale": "This query targets a specific, actionable single-widget change: set TripoTextToModelNode.geometry_quality to 'detailed' while leaving the face-limit (-1) and quad (false) settings untouched, forcing the agent to locate the generation node's quality combo without disturbing the polygon budget."
   }
 }

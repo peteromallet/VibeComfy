@@ -35,6 +35,6 @@
     "source": "external_workflows/corpus",
     "staged": true,
     "authored_by": "deepseek-v4-flash",
-    "author_rationale": "This query is specific, plausible for a 3D rigging workflow, forces reasoning about bone orientation, and is an edit of appropriate complexity for the low-bucket workflow."
+    "author_rationale": "The query asks for an edit, but deliberately demands a feature no authored node exposes (joint orientation is decided inside the Tripo cloud rig task; TripoRigNode takes only a task id and TripoRetargetNode only an animation preset), so the scenario's designation is expected-no-candidate: the honest outcome is a grounded refusal adjudicated against structured absence evidence, not an edit of appropriate complexity."
   }
 }

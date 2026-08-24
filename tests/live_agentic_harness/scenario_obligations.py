@@ -84,6 +84,65 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
 _GATED_CLASS_RE = re.compile(r"IndexTTS|LayerMask|SegmentAnything", re.IGNORECASE)
 
 
+#: Structured ``no_candidate_reason`` labels the executor emits only for an
+#: honest nothing-authorable terminal state (mirrors assessor.GROUNDED_NO_CANDIDATE_REASONS).
+GROUNDED_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
+
+
+def expected_no_candidate_contract(
+    descriptor: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    """Return the declared grounded no-candidate contract, or ``None``.
+
+    DEEP-AUDIT-FIX-4-REVISION finding 001: a scenario declares
+    expected-no-candidate ONLY through a non-empty
+    ``assessment.expected_no_candidate_reason``, and that declaration opts it
+    into the assessor's grounded no-candidate adjudication.  ``apply=false``
+    plus ``assessment.expect_graph_changed=false`` alone are NOT a no-candidate
+    designation — they are two bare flags and derive nothing here.
+
+    The returned contract carries the declared absence premise (``reason``),
+    the refusal outcome kinds the envelope must use (``refusal_kinds``, read
+    from ``assessment.allow_safe_refusal_outcome_kinds``), and the optional
+    declared-absent class tokens (``absent_classes``, from
+    ``assessment.expected_no_candidate_absent_classes``) that structured
+    evidence must cite for named-class absence premises.
+    """
+    assessment = (
+        descriptor.get("assessment")
+        if isinstance(descriptor.get("assessment"), Mapping)
+        else {}
+    )
+    reason = assessment.get("expected_no_candidate_reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return None
+    kinds_raw = assessment.get("allow_safe_refusal_outcome_kinds")
+    if isinstance(kinds_raw, str):
+        refusal_kinds = (kinds_raw,) if kinds_raw.strip() else ()
+    elif isinstance(kinds_raw, list):
+        refusal_kinds = tuple(
+            kind for kind in kinds_raw if isinstance(kind, str) and kind.strip()
+        )
+    else:
+        refusal_kinds = ()
+    absent_raw = assessment.get("expected_no_candidate_absent_classes")
+    if isinstance(absent_raw, str):
+        absent_classes = (absent_raw,) if absent_raw.strip() else ()
+    elif isinstance(absent_raw, list):
+        absent_classes = tuple(
+            token.strip()
+            for token in absent_raw
+            if isinstance(token, str) and token.strip()
+        )
+    else:
+        absent_classes = ()
+    return {
+        "reason": reason.strip(),
+        "refusal_kinds": refusal_kinds,
+        "absent_classes": absent_classes,
+    }
+
+
 class ScenarioObligationError(ValueError):
     """Fail-closed preflight refusal: scenario setup is incomplete."""
 
@@ -103,6 +162,11 @@ class ScenarioObligation:
     admissible_infra_failures: tuple[str, ...] = ADMISSIBLE_INFRA_FAILURES
     requires_edit: bool = False
     safe_refusal_cannot_satisfy: bool = True
+    #: Declared grounded no-candidate contract (None when the scenario does
+    #: not declare ``assessment.expected_no_candidate_reason``).  Presence of
+    #: this contract — never the two bare edit-expectation flags — is what
+    #: designates a scenario as expected-no-candidate.
+    expected_no_candidate: Mapping[str, Any] | None = None
 
 
 def _workflow_class_types(descriptor: Mapping[str, Any]) -> tuple[str, ...]:
@@ -165,6 +229,7 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
         else {}
     )
     tags = descriptor.get("_tags") if isinstance(descriptor.get("_tags"), Mapping) else {}
+    no_candidate = expected_no_candidate_contract(descriptor)
     expect_change = bool(assessment.get("expect_graph_changed"))
     apply_requested = bool(descriptor.get("apply"))
     research_required = bool(assessment.get("require_executed_research"))
@@ -176,6 +241,11 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
         expected_change = "research_answer"
     elif interaction_mode == "answer_only":
         expected_change = "inspect_answer"
+    elif no_candidate is not None:
+        # DEEP-AUDIT-FIX-4-REVISION finding 001: "none" here derives from the
+        # DECLARED no-candidate refusal contract (adjudicated by the assessor
+        # against structured absence evidence), not from two bare false flags.
+        expected_change = "none"
     else:
         expected_change = "none"
 
@@ -226,6 +296,7 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
         },
         requires_edit=expected_change == "edit",
         safe_refusal_cannot_satisfy=expected_change == "edit",
+        expected_no_candidate=no_candidate,
     )
 
 
@@ -278,6 +349,24 @@ def validate_obligation_coverage(
                 f"allow_safe_refusal_outcome_kinds={allowed_refusals!r}; a safe "
                 "refusal must not be scored as satisfying this scenario"
             )
+
+        # DEEP-AUDIT-FIX-4-REVISION finding 001: the declared no-candidate
+        # contract must be coherent. It can never coexist with an edit
+        # expectation, and without declared refusal kinds the assessor's
+        # grounded adjudication would fail closed on every leg.
+        if obligation.expected_no_candidate is not None:
+            if obligation.requires_edit:
+                violations.append(
+                    f"{scenario_id}: expected_no_candidate contract contradicts "
+                    "an edit expectation (apply/expect_graph_changed true); an "
+                    "annotation cannot loosen an edit obligation"
+                )
+            if not obligation.expected_no_candidate["refusal_kinds"]:
+                violations.append(
+                    f"{scenario_id}: expected_no_candidate contract declares no "
+                    "allow_safe_refusal_outcome_kinds; grounded no-candidate "
+                    "adjudication would fail closed on every leg"
+                )
 
         # Audio/multi-video gate: exact schema evidence must be declared for
         # every gated class present in the workflow. Auto-added
@@ -524,4 +613,6 @@ __all__ = [
     "load_scenario_obligation",
     "preflight_scenario_obligations",
     "validate_obligation_coverage",
+    "GROUNDED_NO_CANDIDATE_REASONS",
+    "expected_no_candidate_contract",
 ]

@@ -365,6 +365,131 @@ def _response_proves_class_absence(response: Mapping[str, Any] | None) -> bool:
     return False
 
 
+#: Structured ``no_candidate_reason`` labels the executor emits only for an
+#: honest nothing-authorable terminal state.  Relabels such as
+#: ``route_not_applyable`` / ``delta_evidence_invalid`` describe latched
+#: failures of a claimed edit and are deliberately excluded.
+GROUNDED_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
+
+
+def _expected_no_candidate_contract(
+    scenario: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Return the declared expected-no-candidate contract, or ``None``.
+
+    DEEP-AUDIT-FIX-4-REVISION finding 001: a scenario may declare
+    expected-no-candidate ONLY through a non-empty
+    ``assessment.expected_no_candidate_reason``, and that declaration opts the
+    scenario into grounded adjudication below — it is never a blanket
+    pass-loosener.  The contract carries:
+
+    * ``reason`` — the declared absence premise (assessor consumer);
+    * ``refusal_kinds`` — outcome kinds accepted from the envelope (read from
+      ``assessment.allow_safe_refusal_outcome_kinds``);
+    * ``absent_classes`` — optional class tokens
+      (``assessment.expected_no_candidate_absent_classes``) that the run's
+      structured evidence must cite when the premise is a named-class absence.
+
+    Scenarios without the declaration keep their existing behavior; setting
+    ``apply``/``expect_graph_changed`` false alone grants nothing here.
+    """
+    assessment = _assessment_config(scenario)
+    reason = assessment.get("expected_no_candidate_reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return None
+    kinds_raw = assessment.get("allow_safe_refusal_outcome_kinds")
+    if isinstance(kinds_raw, str):
+        refusal_kinds = (kinds_raw,) if kinds_raw.strip() else ()
+    elif isinstance(kinds_raw, list):
+        refusal_kinds = tuple(
+            kind for kind in kinds_raw if isinstance(kind, str) and kind.strip()
+        )
+    else:
+        refusal_kinds = ()
+    absent_raw = assessment.get("expected_no_candidate_absent_classes")
+    if isinstance(absent_raw, str):
+        absent_classes = (absent_raw,) if absent_raw.strip() else ()
+    elif isinstance(absent_raw, list):
+        absent_classes = tuple(
+            token.strip() for token in absent_raw if isinstance(token, str) and token.strip()
+        )
+    else:
+        absent_classes = ()
+    return {
+        "reason": reason.strip(),
+        "refusal_kinds": frozenset(refusal_kinds),
+        "absent_classes": absent_classes,
+    }
+
+
+def _response_cited_missing_classes(response: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return class names the envelope's structured fields cite as absent.
+
+    Reads exactly the executor-emitted proof surfaces:
+    ``outcome.missing_classes`` (promote_requires_custom_nodes_outcome) and
+    ``report.authoring_blocker.missing_runtime_classes``
+    (_record_named_schema_absence_blocker).  Prose is never consulted.
+    """
+    cited: list[str] = []
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        raw = outcome.get("missing_classes")
+        if isinstance(raw, (list, tuple)):
+            cited.extend(
+                item.strip() for item in raw if isinstance(item, str) and item.strip()
+            )
+    report = response.get("report")
+    if isinstance(report, Mapping):
+        blocker = report.get("authoring_blocker")
+        if isinstance(blocker, Mapping):
+            raw = blocker.get("missing_runtime_classes")
+            if isinstance(raw, (list, tuple)):
+                cited.extend(
+                    item.strip() for item in raw if isinstance(item, str) and item.strip()
+                )
+    return tuple(dict.fromkeys(cited))
+
+
+def _no_candidate_grounding(
+    response: Mapping[str, Any],
+    contract: Mapping[str, Any],
+) -> tuple[bool, str]:
+    """Adjudicate grounded absence evidence under the declared contract.
+
+    Returns ``(grounded, detail)``.  Grounded means the envelope carries real
+    structured absence evidence for the declared premise: cited missing
+    classes (matching a declared absent-class token when one is declared), or
+    a structural no-candidate label for feature-absence premises.  A generic
+    clarify without any of that is NOT grounded.
+    """
+    cited = _response_cited_missing_classes(response)
+    if cited:
+        declared = contract["absent_classes"]
+        if not declared:
+            return True, f"cited missing classes {list(cited)!r}"
+        folded_tokens = [str(token).casefold() for token in declared]
+        for name in cited:
+            folded_name = name.casefold()
+            for token in folded_tokens:
+                if token in folded_name or folded_name in token:
+                    return True, (
+                        f"cited missing class {name!r} matches declared "
+                        f"absent-class token {token!r}"
+                    )
+        return False, (
+            f"cited missing classes {list(cited)!r} do not match the declared "
+            f"absent classes {list(contract['absent_classes'])!r}"
+        )
+    reason = response.get("no_candidate_reason")
+    if isinstance(reason, str) and reason in GROUNDED_NO_CANDIDATE_REASONS:
+        return True, f"structural no_candidate_reason={reason!r}"
+    return False, (
+        "no structured absence evidence: outcome.missing_classes / "
+        "report.authoring_blocker.missing_runtime_classes are empty and "
+        "no_candidate_reason carries no honest no-candidate label"
+    )
+
+
 def _allowed_safe_refusal_outcome_kinds(
     scenario: Mapping[str, Any] | None,
     response: Mapping[str, Any] | None = None,
@@ -849,6 +974,7 @@ def assess_live_output_dir(
     assessment_cfg = _assessment_config(scenario)
     skip_intent_judge = bool(assessment_cfg.get("skip_intent_judge"))
     skip_semantic_judge = bool(assessment_cfg.get("skip_semantic_judge"))
+    no_candidate_contract = _expected_no_candidate_contract(scenario)
     safe_refusal_accepted = False
     refusal_outage = False
     outcome_kind: Any = None
@@ -909,6 +1035,89 @@ def assess_live_output_dir(
                 safe_refusal_accepted = True
             elif refusal_tri == "undetermined":
                 refusal_outage = True
+
+        # DEEP-AUDIT-FIX-4-REVISION finding 001: a declared expected-
+        # no-candidate contract is ADJUDICATED, never trusted.  The leg can
+        # pass only when the envelope (a) reports the graph unchanged, (b)
+        # took a declared refusal kind on a canonical non-edit route, and
+        # (c) carries structured absence evidence grounding the declared
+        # premise.  Anything else — including a generic clarify with no
+        # class-absence evidence — fails closed.  ``expect_graph_changed``
+        # false alone grants nothing; this path runs only for scenarios that
+        # declare ``assessment.expected_no_candidate_reason``.
+        if no_candidate_contract is not None:
+            if response.get("graph_unchanged") is not True:
+                issues.append(
+                    {
+                        "check": "expected_no_candidate_graph_unchanged",
+                        "severity": "error",
+                        "detail": (
+                            "Scenario declares expected-no-candidate "
+                            f"({no_candidate_contract['reason'][:120]!r}...) but "
+                            f"response.graph_unchanged is "
+                            f"{response.get('graph_unchanged')!r}; a fabricated "
+                            "or unknown edit state cannot satisfy the refusal "
+                            "contract."
+                        ),
+                    }
+                )
+            else:
+                kind_ok = (
+                    isinstance(outcome_kind, str)
+                    and outcome_kind in no_candidate_contract["refusal_kinds"]
+                )
+                route_ok = _canonical_route(response) in _NON_EDIT_ROUTES
+                grounded, evidence = _no_candidate_grounding(
+                    response, no_candidate_contract
+                )
+                if not kind_ok:
+                    issues.append(
+                        {
+                            "check": "expected_no_candidate_refusal_kind",
+                            "severity": "error",
+                            "detail": (
+                                "Declared expected-no-candidate scenario requires "
+                                f"outcome.kind in {sorted(no_candidate_contract['refusal_kinds'])!r} "
+                                f"but got {outcome_kind!r}."
+                            ),
+                        }
+                    )
+                if not route_ok:
+                    issues.append(
+                        {
+                            "check": "expected_no_candidate_route",
+                            "severity": "error",
+                            "detail": (
+                                "Declared expected-no-candidate scenario requires a "
+                                f"canonical non-edit route but got "
+                                f"{_canonical_route(response)!r}."
+                            ),
+                        }
+                    )
+                if not grounded:
+                    issues.append(
+                        {
+                            "check": "expected_no_candidate_ungrounded",
+                            "severity": "error",
+                            "detail": (
+                                "Declared expected-no-candidate premise is not "
+                                f"grounded: {evidence}. Declared reason: "
+                                f"{no_candidate_contract['reason']}"
+                            ),
+                        }
+                    )
+                elif kind_ok and route_ok:
+                    issues.append(
+                        {
+                            "check": "expected_no_candidate_grounded",
+                            "severity": "info",
+                            "detail": (
+                                "Accepted grounded no-candidate refusal: "
+                                f"{evidence}; declared reason: "
+                                f"{no_candidate_contract['reason']}"
+                            ),
+                        }
+                    )
 
         # Top-level response health.
         if response.get("ok") is False:
