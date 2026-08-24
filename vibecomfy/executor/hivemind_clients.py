@@ -5,6 +5,12 @@ agent-tool search/get transport: table selection, PostgREST filter
 translation, deterministic ordering and paging for one model-authored query
 string.  There is no term expansion, no winner selection, no evidence
 thresholds, no latches, and no early-stop.
+
+Lean query shape (operator card HIVEMIND-SEARCH-SHAPE): free-text search runs
+ONLY against ``message_feed`` content with few distinctive tokens (2-4
+``content.ilike`` patterns).  ``unified_feed`` is never text-searched (its
+UNION scan trips Postgres SQLSTATE 57014); distillations are reached by id or
+through non-text structured filters.
 """
 
 from __future__ import annotations
@@ -378,87 +384,56 @@ def _hivemind_search_terms(query: str, *, max_terms: int = 8) -> list[str]:
     return deduped
 
 
-def _hivemind_ilike_query(search_terms: list[str]) -> str | None:
-    """Build a PostgREST ``ilike`` OR query string for title/body search.
-
-    Each term becomes ``title.ilike.*<term>*`` and ``body.ilike.*<term>*``;
-    all patterns are ORed together.  Terms are sanitized to alphanumerics plus
-    a few safe punctuation characters to avoid breaking the PostgREST syntax.
-    """
-    patterns: list[str] = []
-    seen: set[str] = set()
-    for term in search_terms:
-        for raw in term.split():
-            token = re.sub(r"[^a-zA-Z0-9_-]", "", raw)
-            if not token:
-                continue
-            key = token.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            patterns.append(f"title.ilike.*{token}*")
-            patterns.append(f"body.ilike.*{token}*")
-    if not patterns:
-        return None
-    return "(" + ",".join(patterns[:16]) + ")"
-
-
 def _distinctive_tokens(query: str) -> list[str]:
     """Tokens remaining after ``_SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS``.
 
-    Preserve original order; cap at 8 tokens.  Used for high-precision
-    phrase queries and as the relevance signal for deterministic ordering.
+    Preserve original order; cap at 8 tokens.  Used as the relevance signal
+    for deterministic ordering; the message-feed query builder caps its
+    content patterns at the lean 2-4 distinctive tokens.
     """
     stop = _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
     return [t for t in _query_tokens(query) if t.casefold() not in stop][:8]
 
 
-def _hivemind_single_or_phrase_ilike(query: str) -> str | None:
-    """Build an index-friendlier per-token title/body OR query."""
-    tokens = _distinctive_tokens(query)
-    if not tokens:
-        return None
-    patterns: list[str] = []
-    for token in tokens:
-        patterns.append(f"title.ilike.*{token}*")
-        patterns.append(f"body.ilike.*{token}*")
-    return "(" + ",".join(patterns[:16]) + ")"
+# Question/conversation words that survive the generic stopword sets but
+# never narrow a Hivemind search.  Dropped before the lean 4-token cap so
+# question-shaped queries keep their distinctive tokens (e.g. "MiniMax H3")
+# instead of "do people think about" (HIVEMIND-SEARCH-SHAPE S1).
+_HIVEMIND_QUERY_FILLER_WORDS = frozenset({
+    "do", "does", "did", "is", "are", "was", "were", "what", "which",
+    "how", "why", "when", "where", "who", "whom", "people", "think",
+    "about", "with", "without", "into", "from", "this", "that", "these",
+    "those", "there", "their", "have", "has", "had", "will", "would",
+    "should", "could", "can", "need", "want", "get", "got", "use",
+    "used", "using", "make", "made", "work", "works", "working", "anyone",
+    "someone", "please", "thanks", "help", "good", "better", "best",
+    "new", "old", "know",
+})
 
 
 def _hivemind_message_ilike(query: str, *, degraded: bool = False) -> str | None:
-    """Build a per-token content query for the raw ``message_feed`` table."""
-    tokens = _distinctive_tokens(query)
+    """Build the lean per-token content query for ``message_feed``.
+
+    HIVEMIND-SEARCH-SHAPE S1: at most 4 distinctive tokens, each one
+    ``content.ilike.*<token>*`` ORed together on the index-backed raw
+    message table.  No title/body doubling, no phrase explosion.  Filler
+    and generic stopword tokens are dropped first so the small cap keeps
+    the query's distinctive tokens.  Degraded mode (57014 recovery) drops
+    the leading wildcard so the planner can use a prefix scan.
+    """
+    stop = _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
+    tokens = [
+        t
+        for t in _distinctive_tokens(query)
+        if t.casefold() not in stop and t.casefold() not in _HIVEMIND_QUERY_FILLER_WORDS
+    ]
     if not tokens:
         return None
     patterns = [
         f"content.ilike.{token}*" if degraded else f"content.ilike.*{token}*"
         for token in tokens
     ]
-    return "(" + ",".join(patterns[:8]) + ")"
-
-
-def _hivemind_degraded_ilike(query: str) -> str | None:
-    """Phrase-first ilike with no leading wildcard (RC1 57014 degrade).
-
-    Distinctive tokens only, trailing ``*`` so the planner can use a prefix
-    rather than a full-scan ``*phrase*`` on ``unified_feed``.
-    """
-    tokens = _distinctive_tokens(query)
-    if not tokens:
-        return None
-    sanitized: list[str] = []
-    for token in tokens:
-        cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", token)
-        if cleaned:
-            sanitized.append(cleaned)
-    if not sanitized:
-        return None
-    phrase = " ".join(sanitized[:3])
-    patterns = [f"title.ilike.{phrase}*", f"body.ilike.{phrase}*"]
-    if len(sanitized) > 1:
-        first = sanitized[0]
-        patterns.extend((f"title.ilike.{first}*", f"body.ilike.{first}*"))
-    return "(" + ",".join(patterns) + ")"
+    return "(" + ",".join(patterns[:4]) + ")"
 
 
 def _first_text(item: dict[str, Any], *keys: str) -> str:
@@ -707,22 +682,28 @@ _HIVEMIND_TABLE_ID_COLUMNS = {
     "message_feed": "message_id",
 }
 
-# source_type -> ordered (table, kind) scopes.  ``None`` searches every corpus:
-# external workflow precedents, Discord messages, and curated distillations.
+# source_type -> ordered (table, kind) scopes.  HIVEMIND-SEARCH-SHAPE S1/S2:
+# ``message_feed`` is the ONLY text-search surface (few distinctive
+# ``content.ilike`` tokens).  ``unified_feed`` appears only as the
+# distillation tier and is NON-TEXT there: any ilike over its UNION scan
+# trips Postgres SQLSTATE 57014, so distillations are served by id
+# (``hivemind_get``) or through structured filters.  A free-text-only
+# distillation request therefore produces no criteria and the scope is
+# skipped rather than guessed at.
 _SOURCE_TYPE_SCOPES: dict[str | None, tuple[tuple[str, str], ...]] = {
     None: (
-        ("external_resources", "workflow"),
         ("message_feed", "message"),
         ("unified_feed", "distillation"),
     ),
-    "workflow": (("external_resources", "workflow"),),
+    "workflow": (("message_feed", "message"),),
     "discord": (("message_feed", "message"),),
     "distillation": (("unified_feed", "distillation"),),
 }
 
-# Candidate pool fetched per scope.  Fixed so pagination (client-side offset
-# over the deterministically ordered pool) is stable across calls.
-_SCOPE_FETCH_LIMIT = 100
+# Candidate pool fetched per scope.  Small bounded fetch (the lean per-token
+# content query is index-backed); pagination stays a client-side offset over
+# this deterministically ordered pool.
+_SCOPE_FETCH_LIMIT = 20
 
 
 def _evidence_id(table: str, row: Mapping[str, Any]) -> str | None:
@@ -771,9 +752,9 @@ def _json_containment(payload: dict[str, Any]) -> str:
 def _nested_or_params(or_groups: list[str]) -> str:
     """AND of several OR groups as a single PostgREST ``and=`` value.
 
-    ``and=(or:(title.ilike.*q*,body.ilike.*q*),or:(title.ilike.*wan*,...))``.
-    Only used when a scope needs more than one boolean group (text query plus
-    a family/capability/node-class translation on ``unified_feed``).
+    ``and=(or:(content.ilike.*ltx*,content.ilike.*ltxv*),or:(...))``.
+    Only used when a scope needs more than one boolean group (the free-text
+    query plus a family/capability/node-class translation on ``message_feed``).
     """
     return "(" + ",".join(f"or:{group}" for group in or_groups) + ")"
 
@@ -797,8 +778,8 @@ def _hivemind_scope_params(
     """Translate one ``(table, kind)`` scope into PostgREST query params.
 
     Returns None when no criterion applies to this scope (for example a
-    channel filter against ``external_resources``, which has no channel
-    column): the scope is skipped rather than guessed at.
+    free-text-only distillation request against ``unified_feed``, which is
+    never text-searched): the scope is skipped rather than guessed at.
     """
     params: dict[str, str] = {
         "select": "*",
@@ -806,37 +787,7 @@ def _hivemind_scope_params(
         "order": "created_at.desc",
     }
 
-    if table == "external_resources":
-        # external_resources is a small, indexed table: a server-side recency
-        # sort is cheap and gives a stable candidate pool.
-        params["order"] = "created_at.desc"
-        if channel or author:
-            # external_resources carries no channel/author columns: the scope
-            # is skipped rather than guessed at.
-            return None
-        params["kind"] = f"eq.{kind}"
-        text_or = (
-            _hivemind_degraded_ilike(query)
-            if degraded
-            else _hivemind_ilike_query(_hivemind_search_terms(query))
-        )
-        if text_or:
-            params["or"] = text_or
-        containment: dict[str, Any] = {}
-        semantics: dict[str, Any] = {}
-        if model_family and not degraded:
-            semantics["model_families"] = [model_family]
-        if capability and not degraded:
-            semantics["task_type"] = capability
-        if node_class and not degraded:
-            semantics["node_types"] = [node_class]
-        if semantics:
-            containment["workflow_semantics"] = semantics
-        if has_workflow is not None:
-            containment["has_workflow_json"] = has_workflow
-        if containment:
-            params["metadata"] = _json_containment(containment)
-    elif table == "message_feed":
+    if table == "message_feed":
         text_or = _hivemind_message_ilike(query, degraded=degraded)
         or_groups: list[str] = []
         if text_or:
@@ -868,41 +819,15 @@ def _hivemind_scope_params(
         if author:
             params["author_name"] = f"eq.{author}"
     elif table == "unified_feed":
-        # Avoid a server-side sort over the body-heavy view. Results are
-        # deterministically ranked client-side after the bounded fetch.
+        # NON-TEXT ONLY (HIVEMIND-SEARCH-SHAPE S2/S3): an ilike over this
+        # UNION view trips the Postgres statement timeout (SQLSTATE 57014).
+        # Distillations are reached by id (``hivemind_get``) or through the
+        # structured filters below; a free-text-only request leaves no
+        # criteria and the scope is skipped rather than guessed at.  No
+        # server-side sort over the body-heavy view: results are ranked
+        # client-side after the bounded fetch.
         params.pop("order", None)
         params["kind"] = f"eq.{kind}"
-        text_or = (
-            _hivemind_degraded_ilike(query)
-            if degraded
-            else _hivemind_single_or_phrase_ilike(query)
-        )
-        or_groups: list[str] = []
-        if text_or:
-            or_groups.append(text_or)
-        if model_family and not degraded:
-            aliases = _HIVEMIND_SEMANTIC_FAMILY_TERMS.get(
-                model_family.casefold(), (model_family,)
-            )
-            family_or = _hivemind_ilike_query(list(aliases))
-            if family_or:
-                or_groups.append(family_or)
-        if capability and not degraded:
-            aliases = _HIVEMIND_SEMANTIC_TASK_TERMS.get(
-                capability.casefold(), (capability,)
-            )
-            capability_or = _hivemind_ilike_query(list(aliases))
-            if capability_or:
-                or_groups.append(capability_or)
-        if node_class and not degraded:
-            node_or = _hivemind_ilike_query([node_class])
-            if node_or:
-                or_groups.append(node_or)
-        if len(or_groups) == 1:
-            params["or"] = or_groups[0]
-        elif len(or_groups) > 1:
-            params["and"] = _nested_or_params(or_groups)
-        # Discord lives on raw message_feed; unified_feed is distillation-only.
         if has_workflow is not None:
             params["metadata"] = _json_containment({"has_workflow": has_workflow})
     else:  # pragma: no cover - unknown table

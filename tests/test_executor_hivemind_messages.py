@@ -25,7 +25,6 @@ from vibecomfy.executor.hivemind_clients import (
     HivemindError,
     _distinctive_tokens,
     _hivemind_get_table,
-    _hivemind_single_or_phrase_ilike,
 )
 _HIVEMIND_ROOT = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1"
 
@@ -127,17 +126,6 @@ class TestDistinctiveTokens:
         tokens = _distinctive_tokens("one two three four five six seven eight nine ten")
         assert len(tokens) == 8
 
-    def test_single_or_phrase_ilike(self) -> None:
-        # REC-C: per-token OR (index-friendly) instead of one multi-word
-        # leading-wildcard phrase, which timed out on unified_feed (57014).
-        assert _hivemind_single_or_phrase_ilike("ltx 2.5") == (
-            "(title.ilike.*ltx*,body.ilike.*ltx*,"
-            "title.ilike.*2.5*,body.ilike.*2.5*)"
-        )
-        assert _hivemind_single_or_phrase_ilike("ltx") == (
-            "(title.ilike.*ltx*,body.ilike.*ltx*)"
-        )
-        assert _hivemind_single_or_phrase_ilike("what is") is None
 
 
 # ── Community summary (agent response contract) ──────────────────────────────

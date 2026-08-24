@@ -21,10 +21,12 @@ from urllib.parse import unquote_plus
 from vibecomfy.executor.hivemind_clients import (
     _evidence_id,
     _hivemind_scope_params,
+    _order_hivemind_rows,
     _parse_evidence_id,
     _query_model_family,
     _rank_hivemind_rows,
     _row_model_families,
+    _validated_bucket,
 )
 from vibecomfy.executor.hivemind_tools import (
     HIVE_MIND_GET_TOOL,
@@ -271,7 +273,9 @@ class TestSearchValidation:
 
 
 class TestSearchScopeTranslation:
-    def test_source_type_workflow_queries_external_resources_only(self) -> None:
+    """HIVEMIND-SEARCH-SHAPE S1/S2: message_feed is the only text surface."""
+
+    def test_source_type_workflow_text_searches_message_feed(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -283,10 +287,12 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert len(seen) == 1
         url = seen[0]
-        assert "/external_resources?" in url
-        assert "kind=eq.workflow" in url
+        assert "/message_feed?" in url
+        assert "/external_resources?" not in url
+        assert "/unified_feed" not in url
+        assert "or=(content.ilike.*ltx*)" in url
         assert "select=*" in url
-        assert "limit=100" in url  # fixed candidate pool, not the page size
+        assert "limit=20" in url  # bounded candidate pool, not the page size
         assert "order=created_at.desc" in url
 
     def test_source_type_discord_queries_raw_message_feed(self) -> None:
@@ -305,20 +311,24 @@ class TestSearchScopeTranslation:
         assert "content.ilike.*ltx*" in url
         assert "order=created_at.desc" in url
 
-    def test_source_type_distillation_queries_unified_feed_distillations(self) -> None:
+    def test_source_type_distillation_free_text_makes_no_request(self) -> None:
+        """Distillations are never text-searched (S2/S3): a free-text-only
+        distillation request has no non-text criteria and is skipped."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
-            side_effect=_capture_urlopen(seen, _json_response([])),
+            side_effect=_capture_urlopen(seen, _no_network),
         ):
             result = hivemind_search(
                 "ltx", filters={"source_type": "distillation"}, limit=5
             )
         assert result.status is ToolStatus.NO_RESULTS
-        assert len(seen) == 1
-        assert "kind=eq.distillation" in seen[0]
+        assert seen == []
 
-    def test_no_source_type_queries_all_three_scopes(self) -> None:
+    def test_no_source_type_runs_single_message_feed_request(self) -> None:
+        """The corpus-wide search issues exactly ONE request — the lean
+        message_feed text query; the unified_feed tier contributes no
+        criteria for free-text-only searches and is skipped."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -326,23 +336,21 @@ class TestSearchScopeTranslation:
         ):
             result = hivemind_search("ltx", limit=5)
         assert result.status is ToolStatus.NO_RESULTS
-        assert len(seen) == 3
-        assert any("/external_resources?" in u for u in seen)
-        assert any("/message_feed?" in u for u in seen)
-        assert any("kind=eq.distillation" in u for u in seen)
+        assert len(seen) == 1
+        assert "/message_feed?" in seen[0]
+        assert "/unified_feed" not in seen[0]
 
-    def test_stopword_only_query_runs_only_external_scope(self) -> None:
-        """external_resources falls back to raw tokens; unified_feed has no
-        distinctive tokens and is skipped."""
+    def test_filler_only_query_skips_all_scopes(self) -> None:
+        """A question-shaped query with no distinctive token narrows nothing:
+        no request at all instead of an unbounded recent dump."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen(seen, _json_response([])),
         ):
-            result = hivemind_search("what is this", limit=5)
+            result = hivemind_search("what do people think", limit=5)
         assert result.status is ToolStatus.NO_RESULTS
-        assert len(seen) == 1
-        assert "/external_resources?" in seen[0]
+        assert seen == []
 
     def test_stopword_only_query_with_discord_source_type_skips_all(self) -> None:
         seen: list[str] = []
@@ -366,8 +374,9 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert seen == []
 
-    def test_channel_filter_skips_workflow_scope(self) -> None:
-        """external_resources has no channel column: the scope is skipped."""
+    def test_channel_filter_applies_on_message_scope_for_workflow_tier(self) -> None:
+        """source_type='workflow' now rides the message-feed text surface,
+        so channel/author structured filters apply there too."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -378,11 +387,16 @@ class TestSearchScopeTranslation:
                 filters={"source_type": "workflow", "channel": "wan_chatter"},
             )
         assert result.status is ToolStatus.NO_RESULTS
-        assert seen == []
+        assert len(seen) == 1
+        assert "/message_feed?" in seen[0]
+        assert "channel_name=eq.wan_chatter" in seen[0]
 
 
 class TestSearchFilterTranslation:
-    def test_workflow_model_family_metadata_containment(self) -> None:
+    def test_distillation_structured_filters_are_non_text(self) -> None:
+        """S3: the unified_feed distillation tier is reachable through
+        structured filters only — has_workflow narrows it, and NO text
+        predicate (or/ilike) is ever built for it."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -390,14 +404,20 @@ class TestSearchFilterTranslation:
         ):
             hivemind_search(
                 "ltx",
-                filters={"source_type": "workflow", "model_family": "ltx"},
+                filters={"source_type": "distillation", "has_workflow": True},
             )
+        assert len(seen) == 1
         url = seen[0]
-        assert (
-            'metadata=cs.{"workflow_semantics":{"model_families":["ltx"]}}' in url
-        )
+        assert "/unified_feed?" in url
+        assert "kind=eq.distillation" in url
+        assert 'metadata=cs.{"has_workflow":true}' in url
+        assert "ilike" not in url
+        assert "or=(" not in url
 
-    def test_workflow_capability_and_node_class_and_has_workflow(self) -> None:
+    def test_distillation_tier_ignores_text_aliases(self) -> None:
+        """Even with family/capability/node filters set, the distillation
+        request carries structured criteria only — no title/body/content
+        wildcard translation anywhere."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -406,21 +426,18 @@ class TestSearchFilterTranslation:
             hivemind_search(
                 "ltx",
                 filters={
-                    "source_type": "workflow",
+                    "source_type": "distillation",
+                    "model_family": "ltx",
                     "capability": "text_to_video",
                     "node_class": "LTXVLoader",
-                    "has_workflow": True,
+                    "has_workflow": False,
                 },
             )
+        assert len(seen) == 1
         url = seen[0]
-        # One combined containment requires every translated predicate.
-        assert (
-            'metadata=cs.{"workflow_semantics":{"model_families":["ltx"]'
-            not in url
-        )
-        assert 'cs.{"workflow_semantics":{"task_type":"text_to_video"' in url
-        assert '"node_types":["LTXVLoader"]' in url
-        assert '"has_workflow_json":true' in url
+        assert "/unified_feed?" in url
+        assert 'metadata=cs.{"has_workflow":false}' in url
+        assert "ilike" not in url
 
     def test_message_feed_family_translates_to_content_or_groups(self) -> None:
         seen: list[str] = []
@@ -507,8 +524,8 @@ class TestSearchFilterTranslation:
 class TestSearchResults:
     def test_hits_have_stable_resolvable_evidence_ids(self) -> None:
         rows = [
-            _workflow_row("wf-1", title="LTX 2.5 pipeline", created_at="2026-08-05T00:00:00Z"),
-            _workflow_row("wf-2", title="LTX fast mode", created_at="2026-08-04T00:00:00Z"),
+            _message_row(1, title="LTX 2.5 pipeline", created_at="2026-08-05T00:00:00Z"),
+            _message_row(2, title="LTX fast mode", created_at="2026-08-04T00:00:00Z"),
         ]
         seen: list[str] = []
         with patch(
@@ -516,41 +533,49 @@ class TestSearchResults:
             side_effect=_capture_urlopen(seen, _json_response(rows)),
         ):
             result = hivemind_search(
-                "ltx", filters={"source_type": "workflow", "sort": "recent"}
+                "ltx", filters={"source_type": "discord", "sort": "recent"}
             )
         assert result.status is ToolStatus.OK
         assert result.result["count"] == 2
         assert result.result["has_more"] is False
         hits = result.result["hits"]
         assert [h["evidence_id"] for h in hits] == [
-            "hivemind:external_resources:wf-1",
-            "hivemind:external_resources:wf-2",
+            "hivemind:message_feed:1",
+            "hivemind:message_feed:2",
         ]
         # The ToolResult's evidence_ids mirror the hits and are resolvable.
         assert result.evidence_ids == tuple(h["evidence_id"] for h in hits)
         for evidence_id in result.evidence_ids:
             table, row_id = _parse_evidence_id(evidence_id)
-            assert (table, row_id) == ("external_resources", evidence_id.rsplit(":", 1)[-1])
+            assert (table, row_id) == ("message_feed", evidence_id.rsplit(":", 1)[-1])
 
     def test_relevance_sort_ranks_matching_first(self) -> None:
         rows = [
-            _workflow_row("wf-a", title="LTX video pipeline", created_at="2026-08-05T00:00:00Z"),
-            _workflow_row("wf-b", title="comfy sampler tweaks", created_at="2026-08-04T00:00:00Z"),
+            _message_row(
+                1,
+                content="ltx vace workflow tips",
+                created_at="2026-08-04T00:00:00Z",
+            ),
+            _message_row(
+                2,
+                content="someone asked about ltx once",
+                created_at="2026-08-05T00:00:00Z",
+            ),
         ]
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
             result = hivemind_search(
-                "ltx", filters={"source_type": "workflow", "sort": "relevance"}
+                "ltx vace", filters={"source_type": "discord", "sort": "relevance"}
             )
         assert result.status is ToolStatus.OK
         hits = result.result["hits"]
         assert [h["evidence_id"] for h in hits] == [
-            "hivemind:external_resources:wf-a",
-            "hivemind:external_resources:wf-b",
+            "hivemind:message_feed:1",
+            "hivemind:message_feed:2",
         ]
-        # The ranker scores the matching row above the workflow-kind baseline.
+        # The title-matching row outranks the newer body-only mention.
         assert hits[0]["score"] > hits[1]["score"]
 
     def test_relevance_drops_non_matching_discord_rows(self) -> None:
@@ -575,42 +600,36 @@ class TestSearchResults:
             "hivemind:message_feed:1"
         ]
 
-    def test_validated_sort_prefers_approved_distillations(self) -> None:
-        def _responder(req: Any, url: str) -> Any:
-            if "/external_resources?" in url:
-                return _json_response(
-                    [
-                        _workflow_row(
-                            "wf-1",
-                            title="LTX parseable workflow",
-                            created_at="2026-08-01T00:00:00Z",
-                            metadata={
-                                "has_workflow_json": True,
-                                "workflow_semantics": {
-                                    "promotion_gates": {"parseable_workflow": True}
-                                },
-                            },
-                        )
-                    ]
-                )
-            if "/message_feed?" in url:
-                return _json_response(
-                    [_message_row(1, created_at="2026-08-02T00:00:00Z")]
-                )
-            return _json_response(
-                [_distillation_row(2, created_at="2026-08-03T00:00:00Z")]
-            )
-
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=_capture_urlopen([], _responder),
-        ):
-            result = hivemind_search(
-                "ltx", filters={"sort": "validated"}, limit=10
-            )
-        assert result.status is ToolStatus.OK
-        order = [h["source_type"] for h in result.result["hits"]]
-        assert order == ["distillation", "workflow", "discord"]
+    def test_validated_sort_buckets_by_validation_state(self) -> None:
+        """Deterministic validated ordering over a mixed pool: approved
+        distillation first, parseable workflow second, raw messages last."""
+        pool = [
+            {
+                **_message_row(1, created_at="2026-08-02T00:00:00Z"),
+                "_hivemind_table": "message_feed",
+            },
+            {
+                **_distillation_row(2, status="approved", created_at="2026-08-03T00:00:00Z"),
+                "_hivemind_table": "unified_feed",
+            },
+            {
+                **_workflow_row(
+                    "wf-1",
+                    created_at="2026-08-01T00:00:00Z",
+                    metadata={
+                        "has_workflow_json": True,
+                        "workflow_semantics": {
+                            "promotion_gates": {"parseable_workflow": True}
+                        },
+                    },
+                ),
+                "_hivemind_table": "external_resources",
+            },
+        ]
+        ordered = _order_hivemind_rows(pool, sort="validated", query="ltx")
+        buckets = [_validated_bucket(row) for row in ordered]
+        assert buckets == sorted(buckets)
+        assert str(ordered[0].get("kind")) == "distillation"
 
     def test_dedupe_within_scope_by_evidence_id(self) -> None:
         rows = [
@@ -630,15 +649,15 @@ class TestSearchResults:
 
     def test_opaque_cursor_pages_deterministically(self) -> None:
         rows = [
-            _workflow_row(f"wf-{i}", title=f"LTX entry {i}", created_at=f"2026-08-{10 - i:02d}T00:00:00Z")
-            for i in range(5)
+            _message_row(i, title=f"LTX entry {i}", created_at=f"2026-08-{10 - i:02d}T00:00:00Z")
+            for i in range(1, 6)
         ]
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
             page1 = hivemind_search(
-                "ltx", filters={"source_type": "workflow", "sort": "recent"}, limit=2
+                "ltx", filters={"source_type": "discord", "sort": "recent"}, limit=2
             )
             assert page1.status is ToolStatus.OK
             assert page1.result["count"] == 2
@@ -648,7 +667,7 @@ class TestSearchResults:
 
             page2 = hivemind_search(
                 "ltx",
-                filters={"source_type": "workflow", "sort": "recent"},
+                filters={"source_type": "discord", "sort": "recent"},
                 cursor=next_cursor,
                 limit=2,
             )
@@ -658,7 +677,7 @@ class TestSearchResults:
 
             page3 = hivemind_search(
                 "ltx",
-                filters={"source_type": "workflow", "sort": "recent"},
+                filters={"source_type": "discord", "sort": "recent"},
                 cursor=page2.result["next_cursor"],
                 limit=2,
             )
@@ -672,17 +691,17 @@ class TestSearchResults:
             + [h["evidence_id"] for h in page2.result["hits"]]
             + [h["evidence_id"] for h in page3.result["hits"]]
         )
-        assert ids == [f"hivemind:external_resources:wf-{i}" for i in range(5)]
+        assert ids == [f"hivemind:message_feed:{i}" for i in range(1, 6)]
 
     def test_cursor_beyond_end_returns_no_results(self) -> None:
-        rows = [_workflow_row("wf-1", title="LTX entry", created_at="2026-08-05T00:00:00Z")]
+        rows = [_message_row(1, title="LTX entry", created_at="2026-08-05T00:00:00Z")]
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
             result = hivemind_search(
                 "ltx",
-                filters={"source_type": "workflow", "sort": "recent"},
+                filters={"source_type": "discord", "sort": "recent"},
                 cursor=_cursor(100),
             )
         assert result.status is ToolStatus.NO_RESULTS
@@ -693,7 +712,7 @@ class TestSearchResults:
             side_effect=_capture_urlopen([], _json_response([])),
         ):
             result = hivemind_search(
-                "ltx", filters={"source_type": "workflow"}
+                "ltx", filters={"source_type": "discord"}
             )
         assert result.status is ToolStatus.NO_RESULTS
         assert result.result is None
@@ -703,13 +722,10 @@ class TestSearchResults:
 class TestTransportOnlyGuarantee:
     def test_hit_shape_is_stable_and_free_of_judgment(self) -> None:
         rows = [
-            _workflow_row(
-                "wf-1",
+            _message_row(
+                7,
                 title="LTX pipeline",
-                metadata={
-                    "has_workflow_json": True,
-                    "workflow_semantics": {"model_families": ["ltx"]},
-                },
+                created_at="2026-08-01T00:00:00Z",
             )
         ]
         with patch(
@@ -717,7 +733,7 @@ class TestTransportOnlyGuarantee:
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
             result = hivemind_search(
-                "ltx", filters={"source_type": "workflow"}
+                "ltx", filters={"source_type": "discord"}
             )
         hit = result.result["hits"][0]
         assert set(hit) == {
@@ -735,37 +751,39 @@ class TestTransportOnlyGuarantee:
             "confidence",
             "semantics",
         }
-        assert hit["evidence_id"] == "hivemind:external_resources:wf-1"
-        assert hit["source_type"] == "workflow"
-        # ToolResult freezes JSON: lists arrive as tuples.
-        assert tuple(hit["semantics"]["model_families"]) == ("ltx",)
+        assert hit["evidence_id"] == "hivemind:message_feed:7"
+        assert hit["source_type"] == "discord"
+        assert hit["semantics"] is None
         assert hit["created_at"] == "2026-08-01T00:00:00Z"
         # No task classification / winner / enough-check / stop fields.
         for key in ("decision", "winner", "enough", "stop_reason", "classification"):
             assert key not in result.result
 
     def test_partial_scope_failure_degrades_with_diagnostics(self) -> None:
+        """With structured criteria present, the corpus search runs the
+        message_feed text scope AND the non-text distillation scope; a
+        persistent 57014 on one scope degrades to a per-scope diagnostic
+        while the other still contributes hits."""
+
         def _responder(req: Any, url: str) -> Any:
-            if "/external_resources?" in url:
-                return _json_response(
-                    [_workflow_row("wf-1", title="LTX workflow", created_at="2026-08-05T00:00:00Z")]
-                )
             if "/message_feed?" in url:
-                raise urllib.error.HTTPError(
-                    req.full_url, 500, "statement timeout", {}, io.BytesIO(b'{"code":"57014"}')
+                return _json_response(
+                    [_message_row(1, title="LTX workflow", created_at="2026-08-05T00:00:00Z")]
                 )
-            return _json_response([])
+            return _statement_timeout_error(req)
 
         with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ), patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _responder),
         ):
-            result = hivemind_search("ltx", limit=10)
+            result = hivemind_search("ltx", filters={"has_workflow": True}, limit=10)
         assert result.status is ToolStatus.OK
         assert result.result["count"] == 1
         codes = {d.code for d in result.diagnostics}
         assert codes == {"hivemind_scope_failed"}
-        assert result.diagnostics[0].details["scope"] == "message_feed:message"
+        assert result.diagnostics[0].details["scope"] == "unified_feed:distillation"
 
     def test_all_scopes_failed_returns_typed_failure(self) -> None:
         def _responder(req: Any, url: str) -> Any:
@@ -1149,13 +1167,13 @@ class TestTypedFailures:
 
 class TestToolResultContract:
     def test_ok_result_round_trips_through_contract(self) -> None:
-        rows = [_workflow_row("wf-1", title="LTX pipeline")]
+        rows = [_message_row(1, title="LTX pipeline")]
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
             result = hivemind_search(
-                "ltx", filters={"source_type": "workflow"}
+                "ltx", filters={"source_type": "discord"}
             )
         assert isinstance(result, ToolResult)
         assert result.tool_name == HIVE_MIND_SEARCH_TOOL
@@ -1210,12 +1228,12 @@ class TestStatementTimeoutRetry:
                     {},
                     io.BytesIO(b'{"code":"57014","message":"canceling statement due to statement timeout"}'),
                 )
-            return _json_response([_workflow_row("wf-1", title="LTX workflow")])
+            return _json_response([_message_row(1, title="LTX workflow")])
 
         with patch(
             "vibecomfy.executor.hivemind_clients.time.sleep",
         ) as sleep, patch("urllib.request.urlopen", side_effect=_flaky):
-            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+            result = hivemind_search("ltx", filters={"source_type": "discord"})
         assert result.status is ToolStatus.OK
         assert result.result["count"] == 1
         assert calls["n"] == 2
@@ -1241,12 +1259,12 @@ class TestStatementTimeoutRetry:
                         b'{"code":"57014","message":"canceling statement due to statement timeout"}'
                     ),
                 )
-            return _json_response([_workflow_row("wf-degraded", title="LTX workflow")])
+            return _json_response([_message_row(9, title="LTX workflow")])
 
         with patch(
             "vibecomfy.executor.hivemind_clients.time.sleep",
         ), patch("urllib.request.urlopen", side_effect=_fat_then_degraded):
-            result = hivemind_search("ltx video generation workflow", filters={"source_type": "workflow"})
+            result = hivemind_search("ltx video generation workflow")
         assert result.status is ToolStatus.OK
         assert result.result["count"] == 1
         assert any("ilike.*" in url for url in calls)
@@ -1262,7 +1280,7 @@ class TestStatementTimeoutRetry:
         with patch(
             "vibecomfy.executor.hivemind_clients.time.sleep",
         ), patch("urllib.request.urlopen", side_effect=_persistent):
-            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+            result = hivemind_search("ltx")
         assert result.status is ToolStatus.UNAVAILABLE
         assert result.diagnostics[0].code == "hivemind_statement_timeout"
         assert result.evidence_ids == ()
@@ -1290,15 +1308,17 @@ class TestStatementTimeoutRetry:
         assert calls == [5.0]
 
     def test_partial_rows_survive_later_scope_deadline(self) -> None:
+        """The message_feed text scope completes; a later scope spending the
+        whole budget must not discard the earlier scope's hits."""
         clock = {"t": 0.0}
         seen: list[str] = []
 
         def _partial(req: Any, *args: Any, **kwargs: Any) -> Any:
             url = unquote_plus(req.full_url)
             seen.append(url)
-            if "/external_resources?" in url:
+            if "/message_feed?" in url:
                 clock["t"] = 1.0
-                return _json_response([_workflow_row("wf-before-timeout")])
+                return _json_response([_message_row(5, title="before timeout")])
             clock["t"] = 5.0
             raise TimeoutError("later scope spent the remaining budget")
 
@@ -1306,13 +1326,14 @@ class TestStatementTimeoutRetry:
             "vibecomfy.executor.hivemind_clients.time.monotonic",
             side_effect=lambda: clock["t"],
         ), patch("urllib.request.urlopen", side_effect=_partial):
-            result = hivemind_search("ltx", timeout=5.0)
+            result = hivemind_search("ltx", filters={"has_workflow": True}, timeout=5.0)
         assert result.status is ToolStatus.OK
         assert result.evidence_ids == (
-            "hivemind:external_resources:wf-before-timeout",
+            "hivemind:message_feed:5",
         )
         assert len(seen) == 2
-        assert not any("kind=eq.distillation" in url for url in seen)
+        assert any("/message_feed?" in url for url in seen)
+        assert any("kind=eq.distillation" in url for url in seen)
 
     def test_57014_on_get_also_soft_miss(self) -> None:
         with patch(
@@ -1389,6 +1410,8 @@ class TestFamilyRelevance:
         assert any("family" in r for r in ranked[0]["reasons"])
 
     def test_explicit_family_filter_still_translated(self) -> None:
+        """An explicit model_family filter ANDs an alias OR-group into the
+        lean message-feed content query."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -1398,10 +1421,11 @@ class TestFamilyRelevance:
                 "ltx",
                 filters={"source_type": "workflow", "model_family": "ltx"},
             )
-        assert 'metadata=cs.{"workflow_semantics":{"model_families":["ltx"]}}' in seen[0]
-
-
-# ── REC-A: evidence-ID resolvability (no fabricated fallback IDs) ───────────
+        assert len(seen) == 1
+        url = seen[0]
+        assert "/message_feed?" in url
+        assert "and=(or:(content.ilike.*ltx*)" in url
+        assert "content.ilike.*ltxv*" in url
 
 
 class TestEvidenceIdResolvability:
@@ -1419,12 +1443,12 @@ class TestEvidenceIdResolvability:
 
     def test_search_drops_unresolvable_rows(self) -> None:
         rows = [
-            _workflow_row("wf-1", title="LTX pipeline"),
+            _message_row(1, title="LTX pipeline"),
             {
-                "external_id": "vibecomfy:orphan",
-                "url": "https://example.com/orphan.json",
-                "title": "orphan workflow",
-                "kind": "workflow",
+                # A message row without its natural message_id column:
+                # parseable-looking, but hivemind_get could never resolve it.
+                "content": "orphan message",
+                "channel_name": "ltx_chatter",
                 "created_at": "2026-08-06T00:00:00Z",
             },
         ]
@@ -1432,30 +1456,31 @@ class TestEvidenceIdResolvability:
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
-            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+            result = hivemind_search("ltx", filters={"source_type": "discord"})
         assert result.status is ToolStatus.OK
         assert [h["evidence_id"] for h in result.result["hits"]] == [
-            "hivemind:external_resources:wf-1"
+            "hivemind:message_feed:1"
         ]
-        assert result.evidence_ids == ("hivemind:external_resources:wf-1",)
+        assert result.evidence_ids == ("hivemind:message_feed:1",)
 
     def test_returned_ids_all_resolve_through_get(self) -> None:
         rows = [
-            _workflow_row("wf-1", title="LTX pipeline"),
-            _workflow_row("wf-2", title="LTX fast mode"),
+            _message_row(1, title="LTX pipeline"),
+            _message_row(2, title="LTX fast mode"),
         ]
         with patch(
             "urllib.request.urlopen",
             side_effect=_capture_urlopen([], _json_response(rows)),
         ):
-            search = hivemind_search("ltx", filters={"source_type": "workflow"})
+            search = hivemind_search("ltx", filters={"source_type": "discord"})
         assert search.status is ToolStatus.OK
         for evidence_id in search.evidence_ids:
+            row_id = evidence_id.rsplit(":", 1)[-1]
             with patch(
                 "urllib.request.urlopen",
                 side_effect=_capture_urlopen(
                     [],
-                    _json_response([_workflow_row(evidence_id.rsplit(":", 1)[-1])]),
+                    _json_response([_message_row(int(row_id))]),
                 ),
             ):
                 got = hivemind_get(evidence_id)

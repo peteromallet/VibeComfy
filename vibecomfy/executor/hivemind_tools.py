@@ -50,8 +50,11 @@ HIVE_MIND_SEARCH_TOOL = "hivemind_search"
 HIVE_MIND_GET_TOOL = "hivemind_get"
 
 _HIVEMIND_TOOL_MAX_LIMIT = 20
-_HIVEMIND_TOOL_DEFAULT_LIMIT = 10
-_HIVEMIND_TOOL_DEFAULT_TIMEOUT = 5.0  # matches research._DEFAULT_HIVEMIND_TIMEOUT
+_HIVEMIND_TOOL_DEFAULT_LIMIT = 5
+# HIVEMIND-SEARCH-SHAPE S4: per-request budget sized to measured lean-query
+# latency (~0.13-0.54s live) with ample headroom for one 57014 degrade retry,
+# replacing the old 5.0s shared-deadline posture that 21/26 searches exhausted.
+_HIVEMIND_TOOL_DEFAULT_TIMEOUT = 10.0
 
 _SOURCE_TYPES = frozenset({"workflow", "discord", "distillation"})
 _SORTS = frozenset({"relevance", "recent", "validated"})
@@ -442,17 +445,23 @@ def hivemind_search(
     timeout: float = _HIVEMIND_TOOL_DEFAULT_TIMEOUT,
     cache_root: Path | None = None,
 ) -> ToolResult:
-    """Search the Hivemind corpus (workflows + Discord + distillations).
+    """Search the Hivemind corpus (lean message-content text search).
 
     Transport and query translation only: filters become PostgREST WHERE
     clauses, ``sort`` picks a deterministic ordering, ``cursor``/``limit``
     page the result.  Nothing here classifies the task, picks a winner, runs
     an enough-check, or decides to stop.
 
+    Lean shape (HIVEMIND-SEARCH-SHAPE): free-text queries are distilled to
+    2-4 distinctive tokens and matched as ``content.ilike`` ORs on
+    ``message_feed`` only.  ``unified_feed`` is never text-searched;
+    distillations are reached by id (``hivemind_get``) or via non-text
+    structured filters.
+
     Parameters
     ----------
     query:
-        Free-text search over titles and bodies.
+        Free-text query; 2-4 distinctive tokens give the best recall.
     filters:
         ``source_type`` (``workflow`` | ``discord`` | ``distillation``),
         ``model_family``, ``capability``, ``node_class``, ``channel``,
@@ -462,9 +471,10 @@ def hivemind_search(
     cursor:
         Opaque cursor from a previous page (``next_cursor``); None = first page.
     limit:
-        Page size, 1..20.
+        Page size, 1..20 (default 5).
     timeout:
-        Total transport wall-clock budget in seconds, shared by all scopes and retries.
+        Per-request transport budget in seconds (default 10), covering the
+        scope fetches and the one 57014 degraded retry within a call.
     cache_root:
         R2-B2 cooldown-sentinel root (tests inject a temp dir).
 

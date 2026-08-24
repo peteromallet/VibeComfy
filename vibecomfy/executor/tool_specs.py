@@ -525,6 +525,9 @@ def _hivemind_search_handler(
 ) -> ToolResult:
     # The declared argument surface is passed through untouched: filters,
     # cursor, limit and timeout are the agent's arguments, never dropped.
+    # Defaults come from the hivemind tool module (single source of truth):
+    # HIVEMIND-SEARCH-SHAPE S4 — small default page (5) and a >=10s
+    # per-request budget instead of the old 5.0s shared deadline.
     mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
     search_fn = getattr(session, "search_fn", None)
     if search_fn is not None:
@@ -532,15 +535,15 @@ def _hivemind_search_handler(
             args["query"],
             filters=args.get("filters"),
             cursor=args.get("cursor"),
-            limit=args.get("limit", 10),
-            timeout=args.get("timeout", 5.0),
+            limit=args.get("limit", mod._HIVEMIND_TOOL_DEFAULT_LIMIT),
+            timeout=args.get("timeout", mod._HIVEMIND_TOOL_DEFAULT_TIMEOUT),
         )
     return mod.hivemind_search(
         args["query"],
         filters=args.get("filters"),
         cursor=args.get("cursor"),
-        limit=args.get("limit", 10),
-        timeout=args.get("timeout", 5.0),
+        limit=args.get("limit", mod._HIVEMIND_TOOL_DEFAULT_LIMIT),
+        timeout=args.get("timeout", mod._HIVEMIND_TOOL_DEFAULT_TIMEOUT),
         cache_root=getattr(session, "cache_root", None),
     )
 
@@ -551,10 +554,13 @@ def _hivemind_get_handler(
     mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
     get_fn = getattr(session, "get_fn", None)
     if get_fn is not None:
-        return get_fn(args["evidence_id"], timeout=args.get("timeout", 5.0))
+        return get_fn(
+            args["evidence_id"],
+            timeout=args.get("timeout", mod._HIVEMIND_TOOL_DEFAULT_TIMEOUT),
+        )
     return mod.hivemind_get(
         args["evidence_id"],
-        timeout=args.get("timeout", 5.0),
+        timeout=args.get("timeout", mod._HIVEMIND_TOOL_DEFAULT_TIMEOUT),
         cache_root=getattr(session, "cache_root", None),
     )
 
@@ -728,13 +734,16 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         name="hivemind_search",
         phase=PHASE_RESEARCH,
         description=(
-            "search the Hivemind corpus (Discord community, external resources, "
-            "curated distillations) for workflow precedents and community knowledge. "
-            "Choose filters.source_type by need: 'workflow' for exact graph "
-            "precedents, 'discord' for community usage/settings/gotchas, and "
-            "'distillation' for curated Q&A. A distillation/speed/turbo LoRA is "
-            "a model type, not the 'distillation' source tier; search workflow "
-            "or discord for those models."
+            "search the Hivemind corpus (community Discord messages and "
+            "curated distillations) for workflow precedents and community "
+            "knowledge. Lean query shape: use 2-4 distinctive tokens (model "
+            "or node names, not generic words like 'workflow' or 'best') — "
+            "text matching runs on message content only. Distillations are "
+            "not text-searched: discover them through message leads, then "
+            "fetch records by ID with hivemind_get; filters.source_type="
+            "'distillation' only narrows structured filters (has_workflow, "
+            "dates). A distillation/speed/turbo LoRA is a model type, not "
+            "the 'distillation' source tier."
         ),
         positional_names=("query",),
         keywords=("query", "filters", "cursor", "limit", "timeout"),
