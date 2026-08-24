@@ -1,6 +1,6 @@
 {
   "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
-  "query": "Change the output audio format from MP3 to WAV.",
+  "query": "Change the output audio format from MP3 to FLAC.",
   "workflow_path": "external_workflows/corpus/b55994d9cb6aea42.json",
   "network": true,
   "timeout": 280,
@@ -9,8 +9,8 @@
     "expect_graph_changed": true
   },
   "desired": {
-    "outcome": "Workflow saves output as WAV file instead of MP3.",
-    "quality": "All nodes correctly connected and audio saved in WAV format."
+    "outcome": "Workflow saves output as a FLAC file instead of MP3: the rendered AUDIO wire is retargeted from SaveAudioMP3 to the indexed SaveAudio saver (display name 'Save Audio (FLAC)'), which accepts the identical required AUDIO input.",
+    "quality": "The new saver node is correctly wired to the same AUDIO stream and all other nodes stay connected; audio is written in FLAC format."
   },
   "_tags": {
     "modality": "audio",
@@ -25,12 +25,13 @@
       "text-to-speech",
       "voice-conversion",
       "mp3",
+      "flac",
       "chatterbox"
     ],
     "source_workflow_id": "b55994d9cb6aea42",
     "source": "external_workflows/corpus",
     "staged": true,
     "authored_by": "deepseek-v4-flash",
-    "author_rationale": "Straightforward format change that tests parameter editing on a simple TTS workflow."
+    "author_rationale": "Straightforward format change that tests parameter-level editing on a simple TTS workflow. MP3-to-WAV was disproved - no WAV saver exists anywhere in the authoritative object_info index - so the query aligns to MP3-to-FLAC: exact index lookups resolve SaveAudio as 'Save Audio (FLAC)' taking the same required AUDIO input as SaveAudioMP3, making the swap authorable on the existing graph."
   }
 }

@@ -4,18 +4,18 @@
   "workflow_path": "external_workflows/corpus/949658825bc5999a.json",
   "network": true,
   "timeout": 260,
-  "apply": true,
+  "apply": false,
   "assessment": {
-    "expect_graph_changed": true,
+    "expect_graph_changed": false,
     "allow_safe_refusal_outcome_kinds": [
-      "clarify",
       "requires_custom_nodes"
-    ]
+    ],
+    "expected_no_candidate_reason": "The query demands replacing the YOLOv8 face detection with MTCNN or RetinaFace. Both named alternatives are provably absent from the authoritative object_info index - exact lookups and declared-family-prefix lookups each return an empty result set - and neither class exists in this corpus workflow, whose detection surface is UltralyticsDetectorProvider (bbox/face_yolov8m.pt) feeding BboxDetectorSEGS via Impact SEGS plumbing that is not authorable as an indexed replacement. Both retained alternatives are covered by the declared absent classes; the typed terminal for proven named-schema absence is a requires_custom_nodes refusal, and adjudication requires the authoritative named-class blocker to cite a matching alternative before any leg passes.",
+    "expected_no_candidate_absent_classes": ["MTCNN", "RetinaFace"]
   },
   "desired": {
-    "outcome": "The workflow now uses a different face detection model (e.g., MTCNN or RetinaFace) with appropriately adjusted cropping parameters to maintain correct region detection.",
-    "quality": "All original functionality (image loading, face detection, cropping, uncropping, preview) is preserved; the new model integrates seamlessly without dangling nodes or broken connections.",
-    "alternatives_ok": true
+    "outcome": "The agent inspects the detection/cropping chain, determines that neither MTCNN nor RetinaFace (nor any family member) is authorable in this environment, and truthfully reports that no candidate change exists; the graph stays unchanged.",
+    "quality": "The refusal names the real Ultralytics/Impact detection nodes, gives the grounded index-absence reason covering BOTH named alternatives, proposes no fabricated edit, and leaves existing nodes intact."
   },
   "_tags": {
     "modality": "image",
@@ -36,6 +36,6 @@
     "source": "external_workflows/corpus",
     "staged": true,
     "authored_by": "deepseek-v4-flash",
-    "author_rationale": "This candidate requires restructuring the detection stage and adapting the cropping logic, a genuine structural change that tests deep understanding of the workflow's architecture."
+    "author_rationale": "The query asks to restructure the detection stage around MTCNN or RetinaFace, but BOTH named alternatives are provably absent from the authoritative index and the corpus graph, so the honest designation is expected-no-candidate under a typed named-class contract covering both tokens; adjudication requires the authoritative blocker to cite a matching alternative, and metadata (modality image, task_type image_to_image) still describes the actual image-in/image-out corpus workflow."
   }
 }

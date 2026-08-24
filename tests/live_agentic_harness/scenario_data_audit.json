@@ -1,0 +1,2164 @@
+{
+  "source_manifest": "tests/live_agentic_harness/threaded_comparison_manifest_final50.json",
+  "authoritative_index": {
+    "path": "vibecomfy/porting/cache/object_info/index.json",
+    "entry_count": 1486,
+    "note": "Exact and declared-family-prefix lookups record COMPLETE result sets over this index; stub caches are not index-resolvable."
+  },
+  "row_count": 50,
+  "rows": [
+    {
+      "scenario_id": "audio-tts-narration-using-indextts-2",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+      "query": "The narration sounds flat and monotone — can you make it more engaging?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+          "node_id": "125",
+          "class_type": "IndexTTSEmotionOptionsNode",
+          "member_kind": "input",
+          "member": "emotion_control",
+          "observed": null
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+          "node_id": "124",
+          "class_type": "QwenEmotionNode",
+          "member_kind": "widget",
+          "member": null,
+          "observed": "qwen0.6bemo4-merge"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "IndexTTSEmotionOptionsNode"
+          },
+          "matches": [
+            "IndexTTSEmotionOptionsNode"
+          ],
+          "schema_member": "emotion_control",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Emotion delivery is authorable: node 125 IndexTTSEmotionOptionsNode (authoritative schema: emotion_control/other_param FLOAT controls) feeds the UnifiedTTSTextNode emotion chain together with QwenEmotionNode 124 expressive-prompt conditioning; adjusting those controls/prompt is exactly the 'more engaging narration' request."
+    },
+    {
+      "scenario_id": "image-image-editing-with-qwen-image",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/465726d60a145b19.json",
+      "query": "The added soldier looks pasted on — it doesn't match the scene's lighting.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/465726d60a145b19.json",
+          "node_id": "135",
+          "class_type": "KSampler",
+          "member_kind": "input",
+          "member": "cfg",
+          "observed": 1
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/465726d60a145b19.json",
+          "node_id": "133",
+          "class_type": "TextEncodeQwenImageEditPlus",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null,
+          "note": "edit prompt conditioning"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "KSampler"
+          },
+          "matches": [
+            "KSampler"
+          ],
+          "schema_member": "cfg",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Lighting/integration tuning is authorable through named KSampler inputs (cfg/denoise/steps, node 135 currently cfg=1 denoise=1) plus the TextEncodeQwenImageEditPlus edit prompts (nodes 133/134); all are standard editable surfaces."
+    },
+    {
+      "scenario_id": "live-graph-explanation-smoke",
+      "workflow_path": null,
+      "query": "Explain what this graph does. If anything important is missing, ask one clarifying question; otherwise inspect the workflow and answer directly.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/live-graph-explanation-smoke.json",
+          "lane": "health_control",
+          "evidence": "classification.kind=health_control; interaction_mode=answer_only",
+          "apply": null,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: classification.kind=health_control; interaction_mode=answer_only. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "multi-video-based-character-replacement-using",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/8e5619299bafee56.json",
+      "query": "It keeps selecting the background too, not just the person.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/8e5619299bafee56.json",
+          "node_id": "34",
+          "class_type": "LayerMask: SegmentAnythingUltra V3",
+          "member_kind": "input",
+          "member": "prompt",
+          "observed": "People, clothes, shoes"
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/8e5619299bafee56.json",
+          "node_id": "36",
+          "class_type": "GrowMaskWithBlur",
+          "member_kind": "input",
+          "member": "expand",
+          "observed": 10
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "LayerMask: SegmentAnythingUltra V3"
+          },
+          "matches": [
+            "LayerMask: SegmentAnythingUltra V3"
+          ],
+          "schema_member": "prompt",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "STRING"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "GrowMaskWithBlur"
+          },
+          "matches": [
+            "GrowMaskWithBlur"
+          ],
+          "schema_member": "expand",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Selection scope is authorable: the SAM-ultra prompt (text grounding of what to select) and GrowMaskWithBlur expand/blur parameters directly control person-vs-background selection; both classes resolve with exact schema evidence."
+    },
+    {
+      "scenario_id": "speed-distillation-research",
+      "workflow_path": null,
+      "query": "This video workflow is too slow. Is there a distilled or faster way to run it without changing the creative intent?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/speed-distillation-research.json",
+          "lane": "research",
+          "evidence": "assessment.require_executed_research=true (health_control)",
+          "apply": null,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: assessment.require_executed_research=true (health_control). Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
+      "workflow_path": "external_workflows/corpus/c24aa2ac329006f2.json",
+      "query": "Instead of using the back-projection inpainting method, I want to use the SDXL inpainting model directly on the masked areas, but I also want the ControlNet to guide the inpainting after the fact rather than condition it initially. Can you restructure the workflow to do that?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/c24aa2ac329006f2.json",
+          "node_id": "94",
+          "class_type": "GrowMaskWithBlur",
+          "member_kind": "input",
+          "member": "blur_radius",
+          "observed": 15
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/c24aa2ac329006f2.json",
+          "node_id": "193",
+          "class_type": "KSamplerSelect",
+          "member_kind": "input",
+          "member": "sampler_name",
+          "observed": "dpmpp_2m_sde"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "GrowMaskWithBlur"
+          },
+          "matches": [
+            "GrowMaskWithBlur"
+          ],
+          "schema_member": "blur_radius",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "KSamplerSelect"
+          },
+          "matches": [
+            "KSamplerSelect"
+          ],
+          "schema_member": "sampler_name",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "COMBO",
+            "options": [
+              "euler",
+              "euler_cfg_pp",
+              "euler_ancestral",
+              "euler_ancestral_cfg_pp",
+              "heun",
+              "heunpp2",
+              "exp_heun_2_x0",
+              "exp_heun_2_x0_sde",
+              "dpm_2",
+              "dpm_2_ancestral",
+              "lms",
+              "dpm_fast",
+              "dpm_adaptive",
+              "dpmpp_2s_ancestral",
+              "dpmpp_2s_ancestral_cfg_pp",
+              "dpmpp_sde",
+              "dpmpp_sde_gpu",
+              "dpmpp_2m",
+              "dpmpp_2m_cfg_pp",
+              "dpmpp_2m_sde",
+              "dpmpp_2m_sde_gpu",
+              "dpmpp_2m_sde_heun",
+              "dpmpp_2m_sde_heun_gpu",
+              "dpmpp_3m_sde",
+              "dpmpp_3m_sde_gpu",
+              "ddpm",
+              "lcm",
+              "ipndm",
+              "ipndm_v",
+              "deis",
+              "res_multistep",
+              "res_multistep_cfg_pp",
+              "res_multistep_ancestral",
+              "res_multistep_ancestral_cfg_pp",
+              "gradient_estimation",
+              "gradient_estimation_cfg_pp",
+              "er_sde",
+              "seeds_2",
+              "seeds_3",
+              "sa_solver",
+              "sa_solver_pece",
+              "ddim",
+              "uni_pc",
+              "uni_pc_bh2"
+            ]
+          }
+        }
+      ],
+      "determination": "The SDXL-direct-inpaint restructuring is authorable on the existing graph: masked-area sampling runs through easy kSamplerInpainting (node 186) with KSamplerSelect 193 and easy controlnetLoader++ 189 for post-hoc ControlNet guidance, and mask treatment is parameterized on GrowMaskWithBlur 94 - all resolvable classes with exact schema evidence."
+    },
+    {
+      "scenario_id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
+      "workflow_path": "external_workflows/corpus/cc0df70583f28c98.json",
+      "query": "Enable the Rodin3D_Detail generation branch: set its Preview3D node to enabled so the detailed model previews, and bypass the Rodin3D_Regular node together with its Preview3D node. Keep the shared input-image batching feeding all branches and leave every other node wired as it is.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/cc0df70583f28c98.json",
+          "node_id": "29",
+          "class_type": "Rodin3D_Detail",
+          "member_kind": "node_mode",
+          "member": "mode",
+          "observed": 4
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/cc0df70583f28c98.json",
+          "node_id": "28",
+          "class_type": "Rodin3D_Regular",
+          "member_kind": "node_mode",
+          "member": "mode",
+          "observed": 0
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/cc0df70583f28c98.json",
+          "node_id": "61",
+          "class_type": "Preview3D",
+          "member_kind": "node_mode",
+          "member": "mode",
+          "observed": 0
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "Rodin3D_Detail"
+          },
+          "matches": [
+            "Rodin3D_Detail"
+          ],
+          "schema_member": "Images",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "IMAGE"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "Preview3D"
+          },
+          "matches": [
+            "Preview3D"
+          ],
+          "schema_member": "model_file",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "STRING,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_FBX,FILE_3D_OBJ,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+          }
+        }
+      ],
+      "determination": "Branch enable/bypass is authorable through node mode toggles (always/bypass/never on the Rodin API nodes and their Preview3D viewers): Detail branch 29 + Preview3D 61 active, Regular 28 + its Preview3D bypassable; both classes carry exact index schema evidence."
+    },
+    {
+      "scenario_id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
+      "workflow_path": "external_workflows/corpus/f657743bc2a3db17.json",
+      "query": "Raise the Tripo texture node's texture quality from 'standard' to 'detailed' and keep its PBR texturing enabled, so the rigged model's materials come through with finer detail in the final 3D preview.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/f657743bc2a3db17.json",
+          "node_id": "26",
+          "class_type": "TripoTextureNode",
+          "member_kind": "widget",
+          "member": "texture_quality",
+          "observed": "standard"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "TripoTextureNode"
+          },
+          "matches": [
+            "TripoTextureNode"
+          ],
+          "schema_member": "texture_quality",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "COMBO",
+            "options": [
+              "standard",
+              "detailed"
+            ]
+          }
+        }
+      ],
+      "determination": "The rewritten texture-quality request is authorable: TripoTextureNode node 26 currently renders texture_quality='standard' (raw widget row) and the authoritative schema declares the texture_quality COMBO with options standard|detailed - raising it to 'detailed' is a direct widget edit (PBR stays enabled)."
+    },
+    {
+      "scenario_id": "3d-3d-model-generation-and-rigging-from-image-352066",
+      "workflow_path": "external_workflows/corpus/352066ccef9dbe37.json",
+      "query": "The generated model's rig has the knees bending backward. Correct the joint orientation so the legs bend forward naturally.",
+      "offending_phrase": "Correct the joint orientation",
+      "decision": "ANNOTATE",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-rigging-from-image-352066.json",
+          "lane": "expected_no_candidate",
+          "refusal_kinds": [
+            "clarify"
+          ],
+          "absent_classes": null,
+          "absent_features": [
+            {
+              "feature": "joint_orientation",
+              "checks": [
+                {
+                  "class_type": "TripoRigNode",
+                  "member_kind": "input",
+                  "member": "joint_orientation"
+                },
+                {
+                  "class_type": "TripoRetargetNode",
+                  "member_kind": "input",
+                  "member": "joint_orientation"
+                }
+              ]
+            }
+          ],
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Structural-feature absence: the frozen authoritative schema gives TripoRigNode only original_model_task_id and TripoRetargetNode only original_model_task_id+animation - joint_orientation is absent from every surface of both rig-chain classes (verified below), and knee orientation is decided inside the Tripo cloud task. Declared expected-no-candidate contract (clarify terminal, typed joint_orientation checks); a generic no_changes label is never accepted as evidence."
+    },
+    {
+      "scenario_id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
+      "workflow_path": "external_workflows/corpus/90a1d5ff9044902e.json",
+      "query": "Set the text-to-3D generation node's geometry quality to 'detailed' so the model captures more surface features like wrinkles and folds, and leave its face-limit and quad settings exactly as they are so the polygon count does not grow.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/90a1d5ff9044902e.json",
+          "node_id": "3",
+          "class_type": "TripoTextToModelNode",
+          "member_kind": "widget",
+          "member": "geometry_quality",
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "TripoTextToModelNode"
+          },
+          "matches": [
+            "TripoTextToModelNode"
+          ],
+          "schema_member": "geometry_quality",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "COMBO",
+            "options": [
+              "standard",
+              "detailed"
+            ]
+          }
+        }
+      ],
+      "determination": "The rewritten geometry-quality request is authorable: TripoTextToModelNode node 3 exposes the authoritative geometry_quality COMBO (standard|detailed) among its optional widgets; setting 'detailed' while leaving face_limit/quad untouched is a direct widget edit."
+    },
+    {
+      "scenario_id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
+      "workflow_path": "external_workflows/corpus/d66a660d74cbc9ec.json",
+      "query": "Change the texture edit prompt to 'aged bronze statue with verdigris patina' and ensure the model exports as GLB with embedded textures.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/d66a660d74cbc9ec.json",
+          "node_id": "48",
+          "class_type": "Tencent3DTextureEditNode",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null,
+          "note": "texture edit prompt widget"
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/d66a660d74cbc9ec.json",
+          "node_id": "38",
+          "class_type": "SaveGLB",
+          "member_kind": "input",
+          "member": "mesh",
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveGLB"
+          },
+          "matches": [
+            "SaveGLB"
+          ],
+          "schema_member": "mesh",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+          }
+        }
+      ],
+      "determination": "Both halves are authorable: node 48 Tencent3DTextureEditNode carries the editable texture prompt widget, and node 38 SaveGLB (authoritative schema: mesh output union explicitly includes FILE_3D_GLB) guarantees GLB export with embedded textures."
+    },
+    {
+      "scenario_id": "3d-3d-shape-generation-and-export-workflow-8800a9",
+      "workflow_path": "external_workflows/corpus/8800a945cff8d090.json",
+      "query": "Lower the shape refinement strength to 0.5 so the final mesh stays closer to the input coarse mesh.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/8800a945cff8d090.json",
+          "node_id": "2",
+          "class_type": "UltraShapeRefine",
+          "member_kind": "widget",
+          "member": null,
+          "observed": 0.5
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/8800a945cff8d090.json",
+          "node_id": "6",
+          "class_type": "Preview3D",
+          "member_kind": "input",
+          "member": "model_file",
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "UltraShapeRefine"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "Preview3D"
+          },
+          "matches": [
+            "Preview3D"
+          ],
+          "schema_member": "model_file",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "STRING,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_FBX,FILE_3D_OBJ,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+          }
+        }
+      ],
+      "determination": "The refinement-strength control exists in the graph itself: UltraShapeRefine node 2 carries the strength widget currently at 0.5 (the R2-aligned descriptor value), so lowering/holding it is authorable as a direct widget edit. The Ultra pack is intentionally NOT in the authoritative index (recorded empty exact lookup); Preview3D 6 provides the indexed export-chain anchor."
+    },
+    {
+      "scenario_id": "3d-converts-image-to-3d-model",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/b3530ba884ac4625.json",
+      "query": "The 3D model looks too smooth and featureless — I want sharper surface detail.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/b3530ba884ac4625.json",
+          "node_id": "28",
+          "class_type": "Rodin3D_Regular",
+          "member_kind": "widget",
+          "member": "Polygon_count",
+          "observed": "200K-Triangle"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "Rodin3D_Regular"
+          },
+          "matches": [
+            "Rodin3D_Regular"
+          ],
+          "schema_member": "Material_Type",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "COMBO",
+            "options": [
+              "PBR",
+              "Shaded"
+            ]
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "Preview3D"
+          },
+          "matches": [
+            "Preview3D"
+          ],
+          "schema_member": "model_file",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "STRING,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_FBX,FILE_3D_OBJ,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+          }
+        }
+      ],
+      "determination": "Sharper surface detail is authorable on the Rodin generation node itself: node 28 Rodin3D_Regular currently requests Polygon_count '200K-Triangle' (value replays against the schema COMBO family) with Material_Type 'PBR'; raising polygon budget/detail is the graph-native lever, previewed through indexed Preview3D."
+    },
+    {
+      "scenario_id": "3d-generates-a-3d-mesh-from",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/2bdbaf79a96182c4.json",
+      "query": "The generated 3D mesh is full of floating bits and noise.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/2bdbaf79a96182c4.json",
+          "node_id": "62",
+          "class_type": "VoxelToMeshBasic",
+          "member_kind": "input",
+          "member": "threshold",
+          "observed": 0.6000000000000001
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "VoxelToMeshBasic"
+          },
+          "matches": [
+            "VoxelToMeshBasic"
+          ],
+          "schema_member": "threshold",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveGLB"
+          },
+          "matches": [
+            "SaveGLB"
+          ],
+          "schema_member": "mesh",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+          }
+        }
+      ],
+      "determination": "Floating-bits cleanup is authorable via the marching-cubes threshold: node 62 VoxelToMeshBasic exposes the authoritative FLOAT 'threshold' (currently ~0.6) controlling iso-surface cutoff, and node 67 SaveGLB keeps the export intact."
+    },
+    {
+      "scenario_id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
+      "workflow_path": "external_workflows/corpus/1b136036c776018a.json",
+      "query": "Integrate a spectral-gating noise reduction pass before the audio separation step, then route the cleaned audio into both the vocal removal and the separation branches.",
+      "offending_phrase": "spectral-gating noise reduction",
+      "decision": "ANNOTATE",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/audio-acestep-audio-generation-and-processing-workfl-1b1360.json",
+          "lane": "expected_no_candidate",
+          "refusal_kinds": [
+            "clarify"
+          ],
+          "absent_classes": null,
+          "absent_features": [
+            {
+              "feature": "spectral_gating",
+              "checks": [
+                {
+                  "class_type": "KSampler",
+                  "member_kind": "input",
+                  "member": "spectral_gate"
+                },
+                {
+                  "class_type": "VAEEncodeAudio",
+                  "member_kind": "input",
+                  "member": "spectral_gate"
+                },
+                {
+                  "class_type": "VAEDecodeAudio",
+                  "member_kind": "input",
+                  "member": "spectral_gate"
+                }
+              ]
+            }
+          ],
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Structural-feature absence: no authorable member of the retained audio chain exposes spectral gating. The frozen schema gives KSampler ten denoise/schedule inputs, VAEEncodeAudio only audio/vae and VAEDecodeAudio only samples/vae - spectral_gate is verified absent from each - and the pack presets (FrequencyFilterPreset remove_rumble/remove_hiss, itself outside the authoritative index) are frequency filtering, not spectral gating. Converted to an expected-no-candidate contract (clarify terminal, typed spectral_gating checks); task_type corrected from text_to_image to other."
+    },
+    {
+      "scenario_id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
+      "workflow_path": "external_workflows/corpus/f0859f5d99dc9bdf.json",
+      "query": "The DetailDaemon sampler is used for enhancing audio detail. How does it work compared to standard audio diffusion samplers, and what settings would you recommend for generating a cinematic soundscape?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/audio-acestep-audio-generation-with-detail-daemon-f0859f.json",
+          "lane": "answer_rubric",
+          "evidence": "top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "audio-acestep-audio-generation-with-ksampler-e8c20a",
+      "workflow_path": "external_workflows/corpus/e8c20a18bba6455d.json",
+      "query": "Change the sampling steps to 30 and switch the scheduler to 'karras'.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/e8c20a18bba6455d.json",
+          "node_id": "3",
+          "class_type": "KSampler",
+          "member_kind": "input",
+          "member": "steps",
+          "observed": 50
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/e8c20a18bba6455d.json",
+          "node_id": "3",
+          "class_type": "KSampler",
+          "member_kind": "input",
+          "member": "scheduler",
+          "observed": "simple"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "KSampler"
+          },
+          "matches": [
+            "KSampler"
+          ],
+          "schema_member": "scheduler",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "COMBO",
+            "options": [
+              "simple",
+              "sgm_uniform",
+              "karras",
+              "exponential",
+              "ddim_uniform",
+              "beta",
+              "normal",
+              "linear_quadratic",
+              "kl_optimal"
+            ]
+          }
+        }
+      ],
+      "determination": "Directly authorable: node 3 KSampler carries named steps=50 and scheduler='simple'; the authoritative scheduler COMBO includes karras, so steps=30 + scheduler=karras is a plain two-widget edit."
+    },
+    {
+      "scenario_id": "audio-acestep-audio-generation-workflow-2a31ec",
+      "workflow_path": "external_workflows/corpus/2a31ec45fd22a623.json",
+      "query": "Load a different AceStep base model checkpoint: use 'acestep-sft-v2.safetensors' instead of the current one.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/2a31ec45fd22a623.json",
+          "node_id": "3",
+          "class_type": "AceStepSFTGenerate",
+          "member_kind": "widget",
+          "member": null,
+          "observed": "acestep-v15.safetensors"
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/2a31ec45fd22a623.json",
+          "node_id": "4",
+          "class_type": "SaveAudio",
+          "member_kind": "input",
+          "member": "filename_prefix",
+          "observed": "audio/ComfyUI"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "AceStepSFTGenerate"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveAudio"
+          },
+          "matches": [
+            "SaveAudio"
+          ],
+          "schema_member": "audio",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "AUDIO"
+          }
+        }
+      ],
+      "determination": "Checkpoint choice is authorable on the generator node: AceStepSFTGenerate node 3 selects the AceStep SFT model (currently acestep-v15.safetensors; the muted UNETLoader 8 confirms the safetensors-swap pattern), so pointing it at acestep-sft-v2.safetensors is a widget edit. The AceStep SFT pack sits outside the authoritative index (empty exact lookup recorded); SaveAudio 4 grounds the output chain."
+    },
+    {
+      "scenario_id": "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
+      "workflow_path": "external_workflows/corpus/0eb67659bfc4dc63.json",
+      "query": "Restructure the workflow to combine the separated vocals and background after separate decoding stages instead of before decoding, then save each as separate files.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/0eb67659bfc4dc63.json",
+          "node_id": "115",
+          "class_type": "VAEDecodeAudio",
+          "member_kind": "node_mode",
+          "member": "mode",
+          "observed": 0
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/0eb67659bfc4dc63.json",
+          "node_id": "153",
+          "class_type": "AudioCombine",
+          "member_kind": "node_mode",
+          "member": "mode",
+          "observed": 4
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/0eb67659bfc4dc63.json",
+          "node_id": "187",
+          "class_type": "SaveAudio",
+          "member_kind": "input",
+          "member": "filename_prefix",
+          "observed": "audio/draft"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "VAEDecodeAudio"
+          },
+          "matches": [
+            "VAEDecodeAudio"
+          ],
+          "schema_member": "samples",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "LATENT"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveAudio"
+          },
+          "matches": [
+            "SaveAudio"
+          ],
+          "schema_member": "audio",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "AUDIO"
+          }
+        }
+      ],
+      "determination": "The decode-then-combine restructure is authorable by rewiring existing nodes: separate-decode branches already exist (active VAEDecodeAudio 115; muted decode/combine/separation stages 152/153/146 with independent SaveAudio sinks like 154/167/187), so moving AudioCombine after decoding is pure re-plumbing of indexed classes."
+    },
+    {
+      "scenario_id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
+      "workflow_path": "external_workflows/corpus/b55994d9cb6aea42.json",
+      "query": "Change the output audio format from MP3 to FLAC.",
+      "offending_phrase": "WAV",
+      "decision": "ALIGN",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/b55994d9cb6aea42.json",
+          "node_id": "428",
+          "class_type": "SaveAudioMP3",
+          "member_kind": "input",
+          "member": "quality",
+          "observed": "320k"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveAudioMP3"
+          },
+          "matches": [
+            "SaveAudioMP3"
+          ],
+          "schema_member": "audio",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "AUDIO"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveAudio"
+          },
+          "matches": [
+            "SaveAudio"
+          ],
+          "schema_member": "audio",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "AUDIO",
+            "display_name": "Save Audio (FLAC)"
+          }
+        }
+      ],
+      "determination": "ALIGN MP3-to-FLAC: the original WAV request was disproved - exact lookup SaveAudioWAV and prefix lookup saveaudio record the COMPLETE saver inventory {SaveAudio('Save Audio (FLAC)'), SaveAudioMP3('Save Audio (MP3)'), SaveAudioOpus} with NO WAV saver. Graph node 428 SaveAudioMP3 renders the shared AUDIO stream (quality=320k); index evidence proves SaveAudio display_name 'Save Audio (FLAC)' takes the identical required AUDIO input, so retargeting node 428's AUDIO wire to SaveAudio is authorable. Descriptor rewritten accordingly."
+    },
+    {
+      "scenario_id": "audio-audio-processing-with-voice-tts-and-noise-remo-b80848",
+      "workflow_path": "external_workflows/corpus/b808486c05ad607c.json",
+      "query": "The processed audio has a faint robotic buzz after TTS. Can you make it cleaner?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/b808486c05ad607c.json",
+          "node_id": "16",
+          "class_type": "UVR5_Node",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null,
+          "note": "UVR5 separation/removal controls"
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/b808486c05ad607c.json",
+          "node_id": "3",
+          "class_type": "SaveAudio",
+          "member_kind": "input",
+          "member": "filename_prefix",
+          "observed": "audio/VibeVoice"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "UVR5_Node"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SaveAudio"
+          },
+          "matches": [
+            "SaveAudio"
+          ],
+          "schema_member": "audio",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "AUDIO"
+          }
+        }
+      ],
+      "determination": "Buzz cleanup is authorable through the installed denoise stage: UVR5_Node 16 (MDX-net vocal/instrumental separation with adjustable settings) sits on the TTS output chain ahead of SaveAudio 3, so enabling/tuning it targets the robotic residue directly. The UVR pack is outside the authoritative index (empty exact lookup recorded); SaveAudio provides the indexed chain anchor."
+    },
+    {
+      "scenario_id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
+      "workflow_path": "external_workflows/corpus/c80bbf22890fc8df.json",
+      "query": "Replace the MelBand RoFormer audio sampler with AudioLDM2 for audio generation, integrating it with the LTX video generation pipeline and LoRA, so that audio and video remain synchronized.",
+      "offending_phrase": "AudioLDM2",
+      "decision": "ANNOTATE",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf.json",
+          "lane": "expected_no_candidate",
+          "refusal_kinds": [
+            "requires_custom_nodes"
+          ],
+          "absent_classes": [
+            "AudioLDM2"
+          ],
+          "absent_features": null,
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Named-class absence covering the single named alternative: exact lookup AudioLDM2 and declared-family-prefix lookup audioldm2 over the authoritative index both return an EMPTY complete result set, and no such class exists in the corpus graph; the retained MelBandRoFormer nodes are already muted (mode=4) and their pack cache is a non-authoritative stub. Converted to an expected-no-candidate contract (requires_custom_nodes terminal); task_type corrected to other (materialized outputs are MP3 saves/audio previews only)."
+    },
+    {
+      "scenario_id": "audio-transcribes-audio-appends-text-regenerates",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json",
+      "query": "The transcription has too many errors — the speech-to-text stage seems weak.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json",
+          "node_id": "71",
+          "class_type": "Apply Whisper",
+          "member_kind": "widget",
+          "member": null,
+          "observed": "tiny"
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json",
+          "node_id": "77",
+          "class_type": "Text Concatenate",
+          "member_kind": "input",
+          "member": "text_c",
+          "observed": " "
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "Apply Whisper"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        }
+      ],
+      "determination": "Transcription quality is authorable on the whisper stage itself: node 71 'Apply Whisper' carries the model-size widget currently at 'tiny' - selecting a larger whisper variant inside the same installed-pack COMBO is the direct fix, with append/regenerate plumbing (Text Concatenate 77, voicecraft_process 49) untouched. The Whisper pack is outside the authoritative index (empty exact lookup recorded)."
+    },
+    {
+      "scenario_id": "hotshot-16-frames-agent-edit",
+      "workflow_path": "tests/fixtures/agent_edit/hotshot_base_unsaved_workflow_4.json",
+      "query": "Switch to generating 16 frames with Hotshot",
+      "offending_phrase": "Hotshot",
+      "decision": "ANNOTATE",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/hotshot-16-frames-agent-edit.json",
+          "lane": "expected_no_candidate",
+          "refusal_kinds": [
+            "requires_custom_nodes"
+          ],
+          "absent_classes": [
+            "Hotshot"
+          ],
+          "absent_features": null,
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Named-class absence: declared-family-prefix lookup hotshot returns an EMPTY complete result set from the authoritative index (the ComfyUI-Hotshot@stub cache is excluded from index resolution), and the fixture graph is plain SDXL img2img (KSampler steps=20, no frame-count widget, no video output). Existing expected-no-candidate contract retained with narrowed typed terminal requires_custom_nodes."
+    },
+    {
+      "scenario_id": "image-animatediff-image-to-video-with-latent-composi-17dc9b",
+      "workflow_path": "external_workflows/corpus/17dc9bc3ed806c24.json",
+      "query": "How does the latent compositing approach here compare to using an init image directly in the video latent space? Which gives better temporal coherence?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-animatediff-image-to-video-with-latent-composi-17dc9b.json",
+          "lane": "answer_rubric",
+          "evidence": "top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-animatediff-video-from-images-with",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/001cd1f527f7f288.json",
+      "query": "The animation barely follows my input images.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/001cd1f527f7f288.json",
+          "node_id": "72",
+          "class_type": "ControlNetApplyAdvanced",
+          "member_kind": "widget",
+          "member": "strength",
+          "observed": 0.6
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/001cd1f527f7f288.json",
+          "node_id": "73",
+          "class_type": "ADE_AnimateDiffLoaderV1Advanced",
+          "member_kind": "widget",
+          "member": null,
+          "observed": 16
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ControlNetApplyAdvanced"
+          },
+          "matches": [
+            "ControlNetApplyAdvanced"
+          ],
+          "schema_member": "strength",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Input-following strength is authorable two ways: lineart ControlNet strength on node 72 (currently 0.6, authoritative FLOAT strength) raises pose adherence, and the AnimateDiff motion-module length/context on loader 73 (currently 16 frames) governs temporal behavior. The ADE pack is outside the authoritative index (loader lookup recorded empty); ControlNetApplyAdvanced provides the indexed anchor."
+    },
+    {
+      "scenario_id": "image-animatediff-video-generation-with-vae-d20410",
+      "workflow_path": "external_workflows/corpus/d20410227419c47a.json",
+      "query": "Reduce the number of frames from 16 to 8 for quicker test renders.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/d20410227419c47a.json",
+          "node_id": "8",
+          "class_type": "AnimateDiffLoaderV1",
+          "member_kind": "widget",
+          "member": null,
+          "observed": 16
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/d20410227419c47a.json",
+          "node_id": "7",
+          "class_type": "KSampler",
+          "member_kind": "input",
+          "member": "steps",
+          "observed": 20
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "AnimateDiffLoaderV1"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "KSampler"
+          },
+          "matches": [
+            "KSampler"
+          ],
+          "schema_member": "steps",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Frame count lives on the motion-module loader: node 8 AnimateDiffLoaderV1 carries the frame-length widget (currently 16), so 8-frame quick renders are a one-widget edit downstream of KSampler 7. The ADE pack is outside the authoritative index (empty lookup recorded); KSampler provides the indexed sampler anchor."
+    },
+    {
+      "scenario_id": "image-auraflow-image-generation-with-qwen-clip-9a3109",
+      "workflow_path": "external_workflows/corpus/9a3109dc72a4bd11.json",
+      "query": "Increase the number of inference steps from 20 to 30 to get more detailed images.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/9a3109dc72a4bd11.json",
+          "node_id": "69",
+          "class_type": "KSampler",
+          "member_kind": "input",
+          "member": "steps",
+          "observed": 25
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/9a3109dc72a4bd11.json",
+          "node_id": "72",
+          "class_type": "MarkdownNote",
+          "member_kind": "widget",
+          "member": null,
+          "observed": "- Steps: 30～50\n- cfg:  4～7"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "KSampler"
+          },
+          "matches": [
+            "KSampler"
+          ],
+          "schema_member": "steps",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Directly authorable: node 69 KSampler carries named steps (currently 25) targeting 30; the workflow's own note (node 72) recommends 30-50 steps, confirming the range."
+    },
+    {
+      "scenario_id": "image-background-removal-and-grid-composition-54a681",
+      "workflow_path": "external_workflows/corpus/54a681138bec8a37.json",
+      "query": "The preview grid looks too small and blurry. Make each image in the 2x2 grid 512x512 pixels before compositing.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/54a681138bec8a37.json",
+          "node_id": "14",
+          "class_type": "ImageResizeKJv2",
+          "member_kind": "input",
+          "member": "width",
+          "observed": 1024
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/54a681138bec8a37.json",
+          "node_id": "14",
+          "class_type": "ImageResizeKJv2",
+          "member_kind": "input",
+          "member": "height",
+          "observed": 1024
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/54a681138bec8a37.json",
+          "node_id": "6",
+          "class_type": "ImageGridComposite2x2",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ImageResizeKJv2"
+          },
+          "matches": [
+            "ImageResizeKJv2"
+          ],
+          "schema_member": "width",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Tile resolution is authorable at the four resize stages: nodes 14-17 ImageResizeKJv2 expose named width/height (currently 1024) feeding ImageGridComposite2x2 6, so resizing each tile to 512x512 before compositing is four named-input edits on an indexed class."
+    },
+    {
+      "scenario_id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
+      "workflow_path": "external_workflows/corpus/c9df19048aae0738.json",
+      "query": "I'm running this dual-checkpoint XL pipeline with juggernautXL as the base and sd_xl_refiner as the refiner. Are there any newer, better refiner models I should consider, and what are the tradeoffs between using a dedicated refiner vs. a single high-quality XL checkpoint that handles fine details natively? I'm particularly interested in how the LoRA timing (before or after the refiner) affects flexibility.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-dual-checkpoint-xl-image-generation-with-refin-c9df19.json",
+          "lane": "answer_rubric+answer_only",
+          "evidence": "top-level answer_rubric; interaction_mode=answer_only",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-face-detection-and-cropping-workflow-949658",
+      "workflow_path": "external_workflows/corpus/949658825bc5999a.json",
+      "query": "Replace the YOLOv8 face detection with a different face detection model like MTCNN or RetinaFace, and update the cropping logic accordingly.",
+      "offending_phrase": "MTCNN or RetinaFace",
+      "decision": "ANNOTATE",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-face-detection-and-cropping-workflow-949658.json",
+          "lane": "expected_no_candidate",
+          "refusal_kinds": [
+            "requires_custom_nodes"
+          ],
+          "absent_classes": [
+            "MTCNN",
+            "RetinaFace"
+          ],
+          "absent_features": null,
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Named-class absence covering BOTH retained alternatives: exact and declared-family-prefix lookups for MTCNN and RetinaFace each return an EMPTY complete result set from the authoritative index; neither class exists in the corpus graph, whose detection surface is UltralyticsDetectorProvider(bbox/face_yolov8m.pt)->BboxDetectorSEGS. Converted to an expected-no-candidate contract (requires_custom_nodes terminal) declaring both absent classes."
+    },
+    {
+      "scenario_id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
+      "workflow_path": "external_workflows/corpus/00444a9409f56c07.json",
+      "query": "Restructure the pipeline to first generate a base image with Flux, then use the inpainted region as a condition for ControlNet-driven style transfer to the entire image, effectively merging the two branches.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/00444a9409f56c07.json",
+          "node_id": "87",
+          "class_type": "ControlNetApplyAdvanced",
+          "member_kind": "node_mode",
+          "member": "mode",
+          "observed": 4
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/00444a9409f56c07.json",
+          "node_id": "106",
+          "class_type": "FluxGuidance",
+          "member_kind": "input",
+          "member": "guidance",
+          "observed": 3.5
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/00444a9409f56c07.json",
+          "node_id": "27",
+          "class_type": "Paste By Mask",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ControlNetApplyAdvanced"
+          },
+          "matches": [
+            "ControlNetApplyAdvanced"
+          ],
+          "schema_member": "strength",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "FluxGuidance"
+          },
+          "matches": [
+            "FluxGuidance"
+          ],
+          "schema_member": "guidance",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "The branch merge is authorable with existing nodes: muted ControlNetApplyAdvanced stages (87/90 with Canny/Depth preprocessors 88/82) can be enabled and re-conditioned onto the whole-image path, FluxGuidance 106 tunes base generation, and Cut/Paste-By-Mask (29/27) already implement region compositing - all indexed classes with exact schema evidence."
+    },
+    {
+      "scenario_id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
+      "workflow_path": "external_workflows/corpus/caae974fd091bde7.json",
+      "query": "This workflow uses Gemini to process and split prompts. I'd like to compare Gemini to Claude for generating complex, multi-part image prompts. What are the trade-offs in terms of output quality, prompt structure, rate limits, and cost? Just research, don't modify the workflow.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-gemini-prompt-splitter-and-text-display-workfl-caae97.json",
+          "lane": "answer_rubric+answer_only",
+          "evidence": "top-level answer_rubric; interaction_mode=answer_only",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-generates-a-2x2-seed-variation",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json",
+      "query": "Arrange the four variations in a single horizontal row instead of a 2x2 grid.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json",
+          "node_id": "59",
+          "class_type": "SimpleMath+",
+          "member_kind": "widget",
+          "member": null,
+          "observed": "a+100"
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json",
+          "node_id": "53",
+          "class_type": "ImageBatch",
+          "member_kind": "input",
+          "member": null,
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SimpleMath+"
+          },
+          "matches": [
+            "SimpleMath+"
+          ],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ImageBatch"
+          },
+          "matches": [
+            "ImageBatch"
+          ],
+          "schema_member": "image1",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "IMAGE"
+          }
+        }
+      ],
+      "determination": "Row arrangement is authorable by rewiring composition: the loop already produces four seeded variants (for-loop 42/44 with SimpleMath+ 59 seed stepping and ImageBatchSplitter 58), and replacing grid compositing (ImageGridComposite2x2 55) with chained ImageBatch concatenation yields a single horizontal row using indexed classes."
+    },
+    {
+      "scenario_id": "image-image-comparison-and-enhancement-with-florence-007018",
+      "workflow_path": "external_workflows/corpus/0070184c5f1c8ca2.json",
+      "query": "Restructure the blending logic so that instead of a single composite, the user can adjust the contribution of each filter (saturation, invert, high-pass, sharpen, normal map) independently using float sliders, and have these weights control the final blended image.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/0070184c5f1c8ca2.json",
+          "node_id": "250",
+          "class_type": "ImageBlend",
+          "member_kind": "input",
+          "member": "blend_factor",
+          "observed": 1
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/0070184c5f1c8ca2.json",
+          "node_id": "232",
+          "class_type": "JWImageSaturation",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ImageBlend"
+          },
+          "matches": [
+            "ImageBlend"
+          ],
+          "schema_member": "blend_factor",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Per-filter contribution is authorable: each enhancement stage (saturation 232, invert 233, high-pass 253, sharpen 256, normal-map 251) blends through ImageBlend nodes whose authoritative blend_factor FLOAT (node 250 currently 1.0) becomes the independent per-filter slider the query asks for."
+    },
+    {
+      "scenario_id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
+      "workflow_path": "external_workflows/corpus/9aa0f1cd11147fe4.json",
+      "query": "What alternative sharpening methods could replace the high pass filter in this workflow, and what are the tradeoffs in terms of edge halos vs. natural detail enhancement?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-image-processing-with-sharpening-film-grain-an-9aa0f1.json",
+          "lane": "answer_rubric+answer_only",
+          "evidence": "top-level answer_rubric; interaction_mode=answer_only",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-image-to-image-with-controlnet-and-dwpreproces-49d057",
+      "workflow_path": "external_workflows/corpus/49d0579ed9932457.json",
+      "query": "Change the ControlNet strength to 0.8 so the pose guidance is more subtle.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/49d0579ed9932457.json",
+          "node_id": "20",
+          "class_type": "ControlNetApply",
+          "member_kind": "widget",
+          "member": "strength",
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ControlNetApply"
+          },
+          "matches": [
+            "ControlNetApply"
+          ],
+          "schema_member": "strength",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Directly authorable: node 20 ControlNetApply exposes the authoritative FLOAT strength widget; setting 0.8 softens pose guidance exactly as requested (DWPreprocessor 25 pose path untouched)."
+    },
+    {
+      "scenario_id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
+      "workflow_path": "external_workflows/corpus/1999a9d36cb0a7f4.json",
+      "query": "How can I balance the influence between the IPAdapter style reference and the Canny edge ControlNet strength to preserve more of the original image structure while still applying the desired style? What parameters control this interplay?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-image-to-image-with-ipadapter-and-controlnet-1999a9.json",
+          "lane": "answer_rubric",
+          "evidence": "top-level answer_rubric; classification.kind=semantic_product",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-image-to-image-with-stable-zero123-and-backgro-def5b5",
+      "workflow_path": "external_workflows/corpus/def5b5d3b3b372dd.json",
+      "query": "Set the number of sampling steps to 4 to speed up generation without drastically affecting quality.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/def5b5d3b3b372dd.json",
+          "node_id": "7",
+          "class_type": "BasicScheduler",
+          "member_kind": "input",
+          "member": "steps",
+          "observed": 8
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "BasicScheduler"
+          },
+          "matches": [
+            "BasicScheduler"
+          ],
+          "schema_member": "steps",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Directly authorable: node 7 BasicScheduler carries named steps=8; the authoritative INT steps input takes 4 directly (SamplerCustom 6 consumes its sigmas chain unchanged)."
+    },
+    {
+      "scenario_id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
+      "workflow_path": "external_workflows/corpus/1d414c3424d15ae2.json",
+      "query": "The inpainted area isn't blending seamlessly; increase the mask blur to 16 and reduce the padding to 32 pixels.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/1d414c3424d15ae2.json",
+          "node_id": "56",
+          "class_type": "ImagePadForOutpaint",
+          "member_kind": "input",
+          "member": "right",
+          "observed": 200
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/1d414c3424d15ae2.json",
+          "node_id": "69",
+          "class_type": "DifferentialDiffusion",
+          "member_kind": "input",
+          "member": null,
+          "observed": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ImagePadForOutpaint"
+          },
+          "matches": [
+            "ImagePadForOutpaint"
+          ],
+          "schema_member": "feathering",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Both levers exist as named inputs: node 56 ImagePadForOutpaint exposes top/left/right/bottom padding (currently left=200,right=200,top=104 -> reducible toward 32) plus feathering (mask-softening, currently 40 -> 16-style blur control), and node 69 DifferentialDiffusion keeps the seamless-blend sampling path; all indexed classes."
+    },
+    {
+      "scenario_id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
+      "workflow_path": "external_workflows/corpus/d813fedaabea87b7.json",
+      "query": "Replace the Ultralytics detector with GroundingDINO for mask generation, and adjust the pipeline so that SAM segmentation still receives valid SEGS input from the new detector.",
+      "offending_phrase": "GroundingDINO",
+      "decision": "ANNOTATE",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-kolors-image-generation-with-segs-detailer-and-d813fe.json",
+          "lane": "expected_no_candidate",
+          "refusal_kinds": [
+            "requires_custom_nodes"
+          ],
+          "absent_classes": [
+            "GroundingDINO"
+          ],
+          "absent_features": null,
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Named-class absence: declared-family-prefix lookup groundingdino returns an EMPTY complete result set from the authoritative index and the corpus detection chain is UltralyticsDetectorProvider+SAMLoader+Impact SEGS (GroundingDINO nowhere in the graph). Expected-no-candidate contract retained with refusal kind narrowed to the typed terminal requires_custom_nodes."
+    },
+    {
+      "scenario_id": "image-llama-cpp-instruct-image-preview-and-save-5b54bf",
+      "workflow_path": "external_workflows/corpus/5b54bf476f4234aa.json",
+      "query": "Adjust the LLaMA instruct parameters: set temperature to 0.8 and max tokens to 512.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/5b54bf476f4234aa.json",
+          "node_id": "3",
+          "class_type": "llama_cpp_parameters",
+          "member_kind": "input",
+          "member": "temperature",
+          "observed": 0.8
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/5b54bf476f4234aa.json",
+          "node_id": "3",
+          "class_type": "llama_cpp_parameters",
+          "member_kind": "input",
+          "member": "max_tokens",
+          "observed": 1024
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "llama_cpp_parameters"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        }
+      ],
+      "determination": "Both targets are NAMED inputs on node 3 llama_cpp_parameters: temperature (already 0.8) and max_tokens (1024 -> 512) are direct widget edits. The llama.cpp pack is intentionally outside the authoritative index (empty exact lookup recorded); the graph inputs themselves are the authorable surface."
+    },
+    {
+      "scenario_id": "image-llava-image-captioning-and-keyword-extraction-d38dc8",
+      "workflow_path": "external_workflows/corpus/d38dc8be1bfcda49.json",
+      "query": "What alternative image captioning models could I replace LLaVA with to produce longer, more detailed prompts? Are there any that also extract keywords directly, or should I keep separate steps?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-llava-image-captioning-and-keyword-extraction-d38dc8.json",
+          "lane": "answer_rubric",
+          "evidence": "top-level answer_rubric; classification.kind=semantic_product",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-qwen-image-inpainting-with-controlnet-09fc64",
+      "workflow_path": "external_workflows/corpus/09fc64f94ce5ed26.json",
+      "query": "For this Qwen Image inpainting workflow, I frequently get color mismatches between the inpainted area and the original image. Before editing anything, research the best techniques to improve color consistency specifically for ControlNet-based inpainting with Qwen-Image-Lightning. Also explore if there's a better method for mask feathering or blending that could reduce the mismatch.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/image-qwen-image-inpainting-with-controlnet-09fc64.json",
+          "lane": "answer_rubric+answer_only",
+          "evidence": "top-level answer_rubric; interaction_mode=answer_only; research requested in-query",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only; research requested in-query. Descriptor stays unchanged."
+    },
+    {
+      "scenario_id": "image-sd3-image-generation-with-controlnet-19d221",
+      "workflow_path": "external_workflows/corpus/19d221f074b42462.json",
+      "query": "Lower the ControlNet strength to 0.5 so the text prompt has more influence over the final image than the control image edges.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "graph_widget",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/19d221f074b42462.json",
+          "node_id": "60",
+          "class_type": "ACN_AdvancedControlNetApply",
+          "member_kind": "widget",
+          "member": "strength",
+          "observed": null
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/19d221f074b42462.json",
+          "node_id": "24",
+          "class_type": "BasicScheduler",
+          "member_kind": "input",
+          "member": "steps",
+          "observed": 30
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "ACN_AdvancedControlNetApply"
+          },
+          "matches": [],
+          "schema_member": null,
+          "member_kind": null,
+          "schema_evidence": null
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "BasicScheduler"
+          },
+          "matches": [
+            "BasicScheduler"
+          ],
+          "schema_member": "steps",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "ControlNet weight is authorable on AdvancedControlNetApply node 60 (strength widget; ControlNetLoader 61 supplies the control model), lowering it shifts influence toward the prompt conditioned through T5/CLIP encodes. The ACN pack is outside the authoritative index (empty lookup recorded); BasicScheduler 24 provides the indexed sampling anchor."
+    },
+    {
+      "scenario_id": "image-sdxl-txt2img-cat-in-spacesuit",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json",
+      "query": "The render looks plastic and fake — the material isn't reading as real fabric.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json",
+          "node_id": "16",
+          "class_type": "CLIPTextEncodeSDXL",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null,
+          "note": "positive prompt fabric/material wording"
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json",
+          "node_id": "36",
+          "class_type": "KSampler",
+          "member_kind": "input",
+          "member": "cfg",
+          "observed": 8
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "KSampler"
+          },
+          "matches": [
+            "KSampler"
+          ],
+          "schema_member": "cfg",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Material realism is authorable through the two standard levers: the positive CLIPTextEncodeSDXL prompt (node 16, editable text widget driving fabric/material description) and KSampler 36 cfg/denoise/steps (currently cfg=8 denoise=1), all indexed classes with exact schema evidence."
+    },
+    {
+      "scenario_id": "image-style-transfer-using-ip-adapter",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/c226f6c5faae34de.json",
+      "query": "The statue style isn't coming through at all — it just looks like a normal photo.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/c226f6c5faae34de.json",
+          "node_id": "12",
+          "class_type": "StyleModelApply",
+          "member_kind": "widget",
+          "member": "strength",
+          "observed": null
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/c226f6c5faae34de.json",
+          "node_id": "16",
+          "class_type": "LoadImage",
+          "member_kind": "input",
+          "member": "image",
+          "observed": "cwf_marble_statue.jpg"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "StyleModelApply"
+          },
+          "matches": [
+            "StyleModelApply"
+          ],
+          "schema_member": "strength",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        }
+      ],
+      "determination": "Style transfer strength is authorable at the adapter itself: node 12 StyleModelApply exposes the authoritative strength widget with the marble-statue reference already loaded (LoadImage 16), so raising style weight directly strengthens the statue read."
+    },
+    {
+      "scenario_id": "image-two-stage-qwen-image-generation",
+      "workflow_path": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+      "query": "The image gets distorted and the faces look wrong after the upscale/refinement stage.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+          "node_id": "53",
+          "class_type": "LatentUpscaleBy",
+          "member_kind": "widget",
+          "member": "scale_by",
+          "observed": 1.5
+        },
+        {
+          "surface": "graph",
+          "source": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+          "node_id": "51",
+          "class_type": "SamplerCustom",
+          "member_kind": "widget",
+          "member": null,
+          "observed": null,
+          "note": "refiner pass over split sigmas"
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "LatentUpscaleBy"
+          },
+          "matches": [
+            "LatentUpscaleBy"
+          ],
+          "schema_member": "scale_by",
+          "member_kind": "widget",
+          "schema_evidence": {
+            "type": "FLOAT"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "SplitSigmas"
+          },
+          "matches": [
+            "SplitSigmas"
+          ],
+          "schema_member": "step",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Refinement-stage distortion is authorable at the upscale/refine boundary: node 53 LatentUpscaleBy carries the authoritative upscale_by FLOAT (currently 1.5) and method widget feeding refiner SamplerCustom 51 over SplitSigmas 47's low-noise segment - lowering the factor or re-balancing the sigma split are direct edits on indexed classes."
+    },
+    {
+      "scenario_id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+      "workflow_path": "external_workflows/corpus/a7ecc54027245cb7.json",
+      "query": "Convert this video generation pipeline from text-to-video to image-to-video: take a single input image as the first frame, encode it through the Wan2.2 pipeline, and drive the rest of the motion from a text prompt, while keeping the Chroma LUT grading and film grain post-processing chain fully intact.",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": "index_schema",
+      "checks": [
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/a7ecc54027245cb7.json",
+          "node_id": "25",
+          "class_type": "VAEEncode",
+          "member_kind": "input",
+          "member": null,
+          "observed": null
+        },
+        {
+          "surface": "graph",
+          "source": "external_workflows/corpus/a7ecc54027245cb7.json",
+          "node_id": "5",
+          "class_type": "EmptySD3LatentImage",
+          "member_kind": "input",
+          "member": "width",
+          "observed": 624
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "VAEEncode"
+          },
+          "matches": [
+            "VAEEncode"
+          ],
+          "schema_member": "pixels",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "IMAGE"
+          }
+        },
+        {
+          "surface": "authoritative_index",
+          "source": "vibecomfy/porting/cache/object_info/index.json",
+          "lookup": {
+            "mode": "exact",
+            "term": "EmptySD3LatentImage"
+          },
+          "matches": [
+            "EmptySD3LatentImage"
+          ],
+          "schema_member": "width",
+          "member_kind": "input",
+          "schema_evidence": {
+            "type": "INT"
+          }
+        }
+      ],
+      "determination": "Text-to-video -> image-to-video is authorable by re-sourcing the first frame: WAN branch already carries LoadImage-capable encode plumbing - VAEEncode 25 (authoritative pixels/vae inputs) with the Wan VAE loader 105 can drive latents from a single input image in place of EmptySD3LatentImage 5, leaving the Chroma/LUT/film-grain finishing chain intact."
+    },
+    {
+      "scenario_id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
+      "workflow_path": "external_workflows/corpus/432652b04ff0738b.json",
+      "query": "The 3D reconstruction has noticeable geometry flickering across frames, likely from inconsistent depth maps. Can you investigate this video-to-3D Gaussian Splatting pipeline and suggest alternative depth estimation approaches or stabilization techniques that could reduce temporal jitter in the output point cloud?",
+      "offending_phrase": null,
+      "decision": "no-change",
+      "authorability": null,
+      "checks": [
+        {
+          "surface": "descriptor_contract",
+          "source": "tests/live_agentic_harness/scenarios/multi-3d-gaussian-splatting-from-video-with-hunyuan-432652.json",
+          "lane": "answer_rubric",
+          "evidence": "top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product",
+          "apply": false,
+          "expect_graph_changed": false
+        }
+      ],
+      "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged."
+    }
+  ],
+  "dispatch_table": "| # | scenario_id | decision | offending_phrase | determination |\n|---|---|---|---|---|\n| 1 | audio-tts-narration-using-indextts-2 | no-change | - | Emotion delivery is authorable: node 125 IndexTTSEmotionOptionsNode (authoritative schema: emotion_control/other_param FLOAT controls) feeds the UnifiedTTSTextNode emotion chain together with QwenEmotionNode 124 expressive-prompt conditioning; adjusting those controls/prompt is exactly the 'more engaging narration' request. |\n| 2 | image-image-editing-with-qwen-image | no-change | - | Lighting/integration tuning is authorable through named KSampler inputs (cfg/denoise/steps, node 135 currently cfg=1 denoise=1) plus the TextEncodeQwenImageEditPlus edit prompts (nodes 133/134); all are standard editable surfaces. |\n| 3 | live-graph-explanation-smoke | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: classification.kind=health_control; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 4 | multi-video-based-character-replacement-using | no-change | - | Selection scope is authorable: the SAM-ultra prompt (text grounding of what to select) and GrowMaskWithBlur expand/blur parameters directly control person-vs-background selection; both classes resolve with exact schema evidence. |\n| 5 | speed-distillation-research | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: assessment.require_executed_research=true (health_control). Descriptor stays unchanged. |\n| 6 | 3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2 | no-change | - | The SDXL-direct-inpaint restructuring is authorable on the existing graph: masked-area sampling runs through easy kSamplerInpainting (node 186) with KSamplerSelect 193 and easy controlnetLoader++ 189 for post-hoc ControlNet guidance, and mask treatment is parameterized on GrowMaskWithBlur 94 - all resolvable classes with exact schema evidence. |\n| 7 | 3d-3d-model-generation-and-preview-workflow-cc0df7 | no-change | - | Branch enable/bypass is authorable through node mode toggles (always/bypass/never on the Rodin API nodes and their Preview3D viewers): Detail branch 29 + Preview3D 61 active, Regular 28 + its Preview3D bypassable; both classes carry exact index schema evidence. |\n| 8 | 3d-3d-model-generation-and-retargeting-workflow-f65774 | no-change | - | The rewritten texture-quality request is authorable: TripoTextureNode node 26 currently renders texture_quality='standard' (raw widget row) and the authoritative schema declares the texture_quality COMBO with options standard\\|detailed - raising it to 'detailed' is a direct widget edit (PBR stays enabled). |\n| 9 | 3d-3d-model-generation-and-rigging-from-image-352066 | ANNOTATE | Correct the joint orientation | Structural-feature absence: the frozen authoritative schema gives TripoRigNode only original_model_task_id and TripoRetargetNode only original_model_task_id+animation - joint_orientation is absent from every surface of both rig-chain classes (verified below), and knee orientation is decided inside the Tripo cloud task. Declared expected-no-candidate contract (clarify terminal, typed joint_orientation checks); a generic no_changes label is never accepted as evidence. |\n| 10 | 3d-3d-model-generation-and-rigging-workflow-90a1d5 | no-change | - | The rewritten geometry-quality request is authorable: TripoTextToModelNode node 3 exposes the authoritative geometry_quality COMBO (standard\\|detailed) among its optional widgets; setting 'detailed' while leaving face_limit/quad untouched is a direct widget edit. |\n| 11 | 3d-3d-model-load-edit-and-export-workflow-d66a66 | no-change | - | Both halves are authorable: node 48 Tencent3DTextureEditNode carries the editable texture prompt widget, and node 38 SaveGLB (authoritative schema: mesh output union explicitly includes FILE_3D_GLB) guarantees GLB export with embedded textures. |\n| 12 | 3d-3d-shape-generation-and-export-workflow-8800a9 | no-change | - | The refinement-strength control exists in the graph itself: UltraShapeRefine node 2 carries the strength widget currently at 0.5 (the R2-aligned descriptor value), so lowering/holding it is authorable as a direct widget edit. The Ultra pack is intentionally NOT in the authoritative index (recorded empty exact lookup); Preview3D 6 provides the indexed export-chain anchor. |\n| 13 | 3d-converts-image-to-3d-model | no-change | - | Sharper surface detail is authorable on the Rodin generation node itself: node 28 Rodin3D_Regular currently requests Polygon_count '200K-Triangle' (value replays against the schema COMBO family) with Material_Type 'PBR'; raising polygon budget/detail is the graph-native lever, previewed through indexed Preview3D. |\n| 14 | 3d-generates-a-3d-mesh-from | no-change | - | Floating-bits cleanup is authorable via the marching-cubes threshold: node 62 VoxelToMeshBasic exposes the authoritative FLOAT 'threshold' (currently ~0.6) controlling iso-surface cutoff, and node 67 SaveGLB keeps the export intact. |\n| 15 | audio-acestep-audio-generation-and-processing-workfl-1b1360 | ANNOTATE | spectral-gating noise reduction | Structural-feature absence: no authorable member of the retained audio chain exposes spectral gating. The frozen schema gives KSampler ten denoise/schedule inputs, VAEEncodeAudio only audio/vae and VAEDecodeAudio only samples/vae - spectral_gate is verified absent from each - and the pack presets (FrequencyFilterPreset remove_rumble/remove_hiss, itself outside the authoritative index) are frequency filtering, not spectral gating. Converted to an expected-no-candidate contract (clarify terminal, typed spectral_gating checks); task_type corrected from text_to_image to other. |\n| 16 | audio-acestep-audio-generation-with-detail-daemon-f0859f | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n| 17 | audio-acestep-audio-generation-with-ksampler-e8c20a | no-change | - | Directly authorable: node 3 KSampler carries named steps=50 and scheduler='simple'; the authoritative scheduler COMBO includes karras, so steps=30 + scheduler=karras is a plain two-widget edit. |\n| 18 | audio-acestep-audio-generation-workflow-2a31ec | no-change | - | Checkpoint choice is authorable on the generator node: AceStepSFTGenerate node 3 selects the AceStep SFT model (currently acestep-v15.safetensors; the muted UNETLoader 8 confirms the safetensors-swap pattern), so pointing it at acestep-sft-v2.safetensors is a widget edit. The AceStep SFT pack sits outside the authoritative index (empty exact lookup recorded); SaveAudio 4 grounds the output chain. |\n| 19 | audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676 | no-change | - | The decode-then-combine restructure is authorable by rewiring existing nodes: separate-decode branches already exist (active VAEDecodeAudio 115; muted decode/combine/separation stages 152/153/146 with independent SaveAudio sinks like 154/167/187), so moving AudioCombine after decoding is pure re-plumbing of indexed classes. |\n| 20 | audio-audio-processing-with-chatterbox-tts-and-vc-b55994 | ALIGN | WAV | ALIGN MP3-to-FLAC: the original WAV request was disproved - exact lookup SaveAudioWAV and prefix lookup saveaudio record the COMPLETE saver inventory {SaveAudio('Save Audio (FLAC)'), SaveAudioMP3('Save Audio (MP3)'), SaveAudioOpus} with NO WAV saver. Graph node 428 SaveAudioMP3 renders the shared AUDIO stream (quality=320k); index evidence proves SaveAudio display_name 'Save Audio (FLAC)' takes the identical required AUDIO input, so retargeting node 428's AUDIO wire to SaveAudio is authorable. Descriptor rewritten accordingly. |\n| 21 | audio-audio-processing-with-voice-tts-and-noise-remo-b80848 | no-change | - | Buzz cleanup is authorable through the installed denoise stage: UVR5_Node 16 (MDX-net vocal/instrumental separation with adjustable settings) sits on the TTS output chain ahead of SaveAudio 3, so enabling/tuning it targets the robotic residue directly. The UVR pack is outside the authoritative index (empty exact lookup recorded); SaveAudio provides the indexed chain anchor. |\n| 22 | audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf | ANNOTATE | AudioLDM2 | Named-class absence covering the single named alternative: exact lookup AudioLDM2 and declared-family-prefix lookup audioldm2 over the authoritative index both return an EMPTY complete result set, and no such class exists in the corpus graph; the retained MelBandRoFormer nodes are already muted (mode=4) and their pack cache is a non-authoritative stub. Converted to an expected-no-candidate contract (requires_custom_nodes terminal); task_type corrected to other (materialized outputs are MP3 saves/audio previews only). |\n| 23 | audio-transcribes-audio-appends-text-regenerates | no-change | - | Transcription quality is authorable on the whisper stage itself: node 71 'Apply Whisper' carries the model-size widget currently at 'tiny' - selecting a larger whisper variant inside the same installed-pack COMBO is the direct fix, with append/regenerate plumbing (Text Concatenate 77, voicecraft_process 49) untouched. The Whisper pack is outside the authoritative index (empty exact lookup recorded). |\n| 24 | hotshot-16-frames-agent-edit | ANNOTATE | Hotshot | Named-class absence: declared-family-prefix lookup hotshot returns an EMPTY complete result set from the authoritative index (the ComfyUI-Hotshot@stub cache is excluded from index resolution), and the fixture graph is plain SDXL img2img (KSampler steps=20, no frame-count widget, no video output). Existing expected-no-candidate contract retained with narrowed typed terminal requires_custom_nodes. |\n| 25 | image-animatediff-image-to-video-with-latent-composi-17dc9b | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n| 26 | image-animatediff-video-from-images-with | no-change | - | Input-following strength is authorable two ways: lineart ControlNet strength on node 72 (currently 0.6, authoritative FLOAT strength) raises pose adherence, and the AnimateDiff motion-module length/context on loader 73 (currently 16 frames) governs temporal behavior. The ADE pack is outside the authoritative index (loader lookup recorded empty); ControlNetApplyAdvanced provides the indexed anchor. |\n| 27 | image-animatediff-video-generation-with-vae-d20410 | no-change | - | Frame count lives on the motion-module loader: node 8 AnimateDiffLoaderV1 carries the frame-length widget (currently 16), so 8-frame quick renders are a one-widget edit downstream of KSampler 7. The ADE pack is outside the authoritative index (empty lookup recorded); KSampler provides the indexed sampler anchor. |\n| 28 | image-auraflow-image-generation-with-qwen-clip-9a3109 | no-change | - | Directly authorable: node 69 KSampler carries named steps (currently 25) targeting 30; the workflow's own note (node 72) recommends 30-50 steps, confirming the range. |\n| 29 | image-background-removal-and-grid-composition-54a681 | no-change | - | Tile resolution is authorable at the four resize stages: nodes 14-17 ImageResizeKJv2 expose named width/height (currently 1024) feeding ImageGridComposite2x2 6, so resizing each tile to 512x512 before compositing is four named-input edits on an indexed class. |\n| 30 | image-dual-checkpoint-xl-image-generation-with-refin-c9df19 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 31 | image-face-detection-and-cropping-workflow-949658 | ANNOTATE | MTCNN or RetinaFace | Named-class absence covering BOTH retained alternatives: exact and declared-family-prefix lookups for MTCNN and RetinaFace each return an EMPTY complete result set from the authoritative index; neither class exists in the corpus graph, whose detection surface is UltralyticsDetectorProvider(bbox/face_yolov8m.pt)->BboxDetectorSEGS. Converted to an expected-no-candidate contract (requires_custom_nodes terminal) declaring both absent classes. |\n| 32 | image-flux-image-inpainting-and-compositing-with-con-00444a | no-change | - | The branch merge is authorable with existing nodes: muted ControlNetApplyAdvanced stages (87/90 with Canny/Depth preprocessors 88/82) can be enabled and re-conditioned onto the whole-image path, FluxGuidance 106 tunes base generation, and Cut/Paste-By-Mask (29/27) already implement region compositing - all indexed classes with exact schema evidence. |\n| 33 | image-gemini-prompt-splitter-and-text-display-workfl-caae97 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 34 | image-generates-a-2x2-seed-variation | no-change | - | Row arrangement is authorable by rewiring composition: the loop already produces four seeded variants (for-loop 42/44 with SimpleMath+ 59 seed stepping and ImageBatchSplitter 58), and replacing grid compositing (ImageGridComposite2x2 55) with chained ImageBatch concatenation yields a single horizontal row using indexed classes. |\n| 35 | image-image-comparison-and-enhancement-with-florence-007018 | no-change | - | Per-filter contribution is authorable: each enhancement stage (saturation 232, invert 233, high-pass 253, sharpen 256, normal-map 251) blends through ImageBlend nodes whose authoritative blend_factor FLOAT (node 250 currently 1.0) becomes the independent per-filter slider the query asks for. |\n| 36 | image-image-processing-with-sharpening-film-grain-an-9aa0f1 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 37 | image-image-to-image-with-controlnet-and-dwpreproces-49d057 | no-change | - | Directly authorable: node 20 ControlNetApply exposes the authoritative FLOAT strength widget; setting 0.8 softens pose guidance exactly as requested (DWPreprocessor 25 pose path untouched). |\n| 38 | image-image-to-image-with-ipadapter-and-controlnet-1999a9 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged. |\n| 39 | image-image-to-image-with-stable-zero123-and-backgro-def5b5 | no-change | - | Directly authorable: node 7 BasicScheduler carries named steps=8; the authoritative INT steps input takes 4 directly (SamplerCustom 6 consumes its sigmas chain unchanged). |\n| 40 | image-inpainting-with-differential-diffusion-and-rea-1d414c | no-change | - | Both levers exist as named inputs: node 56 ImagePadForOutpaint exposes top/left/right/bottom padding (currently left=200,right=200,top=104 -> reducible toward 32) plus feathering (mask-softening, currently 40 -> 16-style blur control), and node 69 DifferentialDiffusion keeps the seamless-blend sampling path; all indexed classes. |\n| 41 | image-kolors-image-generation-with-segs-detailer-and-d813fe | ANNOTATE | GroundingDINO | Named-class absence: declared-family-prefix lookup groundingdino returns an EMPTY complete result set from the authoritative index and the corpus detection chain is UltralyticsDetectorProvider+SAMLoader+Impact SEGS (GroundingDINO nowhere in the graph). Expected-no-candidate contract retained with refusal kind narrowed to the typed terminal requires_custom_nodes. |\n| 42 | image-llama-cpp-instruct-image-preview-and-save-5b54bf | no-change | - | Both targets are NAMED inputs on node 3 llama_cpp_parameters: temperature (already 0.8) and max_tokens (1024 -> 512) are direct widget edits. The llama.cpp pack is intentionally outside the authoritative index (empty exact lookup recorded); the graph inputs themselves are the authorable surface. |\n| 43 | image-llava-image-captioning-and-keyword-extraction-d38dc8 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged. |\n| 44 | image-qwen-image-inpainting-with-controlnet-09fc64 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only; research requested in-query. Descriptor stays unchanged. |\n| 45 | image-sd3-image-generation-with-controlnet-19d221 | no-change | - | ControlNet weight is authorable on AdvancedControlNetApply node 60 (strength widget; ControlNetLoader 61 supplies the control model), lowering it shifts influence toward the prompt conditioned through T5/CLIP encodes. The ACN pack is outside the authoritative index (empty lookup recorded); BasicScheduler 24 provides the indexed sampling anchor. |\n| 46 | image-sdxl-txt2img-cat-in-spacesuit | no-change | - | Material realism is authorable through the two standard levers: the positive CLIPTextEncodeSDXL prompt (node 16, editable text widget driving fabric/material description) and KSampler 36 cfg/denoise/steps (currently cfg=8 denoise=1), all indexed classes with exact schema evidence. |\n| 47 | image-style-transfer-using-ip-adapter | no-change | - | Style transfer strength is authorable at the adapter itself: node 12 StyleModelApply exposes the authoritative strength widget with the marble-statue reference already loaded (LoadImage 16), so raising style weight directly strengthens the statue read. |\n| 48 | image-two-stage-qwen-image-generation | no-change | - | Refinement-stage distortion is authorable at the upscale/refine boundary: node 53 LatentUpscaleBy carries the authoritative upscale_by FLOAT (currently 1.5) and method widget feeding refiner SamplerCustom 51 over SplitSigmas 47's low-noise segment - lowering the factor or re-balancing the sigma split are direct edits on indexed classes. |\n| 49 | image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5 | no-change | - | Text-to-video -> image-to-video is authorable by re-sourcing the first frame: WAN branch already carries LoadImage-capable encode plumbing - VAEEncode 25 (authoritative pixels/vae inputs) with the Wan VAE loader 105 can drive latents from a single input image in place of EmptySD3LatentImage 5, leaving the Chroma/LUT/film-grain finishing chain intact. |\n| 50 | multi-3d-gaussian-splatting-from-video-with-hunyuan-432652 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n"
+}

@@ -4,13 +4,37 @@
   "workflow_path": "external_workflows/corpus/1b136036c776018a.json",
   "network": true,
   "timeout": 380,
-  "apply": true,
+  "apply": false,
   "assessment": {
-    "expect_graph_changed": true
+    "expect_graph_changed": false,
+    "allow_safe_refusal_outcome_kinds": ["clarify"],
+    "expected_no_candidate_reason": "The retained spectral-gating request is a structural-feature absence: no authorable member of this workflow exposes spectral-gating control. The frozen authoritative schema gives KSampler only cfg/denoise/latent_image/model/negative/positive/sampler_name/scheduler/seed/steps, VAEEncodeAudio only audio/vae, and VAEDecodeAudio only samples/vae - there is no gate or threshold input anywhere on the audio chain, and the pack's FrequencyFilterPreset presets (remove_rumble/remove_hiss) are not spectral gating. The typed evidence mode is a structural_feature_absent blocker replayed check-by-check against the source graph and the authoritative index; a generic no_changes label is never evidence.",
+    "expected_no_candidate_absent_features": [
+      {
+        "feature": "spectral_gating",
+        "checks": [
+          {
+            "class_type": "KSampler",
+            "member_kind": "input",
+            "member": "spectral_gate"
+          },
+          {
+            "class_type": "VAEEncodeAudio",
+            "member_kind": "input",
+            "member": "spectral_gate"
+          },
+          {
+            "class_type": "VAEDecodeAudio",
+            "member_kind": "input",
+            "member": "spectral_gate"
+          }
+        ]
+      }
+    ]
   },
   "desired": {
-    "outcome": "The audio is denoised before separation, producing cleaner isolated vocals and accompaniment tracks.",
-    "quality": "The new noise reduction stage is correctly wired as a pre-processing step, and the original vocal removal and separation nodes still function with the cleaned audio stream.",
+    "outcome": "The agent inspects the AceStep audio chain (KSampler denoise controls, VAEEncodeAudio/VAEDecodeAudio, AudioFilter/FrequencyFilterPreset), determines that no node or widget exposes spectral-gating noise reduction, and truthfully reports that no candidate change exists; the graph stays unchanged.",
+    "quality": "The refusal names the real audio-chain nodes, gives the typed structural absence reason (no spectral-gate member in graph or schema; available presets cover only remove_rumble/remove_hiss filtering), proposes no fabricated edit, and leaves existing nodes intact.",
     "alternatives_ok": true
   },
   "_tags": {
@@ -19,7 +43,7 @@
     "abstraction": "high",
     "complexity": "high",
     "manifest_complexity": 5,
-    "task_type": "text_to_image",
+    "task_type": "other",
     "requires_custom_nodes": true,
     "techniques": [
       "audio-generation",
@@ -35,6 +59,6 @@
     "source": "external_workflows/corpus",
     "staged": true,
     "authored_by": "deepseek-v4-flash",
-    "author_rationale": "This forces genuine structural reasoning about data flow order and integration of a new processing stage, matching the high complexity bucket."
+    "author_rationale": "The query demands integrating a spectral-gating noise reduction pass, but no authorable member of the retained workflow exposes that feature: the frozen schema attests KSampler/VAEEncodeAudio/VAEDecodeAudio carry no gate control, and the pack's available filter presets are limited to rumble/hiss removal. The designation is expected-no-candidate under a typed structural-feature contract adjudicated by replaying each declared check against the source graph and the authoritative index; task_type is corrected from the historical text_to_image to match the actual all-audio outputs."
   }
 }

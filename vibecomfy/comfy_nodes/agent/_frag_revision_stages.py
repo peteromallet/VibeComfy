@@ -323,6 +323,13 @@ def _finalize_revision_evidence_with_candidate(
         candidate_readiness=candidate_readiness,
         target_node_ids=_revision_target_node_ids(state, route=route),
     )
+    # ADJUDICATION-4 (production evidence seam): this label is a GENERIC
+    # terminal-state classification only — it is emitted whenever the scoped
+    # diff has no eligible candidate, regardless of why, so it carries ZERO
+    # adjudicative authority over any scenario's expected-no-candidate
+    # contract (see tests/live_agentic_harness TERMINAL_NO_CANDIDATE_REASONS).
+    # It must stay scenario-agnostic: never specialized from scenario
+    # expectations, never treated by the assessor as absence evidence.
     no_candidate_reason = None if scoped_diff.candidate_eligible else "no_changes"
     state.revision_evidence = dataclasses.replace(
         state.revision_evidence,

@@ -197,6 +197,41 @@ def test_env_var_enables_schema_resolution(monkeypatch) -> None:
         so.preflight_scenario_obligations(FINAL5)
 
 
+def test_bare_untyped_non_edit_obligation_is_a_coverage_violation() -> None:
+    """ADJUDICATION-4 ruling 1.1f: an edit-kind scenario that merely sets
+    apply=false + expect_graph_changed=false — with no explicit non-edit lane
+    (health_control / answer rubric / answer_only / executed research) and no
+    declared expected-no-candidate contract — is an invalid untyped non-edit
+    obligation. The PURE descriptor validator flags it; no manifest or
+    authoritative-entry coupling, no monkeypatching."""
+    descriptor = {
+        "id": "synthetic-bare-non-edit",
+        "apply": False,
+        "assessment": {"expect_graph_changed": False},
+    }
+    violations = so.descriptor_contract_violations(descriptor)
+    assert any("bare apply=false" in v for v in violations), violations
+
+    # The same bare flags on an explicitly typed lane stay legal.
+    typed_lane = dict(
+        descriptor,
+        classification={"kind": "health_control"},
+    )
+    assert so.descriptor_contract_violations(typed_lane) == ()
+    rubric_lane = dict(descriptor, answer_rubric={"judge": "semantic_answer"})
+    assert so.descriptor_contract_violations(rubric_lane) == ()
+    contract_lane = dict(
+        descriptor,
+        assessment={
+            "expect_graph_changed": False,
+            "allow_safe_refusal_outcome_kinds": ["requires_custom_nodes"],
+            "expected_no_candidate_reason": "declared absence premise",
+            "expected_no_candidate_absent_classes": ["SomeAbsentClass"],
+        },
+    )
+    assert so.descriptor_contract_violations(contract_lane) == ()
+
+
 def test_validate_only_reports_zero_obligation_violations() -> None:
     from tests.live_agentic_harness.compare_pipeline_modes import validate_only
 

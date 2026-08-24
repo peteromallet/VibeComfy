@@ -84,9 +84,71 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
 _GATED_CLASS_RE = re.compile(r"IndexTTS|LayerMask|SegmentAnything", re.IGNORECASE)
 
 
-#: Structured ``no_candidate_reason`` labels the executor emits only for an
-#: honest nothing-authorable terminal state (mirrors assessor.GROUNDED_NO_CANDIDATE_REASONS).
-GROUNDED_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
+#: Terminal-state ``no_candidate_reason`` vocabulary.  These labels classify
+#: HOW a scoped diff ended without an eligible candidate; they carry ZERO
+#: adjudicative authority over a declared expected-no-candidate premise
+#: (ADJUDICATION-4 ruling 1.1c): ``no_changes`` is emitted by
+#: ``_frag_revision_stages.py`` whenever the scoped diff has no eligible
+#: candidate, regardless of why, so it can never prove a named class or a
+#: structural feature is absent.  Evidence always comes from the typed
+#: blocker carriers, never from these labels.
+TERMINAL_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
+
+#: Member kinds admissible in declared structural-feature checks.
+STRUCTURAL_MEMBER_KINDS = ("input", "widget", "output")
+
+#: Refusal-kind compatibility (ADJUDICATION-4 rulings 1.1b/1.1d): a proven
+#: named-schema absence terminates in ``requires_custom_nodes``; a typed
+#: structural-feature absence asks the operator a question and terminates in
+#: ``clarify``.
+_NAMED_CLASS_REQUIRED_KIND = "requires_custom_nodes"
+_STRUCTURAL_REQUIRED_KIND = "clarify"
+
+
+def _string_tuple(raw: Any) -> tuple[str, ...]:
+    """Normalize a declared JSON string/list field to stripped non-empty tokens."""
+    if isinstance(raw, str):
+        return (raw.strip(),) if raw.strip() else ()
+    if isinstance(raw, list):
+        return tuple(
+            token.strip()
+            for token in raw
+            if isinstance(token, str) and token.strip()
+        )
+    return ()
+
+
+def _parse_structural_features(raw: Any) -> tuple[dict[str, Any], ...]:
+    """Parse ``expected_no_candidate_absent_features`` declarations.
+
+    Well-formedness only (non-empty names, checks, member kinds); semantic
+    validation lives in :func:`descriptor_contract_violations` so synthetic
+    tests never need to monkeypatch authoritative entries.
+    """
+    if not isinstance(raw, list):
+        return ()
+    features: list[dict[str, Any]] = []
+    for raw_feature in raw:
+        if not isinstance(raw_feature, Mapping):
+            continue
+        feature = str(raw_feature.get("feature") or "").strip()
+        raw_checks = raw_feature.get("checks")
+        if not isinstance(raw_checks, list):
+            continue
+        checks: list[dict[str, str]] = []
+        for raw_check in raw_checks:
+            if not isinstance(raw_check, Mapping):
+                continue
+            check = {
+                "class_type": str(raw_check.get("class_type") or "").strip(),
+                "member_kind": str(raw_check.get("member_kind") or "").strip(),
+                "member": str(raw_check.get("member") or "").strip(),
+            }
+            if all(check.values()):
+                checks.append(check)
+        if feature and checks:
+            features.append({"feature": feature, "checks": checks})
+    return tuple(features)
 
 
 def expected_no_candidate_contract(
@@ -94,19 +156,23 @@ def expected_no_candidate_contract(
 ) -> Mapping[str, Any] | None:
     """Return the declared grounded no-candidate contract, or ``None``.
 
-    DEEP-AUDIT-FIX-4-REVISION finding 001: a scenario declares
-    expected-no-candidate ONLY through a non-empty
-    ``assessment.expected_no_candidate_reason``, and that declaration opts it
-    into the assessor's grounded no-candidate adjudication.  ``apply=false``
-    plus ``assessment.expect_graph_changed=false`` alone are NOT a no-candidate
-    designation — they are two bare flags and derive nothing here.
+    ADJUDICATION-4 ruling 1.1: this is the SINGLE canonical parser for the
+    expected-no-candidate contract — the assessor delegates here and must not
+    re-implement permissive parsing.  A scenario declares the contract ONLY
+    through a non-empty ``assessment.expected_no_candidate_reason``;
+    ``apply=false`` plus ``assessment.expect_graph_changed=false`` alone are
+    two bare flags and derive nothing.
 
-    The returned contract carries the declared absence premise (``reason``),
-    the refusal outcome kinds the envelope must use (``refusal_kinds``, read
-    from ``assessment.allow_safe_refusal_outcome_kinds``), and the optional
-    declared-absent class tokens (``absent_classes``, from
-    ``assessment.expected_no_candidate_absent_classes``) that structured
-    evidence must cite for named-class absence premises.
+    The returned contract carries:
+
+    * ``reason`` — the declared absence premise;
+    * ``refusal_kinds`` — outcome kinds accepted from the envelope;
+    * ``absent_classes`` — declared absent-class tokens for named-class
+      premises (logical AND);
+    * ``absent_features`` — declared typed structural checks for
+      feature-absence premises;
+    * ``evidence_mode`` — exactly one of ``named_class`` /
+      ``structural_feature`` / ``none``.
     """
     assessment = (
         descriptor.get("assessment")
@@ -116,31 +182,152 @@ def expected_no_candidate_contract(
     reason = assessment.get("expected_no_candidate_reason")
     if not isinstance(reason, str) or not reason.strip():
         return None
-    kinds_raw = assessment.get("allow_safe_refusal_outcome_kinds")
-    if isinstance(kinds_raw, str):
-        refusal_kinds = (kinds_raw,) if kinds_raw.strip() else ()
-    elif isinstance(kinds_raw, list):
-        refusal_kinds = tuple(
-            kind for kind in kinds_raw if isinstance(kind, str) and kind.strip()
-        )
+    refusal_kinds = _string_tuple(assessment.get("allow_safe_refusal_outcome_kinds"))
+    absent_classes = _string_tuple(
+        assessment.get("expected_no_candidate_absent_classes")
+    )
+    absent_features = _parse_structural_features(
+        assessment.get("expected_no_candidate_absent_features")
+    )
+    if absent_classes and not absent_features:
+        evidence_mode = "named_class"
+    elif absent_features and not absent_classes:
+        evidence_mode = "structural_feature"
+    elif absent_classes and absent_features:
+        evidence_mode = "contradictory"
     else:
-        refusal_kinds = ()
-    absent_raw = assessment.get("expected_no_candidate_absent_classes")
-    if isinstance(absent_raw, str):
-        absent_classes = (absent_raw,) if absent_raw.strip() else ()
-    elif isinstance(absent_raw, list):
-        absent_classes = tuple(
-            token.strip()
-            for token in absent_raw
-            if isinstance(token, str) and token.strip()
-        )
-    else:
-        absent_classes = ()
+        evidence_mode = "none"
     return {
         "reason": reason.strip(),
         "refusal_kinds": refusal_kinds,
         "absent_classes": absent_classes,
+        "absent_features": absent_features,
+        "evidence_mode": evidence_mode,
     }
+
+
+def descriptor_contract_violations(
+    descriptor: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Pure descriptor-level validation of a declared no-candidate contract.
+
+    ADJUDICATION-4 §2 (scenario_obligations 2/5): all semantic validation of
+    the contract lives here so synthetic validation tests can call this
+    directly on a descriptor mapping — no manifest, no authoritative entries,
+    no monkeypatching.  Returns human-readable violation strings; empty means
+    the descriptor's contract (if any) is coherent.
+    """
+    contract = expected_no_candidate_contract(descriptor)
+    violations: list[str] = []
+    if contract is None:
+        bare_non_edit = descriptor_is_bare_untyped_non_edit(descriptor)
+        if bare_non_edit:
+            violations.append(
+                "bare apply=false + expect_graph_changed=false without an "
+                "explicit non-edit lane (health_control / answer rubric / "
+                "answer_only / executed research) or a declared "
+                "expected-no-candidate contract"
+            )
+        return tuple(violations)
+
+    assessment = (
+        descriptor.get("assessment")
+        if isinstance(descriptor.get("assessment"), Mapping)
+        else {}
+    )
+    if bool(descriptor.get("apply")) or bool(assessment.get("expect_graph_changed")):
+        violations.append(
+            "expected_no_candidate contract contradicts an edit expectation "
+            "(apply/expect_graph_changed true); an annotation cannot loosen "
+            "an edit obligation"
+        )
+    if not contract["refusal_kinds"]:
+        violations.append(
+            "expected_no_candidate contract declares no "
+            "allow_safe_refusal_outcome_kinds; grounded no-candidate "
+            "adjudication would fail closed on every leg"
+        )
+    mode = contract["evidence_mode"]
+    if mode == "contradictory":
+        violations.append(
+            "expected_no_candidate contract declares both absent classes and "
+            "absent features; exactly one evidence mode is required"
+        )
+    elif mode == "none":
+        violations.append(
+            "expected_no_candidate contract declares neither "
+            "expected_no_candidate_absent_classes nor "
+            "expected_no_candidate_absent_features; exactly one typed "
+            "evidence mode is required"
+        )
+    elif mode == "named_class":
+        if _NAMED_CLASS_REQUIRED_KIND not in contract["refusal_kinds"]:
+            violations.append(
+                "named-class absence contracts require the typed terminal "
+                f"outcome kind {_NAMED_CLASS_REQUIRED_KIND!r}"
+            )
+    elif mode == "structural_feature":
+        if _STRUCTURAL_REQUIRED_KIND not in contract["refusal_kinds"]:
+            violations.append(
+                "structural-feature absence contracts require the clarify "
+                f"terminal outcome kind {_STRUCTURAL_REQUIRED_KIND!r}"
+            )
+        for feature in contract["absent_features"]:
+            for check in feature["checks"]:
+                if check["member_kind"] not in STRUCTURAL_MEMBER_KINDS:
+                    violations.append(
+                        "structural check "
+                        f"{feature['feature']}/{check['class_type']}."
+                        f"{check['member']!r} declares unknown member_kind "
+                        f"{check['member_kind']!r}; expected one of "
+                        f"{list(STRUCTURAL_MEMBER_KINDS)!r}"
+                    )
+    return tuple(violations)
+
+
+def explicit_non_edit_lane(descriptor: Mapping[str, Any]) -> str | None:
+    """Return the explicitly typed non-edit lane name, or ``None``.
+
+    ADJUDICATION-4 ruling 1.1f: these lanes — and only these — make bare
+    non-edit expectations legal:
+    health_control classification, an answer-rubric semantic lane,
+    ``interaction_mode="answer_only"``, or required executed research.
+    """
+    classification = (
+        descriptor.get("classification")
+        if isinstance(descriptor.get("classification"), Mapping)
+        else {}
+    )
+    if classification.get("kind") == "health_control":
+        return "health_control"
+    if isinstance(descriptor.get("answer_rubric"), Mapping):
+        return "answer_rubric"
+    if descriptor.get("interaction_mode") == "answer_only":
+        return "answer_only"
+    assessment = (
+        descriptor.get("assessment")
+        if isinstance(descriptor.get("assessment"), Mapping)
+        else {}
+    )
+    if assessment.get("require_executed_research"):
+        return "research"
+    return None
+
+
+def descriptor_is_bare_untyped_non_edit(descriptor: Mapping[str, Any]) -> bool:
+    """True for an edit-kind scenario that merely sets both flags false."""
+    if descriptor.get("apply") is not False:
+        return False
+    assessment = (
+        descriptor.get("assessment")
+        if isinstance(descriptor.get("assessment"), Mapping)
+        else {}
+    )
+    if assessment.get("expect_graph_changed") is not False:
+        return False
+    if expected_no_candidate_contract(descriptor) is not None:
+        return False
+    return explicit_non_edit_lane(descriptor) is None
 
 
 class ScenarioObligationError(ValueError):
@@ -242,12 +429,21 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
     elif interaction_mode == "answer_only":
         expected_change = "inspect_answer"
     elif no_candidate is not None:
-        # DEEP-AUDIT-FIX-4-REVISION finding 001: "none" here derives from the
-        # DECLARED no-candidate refusal contract (adjudicated by the assessor
-        # against structured absence evidence), not from two bare false flags.
+        # ADJUDICATION-4 ruling 1.1: "none" derives ONLY from the DECLARED
+        # no-candidate refusal contract (adjudicated by the assessor against
+        # typed absence evidence), never from two bare false flags.
+        expected_change = "none"
+    elif explicit_non_edit_lane(descriptor) is not None:
+        # Ruling 1.1f: an explicitly typed non-edit lane (health_control or
+        # answer-rubric semantic product) legitimately expects no edit.
         expected_change = "none"
     else:
-        expected_change = "none"
+        # ADJUDICATION-4 §2 (obligations 3/4): the unconditional
+        # ``else: "none"`` fall-through is REMOVED. An edit-kind scenario
+        # that merely sets apply=false + expect_graph_changed=false is an
+        # untyped non-edit obligation; coverage flags it and the assessor
+        # grades it undetermined.
+        expected_change = "untyped_none"
 
     classes = _workflow_class_types(descriptor)
     gated_classes = tuple(c for c in classes if _GATED_CLASS_RE.search(c))
@@ -350,23 +546,20 @@ def validate_obligation_coverage(
                 "refusal must not be scored as satisfying this scenario"
             )
 
-        # DEEP-AUDIT-FIX-4-REVISION finding 001: the declared no-candidate
-        # contract must be coherent. It can never coexist with an edit
-        # expectation, and without declared refusal kinds the assessor's
-        # grounded adjudication would fail closed on every leg.
-        if obligation.expected_no_candidate is not None:
-            if obligation.requires_edit:
-                violations.append(
-                    f"{scenario_id}: expected_no_candidate contract contradicts "
-                    "an edit expectation (apply/expect_graph_changed true); an "
-                    "annotation cannot loosen an edit obligation"
-                )
-            if not obligation.expected_no_candidate["refusal_kinds"]:
-                violations.append(
-                    f"{scenario_id}: expected_no_candidate contract declares no "
-                    "allow_safe_refusal_outcome_kinds; grounded no-candidate "
-                    "adjudication would fail closed on every leg"
-                )
+        # ADJUDICATION-4 §2 (obligations 2/4): the declared no-candidate
+        # contract must be coherent — validated by the PURE descriptor
+        # validator (no manifest/authoritative-entry coupling), and a bare
+        # untyped non-edit obligation is itself a coverage violation.
+        violations.extend(
+            f"{scenario_id}: {violation}"
+            for violation in descriptor_contract_violations(descriptor)
+        )
+        if obligation.expected_change == "untyped_none":
+            violations.append(
+                f"{scenario_id}: bare apply=false + expect_graph_changed=false "
+                "without an explicit non-edit lane or declared expected-no-"
+                "candidate contract is an invalid untyped non-edit obligation"
+            )
 
         # Audio/multi-video gate: exact schema evidence must be declared for
         # every gated class present in the workflow. Auto-added
@@ -608,11 +801,13 @@ __all__ = [
     "ADMISSIBLE_INFRA_FAILURES",
     "SCHEMA_EVIDENCE_REQUIREMENTS",
     "SCHEMA_RESOLUTION_ENV_VAR",
+    "STRUCTURAL_MEMBER_KINDS",
+    "TERMINAL_NO_CANDIDATE_REASONS",
     "ScenarioObligation",
     "ScenarioObligationError",
     "load_scenario_obligation",
     "preflight_scenario_obligations",
     "validate_obligation_coverage",
-    "GROUNDED_NO_CANDIDATE_REASONS",
+    "descriptor_contract_violations",
     "expected_no_candidate_contract",
 ]

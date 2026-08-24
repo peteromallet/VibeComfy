@@ -7,8 +7,8 @@
   "timeout": 300,
   "assessment": {
     "expect_graph_changed": false,
-    "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
-    "expected_no_candidate_reason": "The fixture graph is a plain SDXL image-to-image pipeline (CheckpointLoaderSimple/KSampler/VAEEncode) with no frame-count widget and no video output, and no Hotshot generation class exists anywhere in the local authoring schema. The query deliberately demands an absent tool; a correct run reports no candidate instead of fabricating an edit.",
+    "allow_safe_refusal_outcome_kinds": ["requires_custom_nodes"],
+    "expected_no_candidate_reason": "The fixture graph is a plain SDXL image-to-image pipeline (CheckpointLoaderSimple/KSampler/VAEEncode) with no frame-count widget and no video output, and no Hotshot generation class exists anywhere in the authoritative object_info index (declared-family-prefix lookups return an empty result set). The query deliberately demands an absent tool; the typed terminal for a proven named-schema absence is a requires_custom_nodes refusal, not a generic clarify.",
     "expected_no_candidate_absent_classes": ["Hotshot"]
   },
   "desired": {

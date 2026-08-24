@@ -39,6 +39,10 @@ from .intent_judge import (
 )
 from .research_assessment import assess_research_evidence
 from .lineage_check import assess_artifact_lineage
+from .scenario_obligations import (
+    descriptor_is_bare_untyped_non_edit,
+    expected_no_candidate_contract,
+)
 
 
 _ERROR_SEVERITIES = {"error", "fatal"}
@@ -69,6 +73,13 @@ _NON_EDIT_ROUTES = frozenset({
     "research",
     "requires_custom_nodes",
 })
+
+
+#: Frozen authoritative object_info cache root (class → pack-cache index).
+_OBJECT_INFO_ROOT = (
+    Path(__file__).resolve().parents[2]
+    / "vibecomfy" / "porting" / "cache" / "object_info"
+)
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -345,6 +356,22 @@ def _scenario_requires_custom_nodes(scenario: Mapping[str, Any] | None) -> bool:
     tags = scenario.get("_tags")
     return isinstance(tags, Mapping) and tags.get("requires_custom_nodes") is True
 
+def _cited_class_matches_declared(cited: str, declared: str) -> bool:
+    """One-way exact/family-prefix class match (ADJUDICATION-4 ruling 1.1b).
+
+    After trimming and case-folding ONLY: ``cited == declared or
+    cited.startswith(declared)``.  The DECLARED token may be a family prefix
+    of the cited full class name (``Hotshot`` ⊢ ``HotshotXLImg2Img``); the
+    reverse is prohibited (``DINO``/``Grounding`` do NOT match
+    ``GroundingDINO``, ``SomeGroundingDINOWrapper`` does not either).  No
+    inner-substring comparison, no punctuation/fuzzy normalization.
+    """
+    folded_cited = str(cited).strip().casefold()
+    folded_declared = str(declared).strip().casefold()
+    if not folded_cited or not folded_declared:
+        return False
+    return folded_cited == folded_declared or folded_cited.startswith(folded_declared)
+
 
 def _response_proves_class_absence(response: Mapping[str, Any] | None) -> bool:
     """True when the run proved a named class is absent from schema/runtime."""
@@ -365,61 +392,11 @@ def _response_proves_class_absence(response: Mapping[str, Any] | None) -> bool:
     return False
 
 
-#: Structured ``no_candidate_reason`` labels the executor emits only for an
-#: honest nothing-authorable terminal state.  Relabels such as
-#: ``route_not_applyable`` / ``delta_evidence_invalid`` describe latched
-#: failures of a claimed edit and are deliberately excluded.
-GROUNDED_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
 
-
-def _expected_no_candidate_contract(
-    scenario: Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Return the declared expected-no-candidate contract, or ``None``.
-
-    DEEP-AUDIT-FIX-4-REVISION finding 001: a scenario may declare
-    expected-no-candidate ONLY through a non-empty
-    ``assessment.expected_no_candidate_reason``, and that declaration opts the
-    scenario into grounded adjudication below — it is never a blanket
-    pass-loosener.  The contract carries:
-
-    * ``reason`` — the declared absence premise (assessor consumer);
-    * ``refusal_kinds`` — outcome kinds accepted from the envelope (read from
-      ``assessment.allow_safe_refusal_outcome_kinds``);
-    * ``absent_classes`` — optional class tokens
-      (``assessment.expected_no_candidate_absent_classes``) that the run's
-      structured evidence must cite when the premise is a named-class absence.
-
-    Scenarios without the declaration keep their existing behavior; setting
-    ``apply``/``expect_graph_changed`` false alone grants nothing here.
-    """
-    assessment = _assessment_config(scenario)
-    reason = assessment.get("expected_no_candidate_reason")
-    if not isinstance(reason, str) or not reason.strip():
-        return None
-    kinds_raw = assessment.get("allow_safe_refusal_outcome_kinds")
-    if isinstance(kinds_raw, str):
-        refusal_kinds = (kinds_raw,) if kinds_raw.strip() else ()
-    elif isinstance(kinds_raw, list):
-        refusal_kinds = tuple(
-            kind for kind in kinds_raw if isinstance(kind, str) and kind.strip()
-        )
-    else:
-        refusal_kinds = ()
-    absent_raw = assessment.get("expected_no_candidate_absent_classes")
-    if isinstance(absent_raw, str):
-        absent_classes = (absent_raw,) if absent_raw.strip() else ()
-    elif isinstance(absent_raw, list):
-        absent_classes = tuple(
-            token.strip() for token in absent_raw if isinstance(token, str) and token.strip()
-        )
-    else:
-        absent_classes = ()
-    return {
-        "reason": reason.strip(),
-        "refusal_kinds": frozenset(refusal_kinds),
-        "absent_classes": absent_classes,
-    }
+#: Terminal-state ``no_candidate_reason`` labels (renamed per ADJUDICATION-4
+#: §2 assessor 5).  They classify how a scoped diff ended; they are NEVER
+#: evidence for a declared absence premise.
+TERMINAL_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
 
 
 def _response_cited_missing_classes(response: Mapping[str, Any]) -> tuple[str, ...]:
@@ -445,49 +422,525 @@ def _response_cited_missing_classes(response: Mapping[str, Any]) -> tuple[str, .
             raw = blocker.get("missing_runtime_classes")
             if isinstance(raw, (list, tuple)):
                 cited.extend(
-                    item.strip() for item in raw if isinstance(item, str) and item.strip()
+                    item.strip()
+                    for item in raw
+                    if isinstance(item, str) and item.strip()
                 )
     return tuple(dict.fromkeys(cited))
 
 
-def _no_candidate_grounding(
+def _named_class_absence_evidence(
     response: Mapping[str, Any],
     contract: Mapping[str, Any],
-) -> tuple[bool, str]:
-    """Adjudicate grounded absence evidence under the declared contract.
+) -> tuple[str, str]:
+    """Adjudicate named-class absence evidence (ruling 1.1b).
 
-    Returns ``(grounded, detail)``.  Grounded means the envelope carries real
-    structured absence evidence for the declared premise: cited missing
-    classes (matching a declared absent-class token when one is declared), or
-    a structural no-candidate label for feature-absence premises.  A generic
-    clarify without any of that is NOT grounded.
+    Returns ``(tri_state, detail)`` with ``tri_state`` in
+    ``pass`` | ``undetermined`` | ``fail``.
+
+    * The AUTHORITATIVE carrier is ``report.authoring_blocker`` with
+      ``reason == "named_class_absent_from_schema"`` and a
+      ``missing_runtime_classes`` list covering EVERY declared token
+      (flat list = logical AND) under the one-way prefix rule.
+    * ``outcome.missing_classes`` is only the public projection: it may
+      corroborate but alone is never sufficient; when both carriers exist
+      they must agree on the contract-relevant classes — contradiction is a
+      hard failure.
+    * Generic terminal labels (``TERMINAL_NO_CANDIDATE_REASONS``) carry no
+      authority here and are deliberately never consulted.
     """
-    cited = _response_cited_missing_classes(response)
-    if cited:
-        declared = contract["absent_classes"]
-        if not declared:
-            return True, f"cited missing classes {list(cited)!r}"
-        folded_tokens = [str(token).casefold() for token in declared]
-        for name in cited:
-            folded_name = name.casefold()
-            for token in folded_tokens:
-                if token in folded_name or folded_name in token:
-                    return True, (
-                        f"cited missing class {name!r} matches declared "
-                        f"absent-class token {token!r}"
-                    )
-        return False, (
-            f"cited missing classes {list(cited)!r} do not match the declared "
-            f"absent classes {list(contract['absent_classes'])!r}"
-        )
-    reason = response.get("no_candidate_reason")
-    if isinstance(reason, str) and reason in GROUNDED_NO_CANDIDATE_REASONS:
-        return True, f"structural no_candidate_reason={reason!r}"
-    return False, (
-        "no structured absence evidence: outcome.missing_classes / "
-        "report.authoring_blocker.missing_runtime_classes are empty and "
-        "no_candidate_reason carries no honest no-candidate label"
+    report = response.get("report")
+    blocker = (
+        report.get("authoring_blocker") if isinstance(report, Mapping) else None
     )
+    authoritative: tuple[str, ...] = ()
+    malformed_authoritative = False
+    wrong_reason = None
+    if isinstance(blocker, Mapping):
+        reason = blocker.get("reason")
+        raw = blocker.get("missing_runtime_classes")
+        if isinstance(raw, (list, tuple)):
+            authoritative = tuple(
+                item.strip() for item in raw
+                if isinstance(item, str) and item.strip()
+            )
+            if authoritative and reason != "named_class_absent_from_schema":
+                wrong_reason = reason
+        elif raw is not None:
+            malformed_authoritative = True
+    if malformed_authoritative:
+        return "undetermined", (
+            "malformed authoritative carrier: "
+            "report.authoring_blocker.missing_runtime_classes is not a list"
+        )
+    if wrong_reason is not None:
+        return "undetermined", (
+            "report.authoring_blocker carries missing classes but reason="
+            f"{wrong_reason!r} is not 'named_class_absent_from_schema'"
+        )
+
+    outcome = response.get("outcome")
+    projected: tuple[str, ...] = ()
+    if isinstance(outcome, Mapping):
+        raw = outcome.get("missing_classes")
+        if isinstance(raw, (list, tuple)):
+            projected = tuple(
+                item.strip() for item in raw
+                if isinstance(item, str) and item.strip()
+            )
+
+    def _covered_tokens(names: tuple[str, ...]) -> set[str]:
+        return {
+            declared
+            for declared in contract["absent_classes"]
+            if any(_cited_class_matches_declared(name, declared) for name in names)
+        }
+
+    covered_authoritative = _covered_tokens(authoritative)
+    covered_projected = _covered_tokens(projected)
+    if authoritative:
+        if covered_authoritative != set(contract["absent_classes"]):
+            return "undetermined", (
+                f"authoritative blocker cites {list(authoritative)!r}, which "
+                "does not cover every declared absent class "
+                f"{list(contract['absent_classes'])!r}"
+            )
+        if projected and covered_projected != covered_authoritative:
+            return "fail", (
+                "contradictory carriers: authoring_blocker covers declared "
+                f"tokens {sorted(covered_authoritative)!r} but the "
+                f"outcome.missing_classes projection covers "
+                f"{sorted(covered_projected)!r}"
+            )
+        return "pass", (
+            "authoritative named-class blocker covers declared absent classes "
+            f"{list(contract['absent_classes'])!r} via {sorted(authoritative)!r}"
+        )
+    if projected:
+        return "undetermined", (
+            "only the public projection (outcome.missing_classes="
+            f"{list(projected)!r}) is present; without the authoritative "
+            "report.authoring_blocker named-class carrier it can never "
+            "ground the contract"
+        )
+    return "undetermined", (
+        "no structured absence evidence: neither "
+        "report.authoring_blocker.missing_runtime_classes nor "
+        "outcome.missing_classes cites the declared absent classes "
+        f"{list(contract['absent_classes'])!r}; generic no_candidate_reason "
+        "labels carry no adjudicative authority"
+    )
+
+
+def _authoritative_schema_entry(class_type: str) -> Mapping[str, Any] | None:
+    """Resolve one class from the frozen authoritative object_info cache.
+
+    Reads ``vibecomfy/porting/cache/object_info/index.json`` (class → cache
+    file) and the referenced pack cache.  Unreadable index/cache or unknown
+    class returns ``None`` — a schema lookup error grades undetermined, it
+    never invents absence.
+    """
+    if not class_type:
+        return None
+    index = _load_json(_OBJECT_INFO_ROOT / "index.json")
+    if not isinstance(index, Mapping):
+        return None
+    cache_file = index.get(class_type)
+    if not isinstance(cache_file, str) or not cache_file:
+        return None
+    cache = _load_json(_OBJECT_INFO_ROOT / cache_file)
+    if not isinstance(cache, Mapping):
+        return None
+    entry = cache.get(class_type)
+    return entry if isinstance(entry, Mapping) else None
+
+
+def _schema_surface_members(entry: Mapping[str, Any], member_kind: str) -> tuple[str, ...]:
+    """Return the schema member names for one surface of a class entry."""
+    if member_kind == "output":
+        outputs = entry.get("outputs")
+        names: list[str] = []
+        if isinstance(outputs, (list, tuple)):
+            for item in outputs:
+                if isinstance(item, str):
+                    names.append(item)
+                elif isinstance(item, (list, tuple)) and item:
+                    # object_info output rows are [name, type] or [type].
+                    head = item[0]
+                    tail = item[1] if len(item) > 1 else None
+                    if isinstance(tail, str):
+                        names.append(str(head))
+                    elif isinstance(head, str):
+                        names.append(head)
+        return tuple(names)
+    inputs = entry.get("inputs")
+    members: list[str] = []
+    if isinstance(inputs, Mapping):
+        for group in ("required", "optional"):
+            block = inputs.get(group)
+            if isinstance(block, Mapping):
+                members.extend(str(key) for key in block)
+    return tuple(members)
+
+
+def _scenario_graph_nodes(
+    output_dir: Path,
+    scenario: Mapping[str, Any] | None,
+) -> dict[str, str] | None:
+    """Return ``node_id -> class_type`` from the run's source/original graph.
+
+    Prefers the persisted run artifact ``original.ui.json``; falls back to
+    the scenario's declared ``workflow_path`` under the repository root.
+    ``None`` means no readable graph — evidence-incomplete, never proof of
+    absence.
+    """
+    data = _load_json(Path(output_dir) / "original.ui.json")
+    nodes = _extract_graph_nodes(data) if isinstance(data, Mapping) else {}
+    if not nodes and isinstance(scenario, Mapping):
+        workflow_path = scenario.get("workflow_path")
+        if isinstance(workflow_path, str) and workflow_path.strip():
+            repo_root = Path(__file__).resolve().parents[2]
+            data = _load_json(repo_root / workflow_path)
+            nodes = _extract_graph_nodes(data) if isinstance(data, Mapping) else {}
+    return nodes or None
+
+
+def _extract_graph_nodes(data: Any) -> dict[str, str]:
+    """Collect ``node_id -> class_type`` from any supported graph shape."""
+    nodes: dict[str, str] = {}
+
+    def record(node_id: Any, class_type: Any) -> None:
+        if node_id is None or not isinstance(class_type, str) or not class_type:
+            return
+        nodes[str(node_id)] = class_type
+
+    def walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            if "class_type" in value or "type" in value:
+                record(
+                    value.get("id"),
+                    value.get("class_type") or value.get("type"),
+                )
+            for key in ("nodes",):
+                child = value.get(key)
+                if isinstance(child, Mapping):
+                    for node_id, node in child.items():
+                        if isinstance(node, Mapping):
+                            record(
+                                node.get("id", node_id),
+                                node.get("class_type") or node.get("type"),
+                            )
+                elif isinstance(child, list):
+                    for node in child:
+                        if isinstance(node, Mapping):
+                            record(
+                                node.get("id"),
+                                node.get("class_type") or node.get("type"),
+                            )
+            for child in value.values():
+                if isinstance(child, (Mapping, list)):
+                    walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(data)
+    return nodes
+
+
+def _structural_feature_evidence(
+    output_dir: Path,
+    scenario: Mapping[str, Any] | None,
+    response: Mapping[str, Any],
+    contract: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Independently validate typed structural-feature absence evidence.
+
+    ADJUDICATION-4 ruling 1.1d: the envelope carrier
+    (``report.authoring_blocker`` with ``reason ==
+    "structural_feature_absent"`` + ``feature_absences``) is only a claim;
+    every descriptor-required check is re-verified here against the
+    source/original graph and the frozen authoritative schema:
+
+    * the referenced class exists in the relevant graph;
+    * the exact input/widget/output member is absent from the schema;
+    * the reported ``available_members`` agree with the schema;
+    * all descriptor-required checks are covered.
+
+    Missing graph/schema, lookup errors, unrelated classes, prose-only
+    claims, incomplete checks, or a generic ``no_changes`` label produce
+    ``undetermined``; a check claiming absence of a member the schema HAS is
+    an explicit contradiction and fails.
+    """
+    report = response.get("report")
+    blocker = (
+        report.get("authoring_blocker") if isinstance(report, Mapping) else None
+    )
+    if not isinstance(blocker, Mapping):
+        return "undetermined", (
+            "no authoritative structural carrier: report.authoring_blocker "
+            "is absent"
+        )
+    if blocker.get("reason") != "structural_feature_absent":
+        return "undetermined", (
+            "report.authoring_blocker.reason="
+            f"{blocker.get('reason')!r} is not 'structural_feature_absent'"
+        )
+    absences = blocker.get("feature_absences")
+    if not isinstance(absences, list):
+        return "undetermined", (
+            "malformed structural carrier: feature_absences is not a list"
+        )
+
+    reported: dict[tuple[str, str, str, str], Mapping[str, Any]] = {}
+    for raw_feature in absences:
+        if not isinstance(raw_feature, Mapping):
+            continue
+        feature_name = str(raw_feature.get("feature") or "").strip()
+        checks = raw_feature.get("checks")
+        if not isinstance(checks, list):
+            continue
+        for raw_check in checks:
+            if not isinstance(raw_check, Mapping):
+                continue
+            key = (
+                feature_name,
+                str(raw_check.get("class_type") or "").strip(),
+                str(raw_check.get("member_kind") or "").strip(),
+                str(raw_check.get("member") or "").strip(),
+            )
+            if all(key):
+                reported[key] = raw_check
+
+    graph_nodes = _scenario_graph_nodes(output_dir, scenario)
+    if graph_nodes is None:
+        return "undetermined", (
+            "source/original graph is unavailable; structural absence cannot "
+            "be independently verified"
+        )
+    graph_classes = set(graph_nodes.values())
+
+    required: list[tuple[str, Mapping[str, Any]]] = []
+    for feature in contract["absent_features"]:
+        for check in feature["checks"]:
+            required.append((str(feature["feature"]), check))
+    missing_checks = [
+        (feature_name, check)
+        for feature_name, check in required
+        if (
+            feature_name,
+            check["class_type"],
+            check["member_kind"],
+            check["member"],
+        ) not in reported
+    ]
+    if missing_checks:
+        return "undetermined", (
+            "incomplete structural evidence: response omits declared checks "
+            + ", ".join(
+                f"{name}/{check['class_type']}.{check['member']}"
+                for name, check in missing_checks
+            )
+        )
+
+    verified: list[str] = []
+    for feature_name, check in required:
+        key = (
+            feature_name,
+            check["class_type"],
+            check["member_kind"],
+            check["member"],
+        )
+        entry = _authoritative_schema_entry(check["class_type"])
+        if entry is None:
+            return "undetermined", (
+                f"schema lookup error for {check['class_type']!r} in the "
+                "frozen authoritative index; structural absence cannot be "
+                f"verified for {key[0]}/{key[1]}.{key[3]}"
+            )
+        if check["class_type"] not in graph_classes:
+            return "undetermined", (
+                f"class {check['class_type']!r} does not exist in the "
+                "source/original graph; the declared structural check is not "
+                "verifiable against this workflow"
+            )
+        actual_members = _schema_surface_members(entry, check["member_kind"])
+        if check["member"] in actual_members:
+            return "fail", (
+                "contradictory structural evidence: "
+                f"{check['class_type']}.{check['member_kind']} "
+                f"{check['member']!r} exists in the authoritative schema "
+                f"(members: {sorted(actual_members)!r}) but the response "
+                "claims it absent"
+            )
+        reported_check = reported[key]
+        if reported_check.get("present") is not False:
+            return "undetermined", (
+                f"declared check {key[0]}/{key[1]}.{key[3]} does not assert "
+                "present=false"
+            )
+        available = reported_check.get("available_members")
+        if not isinstance(available, (list, tuple)):
+            return "undetermined", (
+                f"declared check {key[0]}/{key[1]}.{key[3]} reports no "
+                "available_members; agreement with the schema cannot be "
+                "verified"
+            )
+        normalized_available = sorted(str(item) for item in available)
+        if normalized_available != sorted(actual_members):
+            return "undetermined", (
+                f"declared check {key[0]}/{key[1]}.{key[3]} reports "
+                f"available_members={normalized_available!r} but the schema "
+                f"attests {sorted(actual_members)!r}"
+            )
+        verified.append(f"{key[0]}/{key[1]}.{key[3]}")
+    return "pass", (
+        "all declared structural checks independently verified against the "
+        f"source graph and frozen schema: {', '.join(verified)}"
+    )
+
+
+def _assess_expected_no_candidate(
+    output_dir: Path,
+    scenario: Mapping[str, Any] | None,
+    response: Mapping[str, Any] | None,
+    contract: Mapping[str, Any],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Tri-state expected-no-candidate adjudicator (ADJUDICATION-4 §2).
+
+    Replaces the former boolean ``_no_candidate_grounding``: returns
+    ``pass`` / ``fail`` / ``undetermined`` plus the structured issues that
+    carry the per-facet detail.  Runs BEFORE/OUTSIDE the ``if response is
+    not None`` guard in :func:`assess_live_output_dir` so a missing
+    response grades ``undetermined`` (issue
+    ``expected_no_candidate_response_missing``), never pass.
+
+    Accepted contracts emit ``expected_no_candidate_grounded`` (info) and
+    grade the leg ``outcome_class="expected_no_candidate"``.
+    """
+    issues: list[dict[str, Any]] = []
+
+    def _add(check: str, severity: str, detail: str) -> None:
+        issues.append({"check": check, "severity": severity, "detail": detail})
+
+    if response is None or not isinstance(response, Mapping):
+        _add(
+            "expected_no_candidate_response_missing",
+            "undetermined",
+            "Scenario declares an expected-no-candidate contract "
+            f"({contract['reason'][:120]!r}...) but response.json is absent "
+            "or not a mapping; missing evidence cannot prove the absence "
+            "premise.",
+        )
+        return "undetermined", issues
+
+    if response.get("ok") is False:
+        _add(
+            "expected_no_candidate_response_ok",
+            "error",
+            "response.ok is False under a declared expected-no-candidate "
+            f"contract: {response.get('error') or response.get('message')}",
+        )
+        return "fail", issues
+
+    graph_unchanged = response.get("graph_unchanged")
+    if graph_unchanged is False:
+        _add(
+            "expected_no_candidate_graph_unchanged",
+            "error",
+            "Scenario declares expected-no-candidate "
+            f"({contract['reason'][:120]!r}...) but response.graph_unchanged "
+            "is False; a fabricated or landed edit contradicts the refusal "
+            "contract.",
+        )
+        return "fail", issues
+    if graph_unchanged is not True:
+        _add(
+            "expected_no_candidate_graph_state_unknown",
+            "undetermined",
+            "Scenario declares expected-no-candidate but "
+            f"response.graph_unchanged is {graph_unchanged!r}; an unknown "
+            "edit state cannot prove the absence premise.",
+        )
+        return "undetermined", issues
+
+    outcome = response.get("outcome") or {}
+    outcome_kind = outcome.get("kind") if isinstance(outcome, Mapping) else None
+    route = _canonical_route(response)
+    kind_ok = (
+        isinstance(outcome_kind, str) and outcome_kind in contract["refusal_kinds"]
+    )
+    route_ok = route in _NON_EDIT_ROUTES
+    landed_count = _landed_operation_count(response)
+    explicit_edit_route = route in _EDIT_ROUTES or (
+        isinstance(landed_count, int)
+        and not isinstance(landed_count, bool)
+        and landed_count > 0
+    )
+    if not kind_ok:
+        _add(
+            "expected_no_candidate_refusal_kind",
+            "error",
+            "Declared expected-no-candidate scenario requires outcome.kind "
+            f"in {sorted(contract['refusal_kinds'])!r} but got "
+            f"{outcome_kind!r}.",
+        )
+    if explicit_edit_route:
+        _add(
+            "expected_no_candidate_route",
+            "error",
+            "Declared expected-no-candidate scenario took an explicit edit "
+            f"route/candidate (route={route!r}, landed_operation_count="
+            f"{landed_count!r}); this contradicts the refusal contract.",
+        )
+    elif not route_ok:
+        _add(
+            "expected_no_candidate_route",
+            "error",
+            "Declared expected-no-candidate scenario requires a canonical "
+            f"non-edit route but got {route!r}.",
+        )
+
+    mode = contract["evidence_mode"]
+    if mode == "named_class":
+        evidence_tri, evidence_detail = _named_class_absence_evidence(
+            response, contract
+        )
+    elif mode == "structural_feature":
+        evidence_tri, evidence_detail = _structural_feature_evidence(
+            output_dir, scenario, response, contract
+        )
+    else:
+        evidence_tri, evidence_detail = "undetermined", (
+            "contract declares no coherent typed evidence mode "
+            f"(evidence_mode={mode!r}); exactly one of named-class tokens or "
+            "typed structural checks is required"
+        )
+    if evidence_tri == "fail":
+        _add(
+            "expected_no_candidate_evidence_contradiction",
+            "error",
+            evidence_detail,
+        )
+    elif evidence_tri == "undetermined":
+        _add(
+            "expected_no_candidate_ungrounded",
+            "undetermined",
+            "Declared expected-no-candidate premise is not grounded: "
+            f"{evidence_detail} Declared reason: {contract['reason']}",
+        )
+
+    if any(issue["severity"] == "error" for issue in issues):
+        return "fail", issues
+    if evidence_tri == "pass" and kind_ok and route_ok:
+        _add(
+            "expected_no_candidate_grounded",
+            "info",
+            f"Accepted grounded no-candidate refusal ({mode} evidence): "
+            f"{evidence_detail}; declared reason: {contract['reason']}",
+        )
+        return "pass", issues
+    return "undetermined", issues
 
 
 def _allowed_safe_refusal_outcome_kinds(
@@ -974,12 +1427,49 @@ def assess_live_output_dir(
     assessment_cfg = _assessment_config(scenario)
     skip_intent_judge = bool(assessment_cfg.get("skip_intent_judge"))
     skip_semantic_judge = bool(assessment_cfg.get("skip_semantic_judge"))
-    no_candidate_contract = _expected_no_candidate_contract(scenario)
+    no_candidate_contract = expected_no_candidate_contract(scenario or {})
     safe_refusal_accepted = False
     refusal_outage = False
+    expected_no_candidate_accepted = False
+    untyped_non_edit = False
     outcome_kind: Any = None
     non_edit_route = False
     answered_without_edit = False
+
+    # ADJUDICATION-4 §2 (assessor 2/3): the declared expected-no-candidate
+    # contract is adjudicated BEFORE/OUTSIDE the response guard so a missing
+    # or malformed response grades undetermined — never pass — via
+    # ``expected_no_candidate_response_missing``.
+    if no_candidate_contract is not None:
+        enc_tri, enc_issues = _assess_expected_no_candidate(
+            output_dir, scenario, response, no_candidate_contract
+        )
+        issues.extend(enc_issues)
+        if enc_tri == "pass":
+            expected_no_candidate_accepted = True
+
+    # ADJUDICATION-4 ruling 1.1f: an edit-kind scenario that merely sets
+    # apply=false + expect_graph_changed=false is an invalid untyped non-edit
+    # obligation; direct assessor invocation grades it ``undetermined``, never
+    # pass.
+    if descriptor_is_bare_untyped_non_edit(scenario or {}):
+        issues.append(
+            {
+                "check": "untyped_non_edit_expectation",
+                "severity": "undetermined",
+                "detail": (
+                    "Scenario sets apply=false + expect_graph_changed=false "
+                    "without an explicit non-edit lane (health_control / "
+                    "answer rubric / answer_only / executed research) or a "
+                    "declared expected-no-candidate contract; an untyped "
+                    "non-edit obligation can never grade pass."
+                ),
+            }
+        )
+        untyped_non_edit = True
+    safe_refusal_accepted = False
+    refusal_outage = False
+    outcome_kind: Any = None
     lineage_assessment: dict[str, Any] = {
         "issues": [],
         "present": False,
@@ -1036,88 +1526,6 @@ def assess_live_output_dir(
             elif refusal_tri == "undetermined":
                 refusal_outage = True
 
-        # DEEP-AUDIT-FIX-4-REVISION finding 001: a declared expected-
-        # no-candidate contract is ADJUDICATED, never trusted.  The leg can
-        # pass only when the envelope (a) reports the graph unchanged, (b)
-        # took a declared refusal kind on a canonical non-edit route, and
-        # (c) carries structured absence evidence grounding the declared
-        # premise.  Anything else — including a generic clarify with no
-        # class-absence evidence — fails closed.  ``expect_graph_changed``
-        # false alone grants nothing; this path runs only for scenarios that
-        # declare ``assessment.expected_no_candidate_reason``.
-        if no_candidate_contract is not None:
-            if response.get("graph_unchanged") is not True:
-                issues.append(
-                    {
-                        "check": "expected_no_candidate_graph_unchanged",
-                        "severity": "error",
-                        "detail": (
-                            "Scenario declares expected-no-candidate "
-                            f"({no_candidate_contract['reason'][:120]!r}...) but "
-                            f"response.graph_unchanged is "
-                            f"{response.get('graph_unchanged')!r}; a fabricated "
-                            "or unknown edit state cannot satisfy the refusal "
-                            "contract."
-                        ),
-                    }
-                )
-            else:
-                kind_ok = (
-                    isinstance(outcome_kind, str)
-                    and outcome_kind in no_candidate_contract["refusal_kinds"]
-                )
-                route_ok = _canonical_route(response) in _NON_EDIT_ROUTES
-                grounded, evidence = _no_candidate_grounding(
-                    response, no_candidate_contract
-                )
-                if not kind_ok:
-                    issues.append(
-                        {
-                            "check": "expected_no_candidate_refusal_kind",
-                            "severity": "error",
-                            "detail": (
-                                "Declared expected-no-candidate scenario requires "
-                                f"outcome.kind in {sorted(no_candidate_contract['refusal_kinds'])!r} "
-                                f"but got {outcome_kind!r}."
-                            ),
-                        }
-                    )
-                if not route_ok:
-                    issues.append(
-                        {
-                            "check": "expected_no_candidate_route",
-                            "severity": "error",
-                            "detail": (
-                                "Declared expected-no-candidate scenario requires a "
-                                f"canonical non-edit route but got "
-                                f"{_canonical_route(response)!r}."
-                            ),
-                        }
-                    )
-                if not grounded:
-                    issues.append(
-                        {
-                            "check": "expected_no_candidate_ungrounded",
-                            "severity": "error",
-                            "detail": (
-                                "Declared expected-no-candidate premise is not "
-                                f"grounded: {evidence}. Declared reason: "
-                                f"{no_candidate_contract['reason']}"
-                            ),
-                        }
-                    )
-                elif kind_ok and route_ok:
-                    issues.append(
-                        {
-                            "check": "expected_no_candidate_grounded",
-                            "severity": "info",
-                            "detail": (
-                                "Accepted grounded no-candidate refusal: "
-                                f"{evidence}; declared reason: "
-                                f"{no_candidate_contract['reason']}"
-                            ),
-                        }
-                    )
 
         # Top-level response health.
         if response.get("ok") is False:
@@ -1475,13 +1883,19 @@ def assess_live_output_dir(
     # undetermined rows.  New classes are additions, never renames.
     if safe_refusal_accepted:
         outcome_class = "safe_refusal"
+    elif expected_no_candidate_accepted:
+        # ADJUDICATION-4 ruling 1.1: accepted grounded no-candidate legs get
+        # their DISTINCT class — never the generic non_edit_route_answered.
+        outcome_class = "expected_no_candidate"
     elif any(
         isinstance(judge.get("metadata"), Mapping)
         and judge["metadata"].get("verdict") == "applied_unverified"
         for judge in judge_results
     ):
         outcome_class = "applied-unverified"
-    elif answered_without_edit:
+    elif answered_without_edit and not untyped_non_edit:
+        # Ruling 1.1f: an untyped bare-false leg never claims the honest
+        # non-edit class even when its envelope looks like one.
         outcome_class = "non_edit_route_answered"
     else:
         outcome_class = None

@@ -623,6 +623,167 @@ def _record_named_schema_absence_blocker(
     return missing
 
 
+def _state_graph_class_types(state: AgentEditState) -> set[str]:
+    """Collect class types from the working graph, whatever shape it is."""
+    classes: set[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key in ("class_type", "type"):
+                class_type = value.get(key)
+                if isinstance(class_type, str) and class_type:
+                    classes.add(class_type)
+                    break
+            for child in value.values():
+                if isinstance(child, (Mapping, list, tuple)):
+                    walk(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                walk(child)
+
+    walk(getattr(state, "graph", None))
+    return classes
+
+
+def _schema_surface_member_names(schema: Any, member_kind: str) -> tuple[str, ...]:
+    """Return authoritative member names for one schema surface."""
+    if member_kind == "output":
+        return tuple(
+            str(spec.name or spec.type)
+            for spec in (getattr(schema, "outputs", None) or ())
+            if getattr(spec, "name", None) or getattr(spec, "type", None)
+        )
+    inputs = getattr(schema, "inputs", None) or {}
+    return tuple(str(name) for name in inputs)
+
+
+def _batch_declared_feature_absences(state: AgentEditState) -> tuple[Mapping[str, Any], ...]:
+    """Return typed feature-absence checks this request's turns declared.
+
+    Mirrors ``_batch_named_schema_absences``: only STRUCTURED statement
+    detail counts (``detail.feature_absences`` entries shaped
+    ``{feature, checks:[{class_type, member_kind, member}]}``).  Prose is
+    never consulted.
+    """
+    declared: list[Mapping[str, Any]] = []
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping):
+                continue
+            raw_features = detail.get("feature_absences")
+            if not isinstance(raw_features, list):
+                continue
+            for raw_feature in raw_features:
+                if isinstance(raw_feature, Mapping):
+                    declared.append(raw_feature)
+    return tuple(declared)
+
+
+def _record_structural_feature_absence_blocker(
+    state: AgentEditState,
+    *,
+    has_candidate: bool,
+) -> tuple[Mapping[str, Any], ...]:
+    """Structural twin of ``_record_named_schema_absence_blocker``.
+
+    ADJUDICATION-4 §2 (production evidence seam): when a no-candidate turn
+    carries TYPED feature-absence declarations, each declared check is
+    independently verified here against the working graph and the schema
+    provider before any blocker is recorded — class must exist in the graph,
+    the exact input/widget/output must be absent from the schema, and
+    ``available_members`` are filled FROM THE SCHEMA (never trusted from the
+    claim).  Any unverifiable claim records nothing (fail closed); a generic
+    terminal label alone never triggers this path.
+    """
+    del has_candidate  # kept for call-site symmetry with the named recorder
+    if not getattr(state, "schema_provider", None):
+        return ()
+    declared_features = _batch_declared_feature_absences(state)
+    if not declared_features:
+        return ()
+    graph_classes = _state_graph_class_types(state)
+
+    def _member_absent(schema: Any, member_kind: str, member: str) -> bool:
+        if member_kind not in ("input", "widget", "output"):
+            return False
+        return member not in _schema_surface_member_names(schema, member_kind)
+
+    recorded: list[dict[str, Any]] = []
+    for feature in declared_features:
+        feature_name = str(feature.get("feature") or "").strip()
+        raw_checks = feature.get("checks")
+        if not feature_name or not isinstance(raw_checks, list) or not raw_checks:
+            continue
+        verified_checks: list[dict[str, Any]] = []
+        for raw_check in raw_checks:
+            if not isinstance(raw_check, Mapping):
+                continue
+            class_type = str(raw_check.get("class_type") or "").strip()
+            member_kind = str(raw_check.get("member_kind") or "").strip()
+            member = str(raw_check.get("member") or "").strip()
+            if not class_type or not member_kind or not member:
+                continue
+            if class_type not in graph_classes:
+                continue
+            try:
+                schema = state.schema_provider.get_schema(class_type)
+            except Exception:  # noqa: BLE001 - lookup failure is simply not evidence
+                schema = None
+            if schema is None:
+                continue
+            if not _member_absent(schema, member_kind, member):
+                continue
+            verified_checks.append(
+                {
+                    "class_type": class_type,
+                    "member_kind": member_kind,
+                    "member": member,
+                    "present": False,
+                    "available_members": list(
+                        _schema_surface_member_names(schema, member_kind)
+                    ),
+                }
+            )
+        if len(verified_checks) != len(
+            [
+                check
+                for check in raw_checks
+                if isinstance(check, Mapping)
+                and str(check.get("class_type") or "").strip()
+                and str(check.get("member_kind") or "").strip()
+                and str(check.get("member") or "").strip()
+            ]
+        ):
+            # Fail closed: an unverifiable declared check blocks recording.
+            continue
+        recorded.append({"feature": feature_name, "checks": verified_checks})
+    if not recorded:
+        return ()
+    report = dict(state.report) if isinstance(state.report, Mapping) else {}
+    blocker = (
+        dict(report.get("authoring_blocker"))
+        if isinstance(report.get("authoring_blocker"), Mapping)
+        else {}
+    )
+    blocker.update(
+        {
+            "reason": "structural_feature_absent",
+            "feature_absences": recorded,
+            "message": state.user_message,
+        }
+    )
+    report["authoring_blocker"] = blocker
+    report["clarification_required"] = True
+    report["graph_unchanged"] = True
+    state.report = report
+    return tuple(recorded)
+
+
 _SPECIFIC_CLARIFY_ACTION_RE = re.compile(
     r"\b(?:install|provide|choose|select|specify|confirm|share|name|tell me|"
     r"connect|add|remove|enable|disable|retry)\b|\bwhich\s+[a-z0-9_]",
@@ -845,7 +1006,14 @@ def _sanitize_pure_clarify_response(response: dict[str, Any]) -> dict[str, Any]:
         "question": markdown,
         "clarification": {"message": markdown},
     }
-    for key in ("missing_classes", "options"):
+    # ADJUDICATION-4 seam 4: premise-specific fields survive final
+    # sanitization.  ``missing_classes`` stays the public projection of the
+    # named-class blocker (promote_requires_custom_nodes_outcome reads it
+    # ONLY from report.authoring_blocker — never an independent assertion);
+    # ``feature_absences`` keeps the structural twin's typed evidence on the
+    # public outcome.  report.authoring_blocker itself passes through
+    # _strip_clarify_forbidden_response_fields untouched.
+    for key in ("missing_classes", "options", "feature_absences"):
         value = outcome.get(key)
         if isinstance(value, (list, tuple)) and value:
             sanitized_outcome[key] = list(value)
@@ -1235,7 +1403,19 @@ def _build_batch_repl_response(
     named_schema_absence_terminal = bool(
         _record_named_schema_absence_blocker(state, has_candidate=blocker_has_candidate)
     )
-    if named_schema_absence_terminal:
+    # ADJUDICATION-4 production evidence seam: the structural twin records a
+    # typed ``structural_feature_absent`` blocker when — and only when — the
+    # turn declared feature-absence checks that independently verify against
+    # the graph and the schema provider.  A generic ``no_candidate_reason``
+    # label alone never triggers either recorder.
+    structural_feature_absence_terminal = False
+    if not named_schema_absence_terminal:
+        structural_feature_absence_terminal = bool(
+            _record_structural_feature_absence_blocker(
+                state, has_candidate=blocker_has_candidate
+            )
+        )
+    if named_schema_absence_terminal or structural_feature_absence_terminal:
         has_candidate = False
     response_apply_eligibility = derive_apply_eligibility(
         context,
@@ -1279,12 +1459,16 @@ def _build_batch_repl_response(
     # external evidence is not a success: the edit cannot satisfy the request
     # with only the partial graph change. Weak registry/code-search leads are
     # not authoring capability and should not force a special product route.
-    unresolved_schema_terminal = named_schema_absence_terminal or (
-        state.batch_exit_mode in (_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY)
-        and any(
-            _resolver_candidate_is_authoring_capability(candidate)
-            for candidate in resolver_candidates
-            if isinstance(candidate, Mapping)
+    unresolved_schema_terminal = (
+        named_schema_absence_terminal
+        or structural_feature_absence_terminal
+        or (
+            state.batch_exit_mode in (_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY)
+            and any(
+                _resolver_candidate_is_authoring_capability(candidate)
+                for candidate in resolver_candidates
+                if isinstance(candidate, Mapping)
+            )
         )
     )
     if unresolved_schema_terminal:
@@ -1325,6 +1509,10 @@ def _build_batch_repl_response(
         promote_requires_custom_nodes_outcome,
     )
 
+    # ADJUDICATION-4 seam 3: ``outcome.missing_classes`` is a PROJECTION of
+    # the named-class blocker — missing_runtime_classes_from_report reads it
+    # exclusively from report.authoring_blocker.missing_runtime_classes, so
+    # the public field can never become an independent assertion.
     public_outcome = promote_requires_custom_nodes_outcome(
         public_outcome,
         missing_classes=missing_runtime_classes_from_report(state.report),

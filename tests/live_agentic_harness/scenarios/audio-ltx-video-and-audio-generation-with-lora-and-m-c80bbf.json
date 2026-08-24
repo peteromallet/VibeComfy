@@ -4,17 +4,18 @@
   "workflow_path": "external_workflows/corpus/c80bbf22890fc8df.json",
   "network": true,
   "timeout": 380,
-  "apply": true,
+  "apply": false,
   "assessment": {
-    "expect_graph_changed": true,
+    "expect_graph_changed": false,
     "allow_safe_refusal_outcome_kinds": [
-      "clarify",
       "requires_custom_nodes"
-    ]
+    ],
+    "expected_no_candidate_reason": "The query demands AudioLDM2 as the audio generator, but no AudioLDM2 class exists anywhere in the authoritative object_info index - the exact lookup and the declared-family-prefix lookup both return an empty result set - and no such class exists in this corpus workflow either. The retained Mel-band branch (MelBandRoFormerSampler/MelBandRoFormerModelLoader, already muted) belongs to a pack whose cache is a non-authoritative stub. The query deliberately demands an absent class; the typed terminal for proven named-schema absence is a requires_custom_nodes refusal, and adjudication requires the authoritative named-class blocker to cite AudioLDM2 before any leg passes.",
+    "expected_no_candidate_absent_classes": ["AudioLDM2"]
   },
   "desired": {
-    "outcome": "The audio generation component uses AudioLDM2 instead of MelBand RoFormer, and it is fed appropriate conditioning from the video or separate audio conditioning, producing synchronized audio latents that are decoded to MP3 alongside the video output.",
-    "quality": "The new AudioLDM2 stage is fully wired into the pipeline, receives the correct inputs (e.g., text conditioning or latent inputs), the video generation path is unchanged, and the workflow runs without errors."
+    "outcome": "The agent inspects the audio/video chain, determines that no AudioLDM2 class (or any family member) is authorable in this environment and that the muted MelBand RoFormer nodes cannot be swapped for it, and truthfully reports that no candidate change exists; the graph stays unchanged.",
+    "quality": "The refusal names the real LTX/Mel-band nodes, gives the grounded index-absence reason for AudioLDM2, proposes no fabricated edit, and leaves existing nodes intact."
   },
   "_tags": {
     "modality": "audio",
@@ -22,7 +23,7 @@
     "abstraction": "high",
     "complexity": "high",
     "manifest_complexity": 5,
-    "task_type": "image_to_video",
+    "task_type": "other",
     "requires_custom_nodes": true,
     "techniques": [
       "ltx",
@@ -39,6 +40,6 @@
     "source": "external_workflows/corpus",
     "staged": true,
     "authored_by": "deepseek-v4-flash",
-    "author_rationale": "This candidate directly targets the workflow's unique audio component and forces a non-trivial structural redesign, testing the agent's ability to replace a specialized audio model while preserving synchronization with video."
+    "author_rationale": "This candidate targets the workflow's unique audio component, but the named replacement AudioLDM2 is provably absent from the authoritative schema and from the corpus graph, so the honest designation is expected-no-candidate under a typed named-class contract rather than an authorable structural redesign; task_type is corrected from image_to_video because the retained workflow's only materialized outputs are MP3 audio saves and audio previews."
   }
 }
