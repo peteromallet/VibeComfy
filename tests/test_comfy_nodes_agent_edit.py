@@ -19910,3 +19910,239 @@ def test_handle_agent_edit_product_path_rejects_late_live_only_class(
     assert result.get("apply_allowed") is False
     assert result.get("canvas_apply_allowed") is False
     assert result.get("accepted_delta_ids") == []
+
+
+# ── §28 DEEP-AUDIT-FIX-3 — fix 5: NoneType ingest crash fails closed ────────
+
+
+def test_handle_agent_edit_none_links_graph_fails_closed_with_structured_issue(
+    tmp_path: Path,
+) -> None:
+    """§28 fix 5 (0eb676/b55994): a graph whose ``links`` collection is None
+    crashes ``ingest_workflow_and_ui`` with TypeError('NoneType' object is not
+    iterable). The door must fail CLOSED with a typed product-failure whose
+    envelope carries the exception type, failing stage, terminal
+    repository-relative frame, and a bounded payload preview — never an empty
+    diagnostics {} and never an untyped exception escaping the door."""
+    graph = _ui_graph()
+    graph["links"] = None
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "fix5-none-links",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert result["kind"] == FailureKind.VALIDATION_ERROR.value
+    context = result["agent_failure_context"]
+    issues = [
+        issue
+        for issue in context.get("issues", [])
+        if isinstance(issue, dict) and issue.get("code") == "agent_ingest_exception"
+    ]
+    assert issues, context
+    issue = issues[0]
+    assert issue["exception_type"] == "TypeError"
+    assert issue["stage"] == "ingest"
+    assert "'NoneType' object is not iterable" in issue["message"]
+    assert isinstance(issue["file"], str) and issue["file"].startswith("vibecomfy/")
+    assert isinstance(issue["function"], str) and issue["function"]
+    assert isinstance(issue["line"], int) and issue["line"] > 0
+    preview = issue["payload_preview"]
+    assert isinstance(preview, str) and '"links": null' in preview
+
+
+def test_handle_agent_edit_none_nodes_graph_still_typed_failure_not_crash(
+    tmp_path: Path,
+) -> None:
+    """§28 fix 5: a None nodes collection also produces a typed ingest
+    failure envelope (never an untyped crash) with the structured issue."""
+    graph = {
+        "nodes": None,
+        "links": [],
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
+    }
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "change the save prefix to after",
+            "session_id": "fix5-none-nodes",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert result["kind"] == FailureKind.VALIDATION_ERROR.value
+    context = result["agent_failure_context"]
+    issues = [
+        issue
+        for issue in context.get("issues", [])
+        if isinstance(issue, dict) and issue.get("code") == "agent_ingest_exception"
+    ]
+    assert issues, context
+    issue = issues[0]
+    # Shape detection fails closed on the None nodes collection; the enriched
+    # guard turns that into the same typed, fully-contextualized envelope.
+    assert issue["exception_type"] == "ValueError"
+    assert issue["stage"] == "ingest"
+    assert '"nodes": null' in issue["payload_preview"]
+
+
+def test_ingest_workflow_and_ui_valid_graph_unchanged_by_fix5() -> None:
+    """§28 fix 5: a VALID graph still ingests unchanged — same workflow IR
+    and canonical UI payload as before the failure-context enrichment."""
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+
+    graph = _ui_graph()
+    frozen_input = json.dumps(graph, sort_keys=True)
+
+    workflow, canonical_graph = ingest_workflow_and_ui(
+        graph,
+        schema_provider=_batch_repl_provider(),
+    )
+
+    assert workflow is not None
+    assert sorted(node.class_type for node in workflow.nodes.values()) == [
+        "LoadImage",
+        "SaveImage",
+    ]
+    # The canonical detached copy preserves the input bytes.
+    assert json.dumps(canonical_graph, sort_keys=True) == frozen_input
+
+
+# ── §28 DEEP-AUDIT-FIX-3 — fix 6: evidence capture on mid-turn failure ──────
+
+
+def test_mid_turn_stage_failure_persists_transcript_ops_and_failure_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§28 fix 6: when a turn dies mid-flight AFTER a batch was recorded, the
+    turn directory must contain batch_failure_evidence.json carrying the
+    batch transcript seen so far, the ops submitted, and the full structured
+    failure context — with the same lineage naming as a successful leg."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent._frag_entrypoint import (
+        BATCH_FAILURE_EVIDENCE_FILENAME,
+    )
+    from vibecomfy.comfy_nodes.agent.session import turn_dir_for
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _crashing_stage(state, _context, *_args, **_kwargs):
+        state.batch_turns.append(
+            {
+                "turn": 1,
+                "statements": [
+                    {
+                        "op_kind": "set_node_field",
+                        "op": {
+                            "op": "set_node_field",
+                            "node_id": "2",
+                            "field": "filename_prefix",
+                            "value": "after",
+                        },
+                        "source": 'saveimage.filename_prefix = "after"',
+                    }
+                ],
+                "diagnostics": [],
+            }
+        )
+        raise TypeError("'NoneType' object is not iterable")
+
+    monkeypatch.setattr(agent_edit_module, "_stage_agent_batch_repl", _crashing_stage)
+
+    session_id = "fix6-mid-turn-failure"
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": session_id,
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    turn_id = result["turn_id"]
+    turn_dir = turn_dir_for(tmp_path, session_id, turn_id)
+
+    evidence_path = turn_dir / BATCH_FAILURE_EVIDENCE_FILENAME
+    assert evidence_path.is_file(), f"missing failure evidence: {turn_dir}"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert evidence["code"] == "agent_batch_failure_evidence"
+    assert evidence["stage"]
+    assert evidence["failure_kind"]
+
+    # The transcript survived: one recorded turn with its statement source.
+    assert evidence["transcript"], evidence.keys()
+    assert evidence["transcript"][0]["statements"][0]["source"] == (
+        'saveimage.filename_prefix = "after"'
+    )
+
+    # The submitted op survived next to it — not just the landed subset.
+    assert evidence["ops_submitted"], evidence.keys()
+    op = evidence["ops_submitted"][0]
+    assert op["op"] == "set_node_field"
+    assert op["node_id"] == "2"
+    assert op["source"].endswith('"after"')
+
+    # Full failure context: the R3 structured stage-crash issue rides along.
+    context_issues = evidence["failure_context"]["issues"]
+    assert any(
+        isinstance(issue, dict) and issue.get("code") == "agent_batch_stage_exception"
+        for issue in context_issues
+    )
+
+
+def test_successful_turn_does_not_write_failure_evidence_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§28 fix 6: the artifact layout of a SUCCESSFUL leg is unchanged — no
+    batch_failure_evidence.json appears on the success path while the standard
+    artifacts still exist."""
+    from vibecomfy.comfy_nodes.agent._frag_entrypoint import (
+        BATCH_FAILURE_EVIDENCE_FILENAME,
+    )
+    from vibecomfy.comfy_nodes.agent.session import turn_dir_for
+
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _fake_batch_client(_messages):
+        return {
+            "batch": 'clarify("before or after the face restoration?")\ndone()',
+            "message": "I need one detail before continuing.",
+        }
+
+    session_id = "fix6-success-layout"
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "adjust the final save behavior",
+            "session_id": session_id,
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    turn_dir = turn_dir_for(tmp_path, session_id, result["turn_id"])
+    assert (turn_dir / "model_response.json").is_file()
+    assert (turn_dir / "messages.jsonl").is_file()
+    assert not (turn_dir / BATCH_FAILURE_EVIDENCE_FILENAME).exists()

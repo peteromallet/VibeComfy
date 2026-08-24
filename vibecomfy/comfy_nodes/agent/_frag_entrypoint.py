@@ -120,6 +120,100 @@ def discard_turn_event_buffer() -> int:
     _TURN_EVENT_BUFFER.set(None)
     return len(buffer) if buffer else 0
 
+_INGEST_FAILURE_PREVIEW_CHARS = 600
+
+
+def _bounded_ingest_payload_preview(payload: Any, *, limit: int = _INGEST_FAILURE_PREVIEW_CHARS) -> str:
+    """Bounded, redaction-friendly preview of the payload that broke ingest.
+
+    §28 deep-audit fix 5: the ingest failure envelope must carry a bounded
+    preview of the offending payload — never just the exception string — so
+    the executor/harness can see WHAT was malformed without retaining the
+    full graph.
+    """
+    try:
+        text = json.dumps(payload, sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 - preview must never raise
+        try:
+            text = repr(payload)
+        except Exception:  # noqa: BLE001 - preview must never raise
+            return "<unrepresentable ingest payload>"
+    if len(text) > limit:
+        return text[: max(0, limit - 24)].rstrip() + f" ... [+{len(text) - limit} chars]"
+    return text
+
+
+def _ingest_exception_issue(stage: str, exc: BaseException, payload: Any) -> dict[str, Any]:
+    """Bounded structured issue identifying an unexpected ingest-door crash.
+
+    §28 deep-audit fix 5 (R3 fix 3 precedent in _frag_orchestration.py): a
+    None/malformed graph must fail closed with typed evidence — exception
+    type, failing stage, terminal repository-relative frame, and a bounded
+    payload preview — so diagnostics are never an empty ``{}``.
+    """
+    from vibecomfy.comfy_nodes.agent._frag_orchestration import (
+        _terminal_traceback_frame,
+    )
+
+    issue: dict[str, Any] = {
+        "code": "agent_ingest_exception",
+        "exception_type": type(exc).__name__,
+        "stage": stage,
+        "message": str(exc),
+    }
+    issue.update(_terminal_traceback_frame(exc))
+    issue["payload_preview"] = _bounded_ingest_payload_preview(payload)
+    return issue
+
+
+BATCH_FAILURE_EVIDENCE_FILENAME = "batch_failure_evidence.json"
+
+
+def _persist_batch_failure_evidence(
+    state: Any,
+    *,
+    stage: str,
+    failure: Any = None,
+) -> None:
+    """Persist transcript + submitted ops + failure context for a failed turn.
+
+    §28 deep-audit fix 6: when a turn fails mid-flight (ingest_v2/emit/stage
+    exception/provider failure after a batch was submitted), the leg's
+    evidence must survive even though the final response is a product
+    failure. The artifact lands in the SAME turn directory with the same
+    redaction discipline as successful-leg artifacts so the assessor can
+    inspect it under identical lineage naming. Best-effort: an evidence
+    write failure never changes the returned failure envelope.
+    """
+    turn_dir = getattr(state, "turn_dir", None)
+    if turn_dir is None:
+        return
+    from vibecomfy.comfy_nodes.agent._frag_batch_reports import (
+        build_batch_failure_evidence,
+    )
+
+    context = getattr(failure, "agent_failure_context", None)
+    kind = getattr(failure, "kind", None)
+    payload = build_batch_failure_evidence(
+        state,
+        stage=stage,
+        failure_kind=getattr(kind, "value", None) or (str(kind) if kind else None),
+        agent_failure_context=context if isinstance(context, Mapping) else None,
+    )
+    try:
+        from pathlib import Path as _Path
+
+        from vibecomfy.comfy_nodes.agent.audit import write_json_artifact
+
+        evidence_path = (
+            turn_dir
+            if isinstance(turn_dir, _Path)
+            else _Path(turn_dir)
+        ) / BATCH_FAILURE_EVIDENCE_FILENAME
+        write_json_artifact(evidence_path, payload)
+    except Exception:  # noqa: BLE001 - evidence capture is additive, never fatal
+        pass
+
 
 def handle_agent_edit(
     payload: dict[str, Any],
@@ -201,11 +295,18 @@ def handle_agent_edit(
         )
         schema_provider = _IngestBoundSchemaProvider(schema_provider, _frozen_schema)
     except Exception as exc:
+        # §28 deep-audit fix 5: fail closed with FULL failure context. A None
+        # or otherwise malformed graph produces a typed product-failure whose
+        # envelope carries the exception type, failing stage, terminal
+        # repository-relative frame, and a bounded preview of the offending
+        # payload — never a bare explanation string and never an untyped
+        # exception escaping the door.
         failure = failure_envelope(
             FailureKind.VALIDATION_ERROR,
             "ingest",
             agent_failure_context={
-                "explanation": f"Agent edit graph ingest failed: {exc}"
+                "explanation": f"Agent edit graph ingest failed: {exc}",
+                "issues": [_ingest_exception_issue("ingest", exc, graph)],
             },
         )
         return _validated_agent_edit_response(
@@ -478,6 +579,15 @@ def handle_agent_edit(
                 or classify_failure(blocked.result.stage, blocked, context),
             ),
             stage=stage_name,
+        )
+        # §28 deep-audit fix 6: persist the mid-turn evidence (batch
+        # transcript, submitted ops, structured failure context) BEFORE the
+        # product-failure envelope is returned — the failure path must not
+        # skip persistence.
+        _persist_batch_failure_evidence(
+            state,
+            stage=stage_name,
+            failure=blocked.failure,
         )
         if context.idempotency_key is not None:
             response["idempotency_key"] = context.idempotency_key

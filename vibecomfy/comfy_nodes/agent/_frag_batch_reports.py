@@ -581,6 +581,101 @@ def _batch_turn_diagnostics(turns: list[dict[str, Any]]) -> list[dict[str, Any]]
                     diagnostics.append(dict(diagnostic))
     return diagnostics
 
+_BATCH_FAILURE_EVIDENCE_MAX_TURNS = 64
+_BATCH_FAILURE_EVIDENCE_MAX_OPS = 512
+
+
+def _batch_failure_ops_submitted(turns: list[Any]) -> list[dict[str, Any]]:
+    """Collect the typed ops submitted across the recorded batch turns.
+
+    §28 deep-audit fix 6: when a turn dies mid-flight, the ops the agent
+    actually submitted must survive to disk next to the transcript, not just
+    the landed subset.
+    """
+    ops: list[dict[str, Any]] = []
+    for turn in turns:
+        if not isinstance(turn, Mapping):
+            continue
+        statements = turn.get("statements") or ()
+        if isinstance(statements, Mapping) or not isinstance(statements, (list, tuple)):
+            continue
+        for statement in statements:
+            if len(ops) >= _BATCH_FAILURE_EVIDENCE_MAX_OPS:
+                return ops
+            op = _record_statement_op(statement)
+            if op is None:
+                continue
+            entry = dict(op)
+            source = (
+                statement.get("source")
+                if isinstance(statement, Mapping)
+                else getattr(statement, "source", None)
+            )
+            if isinstance(source, str) and source.strip():
+                entry["source"] = _json_safe(source)[:2000]
+            ops.append(entry)
+    return ops
+
+
+def _record_statement_op(statement: Any) -> dict[str, Any] | None:
+    """Read the typed op from a serialized (Mapping) or live statement record."""
+    if isinstance(statement, Mapping):
+        raw = statement.get("op")
+        if raw is None and isinstance(statement.get("detail"), Mapping):
+            raw = statement["detail"].get("edit_op")
+    else:
+        return _statement_op_payload(statement)
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    return None
+
+
+def _thaw_evidence_value(value: Any) -> Any:
+    """Recursively thaw frozen envelope structures (mappingproxy/tuple)."""
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_evidence_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_evidence_value(item) for item in value]
+    return value
+
+
+def build_batch_failure_evidence(
+    state: Any,
+    *,
+    stage: str,
+    failure_kind: str | None = None,
+    agent_failure_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the durable mid-turn failure evidence payload (§28 fix 6).
+
+    Carries everything an assessor needs to reconstruct a failed leg: the
+    batch transcript (turn records seen so far), every submitted op, and the
+    full structured failure context from the envelope. Bounded and JSON-safe;
+    never mutates *state* and never raises on malformed records.
+    """
+    raw_turns = list(getattr(state, "batch_turns", ()) or ())
+    turns = [
+        dict(_thaw_evidence_value(turn))
+        for turn in raw_turns[:_BATCH_FAILURE_EVIDENCE_MAX_TURNS]
+        if isinstance(turn, Mapping)
+    ]
+    payload: dict[str, Any] = {
+        "contract_version": 1,
+        "code": "agent_batch_failure_evidence",
+        "stage": stage,
+        "transcript": _json_safe(turns),
+        "ops_submitted": _json_safe(_batch_failure_ops_submitted(turns)),
+    }
+    if failure_kind:
+        payload["failure_kind"] = str(failure_kind)
+    if agent_failure_context:
+        # Frozen envelopes arrive as mappingproxy trees — thaw BEFORE
+        # json-safe serialization or structured issues degrade to strings.
+        payload["failure_context"] = _json_safe(_thaw_evidence_value(agent_failure_context))
+    if len(raw_turns) > len(turns):
+        payload["transcript_truncated_from"] = len(raw_turns)
+    return payload
+
 
 def _batch_budget_artifixer_report(
     state: "AgentEditState",
@@ -720,7 +815,9 @@ __all__ = (
      "_BATCH_UNREPRESENTABLE_DIAGNOSTIC_CODES", "_CLARIFY_CALL_RE", "_DETAIL_ALIAS_CAP",
      "_DETAIL_LIST_CAP", "_DIAGNOSTIC_DETAIL_KEYS", "_SEARCH_CALL_RE", "_SEARCH_KW_RE",
      "_batch_budget_artifixer_report", "_batch_budget_failure_kind",
-     "_batch_has_landed_edits", "_batch_turn_diagnostics", "_cap_diagnostic_detail",
+     "_batch_failure_ops_submitted", "_batch_has_landed_edits",
+     "_batch_turn_diagnostics", "_cap_diagnostic_detail",
+     "build_batch_failure_evidence",
      "_compact_diag_with_capped_detail", "_contains_clarify_call",
      "_decode_clarify_literal", "_duplicate_search_cycle_feedback",
      "_extract_clarify_message", "_extract_search_signatures", "_format_batch_report",

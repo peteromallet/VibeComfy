@@ -385,6 +385,107 @@ def extract_batch_fence(
     return batch_code, prose
 
 
+_CLASSIFY_JSON_CONTRACT_KEYS = frozenset({
+    "route",
+    "intent",
+    "research",
+    "implement",
+    "reply",
+    "plan_summary",
+    "task",
+    "clarification_question",
+    "research_goal",
+})
+_CLASSIFY_EXTRACTION_MAX_CANDIDATES = 8
+_CLASSIFY_EXTRACTION_INPUT_LIMIT = 200_000
+
+
+def _iter_json_object_candidates(text: str, *, max_candidates: int) -> list[dict[str, Any]]:
+    """Return JSON objects parsed from balanced top-level ``{...}`` spans.
+
+    Bounded: scans at most *max_candidates* decodable objects and refuses
+    inputs beyond ``_CLASSIFY_EXTRACTION_INPUT_LIMIT`` chars (fail-closed —
+    the caller keeps its typed parse failure instead of scanning forever).
+    """
+    if len(text) > _CLASSIFY_EXTRACTION_INPUT_LIMIT:
+        return []
+    candidates: list[dict[str, Any]] = []
+    depth = 0
+    in_string = False
+    escape = False
+    start = -1
+    for index, char in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}":
+            if depth == 0:
+                continue
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    parsed = json.loads(text[start : index + 1])
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    candidates.append(parsed)
+                    if len(candidates) >= max_candidates:
+                        return candidates
+                start = -1
+    return candidates
+
+
+def extract_classify_json(text: str) -> dict[str, Any]:
+    """Extract the classify JSON object from prose-wrapped model output.
+
+    §28 deep-audit fix 7 — same seam discipline as :func:`extract_batch_fence`:
+    a response whose classify JSON is surrounded by prose/markdown still
+    yields its JSON object; a genuinely missing/empty classify JSON fails
+    CLOSED with typed ``parse_reason`` evidence. When several JSON objects
+    appear (e.g. a decoy example inside the prose), an object carrying a
+    classify-contract key wins over positional first-match so a brace-bearing
+    sentence can never masquerade as the decision.
+    """
+    if not text.strip():
+        raise MalformedModelJSON(
+            "Agent classify response was empty. Expected one JSON object.",
+            raw_response=text,
+            parse_reason="empty",
+        )
+    stripped = text.strip()
+    try:
+        direct = json.loads(stripped)
+    except ValueError:
+        direct = None
+    if isinstance(direct, dict):
+        return direct
+    candidates = _iter_json_object_candidates(
+        stripped,
+        max_candidates=_CLASSIFY_EXTRACTION_MAX_CANDIDATES,
+    )
+    for candidate in candidates:
+        if _CLASSIFY_JSON_CONTRACT_KEYS.intersection(candidate):
+            return candidate
+    if candidates:
+        return candidates[0]
+    raise MalformedModelJSON(
+        "Agent classify response does not contain a JSON object.",
+        raw_response=text,
+        parse_reason="missing_classify_json",
+    )
+
+
 def _compact_batch_system_prompt(
     *,
     active_tool_phase: str,
@@ -1829,6 +1930,59 @@ def run_agent_turn_batch(
         raise wrapped from exc
 
 
+def _normalize_turn_response(
+    response: Any,
+    *,
+    response_contract: str,
+    phase: str | None,
+) -> Mapping[str, Any]:
+    """Validate the runtime result and normalize prose-wrapped classify JSON.
+
+    §28 deep-audit fix 7: when a CLASSIFY-phase ``json`` contract returns
+    prose around a JSON object (worker-level lenient parsing can lock onto a
+    decoy brace-bearing sentence instead of the decision), the bounded
+    :func:`extract_classify_json` seam re-extracts the decision object — an
+    object carrying a classify-contract key wins over positional first-match.
+    The raw model text is preserved on ``raw_content``; the canonical JSON is
+    published on ``content``/``json`` with typed provenance. Genuinely
+    missing JSON keeps the existing fail-closed parse machinery untouched.
+    """
+    if not isinstance(response, Mapping):
+        raise ProviderError("Generic model turn returned a non-dict response.")
+    if response_contract != "json" or phase != "classify":
+        return response
+    content = response.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return response
+    try:
+        direct = json.loads(content.strip())
+    except ValueError:
+        direct = None
+    if isinstance(direct, dict):
+        # Already clean JSON: nothing to extract, evidence stays byte-identical.
+        return response
+    try:
+        extracted = extract_classify_json(content)
+    except MalformedModelJSON:
+        # Fail closed: leave the result untouched so the downstream parser's
+        # typed ``parse_reason`` machinery reports the failure unchanged.
+        return response
+    normalized = dict(response)
+    normalized["raw_content"] = content
+    normalized["content"] = json.dumps(extracted, sort_keys=True)
+    normalized["json"] = extracted
+    provenance = response.get("parse_provenance")
+    provenance = dict(provenance) if isinstance(provenance, Mapping) else {}
+    provenance["parse_reason"] = "extracted_from_prose"
+    normalized["parse_provenance"] = provenance
+    LOGGER.info(
+        "classify json extracted from prose-wrapped response "
+        "(keys=%s)",
+        ",".join(sorted(str(key) for key in extracted)) or "<empty>",
+    )
+    return normalized
+
+
 def run_model_turn(
     task: str,
     messages: list[dict[str, Any]] | None = None,
@@ -1856,30 +2010,107 @@ def run_model_turn(
     )
     runtime = _load_arnold_runtime()
     run_model_turn_fn: Callable[..., Any] | None = getattr(runtime, "run_model_turn", None)
-    try:
+
+    def _dispatch(attempt_profiling_context: Mapping[str, Any] | None) -> Any:
         if callable(run_model_turn_fn):
-            response = run_model_turn_fn(
+            return run_model_turn_fn(
                 task=task,
                 messages=messages,
                 route=dispatch_route,
                 model=selected_model,
                 effort=effort,
                 response_contract=response_contract,
-                profiling_context=profiling_context,
+                profiling_context=attempt_profiling_context,
             )
-        else:
-            run_fn: Callable[..., Any] | None = getattr(runtime, "run", None)
-            if not callable(run_fn):
-                raise ProviderError("Arnold/Hermes runtime does not expose run_model_turn or run.")
-            response = run_fn(
-                task=task,
-                messages=messages,
-                route=dispatch_route,
-                model=selected_model,
-                effort=effort,
-                response_contract=response_contract,
-                profiling_context=profiling_context,
-            )
+        run_fn: Callable[..., Any] | None = getattr(runtime, "run", None)
+        if not callable(run_fn):
+            raise ProviderError("Arnold/Hermes runtime does not expose run_model_turn or run.")
+        return run_fn(
+            task=task,
+            messages=messages,
+            route=dispatch_route,
+            model=selected_model,
+            effort=effort,
+            response_contract=response_contract,
+            profiling_context=attempt_profiling_context,
+        )
+
+    def _dispatch_with_bounded_classify_retry() -> Any:
+        """Dispatch one model turn; §28 fix 7 adds a bounded classify-timeout retry.
+
+        A provider timeout in the CLASSIFY phase retries exactly ONCE — same
+        prompt, same authority, no nudge — before the leg fails. Non-timeout
+        failures and every other phase keep the single-attempt behavior. The
+        bounded retry is recorded in canonical ``model_attempts`` evidence so
+        the harness's typed infra machinery
+        (``runner._classify_retryable_infra_summary``) still sees the truth.
+        """
+        max_dispatch_attempts = 2 if phase == "classify" else 1
+        collected_timeout_attempts: list[dict[str, Any]] = []
+        response: Any = None
+        for dispatch_attempt in range(1, max_dispatch_attempts + 1):
+            attempt_context = profiling_context
+            if dispatch_attempt > 1:
+                attempt_context = {
+                    **dict(profiling_context or {}),
+                    "model_attempt": dispatch_attempt,
+                }
+            try:
+                response = _dispatch(attempt_context)
+                break
+            except TimeoutError as exc:
+                collected_timeout_attempts.extend(
+                    coerce_model_attempts(getattr(exc, "model_attempts", None))
+                )
+                if dispatch_attempt >= max_dispatch_attempts:
+                    # Re-raise untouched unless a retry actually happened: the
+                    # single-attempt path must stay byte-identical to the prior
+                    # behavior (runtime-owned stamped evidence).
+                    if max_dispatch_attempts > 1 and collected_timeout_attempts:
+                        try:
+                            exc.model_attempts = list(  # type: ignore[attr-defined]
+                                coerce_model_attempts(collected_timeout_attempts)
+                            )
+                        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+                            pass
+                    raise
+                # §28 fix 7: record the timed-out attempt into the canonical
+                # capture BEFORE the single retry so persisted summaries reflect
+                # both attempts through the harness's typed infra machinery.
+                if collected_timeout_attempts:
+                    try:
+                        from vibecomfy.comfy_nodes.agent.runtime import (
+                            record_model_attempts,
+                        )
+
+                        record_model_attempts(list(collected_timeout_attempts))
+                    except Exception:  # noqa: BLE001 - evidence capture is additive
+                        pass
+                LOGGER.warning(
+                    "classify model turn timed out (attempt %d/%d); retrying once "
+                    "with the same prompt",
+                    dispatch_attempt,
+                    max_dispatch_attempts,
+                )
+
+        if collected_timeout_attempts and isinstance(response, Mapping):
+            # The retry succeeded: prepend the timed-out attempt so the returned
+            # evidence shows BOTH attempts (timeout, then success).
+            merged = [
+                *collected_timeout_attempts,
+                *coerce_model_attempts(response.get("model_attempts")),
+            ]
+            response = dict(response)
+            response["model_attempts"] = coerce_model_attempts(merged)
+        return response
+
+    try:
+        response = _dispatch_with_bounded_classify_retry()
+        response = _normalize_turn_response(
+            response,
+            response_contract=response_contract,
+            phase=phase if isinstance(phase, str) else None,
+        )
     except PermissionError as exc:
         raise AuthError(str(exc)) from exc
     except TimeoutError:
@@ -1914,8 +2145,6 @@ def run_model_turn(
         )
         raise wrapped from exc
 
-    if not isinstance(response, Mapping):
-        raise ProviderError("Generic model turn returned a non-dict response.")
     return dict(response)
 
 
@@ -2131,6 +2360,7 @@ __all__ = [
     "build_messages",
     "ensure_sentence_message",
     "extract_batch_fence",
+    "extract_classify_json",
     "readiness",
     "get_agent_status",
     "handle_credential_submission",

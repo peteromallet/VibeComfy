@@ -14853,3 +14853,293 @@ def test_fix3_applied_unverified_record_idempotent_response_real_path(tmp_path):
     assert unsupported_assessment["outcome_class"] is None
     assert unsupported_assessment["verdict"] == "undetermined"
     assert unsupported_assessment["passed"] is False
+
+
+# ── §28 DEEP-AUDIT-FIX-3 — fix 7: classify parser + timeout retry ───────────
+
+
+class _ScriptedRuntime:
+    """Fake Arnold runtime returning a fixed script of results/exceptions."""
+
+    def __init__(self, script: list[Any]) -> None:
+        self.script = list(script)
+        self.calls: list[dict[str, Any]] = []
+
+    def run_model_turn(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(kwargs)
+        step = self.script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+def _timeout_with_row(*, attempt: int) -> TimeoutError:
+    exc = TimeoutError("Agent worker timed out.")
+    exc.model_attempts = [
+        {
+            "phase": "classify",
+            "attempt": attempt,
+            "outcome": "failure",
+            "failure_type": "timeout",
+        }
+    ]
+    return exc
+
+
+def test_extract_classify_json_extracts_decision_from_prose_with_decoy() -> None:
+    """§28 fix 7: classify JSON wrapped in prose/markdown still parses; a
+    brace-bearing decoy sentence never masquerades as the decision object."""
+    raw = (
+        "Sure — the {LoRA} distillation note first.\n"
+        "```json\n{\"decoy\": {\"a\": 1}}\n```\n"
+        'Final decision: {"research": false, "implement": true, '
+        '"reply": true, "route": "adapt", "intent": "edit", '
+        '"task": "edit graph"}'
+    )
+
+    decision = agent_provider.extract_classify_json(raw)
+
+    assert decision["route"] == "adapt"
+    assert decision["implement"] is True
+    # Clean JSON passes through byte-equivalent.
+    assert agent_provider.extract_classify_json('{"route": "respond"}') == {
+        "route": "respond"
+    }
+
+
+def test_extract_classify_json_missing_or_empty_fails_closed() -> None:
+    """§28 fix 7: genuinely missing/empty classify JSON fails CLOSED with
+    typed parse_reason evidence (never silently succeeds)."""
+    from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+
+    with pytest.raises(MalformedModelJSON) as empty_excinfo:
+        agent_provider.extract_classify_json("   \n")
+    assert empty_excinfo.value.parse_reason == "empty"
+
+    with pytest.raises(MalformedModelJSON) as missing_excinfo:
+        agent_provider.extract_classify_json(
+            "There is simply no structured payload in this prose at all."
+        )
+    assert missing_excinfo.value.parse_reason == "missing_classify_json"
+
+
+def test_run_model_turn_classify_timeout_retries_once_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§28 fix 7: a provider timeout in the CLASSIFY phase retries ONCE with
+    the same prompt; the returned evidence records both attempts (length 2:
+    timeout then success)."""
+    from vibecomfy.comfy_nodes.agent.runtime import (
+        begin_model_attempt_capture,
+        end_model_attempt_capture,
+        snapshot_model_attempt_capture,
+    )
+
+    runtime = _ScriptedRuntime([
+        _timeout_with_row(attempt=1),
+        {
+            "content": '{"route": "respond"}',
+            "json": {"route": "respond"},
+            "model_attempts": [
+                {"phase": "classify", "attempt": 2, "outcome": "success"}
+            ],
+        },
+    ])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
+    token = begin_model_attempt_capture()
+    try:
+        result = agent_provider.run_model_turn(
+            "classify this request",
+            [{"role": "user", "content": "classify this request"}],
+            route="openrouter",
+            model="deepseek-chat",
+            response_contract="json",
+            profiling_context={"backend_phase": "classify"},
+        )
+    finally:
+        attempts = snapshot_model_attempt_capture()
+        end_model_attempt_capture(token)
+
+    # Exactly one bounded retry: two dispatches, same prompt.
+    assert len(runtime.calls) == 2
+    assert runtime.calls[0]["messages"] == runtime.calls[1]["messages"]
+    assert runtime.calls[1]["profiling_context"]["model_attempt"] == 2
+
+    # model_attempts length 2: [timed-out failure, success].
+    rows = result["model_attempts"]
+    assert len(rows) == 2
+    assert rows[0]["failure_type"] == "timeout" and rows[0]["outcome"] == "failure"
+    assert rows[1]["outcome"] == "success"
+
+    # The canonical capture saw the timed-out attempt too.
+    assert any(
+        row.get("failure_type") == "timeout" for row in attempts
+    ), attempts
+
+
+def test_run_model_turn_classify_timeout_twice_raises_with_merged_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§28 fix 7: when the single retry also times out the leg still fails,
+    with merged typed timeout evidence from BOTH attempts."""
+    runtime = _ScriptedRuntime([
+        _timeout_with_row(attempt=1),
+        _timeout_with_row(attempt=2),
+    ])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
+    with pytest.raises(TimeoutError) as excinfo:
+        agent_provider.run_model_turn(
+            "classify this request",
+            route="openrouter",
+            model="deepseek-chat",
+            profiling_context={"backend_phase": "classify"},
+        )
+    rows = list(coerce := __import__(
+        "vibecomfy.executor.contracts", fromlist=["coerce_model_attempts"]
+    ).coerce_model_attempts(getattr(excinfo.value, "model_attempts", None)))
+    assert len(rows) == 2
+    assert all(row["failure_type"] == "timeout" for row in rows)
+
+
+def test_run_model_turn_non_timeout_and_other_phases_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§28 fix 7: non-timeout failures and non-classify phases keep the
+    strict single-attempt behavior."""
+    from vibecomfy.comfy_nodes.agent.provider import ProviderError
+
+    runtime = _ScriptedRuntime([ProviderError("boom")])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    with pytest.raises(ProviderError):
+        agent_provider.run_model_turn(
+            "q",
+            route="openrouter",
+            model="m",
+            profiling_context={"backend_phase": "classify"},
+        )
+    assert len(runtime.calls) == 1
+
+    runtime = _ScriptedRuntime([_timeout_with_row(attempt=1)])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    with pytest.raises(TimeoutError):
+        agent_provider.run_model_turn(
+            "q",
+            route="openrouter",
+            model="m",
+            response_contract="text",
+            profiling_context={"backend_phase": "reply"},
+        )
+    assert len(runtime.calls) == 1
+
+
+def test_run_model_turn_normalizes_prose_wrapped_classify_json_at_seam(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§28 fix 7: a successful json-contract classify turn whose content is
+    prose around a JSON object gets its decision extracted at the provider
+    seam; the raw text stays on ``raw_content`` with typed provenance. Clean
+    or unparseable content passes through untouched (fail-closed)."""
+    raw = (
+        'The {LoRA} bit. {"some_decoy": 1}\n'
+        'Answer: {"research": false, "implement": false, "reply": true, '
+        '"route": "inspect", "intent": "explain_graph"}'
+    )
+    runtime = _ScriptedRuntime([{"content": raw, "json": {"some_decoy": 1}}])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
+    result = agent_provider.run_model_turn(
+        "q",
+        route="openrouter",
+        model="m",
+        response_contract="json",
+        profiling_context={"backend_phase": "classify"},
+    )
+    assert json.loads(result["content"])["route"] == "inspect"
+    assert result["raw_content"] == raw
+    assert result["parse_provenance"]["parse_reason"] == "extracted_from_prose"
+
+    clean = '{"route": "respond"}'
+    runtime = _ScriptedRuntime([{"content": clean, "json": {"route": "respond"}}])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    untouched = agent_provider.run_model_turn(
+        "q",
+        route="openrouter",
+        model="m",
+        profiling_context={"backend_phase": "classify"},
+    )
+    assert untouched["content"] == clean and "raw_content" not in untouched
+
+    prose_only = "no object anywhere in here"
+    runtime = _ScriptedRuntime([{"content": prose_only}])
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+    passthrough = agent_provider.run_model_turn(
+        "q",
+        route="openrouter",
+        model="m",
+        profiling_context={"backend_phase": "classify"},
+    )
+    assert passthrough["content"] == prose_only and "raw_content" not in passthrough
+
+
+def test_classify_timeout_retry_evidence_feeds_runner_infra_classification() -> None:
+    """§28 fix 7 requirement 3: the bounded classify-timeout retry's typed
+    attempt evidence feeds the harness's canonical infra machinery unchanged —
+    a summary carrying [timeout, success] re-derives as succeeded (no stale
+    infra markers), and [timeout, timeout] classifies infra_timeout +
+    retryable so persisted summaries reflect the retry truthfully."""
+    from tests.live_agentic_harness.runner import (
+        _classify_retryable_infra_summary,
+        _is_retryable_infra_summary,
+    )
+
+    guard_fail = {
+        "live_agentic_success": False,
+        "metadata_success": False,
+        "score_class": "product_fail",
+    }
+
+    def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        summary = {
+            "scenario_id": "leg",
+            "status": "error",
+            "ok": False,
+            "guard": dict(guard_fail),
+            "agent_exercised": True,
+            "model_attempts": rows,
+        }
+        _classify_retryable_infra_summary(summary)
+        return summary
+
+    # Retry SUCCEEDED on the second attempt and the leg completed → the
+    # guard reports success; every stale infra marker is cleared so a
+    # recovered classify-timeout retry can never be retried or misclassified.
+    recovered = {
+        "scenario_id": "leg-ok",
+        "status": "success",
+        "ok": True,
+        "guard": {"live_agentic_success": True, "metadata_success": True,
+                  "score_class": "pass"},
+        "model_attempts": [
+            {"phase": "classify", "attempt": 1, "outcome": "failure",
+             "failure_type": "timeout"},
+            {"phase": "classify", "attempt": 2, "outcome": "success"},
+        ],
+    }
+    _classify_retryable_infra_summary(recovered)
+    assert recovered.get("retryable_infra") is not True
+    assert "failure_class" not in recovered or recovered["failure_class"] != "infra_timeout"
+
+    # Both attempts timed out → infra_timeout, retriable under the harness's
+    # once-only new-identity policy (unchanged semantics).
+    exhausted = _summary([
+        {"phase": "classify", "attempt": 1, "outcome": "failure",
+         "failure_type": "timeout"},
+        {"phase": "classify", "attempt": 2, "outcome": "failure",
+         "failure_type": "timeout"},
+    ])
+    assert exhausted["failure_class"] == "infra_timeout"
+    assert exhausted["score_class"] == "infra_blocked"
+    assert exhausted["retryable_infra"] is True
+    assert _is_retryable_infra_summary(exhausted) is True
