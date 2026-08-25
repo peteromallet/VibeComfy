@@ -515,6 +515,30 @@ def _sync_narrated_clarify_outcome(
     return synced_internal, synced_public
 
 
+_CLASS_FAMILY_IDENTITIES: frozenset[str] = frozenset({
+    # Curated brand/family tokens (normalized to [a-z0-9]) eligible for
+    # substring family matching against a missed class name.  RR1-FIX-REV
+    # (RRSYN-2): the former rule matched ANY request token of ≥4 letters as a
+    # substring, so generic domain words — "image", "audio", "model",
+    # "loader" — promoted unrelated exploratory schema misses into
+    # requires_custom_nodes blockers that suppressed candidates and drove
+    # terminal promotion.  Family relevance now requires an explicit bounded
+    # identity; extend this set deliberately per brand, never generically.
+    "acestep",
+    "advancedcontrolnet",
+    "easyuse",
+    "groundingdino",
+    "indextts",
+    "inspire",
+    "layermask",
+    "llamacpp",
+    "segmentanything",
+    "tripo",
+    "ultralytics",
+    "vibevoice",
+})
+
+
 def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
     """Return structured schema misses that the current edit request named.
 
@@ -522,12 +546,11 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
     detail.  We intentionally do not infer absence from refusal prose: a class
     must be both a structured exact miss and a named target in this request.
 
-    RR1-FIX(2): "named" matches on request FAMILY terms too — a user who says
-    "GroundingDINO" names ``GroundingDinoModelLoader`` even though no real
-    class equals the query token. Exact delimited-token equality structurally
-    cannot fire for family/brand requests (batch-5 d813fe evidence), so after
-    the exact check fails, a request token of ≥4 letters that occurs
-    case-insensitively inside the missed class name counts as naming it.
+    RR1-FIX-REV: "named" means EITHER the exact delimited class token in the
+    request, OR an explicit bounded class-family/brand identity (see
+    ``_CLASS_FAMILY_IDENTITIES``) carried by both a request token and the
+    missed class name.  Generic domain words never establish relevance by
+    substring alone.
     """
     request_text = " ".join(
         str(value or "")
@@ -542,7 +565,14 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
         token
         for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", request_text)
     }
-    lowered_request = request_text.lower()
+    family_tokens = {
+        normalized
+        for token in request_tokens
+        if (
+            normalized := re.sub(r"[^a-z0-9]", "", token.lower())
+        )
+        in _CLASS_FAMILY_IDENTITIES
+    }
 
     def _names_class(class_type: str) -> bool:
         if re.search(
@@ -552,7 +582,7 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
         ):
             return True
         lowered_class = class_type.lower()
-        return any(token.lower() in lowered_class for token in request_tokens)
+        return any(family in lowered_class for family in family_tokens)
 
     missing: list[str] = []
     for turn in getattr(state, "batch_turns", ()) or ():

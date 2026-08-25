@@ -596,23 +596,26 @@ git clone https://github.com/kijai/ComfyUI-DepthAnythingV2.git custom_nodes/Comf
 git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git custom_nodes/ComfyUI-VideoHelperSuite || true
 git clone https://github.com/rgthree/rgthree-comfy.git custom_nodes/rgthree-comfy || true
 git clone https://github.com/yolain/ComfyUI-Easy-Use.git custom_nodes/ComfyUI-Easy-Use || true
-# RRSYN-4: pin to the commit whose runtime object_info capture backs
-# vibecomfy/porting/cache/object_info/ComfyUI-Easy-Use@local-4de1ab3.json.
 git -C custom_nodes/ComfyUI-Easy-Use checkout 4de1ab3b66e48da916b6f263bacd001df53a2720 || true
 git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git custom_nodes/ComfyUI-WanVideoWrapper || true
-# RRSYN-4: provision the ACTUAL provider packs, each pinned to the exact
-# commit whose runtime import extraction produced its content-addressed
-# object_info snapshot (ownership proven by same-pack capture, never by
-# name similarity):
+# RR1-FIX-REV: packs below are provisioned as LIVE RUNTIME capability only.
+# The former "verified object_info capture" claim was FALSE for four providers
+# (audio-separation-nodes-comfyui@ac33956, ComfyUI-Easy-Use@4de1ab3,
+# ComfyUI-Inspire-Pack@d23db9a, ComfyUI-llama-cpp_vlm@f2209cc): their
+# snapshots were offline stub extraction, never a live /object_info surface.
+# Those cache files are removed/unindexed, and their classes are recorded in
+# UNPROVEN_PROVIDER_CLASSES — preflight refuses paid calls on edit scenarios
+# that need them until a same-pack LIVE capture exists.
 git clone https://github.com/ltdrdata/ComfyUI-Inspire-Pack.git custom_nodes/ComfyUI-Inspire-Pack || true
 git -C custom_nodes/ComfyUI-Inspire-Pack checkout d23db9aa544de9a6d4c609cb7005fa9e0d42031d || true
 git clone https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm.git custom_nodes/ComfyUI-llama-cpp_vlm || true
 git -C custom_nodes/ComfyUI-llama-cpp_vlm checkout f2209cccb726647640271bd1cea071a570fc62f5 || true
-# PROHIBITION (RRSYN-4): AudioCombine/AudioSeparation/AudioFilter/
-# AudioVolumeNormalization/VocalAndSoundRemoverNode/VibeVoice classes must
-# NEVER be registered into ComfyUI-AceStep_SFT@*.json or any other pack's
-# snapshot without a same-pack live capture proving that pack owns them.
-# Absence stays an honest non-pass where a scenario requires such an edit.
+# PROHIBITION (RRSYN-4 / RR1-FIX-REV): AudioCombine/AudioSeparation/AudioFilter/
+# AudioVolumeNormalization/VocalAndSoundRemoverNode/VibeVoice/easy forLoop*/
+# ImageBatchSplitter //Inspire/llama_cpp_* classes must NEVER be registered
+# into any pack snapshot without a same-pack LIVE capture proving that pack
+# owns them.  Absence stays an honest non-pass where a scenario requires such
+# an edit.
 $PY -m pip install PyWavelets matplotlib
 if [ -f custom_nodes/ComfyUI-LTXVideo/requirements.txt ]; then $PY -m pip install --no-deps -r custom_nodes/ComfyUI-LTXVideo/requirements.txt || true; fi
 if [ -f custom_nodes/ComfyUI-KJNodes/requirements.txt ]; then $PY -m pip install --no-deps -r custom_nodes/ComfyUI-KJNodes/requirements.txt || true; fi

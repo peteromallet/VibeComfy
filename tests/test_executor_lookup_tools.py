@@ -627,7 +627,9 @@ def test_node_schema_hit_inside_admission_is_admissible() -> None:
     assert result.result["admission_note"] is None
 
 
-def test_node_schema_without_admission_provider_defaults_admissible() -> None:
+def test_node_schema_without_frozen_authority_is_unknown_to_admission() -> None:
+    """RRSYN-5 / RR1-FIX-REV: no frozen admission snapshot means the hit is
+    unknown to current admission — never silently admissible."""
     provider = FakeProvider(
         {
             "TestNode": _schema(
@@ -637,4 +639,92 @@ def test_node_schema_without_admission_provider_defaults_admissible() -> None:
         }
     )
     result = node_schema("TestNode", provider=provider)
-    assert result.result["admissible"] is True
+    assert result.status is ToolStatus.OK
+    assert result.result["available"] is True
+    assert result.result["admissible"] is False
+    assert "unknown to current admission" in result.result["admission_note"]
+
+
+def _frozen_snapshot(class_types: tuple[str, ...]):
+    from vibecomfy.schema.types import (
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    schemas = {
+        class_type: schema_payload_from_node_schema(
+            class_type,
+            _schema(
+                class_type,
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+            ),
+        )
+        for class_type in class_types
+    }
+    return capture_schema_snapshot(
+        class_types=list(class_types),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": schemas,
+            "missing_classes": [],
+        },
+        node_classes={str(i + 1): ct for i, ct in enumerate(class_types)},
+    )
+
+
+def test_node_schema_handler_labels_against_turn_frozen_snapshot() -> None:
+    """The production handler must always pass the turn's frozen admission
+    snapshot so ambient hits are labeled, not blessed."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.tool_specs import _node_schema_handler
+    from vibecomfy.executor.tool_contracts import ToolStatus as _TS
+
+    provider = FakeProvider(
+        {
+            "GhostNode": _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[],
+            ),
+            "KnownNode": _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[],
+            ),
+        }
+    )
+    session = SimpleNamespace(
+        schema_provider=provider,
+        admission_schema_snapshot=_frozen_snapshot(("KnownNode",)),
+    )
+
+    ghost = _node_schema_handler(session, {"node_class": "GhostNode"}, None)
+    assert ghost.status is _TS.OK
+    assert ghost.result["admissible"] is False
+    assert "NOT in the current turn's frozen" in ghost.result["admission_note"]
+
+    known = _node_schema_handler(session, {"node_class": "KnownNode"}, None)
+    assert known.result["admissible"] is True
+    assert known.result["admission_note"] is None
+
+
+def test_node_schema_handler_without_frozen_authority_stays_closed() -> None:
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.tool_specs import _node_schema_handler
+
+    provider = FakeProvider(
+        {
+            "AmbientNode": _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    session = SimpleNamespace(schema_provider=provider)
+
+    result = _node_schema_handler(session, {"node_class": "AmbientNode"}, None)
+
+    assert result.result["available"] is True
+    assert result.result["admissible"] is False
+    assert "unknown to current admission" in result.result["admission_note"]

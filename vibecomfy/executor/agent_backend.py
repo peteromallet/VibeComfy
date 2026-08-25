@@ -204,11 +204,10 @@ def run_classify_turn(
     messages from *query* / *has_graph* / *graph_summary*.  This allows
     callers to pre-enrich messages with session context and graph reference
     maps without changing the classify route signature.
-
-    *expect_graph_changed* declares the interaction's edit contract (RC14):
-    when True, the built messages instruct the classifier that the route MUST
-    be an applyable edit route — never ``inspect`` or ``respond`` — so a
-    malformed-JSON retry cannot re-route an expected-edit scenario into a no-op.
+    *expect_graph_changed* forwards the interaction's intent as context
+    (RRSYN-7 / RR1-FIX-REV): the classifier is told what the end user
+    expects but is never told which route it MUST pick — route choice stays
+    judgment-owned and a grounded refusal/clarification remains valid.
 
     Parameters
     ----------

@@ -210,10 +210,21 @@ def test_unrelated_miss_never_counts_as_named() -> None:
     assert _batch_named_schema_absences(state) == ()
 
 
+def test_generic_domain_tokens_never_establish_family_relevance() -> None:
+    """RRSYN-2 / RR1-FIX-REV: generic words like image/audio/model/loader in
+    the request must not promote an unrelated structured miss into a named
+    absence — only exact classes or bounded brand/family identities may."""
+    state = _absence_state(
+        "Make the image brighter and swap the audio model loader",
+        ["SomeImageLoaderModel"],
+    )
+    assert _batch_named_schema_absences(state) == ()
+
+
 def test_blocker_records_from_typed_evidence_without_prose() -> None:
     """Plain-prose stops still attach the typed absence blocker."""
     state = _absence_state(
-        "Add MTCNN face detection",
+        "Add MTCNN and RetinaFace detection",
         ["MTCNN", "RetinaFace"],
     )
     missing = _record_named_schema_absence_blocker(state, has_candidate=False)

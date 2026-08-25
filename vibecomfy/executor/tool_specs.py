@@ -35,6 +35,7 @@ from typing import Any, Callable, Mapping
 
 from vibecomfy.executor.evidence_pack import EvidenceArtifact
 from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
+from vibecomfy.schema.types import SchemaSnapshot
 
 PHASE_RESEARCH = "research"
 PHASE_IMPLEMENT = "implement"
@@ -577,9 +578,21 @@ def _node_schema_handler(
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.lookup_tools")
     provider = getattr(session, "schema_provider", None)
-    if provider is None:
-        return mod.node_schema(args["node_class"])
-    return mod.node_schema(args["node_class"], provider=provider)
+    # RRSYN-5 / RR1-FIX-REV: ALWAYS label lookups against the turn's frozen
+    # admission snapshot when the session carries one; without frozen
+    # authority the lookup result is labeled unknown-to-current-admission
+    # (never admissible by default).
+    frozen = getattr(session, "admission_schema_snapshot", None)
+    admission_provider = None
+    if isinstance(frozen, SchemaSnapshot):
+        from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+        admission_provider = FrozenSchemaSnapshotProvider(frozen)
+    return mod.node_schema(
+        args["node_class"],
+        provider=provider,
+        admission_provider=admission_provider,
+    )
 
 
 def _ready_template_list_handler(

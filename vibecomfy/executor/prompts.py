@@ -151,10 +151,12 @@ _CLASSIFY_SYSTEM = (
     "- No implement=true for non-applyable routes: clarify, respond, inspect, "
     "and research must all set implement=false.\n"
     "- No research=true for respond, inspect, or revise.\n"
-    "- Hard rule: when the interaction expects a graph change "
-    "(expect_graph_changed=true is declared), route MUST be an edit route "
-    "(\"revise\", \"adapt\", \"reorganise\"). Non-applyable routes including "
-    "\"inspect\" and \"respond\" are rejected.\n"
+    "- Interaction-contract context: when expect_graph_changed=true is "
+    "declared, it records that the END USER expects this workflow to change. "
+    "It is context about user intent, not a routing mandate — choose "
+    "whichever route best serves the request. If the expected change cannot "
+    "be grounded in graph and schema evidence, a clarify or honest no-change "
+    "route is a valid judgment-owned outcome.\n"
     "- Be conservative only when the user request is ambiguous, underspecified, "
     "or references nodes/options/attachments without enough detail to safely "
     "edit; then prefer route=\"clarify\" with a concise clarification_question "
@@ -342,13 +344,13 @@ _CLASSIFY_PARSE_RETRY_PROMPT = (
 # or prose debris — never a classification — so both extraction and parsing
 # must fail closed instead of manufacturing a respond/reply=True default.
 CLASSIFY_DECISION_STRONG_KEYS = frozenset({"route", "intent", "implement", "reply"})
-
-
 _CLASSIFY_EXPECT_GRAPH_CHANGED = (
-    "This interaction expects a graph change (expect_graph_changed=true). "
-    "Classify route MUST be an edit route (\"revise\", \"adapt\", "
-    "or \"reorganise\"). Non-applyable routes such as \"inspect\" and "
-    "\"respond\" will be rejected."
+    "Interaction-contract context: this turn was submitted with "
+    "expect_graph_changed=true — the end user expects the workflow to "
+    "change. Treat it as context about user intent, not a routing mandate: "
+    "choose whichever route best serves the request. If the expected change "
+    "cannot be grounded in graph and schema evidence, a clarify or honest "
+    "no-change route is a valid judgment-owned outcome."
 )
 
 _CLASSIFY_AFFORDANCE_NOTE = (
@@ -382,10 +384,12 @@ def build_classify_messages(
     clarification artifacts so the classifier can resolve follow-up references
     (e.g. "option 2", "that node") against prior turn context.
 
-    *expect_graph_changed* declares the interaction's edit contract: when
-    True the scenario expects a graph change, and the classifier is told its
-    route MUST be an applyable edit route; ``inspect`` and ``respond`` are
-    non-applyable and therefore rejected (RC14).
+    *expect_graph_changed* records the end user's interaction intent as
+    context: the turn was submitted expecting a workflow change.  RRSYN-7 /
+    RR1-FIX-REV: it equips the classifier with that intent but never
+    prescribes a route — grounded refusal/clarification stays a
+    judgment-owned success path, and apply authority is enforced only after
+    deliberation.
     """
     parts = [f"User request:\n{query}"]
     if has_graph:

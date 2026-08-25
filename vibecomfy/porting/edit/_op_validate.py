@@ -9,6 +9,8 @@ added by an earlier operation in the same atomic batch.
 
 from __future__ import annotations
 
+import re
+
 from typing import Any, Mapping, Sequence
 
 from vibecomfy.porting.edit._ir_utils import apply_edit_cow
@@ -153,10 +155,32 @@ def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
 
 
 def _known_output(node: Any, slot: str | int, provider: Any) -> bool:
+    match = re.fullmatch(r"[Uu]nknown_(\d+)", str(slot))
+    if match is not None:
+        # RRSYN-5: ``unknown_N`` is the emit surface's typed-unknown fallback
+        # for an output with no name/type evidence.  It round-trips by SLOT
+        # INDEX against whatever output count evidence exists.
+        index = int(match.group(1))
+        metadata = getattr(node, "metadata", None) or {}
+        names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+        ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+        outputs_ui = ui.get("outputs") if isinstance(ui, Mapping) else None
+        schema = _schema_for(node, provider)
+        outputs = getattr(schema, "outputs", None) or ()
+        for evidence in (
+            names if isinstance(names, (list, tuple)) else (),
+            outputs_ui if isinstance(outputs_ui, (list, tuple)) else (),
+            tuple(outputs),
+        ):
+            if 0 <= index < len(evidence):
+                return True
+        return False
     metadata = getattr(node, "metadata", None) or {}
     names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
     if isinstance(names, (list, tuple)):
         if isinstance(slot, int) and 0 <= slot < len(names):
+            return True
+        if str(slot) in {str(name) for name in names if name is not None}:
             return True
     ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
     outputs_ui = ui.get("outputs") if isinstance(ui, Mapping) else None
@@ -169,15 +193,12 @@ def _known_output(node: Any, slot: str | int, provider: Any) -> bool:
                     return True
             elif str(item) == str(slot) or index == slot:
                 return True
-        if isinstance(names, (list, tuple)) and str(slot) in {
-            str(name) for name in names if name is not None
-        }:
-            return True
     schema = _schema_for(node, provider)
     outputs = getattr(schema, "outputs", None) or ()
     if isinstance(slot, int) and 0 <= slot < len(outputs):
         return True
     return any(str(getattr(item, "name", "") or "") == str(slot) for item in outputs)
+
 
 
 def _known_input(node: Any, field: str, provider: Any) -> bool:

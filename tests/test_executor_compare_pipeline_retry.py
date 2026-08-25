@@ -161,7 +161,19 @@ def test_success_after_timeout_keeps_raw_first_attempt_failure_visible(
 
     def command(spec: Path, out: Path) -> list[str]:
         if ".attempt_2" in str(spec):
-            payload = {"ok": True, "summary": {"ok": True, "status": "success"}}
+            payload = {
+                "ok": True,
+                "summary": {
+                    "ok": True,
+                    "status": "success",
+                    # Real _run_mode summaries always carry the typed guard;
+                    # final_success derives from it (RR1-FIX-REV).
+                    "guard": {
+                        "live_agentic_success": True,
+                        "score_class": "pass",
+                    },
+                },
+            }
             out.write_text(json.dumps(payload), encoding="utf-8")
             return [sys.executable, "-c", "pass"]
         return _sleep_stub()
@@ -203,6 +215,47 @@ def test_product_failure_is_never_retried(
     assert final["attempts"][0]["retry_ownership"]["retry_disposition"] == "terminal"
     assert not (specs_dir / "leg_0000_retry-probe_staged.attempt_2.json").exists()
     assert not (specs_dir / "result_0000_retry-probe_staged.attempt_2.json").exists()
+
+
+def test_completed_product_failure_is_final_failure_without_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RRSYN-6 / RR1-FIX-REV: a child that COMPLETES with a typed
+    product-failure guard is not retried and is bookkept as a final failure —
+    summary presence alone must never mint final_success=True."""
+
+    def command(spec: Path, out: Path) -> list[str]:
+        payload = {
+            "ok": True,
+            "summary": {
+                "ok": True,
+                "status": "success",
+                "guard": {
+                    "live_agentic_success": False,
+                    "score_class": "product_fail",
+                    "failure_class": "assessment_fail",
+                },
+            },
+        }
+        out.write_text(json.dumps(payload), encoding="utf-8")
+        return [sys.executable, "-c", "pass"]
+
+    monkeypatch.setattr(comparator, "_leg_command", command)
+
+    results = comparator._run_legs_in_processes(
+        _one_descriptor(), output_base=tmp_path, tag="lane", transport=None, concurrency=1
+    )
+
+    specs_dir = tmp_path / "_legs"
+    final = results[0]
+    assert isinstance(final, dict)
+    # Completed on attempt 1: terminal, never relaunched.
+    assert final["attempt_count"] == 1
+    assert final["retried_after_timeout"] is False
+    assert final["final_success"] is False
+    assert final["raw_first_attempt_success"] is False
+    assert final["guard"]["score_class"] == "product_fail"
+    assert not (specs_dir / "leg_0000_retry-probe_staged.attempt_2.json").exists()
 
 
 # ── bounded tails ────────────────────────────────────────────────────────────

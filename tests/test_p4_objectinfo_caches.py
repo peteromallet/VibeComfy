@@ -36,7 +36,12 @@ CACHE_DIR = Path(__file__).resolve().parents[1] / "vibecomfy" / "porting" / "cac
 PACK_FILES = {
     "ComfyUI-AceStep_SFT": "ComfyUI-AceStep_SFT@local-c2cfe8e.json",
     "ComfyUI-Whisper": "ComfyUI-Whisper@local-006a709.json",
-    "ComfyUI-Easy-Use": "ComfyUI-Easy-Use@local-4de1ab3.json",
+    # RR1-FIX-REV: ComfyUI-Easy-Use@local-4de1ab3.json was OFFLINE stub
+    # extraction, not a live /object_info capture — removed and unindexed
+    # together with its index/provenance rows.  Its classes are recorded
+    # honestly blocked in
+    # tests/live_agentic_harness/scenario_obligations.py::
+    # UNPROVEN_PROVIDER_CLASSES until a same-pack LIVE capture exists.
     "ComfyUI-Hunyuan3DTools": "ComfyUI-Hunyuan3DTools@local-621fb54.json",
     # Regenerated in place (R2); pinned source recorded in provenance.json.
     "ComfyUI-IndexTTS": "ComfyUI-IndexTTS@local.json",
@@ -52,20 +57,6 @@ EXPECTED_CLASSES = {
         "Apply Whisper",
         "Add Subtitles To Frames",
         "Save SRT",
-    ],
-    "ComfyUI-Easy-Use": [
-        # RRSYN-4 honest re-capture (yolain/ComfyUI-Easy-Use @4de1ab3b66e4,
-        # runtime import extraction): classes with fully faithful surfaces.
-        # ``easy preSamplingCustom`` is deliberately ABSENT — its INPUT_TYPES
-        # raises under the offline stub environment, so no faithful capture
-        # exists at this commit; recorded as an unobserved gap in the commit
-        # message instead of shipping a hand-fabricated surface.  Loop nodes
-        # pin the real dynamic outputs the former corpus-subset file lacked.
-        "easy pipeIn",
-        "easy kSamplerInpainting",
-        "easy controlnetLoader++",
-        "easy forLoopStart",
-        "easy forLoopEnd",
     ],
     "ComfyUI-Hunyuan3DTools": [
         "Hy3DTools_RenderSpecificView",
@@ -412,3 +403,115 @@ class TestP4R2CUnresolvedComboCoverage:
 def test_gated_tts_classes_pass_provenance_gate(class_type: str) -> None:
     ok, message = _provenance_row(CACHE_DIR, class_type)
     assert ok, message
+
+
+# ---------------------------------------------------------------------------
+# RR1-FIX-REV — honest-skip law for simulated captures (F3), enforced
+# unproven-provider preflight violations (F4), exact-port obligations (F5).
+# ---------------------------------------------------------------------------
+
+_REMOVED_SIMULATED_CAPTURES = (
+    "audio-separation-nodes-comfyui@local-ac33956.json",
+    "ComfyUI-Easy-Use@local-4de1ab3.json",
+    "ComfyUI-Inspire-Pack@local-d23db9a.json",
+    "ComfyUI-llama-cpp_vlm@local-f2209cc.json",
+)
+
+
+def test_simulated_stub_captures_are_removed_and_unindexed() -> None:
+    """RRSYN-4 / RR1-FIX-REV: offline stub-extraction products must not be
+    published as authoritative live object_info — no file, no index row, no
+    provenance attestation."""
+    index = json.loads((CACHE_DIR / "index.json").read_text(encoding="utf-8"))
+    provenance = json.loads(
+        (CACHE_DIR / "provenance.json").read_text(encoding="utf-8")
+    )
+    removed_files = set(_REMOVED_SIMULATED_CAPTURES)
+    for filename in _REMOVED_SIMULATED_CAPTURES:
+        assert not (CACHE_DIR / filename).is_file(), filename
+        assert filename not in provenance["packs"]
+        pointing = [c for c, f in index.items() if f == filename]
+        assert pointing == [], f"{filename} still indexed for {pointing[:3]}"
+    # No dangling references: every remaining row points at an existing file.
+    for filename in set(index.values()):
+        assert (CACHE_DIR / str(filename)).is_file(), filename
+
+
+def test_enforced_preflight_rejects_unproven_gated_edit_scenarios() -> None:
+    """RRSYN-4 / RR1-FIX-REV: UNPROVEN_PROVIDER_CLASSES entries on
+    edit-required scenarios are hard preflight VIOLATIONS when schema
+    resolution is enforced (the paid-call lane's unconditional mode) — never
+    warning-only bypasses.  Pre-fix this preflight returned ok=True."""
+    from tests.live_agentic_harness import scenario_obligations as so
+
+    final50 = (
+        Path(__file__).resolve().parent
+        / "live_agentic_harness"
+        / "threaded_comparison_manifest_final50.json"
+    )
+    with pytest.raises(so.ScenarioObligationError) as excinfo:
+        so.preflight_scenario_obligations(final50, require_schema_resolution=True)
+    message = str(excinfo.value)
+    assert "unproven/undeclared" in message
+    # A demoted provider class must be named.
+    assert "AudioCombine" in message or "easy forLoopStart" in message \
+        or "llama_cpp_model_loader" in message
+
+
+def test_exact_port_evidence_is_validated_against_frozen_schema() -> None:
+    """RRSYN-4 / RR1-FIX-REV: required input/widget/output ports are each
+    validated against the frozen captured schema before paid calls."""
+    from tests.live_agentic_harness.scenario_obligations import (
+        _resolve_schema_locally,
+    )
+
+    emotion_ok = {
+        "class_type": "IndexTTSEmotionOptionsNode",
+        "pack": "ComfyUI-IndexTTS",
+        "source": "authoritative_object_info",
+        "required_inputs": (),
+        "required_widgets": ("Sad", "Disgusted", "Calm"),
+        "required_outputs": ("emotion_control",),
+    }
+    resolved, failures = _resolve_schema_locally(emotion_ok)
+    assert resolved, failures
+
+    bad_output = dict(emotion_ok, required_outputs=("emotion_audio",))
+    resolved, failures = _resolve_schema_locally(bad_output)
+    assert not resolved
+    assert any("required output port 'emotion_audio'" in f for f in failures)
+
+    missing_widget = dict(
+        emotion_ok,
+        required_widgets=("Sad", "Melancholic", "DoesNotExist"),
+    )
+    resolved, failures = _resolve_schema_locally(missing_widget)
+    assert not resolved
+    assert any("DoesNotExist" in f for f in failures)
+
+    engine_ok = {
+        "class_type": "IndexTTSEngineNode",
+        "pack": "ComfyUI-IndexTTS",
+        "source": "authoritative_object_info",
+        "required_inputs": ("model_path", "temperature", "top_p"),
+        "required_widgets": ("model_path",),
+        "required_outputs": ("TTS_engine",),
+    }
+    resolved, failures = _resolve_schema_locally(engine_ok)
+    assert resolved, failures
+
+    missing_input = dict(engine_ok, required_inputs=("model_path", "voice"))
+    resolved, failures = _resolve_schema_locally(missing_input)
+    assert not resolved
+    assert any("required input port 'voice'" in f for f in failures)
+
+    layermask_ok = {
+        "class_type": "LayerMask: SegmentAnythingUltra V3",
+        "pack": "ComfyUI_LayerStyle_Advance",
+        "source": "authoritative_object_info",
+        "required_inputs": (),
+        "required_widgets": (),
+        "required_outputs": ("image", "mask"),
+    }
+    resolved, failures = _resolve_schema_locally(layermask_ok)
+    assert resolved, failures

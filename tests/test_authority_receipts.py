@@ -13,12 +13,44 @@ from vibecomfy.comfy_nodes.agent.authority_receipts import (
     verify_replay,
     write_authority_receipt,
 )
+from vibecomfy.comfy_nodes.agent import authority_receipts as _authority_receipts
 from vibecomfy.comfy_nodes.agent.candidate_transaction import (
     build_schema_witness,
     schema_provider_from_witness,
 )
-from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+from vibecomfy.schema.types import (
+    FrozenSchemaSnapshotProvider,
+    capture_schema_snapshot,
+    schema_payload_from_node_schema,
+)
 
+
+_OBJECT_INFO_ROOT = (
+    Path(__file__).resolve().parents[1] / "vibecomfy" / "porting" / "cache" / "object_info"
+)
+
+
+def _frozen_provider(class_types: tuple[str, ...]) -> FrozenSchemaSnapshotProvider:
+    """Frozen admission authority over whichever *class_types* resolve locally."""
+    prov = ObjectInfoIndexSchemaProvider(str(_OBJECT_INFO_ROOT))
+    payloads = {}
+    for class_type in class_types:
+        schema = prov.get_schema(class_type)
+        if schema is not None:
+            payloads[class_type] = schema_payload_from_node_schema(class_type, schema)
+    snap = capture_schema_snapshot(
+        class_types=sorted(payloads),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": payloads,
+            "missing_classes": [],
+        },
+        node_classes={str(i + 1): ct for i, ct in enumerate(sorted(payloads))},
+    )
+    return FrozenSchemaSnapshotProvider(snap)
+
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
 FIXTURE = (
     Path(__file__).parent
@@ -637,3 +669,119 @@ def test_crash_after_receipt_before_projection_recovers_applied_deterministicall
     assert projection.terminal_state == TERMINAL_STATE_APPLIED
     assert projection.accepted is True
     assert projection.landed_count == 1
+
+
+def test_mint_fails_closed_when_frozen_name_table_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RRSYN-1 / RR1-FIX-REV: an op-bearing delta over an EXISTING node may
+    never mint applyable authority when the frozen name domain cannot be
+    derived — the old code silently replayed unpinned."""
+    submit_graph = _submit_graph()
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "2", "text"],
+                "value": "hello world",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        _authority_receipts,
+        "canonical_frozen_name_table",
+        lambda *args, **kwargs: {},
+    )
+
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=None,
+        response={},
+        schema_version="2.0.0",
+        schema_provider=_frozen_provider(("CLIPTextEncode",)),
+    )
+
+    assert receipt.is_applyable is False
+    assert receipt.replay.replay_ok is False
+    assert receipt.replay.op_count == 1
+    assert receipt.replay.error is not None
+    assert receipt.replay.error.startswith("frozen_name_table_unavailable:")
+
+
+def test_mint_still_applies_when_frozen_name_table_derives() -> None:
+    """Positive control: a derivable table leaves ordinary receipts intact."""
+    submit_graph = _submit_graph()
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "2", "text"],
+                "value": "hello world",
+            }
+        ],
+    }
+
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=recompute_apply(submit_graph, envelope)[1],
+        response={},
+        schema_version="2.0.0",
+        schema_provider=_frozen_provider(("CLIPTextEncode",)),
+    )
+
+    assert receipt.is_applyable is True
+    assert receipt.replay.frozen_name_table
+
+
+def test_mint_fails_closed_when_widgetless_existing_node_leaves_table_empty() -> None:
+    """Absence is failure: a delta touching an existing node with no widget
+    roster yields an empty table and must not replay unpinned."""
+    submit_graph = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 7,
+                "type": "PreviewImage",
+                "mode": 0,
+                "pos": [0, 0],
+                "inputs": [{"name": "images", "type": "IMAGE", "link": None}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "pv"},
+            }
+        ],
+        "links": [],
+    }
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "pv", "anything"],
+                "value": 1,
+            }
+        ],
+    }
+
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=None,
+        response={},
+        schema_provider=_frozen_provider(("PreviewImage",)),
+        schema_version="2.0.0",
+    )
+
+    assert receipt.replay.replay_ok is False
+    assert receipt.replay.error is not None
+    assert receipt.replay.error.startswith("frozen_name_table_unavailable:")

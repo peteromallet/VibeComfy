@@ -1443,13 +1443,22 @@ def _leg_attempt_record(
     }
 
 
+def _leg_final_success(summary: Mapping[str, Any]) -> bool:
+    """RR1-FIX-REV (RRSYN-6): final success is the TYPED final guard verdict,
+    never mere summary presence.  ``_run_mode`` summaries whose guard carries
+    ``live_agentic_success=False`` / ``score_class=product_fail`` are completed
+    product failures and must bookkeep as final failures.
+    """
+    guard = summary.get("guard")
+    return isinstance(guard, Mapping) and guard.get("live_agentic_success") is True
+
+
 def _attach_leg_attempt_bookkeeping(
     summary: dict[str, Any],
     attempts: Sequence[Mapping[str, Any]],
     *,
     final_success: bool,
 ) -> dict[str, Any]:
-    """Attach runner-style attempt bookkeeping onto a final leg summary."""
     summary["attempts"] = [dict(attempt) for attempt in attempts]
     summary["attempt_count"] = len(attempts)
     summary["final_attempt"] = attempts[-1]["attempt"]
@@ -1616,7 +1625,12 @@ def _run_legs_in_processes(
 
             if accepted_summary is not None:
                 summary = _attach_leg_attempt_bookkeeping(
-                    accepted_summary, attempts, final_success=True
+                    accepted_summary,
+                    attempts,
+                    # RRSYN-6 / RR1-FIX-REV: derived from the typed final
+                    # guard, not summary presence — completed product
+                    # failures bookkeep as final failures.
+                    final_success=_leg_final_success(accepted_summary),
                 )
                 _persist_leg_attempts_index(
                     specs_dir, index, scenario_id, mode, attempts, summary

@@ -98,16 +98,31 @@ class ThreadedKernel:
 
 
 def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
-    """Return host policy for the classifier-free agent conversation.
+    """Return the host policy plan for the classifier-free agent conversation.
 
-    ``adapt`` exposes the existing combined research/edit conversation and its
-    shared tool registry.  Purposes forced by the public request shape use the
-    same deterministic helper as staged execution: no graph means research;
-    ``answer_only`` with a graph means inspection.  The model decides what
-    work is useful inside that hard capability envelope; no classifier
-    provider call precedes it.
+    RRSYN-7 / RR1-FIX-REV: routes are affordances, not prescriptions.  Only
+    two hard floors remain, and both mirror the shared post-classify host
+    policy in ``core._request_purpose_plan`` rather than coercing a route
+    choice:
+
+    * no graph → editing/inspection are physically unavailable, so the turn
+      runs the research-shaped conversation (capability truth, not routing);
+    * explicit ``answer_only`` with a graph → the end user's declared
+      non-edit interaction contract selects the inspect-only lane.
+
+    Every other attached-graph request gets the FULL judgment-owned envelope
+    (outside research, inspection, direct answer, concrete edits, layout
+    cleanup — none required).  The verbatim query is carried in
+    ``research_goal``/``change_goal``, and the declared interaction intent is
+    forwarded in the plan summary as context; the agent chooses the work.
     """
     purpose = deterministic_request_purpose(request)
+    intent_context = (
+        f"End-user interaction intent: interaction_mode="
+        f"{request.interaction_mode or 'unspecified'}"
+        + (" (answer_only: respond without editing)" if request.interaction_mode == "answer_only" else "")
+        + "."
+    )
     if purpose == "research":
         return ClassifyDecision(
             research=True,
@@ -117,8 +132,9 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
             task="research_nodes",
             intent="research",
             plan_summary=(
-                "Threaded research conversation; no graph is attached and "
-                "editing is disabled."
+                "No graph is attached, so editing and inspection are "
+                "unavailable: research the request and answer from evidence. "
+                + intent_context
             ),
             research_goal=request.query,
         )
@@ -131,7 +147,8 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
             task="inspect_graph",
             intent="explain_graph",
             plan_summary=(
-                "Threaded graph inspection; answer directly without editing."
+                "Answer-only interaction contract: explain the current graph "
+                "without editing. " + intent_context
             ),
         )
     return ClassifyDecision(
@@ -142,7 +159,13 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
         task="research_precedent",
         intent="edit",
         effort="high",
-        plan_summary="Threaded agent conversation over the shared edit kernel.",
+        plan_summary=(
+            "Threaded agent conversation. All affordances are available — "
+            "outside research (workflows, node packs, techniques), graph "
+            "inspection, direct answer, concrete graph edits, layout "
+            "cleanup — and NONE of them is a required step; choose based on "
+            "the verbatim request alone. " + intent_context
+        ),
         research_goal=request.query,
         change_goal=request.query,
     )

@@ -329,10 +329,11 @@ def node_schema(
     caches, node index, source trees) — deterministic and network-free.  Callers
     may inject any ``SchemaProvider`` (e.g. a live runtime provider).
 
-    RRSYN-5: when ``admission_provider`` (the turn's frozen SchemaSnapshot) is
-    supplied, a hit that the frozen authority cannot admit is labeled
-    explicitly (``admissible: false``) instead of being presented as plain
-    availability the agent could then rely on for edits.
+    RRSYN-5 / RR1-FIX-REV: every hit is labeled against the turn's frozen
+    admission snapshot.  Without one (``admission_provider is None``) the
+    result is ``admissible: false`` with an explicit
+    unknown-to-current-admission note — availability never implies
+    admissibility.
     """
     tool = TOOL_NODE_SCHEMA
 
@@ -361,7 +362,6 @@ def node_schema(
                 ),
             ),
         )
-
     if not isinstance(schema, NodeSchema):
         return _result(
             tool,
@@ -416,20 +416,47 @@ def node_schema(
         if value is not None:
             provenance[field_name] = _json_safe(value)
 
-    admissible = True
+    # RR1-FIX-REV (RRSYN-5): fail closed.  A hit is only "admissible" when a
+    # frozen admission authority CONFIRMS it; with no admission provider the
+    # hit is unknown to current admission — never silently true.
+    if admission_provider is None:
+        return _result(
+            tool,
+            ToolStatus.OK,
+            result={
+                "class_type": schema.class_type,
+                "available": True,
+                "admissible": False,
+                "admission_note": (
+                    f"{schema.class_type!r} cannot be checked against any "
+                    "frozen admission snapshot: this turn supplied none, so "
+                    "the class is unknown to current admission. Edits "
+                    "referencing it will be rejected until its owning pack "
+                    "capture is loaded into the turn."
+                ),
+                "pack": schema.pack,
+                "stub_schema": bool(is_workflow_stub_schema(schema)),
+                "inputs": inputs,
+                "input_names": [row["name"] for row in inputs],
+                "outputs": outputs,
+                "output_count": len(outputs),
+                "provenance": provenance,
+                "is_research_evidence": LOOKUP_IS_RESEARCH_EVIDENCE,
+                "evidence_label": "node_schema",
+            },
+        )
+    try:
+        admitted_schema = schema_for(admission_provider, node_class)
+        admissible = isinstance(admitted_schema, NodeSchema)
+    except Exception:  # noqa: BLE001 - a failing admission probe stays closed
+        admissible = False
     admission_note: str | None = None
-    if admission_provider is not None:
-        try:
-            admitted_schema = schema_for(admission_provider, node_class)
-            admissible = isinstance(admitted_schema, NodeSchema)
-        except Exception:  # noqa: BLE001 - a failing admission probe stays closed
-            admissible = False
-        if not admissible:
-            admission_note = (
-                f"{schema.class_type!r} is NOT in the current turn's frozen "
-                "admission snapshot; edits referencing it will be rejected "
-                "until its owning pack capture is loaded into the turn."
-            )
+    if not admissible:
+        admission_note = (
+            f"{schema.class_type!r} is NOT in the current turn's frozen "
+            "admission snapshot; edits referencing it will be rejected "
+            "until its owning pack capture is loaded into the turn."
+        )
 
     return _result(
         tool,

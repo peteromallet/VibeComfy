@@ -781,17 +781,11 @@ _CLASSIFY_JSON_NUDGE = (
 )
 
 
-_CLASSIFY_EDIT_ROUTING_NUDGE = (
-    "This interaction expects a graph change (expect_graph_changed=true). "
-    "Classify route MUST be an edit route (\"revise\", \"adapt\", "
-    "or \"reorganise\"). Non-applyable routes such as \"inspect\" and "
-    "\"respond\" will be rejected; choose the concrete edit route the request supports."
-)
-
-
-def _satisfies_expected_graph_change(plan: ClassifyDecision) -> bool:
-    """True only for routes that can actually return an edited graph."""
-    return plan.effective_route in {"revise", "adapt", "reorganise"}
+# RRSYN-7 / RR1-FIX-REV: the RC14 edit-routing re-ask machinery
+# (``_CLASSIFY_EDIT_ROUTING_NUDGE`` / ``_satisfies_expected_graph_change`` /
+# ``_reroute_expected_edit``) is REMOVED.  ``expect_graph_changed`` now only
+# equips the classifier with the end user's interaction intent; route choice
+# stays judgment-owned and apply authority is enforced after deliberation.
 
 
 def _classify_parse_is_retryable(exc: BaseException) -> bool:
@@ -819,44 +813,6 @@ def _classify_parse_is_retryable(exc: BaseException) -> bool:
     }
 
 
-def _reroute_expected_edit(
-    request: ExecutorRequest,
-    kwargs: dict[str, Any],
-) -> ClassifyDecision:
-    """Re-ask a classify turn that chose a non-applyable expected-edit route.
-
-    RC14: when ``expect_graph_changed`` is true, ``respond`` and ``inspect``
-    are both no-ops for the apply gate. Re-ask once with an edit-routing nudge;
-    if the model still chooses a non-applyable route, fail loudly.
-    """
-    base_messages = kwargs.get("messages")
-    if not isinstance(base_messages, list):
-        base_messages = build_classify_messages(
-            request.query,
-            has_graph=request.graph is not None,
-            graph_summary=_render_census_text(request.graph),
-            expect_graph_changed=True,
-        )
-    reroute_kwargs = dict(kwargs)
-    reroute_kwargs["messages"] = [
-        *base_messages,
-        {"role": "user", "content": _CLASSIFY_EDIT_ROUTING_NUDGE},
-    ]
-    plan = run_classify_turn(request.query, **reroute_kwargs)
-    if not _satisfies_expected_graph_change(plan):
-        raise _ExecutorPhaseError(
-            stage="classify",
-            failure_kind="MissingRequiredField",
-            message=(
-                "Classification failed: the scenario expects a graph change "
-                "(expect_graph_changed=true), but classify still routed to "
-                f"{plan.effective_route}. The classify route must be an "
-                "applyable edit route (revise, adapt, or reorganise), so the "
-                "request was rejected instead of proceeding as a no-op."
-            ),
-        )
-    return plan
-
 
 def _run_classify(
     request: ExecutorRequest,
@@ -871,10 +827,12 @@ def _run_classify(
     Always calls the model (SD1).  Converts provider exceptions through
     ``classify_failure`` so raw exceptions never leak.
 
-    *expect_graph_changed* declares the interaction's edit contract (RC14).
-    When True, a non-applyable plan is never returned: the first attempt is
-    re-asked once, and a malformed-JSON / missing-fields retry is re-asked
-    once, then rejected if the model still does not choose an edit route.
+    *expect_graph_changed* records the end user's interaction intent
+    (RRSYN-7 / RR1-FIX-REV): it is forwarded into the prompt as context —
+    never as a routing mandate.  The typed classifier owns the route choice;
+    a malformed-JSON / missing-fields retry still gets its ONE bounded JSON
+    repair, and apply/apply-gate authority is enforced only after
+    deliberation.
     """
     try:
         # Build enriched messages when session context carries actual data
@@ -921,10 +879,9 @@ def _run_classify(
             ):
                 raise
         else:
-            if expect_graph_changed is True and not _satisfies_expected_graph_change(plan):
-                # Hard rule: an expected-edit interaction never proceeds via a
-                # non-applyable route (RC14). Re-ask once, then fail loudly.
-                plan = _reroute_expected_edit(request, classify_kwargs)
+            # RRSYN-7 / RR1-FIX-REV: the plan is returned as chosen.  No
+            # route re-ask, no rejection — grounded refusal/clarify stays a
+            # judgment-owned success path.
             return plan
         retry_kwargs = dict(classify_kwargs)
         base_messages = retry_kwargs.get("messages")
@@ -937,18 +894,11 @@ def _run_classify(
                 expect_graph_changed=expect_graph_changed,
             )
         retry_content = _CLASSIFY_JSON_NUDGE
-        if expect_graph_changed is True:
-            retry_content = f"{retry_content}\n\n{_CLASSIFY_EDIT_ROUTING_NUDGE}"
         retry_kwargs["messages"] = [
             *base_messages,
             {"role": "user", "content": retry_content},
         ]
-        plan = run_classify_turn(request.query, **retry_kwargs)
-        if expect_graph_changed is True and not _satisfies_expected_graph_change(plan):
-            # The retry corrected the JSON but chose a non-applyable route —
-            # re-ask once, then reject instead of returning a no-op (RC14).
-            plan = _reroute_expected_edit(request, retry_kwargs)
-        return plan
+        return run_classify_turn(request.query, **retry_kwargs)
     except _ExecutorPhaseError:
         raise
     except Exception as exc:

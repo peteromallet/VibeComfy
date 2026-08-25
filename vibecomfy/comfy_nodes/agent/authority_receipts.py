@@ -465,6 +465,35 @@ def _op_touched_uids(ops: tuple[Any, ...]) -> frozenset[str]:
                 touched.add(ref_uid)
     return frozenset(touched)
 
+def _submit_graph_existing_uids(submit_graph: Any) -> frozenset[str]:
+    """Node identities already present in the raw submit graph.
+
+    RR1-FIX-REV (RRSYN-1): the mint-time name-domain guard needs to know
+    whether a delta touches a node the user's graph ALREADY had. Both the
+    ``vibecomfy_uid`` property and the raw numeric id are accepted identities;
+    over-matching only widens fail-closed coverage, never opens it.
+    """
+    if not isinstance(submit_graph, Mapping):
+        return frozenset()
+    nodes = submit_graph.get("nodes")
+    if not isinstance(nodes, list):
+        return frozenset()
+    uids: set[str] = set()
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        properties = node.get("properties")
+        uid = (
+            properties.get("vibecomfy_uid")
+            if isinstance(properties, Mapping)
+            else None
+        )
+        if isinstance(uid, str) and uid:
+            uids.add(uid)
+        elif node.get("id") is not None:
+            uids.add(str(node["id"]))
+    return frozenset(uids)
+
 
 def _verify_seal_coverage(
     workflow: Any,
@@ -504,7 +533,6 @@ def _verify_seal_coverage(
     return None
 
 
- 
 def _seal_frozen_name_domain(
     workflow: Any,
     name_authority: Mapping[str, Any] | None,
@@ -615,8 +643,11 @@ def canonical_frozen_name_table(
     One canonical offline ingest seals each node's compact-widget roster once;
     the resulting table is what ``build_authority_receipt`` records on the
     receipt and stamps into every replay, so verification never depends on
-    ambient object_info or a drifted second provider.  Any error yields an
-    empty table (fail-closed: replay then runs unpinned and honest).
+    ambient object_info or a drifted second provider.  Any ingest or provider
+    failure yields an empty table; since RR1-FIX-REV the receipt MINT treats
+    that as fail-closed for op-bearing deltas touching an existing node
+    (``frozen_name_table_unavailable``) instead of silently replaying
+    unpinned.
     """
     if not isinstance(submit_graph, Mapping) or not submit_graph:
         return {}
@@ -961,6 +992,30 @@ def build_authority_receipt(
         submit_graph,
         schema_provider=persisted_schema_provider,
     )
+    # RR1-FIX-REV (RRSYN-1): a delta that touches an EXISTING node may never
+    # mint authority without the frozen name domain of record.  Derivation
+    # failure or absence (empty table) previously degraded to an unpinned
+    # replay — the live/replay split-brain this module exists to prevent.
+    # Fail closed with a typed name-domain error; only genuine zero-op
+    # identity terminals (no envelope, no parsed ops) may stay unpinned.  A
+    # malformed envelope is left to the replay layer's own typed
+    # ``invalid_delta_envelope`` failure.
+    guard_touched_existing: tuple[str, ...] = ()
+    if (
+        isinstance(cumulative_delta_envelope, Mapping)
+        and not frozen_name_table
+    ):
+        try:
+            guard_ops = _extract_delta_ops_from_envelope(
+                cumulative_delta_envelope
+            )
+        except Exception:  # noqa: BLE001 - parse errors fail closed in replay
+            guard_ops = ()
+        if guard_ops:
+            touched = _op_touched_uids(guard_ops)
+            guard_touched_existing = tuple(
+                sorted(touched & _submit_graph_existing_uids(submit_graph))
+            )
     missing_touched = missing_touched_class_types(
         schema_witness=schema_witness,
         submit_graph=submit_graph,
@@ -983,6 +1038,30 @@ def build_authority_receipt(
                 else None
             ),
             error="missing_touched_schema:" + ",".join(missing_touched),
+            op_count=len(raw_ops) if isinstance(raw_ops, list) else 0,
+            verification_kind="delta_replay",
+        )
+    elif guard_touched_existing:
+        raw_ops = (
+            cumulative_delta_envelope.get("ops")
+            if isinstance(cumulative_delta_envelope, Mapping)
+            else None
+        )
+        replay = ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash=(
+                structural_graph_hash(candidate)
+                if isinstance(candidate, Mapping)
+                else None
+            ),
+            error=(
+                "frozen_name_table_unavailable: the frozen widget-name domain "
+                "of record could not be derived for a delta touching existing "
+                f"node(s) {list(guard_touched_existing[:8])}; refusing to "
+                "replay unpinned"
+            ),
             op_count=len(raw_ops) if isinstance(raw_ops, list) else 0,
             verification_kind="delta_replay",
         )

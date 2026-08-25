@@ -57,6 +57,11 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
             "class_type": "IndexTTSEngineNode",
             "pack": "ComfyUI-IndexTTS",
             "source": "authoritative_object_info",
+            # RR1-FIX-REV: exact ports validated against the frozen captured
+            # schema before paid calls.
+            "required_inputs": ("model_path", "temperature", "top_p"),
+            "required_widgets": ("model_path",),
+            "required_outputs": ("TTS_engine",),
         },
         {
             "class_type": "IndexTTSEmotionOptionsNode",
@@ -67,6 +72,8 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
             # reality: eight named FLOAT sliders, ``emotion_control`` is the
             # node OUTPUT). Leg edits target these sliders by name.
             "required_field_evidence": ("Sad", "Disgusted", "Calm"),
+            "required_widgets": ("Sad", "Disgusted", "Calm"),
+            "required_outputs": ("emotion_control",),
         },
     ),
     "multi-video-based-character-replacement-using": (
@@ -74,90 +81,35 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
             "class_type": "LayerMask: LoadSegmentAnythingModels",
             "pack": "ComfyUI_LayerStyle_Advance",
             "source": "authoritative_object_info",
+            "required_outputs": ("sam_models",),
         },
         {
             "class_type": "LayerMask: SegmentAnythingUltra V3",
             "pack": "ComfyUI_LayerStyle_Advance",
             "source": "authoritative_object_info",
+            "required_outputs": ("image", "mask"),
         },
     ),
-    # RRSYN-4 (batch-2 0eb676, batch-4 2x2, batch-5 llama-cpp/sd3): edit
-    # obligations whose frozen classes were absent from the runtime schema
-    # are construction-level impossibilities. Each names its exact captured
-    # provider; classes whose provider could NOT be proven by a same-pack
-    # capture stay UNDECLARED here on purpose — the undeclared-gate below
-    # then fails setup before any paid call instead of grading an
-    # impossible leg as product failure.
-    "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (
-        {
-            "class_type": "AudioCombine",
-            "pack": "audio-separation-nodes-comfyui",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "AudioSeparation",
-            "pack": "audio-separation-nodes-comfyui",
-            "source": "authoritative_object_info",
-        },
-    ),
-    "image-generates-a-2x2-seed-variation": (
-        {
-            "class_type": "ImageBatchSplitter //Inspire",
-            "pack": "ComfyUI-Inspire-Pack",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "easy forLoopStart",
-            "pack": "ComfyUI-Easy-Use",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "easy forLoopEnd",
-            "pack": "ComfyUI-Easy-Use",
-            "source": "authoritative_object_info",
-        },
-    ),
-    "audio-acestep-audio-generation-and-processing-workfl-1b1360": (
-        {
-            "class_type": "AudioCombine",
-            "pack": "audio-separation-nodes-comfyui",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "AudioSeparation",
-            "pack": "audio-separation-nodes-comfyui",
-            "source": "authoritative_object_info",
-        },
-    ),
-    "multi-wan-vace-video-retargeting-driven": (
-        {
-            "class_type": "easy forLoopStart",
-            "pack": "ComfyUI-Easy-Use",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "easy forLoopEnd",
-            "pack": "ComfyUI-Easy-Use",
-            "source": "authoritative_object_info",
-        },
-    ),
-    "image-llama-cpp-instruct-image-preview-and-save-5b54bf": (
-        {
-            "class_type": "llama_cpp_model_loader",
-            "pack": "ComfyUI-llama-cpp_vlm",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "llama_cpp_instruct_adv",
-            "pack": "ComfyUI-llama-cpp_vlm",
-            "source": "authoritative_object_info",
-        },
-        {
-            "class_type": "llama_cpp_parameters",
-            "pack": "ComfyUI-llama-cpp_vlm",
-            "source": "authoritative_object_info",
-        },
-    ),
+    # RRSYN-4 / RR1-FIX-REV: the four provider captures this wave once cited
+    # (audio-separation-nodes-comfyui@local-ac33956, ComfyUI-Easy-Use@local-
+    # 4de1ab3, ComfyUI-Inspire-Pack@local-d23db9a,
+    # ComfyUI-llama-cpp_vlm@local-f2209cc) were OFFLINE stub-extraction
+    # products, never live /object_info surfaces.  They are now removed and
+    # unindexed; every class they carried is recorded honestly below as
+    # UNPROVEN — the enforced preflight refuses paid calls instead of grading
+    # an impossible leg as product failure.
+    # Exact port expectations stay encoded here so that when a same-pack LIVE
+    # capture lands, the declaration can be restored WITH its ports:
+    #   audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676 /
+    #     audio-acestep-audio-generation-and-processing-workfl-1b1360:
+    #     AudioCombine/AudioSeparation (pack audio-separation-nodes-comfyui);
+    #   image-generates-a-2x2-seed-variation: ImageBatchSplitter //Inspire
+    #     (ComfyUI-Inspire-Pack), easy forLoopStart/easy forLoopEnd
+    #     (ComfyUI-Easy-Use, incl. dynamic loop outputs);
+    #   multi-wan-vace-video-retargeting-driven: easy forLoopStart/End;
+    #   image-llama-cpp-instruct-image-preview-and-save-5b54bf:
+    #     llama_cpp_model_loader / llama_cpp_instruct_adv /
+    #     llama_cpp_parameters (ComfyUI-llama-cpp_vlm).
 }
 
 #: Class-type families that trigger the exact-schema-evidence gate wherever
@@ -177,17 +129,32 @@ _GATED_CLASS_RE = re.compile(
 
 #: RRSYN-4 honest-gap registry.  Gated classes whose owning pack could NOT
 #: be proven by a same-pack runtime capture are recorded here per locked
-#: scenario instead of being declared with guessed provenance.  Coverage
-#: reports them as WARNINGS ("setup fails before paid calls"), never as a
-#: laundered pass — the leg is an honest non-pass until a live capture
-#: proves ownership.
+#: scenario instead of being declared with guessed provenance.
+#: RR1-FIX-REV: the enforced preflight (``preflight_scenario_obligations``
+#: with schema resolution on — the paid-call lane runs it unconditionally)
+#: turns every edit-required gated class in this registry into a typed
+#: VIOLATION: setup fails before any paid call, never a laundered pass.  The
+#: declaration-level advisory keeps recording them as warnings only because
+#: that mode cannot authorize paid calls by construction.
+#:
+#: RRSYN-4 classes DEMOTED here by RR1-FIX-REV (their ``local-*`` captures
+#: were offline stub extraction, now removed/unindexed):
+#:   * AudioCombine / AudioSeparation (audio-separation-nodes-comfyui);
+#:   * ImageBatchSplitter //Inspire (ComfyUI-Inspire-Pack);
+#:   * easy forLoopStart / easy forLoopEnd (ComfyUI-Easy-Use);
+#:   * llama_cpp_model_loader / llama_cpp_instruct_adv /
+#:     llama_cpp_parameters (ComfyUI-llama-cpp_vlm).
 UNPROVEN_PROVIDER_CLASSES: dict[str, tuple[str, ...]] = {
     "audio-acestep-audio-generation-and-processing-workfl-1b1360": (
+        "AudioCombine",
+        "AudioSeparation",
         "AudioFilter",
         "AudioVolumeNormalization",
         "VocalAndSoundRemoverNode",
     ),
     "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (
+        "AudioCombine",
+        "AudioSeparation",
         "AudioFilter",
         "AudioVolumeNormalization",
         "VocalAndSoundRemoverNode",
@@ -197,8 +164,26 @@ UNPROVEN_PROVIDER_CLASSES: dict[str, tuple[str, ...]] = {
     ),
     # comfy_api v3-schema node: INPUT_TYPES is a shim object, not faithfully
     # observable by the offline stub extractor at this commit.
+    # RR1-FIX-REV: ImageBatchSplitter //Inspire + easy forLoopStart/End join
+    # ``easy int`` — their Inspire/Easy-Use captures were simulated imports,
+    # not live object_info.
     "image-generates-a-2x2-seed-variation": (
         "easy int",
+        "ImageBatchSplitter //Inspire",
+        "easy forLoopStart",
+        "easy forLoopEnd",
+    ),
+    # Easy-Use loop nodes: dynamic outputs were the motivation for the
+    # original obligation; without a LIVE capture the output surface is
+    # unproven and stays honestly blocked.
+    "multi-wan-vace-video-retargeting-driven": (
+        "easy forLoopStart",
+        "easy forLoopEnd",
+    ),
+    "image-llama-cpp-instruct-image-preview-and-save-5b54bf": (
+        "llama_cpp_model_loader",
+        "llama_cpp_instruct_adv",
+        "llama_cpp_parameters",
     ),
     # ACN_AdvancedControlNetApply extraction fails under offline stubs;
     # provider (ComfyUI-Advanced-ControlNet) is known but UNPROVEN here.
@@ -818,6 +803,23 @@ def _resolve_schema_locally(
         for field_name in (requirement.get("required_field_evidence") or ())
         if str(field_name)
     ]
+    # RR1-FIX-REV: exact required input/widget/output ports per obligation,
+    # each validated against the frozen captured schema before paid calls.
+    required_inputs = [
+        str(name)
+        for name in (requirement.get("required_inputs") or ())
+        if str(name)
+    ]
+    required_widgets = [
+        str(name)
+        for name in (requirement.get("required_widgets") or ())
+        if str(name)
+    ]
+    required_outputs = [
+        str(name)
+        for name in (requirement.get("required_outputs") or ())
+        if str(name)
+    ]
 
     from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 
@@ -856,10 +858,66 @@ def _resolve_schema_locally(
                 f"{', '.join(missing_fields)}"
             )
             continue
+        port_failures = _port_evidence_failures(
+            schema,
+            required_inputs=required_inputs,
+            required_widgets=required_widgets,
+            required_outputs=required_outputs,
+        )
+        if port_failures:
+            failures.extend(port_failures)
+            continue
         return True, []
     if not failures:
         failures.append("no local authoritative object_info cache root found")
     return False, failures
+
+
+def _port_evidence_failures(
+    schema: Any,
+    *,
+    required_inputs: list[str],
+    required_widgets: list[str],
+    required_outputs: list[str],
+) -> list[str]:
+    """Typed RR1-FIX-REV port checks against one resolved frozen schema."""
+    failures: list[str] = []
+    schema_inputs = getattr(schema, "inputs", None) or {}
+    for name in required_inputs:
+        if name not in schema_inputs:
+            failures.append(
+                f"required input port {name!r} missing from resolved schema"
+            )
+    from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+
+    for name in required_widgets:
+        spec = schema_inputs.get(name)
+        if spec is None:
+            failures.append(
+                f"required widget {name!r} missing from resolved schema inputs"
+            )
+        elif not input_spec_is_literal_widget(spec):
+            failures.append(
+                f"required widget {name!r} resolves to a socket, not a "
+                "literal widget"
+            )
+    outputs = [
+        item
+        for item in (getattr(schema, "outputs", None) or ())
+        if item is not None
+    ]
+    output_names = {
+        str(getattr(item, "name", "") or "") or str(getattr(item, "type", "") or "")
+        for item in outputs
+    }
+    output_types = {str(getattr(item, "type", "") or "") for item in outputs}
+    for name in required_outputs:
+        if name not in output_names and name not in output_types:
+            failures.append(
+                f"required output port {name!r} missing from resolved schema "
+                f"(outputs: {sorted(n for n in output_names if n)})"
+            )
+    return failures
 
 
 def preflight_scenario_obligations(
@@ -870,16 +928,17 @@ def preflight_scenario_obligations(
     """Fail-closed preflight over scenario obligations.
 
     ``require_schema_resolution``: None defers to
-    ``VIBECOMFY_OBLIGATION_SCHEMA_CHECK`` (truthy enables). When enabled, every
-    gated class must resolve through a LOCAL authoritative schema source before
-    paid calls; otherwise the declaration-level check still runs and the
-    result records the deferral explicitly.
+    ``VIBECOMFY_OBLIGATION_SCHEMA_CHECK`` (truthy enables). When enabled —
+    the mode the paid-call lane runs unconditionally — every gated class must
+    resolve through a LOCAL authoritative schema source before paid calls,
+    AND every gated edit-required class without a declared requirement
+    (unproven/undeclared) is a hard violation; otherwise the declaration-level
+    check still runs and the result records the deferral explicitly.
     """
     if require_schema_resolution is None:
         raw = os.environ.get(SCHEMA_RESOLUTION_ENV_VAR, "")
         require_schema_resolution = raw.strip().lower() in {"1", "true", "yes", "on"}
     violations, warnings = validate_obligation_coverage(manifest_path)
-
     resolution_results: dict[str, dict[str, bool]] = {}
     if require_schema_resolution:
         path = manifest_path or __import__(
@@ -893,6 +952,11 @@ def preflight_scenario_obligations(
             if obligation is None:
                 continue
             per_class: dict[str, bool] = {}
+            declared_names = {
+                str(req.get("class_type"))
+                for req in obligation.schema_evidence_requirements
+                if not req.get("undeclared")
+            }
             for req in obligation.schema_evidence_requirements:
                 class_type = str(req.get("class_type") or "")
                 if not class_type or class_type.startswith("<") or req.get(
@@ -908,6 +972,24 @@ def preflight_scenario_obligations(
                         "authoritative source; refusing paid calls "
                         "(fail-closed): " + "; ".join(resolution_failures)
                     )
+            # RRSYN-4 / RR1-FIX-REV: every gated, edit-required class without
+            # a DECLARED requirement — i.e. every UNPROVEN_PROVIDER_CLASSES
+            # entry and every undeclared marker row — is a hard preflight
+            # violation here, never a warning-only bypass.  Undeclared rows
+            # must never be skipped into a successful paid-call preflight.
+            if obligation.requires_edit:
+                for class_type in obligation.custom_node_classes:
+                    if not _GATED_CLASS_RE.search(class_type):
+                        continue
+                    if class_type.startswith("<"):
+                        continue  # already a declaration-level violation above
+                    if class_type not in declared_names:
+                        violations.append(
+                            f"{scenario_id}: gated edit-required class "
+                            f"{class_type!r} has no proven same-pack provider "
+                            "evidence (unproven/undeclared); refusing paid "
+                            "calls (fail-closed)"
+                        )
             if per_class:
                 resolution_results[scenario_id] = per_class
 
@@ -936,6 +1018,7 @@ __all__ = [
     "TERMINAL_NO_CANDIDATE_REASONS",
     "ScenarioObligation",
     "ScenarioObligationError",
+    "UNPROVEN_PROVIDER_CLASSES",
     "load_scenario_obligation",
     "preflight_scenario_obligations",
     "validate_obligation_coverage",

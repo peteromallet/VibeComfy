@@ -2134,23 +2134,17 @@ class TestEditSessionResolution:
         assert result.statements[0].ok is True
         assert result.statements[0].op_kind == "upsert_link"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "RRSYN-5 resolver half landed (_resolve_named_output resolves "
-            "unknown_N by slot index); end-to-end acceptance additionally "
-            "requires _op_validate._known_output to accept index-backed "
-            "unknown_N, which is outside the RR1-FIX allowance. Flip to a "
-            "positive assertion when that lands."
-        ),
-    )
     def test_apply_batch_roundtrips_index_backed_unknown_output_alias(self) -> None:
-        """RRSYN-5: ``unknown_N`` emitted by the inspect surface must resolve.
-        A node whose raw output carries no name AND no type evidence is
-        rendered to the agent as ``unknown_0`` (emit_prepare fallback).  The
-        only truthful identity that endpoint has is its SLOT INDEX, so the
-        resolver must accept ``src.unknown_0`` against slot index 0 instead
-        of rejecting with ``unknown_output_slot``.
+        """RRSYN-5 / RR1-FIX-REV: ``unknown_N`` emitted by the inspect surface
+        must round-trip end to end.  A node whose raw output carries no name
+        AND no type evidence is rendered to the agent as ``unknown_0`` (the
+        emit_prepare fallback); its only truthful identity is the SLOT INDEX,
+        so both the resolver and ``_op_validate._known_output`` accept
+        index-backed ``unknown_0`` against retained raw output-count evidence,
+        while unknown schema authority stays fail-closed.
+
+        Regression: at RR1-FIX(5) the validator rejected ``unknown_N``
+        outright and this contract was locked as xfail(strict=True).
         """
         from vibecomfy.porting import EditSession
 

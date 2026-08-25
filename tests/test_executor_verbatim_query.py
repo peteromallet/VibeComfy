@@ -50,12 +50,26 @@ def test_classify_prompt_carries_verbatim_query_and_affordances() -> None:
     assert "none is a required step" in user
 
 
-def test_expect_graph_changed_contract_text_is_unchanged_in_place() -> None:
+def test_expect_graph_changed_is_context_not_mandate() -> None:
+    """RRSYN-7 / RR1-FIX-REV: expect_graph_changed is forwarded as the end
+    user's interaction intent — never as a mandatory edit-route decree."""
     messages = executor_prompts.build_classify_messages(
         "make the background red", has_graph=True, expect_graph_changed=True
     )
     user = messages[-1]["content"]
-    assert executor_prompts._CLASSIFY_EXPECT_GRAPH_CHANGED in user
+    assert "expect_graph_changed=true" in user
+    assert "not a routing mandate" in user
+    assert "judgment-owned outcome" in user
+    # The removed deterministic coercion must be gone from the prompt.
+    assert "MUST be an edit route" not in user
+    assert "will be rejected" not in user
+
+
+def test_classify_system_prompt_has_no_route_coercion() -> None:
+    system = executor_prompts._CLASSIFY_SYSTEM
+    assert "route MUST be an edit route" not in system
+    assert "are rejected." not in system
+    assert "not a routing mandate" in system
 
 
 # ── research brief seam ──────────────────────────────────────────────────────
@@ -156,6 +170,7 @@ def test_run_agent_owned_research_forwards_brief_with_verbatim_query(
         request, type("Spec", (), {"agent": "agent", "model": "m", "effort": None})(),
         plan=plan,
     )
+
     assert result is not None
     assert "User request (verbatim):" in str(captured["research_brief"])
     assert request.query in str(captured["research_brief"])
@@ -169,3 +184,22 @@ def test_threaded_plan_goals_carry_verbatim_query_only() -> None:
     plan = executor_threaded._threaded_plan(request)
     assert plan.research_goal == request.query
     assert request.query == "Research how VACE preprocessing works first, then explain it"
+
+
+def test_threaded_default_envelope_equips_without_prescribing() -> None:
+    """RRSYN-7 / RR1-FIX-REV: the classifier-free threaded plan forwards the
+    verbatim query and interaction-intent context, frames affordances as
+    optional, and never prescribes a mandatory route."""
+    request = _request(interaction_mode=None, graph={"nodes": {}, "links": []})
+    plan = executor_threaded._threaded_plan(request)
+    assert plan.research_goal == request.query
+    assert plan.change_goal == request.query
+    assert "interaction_mode=unspecified" in plan.plan_summary
+    assert "NONE of them is a required step" in plan.plan_summary
+
+    answer_only = _request(
+        interaction_mode="answer_only", graph={"nodes": {}, "links": []}
+    )
+    plan = executor_threaded._threaded_plan(answer_only)
+    assert plan.effective_route == "inspect"
+    assert "answer_only: respond without editing" in plan.plan_summary

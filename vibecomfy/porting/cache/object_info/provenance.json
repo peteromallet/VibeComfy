@@ -1,5 +1,5 @@
 {
-  "class_count": 1389,
+  "class_count": 1504,
   "packs": {
     "AILab_AudioDuration@runpod-snapshot.json": {
       "classes": 1,
@@ -36,13 +36,6 @@
       "repo": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git",
       "schema_sha256": "f4e181ab42ca179eda161acba5121e999cb54b1dbee0dc087a22bd42af7241ae"
     },
-    "ComfyUI-Easy-Use@local-4de1ab3.json": {
-      "classes": 140,
-      "locked_commit": "4de1ab3b66e48da916b6f263bacd001df53a2720",
-      "pack": "ComfyUI-Easy-Use",
-      "repo": "https://github.com/yolain/ComfyUI-Easy-Use.git",
-      "schema_sha256": "663ca464f38c81be2bf408da4f2c28bd73659246815b2760293ba71fe83326ae"
-    },
     "ComfyUI-GGUF@local-6ea2651.json": {
       "classes": 2,
       "locked_commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
@@ -63,13 +56,6 @@
       "pack": "ComfyUI-IndexTTS",
       "repo": "https://github.com/diodiogod/TTS-Audio-Suite",
       "schema_sha256": "37ad2e70f0062d161f099eff5050b3e38b88bedf1840ca6374b54f9a1534621a"
-    },
-    "ComfyUI-Inspire-Pack@local-d23db9a.json": {
-      "classes": 96,
-      "locked_commit": "d23db9aa544de9a6d4c609cb7005fa9e0d42031d",
-      "pack": "ComfyUI-Inspire-Pack",
-      "repo": "https://github.com/ltdrdata/ComfyUI-Inspire-Pack.git",
-      "schema_sha256": "4cabc1f272a1998661bbfecb9d9aa466a511e45aa42dcc22c42601a18bbafc1f"
     },
     "ComfyUI-KJNodes@runpod-snapshot.json": {
       "classes": 230,
@@ -127,26 +113,12 @@
       "repo": "https://github.com/yuvraj108c/ComfyUI-Whisper.git",
       "schema_sha256": "f3933350d1e63c45f36fe1dac1d56691b388c2faaee37e65ff458a5cd5200029"
     },
-    "ComfyUI-llama-cpp_vlm@local-f2209cc.json": {
-      "classes": 13,
-      "locked_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
-      "pack": "ComfyUI-llama-cpp_vlm",
-      "repo": "https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm.git",
-      "schema_sha256": "dc410b95689ed0d6d75f9f4031f7f1be57a565d88bd79e7888f163565606776d"
-    },
     "ComfyUI-segment-anything-2@local-0c35fff.json": {
       "classes": 6,
       "locked_commit": "0c35fff5f382803e2310103357b5e985f5437f32",
       "pack": "ComfyUI-segment-anything-2",
       "repo": "https://github.com/kijai/ComfyUI-segment-anything-2.git",
       "schema_sha256": "e3640990ce145928d9404234721b4f23fd02717c7f07af03b3d0be0f8a150e9c"
-    },
-    "audio-separation-nodes-comfyui@local-ac33956.json": {
-      "classes": 7,
-      "locked_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
-      "pack": "audio-separation-nodes-comfyui",
-      "repo": "https://github.com/christian-byrne/audio-separation-nodes-comfyui.git",
-      "schema_sha256": "c29727ee4066458cc9260ba2f4c237004ac2acaeeb0383adeb416926bdaeabec"
     },
     "comfy@runpod-snapshot.json": {
       "classes": 65,
