@@ -351,6 +351,15 @@ _CLASSIFY_EXPECT_GRAPH_CHANGED = (
     "\"respond\" will be rejected."
 )
 
+_CLASSIFY_AFFORDANCE_NOTE = (
+    "\nAvailable affordances of this assistant: outside research (workflows, "
+    "node packs, techniques, community knowledge), inspection of the attached "
+    "graph, a direct answer from existing context, concrete graph edits, and "
+    "layout/organisation cleanup. These are capabilities you MAY route to — "
+    "none is a required step; choose based only on what the request itself "
+    "asks for."
+)
+
 
 def build_classify_messages(
     query: str,
@@ -385,6 +394,10 @@ def build_classify_messages(
         parts.append(f"\nGraph census (the attached workflow's node/class census):\n{graph_summary}")
     if expect_graph_changed:
         parts.append(f"\n{_CLASSIFY_EXPECT_GRAPH_CHANGED}")
+    # RRSYN-7 (modified spec): equip the classifier with the product's real
+    # affordances without prescribing any of them; routing stays judgment-
+    # owned and derived from the verbatim request above.
+    parts.append(_CLASSIFY_AFFORDANCE_NOTE)
 
     # ── session context: durable chat messages (backend-owned) ───────────
     if isinstance(session_context, dict):

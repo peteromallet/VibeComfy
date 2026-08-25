@@ -1335,6 +1335,24 @@ def _research_stage_package(
     )
 
 
+def _research_brief_with_verbatim_query(brief: str, request: ExecutorRequest) -> str:
+    """Append the verbatim user request to the classifier-built brief.
+
+    RRSYN-7: the research stage otherwise sees only the classifier's
+    PARAPHRASED question (``form_research_question``) plus plan fields, so an
+    explicit request like "research X first" could lose its own words before
+    any agent read them. The verbatim ``request.query`` is the real end-user
+    API field — no manifest tags, expected outcomes, or acceptance criteria
+    are forwarded. Context only: the research agent still chooses its own
+    tools and stopping point.
+    """
+    query = getattr(request, "query", None)
+    if not isinstance(query, str) or not query.strip():
+        return brief
+    block = f"User request (verbatim):\n{query.strip()}"
+    return f"{brief}\n{block}" if brief else block
+
+
 def _run_agent_owned_research(
     request: ExecutorRequest,
     spec: AgentSpecShape,
@@ -1343,7 +1361,10 @@ def _run_agent_owned_research(
 ) -> AgentResearchResult:
     route = _canonical_route_for_plan(plan)
     question, _source_field = form_research_question(request=request, plan=plan)
+
     brief = build_research_brief(plan=plan, request=request)
+
+    brief = _research_brief_with_verbatim_query(brief, request)
     # Research-only routes get the same wall-clock budget the batch-REPL
     # research path uses (VIBECOMFY_RESEARCH_PHASE_DEADLINE, default 450s):
     # a research-only turn has no implement phase, and flash-class decision
