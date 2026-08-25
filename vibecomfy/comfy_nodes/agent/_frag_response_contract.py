@@ -516,11 +516,18 @@ def _sync_narrated_clarify_outcome(
 
 
 def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
-    """Return exact schema misses that the current edit request named.
+    """Return structured schema misses that the current edit request named.
 
     ``search(focus_types=[...])`` records provider-backed misses in statement
     detail.  We intentionally do not infer absence from refusal prose: a class
     must be both a structured exact miss and a named target in this request.
+
+    RR1-FIX(2): "named" matches on request FAMILY terms too — a user who says
+    "GroundingDINO" names ``GroundingDinoModelLoader`` even though no real
+    class equals the query token. Exact delimited-token equality structurally
+    cannot fire for family/brand requests (batch-5 d813fe evidence), so after
+    the exact check fails, a request token of ≥4 letters that occurs
+    case-insensitively inside the missed class name counts as naming it.
     """
     request_text = " ".join(
         str(value or "")
@@ -531,6 +538,22 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
             else "",
         )
     )
+    request_tokens = {
+        token
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", request_text)
+    }
+    lowered_request = request_text.lower()
+
+    def _names_class(class_type: str) -> bool:
+        if re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(class_type)}(?![A-Za-z0-9_])",
+            request_text,
+            re.IGNORECASE,
+        ):
+            return True
+        lowered_class = class_type.lower()
+        return any(token.lower() in lowered_class for token in request_tokens)
+
     missing: list[str] = []
     for turn in getattr(state, "batch_turns", ()) or ():
         if not isinstance(turn, Mapping):
@@ -545,11 +568,7 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
                 class_type = str(raw_class_type or "").strip()
                 if not class_type or class_type in missing:
                     continue
-                if re.search(
-                    rf"(?<![A-Za-z0-9_]){re.escape(class_type)}(?![A-Za-z0-9_])",
-                    request_text,
-                    re.IGNORECASE,
-                ):
+                if _names_class(class_type):
                     missing.append(class_type)
     return tuple(missing)
 
@@ -597,8 +616,16 @@ def _record_named_schema_absence_blocker(
     *,
     has_candidate: bool,
 ) -> tuple[str, ...]:
-    """Attach typed class-absence proof for a no-candidate terminal choice."""
-    if has_candidate or not _clarification_has_question_and_options(state.user_message):
+    """Attach typed class-absence proof for a no-candidate terminal choice.
+
+    RR1-FIX(2): the trigger is the TYPED evidence itself — structured
+    statement-level ``missing_classes`` that intersect the request — not an
+    undocumented prose shape of the final message. Requiring clarification
+    option-marker prose made the typed terminal unreachable for honest stops
+    (batch-4 face-detect: probe turns proved MTCNN/RetinaFace absent while
+    the plain-prose stop recorded nothing).
+    """
+    if has_candidate:
         return ()
     missing = _batch_named_schema_absences(state)
     if not missing:
@@ -1622,6 +1649,11 @@ def _build_batch_repl_response(
         )
     if canonical_route:
         response["route"] = canonical_route
+    # RR1-FIX(2): the route must agree with the promoted typed terminal — an
+    # edit route stamped next to a requires_custom_nodes refusal contradicts
+    # the non-edit-route contract check (batch-5 d813fe evidence).
+    if isinstance(public_outcome, Mapping) and public_outcome.get("kind") == "requires_custom_nodes":
+        response["route"] = "requires_custom_nodes"
     if canonical_route == "research":
         response["graph_unchanged"] = True
         response["no_candidate_reason"] = "route_not_applyable"

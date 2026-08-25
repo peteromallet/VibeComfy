@@ -1246,7 +1246,31 @@ def stamp_response_with_authority(
             and not _response_claims_applyable(response)
             and not _has_candidate_authority
         )
-        if _is_pure_clarify or (
+        # RR1-FIX(2) — honest non-apply terminal: an empty accepted delta with
+        # NO candidate authority in any spelling and a replay-clean identity
+        # (replay of the empty batch succeeded, zero ops, no candidate hash on
+        # either side) is a genuine non-apply terminal. The persisted
+        # candidate_matches=False on such receipts is an artifact of comparing
+        # a null candidate against the recomputed empty apply — NOT a replay
+        # failure — so the turn keeps its outcome kind and its substantive
+        # final message instead of being laundered into a fabricated
+        # authority error (Hotshot/AnimateDiff/face-detect finale evidence).
+        _replay_clean_identity = (
+            receipt.replay.replay_ok is True
+            and receipt.replay.op_count == 0
+            and receipt.candidate_hash is None
+            and receipt.replay.persisted_candidate_hash is None
+        )
+        _is_honest_non_apply_terminal = (
+            isinstance(_orig_outcome, Mapping)
+            and _orig_outcome.get("kind") in {"noop", "clarify", "requires_custom_nodes"}
+            and response.get("graph_unchanged") is True
+            and not _has_accepted_batch_content(response)
+            and not _response_claims_applyable(response)
+            and not _has_candidate_authority
+            and _replay_clean_identity
+        )
+        if _is_pure_clarify or _is_honest_non_apply_terminal or (
             isinstance(_orig_outcome, Mapping)
             and _orig_outcome.get("kind") == "clarify"
             and isinstance(_report, Mapping)

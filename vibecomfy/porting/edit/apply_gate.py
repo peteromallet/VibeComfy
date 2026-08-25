@@ -80,12 +80,20 @@ def verify_apply(
         )
         if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
             admission_reason = admitted.typed_reason
+            # RR1-FIX(2): distinguish a zero-net-change named-absence rollback
+            # (every op bounced on schema absence; the graph is untouched) from
+            # corruption. Downstream projection treats this shape as an honest
+            # no-candidate terminal instead of an authority error.
+            zero_net_change = editable_signature(pre) == editable_signature(post)
             diagnostics.append(
                 CompactDiagnostic(
                     code=admitted.typed_reason,
                     message=admitted.typed_reason,
                     severity="error",
-                    detail={"evidence_refs": list(admitted.evidence_refs)},
+                    detail={
+                        "evidence_refs": list(admitted.evidence_refs),
+                        "zero_net_change": zero_net_change,
+                    },
                 )
             )
 

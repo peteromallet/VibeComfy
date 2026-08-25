@@ -169,10 +169,19 @@ def promote_requires_custom_nodes_outcome(
     missing_classes: Sequence[str] = (),
     unresolved_schema_terminal: bool = False,
 ) -> dict[str, Any]:
-    """Rewrite a no-edit public outcome to ``requires_custom_nodes`` on proven absence."""
+    """Rewrite a no-edit public outcome to ``requires_custom_nodes`` on proven absence.
+
+    RR1-FIX(2): also projects a degenerate ``error`` envelope when typed
+    request-relevant absence evidence is in hand — a zero-net-change
+    named-absence rollback is a grounded refusal, not an authority failure.
+    The projection requires explicit ``missing_classes``; an error envelope
+    without typed evidence is never rewritten (fail-closed).
+    """
     payload = dict(public_outcome)
     names = tuple(str(item) for item in missing_classes if item)
     if not names and not unresolved_schema_terminal:
+        return payload
+    if payload.get("kind") == "error" and not names:
         return payload
     payload["kind"] = "requires_custom_nodes"
     if names:
