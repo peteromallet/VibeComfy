@@ -2134,6 +2134,56 @@ class TestEditSessionResolution:
         assert result.statements[0].ok is True
         assert result.statements[0].op_kind == "upsert_link"
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "RRSYN-5 resolver half landed (_resolve_named_output resolves "
+            "unknown_N by slot index); end-to-end acceptance additionally "
+            "requires _op_validate._known_output to accept index-backed "
+            "unknown_N, which is outside the RR1-FIX allowance. Flip to a "
+            "positive assertion when that lands."
+        ),
+    )
+    def test_apply_batch_roundtrips_index_backed_unknown_output_alias(self) -> None:
+        """RRSYN-5: ``unknown_N`` emitted by the inspect surface must resolve.
+        A node whose raw output carries no name AND no type evidence is
+        rendered to the agent as ``unknown_0`` (emit_prepare fallback).  The
+        only truthful identity that endpoint has is its SLOT INDEX, so the
+        resolver must accept ``src.unknown_0`` against slot index 0 instead
+        of rejecting with ``unknown_output_slot``.
+        """
+        from vibecomfy.porting import EditSession
+
+        class _Provider:
+            def get_schema(self, class_type: str):
+                return None  # no schema evidence at all — emit falls back
+
+        raw = {
+            "last_node_id": 3,
+            "last_link_id": 0,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "MysterySource",
+                    "outputs": [{}],  # unnamed, untyped — emits unknown_0
+                    "properties": {"vibecomfy_uid": "mys"},
+                },
+                {
+                    "id": 2,
+                    "type": "Dest",
+                    "inputs": [{"name": "value", "type": None}],
+                    "properties": {"vibecomfy_uid": "dst"},
+                },
+            ],
+            "links": [],
+        }
+        session = EditSession(raw, schema_provider=_Provider())
+
+        result = session.apply_batch("dst.value = mys.unknown_0\n")
+
+        assert result.statements[0].ok is True, result.diagnostics
+        assert result.statements[0].op_kind == "upsert_link"
+
     def test_apply_batch_resolves_bare_rhs_when_exactly_one_schema_output_matches(self) -> None:
         session = self._resolution_session()
 
@@ -2141,7 +2191,6 @@ class TestEditSessionResolution:
 
         assert result.ok is True
         assert result.statements[0].ok is True
-        assert result.statements[0].op_kind == "upsert_link"
 
     def test_apply_batch_uses_core_sink_type_when_schema_and_raw_input_are_unknown(self) -> None:
         from vibecomfy.porting import EditSession

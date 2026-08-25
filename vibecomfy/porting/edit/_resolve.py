@@ -1627,12 +1627,28 @@ class _ResolveMixin:
             raw_slot = None
         if raw_slot is None:
             port_match = _TYPED_PORT_RE.fullmatch(slot_attr)
-            if port_match is not None:
-                port_index = int(port_match.group(1))
+            unknown_match = None
+            if port_match is None:
+                # RRSYN-5: ``unknown_N`` is the typed-unknown fallback the
+                # emit surface itself uses when a node carries no output
+                # name/type evidence (emit_prepare._agent_edit_output_ports).
+                # Every form emitted to the agent must round-trip, so both
+                # typed ports and ``unknown_N`` resolve by SLOT INDEX — the
+                # only truthful identity an unnamed output has.
+                unknown_match = re.fullmatch(r"[Uu]nknown_(\d+)", slot_attr)
+            index_match = port_match if port_match is not None else unknown_match
+            if index_match is not None:
+                port_index = int(index_match.group(1))
                 by_index = {item["index"]: item for item in raw_outputs}
                 item = by_index.get(port_index)
                 if item is not None:
-                    raw_slot = item["name"] or f"output_{port_index}"
+                    slot_name = item["name"] or f"output_{port_index}"
+                    return _ResolvedOutputEndpoint(
+                        node=node_ref,
+                        slot_name=slot_name,
+                        slot_index=item["index"],
+                        socket_type=item["type"],
+                    ), []
         if raw_slot is None:
             return None, [
                 _diag(

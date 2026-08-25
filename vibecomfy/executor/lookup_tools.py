@@ -317,12 +317,22 @@ def _default_schema_provider() -> SchemaProvider:
     return get_authoring_schema_provider()
 
 
-def node_schema(node_class: str, *, provider: SchemaProvider | None = None) -> ToolResult:
+def node_schema(
+    node_class: str,
+    *,
+    provider: SchemaProvider | None = None,
+    admission_provider: SchemaProvider | None = None,
+) -> ToolResult:
     """Answer whether ``node_class`` is available and what inputs/outputs it can emit.
 
     ``provider`` defaults to the offline authoring provider (runtime/object_info
     caches, node index, source trees) — deterministic and network-free.  Callers
     may inject any ``SchemaProvider`` (e.g. a live runtime provider).
+
+    RRSYN-5: when ``admission_provider`` (the turn's frozen SchemaSnapshot) is
+    supplied, a hit that the frozen authority cannot admit is labeled
+    explicitly (``admissible: false``) instead of being presented as plain
+    availability the agent could then rely on for edits.
     """
     tool = TOOL_NODE_SCHEMA
 
@@ -406,12 +416,29 @@ def node_schema(node_class: str, *, provider: SchemaProvider | None = None) -> T
         if value is not None:
             provenance[field_name] = _json_safe(value)
 
+    admissible = True
+    admission_note: str | None = None
+    if admission_provider is not None:
+        try:
+            admitted_schema = schema_for(admission_provider, node_class)
+            admissible = isinstance(admitted_schema, NodeSchema)
+        except Exception:  # noqa: BLE001 - a failing admission probe stays closed
+            admissible = False
+        if not admissible:
+            admission_note = (
+                f"{schema.class_type!r} is NOT in the current turn's frozen "
+                "admission snapshot; edits referencing it will be rejected "
+                "until its owning pack capture is loaded into the turn."
+            )
+
     return _result(
         tool,
         ToolStatus.OK,
         result={
             "class_type": schema.class_type,
             "available": True,
+            "admissible": admissible,
+            "admission_note": admission_note,
             "pack": schema.pack,
             "stub_schema": bool(is_workflow_stub_schema(schema)),
             "inputs": inputs,

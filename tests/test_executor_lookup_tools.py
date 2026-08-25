@@ -559,3 +559,82 @@ def test_ready_templates_are_explicitly_not_research_evidence(tmp_path: Path) ->
     assert loaded.result["evidence_label"] == "direct_asset"
     assert listed.evidence_ids == ()
     assert loaded.evidence_ids == ()
+
+
+def _frozen_admission_provider(class_types: tuple[str, ...]) -> Any:
+    """Frozen admission authority over exactly *class_types*."""
+    from vibecomfy.schema.types import (
+        FrozenSchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    schemas = {}
+    for class_type in class_types:
+        schemas[class_type] = schema_payload_from_node_schema(
+            class_type,
+            _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+            ),
+        )
+    snap = capture_schema_snapshot(
+        class_types=list(class_types),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": schemas,
+            "missing_classes": [],
+        },
+        node_classes={str(i + 1): ct for i, ct in enumerate(class_types)},
+    )
+    return FrozenSchemaSnapshotProvider(snap)
+
+
+def test_node_schema_labels_hit_unavailable_to_current_admission() -> None:
+    """RRSYN-5: ambient hit outside the frozen snapshot is labeled inadmissible."""
+    provider = FakeProvider(
+        {
+            "GhostNode": _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+            )
+        }
+    )
+    admission = _frozen_admission_provider(("OtherNode",))
+    result = node_schema("GhostNode", provider=provider, admission_provider=admission)
+
+    assert result.status is ToolStatus.OK
+    body = result.result
+    assert body["available"] is True
+    assert body["admissible"] is False
+    assert "frozen" in str(body["admission_note"])
+
+
+def test_node_schema_hit_inside_admission_is_admissible() -> None:
+    provider = FakeProvider(
+        {
+            "KnownNode": _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    admission = _frozen_admission_provider(("KnownNode",))
+    result = node_schema("KnownNode", provider=provider, admission_provider=admission)
+
+    assert result.status is ToolStatus.OK
+    assert result.result["admissible"] is True
+    assert result.result["admission_note"] is None
+
+
+def test_node_schema_without_admission_provider_defaults_admissible() -> None:
+    provider = FakeProvider(
+        {
+            "TestNode": _schema(
+                inputs={"value": InputSpec(type="INT", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    result = node_schema("TestNode", provider=provider)
+    assert result.result["admissible"] is True
