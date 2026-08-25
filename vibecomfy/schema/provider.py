@@ -106,6 +106,13 @@ class NodeSchema:
     pack: str | None
     inputs: dict[str, InputSpec]
     outputs: list[OutputSpec]
+    # Explicit compact widget-slot order: literal widget inputs in UI
+    # ``widgets_values`` order, with ``None`` for UI-only slots (e.g.
+    # ``control_after_generate``). Provenance-preserving — populated only
+    # from runtime-captured object_info evidence; never guessed. Snapshot
+    # serialization carries it (``schema_payload_from_node_schema``) so a
+    # frozen replay provider serves the exact same slot domain as live.
+    widget_input_order: tuple[str | None, ...] = ()
     # -- provenance fields (defaults so existing code works unchanged) ------
     source_provider: str = "unknown"
     source_path: str | None = None
@@ -562,11 +569,32 @@ class ObjectInfoIndexSchemaProvider:
         if not isinstance(info, dict):
             return None
         schema = _schema_from_object_info(class_type, info)
+        from vibecomfy.porting.object_info.consume import (  # noqa: PLC0415
+            _input_spec_is_widget_value,
+            _iter_input_specs,
+            reconciled_object_info_widget_order,
+        )
+
+        # Explicit widget-slot order: literal widgets in UI serialization
+        # order (``None`` UI-only control slots preserved). Socket-typed
+        # entries are filtered out — they never occupy a ``widgets_values``
+        # slot — so replay consumes the same compact domain live derives.
+        input_specs = {name: spec for name, spec in _iter_input_specs(info)}
+        literal_order: list[str | None] = []
+        for name in reconciled_object_info_widget_order(info):
+            if name is None:
+                literal_order.append(None)
+                continue
+            spec = input_specs.get(name)
+            if spec is not None and not _input_spec_is_widget_value(spec):
+                continue
+            literal_order.append(name)
         return NodeSchema(
             class_type=schema.class_type,
             pack=schema.pack,
             inputs=schema.inputs,
             outputs=schema.outputs,
+            widget_input_order=tuple(literal_order) if literal_order else (),
             source_provider="object_info_index",
             source_cache_path=str(self.root / filename),
             source_package=schema.pack,

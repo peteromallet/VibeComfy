@@ -160,6 +160,18 @@ def schema_payload_from_node_schema(class_type: str, schema: Any) -> dict[str, A
         "outputs": [
             _output_spec_payload(spec) for spec in (getattr(schema, "outputs", None) or ()) if spec is not None
         ],
+        # RR1-FIX-1: preserve the explicit input/widget SPLIT through snapshot
+        # serialization. ``input_order`` keeps declared input order; this keeps
+        # which ordered inputs are literal widget slots (``None`` = UI-only
+        # slot). Replay reconstructs the exact same compact slot domain live
+        # admission used instead of re-guessing socket/widget membership from
+        # type names.
+        "widget_input_order": [
+            name if isinstance(name, str) else None
+            for name in (getattr(schema, "widget_input_order", None) or ())
+        ]
+        if getattr(schema, "widget_input_order", None)
+        else [],
         "provenance": {
             field: _freeze_jsonable(getattr(schema, field, None)) for field in provenance_fields
         },
@@ -206,11 +218,19 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
     ] if isinstance(raw_outputs, list) else []
     provenance = raw.get("provenance")
     provenance = provenance if isinstance(provenance, Mapping) else {}
+    raw_widget_input_order = raw.get("widget_input_order")
+    widget_input_order: tuple[str | None, ...] = ()
+    if isinstance(raw_widget_input_order, list):
+        widget_input_order = tuple(
+            name if isinstance(name, str) else None
+            for name in raw_widget_input_order
+        )
     return ProviderNodeSchema(
         class_type=class_type,
         pack=raw.get("pack") if isinstance(raw.get("pack"), str) else None,
         inputs=inputs,
         outputs=outputs,
+        widget_input_order=widget_input_order,
         source_provider=str(provenance.get("source_provider") or "persisted_snapshot"),
         source_path=provenance.get("source_path") if isinstance(provenance.get("source_path"), str) else None,
         source_cache_path=(
@@ -220,10 +240,12 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
         ),
         source_server_url=None,
         source_package=(
-            provenance.get("source_package") if isinstance(provenance.get("source_package"), str) else None
+            provenance.get("source_package") if isinstance(provenance.get("source_package"), str)
+            else None
         ),
         source_version=(
-            provenance.get("source_version") if isinstance(provenance.get("source_version"), str) else None
+            provenance.get("source_version") if isinstance(provenance.get("source_version"), str)
+            else None
         ),
         source_hash=provenance.get("source_hash") if isinstance(provenance.get("source_hash"), str) else None,
         confidence=(

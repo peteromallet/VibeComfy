@@ -450,6 +450,61 @@ def _extract_delta_ops_from_envelope(envelope: Any) -> tuple[Any, ...]:
     }).ops
 
 
+def _op_touched_uids(ops: tuple[Any, ...]) -> frozenset[str]:
+    """Collect the node uids a parsed delta touches (RR1-FIX-1)."""
+
+    touched: set[str] = set()
+    for op in ops:
+        uid = getattr(op, "uid", None)
+        if isinstance(uid, str) and uid:
+            touched.add(uid)
+        for attr in ("target", "source"):
+            ref = getattr(op, attr, None)
+            ref_uid = getattr(ref, "uid", None) if ref is not None else None
+            if isinstance(ref_uid, str) and ref_uid:
+                touched.add(ref_uid)
+    return frozenset(touched)
+
+
+def _verify_seal_coverage(
+    workflow: Any,
+    name_authority: Mapping[str, Any] | None,
+    ops: tuple[Any, ...],
+) -> str | None:
+    """Require the sealed name domain to equal the recorded table on touched nodes.
+
+    RR1-FIX-1: ``_seal_frozen_name_domain`` silently skips nodes missing from
+    the fresh ingest's field snapshot, and ``_rekey_ir_widget_fields``
+    silently skips count-mismatched literals. Either skip means replay would
+    interpret names under a DIFFERENT domain than the receipt records — the
+    live/replay split-brain that mangled gate-green candidates. Fail closed
+    with a typed reason instead of sealing divergently.
+    """
+    if not isinstance(name_authority, Mapping) or not name_authority or not ops:
+        return None
+    from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
+
+    effective = frozen_widget_names_by_uid(workflow)
+    id_to_uid = {
+        str(node_id): (getattr(node, "uid", None) or str(node_id))
+        for node_id, node in getattr(workflow, "nodes", {}).items()
+    }
+    touched = _op_touched_uids(ops)
+    for node_id, roster in name_authority.items():
+        uid = id_to_uid.get(str(node_id), str(node_id))
+        if uid not in touched:
+            continue
+        normalized = tuple(str(name) for name in roster if isinstance(name, str) and name)
+        current = effective.get(str(uid))
+        if not normalized or current != normalized:
+            return (
+                f"name_domain_divergence: node {node_id} (uid {uid}) sealed as "
+                f"{current!r} but the frozen authority of record is {normalized!r}"
+            )
+    return None
+
+
+ 
 def _seal_frozen_name_domain(
     workflow: Any,
     name_authority: Mapping[str, Any] | None,
@@ -515,32 +570,35 @@ def _seal_frozen_name_domain(
 
 
 def _rekey_ir_widget_fields(node: Any, names: tuple[str, ...]) -> None:
-    """Rename one node's IR widget-literal fields onto the frozen roster.
+    """Rebuild one node's IR widget-literal fields onto the frozen roster.
 
-    Ingest assigns IR field names from whatever schema surface it resolved;
-    under a drifted provider those NAMES differ even when the positional
-    values are identical.  The retained raw widget payload is the positional
-    truth, so literal entries are rebuilt positionally under the frozen
-    roster.  Link-shaped values and count mismatches are left untouched
-    (fail-honest: the seal roster still pins interpretation).
+    Ingest keys compact ``widgets_values`` positionally against
+    ``metadata.input_aliases`` — a full-input-order list that interleaves
+    socket names (``MODEL_TASK_ID``, ``FILE_3D*``) and hidden API names with
+    widget names. A leading socket alias therefore SWALLOWS widget value 0
+    and shifts every literal one slot left (RR1-FIX-1 root cause). The
+    retained raw widget payload is the positional truth, so literals are
+    rebuilt from ``zip(raw_values, frozen_roster)``; genuine link-shaped
+    entries are preserved and never overwritten.
     """
     inputs = getattr(node, "inputs", None)
-    if not isinstance(inputs, dict) or not inputs:
+    if not isinstance(inputs, dict) or not inputs or not names:
         return
     raw_widgets = getattr(node, "raw_widgets", None)
     values = list(getattr(raw_widgets, "values", None) or ())
-    literals = [
-        (key, value)
-        for key, value in inputs.items()
-        if not (isinstance(value, (list, tuple)) and len(value) == 2)
-    ]
-    if not values or len(literals) != len(values):
+    if not values:
         return
-    rebuilt = dict(inputs)
-    for (key, value), name in zip(literals, names):
-        if key != name:
-            del rebuilt[key]
-            rebuilt[name] = value
+
+    def _is_link(value: Any) -> bool:
+        return isinstance(value, (list, tuple)) and len(value) == 2
+
+    rebuilt: dict[str, Any] = {
+        key: value for key, value in inputs.items() if _is_link(value)
+    }
+    for value, name in zip(values, names):
+        if not isinstance(name, str) or not name:
+            continue
+        rebuilt[name] = value
     node.inputs = rebuilt
 
 
@@ -653,6 +711,13 @@ def recompute_apply(
         # explicit table the freshly-sealed ingest roster remains authoritative
         # (single self-consistent domain), preserving prior behavior.
         workflow = _seal_frozen_name_domain(workflow, name_authority)
+        # RR1-FIX-1: the sealed domain must EQUAL the recorded authority on
+        # every op-touched node. A silent skip (node absent from the fresh
+        # ingest snapshot, empty roster, count-mismatched literals) means
+        # replay would interpret under a divergent domain — reject instead.
+        divergence = _verify_seal_coverage(workflow, name_authority, ops)
+        if divergence:
+            return False, None, divergence, len(ops)
         from vibecomfy.porting.edit.admit import (
             AdmissionRejected,
             admission_snapshot_for,
@@ -684,6 +749,14 @@ def recompute_apply(
     except Exception as exc:
         return False, None, f"interpret_error: {exc}", len(ops)
 
+    # RR1-FIX-1 (phantom-landing guard): a declared, accepted named write that
+    # resolves to NO emitted byte change never landed. Counting it as a
+    # landing minted authority for graphs nothing changed (8800a9: Gate A
+    # certified "1 edit verified" while candidate == submit byte-for-byte).
+    # Fail closed with a typed reason; honest non-apply terminals carry no
+    # ops and are unaffected.
+    if ops and structural_graph_hash(working) == structural_graph_hash(submit_graph):
+        return False, None, "phantom_landing_no_byte_change", len(ops)
     return True, working, None, len(ops)
 
 

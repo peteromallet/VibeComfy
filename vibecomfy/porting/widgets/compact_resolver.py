@@ -97,10 +97,23 @@ def _exclude_linked(
     names: list[str | None],
     linked: frozenset[str],
 ) -> list[str | None]:
-    """Drop linked sockets from a candidate roster, keeping alignment (R1)."""
+    """Compact linked sockets out of a candidate roster (R1, RR1-FIX-1).
+
+    A full-input-order source (``metadata.input_aliases``) interleaves
+    connection sockets with literal widgets, while compact ``widgets_values``
+    holds literal widgets only. Dropping the linked entries — rather than
+    nulling them in place — removes the positional holes BEFORE
+    ``_align_names`` maps names onto compact slots, so a leading custom-typed
+    socket can no longer shift every widget name right and truncate the tail.
+    Widget-only rosters never contain a linked input's name, so compaction is
+    a no-op for them. Unlinked socket-typed names cannot be distinguished
+    from widgets here; they stay in the roster and the resulting ambiguity is
+    rejected downstream (live/replay table equality + candidate-byte
+    equality), never guessed.
+    """
     if not linked:
         return names
-    return [None if isinstance(name, str) and name in linked else name for name in names]
+    return [name for name in names if not (isinstance(name, str) and name in linked)]
 
 
 def compact_widget_names_for_node(
@@ -216,6 +229,15 @@ def _candidate_name_sources(
     allow_object_info_fallback: bool,
 ) -> list[tuple[str, list[str | None]]]:
     sources: list[tuple[str, list[str | None]]] = []
+
+    # RR1-FIX-1: an explicit runtime-captured widget-slot order (serialized
+    # through the schema snapshot) is exact evidence — literal widgets in UI
+    # ``widgets_values`` order, sockets already excluded. It outranks
+    # ``metadata.input_aliases``, which interleaves socket names with widget
+    # names and can only be repaired heuristically by linked-hole compaction.
+    explicit_order = _schema_explicit_widget_order(schema_provider, class_type)
+    if explicit_order:
+        sources.append(("schema_explicit_widget_order", list(explicit_order)))
 
     metadata = _metadata(node)
     aliases = metadata.get("input_aliases")
@@ -555,6 +577,24 @@ def _provider_compact_aliases(schema_provider: Any | None, class_type: str) -> l
             continue
         names.append(str(name))
     return names
+
+
+def _schema_explicit_widget_order(
+    schema_provider: Any | None,
+    class_type: str,
+) -> tuple[str | None, ...]:
+    """Return the schema's explicit literal-widget slot order (RR1-FIX-1).
+
+    Non-empty only when the resolved schema carries runtime-captured evidence
+    of which ordered inputs occupy ``widgets_values`` slots. Never guessed:
+    providers that do not expose the split yield ``()`` and resolution falls
+    through to the ambient sources.
+    """
+    schema = _schema_from_provider(schema_provider, class_type)
+    order = getattr(schema, "widget_input_order", None) if schema is not None else None
+    if isinstance(order, (tuple, list)) and order:
+        return tuple(name if isinstance(name, str) else None for name in order)
+    return ()
 
 
 def _provider_input_spec_is_widget_value(spec: Any) -> bool:
