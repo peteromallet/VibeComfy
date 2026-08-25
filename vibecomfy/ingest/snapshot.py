@@ -433,3 +433,93 @@ def capture_workflow_snapshot(
         field_snapshot=dict(field_snapshot),
         shape=source_representation,
     )
+
+
+def raw_link_identity(
+    snapshot: "WorkflowSnapshot",
+) -> dict[tuple[str, str, str, str], int]:
+    """Retained LiteGraph link IDs keyed by endpoint names, from the sidecar.
+
+    RRSYN-3: graph inspection must carry the ORIGINAL LiteGraph ``links[i][0]``
+    ids rather than enumeration indices.  The IR edge model (``VibeEdge``)
+    drops the numeric id, so the lossless ``raw_sidecar`` is the only retained
+    source.  Keys are ``(origin_node_id, output_name, target_node_id,
+    input_name)`` — stable across the raw/IR representations.
+
+    UI-format sidecars only; API-format or missing sidecars yield ``{}``.
+    Callers fail closed to "identity unavailable" instead of inventing IDs.
+    """
+    raw = snapshot.raw_sidecar
+    if not isinstance(raw, Mapping) or not isinstance(raw.get("nodes"), list):
+        return {}
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    for node in raw["nodes"]:
+        if isinstance(node, Mapping) and node.get("id") is not None:
+            nodes_by_id[str(node["id"])] = dict(node)
+
+    def _input_name(node_id: Any, slot_index: Any) -> str | None:
+        node = nodes_by_id.get(str(node_id))
+        inputs = node.get("inputs") if isinstance(node, Mapping) else None
+        if not isinstance(inputs, list) or not isinstance(slot_index, int):
+            return None
+        if slot_index < 0 or slot_index >= len(inputs):
+            return None
+        entry = inputs[slot_index]
+        name = entry.get("name") if isinstance(entry, Mapping) else None
+        return str(name) if isinstance(name, str) and name else None
+
+    def _output_name(node_id: Any, slot_index: Any) -> str | None:
+        node = nodes_by_id.get(str(node_id))
+        outputs = node.get("outputs") if isinstance(node, Mapping) else None
+        if not isinstance(outputs, list) or not isinstance(slot_index, int):
+            return None
+        if slot_index < 0 or slot_index >= len(outputs):
+            return None
+        entry = outputs[slot_index]
+        name = entry.get("name") if isinstance(entry, Mapping) else None
+        return str(name) if isinstance(name, str) and name else None
+
+    identity: dict[tuple[str, str, str, str], int] = {}
+    links = raw.get("links")
+    if not isinstance(links, list):
+        return {}
+
+    def _spellings(
+        oid: Any, osl: Any, oname: str | None, tid: Any, tsl: Any, tiname: str | None
+    ) -> tuple[tuple[str, str, str, str], ...]:
+        """Address spellings for one link's endpoints.
+
+        Raw nodes may lack ``outputs`` arrays (or the origin may be absent),
+        so each side is addressed by its declared NAME when available and
+        always by its numeric slot index.  The IR edge names must match one
+        of these spellings; every spelling maps to the SAME retained id —
+        no id is ever derived from enumeration order.
+        """
+        out_forms = {str(osl)}
+        if oname is not None:
+            out_forms.add(oname)
+        in_forms = {str(tsl)}
+        if tiname is not None:
+            in_forms.add(tiname)
+        return tuple(
+            (str(oid), o, str(tid), t) for o in sorted(out_forms) for t in sorted(in_forms)
+        )
+
+    for link in links:
+        if isinstance(link, (list, tuple)) and len(link) >= 5:
+            lid, oid, osl, tid, tsl = link[0], link[1], link[2], link[3], link[4]
+        elif isinstance(link, Mapping):
+            lid = link.get("id", link.get("link_id"))
+            oid = link.get("origin_id")
+            osl = link.get("origin_slot")
+            tid = link.get("target_id")
+            tsl = link.get("target_slot")
+        else:
+            continue
+        if not isinstance(lid, int) or isinstance(lid, bool):
+            continue
+        oname = _output_name(oid, osl)
+        tiname = _input_name(tid, tsl)
+        for key in _spellings(oid, osl, oname, tid, tsl, tiname):
+            identity.setdefault(key, lid)
+    return identity

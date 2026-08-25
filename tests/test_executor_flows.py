@@ -3762,9 +3762,10 @@ class TestInspectOnlyFlow:
         assert "## Key Nodes" in graph_inspection
         assert "CheckpointLoaderSimple" in graph_inspection
         assert "KSampler" in graph_inspection
-        assert "unlabeled_count=1" in graph_inspection
-        assert "widget_0" not in graph_inspection
-        assert "unlabeled[0]" not in graph_inspection
+        # RRSYN-3: unnamed widgets render redacted opaque placeholders.
+        assert "unlabeled_count" not in graph_inspection
+        assert "widget_0=<opaque:" in graph_inspection
+        assert "auto" not in graph_inspection
         assert reply_kwargs.get("graph_summary") is None
         # Implementation must never be called
         mock_edit.assert_not_called()

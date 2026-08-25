@@ -13,7 +13,7 @@ treat inspection as best-effort.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeNode, VibeWorkflow
@@ -37,7 +37,11 @@ class SlotEvidence:
 
     name: str
     slot_type: str  # "input" | "output"
-    link_id: int | None = None  # set for input slots connected to a link
+    # Input direction: the retained LiteGraph link id connected to this slot.
+    link_id: int | None = None
+    # Output direction: retained LiteGraph link ids leaving this slot
+    # (RRSYN-3 — both endpoint directions carry real identities).
+    link_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,10 @@ class NodeEvidence:
     input_slots: tuple[SlotEvidence, ...] = ()
     output_slots: tuple[SlotEvidence, ...] = ()
     type_name: str | None = None
+    # Retained LiteGraph mode integer (0 enabled / 2 muted / 4 bypassed);
+    # ``None`` when unknown.  RRSYN-3: bypassed state must be exposed,
+    # never silently dropped.
+    mode: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "widgets", tuple(self.widgets))
@@ -60,9 +68,14 @@ class NodeEvidence:
 
 @dataclass(frozen=True)
 class EdgeEvidence:
-    """One link / edge in a ComfyUI graph."""
+    """One link / edge in a ComfyUI graph.
 
-    link_id: int
+    ``link_id`` is the RETAINED LiteGraph link id.  ``None`` means the
+    original identity was unavailable (no UI-format sidecar) — it is never
+    invented from enumeration order (RRSYN-3 fail-closed rule).
+    """
+
+    link_id: int | None
     origin_node: int | str
     origin_slot: int
     target_node: int | str
@@ -305,22 +318,48 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
 
 def _node_from_ir(
     node: VibeNode,
-    incoming: dict[str, dict[str, int]],
+    incoming: dict[str, dict[str, int | None]],
     outgoing: dict[str, set[str]],
+    outgoing_links: dict[str, dict[str, list[int | None]]] | None = None,
 ) -> NodeEvidence:
+    from vibecomfy.workflow import mode_to_litegraph
+
     node_key = str(node.id)
     incoming_for_node = incoming.get(node_key, {})
     input_slots = tuple(
         SlotEvidence(name=name, slot_type="input", link_id=link_id)
         for name, link_id in sorted(incoming_for_node.items())
     )
-    output_names = list(_declared_output_names(node))
-    seen = set(output_names)
+    outgoing_for_node = outgoing_links.get(node_key, {}) if outgoing_links else {}
+    declared = list(_declared_output_names(node))
+
+    def _slot_ids(index: int, name: str) -> tuple[int, ...]:
+        # Edges address their origin either by declared output NAME or by
+        # its numeric slot spelling; merge both so ids land on the real slot.
+        ids: list[int] = []
+        for key in (name, str(index)):
+            for lid in outgoing_for_node.get(key, ()):
+                if lid is not None and lid not in ids:
+                    ids.append(lid)
+        return tuple(ids)
+
+    output_names = list(declared)
+    seen = set(declared)
     for name in sorted(outgoing.get(node_key, set())):
-        if name not in seen:
-            output_names.append(name)
-            seen.add(name)
-    output_slots = tuple(SlotEvidence(name=name, slot_type="output") for name in output_names)
+        if name in seen:
+            continue
+        if name.isdigit() and int(name) < len(declared):
+            continue  # index spelling of an already-declared slot
+        output_names.append(name)
+        seen.add(name)
+    output_slots = tuple(
+        SlotEvidence(
+            name=name,
+            slot_type="output",
+            link_ids=_slot_ids(index, name),
+        )
+        for index, name in enumerate(output_names)
+    )
     return NodeEvidence(
         node_id=_evidence_id(node.id),
         class_type=node.class_type or "Unknown",
@@ -329,6 +368,7 @@ def _node_from_ir(
         input_slots=input_slots,
         output_slots=output_slots,
         type_name=_node_type_name(node),
+        mode=mode_to_litegraph(node.mode) or None,
     )
 
 
@@ -366,11 +406,17 @@ def _outgoing_node_ids(evidence: GraphEvidence) -> set[int | str]:
 
 
 def _incoming_linked_node_ids(evidence: GraphEvidence) -> set[int | str]:
-    """Return the set of node ids that have at least one linked input slot."""
+    """Return the set of node ids that have at least one linked input slot.
+
+    Input slots are only emitted for CONNECTED inputs, so presence — not the
+    numeric id — is the connectivity signal.  A ``None`` link_id means the
+    connection exists but its retained identity was unrecoverable; that node
+    is still linked (RRSYN-3).
+    """
     linked: set[int | str] = set()
     for node in evidence.nodes:
         for slot in node.input_slots:
-            if slot.link_id is not None:
+            if slot.slot_type == "input":
                 linked.add(node.node_id)
                 break
     return linked
@@ -850,17 +896,24 @@ def _render_data_flow_section(
         )
 
     if edges:
-        # Summarize key data-flow chains
-        edge_summaries: list[str] = []
-        for edge in edges[:20]:
+        # RRSYN-3: every edge is rendered — no silent cap.  Each edge
+        # carries its retained LiteGraph link id; an unavailable identity is
+        # marked explicitly instead of being replaced with an invented one.
+        sections.append(
+            f"- **Data-flow edges ({len(edges)}):**\n"
+        )
+        for edge in edges:
             src_label = _node_label(edge.origin_node, node_by_id)
             tgt_label = _node_label(edge.target_node, node_by_id)
             lt = f" ({edge.link_type})" if edge.link_type else ""
-            edge_summaries.append(f"{src_label} → {tgt_label}{lt}")
-        if edge_summaries:
-            sections.append("- **Data-flow edges:**\n")
-            for es in edge_summaries:
-                sections.append(f"  - {es}\n")
+            lid = (
+                f"link #{edge.link_id}"
+                if isinstance(edge.link_id, int)
+                else "link id unavailable"
+            )
+            sections.append(
+                f"  - {src_label} → {tgt_label}{lt} [{lid}]\n"
+            )
     else:
         sections.append("- No data-flow edges detected.\n")
 
@@ -908,37 +961,55 @@ def _render_key_nodes_section(
             identity.append(f"display_title={node.title}")
         sections.append(f"  - Identity: {', '.join(identity)}\n")
 
-        # Widget values
+        # Execution state (RRSYN-3): bypassed/muted nodes must never be
+        # silently rendered as ordinary participants in the graph.
+        if node.mode == 4:
+            sections.append("  - State: bypassed (mode=4)\n")
+        elif node.mode == 2:
+            sections.append("  - State: muted (mode=2)\n")
+
+        # Widget values.  RRSYN-3: unnamed widgets each render an explicit
+        # redacted opaque placeholder — the count-only `unlabeled_count`
+        # shape hid the fact that real values exist at those positions.
+        # Raw values stay redacted (existing bounded preview preserved for
+        # named widgets).
         if node.widgets:
             widget_strs: list[str] = []
-            unlabeled_count = 0
             for w in node.widgets:
                 if w.name:
                     widget_strs.append(f"{w.name}={_format_widget_value(w.value)}")
                 else:
-                    unlabeled_count += 1
-            if unlabeled_count:
-                widget_strs.append(f"unlabeled_count={unlabeled_count}")
+                    widget_strs.append(
+                        f"widget_{w.index}={_format_opaque_value(w.value)}"
+                    )
             sections.append(f"  - Widgets: {', '.join(widget_strs)}\n")
         else:
             sections.append("  - Widgets: none\n")
 
-        # Input slots
+        # Input slots.  Every rendered input slot is connected; an identity
+        # that could not be recovered from the retained sidecar says so
+        # explicitly instead of inventing a numeric id (RRSYN-3).
         if node.input_slots:
             slot_strs: list[str] = []
             for slot in node.input_slots:
-                if slot.link_id is not None:
+                if isinstance(slot.link_id, int):
                     slot_strs.append(f"{slot.name}=linked({slot.link_id})")
                 else:
-                    slot_strs.append(f"{slot.name}=open")
+                    slot_strs.append(f"{slot.name}=linked(id unavailable)")
             sections.append(f"  - Input slots: {', '.join(slot_strs)}\n")
         else:
             sections.append("  - Input slots: none\n")
 
-        # Output slots
+        # Output slots (RRSYN-3: both endpoint directions carry link ids)
         if node.output_slots:
-            slot_names = [slot.name for slot in node.output_slots]
-            sections.append(f"  - Output slots: {', '.join(slot_names)}\n")
+            slot_strs_out: list[str] = []
+            for slot in node.output_slots:
+                if slot.link_ids:
+                    links = ",".join(str(lid) for lid in slot.link_ids)
+                    slot_strs_out.append(f"{slot.name}=links({links})")
+                else:
+                    slot_strs_out.append(slot.name)
+            sections.append(f"  - Output slots: {', '.join(slot_strs_out)}\n")
         else:
             sections.append("  - Output slots: none\n")
 
@@ -1005,6 +1076,31 @@ def _render_expensive_risky_section(
         sections.append(f"- {label}: {reason}\n")
 
 
+def _format_opaque_value(value: Any) -> str:
+    """Redacted opaque rendering for UNNAMED widget values (RRSYN-3).
+
+    Unnamed widgets carry real values the agent must know exist, but their
+    content cannot be classified against a schema — so the value is rendered
+    as a type/shape placeholder, never raw.  Named widgets keep the existing
+    bounded preview in :func:`_format_widget_value`.
+    """
+    if value is None:
+        return "<opaque:null>"
+    if isinstance(value, bool):
+        return "<opaque:bool>"
+    if isinstance(value, int):
+        return "<opaque:int>"
+    if isinstance(value, float):
+        return "<opaque:float>"
+    if isinstance(value, str):
+        return f"<opaque:str len={len(value)}>"
+    if isinstance(value, (list, tuple)):
+        return f"<opaque:list n={len(value)}>"
+    if isinstance(value, dict):
+        return f"<opaque:dict n={len(value)}>"
+    return f"<opaque:{type(value).__name__}>"
+
+
 def _format_widget_value(value: Any) -> str:
     """Format a widget value for Markdown rendering."""
     if value is None:
@@ -1028,27 +1124,61 @@ def _format_widget_value(value: Any) -> str:
 # ── public API ───────────────────────────────────────────────────────────────
 
 
-def inspect_workflow(wf: VibeWorkflow) -> GraphEvidence:
+def inspect_workflow(
+    wf: VibeWorkflow,
+    *,
+    link_identity: Mapping[tuple[str, str, str, str], int] | None = None,
+) -> GraphEvidence:
     """Project structured evidence from an already-ingested :class:`VibeWorkflow`.
 
     Reads only IR fields (``wf.nodes``, ``wf.edges``, ``wf.widgets``,
     per-node ``raw_widgets`` / metadata furniture).  This is the product
     path; :func:`inspect_graph` is the raw-dict adapter that enters via
     the named ingest doors and then calls this function.
+
+    RRSYN-3: edge/slot identities are the RETAINED LiteGraph link ids, not
+    enumeration indices.  ``link_identity`` maps ``(origin_node, output_name,
+    target_node, input_name)`` → original id; when omitted it is recovered
+    from the retained snapshot's lossless raw sidecar.  Endpoints whose id
+    cannot be recovered carry ``None`` — never a fabricated index.
     """
-    incoming: dict[str, dict[str, int]] = {}
+    if link_identity is None:
+        from vibecomfy.ingest.snapshot import raw_link_identity, snapshot_of
+
+        retained = snapshot_of(wf)
+        link_identity = raw_link_identity(retained) if retained is not None else {}
+    incoming: dict[str, dict[str, int | None]] = {}
     outgoing: dict[str, set[str]] = {}
+    outgoing_links: dict[str, dict[str, list[int | None]]] = {}
     edges: list[EdgeEvidence] = []
-    for index, edge in enumerate(wf.edges):
+    for edge in wf.edges:
         from_node = str(edge.from_node)
         to_node = str(edge.to_node)
         to_input = str(edge.to_input)
         from_output = str(edge.from_output)
-        incoming.setdefault(to_node, {})[to_input] = index
+        real_id = link_identity.get((from_node, from_output, to_node, to_input))
+        if real_id is None:
+            # Index-spelling fallbacks address raw nodes that carry no
+            # declared output names.  The id still comes from the retained
+            # link element — never from enumeration order.
+            from_slot = str(_slot_index(from_output))
+            to_slot = str(_slot_index(to_input))
+            for fallback_key in (
+                (from_node, from_slot, to_node, to_input),
+                (from_node, from_output, to_node, to_slot),
+                (from_node, from_slot, to_node, to_slot),
+            ):
+                real_id = link_identity.get(fallback_key)
+                if real_id is not None:
+                    break
+        incoming.setdefault(to_node, {})[to_input] = real_id
         outgoing.setdefault(from_node, set()).add(from_output)
+        outgoing_links.setdefault(from_node, {}).setdefault(from_output, []).append(
+            real_id
+        )
         edges.append(
             EdgeEvidence(
-                link_id=index,
+                link_id=real_id,
                 origin_node=_evidence_id(edge.from_node),
                 origin_slot=_slot_index(edge.from_output),
                 target_node=_evidence_id(edge.to_node),
@@ -1058,26 +1188,29 @@ def inspect_workflow(wf: VibeWorkflow) -> GraphEvidence:
         )
 
     nodes = tuple(
-        _node_from_ir(node, incoming, outgoing) for node in wf.nodes.values()
+        _node_from_ir(node, incoming, outgoing, outgoing_links)
+        for node in wf.nodes.values()
     )
     return GraphEvidence(node_count=len(nodes), nodes=nodes, edges=tuple(edges))
 
 
-def _ingest_raw_graph(graph: dict[str, Any]) -> VibeWorkflow:
+def _ingest_raw_snapshot(graph: dict[str, Any]):
     """Enter a raw dict through the named ingest door once.
 
     Prefer a retained :class:`WorkflowSnapshot` when the caller already
     ingested. Never re-decode raw after that ingest.
+
+    Returns the retained snapshot (carrying the lossless raw sidecar), or
+    ``None`` when no snapshot could be retained.
     """
     from vibecomfy.ingest.normalize import ingest_workflow_and_ui
     from vibecomfy.ingest.snapshot import snapshot_of
 
     snapshot = snapshot_of(graph)
     if snapshot is not None:
-        return snapshot.workflow
+        return snapshot
     workflow, _canonical = ingest_workflow_and_ui(graph)
-    retained = snapshot_of(workflow)
-    return retained.workflow if retained is not None else workflow
+    return snapshot_of(workflow)
 
 
 def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:
@@ -1087,18 +1220,42 @@ def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:
     :class:`WorkflowSnapshot`) and projects via :func:`inspect_workflow`.
     ``None``, empty, or uningestible input yields empty evidence. Unknown
     shape stays unknown and fails closed to empty evidence.
+
+    RRSYN-3: the retained snapshot's raw sidecar supplies the original
+    LiteGraph link ids; the retained IR copy intentionally hides its own
+    snapshot metadata, so the identity is resolved HERE and passed down.
     """
-    from vibecomfy.ingest.snapshot import WorkflowSnapshot
+    from vibecomfy.ingest.snapshot import WorkflowSnapshot, raw_link_identity
 
     if isinstance(graph, WorkflowSnapshot):
-        return inspect_workflow(graph.workflow)
+        return inspect_workflow(
+            graph.workflow, link_identity=raw_link_identity(graph)
+        )
     if not graph:
         return GraphEvidence(node_count=0)
     try:
-        workflow = _ingest_raw_graph(graph)
+        snapshot = _ingest_raw_snapshot(graph)
     except (TypeError, ValueError):
         return GraphEvidence(node_count=0)
-    return inspect_workflow(workflow)
+    if snapshot is None:
+        return inspect_workflow_from_ingest(graph)
+    return inspect_workflow(
+        snapshot.workflow, link_identity=raw_link_identity(snapshot)
+    )
+
+
+def inspect_workflow_from_ingest(graph: dict[str, Any]) -> GraphEvidence:
+    """Fail-closed fallback: project without link identities (all ``None``)."""
+    from vibecomfy.ingest.snapshot import snapshot_of
+
+    retained = snapshot_of(graph)
+    workflow = retained.workflow if retained is not None else graph
+    try:
+        return inspect_workflow(workflow)
+    except (TypeError, ValueError):
+        return GraphEvidence(node_count=0)
+
+
 
 
 __all__ = [

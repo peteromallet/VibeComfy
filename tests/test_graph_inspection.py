@@ -1012,8 +1012,8 @@ class TestRenderInspectMarkdown:
         md = render_inspect_markdown(evidence)
         assert "Widgets:" in md
         assert "seed=42" in md
-        assert "unlabeled_count=1" in md
-        assert "unlabeled[1]" not in md
+        assert "unlabeled_count" not in md
+        assert "widget_1=<opaque:" in md
         assert "steps=euler" in md
 
     def test_key_nodes_widget_values_from_flat_fixture(
@@ -1040,10 +1040,11 @@ class TestRenderInspectMarkdown:
         md = render_inspect_markdown(evidence)
 
         assert evidence.nodes[0].widgets[0].name is None
-        assert "unlabeled_count=1" in md
-        assert "unlabeled[0]" not in md
+        assert "unlabeled_count" not in md
+        # RRSYN-3: the unnamed widget renders an explicit redacted opaque
+        # placeholder — the value exists, its content stays redacted.
+        assert "widget_0=<opaque:str len=4>" in md
         assert "auto" not in md
-        assert "widget_0" not in md
 
     def test_identity_prints_distinct_class_type_type_and_display_title(self) -> None:
         workflow = VibeWorkflow(id="inspect", source=WorkflowSource(id="inspect"))
@@ -1123,8 +1124,9 @@ class TestRenderInspectMarkdown:
         assert "[1] CheckpointLoaderSimple" in md
         assert "**Outputs:**" in md
         assert "[2] KSampler" in md
-        assert "**Data-flow edges:**" in md
+        assert "**Data-flow edges (2):**" in md
         assert "[1] CheckpointLoaderSimple → [2] KSampler" in md
+        assert "[link #" in md
 
     def test_data_flow_single_node_no_edges(
         self, single_node_graph: dict
@@ -1142,7 +1144,7 @@ class TestRenderInspectMarkdown:
         md = render_inspect_markdown(evidence)
         assert "**Inputs:**" in md
         assert "**Outputs:**" in md
-        assert "**Data-flow edges:**" in md
+        assert "**Data-flow edges (9):**" in md
         # Key connections
         assert "CheckpointLoaderSimple" in md
         assert "SaveImage" in md
@@ -1375,3 +1377,123 @@ class TestRetainedSnapshotInspection:
         assert evidence.node_count == 1
         unknown = inspect_graph({"not": "a-graph", "nodes": "nope"})
         assert unknown.node_count == 0
+
+
+class TestRetainedLinkIdentity:
+    """RRSYN-3: retained LiteGraph link ids, bypass state, full topology."""
+
+    @staticmethod
+    def _noncontiguous_graph() -> dict:
+        """links array order ≠ link ids; ids 40/7 with a gap in between."""
+        return {
+            "last_node_id": 2,
+            "last_link_id": 40,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "CheckpointLoaderSimple",
+                    "class_type": "CheckpointLoaderSimple",
+                    "outputs": [
+                        {"name": "MODEL", "type": "MODEL", "links": [40]}
+                    ],
+                },
+                {
+                    "id": 2,
+                    "type": "KSampler",
+                    "class_type": "KSampler",
+                    "inputs": [
+                        {"name": "model", "type": "MODEL", "link": 40},
+                        {"name": "latent_image", "type": "LATENT", "link": 7},
+                    ],
+                },
+            ],
+            "links": [[7, 1, 0, 2, 1, "LATENT"], [40, 1, 0, 2, 0, "MODEL"]],
+    }
+
+    def test_edge_link_ids_are_retained_not_enumeration_indices(self) -> None:
+        evidence = inspect_graph(self._noncontiguous_graph())
+        assert sorted(e.link_id for e in evidence.edges) == [7, 40]
+
+    def test_input_slot_carries_same_retained_id_as_its_edge(self) -> None:
+        evidence = inspect_graph(self._noncontiguous_graph())
+        node2 = next(n for n in evidence.nodes if n.node_id == 2)
+        by_name = {s.name: s for s in node2.input_slots}
+        assert by_name["model"].link_id == 40
+        assert by_name["latent_image"].link_id == 7
+
+    def test_output_slot_exposes_link_ids_on_origin_direction(self) -> None:
+        evidence = inspect_graph(self._noncontiguous_graph())
+        node1 = next(n for n in evidence.nodes if n.node_id == 1)
+        model_slot = next(s for s in node1.output_slots if s.name == "MODEL")
+        assert 40 in model_slot.link_ids
+        md = render_inspect_markdown(evidence)
+        assert "MODEL=links(40" in md
+
+    def test_renderer_marks_each_edge_with_retained_link_id(self) -> None:
+        evidence = inspect_graph(self._noncontiguous_graph())
+        md = render_inspect_markdown(evidence)
+        assert "[link #40]" in md
+        assert "[link #7]" in md
+
+    def test_api_format_fails_closed_without_inventing_ids(self) -> None:
+        api = {
+            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+            "2": {
+                "class_type": "KSampler",
+                "inputs": {"model": ["1", 0], "positive": ["1", 1]},
+            },
+        }
+        evidence = inspect_graph(api)
+        assert evidence.edges
+        assert all(e.link_id is None for e in evidence.edges)
+        md = render_inspect_markdown(evidence)
+        assert "[link id unavailable]" in md
+        assert "[link #0]" not in md
+
+    def test_bypassed_mode_is_rendered_not_silently_dropped(self) -> None:
+        graph = {
+            "nodes": [
+                {
+                    "id": 9,
+                    "type": "KSampler",
+                    "class_type": "KSampler",
+                    "mode": 4,
+                }
+            ],
+            "links": [],
+        }
+        evidence = inspect_graph(graph)
+        assert evidence.nodes[0].mode == 4
+        md = render_inspect_markdown(evidence)
+        assert "State: bypassed (mode=4)" in md
+
+    def test_all_edges_rendered_without_cap(self) -> None:
+        nodes = [
+            {
+                "id": 100 + i,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+            }
+            for i in range(25)
+        ]
+        nodes.append(
+            {
+                "id": 200,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "inputs": [
+                    {"name": f"in_{i}", "type": "IMAGE", "link": 500 + i}
+                    for i in range(25)
+                ],
+            }
+        )
+        links = [
+            [500 + i, 100 + i, 0, 200, i, "IMAGE"] for i in range(25)
+        ]
+        graph = {"nodes": nodes, "links": links}
+        evidence = inspect_graph(graph)
+        assert len(evidence.edges) == 25
+        md = render_inspect_markdown(evidence)
+        assert "**Data-flow edges (25):**" in md
+        assert md.count("[link #5") >= 25
