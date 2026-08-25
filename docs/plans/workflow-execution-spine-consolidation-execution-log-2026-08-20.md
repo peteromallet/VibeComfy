@@ -6937,3 +6937,82 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 - **Push REJECTED:** `HEAD:fixer/workflow-execution-spine-consolidation` → GH013 secret protection (dead rotated OpenRouter key); unblock URL `https://github.com/peteromallet/VibeComfy/security/secret-scanning/unblock-secret/3INvnmR6En7rMpmXHeeCXQ2UU4X`; §9 law respected — no history op, no scrub without operator authorization; remote `743cc102`, local `b50a0548`.
 - **§10 checklist truthfully met except push:** G0-G7 dispositions at `743cc102`, campaign §34 closed, 23/50 honestly assessed, must-findings closed, protected state untouched, report assembled; documented shortfall is push BLOCKED on operator decision.
 - **Orchestrator STOPPING:** no merge to main, no promotion; active-allowances empty.
+## EVIDENCE-SCOPEFIX — record operator directive §37 hivemind scope-fix chain — 2026-08-25
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the operator-supplied scope-fix chain (Facts 1–8) into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` and disposable output `/tmp`/`g0`. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded per brief. All credential material REDACTED per §29a.
+
+### 1. CONTEXT — Operator directive §37 corrects §36
+
+- **Directive §37** (orchestrator brief mtime `2026-08-24T21:02Z`) corrects **§36 "message_feed ONLY text-search"** rule — workflows live in `external_resources` + `distillations`; per-table pattern caps **4–6**; **PER-SCOPE timeouts**; small limits merged across scopes.
+- **`a6419fc0`** (`HIVEMIND-SEARCH-SHAPE`, `20:14Z`) had implemented the superseded §36 shape (message_feed-only, `content.ilike` 2–4 tokens, limit 5, per-request timeout ≥10s); §37 arrived post-landing and was **unabsorbed at campaign close** (`2026-08-25T01:55Z`).
+- This relaunch executed §37 as a **new card chain**; campaign otherwise stays **CLOSED** (no re-run of any finale or validation window).
+
+### 2. R1 HIVEMIND-SCOPE-FIX (ox-alpha, 01:02:32Z–01:10:32Z) — HOLLOW DISPATCH
+
+- Wrapper receipt `status=success` **BUT** launcher log shows `"Retry budget exhausted after 10 retries: rate_limit_exceeded"` at `478.6s`; `commits=[]`, `changed_files=[]`; HEAD unmoved.
+- Stealth provider throttled for the whole window. Treated per **§9** (one config check + retry); evidence preserved at `g0/hivemind-scope-fix-dispatch.log`.
+- Re-dispatched under fresh task id (registry guard holds the consumed id).
+- **NOTE for wrapper hardening ledger:** receipt `status=success` on a child whose launcher reported `exit=1` is a **mislabel candidate** (launcher inner-exit vs process-exit) — recorded, not fixed.
+
+### 3. R2 HIVEMIND-SCOPE-FIX-R2 (ox-alpha, ~36min) — commit `bf0d67e2`
+
+- **Commit `bf0d67e2`** (`bf0d67e242b5b09e64274d54975c65292a7a11f5`, `2026-08-25T01:47:57Z`), base `55de4e14` predecessor inverted in log order (actually base `1ced3ce4`), route `ox-alpha` (`stealth/ox-alpha`), 4 files within allowance: `vibecomfy/hivemind/hivemind_clients.py`, `vibecomfy/hivemind/hivemind_tools.py`, `tests/test_hivemind_lean_shape.py`, `tests/test_executor_hivemind_tools.py`.
+- Restored `external_resources` title/body `ilike` workflow scope (`source_type=workflow` AND all-corpus None), `message_feed` `content.ilike` cap raised to **6**, `unified_feed`/`distillation` tier stays **NON-text**, per-scope deadlines computed inside the scope loop, `degrade-once-after-57014` preserved per scope.
+- **Tests:** `95 passed / 1 skipped` (live-gated).
+
+### 4. REVIEW HIVEMIND-SCOPE-FIX-REVIEW (codex:gpt-5.6-sol, single review phase) — MUST ×4
+
+- **Receipt** `HIVEMIND-SCOPE-FIX-REVIEW-receipt.json`, route `codex:gpt-5.6-sol`, read-only, disposition **continue withheld** (must-fix).
+- **Verdict MUST FINDINGS ×4 — C2/C3/C4/C5; C1/C6 PASS:**
+  - **C2** composite `message_feed` path emitted up to **17** `content.ilike` patterns (independent per-group caps).
+  - **C3** transport re-raised on successful-empty scope + failed scope (contract: raise only when ALL scopes fail).
+  - **C4** partial-scope **429** returned `OK` without opening shared cooldown circuit (`Retry-After` lost).
+  - **C5** integrated-test gaps for exactly those three.
+- **C1/C6 PASS** — §37 guarantees intact otherwise; allowance/commit clean.
+
+### 5. REVISION HIVEMIND-SCOPE-FIX-REV (ox-alpha) — commit `55de4e14`
+
+- **Commit `55de4e14`** (`55de4e14429a98127cfe4a3dc9e05d7b29491408`, `2026-08-25T02:17:58Z`), base `bf0d67e2`, route `ox-alpha`.
+- **M1** one shared **6-pattern budget** across query/family/capability/node_class with case-insensitive dedup + documented priority truncation (`query→family→capability→node_class`), reviewer's composite shape now emits exactly **6**.
+- **M2** succeeded/failed scope counters, re-raise gate = `failed AND no succeeded`.
+- **M3** transport returns `rate_limit` metadata `{status_code, retry_after_seconds, scope}` and `hivemind_tools` opens the shared cooldown circuit even when hits survive (merged-hit `OK` shapes unchanged).
+- **M4** three integrated tests added **WITH mutation check** (all 3 fail on `bf0d67e2` sources, pass after).
+- **Suite:** `98 passed / 1 skipped`; one legacy assertion aligned to mandated dedup behavior.
+
+### 6. REREVIEW HIVEMIND-SCOPE-FIX-REREVIEW (codex:gpt-5.6-sol, the ONE re-review per §13.1) — `continue`
+
+- **Receipt** `HIVEMIND-SCOPE-FIX-REREVIEW-receipt.json`, route `codex:gpt-5.6-sol`, read-only.
+- **Verdict `continue`.** M1–M4 **PASS** with file:line evidence; §37 guarantees intact (`external_resources` + `message_feed` text scopes present; `unified_feed` never text-searched; per-scope deadlines inside loop); allowance/commit clean; no new must-severity defect.
+
+### 7. RESIDUAL / DEFERRED
+
+- **(a)** agent-facing tool description prose in `tool_specs.py` still says text matching runs on community message content only — implementer flagged; **deferred as non-blocking** (transport semantics correct); operator may commission a follow-up card.
+- **(b)** Live sub-2s regression stays **env-gated** via `HIVEMIND_REGRESSION_LIVE=1`.
+- **(c)** **PUSH-BLOCKED-001 UNCHANGED:** remote branch still `743cc102` (`743cc1027010880bed873ad57a6daf346848c0fd`); local HEAD after this record will include `bf0d67e2` + `55de4e14` + this evidence commit; push remains the standing **operator-only decision**.
+
+### 8. DISPOSITION — §37 chain COMPLETE
+
+- **§37 chain COMPLETE** (`implement → review → revision → re-review continue`). Campaign remains **closed**; no scenario re-runs authorized or needed for this correction.
+- **Next unblocked action: none** — awaiting only the operator push decision (unblock URL already recorded in log/closeout: `https://github.com/peteromallet/VibeComfy/security/secret-scanning/unblock-secret/3INvnmR6En7rMpmXHeeCXQ2UU4X`).
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **79 records** (78 prior + `79 EVIDENCE-SCOPEFIX` evidence dispatch recording the §37 hivemind scope-fix chain `bf0d67e2` → review (`C2-C5` must) → `55de4e14` → re-review `continue`; canonical_slot `EVIDENCE-SCOPEFIX`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`); `section_sha256` refreshed to new section hash.
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `section_sha256` to new section hash.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-SCOPEFIX` section) + `manifest.json` G7 `evidence_sequence[79]` + `tasks[5].recovery_note.sha256`/`section_sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `fae303b55e84a1b45c494258ef363aea69cde707` (+ `1522c000` + `d2b3affa` + `b50a0548` evidence/report) IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append; the dead rotated OpenRouter key material remains referenced only by its pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at `bf0d67e2` + `55de4e14` + new commit. G7 stays `status: open`.
+- **JUDGMENT_REQUIRED: none** (this recorder makes no new judgment; no scoring change by this dispatch).
+
+### Position — §37 chain COMPLETE, campaign still CLOSED, push still operator-only
+
+- **§37 chain:** `a6419fc0` (superseded §36) → `bf0d67e2` (scope fix) → review must ×4 → `55de4e14` (M1-M4) → re-review `continue` — **COMPLETE**.
+- **Campaign:** remains **closed** per `EVIDENCE-CLOSEOUT`; authoritative finale `23/50` unchanged; no re-run needed for this correction.
+- **Next:** none — awaiting only operator push decision (unblock URL already recorded).
+
