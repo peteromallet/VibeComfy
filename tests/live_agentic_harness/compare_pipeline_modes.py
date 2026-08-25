@@ -120,6 +120,13 @@ SOURCE_COMMIT_ENV_VAR = "VIBECOMFY_SOURCE_COMMIT"
 LEG_ISOLATION_MODES = ("thread", "process")
 LEG_TIMEOUT_SECONDS = 1200  # matches runner DEFAULT_PER_SCENARIO_TIMEOUT
 LEG_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
+# RRSYN-6: diagnosable legs + harness-owned timeout-only retry (mirrors the
+# runner.py T3.1/D6 freeze): at most ONE relaunch of a leg that timed out,
+# under a FRESH attempt identity, never for product failures. Attempt 1
+# evidence is always preserved; an unknown timeout cause stays infra-blocked.
+HARNESS_RETRY_OWNER = "harness_infrastructure"
+LEG_ATTEMPT_LIMIT = 2  # original attempt + at most one timeout-only retry
+LEG_LOG_TAIL_CHARS = 20_000  # bounded stdout/stderr tails embedded in records
 _ENV_WRITE_LOCK = threading.Lock()
 # Resolved once per comparison, before any leg thread starts (T5.1: every
 # leg's lineage manifest links the same source commit; T5.4: written before
@@ -1251,8 +1258,16 @@ def _write_leg_spec(
     output_base: Path,
     tag: str,
     transport: str | None,
+    attempt_identity: str | None = None,
 ) -> None:
-    """Persist one leg's full execution spec (the subprocess's only input)."""
+    """Persist one leg's full execution spec (the subprocess's only input).
+
+    RRSYN-6: ``attempt_identity`` (attempt ≥ 2 only) overrides the run tag the
+    child executes under so a timeout-only relaunch gets a FRESH attempt
+    identity — fresh output dirs — while the locked input (scenario +
+    ``locked_input_sha256``) stays byte-identical. Attempt-1 specs omit the
+    field entirely and keep their historical bytes.
+    """
     spec = {
         "scenario": dict(scenario),
         "mode": mode,
@@ -1262,6 +1277,8 @@ def _write_leg_spec(
         "transport": transport,
         "source_commit": _SOURCE_COMMIT[0] if _SOURCE_COMMIT else "",
     }
+    if attempt_identity is not None:
+        spec["attempt_identity"] = attempt_identity
     spec_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = spec_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(spec), encoding="utf-8")
@@ -1287,7 +1304,7 @@ def run_leg_from_spec(spec_path: str | Path, out_path: str | Path) -> int:
             mode=str(spec["mode"]),
             locked_input_sha256=str(spec["locked_input_sha256"]),
             output_base=Path(str(spec["output_base"])),
-            tag=str(spec["tag"]),
+            tag=str(spec.get("attempt_identity") or spec["tag"]),
             transport=spec.get("transport"),
         )
         payload = {"ok": True, "summary": summary}
@@ -1314,6 +1331,162 @@ def run_leg_from_spec(spec_path: str | Path, out_path: str | Path) -> int:
     return 0
 
 
+# ── RRSYN-6: bounded per-attempt evidence + timeout-only retry ───────────────
+
+def _leg_command(spec_path: Path, result_path: Path) -> list[str]:
+    """Child command for one leg attempt (extracted for deterministic tests)."""
+    return [
+        os.sys.executable,
+        "-m",
+        "tests.live_agentic_harness.compare_pipeline_modes",
+        "--run-leg",
+        str(spec_path),
+        "--leg-out",
+        str(result_path),
+    ]
+
+
+def _leg_attempt_identity(tag: str, scenario_id: str, mode: str, attempt: int) -> str:
+    """Fresh identity per attempt (mirrors ``runner._attempt_tag``)."""
+    return f"{tag}/attempts/{scenario_id}/{mode}/attempt_{attempt}"
+
+
+def _leg_attempt_paths(
+    specs_dir: Path, index: int, scenario_id: str, mode: str, attempt: int
+) -> dict[str, Path]:
+    """Per-attempt spec/result/log paths. Attempt 1 keeps legacy names."""
+    suffix = "" if attempt == 1 else f".attempt_{attempt}"
+    stem = f"leg_{index:04d}_{scenario_id}_{mode}"
+    return {
+        "spec": specs_dir / f"{stem}{suffix}.json",
+        "result": specs_dir / f"result_{index:04d}_{scenario_id}_{mode}{suffix}.json",
+        "stdout": specs_dir / f"{stem}{suffix}.out.log",
+        "stderr": specs_dir / f"{stem}{suffix}.err.log",
+    }
+
+
+def _bounded_tail(path: Path, cap: int = LEG_LOG_TAIL_CHARS) -> str | None:
+    """Last *cap* chars of a log file, or None when absent (never unbounded)."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return text[-cap:]
+
+
+def _leg_attempt_record(
+    summary: Mapping[str, Any] | None,
+    *,
+    attempt: int,
+    attempt_identity: str,
+    deadline_seconds: float,
+    timed_out: bool,
+    paths: Mapping[str, Path],
+) -> dict[str, Any]:
+    """Typed per-attempt record with runner-style retry ownership."""
+    if isinstance(summary, Mapping):
+        ok = summary.get("ok") is True
+        failure_class = str(
+            summary.get("failure_class")
+            or ("infra_timeout" if timed_out else "product_or_assessment_failure")
+        )
+        live = bool((summary.get("guard") or {}).get("live_agentic_success"))
+        cost = summary.get("deepseek_est_cost_usd")
+    else:
+        ok = False
+        failure_class = "infra_timeout" if timed_out else "runner_exception"
+        live = False
+        cost = None
+    if timed_out and not ok:
+        # Remote state of a timed-out completion request is unknowable: a
+        # relaunch is only ever safe under a FRESH identity (T3.1/D6 freeze).
+        retry_disposition = "not_safe_to_retry_same_identity"
+        remote_uncertainty = "timeout_before_response"
+    elif ok:
+        retry_disposition = "none"
+        remote_uncertainty = None
+    else:
+        # Product failures are terminal: the harness never retries them.
+        retry_disposition = "terminal"
+        remote_uncertainty = None
+    return {
+        "attempt": attempt,
+        "attempt_identity": attempt_identity,
+        "ok": ok,
+        "failure_class": failure_class,
+        "score_class": (
+            "infra_blocked"
+            if failure_class.startswith("infra_")
+            else ("pass" if live else "product_fail")
+        ),
+        "live_agentic_success": live,
+        "timed_out": timed_out,
+        "cost_usd": cost,
+        "cost_basis": "summary" if isinstance(summary, Mapping) else "not_available",
+        "spec_path": str(paths["spec"]),
+        "result_path": str(paths["result"]),
+        "stdout_log": str(paths["stdout"]),
+        "stderr_log": str(paths["stderr"]),
+        "stdout_tail": _bounded_tail(Path(paths["stdout"])),
+        "stderr_tail": _bounded_tail(Path(paths["stderr"])),
+        "retry_ownership": {
+            "owner": HARNESS_RETRY_OWNER,
+            "attempt_identity": attempt_identity,
+            "attempt_deadline_seconds": float(deadline_seconds),
+            "same_identity_retry": False,
+            "retry_disposition": retry_disposition,
+            "remote_uncertainty": remote_uncertainty,
+            # Completion requests carry no idempotency key; recorded so
+            # evidence consumers never have to assume otherwise.
+            "request_idempotency_key": None,
+        },
+    }
+
+
+def _attach_leg_attempt_bookkeeping(
+    summary: dict[str, Any],
+    attempts: Sequence[Mapping[str, Any]],
+    *,
+    final_success: bool,
+) -> dict[str, Any]:
+    """Attach runner-style attempt bookkeeping onto a final leg summary."""
+    summary["attempts"] = [dict(attempt) for attempt in attempts]
+    summary["attempt_count"] = len(attempts)
+    summary["final_attempt"] = attempts[-1]["attempt"]
+    summary["raw_first_attempt_success"] = attempts[0].get("live_agentic_success") is True
+    summary["final_success"] = final_success
+    summary["retry_owner"] = HARNESS_RETRY_OWNER
+    summary["retried_after_timeout"] = attempts[-1]["attempt"] > 1
+    return summary
+
+
+def _persist_leg_attempts_index(
+    specs_dir: Path,
+    index: int,
+    scenario_id: str,
+    mode: str,
+    attempts: Sequence[Mapping[str, Any]],
+    summary: Mapping[str, Any],
+) -> None:
+    """Persist the leg's intermediate attempt/phase evidence atomically."""
+    path = specs_dir / f"attempts_{index:04d}_{scenario_id}_{mode}.json"
+    payload = {
+        key: summary.get(key)
+        for key in (
+            "raw_first_attempt_success",
+            "final_success",
+            "final_attempt",
+            "attempt_count",
+            "retry_owner",
+            "retried_after_timeout",
+        )
+    }
+    payload["attempts"] = [dict(attempt) for attempt in attempts]
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, default=str, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def _run_legs_in_processes(
     descriptors: Sequence[tuple[str, str, Mapping[str, Any], str]],
     *,
@@ -1329,6 +1502,15 @@ def _run_legs_in_processes(
     serialization-to-hide-races: independent legs still overlap up to the
     cap). Reconstruction follows the submission/manifest order, so failed
     children retain their original slots and no state is shared between legs.
+
+    RRSYN-6: every attempt's stdout/stderr streams persist to per-attempt log
+    files (bounded tails are embedded in the attempt records — never DEVNULL),
+    each finished attempt appends a typed record with retry ownership to the
+    leg's persisted attempts index, and a leg that TIMES OUT is relaunched at
+    most ONCE under a fresh attempt identity with a byte-identical locked
+    input. Product failures and non-timeout crashes are never retried;
+    attempt 1 evidence is always preserved; an unknown timeout cause stays
+    infra-blocked rather than being guessed green.
     """
     import signal  # noqa: PLC0415
     import subprocess  # noqa: PLC0415
@@ -1337,46 +1519,50 @@ def _run_legs_in_processes(
     specs_dir = output_base / "_legs"
     specs_dir.mkdir(parents=True, exist_ok=True)
     handles: dict[int, subprocess.Popen[Any]] = {}
-    out_paths: dict[int, Path] = {}
+    paths_by_index: dict[int, dict[str, Path]] = {}
+    attempts_by_index: dict[int, list[dict[str, Any]]] = {}
+    attempt_of: dict[int, int] = {}
     leg_results: list[dict[str, Any] | None] = [None] * len(descriptors)
     deadline_by_index = [0.0] * len(descriptors)
     next_to_launch = 0
 
     def _launch(index: int) -> None:
         scenario_id, mode, scenario, lock = descriptors[index]
-        spec_path = specs_dir / f"leg_{index:04d}_{scenario_id}_{mode}.json"
-        out_path = specs_dir / f"result_{index:04d}_{scenario_id}_{mode}.json"
+        attempt = attempt_of.get(index, 1)
+        paths = _leg_attempt_paths(specs_dir, index, scenario_id, mode, attempt)
+        identity = _leg_attempt_identity(tag, scenario_id, mode, attempt)
         _write_leg_spec(
-            spec_path,
+            paths["spec"],
             scenario=dict(scenario),
             mode=mode,
             locked_input_sha256=lock,
             output_base=output_base,
             tag=tag,
             transport=transport,
+            # Attempt ≥ 2 runs under a fresh identity; attempt 1 spec bytes
+            # stay exactly as they have always been.
+            attempt_identity=identity if attempt > 1 else None,
         )
-        command = [
-            os.sys.executable,
-            "-m",
-            "tests.live_agentic_harness.compare_pipeline_modes",
-            "--run-leg",
-            str(spec_path),
-            "--leg-out",
-            str(out_path),
-        ]
+        command = _leg_command(paths["spec"], paths["result"])
         env = dict(os.environ)
         env["VIBECOMFY_HEADLESS"] = "1"
         if _SOURCE_COMMIT:
             env[SOURCE_COMMIT_ENV_VAR] = _SOURCE_COMMIT[0]
-        handles[index] = subprocess.Popen(
-            command,
-            cwd=str(REPO),
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        out_paths[index] = out_path
+        out_handle = paths["stdout"].open("w", encoding="utf-8")
+        err_handle = paths["stderr"].open("w", encoding="utf-8")
+        try:
+            handles[index] = subprocess.Popen(
+                command,
+                cwd=str(REPO),
+                env=env,
+                stdout=out_handle,
+                stderr=err_handle,
+                start_new_session=True,
+            )
+        finally:
+            out_handle.close()
+            err_handle.close()
+        paths_by_index[index] = paths
         deadline_by_index[index] = time.monotonic() + LEG_TIMEOUT_SECONDS
 
     while next_to_launch < len(descriptors) or handles:
@@ -1393,9 +1579,11 @@ def _run_legs_in_processes(
             continue
         for index in finished_now:
             handle = handles.pop(index)
-            out_path = out_paths.pop(index)
+            paths = paths_by_index.pop(index)
             scenario_id, mode, _scenario, lock = descriptors[index]
+            attempt = attempt_of.get(index, 1)
             timed_out = time.monotonic() > deadline_by_index[index]
+            returncode = handle.poll()
             if timed_out and handle.poll() is None:
                 try:
                     os.killpg(os.getpgid(handle.pid), signal.SIGTERM)
@@ -1405,22 +1593,55 @@ def _run_legs_in_processes(
                         os.killpg(os.getpgid(handle.pid), signal.SIGKILL)
                     except (ProcessLookupError, PermissionError):
                         pass
-            payload = _load_json(out_path) if out_path.is_file() else None
-            if isinstance(payload, Mapping) and payload.get("ok") is True and isinstance(
-                payload.get("summary"), Mapping
-            ):
-                leg_results[index] = dict(payload["summary"])
+            result_path = paths["result"]
+            payload = _load_json(result_path) if result_path.is_file() else None
+            accepted_summary = (
+                dict(payload["summary"])
+                if isinstance(payload, Mapping)
+                and payload.get("ok") is True
+                and isinstance(payload.get("summary"), Mapping)
+                else None
+            )
+            record = _leg_attempt_record(
+                accepted_summary
+                or (payload if isinstance(payload, Mapping) else None),
+                attempt=attempt,
+                attempt_identity=_leg_attempt_identity(tag, scenario_id, mode, attempt),
+                deadline_seconds=float(LEG_TIMEOUT_SECONDS),
+                timed_out=timed_out and accepted_summary is None,
+                paths=paths,
+            )
+            attempts = attempts_by_index.setdefault(index, [])
+            attempts.append(record)
+
+            if accepted_summary is not None:
+                summary = _attach_leg_attempt_bookkeeping(
+                    accepted_summary, attempts, final_success=True
+                )
+                _persist_leg_attempts_index(
+                    specs_dir, index, scenario_id, mode, attempts, summary
+                )
+                leg_results[index] = summary
                 continue
+
+            if timed_out and attempt < LEG_ATTEMPT_LIMIT:
+                # ONE timeout-only relaunch under a FRESH attempt identity;
+                # the locked scenario input is byte-identical and attempt 1
+                # evidence (spec/result/logs/record) stays in place.
+                attempt_of[index] = attempt + 1
+                _launch(index)
+                continue
+
             error_text = (
                 str(payload.get("error"))
                 if isinstance(payload, Mapping) and payload.get("error")
                 else (
                     f"leg process timed out after {LEG_TIMEOUT_SECONDS}s"
                     if timed_out
-                    else f"leg process exited with code {code}"
+                    else f"leg process exited with code {returncode}"
                 )
             )
-            leg_results[index] = _leg_exception_summary(
+            base = _leg_exception_summary(
                 scenario_id,
                 mode=mode,
                 locked_input_sha256=lock,
@@ -1428,6 +1649,22 @@ def _run_legs_in_processes(
                 tag=tag,
                 error=RuntimeError(error_text),
             )
+            if timed_out:
+                # Unknown timeout cause stays infra-blocked — never product.
+                base["status"] = "timeout"
+                base["failure_class"] = "infra_timeout"
+                base["guard"] = {
+                    "live_agentic_success": False,
+                    "score_class": "infra_blocked",
+                    "failure_class": "infra_timeout",
+                }
+            summary = _attach_leg_attempt_bookkeeping(
+                base, attempts, final_success=False
+            )
+            _persist_leg_attempts_index(
+                specs_dir, index, scenario_id, mode, attempts, summary
+            )
+            leg_results[index] = summary
     return leg_results
 
 
