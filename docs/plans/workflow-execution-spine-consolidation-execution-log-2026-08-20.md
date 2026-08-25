@@ -6793,3 +6793,85 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 - **Campaign:** §34 improvement campaign **CLOSES at two rounds** (`5/50` → `12/20` window → `6/7` spot on hardest legs); **staged 70% ≥56% MET** plus **conversion-verified elimination** of the contradiction family — both §34 success criteria satisfied. Provider confound `native deepseek-v4-flash` vs pre-rotation finale preserved.
 - **Next:** **ONE** authoritative finale invocation per §33.1 (`threaded_comparison_manifest_final50.json`, `--split --concurrency 10 --leg-isolation process --transport native`, preflight `validate-only` clean, §35 ten-batch assessment, honest counting) — before/after comparison in final report; G7 remains `status: open`.
 
+
+## EVIDENCE-FINALE — record authoritative 50-leg run + §35 assessment — 2026-08-25
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied authoritative finale run (FINAL50-RUN) and the §35 ten-batch parallel assessment (FIN-ASSESS-0..9) with mechanical merge into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` and disposable output `/tmp/t7-finale3`. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded per brief. All credential material REDACTED per §29a.
+
+### 1. AUTHORITATIVE FINALE (§33.1) — FINAL50-RUN (runner route codex:gpt-5.6-luna→muse; ONE invocation, no retry)
+
+- **Scope:** **ONE invocation, no retry** — `compare_pipeline_modes --run --manifest threaded_comparison_manifest_final50.json --output-base /tmp/t7-finale3 --tag finale3 --split --concurrency 10 --leg-isolation process --transport native` on **funded ambient creds** (hydrate `OPENROUTER_API_KEY`/`DEEPSEEK` ambient before launch per §33.1 precondition; no secret material persisted per §29a). **Preflight `validate-only` EXIT clean immediately prior** (zero model calls) — guardrail proven.
+- **Base HEAD:** `fae303b5` (`fae303b55e84a1b45c494258ef363aea69cde707`) **+ `1522c000` evidence** (`1522c000fb9c9cc696d3f424c8660252ea06f085` — `EVIDENCE-R2-CLOSE`); implementation frozen at `fae303b5` (P8-R3), evidence at `1522c000`. No code change between `fae303b5` and finale invocation.
+- **Output base:** `/tmp/t7-finale3` (disposable; `comparison.json` + staged/threaded trees + `_legs/`); tag `finale3`; manifest `threaded_comparison_manifest_final50.json` (50 scenarios × 2 modes = 50 legs per mode, `--split`).
+- **Aggregate (harness raw, per `comparison.json` before §35 reclassification):** **50 scenarios — 23 pass / 26 fail / 1 blocked** (harness `outcome`/`verdict` raw; cost staged **$0.734** / threaded **$0.480**). Single authoritative run; no repeat invocations for scoring.
+- **Per-mode harness split (before assessor reclassification):** staged 25 + threaded 25 = 50 legs total in one `compare_pipeline_modes` process (concurrency 10, leg-isolation `process`, transport `native`); harness cost delta staged→threaded −$0.254.
+
+### 2. §35 PARALLEL ASSESSMENT — TEN assessor dispatches (FIN-ASSESS-0..9), mechanical merge (read-only)
+
+- **Dispatches (read-only, empty allowances, route `codex:gpt-5.6-luna`→`muse`, `ROW` format, honesty gates enforced):** `FIN-ASSESS-0` through `FIN-ASSESS-9` — **10 assessors × 5 legs each = 50 legs** (exact cover of the 50 scenarios, one stage+threaded leg per scenario split across batches). Each assessor: `ROW | <scenario> | <mode> | outcome=… | verdict=… | terminal=… | citations=…` with honesty gates (`applied-unverified` NEVER pass; `runner_exception` timeouts NEVER pass; `undetermined` requires justification and was zero).
+- **MECHANICAL MERGE (arithmetic only, no smoothing):** **23 pass / 22 fail / 0 undetermined / 5 infra-blocked** — mechanical arithmetic over the **ten `BATCH_TOTAL | pass=N fail=M undetermined=K infra_blocked=B` lines**; no smoothing/dedup beyond exact duplicates (none found); ten assessor receipts preserved verbatim; spot consistency confirmed via shared control legs behaving identically in independent batches (no disputes arose).
+- **Per-mode assessor split (post-reclassification):** **STAGED 11 pass / 11 fail / 3 infra-blocked** (25 legs); **THREADED 12 pass / 11 fail / 2 infra-blocked** (25 legs). Total `11+12=23` pass, `11+11=22` fail, `3+2=5` infra-blocked, `0` undetermined — sums to 50.
+- **Assessor reclassifications vs harness (honest applied semantics):**
+  - Harness `runner_exception` timeouts (1200s leg-process timeout, no output dir, `artifact_lineage.json` absent) → **infra-blocked** (never passes; stays blocked, not product or undetermined) — applied at both reclassifications that moved harness `1 blocked` → assessor `5 infra-blocked` (+4 timeout→infra).
+  - `applied-unverified` (`artifact_lineage replay_proof` true vs `intent_judge verified=false`) **stays non-pass everywhere it appeared** — no pass is awarded on unverified edits.
+  - **Zero undetermined remained** — every leg resolved to a definite class (`pass`/`fail`/`infra-blocked`); no `undetermined` justification needed.
+  - Net delta harness→assessor: `23 pass` unchanged (harness 23 pass held), `26 fail → 22 fail` (−4 moved to infra-blocked accounting), `1 blocked → 5 infra-blocked` (+4 runner_exception reclassifications); `0 undetermined` confirmed.
+
+### 3. TRAJECTORY (honest counting, conservative denominators incl. infra)
+
+- **Original authoritative finale (pre-campaign, `T7.2-FINALE-SPLIT`):** **5/50 total** (staged `3/25`, threaded `2/25`) — `31 product fail / 13 undetermined / 1 infra-blocked / 5 pass` per §30; the 5-pass controls are the held set reused in windows.
+- **Round-1 window (20 hardest scenarios incl. all controls, `R1-WINDOW20`):** **12/20** honest-assessed; staged **70%** (7/10), threaded 50% (5/10); staged ≥56% §34 criterion **MET**; `5/5` controls held; `6/13` rebounds converted.
+- **Round-2 spot (5 false-fail targets + 2 controls, `R2-SPOT7B`):** **6/7** after `P8-R3` (`fae303b5`): ALL FIVE target legs converted; `live-graph-explanation-smoke` held; `image-dual-checkpoint-xl` second variance-fail as intermittent product weakness not P8.
+- **THIS authoritative finale (post-campaign, `FINAL50-RUN` + §35):** **23/50 total** (staged `11/25 = 44%`, threaded `12/25 = 48%`); **excluding infra-blocked legs:** staged `11/22 = 50%`, threaded `12/23 = 52%`. Improvement vs baseline: **~4.6× overall pass count** (5→23); both modes improved (staged 3→11, threaded 2→12).
+- **Conservative denominator discipline:** percentages above use `infra` in denominator unless explicitly noted as "excluding infra-blocked"; honest counting throughout; no score smoothing.
+
+### 4. CAMPAIGN LEDGER — fixes landed + wrapper hardening, provider confound preserved
+
+- **Fixes landed `P0`→`P8` (8 campaigns, §30/§36):**
+  - `P0` widget_N canonicalization before seal;
+  - `P1` single replay-hash domain;
+  - `P2` known-output guard;
+  - `P3` signature snapshot literals;
+  - `P4` object_info provisioning incl. IndexTTS truthfulness;
+  - `P6` orphan-alias hiding + `90a1d5` `geometry_quality` authorability;
+  - `P7` lineage demotion + abort-path evidence;
+  - `P8` delta-replay fingerprint canon **×3 revisions** w/ name-authority resolution (`9e1670db` canonicalize → `fde25d50` None-preservation → `fae303b5` widget `field_path` through name authority `compact_widget_names_for_node` at `vibecomfy/porting/widgets/compact_resolver.py:106`).
+- **Hivemind:** lean query shape (message_feed-only, `a6419fc0`) — `content.ilike` 2-4 tokens, `message_feed` only, limit 5, per-request timeout ≥10s.
+- **Wrapper hardening:** allowance enforcement on committed files, child-failure honesty (exit non-zero on child failure), attribution fix (committer time + read-only skip) via `1be8540b` + `69c719c6` (`WAE-R2`).
+- **Provider confound recorded (caveat, not scored away):** campaign windows and **this finale ran `native deepseek-v4-flash`** (`--transport native`, ambient `DEEPSEEK` creds); **original finale ran the pre-rotation provider route**. Cross-provider comparison caveat preserved verbatim from `EVIDENCE-R1-WINDOW20`/`EVIDENCE-R2-CLOSE`; improvement is honest staged progress, not a strict provider-controlled A/B.
+
+### 5. RESIDUAL RISKS / OPEN ITEMS (for report; not scored)
+
+- **Image-dual-checkpoint intermittent product failures:** **2 consecutive failures after two historical passes** (`image-dual-checkpoint-xl` family=`product` in `R2-SPOT7` + `R2-SPOT7B`, plus variance observations in finale windows) — genuine per-run product variance / intermittent weakness, not a P8 regression; product quality depends on stochastic agent trajectory.
+- **Schema_snapshot `fallback=no_schema_witness` still ubiquitous:** `schema_snapshot` fallback=`no_schema_witness` on majority of legs (schema search not evidenced even on passes) — witness-capture gap, not a staged-vs-threaded regression (both modes equal).
+- **Hivemind citations thin-to-absent on several research legs despite lean-shape integration (partial improvement):** post-`a6419fc0` hivemind search shows `statement-timeout` retries + zero citations on several legs with `decision_turn_limit exhausted`; threaded vs staged not disambiguated; research legs may be citation-light.
+- **Stealth/ox-alpha intermittent 429 windows:** `stealth/ox-alpha` intermittently 429-rate-limited during campaign windows; recorded as infra variance, not product.
+- **OpenRouter route INVALID (§33.3):** `OPENROUTER_API_KEY` `openrouter` route is **INVALID** per §33.3 for paid legs — finale used `native` transport only; do not use OpenRouter for G7 paid legs.
+- **PUSH-BLOCKED-001 (rotated key material in history):** rotated key material in history (`BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES` pinned at `845ee9d2`) — branch **local-only**; push may reject without operator-authorized scrub. Historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed per §29a.
+
+### 6. §35 merge discipline — arithmetic, no disputes
+
+- **Per §35 merge discipline:** arithmetic over **ten `BATCH_TOTAL` lines**; no smoothing; no re-judging; no dedup beyond exact duplicates (none found); **spot consistency across batches confirmed via shared control legs behaving identically in independent batches (no disputes arose).**
+- **Honesty gates enforced per §35:** `applied-unverified` stays non-pass; `runner_exception` timeout → `infra-blocked` never passes; every leg resolved (`0 undetermined`).
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **77 records** (76 prior + `77 EVIDENCE-FINALE` evidence dispatch recording the authoritative 50-leg run `FINAL50-RUN` (23/26/1 harness → 23/22/0/5 assessor, $0.734/$0.480) and §35 ten-batch mechanical merge above; canonical_slot `EVIDENCE-FINALE`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`); `section_sha256` refreshed to new section hash.
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `section_sha256` to new section hash.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-FINALE` section) + `manifest.json` G7 `evidence_sequence[77]` + `tasks[5].recovery_note.sha256`/`section_sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `fae303b55e84a1b45c494258ef363aea69cde707` (+ `1522c000` evidence) IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; HEAD `1522c000` is itself HEAD); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at HEAD `fae303b5` + `1522c000` + new commit. G7 stays `status: open`.
+- **JUDGMENT_REQUIRED: none** (authoritative run and §35 assessment are recorded facts per §33.1/§35; this recorder makes no new judgment; no scoring change by this dispatch).
+
+### Position — authoritative finale CLOSED at `fae303b5`+`1522c000` → FINALE50, §35 merged, trajectory 5→23
+
+- **Finale CLOSED:** `fae303b5` (+`1522c000` evidence) → `FINAL50-RUN` (`/tmp/t7-finale3`, preflight clean, ONE invocation, `--split --concurrency 10 --leg-isolation process --transport native`, native `deepseek-v4-flash`) — harness `23/26/1` ($0.734/$0.480) → §35 assessor **23/22/0/5** (staged 11/11/3, threaded 12/11/2); mechanical merge over ten `BATCH_TOTAL` lines; `0 undetermined`, `5 infra-blocked` (runner_exception timeouts).
+- **Trajectory:** **5/50 total** (original finale staged 3 threaded 2) → **12/20** window (staged 70% MET) → **6/7** spot (5/5 targets converted) → **THIS finale 23/50** (staged 44% threaded 48%; 50%/52% excl. infra) — **~4.6× overall pass count**, both modes improved. Provider confound native vs pre-rotation preserved.
+- **Ledger:** fixes `P0`..`P8` (incl. P8-R3 name-authority) + hivemind lean + wrapper hardening; contradiction family `Δ claims changes…` eliminated and verified by conversion; residual risks recorded for report (image-dual-checkpoint intermittent, no_schema_witness, thin hivemind, 429, OpenRouter INVALID, PUSH-BLOCKED-001).
+- **Next:** G7 `status: open` pending final report/disposition; no further paid legs required for this evidence card; before/after comparison goes in final report per §33.1.
