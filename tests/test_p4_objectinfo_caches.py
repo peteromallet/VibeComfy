@@ -54,10 +54,18 @@ EXPECTED_CLASSES = {
         "Save SRT",
     ],
     "ComfyUI-Easy-Use": [
+        # RRSYN-4 honest re-capture (yolain/ComfyUI-Easy-Use @4de1ab3b66e4,
+        # runtime import extraction): classes with fully faithful surfaces.
+        # ``easy preSamplingCustom`` is deliberately ABSENT — its INPUT_TYPES
+        # raises under the offline stub environment, so no faithful capture
+        # exists at this commit; recorded as an unobserved gap in the commit
+        # message instead of shipping a hand-fabricated surface.  Loop nodes
+        # pin the real dynamic outputs the former corpus-subset file lacked.
         "easy pipeIn",
-        "easy preSamplingCustom",
         "easy kSamplerInpainting",
         "easy controlnetLoader++",
+        "easy forLoopStart",
+        "easy forLoopEnd",
     ],
     "ComfyUI-Hunyuan3DTools": [
         "Hy3DTools_RenderSpecificView",

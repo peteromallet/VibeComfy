@@ -122,11 +122,21 @@ def normalize_entry(
     order = input_order(inputs)
     all_order = [name for section in ("required", "optional") for name in order.get(section, [])]
 
-    return_types = attrs.get("RETURN_TYPES") or ()
+    def _as_seq(value: Any) -> Any:
+        # A class may inherit from the permissive stub machinery or declare
+        # RETURN_TYPES as a bare scalar; iterating a string would emit one
+        # bogus output per character. Only genuine sequences are output data.
+        if isinstance(value, (list, tuple)):
+            return value
+        return ()
+
+    return_types = _as_seq(attrs.get("RETURN_TYPES"))
     return_names = attrs.get("RETURN_NAMES")
+    if not isinstance(return_names, (list, tuple)):
+        return_names = None
     if return_names is None:
         return_names = return_types
-    output_is_list = attrs.get("OUTPUT_IS_LIST") or ()
+    output_is_list = _as_seq(attrs.get("OUTPUT_IS_LIST"))
 
     return_types = list(jsonable(return_types or ()))
     return_names = list(jsonable(return_names or ()))
@@ -195,6 +205,10 @@ STUB_ROOTS = {
     "PIL", "transformers", "diffusers", "accelerate", "safetensors",
     "tokenizers", "soundfile", "librosa", "yaml", "spandrel", "onnxruntime",
     "timm", "imageio", "requests", "tqdm", "pytorch_lightning", "huggingface_hub",
+    # RRSYN-4: network/av stacks break extraction under interpreter-version
+    # typing drift (aiohttp Generic[...] TypeError on 3.11.11) — INPUT_TYPES
+    # extraction never needs a live transport, so stub them like the rest.
+    "aiohttp", "websockets",
 }
 
 
@@ -218,7 +232,13 @@ class StubModule(types.ModuleType):
             raise AttributeError(name)
         if name in {"get_filename_list", "get_folder_paths"}:
             return lambda *a, **k: []
-        if name in {"get_full_path", "get_full_path_or_raise", "get_annotated_filepath"}:
+        if name in {
+            "get_full_path", "get_full_path_or_raise", "get_annotated_filepath",
+            # RRSYN-4: path accessors leak into os.path.join during pack
+            # import; they must return strings, not dummy classes.
+            "get_input_directory", "get_output_directory",
+            "get_temp_directory", "get_user_directory",
+        }:
             return lambda *a, **k: ""
         if name in {"models_dir", "base_path", "output_directory", "input_directory"}:
             return ""
@@ -233,6 +253,22 @@ class _DummyMeta(type):
         # ``class Wrapper(torch.nn.Module)`` at import time, which reads the
         # attribute off the CLASS object, not an instance.
         return _dummy_class(f"{cls.__name__}.{name}")
+
+    # RRSYN-4: packs iterate/membership-test/subscript stubbed classes at
+    # import time (``for x in SomeEnum``, ``if X in Y``, ``M[k] = v``).
+    # Benign empties keep the load going without fabricating node surfaces.
+
+    def __iter__(cls):
+        return iter(())
+
+    def __contains__(cls, item):
+        return False
+
+    def __setitem__(cls, key, value):
+        return None
+
+    def __getitem__(cls, key):
+        return _dummy_class(f"{cls.__name__}[{key!r}]")
 
 
 def _dummy_class(name):
@@ -359,8 +395,15 @@ def _run_import_extractor(
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "import extraction failed")
-    raw = json.loads(result.stdout)
-    return {name: payload for name, payload in raw.items() if isinstance(payload, dict) and "_error" not in payload}
+    # Packs may print ANSI banners/log lines on stdout before the JSON
+    # payload; the JSON document is always the final print in the extractor.
+    payload = result.stdout.strip()
+    for line in reversed(payload.splitlines()):
+        if line.lstrip().startswith("{"):
+            payload = line
+            break
+    raw = json.loads(payload)
+    return {name: payload_entry for name, payload_entry in raw.items() if isinstance(payload_entry, dict) and "_error" not in payload_entry}
 
 
 def extract_by_import(
@@ -379,9 +422,15 @@ def extract_by_import(
     for class_name, payload in raw.items():
         if only_classes is not None and class_name not in only_classes:
             continue
+        # RRSYN-4 fail-closed rule: a class whose INPUT_TYPES did not return
+        # a real mapping (v3 comfy_api schema shim objects) was NOT faithfully
+        # observed.  Excluding it records an honest gap; shipping a hollow
+        # surface would let admission bless fields nobody captured.
+        if not isinstance(payload.get("inputs"), dict):
+            continue
         entries[class_name] = normalize_entry(
             class_name=class_name,
-            raw_inputs=payload.get("inputs"),
+            raw_inputs=_sanitize_observed_inputs(payload.get("inputs")),
             pack_name=pack_name,
             version=version,
             python_module=payload.get("module") or pack_name,
@@ -394,6 +443,61 @@ def extract_by_import(
             },
         )
     return entries, "import"
+
+
+def _sanitize_observed_inputs(raw_inputs: Any) -> Any:
+    """Strip stub artifacts from an INPUT_TYPES mapping observed at runtime.
+
+    RRSYN-4: under the auto-stub subprocess, folder-dependent combos come
+    back empty or polluted with ``<class …>`` dummy artifacts, and INT/FLOAT
+    bounds reference unresolvable sentinels.  These are NOT faithfully
+    observed values.  Combos lose junk elements; when nothing resolvable
+    remains they become the established ``["COMBO",
+    {"unresolved_choices": True}]`` marker so the input stays authorable
+    without fabricating options.  Unresolvable numeric bound keys are
+    dropped rather than stringified.
+    """
+    if not isinstance(raw_inputs, dict):
+        return raw_inputs
+
+    def _is_artifact(value: Any) -> bool:
+        return isinstance(value, str) and (
+            value.startswith("<class") or value.startswith("<__main__")
+        )
+
+    def _clean_meta(meta: Any) -> Any:
+        if not isinstance(meta, dict):
+            return meta
+        return {
+            key: value
+            for key, value in meta.items()
+            if not _is_artifact(value)
+        }
+
+    cleaned_sections: dict[str, dict[str, Any]] = {}
+    for section, group in raw_inputs.items():
+        if not isinstance(group, dict):
+            cleaned_sections[section] = group
+            continue
+        fixed_group: dict[str, Any] = {}
+        for name, spec in group.items():
+            if not (isinstance(spec, list) and spec):
+                fixed_group[name] = spec
+                continue
+            head = spec[0]
+            if isinstance(head, list):
+                # A combo is faithfully captured only when EVERY option is a
+                # plain string; anything else (boolean pairs, folder_paths
+                # lists, dummy artifacts) becomes the established unresolved
+                # marker instead of a fabricated option list.
+                if head and all(isinstance(c, str) and not _is_artifact(c) for c in head):
+                    fixed_group[name] = [head] + [_clean_meta(item) for item in spec[1:]]
+                else:
+                    fixed_group[name] = ["COMBO", {"unresolved_choices": True}]
+            else:
+                fixed_group[name] = [head] + [_clean_meta(item) for item in spec[1:]]
+        cleaned_sections[section] = fixed_group
+    return cleaned_sections
 
 
 # --- Rung 1: static AST extraction (no execution) ----------------------------

@@ -81,11 +81,131 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
             "source": "authoritative_object_info",
         },
     ),
+    # RRSYN-4 (batch-2 0eb676, batch-4 2x2, batch-5 llama-cpp/sd3): edit
+    # obligations whose frozen classes were absent from the runtime schema
+    # are construction-level impossibilities. Each names its exact captured
+    # provider; classes whose provider could NOT be proven by a same-pack
+    # capture stay UNDECLARED here on purpose — the undeclared-gate below
+    # then fails setup before any paid call instead of grading an
+    # impossible leg as product failure.
+    "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (
+        {
+            "class_type": "AudioCombine",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "AudioSeparation",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "authoritative_object_info",
+        },
+    ),
+    "image-generates-a-2x2-seed-variation": (
+        {
+            "class_type": "ImageBatchSplitter //Inspire",
+            "pack": "ComfyUI-Inspire-Pack",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "easy forLoopStart",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "easy forLoopEnd",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "authoritative_object_info",
+        },
+    ),
+    "audio-acestep-audio-generation-and-processing-workfl-1b1360": (
+        {
+            "class_type": "AudioCombine",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "AudioSeparation",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "authoritative_object_info",
+        },
+    ),
+    "multi-wan-vace-video-retargeting-driven": (
+        {
+            "class_type": "easy forLoopStart",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "easy forLoopEnd",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "authoritative_object_info",
+        },
+    ),
+    "image-llama-cpp-instruct-image-preview-and-save-5b54bf": (
+        {
+            "class_type": "llama_cpp_model_loader",
+            "pack": "ComfyUI-llama-cpp_vlm",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "llama_cpp_instruct_adv",
+            "pack": "ComfyUI-llama-cpp_vlm",
+            "source": "authoritative_object_info",
+        },
+        {
+            "class_type": "llama_cpp_parameters",
+            "pack": "ComfyUI-llama-cpp_vlm",
+            "source": "authoritative_object_info",
+        },
+    ),
 }
 
 #: Class-type families that trigger the exact-schema-evidence gate wherever
-#: they appear in a scenario's source workflow.
-_GATED_CLASS_RE = re.compile(r"IndexTTS|LayerMask|SegmentAnything", re.IGNORECASE)
+#: they appear in a scenario's source workflow.  RRSYN-4 adds the audio
+#: family, Inspire, Easy-Use loop/type nodes, LLaMA-CPP and
+#: Advanced-ControlNet: any gated class without a declared requirement
+#: above fails setup (never graded as a product failure).
+_GATED_CLASS_RE = re.compile(
+    r"IndexTTS|LayerMask|SegmentAnything"
+    r"|AudioCombine|AudioSeparation|AudioFilter|AudioVolumeNormalization"
+    r"|VocalAndSoundRemover|VibeVoice"
+    r"|//Inspire|easy forLoop|\beasy int\b"
+    r"|llama_cpp|ACN_AdvancedControlNet",
+    re.IGNORECASE,
+)
+
+
+#: RRSYN-4 honest-gap registry.  Gated classes whose owning pack could NOT
+#: be proven by a same-pack runtime capture are recorded here per locked
+#: scenario instead of being declared with guessed provenance.  Coverage
+#: reports them as WARNINGS ("setup fails before paid calls"), never as a
+#: laundered pass — the leg is an honest non-pass until a live capture
+#: proves ownership.
+UNPROVEN_PROVIDER_CLASSES: dict[str, tuple[str, ...]] = {
+    "audio-acestep-audio-generation-and-processing-workfl-1b1360": (
+        "AudioFilter",
+        "AudioVolumeNormalization",
+        "VocalAndSoundRemoverNode",
+    ),
+    "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (
+        "AudioFilter",
+        "AudioVolumeNormalization",
+        "VocalAndSoundRemoverNode",
+    ),
+    "audio-audio-processing-with-voice-tts-and-noise-remo-b80848": (
+        "VibeVoiceTTS",
+    ),
+    # comfy_api v3-schema node: INPUT_TYPES is a shim object, not faithfully
+    # observable by the offline stub extractor at this commit.
+    "image-generates-a-2x2-seed-variation": (
+        "easy int",
+    ),
+    # ACN_AdvancedControlNetApply extraction fails under offline stubs;
+    # provider (ComfyUI-Advanced-ControlNet) is known but UNPROVEN here.
+    "image-sd3-image-generation-with-controlnet-19d221": (
+        "ACN_AdvancedControlNetApply",
+    ),
+}
 
 
 #: Terminal-state ``no_candidate_reason`` vocabulary.  These labels classify
@@ -583,6 +703,13 @@ def validate_obligation_coverage(
                 )
                 continue
             if class_type not in declared:
+                if class_type in UNPROVEN_PROVIDER_CLASSES.get(scenario_id, ()):
+                    warnings.append(
+                        f"{scenario_id}: gated class {class_type!r} has no "
+                        "same-pack provenance capture at this commit — preflight "
+                        "will fail setup before paid calls (honest non-pass)"
+                    )
+                    continue
                 violations.append(
                     f"{scenario_id}: gated class {class_type!r} has no exact "
                     "schema provenance requirement (audio/multi-video require "
