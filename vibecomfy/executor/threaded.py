@@ -26,7 +26,6 @@ from .contracts import (
     validate_reply_change_claims,
 )
 from .profiles import AgentSpecShape
-from .request_purpose import deterministic_request_purpose
 
 # Lazy at call time inside core; the module-level import here is the typed
 # builder seam shared by both deliberation modes (no mode fork below it).
@@ -98,59 +97,28 @@ class ThreadedKernel:
 
 
 def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
-    """Return the host policy plan for the classifier-free agent conversation.
+    """Return the ONE judgment-owned envelope for the agent conversation.
 
-    RRSYN-7 / RR1-FIX-REV: routes are affordances, not prescriptions.  Only
-    two hard floors remain, and both mirror the shared post-classify host
-    policy in ``core._request_purpose_plan`` rather than coercing a route
-    choice:
-
-    * no graph → editing/inspection are physically unavailable, so the turn
-      runs the research-shaped conversation (capability truth, not routing);
-    * explicit ``answer_only`` with a graph → the end user's declared
-      non-edit interaction contract selects the inspect-only lane.
-
-    Every other attached-graph request gets the FULL judgment-owned envelope
-    (outside research, inspection, direct answer, concrete edits, layout
-    cleanup — none required).  The verbatim query is carried in
-    ``research_goal``/``change_goal``, and the declared interaction intent is
-    forwarded in the plan summary as context; the agent chooses the work.
+    RR1-FIX-REV2 (F9 / §31a): the former ``deterministic_request_purpose``
+    mapping chose ``research`` / ``inspect`` / ``adapt`` from request shape —
+    deterministic route coercion inside the deliberation path.  It is gone.
+    The envelope below is IDENTICAL for every request shape; interaction mode
+    and graph availability travel only as context in ``plan_summary``, and
+    the typed deliberator (the bounded agent conversation) owns the route.
+    Admission/apply authority is enforced only after deliberation, by the
+    checkpoint gates.
     """
-    purpose = deterministic_request_purpose(request)
     intent_context = (
         f"End-user interaction intent: interaction_mode="
         f"{request.interaction_mode or 'unspecified'}"
         + (" (answer_only: respond without editing)" if request.interaction_mode == "answer_only" else "")
         + "."
     )
-    if purpose == "research":
-        return ClassifyDecision(
-            research=True,
-            implement=False,
-            reply=True,
-            route="research",
-            task="research_nodes",
-            intent="research",
-            plan_summary=(
-                "No graph is attached, so editing and inspection are "
-                "unavailable: research the request and answer from evidence. "
-                + intent_context
-            ),
-            research_goal=request.query,
-        )
-    if purpose == "inspect":
-        return ClassifyDecision(
-            research=False,
-            implement=False,
-            reply=True,
-            route="inspect",
-            task="inspect_graph",
-            intent="explain_graph",
-            plan_summary=(
-                "Answer-only interaction contract: explain the current graph "
-                "without editing. " + intent_context
-            ),
-        )
+    graph_context = (
+        "A ComfyUI canvas graph is attached to this turn."
+        if request.graph is not None
+        else "No ComfyUI canvas graph is attached to this turn."
+    )
     return ClassifyDecision(
         research=True,
         implement=True,
@@ -164,7 +132,8 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
             "outside research (workflows, node packs, techniques), graph "
             "inspection, direct answer, concrete graph edits, layout "
             "cleanup — and NONE of them is a required step; choose based on "
-            "the verbatim request alone. " + intent_context
+            "the verbatim request alone. " + intent_context + " "
+            + graph_context
         ),
         research_goal=request.query,
         change_goal=request.query,

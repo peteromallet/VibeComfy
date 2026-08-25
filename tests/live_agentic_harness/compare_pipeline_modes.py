@@ -1007,12 +1007,13 @@ def run_comparison(
         raise ComparisonManifestError("concurrency must be a positive integer")
     validate_only(manifest_path)
     path = manifest_path or DEFAULT_COMPARISON_MANIFEST
-    # T5.3 + G5-B4-MUST-006: this is the paid-call lane — exact IndexTTS/
-    # LayerMask schema evidence MUST resolve from local authoritative sources
-    # before any leg starts. An environment override cannot defer it.
+    # T5.3 + G5-B4-MUST-006 / RR1-FIX-REV2: this is the paid-call lane.
+    # The obligation preflight is fail-closed unconditionally — declaration
+    # violations and exact local schema resolution are enforced before any
+    # leg starts, and no environment override can defer it.
     from .scenario_obligations import preflight_scenario_obligations  # noqa: PLC0415
 
-    preflight_scenario_obligations(path, require_schema_resolution=True)
+    preflight_scenario_obligations(path)
     manifest = _load_json(path) or {}
     canonical = _authoritative_entries()
     base = output_base or DEFAULT_OUTPUT_BASE
@@ -1786,14 +1787,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate_only:
             payload = validate_only(args.manifest)
         elif args.run:
-            # G5-B4-MUST-006: the CLI run lane is the paid-call lane — exact
-            # IndexTTS/LayerMask schema evidence must resolve from local
-            # authoritative sources before any leg starts. A pre-set
-            # VIBECOMFY_OBLIGATION_SCHEMA_CHECK=0 can no longer bypass this.
-            # Lazy import: scenario_obligations imports this module.
-            from .scenario_obligations import SCHEMA_RESOLUTION_ENV_VAR  # noqa: PLC0415
-
-            os.environ[SCHEMA_RESOLUTION_ENV_VAR] = "1"
+            # G5-B4-MUST-006 / RR1-FIX-REV2: the CLI run lane is the
+            # paid-call lane. The obligation preflight is fail-closed
+            # unconditionally inside preflight_scenario_obligations; no
+            # environment variable participates anymore.
             if args.leg_isolation == "thread":
                 print(
                     json.dumps(

@@ -458,6 +458,44 @@ def test_enforced_preflight_rejects_unproven_gated_edit_scenarios() -> None:
         or "llama_cpp_model_loader" in message
 
 
+def test_declaration_level_coverage_rejects_registered_unproven_classes() -> None:
+    """RR1-FIX-REV2 F4: registered-unproven gated classes are declaration-
+    level VIOLATIONS from ``validate_obligation_coverage`` itself — the old
+    warning-and-continue bypass never reaches the preflight. Pre-revision
+    this coverage returned only warnings and zero violations."""
+    from tests.live_agentic_harness import scenario_obligations as so
+
+    final50 = (
+        Path(__file__).resolve().parent
+        / "live_agentic_harness"
+        / "threaded_comparison_manifest_final50.json"
+    )
+    violations, warnings = so.validate_obligation_coverage(final50)
+    joined = "\n".join(violations)
+    assert violations, "unproven gated classes must be violations"
+    assert (
+        "AudioCombine" in joined
+        or "easy forLoopStart" in joined
+        or "llama_cpp_model_loader" in joined
+    )
+    assert not any("same-pack provenance capture at this commit" in w for w in warnings)
+
+
+def test_preflight_fails_closed_regardless_of_schema_resolution_flag() -> None:
+    """RR1-FIX-REV2 F4 reviewer probe: the locked final50 manifest with
+    ``require_schema_resolution=False`` must NOT return ok=True with
+    warnings. Enforcement is unconditional; the flag is a no-op."""
+    from tests.live_agentic_harness import scenario_obligations as so
+
+    final50 = (
+        Path(__file__).resolve().parent
+        / "live_agentic_harness"
+        / "threaded_comparison_manifest_final50.json"
+    )
+    with pytest.raises(so.ScenarioObligationError):
+        so.preflight_scenario_obligations(final50, require_schema_resolution=False)
+
+
 def test_exact_port_evidence_is_validated_against_frozen_schema() -> None:
     """RRSYN-4 / RR1-FIX-REV: required input/widget/output ports are each
     validated against the frozen captured schema before paid calls."""

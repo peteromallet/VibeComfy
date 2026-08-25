@@ -374,13 +374,17 @@ def test_threaded_no_graph_runs_research_conversation_instead_of_skipping() -> N
 
     assert result.ok is True
     assert result.reply == "Evidence-backed faster workflow options."
-    assert seen["plan"].effective_route == "research"
-    assert seen["plan"].implement is False
-    research = result.to_dict()["evidence"]["research"]
-    assert research["research_attempt"] == "grounded"
-    assert research["tool_calls_executed"] == 1
-    assert research["evidence_artifacts"] == 1
-    assert research["citations"] == ["hivemind:workflows:1"]
+    # RR1-FIX-REV2 F9: the envelope is uniform for every request shape; a
+    # missing graph is context ("No ComfyUI canvas graph is attached"), not
+    # a forced research route.
+    assert seen["plan"].effective_route == "adapt"
+    assert seen["plan"].implement is True
+    assert "No ComfyUI canvas graph is attached" in seen["plan"].plan_summary
+    # RR1-FIX-REV2 F9: durable research-findings extraction from
+    # ``evidence["research"]`` was exclusive to the removed forced-research
+    # lane; under the uniform adapt envelope it behaves exactly like every
+    # other adapt-routed threaded turn (narration grounding still consumes
+    # the durable response).
 
 
 def test_threaded_research_refusal_is_not_projected_as_tool_execution() -> None:
@@ -419,32 +423,41 @@ def test_threaded_research_refusal_is_not_projected_as_tool_execution() -> None:
     assert research["citations"] == []
 
 
-def test_threaded_answer_only_graph_uses_inspect_reply_and_never_implements() -> None:
+def test_threaded_answer_only_travels_as_context_and_deliberator_owns_route() -> None:
+    """RR1-FIX-REV2 F9: answer_only no longer forces the inspect lane.  The
+    envelope is uniform, the interaction intent travels as context in the
+    plan summary, and run_implement (the typed deliberation surface) runs;
+    any deterministic ``run_inspect_reply`` shortcut must stay unused."""
     graph = {
         "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
         "2": {"class_type": "KSampler", "inputs": {"model": ["1", 0]}},
     }
     seen: dict[str, Any] = {}
 
-    def inspect_reply(
+    def run_implement(
         request: ExecutorRequest,
         spec: AgentSpecShape,
         **kwargs: Any,
-    ) -> str:
+    ) -> ImplementationResult:
         del spec
         seen["request"] = request
         seen["plan"] = kwargs["plan"]
-        return "The checkpoint feeds the sampler."
+        return ImplementationResult(
+            message="The checkpoint feeds the sampler.",
+            durable_response={"graph_unchanged": True},
+        )
 
     kernel = ThreadedKernel(
         resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
-        run_implement=lambda *args, **kwargs: pytest.fail("inspect must not implement"),
+        run_implement=run_implement,
         emit_phase=lambda *args, **kwargs: None,
         enforce_reply_grounding=lambda reply, **kwargs: reply,
         accepted_delta_ops=lambda implementation: (),
         implementation_landed_edit=lambda implementation: False,
         no_candidate_reason=lambda implementation: None,
-        run_inspect_reply=inspect_reply,
+        run_inspect_reply=lambda *args, **kwargs: pytest.fail(
+            "deterministic inspect lane must not fire"
+        ),
     )
     result = run_threaded_executor(
         ExecutorRequest(
@@ -458,10 +471,9 @@ def test_threaded_answer_only_graph_uses_inspect_reply_and_never_implements() ->
     )
 
     assert result.ok is True
-    assert result.graph is None
     assert result.reply == "The checkpoint feeds the sampler."
-    assert seen["plan"].effective_route == "inspect"
-    assert seen["plan"].research is False
+    assert seen["plan"].effective_route == "adapt"
+    assert "answer_only: respond without editing" in seen["plan"].plan_summary
 
 
 # ── T4.1: shared research evidence contract (cross-mode field parity) ────────

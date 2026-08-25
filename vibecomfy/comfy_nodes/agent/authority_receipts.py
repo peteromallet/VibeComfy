@@ -102,9 +102,12 @@ class ReplayReceipt:
             parsed: dict[str, tuple[str, ...]] = {}
             for node_id, names in raw_table.items():
                 if isinstance(node_id, str) and isinstance(names, (list, tuple)):
-                    roster = tuple(str(name) for name in names if isinstance(name, str) and name)
-                    if roster:
-                        parsed[node_id] = roster
+                    # RR1-FIX-REV2: an explicitly represented EMPTY roster is
+                    # legitimate per-node coverage — keep it on round-trip
+                    # instead of dropping the row.
+                    parsed[node_id] = tuple(
+                        str(name) for name in names if isinstance(name, str) and name
+                    )
             frozen_table = parsed or None
         return cls(
             replay_ok=bool(data.get("replay_ok", False)),
@@ -495,37 +498,74 @@ def _submit_graph_existing_uids(submit_graph: Any) -> frozenset[str]:
     return frozenset(uids)
 
 
+def _submit_graph_uid_to_node_id(submit_graph: Any) -> dict[str, str]:
+    """Map each raw submit-graph node identity to its node id key.
+
+    RR1-FIX-REV2: the frozen name table is keyed by raw node id, while ops
+    address nodes by uid (``vibecomfy_uid`` when present, else the id).  The
+    mint guard needs both directions to decide whether a touched existing
+    node has an explicit table row.
+    """
+    if not isinstance(submit_graph, Mapping):
+        return {}
+    key_by_uid: dict[str, str] = {}
+    for node in submit_graph.get("nodes", []) or []:
+        if not isinstance(node, Mapping):
+            continue
+        properties = node.get("properties")
+        uid = (
+            properties.get("vibecomfy_uid")
+            if isinstance(properties, Mapping)
+            else None
+        )
+        if not (isinstance(uid, str) and uid):
+            uid = str(node["id"]) if node.get("id") is not None else None
+        if isinstance(uid, str) and uid and node.get("id") is not None:
+            key_by_uid[uid] = str(node["id"])
+    return key_by_uid
+
+
 def _verify_seal_coverage(
     workflow: Any,
     name_authority: Mapping[str, Any] | None,
     ops: tuple[Any, ...],
 ) -> str | None:
-    """Require the sealed name domain to equal the recorded table on touched nodes.
+    """Require an explicit frozen-table row for EVERY touched EXISTING node.
 
-    RR1-FIX-1: ``_seal_frozen_name_domain`` silently skips nodes missing from
-    the fresh ingest's field snapshot, and ``_rekey_ir_widget_fields``
-    silently skips count-mismatched literals. Either skip means replay would
-    interpret names under a DIFFERENT domain than the receipt records — the
-    live/replay split-brain that mangled gate-green candidates. Fail closed
-    with a typed reason instead of sealing divergently.
+    RR1-FIX-1 sealed the recorded roster onto the fresh ingest;
+    RR1-FIX-REV2 closes the remaining fail-open: a non-empty table covering
+    only SOME touched nodes used to verify, because this loop iterated table
+    rows instead of the touched set. Now the direction is inverted — every
+    node the delta touches that already exists in the replayed graph must
+    have an EXPLICIT row in ``name_authority`` (an explicitly empty roster is
+    legitimate; absence of a row is not). A missing row means replay would
+    interpret names under a domain the receipt never pinned: reject before
+    replay. ``name_authority=None`` remains the legacy unpinned self-
+    consistent-domain path; the mint guard in ``build_authority_receipt``
+    refuses such receipts for op-bearing deltas over existing nodes.
     """
-    if not isinstance(name_authority, Mapping) or not name_authority or not ops:
+    if not ops or not isinstance(name_authority, Mapping):
         return None
     from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
 
     effective = frozen_widget_names_by_uid(workflow)
-    id_to_uid = {
-        str(node_id): (getattr(node, "uid", None) or str(node_id))
-        for node_id, node in getattr(workflow, "nodes", {}).items()
-    }
     touched = _op_touched_uids(ops)
-    for node_id, roster in name_authority.items():
-        uid = id_to_uid.get(str(node_id), str(node_id))
+    for node_id, node in getattr(workflow, "nodes", {}).items():
+        uid = getattr(node, "uid", None) or str(node_id)
         if uid not in touched:
             continue
-        normalized = tuple(str(name) for name in roster if isinstance(name, str) and name)
-        current = effective.get(str(uid))
-        if not normalized or current != normalized:
+        row = name_authority.get(str(node_id))
+        if row is None:
+            return (
+                "frozen_name_table_row_missing: node "
+                f"{node_id} (uid {uid}) is touched by the delta but the "
+                "frozen name-domain of record has no row for it"
+            )
+        normalized = tuple(
+            str(name) for name in row if isinstance(name, str) and name
+        )
+        current = effective.get(str(uid)) or ()
+        if current != normalized:
             return (
                 f"name_domain_divergence: node {node_id} (uid {uid}) sealed as "
                 f"{current!r} but the frozen authority of record is {normalized!r}"
@@ -637,38 +677,47 @@ def canonical_frozen_name_table(
 ) -> dict[str, tuple[str, ...]]:
     """Derive THE frozen widget-name domain of record for one replay.
 
-    P1-REPLAY-HASH-DOMAIN (R1): the domain is a deterministic function of the
-    persisted bytes — the submit graph plus the frozen admission schema
+    P1-REPLAY-HASH-DOMAIN (R1): the domain is a deterministic function of
+    the persisted bytes — the submit graph plus the frozen admission schema
     snapshot reconstructed by the caller (``schema_provider_from_witness``).
-    One canonical offline ingest seals each node's compact-widget roster once;
-    the resulting table is what ``build_authority_receipt`` records on the
-    receipt and stamps into every replay, so verification never depends on
-    ambient object_info or a drifted second provider.  Any ingest or provider
-    failure yields an empty table; since RR1-FIX-REV the receipt MINT treats
-    that as fail-closed for op-bearing deltas touching an existing node
-    (``frozen_name_table_unavailable``) instead of silently replaying
-    unpinned.
+    One canonical offline ingest seals each node's compact-widget roster
+    once; the resulting table is what ``build_authority_receipt`` records
+    on the receipt and stamps into every replay, so verification never
+    depends on ambient object_info or a drifted second provider.
+
+    RR1-FIX-REV2: every node the fresh ingest SEALED gets an explicit row —
+    a widgetless node's empty roster is represented as ``()`` so per-node
+    coverage can distinguish "sealed, zero names" from "never sealed".
+    Nodes absent from the ingest's field snapshot get no row, and any
+    ingest or provider failure yields an empty table; the receipt MINT then
+    fails closed (``frozen_name_table_unavailable``) for op-bearing deltas
+    touching such an existing node instead of silently replaying unpinned.
     """
     if not isinstance(submit_graph, Mapping) or not submit_graph:
         return {}
     try:
         from vibecomfy.ingest.normalize import from_ui
-        from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
+        from vibecomfy.ingest.snapshot import snapshot_of
 
         workflow = from_ui(
             dict(submit_graph),
             schema_provider=schema_provider,
             use_comfy_converter=False,
         )
-        sealed = frozen_widget_names_by_uid(workflow)
-        if not sealed:
+        snapshot = snapshot_of(workflow)
+        field_snapshot = getattr(snapshot, "field_snapshot", None)
+        if not isinstance(field_snapshot, Mapping):
             return {}
         table: dict[str, tuple[str, ...]] = {}
         for node_id, node in getattr(workflow, "nodes", {}).items():
-            key = getattr(node, "uid", None) or node_id
-            roster = sealed.get(str(key))
-            if roster:
-                table[str(node_id)] = tuple(roster)
+            key = str(getattr(node, "uid", None) or node_id)
+            snap = field_snapshot.get(key)
+            if snap is None:
+                continue
+            names = snap.get("widget_names_sig") if isinstance(snap, Mapping) else None
+            table[str(node_id)] = tuple(
+                str(name) for name in names if isinstance(name, str) and name
+            ) if isinstance(names, (list, tuple)) else ()
         return table
     except Exception:  # noqa: BLE001 - derivation must never break minting
         return {}
@@ -992,19 +1041,18 @@ def build_authority_receipt(
         submit_graph,
         schema_provider=persisted_schema_provider,
     )
-    # RR1-FIX-REV (RRSYN-1): a delta that touches an EXISTING node may never
-    # mint authority without the frozen name domain of record.  Derivation
-    # failure or absence (empty table) previously degraded to an unpinned
-    # replay — the live/replay split-brain this module exists to prevent.
-    # Fail closed with a typed name-domain error; only genuine zero-op
-    # identity terminals (no envelope, no parsed ops) may stay unpinned.  A
-    # malformed envelope is left to the replay layer's own typed
-    # ``invalid_delta_envelope`` failure.
+    # RR1-FIX-REV (RRSYN-1) / RR1-FIX-REV2: a delta that touches an EXISTING
+    # node may never mint authority without an explicit frozen name-domain
+    # row of record FOR THAT NODE.  The REV guard fired only when the whole
+    # derived table was empty, so a roster for one node laundered an
+    # unpinned replay of a different touched node.  Coverage is now checked
+    # per touched existing node against the table keys (raw node ids): a
+    # missing row — including the whole-table-absent case — is fail-closed.
+    # Only genuine zero-op identity terminals (no envelope, no parsed ops)
+    # may stay unpinned.  A malformed envelope is left to the replay layer's
+    # own typed ``invalid_delta_envelope`` failure.
     guard_touched_existing: tuple[str, ...] = ()
-    if (
-        isinstance(cumulative_delta_envelope, Mapping)
-        and not frozen_name_table
-    ):
+    if isinstance(cumulative_delta_envelope, Mapping):
         try:
             guard_ops = _extract_delta_ops_from_envelope(
                 cumulative_delta_envelope
@@ -1012,9 +1060,16 @@ def build_authority_receipt(
         except Exception:  # noqa: BLE001 - parse errors fail closed in replay
             guard_ops = ()
         if guard_ops:
-            touched = _op_touched_uids(guard_ops)
+            touched_existing = _op_touched_uids(guard_ops) & (
+                _submit_graph_existing_uids(submit_graph)
+            )
+            key_by_uid = _submit_graph_uid_to_node_id(submit_graph)
             guard_touched_existing = tuple(
-                sorted(touched & _submit_graph_existing_uids(submit_graph))
+                sorted(
+                    uid
+                    for uid in touched_existing
+                    if key_by_uid.get(uid) not in frozen_name_table
+                )
             )
     missing_touched = missing_touched_class_types(
         schema_witness=schema_witness,
@@ -1057,8 +1112,8 @@ def build_authority_receipt(
                 else None
             ),
             error=(
-                "frozen_name_table_unavailable: the frozen widget-name domain "
-                "of record could not be derived for a delta touching existing "
+                "frozen_name_table_unavailable: no frozen widget-name "
+                "domain row of record for touched existing "
                 f"node(s) {list(guard_touched_existing[:8])}; refusing to "
                 "replay unpinned"
             ),

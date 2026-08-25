@@ -14,13 +14,14 @@ declares, before any paid model work:
 
 ``validate_obligation_coverage`` returns typed violations;
 ``preflight_scenario_obligations`` raises :class:`ScenarioObligationError` on
-any violation. ``run_comparison`` — the paid-call lane — runs the declaration
-preflight always AND the schema-resolution preflight unconditionally
-(G5-B4-MUST-006): ``VIBECOMFY_OBLIGATION_SCHEMA_CHECK`` cannot defer or
-disable it there. Discovery happens before paid calls, never after. A safe
-refusal is useful behavior but never satisfies a scenario whose obligations
-require an edit; descriptors granting ``allow_safe_refusal`` on edit scenarios
-are a coverage conflict, and an accepted refusal grades ``undetermined``.
+any violation. RR1-FIX-REV2: schema resolution AND declaration enforcement
+run unconditionally — registered-unproven gated classes are declaration-level
+violations, not warnings, and no environment variable or caller flag can
+defer or disable the gate. Discovery happens before paid calls, never after.
+A safe refusal is useful behavior but never satisfies a scenario whose
+obligations require an edit; descriptors granting ``allow_safe_refusal`` on
+edit scenarios are a coverage conflict, and an accepted refusal grades
+``undetermined``.
 """
 
 from __future__ import annotations
@@ -130,12 +131,10 @@ _GATED_CLASS_RE = re.compile(
 #: RRSYN-4 honest-gap registry.  Gated classes whose owning pack could NOT
 #: be proven by a same-pack runtime capture are recorded here per locked
 #: scenario instead of being declared with guessed provenance.
-#: RR1-FIX-REV: the enforced preflight (``preflight_scenario_obligations``
-#: with schema resolution on — the paid-call lane runs it unconditionally)
-#: turns every edit-required gated class in this registry into a typed
-#: VIOLATION: setup fails before any paid call, never a laundered pass.  The
-#: declaration-level advisory keeps recording them as warnings only because
-#: that mode cannot authorize paid calls by construction.
+#: RR1-FIX-REV / RR1-FIX-REV2: every edit-required gated class in this
+#: registry is a typed VIOLATION at BOTH the declaration level and the
+#: (now unconditional) preflight resolution pass: setup fails before any
+#: paid call, never a laundered or warned-only pass.
 #:
 #: RRSYN-4 classes DEMOTED here by RR1-FIX-REV (their ``local-*`` captures
 #: were offline stub extraction, now removed/unindexed):
@@ -688,13 +687,10 @@ def validate_obligation_coverage(
                 )
                 continue
             if class_type not in declared:
-                if class_type in UNPROVEN_PROVIDER_CLASSES.get(scenario_id, ()):
-                    warnings.append(
-                        f"{scenario_id}: gated class {class_type!r} has no "
-                        "same-pack provenance capture at this commit — preflight "
-                        "will fail setup before paid calls (honest non-pass)"
-                    )
-                    continue
+                # RR1-FIX-REV2: registered-unproven classes are no longer a
+                # warning-and-continue bypass — every gated class without a
+                # DECLARED exact-provenance requirement is a declaration-level
+                # violation, unconditionally.
                 violations.append(
                     f"{scenario_id}: gated class {class_type!r} has no exact "
                     "schema provenance requirement (audio/multi-video require "
@@ -927,71 +923,68 @@ def preflight_scenario_obligations(
 ) -> dict[str, Any]:
     """Fail-closed preflight over scenario obligations.
 
-    ``require_schema_resolution``: None defers to
-    ``VIBECOMFY_OBLIGATION_SCHEMA_CHECK`` (truthy enables). When enabled —
-    the mode the paid-call lane runs unconditionally — every gated class must
-    resolve through a LOCAL authoritative schema source before paid calls,
-    AND every gated edit-required class without a declared requirement
-    (unproven/undeclared) is a hard violation; otherwise the declaration-level
-    check still runs and the result records the deferral explicitly.
+    RR1-FIX-REV2: schema resolution and declaration enforcement are
+    UNCONDITIONAL.  Every gated class must resolve through a LOCAL
+    authoritative schema source before paid calls, AND every gated
+    edit-required class without a declared requirement
+    (unproven/undeclared) is a hard violation.  The
+    ``require_schema_resolution`` parameter is retained as a no-op for
+    caller compatibility only; neither it nor ``SCHEMA_RESOLUTION_ENV_VAR``
+    can defer or disable the gate anymore.
     """
-    if require_schema_resolution is None:
-        raw = os.environ.get(SCHEMA_RESOLUTION_ENV_VAR, "")
-        require_schema_resolution = raw.strip().lower() in {"1", "true", "yes", "on"}
+    del require_schema_resolution
     violations, warnings = validate_obligation_coverage(manifest_path)
     resolution_results: dict[str, dict[str, bool]] = {}
-    if require_schema_resolution:
-        path = manifest_path or __import__(
-            "tests.live_agentic_harness.compare_pipeline_modes",
-            fromlist=["DEFAULT_COMPARISON_MANIFEST"],
-        ).DEFAULT_COMPARISON_MANIFEST
-        manifest = _load_json(Path(path)) or {}
-        for item in manifest.get("entries", []) or []:
-            scenario_id = str(item.get("id") or "")
-            obligation = load_scenario_obligation(scenario_id)
-            if obligation is None:
+    path = manifest_path or __import__(
+        "tests.live_agentic_harness.compare_pipeline_modes",
+        fromlist=["DEFAULT_COMPARISON_MANIFEST"],
+    ).DEFAULT_COMPARISON_MANIFEST
+    manifest = _load_json(Path(path)) or {}
+    for item in manifest.get("entries", []) or []:
+        scenario_id = str(item.get("id") or "")
+        obligation = load_scenario_obligation(scenario_id)
+        if obligation is None:
+            continue
+        per_class: dict[str, bool] = {}
+        declared_names = {
+            str(req.get("class_type"))
+            for req in obligation.schema_evidence_requirements
+            if not req.get("undeclared")
+        }
+        for req in obligation.schema_evidence_requirements:
+            class_type = str(req.get("class_type") or "")
+            if not class_type or class_type.startswith("<") or req.get(
+                "undeclared"
+            ):
                 continue
-            per_class: dict[str, bool] = {}
-            declared_names = {
-                str(req.get("class_type"))
-                for req in obligation.schema_evidence_requirements
-                if not req.get("undeclared")
-            }
-            for req in obligation.schema_evidence_requirements:
-                class_type = str(req.get("class_type") or "")
-                if not class_type or class_type.startswith("<") or req.get(
-                    "undeclared"
-                ):
+            resolved, resolution_failures = _resolve_schema_locally(req)
+            per_class[class_type] = resolved
+            if not resolved:
+                violations.append(
+                    f"{scenario_id}: exact schema evidence for "
+                    f"{class_type!r} is not available from any local "
+                    "authoritative source; refusing paid calls "
+                    "(fail-closed): " + "; ".join(resolution_failures)
+                )
+        # RRSYN-4 / RR1-FIX-REV / RR1-FIX-REV2: every gated, edit-required
+        # class without a DECLARED requirement — i.e. every
+        # UNPROVEN_PROVIDER_CLASSES entry and every undeclared marker row —
+        # is a hard preflight violation here, never a warning-only bypass.
+        if obligation.requires_edit:
+            for class_type in obligation.custom_node_classes:
+                if not _GATED_CLASS_RE.search(class_type):
                     continue
-                resolved, resolution_failures = _resolve_schema_locally(req)
-                per_class[class_type] = resolved
-                if not resolved:
+                if class_type.startswith("<"):
+                    continue  # already a declaration-level violation above
+                if class_type not in declared_names:
                     violations.append(
-                        f"{scenario_id}: exact schema evidence for "
-                        f"{class_type!r} is not available from any local "
-                        "authoritative source; refusing paid calls "
-                        "(fail-closed): " + "; ".join(resolution_failures)
+                        f"{scenario_id}: gated edit-required class "
+                        f"{class_type!r} has no proven same-pack provider "
+                        "evidence (unproven/undeclared); refusing paid "
+                        "calls (fail-closed)"
                     )
-            # RRSYN-4 / RR1-FIX-REV: every gated, edit-required class without
-            # a DECLARED requirement — i.e. every UNPROVEN_PROVIDER_CLASSES
-            # entry and every undeclared marker row — is a hard preflight
-            # violation here, never a warning-only bypass.  Undeclared rows
-            # must never be skipped into a successful paid-call preflight.
-            if obligation.requires_edit:
-                for class_type in obligation.custom_node_classes:
-                    if not _GATED_CLASS_RE.search(class_type):
-                        continue
-                    if class_type.startswith("<"):
-                        continue  # already a declaration-level violation above
-                    if class_type not in declared_names:
-                        violations.append(
-                            f"{scenario_id}: gated edit-required class "
-                            f"{class_type!r} has no proven same-pack provider "
-                            "evidence (unproven/undeclared); refusing paid "
-                            "calls (fail-closed)"
-                        )
-            if per_class:
-                resolution_results[scenario_id] = per_class
+        if per_class:
+            resolution_results[scenario_id] = per_class
 
     if violations:
         raise ScenarioObligationError(
@@ -999,7 +992,7 @@ def preflight_scenario_obligations(
         )
     return {
         "ok": True,
-        "schema_resolution_enforced": bool(require_schema_resolution),
+        "schema_resolution_enforced": True,
         "warnings": warnings,
         "safe_refusal_policy": (
             "a safe refusal is useful behavior but never satisfies an "

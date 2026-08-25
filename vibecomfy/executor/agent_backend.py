@@ -192,6 +192,7 @@ def run_classify_turn(
     graph_summary: str | None = None,
     messages: list[dict[str, str]] | None = None,
     expect_graph_changed: bool | None = None,
+    interaction_mode: str | None = None,
     max_parse_attempts: int = _CLASSIFY_MAX_PARSE_ATTEMPTS,
 ) -> ClassifyDecision:
     """Run a single classify model turn through the provider seam.
@@ -238,6 +239,7 @@ def run_classify_turn(
             has_graph=has_graph,
             graph_summary=graph_summary,
             expect_graph_changed=expect_graph_changed,
+            interaction_mode=interaction_mode,
         )
     model_turn_id = new_profile_id("model")
     with profiler_span(

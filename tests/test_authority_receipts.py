@@ -741,11 +741,164 @@ def test_mint_still_applies_when_frozen_name_table_derives() -> None:
     assert receipt.replay.frozen_name_table
 
 
-def test_mint_fails_closed_when_widgetless_existing_node_leaves_table_empty() -> None:
-    """Absence is failure: a delta touching an existing node with no widget
-    roster yields an empty table and must not replay unpinned."""
+def test_mint_applies_with_explicit_empty_roster_row_for_widgetless_node() -> None:
+    """RR1-FIX-REV2: an explicitly represented EMPTY roster is legitimate
+    per-node coverage.  A sealed widgetless existing node derives a ``()``
+    row, so a legal delta touching it (mode flip) mints an applyable,
+    fully-pinned receipt instead of failing coarse table absence."""
     submit_graph = {
         "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 7,
+                "type": "PreviewImage",
+                "mode": 0,
+                "pos": [0, 0],
+                "inputs": [{"name": "images", "type": "IMAGE", "link": None}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "pv"},
+            }
+        ],
+        "links": [],
+    }
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_mode",
+                "target": ["", "pv"],
+                "mode": 4,
+            }
+        ],
+    }
+    candidate = recompute_apply(submit_graph, envelope)[1]
+
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=candidate,
+        response={},
+        schema_version="2.0.0",
+        schema_provider=_frozen_provider(("PreviewImage",)),
+    )
+
+    assert receipt.is_applyable is True
+    assert receipt.replay.error is None
+    assert receipt.replay.frozen_name_table == {"7": ()}
+
+
+def _two_node_probe_graph() -> dict:
+    """Reviewer probe shape: existing node WITH a derivable roster plus an
+    existing WIDGETLESS node carrying a distinct vibecomfy_uid."""
+    return {
+        "last_node_id": 7,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 6,
+                "type": "CLIPTextEncode",
+                "mode": 0,
+                "pos": [0, 0],
+                "inputs": [{"name": "clip", "type": "CLIP", "link": None}],
+                "outputs": [],
+                "widgets_values": ["prompt"],
+                "properties": {},
+            },
+            {
+                "id": 7,
+                "type": "PreviewImage",
+                "mode": 0,
+                "pos": [0, 0],
+                "inputs": [{"name": "images", "type": "IMAGE", "link": None}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "pv"},
+            },
+        ],
+        "links": [],
+    }
+
+
+def test_mint_rejects_partial_name_domain_when_other_existing_node_touched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RR1-FIX-REV2 reviewer probe: a two-node graph whose derived table
+    covers node 6 only, while ``remove_node`` targets EXISTING node 7
+    (uid ``pv``).  The REV mint guard fired only when the WHOLE table was
+    falsey, so this non-empty-but-partial table minted an applyable receipt
+    replaying node pv's removal unpinned.  Coverage is now per touched
+    EXISTING node: the missing row must fail the mint."""
+    submit_graph = _two_node_probe_graph()
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [{"op": "remove_node", "target": ["", "pv"]}],
+    }
+    # Genuine candidate: pre-revision this replayed clean against the
+    # partial table and minted an applyable receipt — the exact reviewer
+    # observation.
+    candidate = recompute_apply(submit_graph, envelope)[1]
+    monkeypatch.setattr(
+        _authority_receipts,
+        "canonical_frozen_name_table",
+        lambda *args, **kwargs: {"6": ("text",)},
+    )
+
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=candidate,
+        response={},
+        schema_provider=_frozen_provider(("CLIPTextEncode", "PreviewImage")),
+        schema_version="2.0.0",
+    )
+
+    assert receipt.is_applyable is False
+    assert receipt.replay.replay_ok is False
+    assert receipt.replay.op_count == 1
+    assert receipt.replay.error is not None
+    assert receipt.replay.error.startswith("frozen_name_table_unavailable:")
+    assert "pv" in receipt.replay.error
+
+
+def test_verify_replay_requires_row_for_every_touched_existing_node() -> None:
+    """Verify side of the same law: an explicitly EMPTY or partial authority
+    mapping no longer passes seal verification just because it is truthy-
+    adjacent — every touched existing node needs its own row."""
+    submit_graph = _submit_graph()
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "2", "text"],
+                "value": "hello world",
+            }
+        ],
+    }
+    for label, authority in (
+        ("empty-mapping", {}),
+        ("foreign-row-only", {"999": ("unrelated",)}),
+    ):
+        ok, _candidate, error, _op_count = recompute_apply(
+            submit_graph,
+            envelope,
+            name_authority=authority,
+        )
+        assert ok is False, label
+        assert error is not None, label
+        assert "frozen_name_table_row_missing" in error, label
+        assert "(uid 2)" in error, label
+
+
+def test_explicit_empty_roster_row_is_legitimate_coverage() -> None:
+    """An explicitly represented EMPTY roster satisfies per-node coverage;
+    absence of a row never does."""
+    submit_graph = {
+        "last_node_id": 7,
         "last_link_id": 0,
         "nodes": [
             {
@@ -771,17 +924,15 @@ def test_mint_fails_closed_when_widgetless_existing_node_leaves_table_empty() ->
         ],
     }
 
-    receipt = build_authority_receipt(
-        session_id="s",
-        turn_id="t",
-        submit_graph=submit_graph,
-        cumulative_delta_envelope=envelope,
-        candidate=None,
-        response={},
+    ok, _candidate, error, _op_count = recompute_apply(
+        submit_graph,
+        envelope,
         schema_provider=_frozen_provider(("PreviewImage",)),
-        schema_version="2.0.0",
+        name_authority={"7": ()},
     )
 
-    assert receipt.replay.replay_ok is False
-    assert receipt.replay.error is not None
-    assert receipt.replay.error.startswith("frozen_name_table_unavailable:")
+    # Coverage passes; whatever rejection follows comes from admission on the
+    # unknown field, never from the name-domain row law.
+    assert error is not None
+    assert "frozen_name_table_row_missing" not in error
+    assert "name_domain_divergence" not in error

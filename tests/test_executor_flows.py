@@ -806,12 +806,19 @@ class TestAgentOwnedResearchFlow:
 
 
 class TestAnswerOnlyInteraction:
-    """interaction_mode="answer_only" guarantees no graph edit, whatever the
-    classifier decided.  It is an explicit request/scenario contract — never
-    inferred from ``apply=false`` (that flag only gates candidate application).
+    """RR1-FIX-REV2 F9: ``interaction_mode="answer_only"`` travels to the
+    classifier and reply phases as CONTEXT — it never deterministically
+    overwrites the classifier's route.  Admission/apply authority is
+    enforced only after deliberation.
     """
 
-    def _run(self, request: ExecutorRequest, *, classify: Any) -> ExecutorResult:
+    def _run(
+        self,
+        request: ExecutorRequest,
+        *,
+        classify: Any,
+        handle_edit_return: Any = None,
+    ) -> ExecutorResult:
         def fake_reply(
             query: str,
             *,
@@ -823,22 +830,29 @@ class TestAnswerOnlyInteraction:
 
         captured_reply: dict[str, Any] = {}
         captured_reply["interaction_mode"] = "unset"
+        if handle_edit_return is None:
+            edit_mock: Any = mock.MagicMock()
+        else:
+            edit_mock = mock.MagicMock(return_value=handle_edit_return)
 
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify),
             mock.patch("vibecomfy.executor.core.run_research_phase") as legacy_research,
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+            mock.patch("vibecomfy.executor.core.handle_agent_edit", edit_mock),
         ):
             result = run_executor(request)
-            edit_called = mock_edit.called
+            edit_called = edit_mock.called
             legacy_prefetch_called = legacy_research.called
         return result, legacy_prefetch_called, captured_reply, edit_called
 
-    def test_answer_only_graph_is_downgraded_to_inspection(
+    def test_answer_only_does_not_overwrite_classifier_route(
         self, profile_dir: Path
     ) -> None:
-        """An edit-classified query on an answer_only interaction must not edit."""
+        """An edit-classified query on an answer_only interaction keeps the
+        classifier's adapt route: no deterministic inspect downgrade, the
+        edit kernel runs (authority applies only after deliberation), and the
+        reply phase still receives the interaction-mode context."""
         def classify_edit(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
             return ClassifyDecision(
                 research=True,
@@ -857,23 +871,59 @@ class TestAnswerOnlyInteraction:
             profile="default",
             interaction_mode="answer_only",
         )
-        result, legacy_prefetch_called, reply_capture, edit_called = self._run(
-            request, classify=classify_edit
-        )
+
+        def fake_stage(**_kwargs: Any):
+            from types import SimpleNamespace
+
+            from vibecomfy.executor.evidence_pack import EvidenceLedger, EvidencePack
+
+            trace = SimpleNamespace(
+                citations=(),
+                budget=None,
+                decision=None,
+                uncertainty="",
+                refine_question=None,
+                summary="",
+                warnings=(),
+                question="",
+                iterations=(),
+                final_verdict="enough",
+                status="never",
+                elapsed_seconds=0.0,
+                executed_tool_calls=0,
+                evidence_artifact_count=0,
+                error=None,
+            )
+            return trace, EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=[]))
+
+        with mock.patch(
+            "vibecomfy.executor.core.run_agent_research_stage",
+            side_effect=fake_stage,
+        ):
+            result, legacy_prefetch_called, reply_capture, edit_called = self._run(
+                request,
+                classify=classify_edit,
+                handle_edit_return={
+                    "ok": True,
+                    "message": "Diagnosis complete; nothing needed editing.",
+                    "graph": None,
+                    "graph_unchanged": True,
+                    "no_candidate_reason": "no_changes",
+                    "outcome": {"kind": "noop"},
+                    "apply_eligibility": {"applyable": False},
+                },
+            )
 
         assert result.ok is True
-        # An attached answer-only graph uses the deterministic inspect surface.
-        assert result.report.plan.effective_route == "inspect"
-        assert result.report.plan.implement is False
-        assert result.report.plan.research is False
-        assert result.to_dict()["route"] == "inspect"
-        assert result.graph is None
-        assert result.to_dict()["candidate"] is None
-        assert result.to_dict()["apply_eligible"] is False
-        # Neither research nor edit ran; only graph inspection + reply ran.
+        # The classifier's plan is preserved verbatim — no purpose overwrite.
+        assert result.report.plan.effective_route == "adapt"
+        assert result.report.plan.implement is True
+        assert result.report.plan.research is True
+        assert result.to_dict()["route"] == "adapt"
+        # The edit kernel ran (post-deliberation authority owns admission).
+        assert edit_called is True
         assert legacy_prefetch_called is False
         assert reply_capture["interaction_mode"] == "answer_only"
-        assert edit_called is False
 
     def test_answer_only_research_classification_never_implements(
         self, profile_dir: Path
@@ -979,17 +1029,24 @@ class TestSimpleEditFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_edit)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    def test_simple_edit_no_graph_skips_implementation(
+    def test_simple_edit_no_graph_still_deliberates(
         self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """When no graph is attached, implementation is skipped gracefully."""
+        """RR1-FIX-REV2 (§31a): no deterministic gate skips deliberation for
+        graphless turns.  The implement conversation runs against an empty
+        canvas and the edit kernel's own outcome becomes the implementation
+        evidence; admission/apply authority stays post-deliberation."""
         request = ExecutorRequest(query="add a node", profile="default")
         result = run_executor(request)
 
         assert result.ok is True
-        # Implementation should have a skip message, but edit still succeeds.
         assert result.report.implementation is not None
-        assert "no graph" in result.report.implementation.message.lower()
+        # The canned "No graph attached; implementation skipped." bypass is
+        # gone: handle_agent_edit ran and produced the substantive message.
+        assert mock_edit.called
+        payload = mock_edit.call_args[0][0]
+        assert payload["graph"] == {"nodes": [], "links": []}
+        assert "added a ksampler node" in result.report.implementation.message.lower()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_edit)

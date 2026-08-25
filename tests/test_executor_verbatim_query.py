@@ -7,8 +7,9 @@ Covers:
 * the research stage's brief seam forwards the verbatim ``request.query``
   (the real end-user API field) alongside the classifier's paraphrased
   question — no manifest tags, expected outcomes, or acceptance criteria;
-* threaded purpose derivation keeps using only public request shape
-  (``deterministic_request_purpose``) with the verbatim query as goal text.
+* the threaded plan envelope is IDENTICAL for every request shape — no
+  deterministic purpose mapping chooses research/inspect/adapt (RR1-FIX-REV2
+  F9 / §31a); interaction mode and graph availability travel only as context.
 """
 
 from __future__ import annotations
@@ -186,20 +187,43 @@ def test_threaded_plan_goals_carry_verbatim_query_only() -> None:
     assert request.query == "Research how VACE preprocessing works first, then explain it"
 
 
-def test_threaded_default_envelope_equips_without_prescribing() -> None:
-    """RRSYN-7 / RR1-FIX-REV: the classifier-free threaded plan forwards the
-    verbatim query and interaction-intent context, frames affordances as
-    optional, and never prescribes a mandatory route."""
-    request = _request(interaction_mode=None, graph={"nodes": {}, "links": []})
-    plan = executor_threaded._threaded_plan(request)
-    assert plan.research_goal == request.query
-    assert plan.change_goal == request.query
-    assert "interaction_mode=unspecified" in plan.plan_summary
-    assert "NONE of them is a required step" in plan.plan_summary
-
+def test_threaded_route_choice_is_never_deterministic_over_request_shape() -> None:
+    """RR1-FIX-REV2 F9: route choice is left to the typed deliberator.  The
+    threaded envelope must NOT be overwritten by request shape — answer_only
+    must not force ``inspect``, a missing graph must not force ``research``.
+    Only the context text may differ."""
+    ordinary = _request(graph={"nodes": {}, "links": []})
     answer_only = _request(
         interaction_mode="answer_only", graph={"nodes": {}, "links": []}
     )
-    plan = executor_threaded._threaded_plan(answer_only)
-    assert plan.effective_route == "inspect"
-    assert "answer_only: respond without editing" in plan.plan_summary
+    graphless = _request(interaction_mode=None, graph=None)
+
+    plans = [
+        executor_threaded._threaded_plan(ordinary),
+        executor_threaded._threaded_plan(answer_only),
+        executor_threaded._threaded_plan(graphless),
+    ]
+
+    assert {plan.effective_route for plan in plans} == {"adapt"}
+    assert all(plan.implement and plan.research for plan in plans)
+    # Interaction intent and graph availability travel ONLY as context.
+    assert all(plan.research_goal == ordinary.query for plan in plans)
+    assert all(plan.change_goal == ordinary.query for plan in plans)
+    assert "interaction_mode=unspecified" in plans[0].plan_summary
+    assert "No ComfyUI canvas graph is attached" in plans[2].plan_summary
+    assert "graph is attached" in plans[0].plan_summary
+
+
+def test_classify_prompt_carries_interaction_mode_as_context() -> None:
+    """RR1-FIX-REV2 F9: interaction_mode travels to the staged classifier as
+    context, never as a routing mandate."""
+    messages = executor_prompts.build_classify_messages(
+        "why is my render dark?",
+        has_graph=True,
+        interaction_mode="answer_only",
+    )
+    user = messages[-1]["content"]
+    assert "Interaction mode: answer_only" in user
+    assert "without editing" in user
+    # Context, not decree: no forced-route language appears.
+    assert 'route="inspect"' not in user

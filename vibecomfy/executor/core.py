@@ -68,7 +68,6 @@ from .profiles import (
     AgentSpecShape,
     load_profile,
 )
-from .request_purpose import deterministic_request_purpose
 
 LOGGER = logging.getLogger(__name__)
 
@@ -316,57 +315,6 @@ def _canonical_route_for_plan(plan: ClassifyDecision) -> str:
 def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
     """Resolve the canonical route behavior for *plan*."""
     return _ROUTE_BEHAVIORS[_canonical_route_for_plan(plan)]
-
-
-def _request_purpose_plan(
-    request: ExecutorRequest,
-    plan: ClassifyDecision,
-) -> ClassifyDecision:
-    """Apply request-shape purpose floors after staged classification.
-
-    The classifier may refine ordinary requests, but it cannot override an
-    explicit ``answer_only`` capability: with a graph the turn is
-    inspection-only; without one it is research-only. Threaded mode uses the
-    same :func:`deterministic_request_purpose` helper without adding a
-    classifier and therefore treats every no-graph turn as research.
-    """
-    purpose = deterministic_request_purpose(request)
-    if purpose == "adapt":
-        return plan
-    if purpose == "inspect":
-        return replace(
-            plan,
-            research=False,
-            implement=False,
-            reply=True,
-            route="inspect",
-            task="inspect_graph",
-            intent="explain_graph",
-            plan_summary=(
-                "Answer-only interaction: inspect the attached graph and "
-                "answer without editing."
-            ),
-        )
-    # Staged mode already has a classifier and preserves its explicit
-    # respond/clarify/research choice for ordinary no-graph requests.  Only an
-    # explicit answer-only capability needs the no-edit research floor here;
-    # threaded mode has no classifier and therefore uses ``research`` directly.
-    if request.interaction_mode != "answer_only":
-        return plan
-    return replace(
-        plan,
-        research=True,
-        implement=False,
-        reply=True,
-        route="research",
-        task="research_nodes",
-        intent="research",
-        research_goal=plan.research_goal or plan.change_goal or request.query,
-        plan_summary=(
-            "No graph is attached: research the inquiry and answer without "
-            "editing."
-        ),
-    )
 
 
 def _should_research(plan: ClassifyDecision) -> bool:
@@ -849,6 +797,9 @@ def _run_classify(
             "has_graph": request.graph is not None,
             "graph_summary": graph_summary,
             "expect_graph_changed": expect_graph_changed,
+            # RR1-FIX-REV2 (F9): the end user's declared interaction mode
+            # travels as CONTEXT only — never a routing mandate.
+            "interaction_mode": request.interaction_mode,
             # The IR-aware core owns its one bounded, route-aware repair turn.
             # Direct agent_backend callers retain that backend's own repair.
             "max_parse_attempts": 1,
@@ -869,6 +820,7 @@ def _run_classify(
                 graph_summary=graph_summary,
                 session_context=session_context,
                 expect_graph_changed=expect_graph_changed,
+                interaction_mode=request.interaction_mode,
             )
 
         try:
@@ -892,6 +844,7 @@ def _run_classify(
                 graph_summary=graph_summary,
                 session_context=session_context if isinstance(session_context, dict) else None,
                 expect_graph_changed=expect_graph_changed,
+                interaction_mode=request.interaction_mode,
             )
         retry_content = _CLASSIFY_JSON_NUDGE
         retry_kwargs["messages"] = [
@@ -1479,10 +1432,11 @@ def _run_implement(
                 f"(research_attempt={research_result.research_attempt})."
             ),
         )
-    if request.graph is None and executor_route != "research":
-        return ImplementationResult(
-            message="No graph attached; implementation skipped.",
-        )
+    # RR1-FIX-REV2 (§31a): no deterministic gate may deny deliberation based
+    # on request shape or the route label.  Graph availability travels as
+    # context/capability; with no graph the edit kernel payload below simply
+    # carries an empty canvas, and admission/apply authority is enforced
+    # only AFTER the agent conversation, by the checkpoint gates.
     classification = plan.to_dict()
     classification["route"] = executor_route
     effective_task = plan.effective_task
@@ -3189,19 +3143,6 @@ def _run_staged_executor(
             graph=None,
             reply="\n".join(parts),
         ))
-
-    # ── Deterministic request-purpose enforcement (RC-2/RC-3) ─────────────
-    # Request-shape capabilities are shared with the classifier-free threaded
-    # driver.  Classifier output still governs ordinary attached-graph turns.
-    resolved_plan = _request_purpose_plan(request, plan)
-    if resolved_plan != plan:
-        plan = resolved_plan
-        LOGGER.info(
-            "executor: deterministic request purpose → route=%s task=%s implement=%s",
-            plan.effective_route,
-            plan.effective_task,
-            plan.implement,
-        )
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
     retry_skips_research = bool(os.environ.get(_RESEARCH_HANG_RETRY_SKIP_ENV))

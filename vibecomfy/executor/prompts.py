@@ -370,6 +370,7 @@ def build_classify_messages(
     graph_summary: str | None = None,
     session_context: dict[str, Any] | None = None,
     expect_graph_changed: bool | None = None,
+    interaction_mode: str | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
@@ -390,6 +391,10 @@ def build_classify_messages(
     prescribes a route — grounded refusal/clarification stays a
     judgment-owned success path, and apply authority is enforced only after
     deliberation.
+
+    *interaction_mode* records the end user's declared interaction mode as
+    context (RR1-FIX-REV2 F9): the classifier is equipped with it but never
+    prescribed a route because of it.
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
@@ -398,6 +403,13 @@ def build_classify_messages(
         parts.append(f"\nGraph census (the attached workflow's node/class census):\n{graph_summary}")
     if expect_graph_changed:
         parts.append(f"\n{_CLASSIFY_EXPECT_GRAPH_CHANGED}")
+    if interaction_mode == "answer_only":
+        parts.append(
+            "\nInteraction mode: answer_only — the end user asked for a "
+            "diagnosis/advice turn without editing."
+        )
+    elif interaction_mode:
+        parts.append(f"\nInteraction mode: {interaction_mode}.")
     # RRSYN-7 (modified spec): equip the classifier with the product's real
     # affordances without prescribing any of them; routing stays judgment-
     # owned and derived from the verbatim request above.
