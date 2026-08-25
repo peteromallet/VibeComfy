@@ -507,7 +507,12 @@ class TestSearchFilterTranslation:
             )
         url = seen[0]
         assert url.count("and=(") == 1
-        assert "or:(content.ilike.*ltx*),or:(content.ilike.*ltx*" in url
+        # HIVEMIND-SCOPE-FIX-REV: the family alias `ltx` deduplicates against
+        # the query token instead of emitting a second identical pattern.
+        assert (
+            "or:(content.ilike.*ltx*),"
+            "or:(content.ilike.*ltxv*,content.ilike.*lightricks*)" in url
+        )
         assert "content.ilike.*ltxv*" in url
         assert "created_at.gte.2026-08-01,created_at.lte.2026-08-10)" in url
 
@@ -1081,6 +1086,49 @@ class TestTypedFailures:
         assert second.retry_after_seconds is not None
         assert 0.0 < second.retry_after_seconds <= 10.0
         assert second.diagnostics[0].code == "hivemind_rate_limited"
+
+    def test_partial_scope_429_keeps_hits_and_opens_cooldown(self, tmp_path: Path) -> None:
+        """Review C4 (HIVEMIND-SCOPE-FIX-REV): a 429 on ONE scope plus hits
+        from another returns OK with the merged hits AND opens the shared
+        R2-B2 cooldown circuit (previously the partial-success path skipped
+        cooldown entirely)."""
+
+        def _responder(req: Any, *args: Any, **kwargs: Any) -> Any:
+            if "/external_resources?" in unquote_plus(req.full_url):
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    429,
+                    "Too Many Requests",
+                    {"Retry-After": "7"},
+                    io.BytesIO(b"{}"),
+                )
+            return _json_response([_message_row(11)])
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen([], _responder),
+        ):
+            first = hivemind_search(
+                "ltx", filters={"source_type": "workflow"}, cache_root=tmp_path
+            )
+        # This call keeps its merged hits and OK status...
+        assert first.status is ToolStatus.OK
+        assert first.result["count"] == 1
+        assert first.evidence_ids == ("hivemind:message_feed:11",)
+        # ...with the 429's Retry-After metadata preserved in diagnostics...
+        rate_diags = [
+            d for d in first.diagnostics if d.code == "hivemind_rate_limited"
+        ]
+        assert len(rate_diags) == 1
+        assert rate_diags[0].details["scope"] == "external_resources:workflow"
+        assert rate_diags[0].details["status_code"] == 429
+        assert rate_diags[0].details["retry_after_seconds"] == 7.0
+        # ...and the circuit is open: the NEXT call is blocked, no network.
+        with patch("urllib.request.urlopen", side_effect=_no_network):
+            second = hivemind_search("ltx", cache_root=tmp_path)
+        assert second.status is ToolStatus.RATE_LIMITED
+        assert second.retry_after_seconds is not None
+        assert 0.0 < second.retry_after_seconds <= 7.0
 
     def test_429_without_retry_after_uses_default_cooldown(self, tmp_path: Path) -> None:
         def _boom(req: Any, *args: Any, **kwargs: Any) -> Any:

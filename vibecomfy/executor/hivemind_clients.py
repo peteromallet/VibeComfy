@@ -415,9 +415,13 @@ _HIVEMIND_QUERY_FILLER_WORDS = frozenset({
 
 
 # Per-table ilike OR-pattern budget (§37.1): FEW DISTINCTIVE TOKENS — at most
-# 6 patterns per table, enforced where the terms are distilled so overflow
-# truncates deterministically to the query's most distinctive (earliest
-# non-stopword) tokens.
+# 6 patterns per table per request, enforced where the terms are distilled so
+# overflow truncates deterministically to the query's most distinctive
+# (earliest non-stopword) tokens.  On ``message_feed`` this is ONE SHARED
+# budget across ALL text criteria in the request — free-text tokens, then
+# family/capability alias translations, then node_class, deduplicated before
+# emission — never independent per-group caps that sum past the table budget
+# (HIVEMIND-SCOPE-FIX-REV).
 _HIVEMIND_SCOPE_PATTERN_CAP = 6
 
 
@@ -435,6 +439,21 @@ def _hivemind_scope_tokens(query: str) -> list[str]:
     return [t for t in _query_tokens(query) if t.casefold() not in stop]
 
 
+def _hivemind_message_or(tokens: list[str], *, degraded: bool = False) -> str | None:
+    """Emit ONE ``content.ilike`` OR group from explicit tokens.
+
+    Emission only: token selection, dedup, and the shared pattern budget
+    live in :func:`_hivemind_scope_params` (HIVEMIND-SCOPE-FIX-REV).
+    """
+    patterns = [
+        f"content.ilike.{token}*" if degraded else f"content.ilike.*{token}*"
+        for token in tokens
+    ]
+    if not patterns:
+        return None
+    return "(" + ",".join(patterns) + ")"
+
+
 def _hivemind_message_ilike(query: str, *, degraded: bool = False) -> str | None:
     """Build the lean per-token content query for ``message_feed``.
 
@@ -444,13 +463,10 @@ def _hivemind_message_ilike(query: str, *, degraded: bool = False) -> str | None
     (most distinctive) surviving tokens.  Degraded mode (57014 recovery)
     drops the leading wildcard so the planner can use a prefix scan.
     """
-    patterns = [
-        f"content.ilike.{token}*" if degraded else f"content.ilike.*{token}*"
-        for token in _hivemind_scope_tokens(query)[:_HIVEMIND_SCOPE_PATTERN_CAP]
-    ]
-    if not patterns:
-        return None
-    return "(" + ",".join(patterns) + ")"
+    return _hivemind_message_or(
+        _hivemind_scope_tokens(query)[:_HIVEMIND_SCOPE_PATTERN_CAP],
+        degraded=degraded,
+    )
 
 
 def _hivemind_resource_ilike(query: str, *, degraded: bool = False) -> str | None:
@@ -833,28 +849,47 @@ def _hivemind_scope_params(
     }
 
     if table == "message_feed":
-        text_or = _hivemind_message_ilike(query, degraded=degraded)
-        or_groups: list[str] = []
-        if text_or:
-            or_groups.append(text_or)
+        # §37.1 (HIVEMIND-SCOPE-FIX-REV): ONE SHARED pattern budget spans
+        # ALL text criteria on this table.  Candidates are collected in a
+        # documented priority order — free-text query tokens first, then
+        # family alias translations, then capability aliases, then
+        # node_class — deduplicated case-insensitively across groups, and
+        # truncated at :data:`_HIVEMIND_SCOPE_PATTERN_CAP`.  Each criterion
+        # with surviving tokens keeps its own OR group (ANDed together as
+        # before); what changed is that the cap is shared, never per-group,
+        # so a composite request cannot sum past the table budget.
+        candidate_groups: list[list[str]] = []
+        query_tokens = _hivemind_scope_tokens(query)
+        if query_tokens:
+            candidate_groups.append(query_tokens)
         if model_family and not degraded:
             aliases = _HIVEMIND_SEMANTIC_FAMILY_TERMS.get(
                 model_family.casefold(), (model_family,)
             )
-            family_or = _hivemind_message_ilike(" ".join(aliases))
-            if family_or:
-                or_groups.append(family_or)
+            candidate_groups.append(_hivemind_scope_tokens(" ".join(aliases)))
         if capability and not degraded:
             aliases = _HIVEMIND_SEMANTIC_TASK_TERMS.get(
                 capability.casefold(), (capability,)
             )
-            capability_or = _hivemind_message_ilike(" ".join(aliases))
-            if capability_or:
-                or_groups.append(capability_or)
+            candidate_groups.append(_hivemind_scope_tokens(" ".join(aliases)))
         if node_class and not degraded:
-            node_or = _hivemind_message_ilike(node_class)
-            if node_or:
-                or_groups.append(node_or)
+            candidate_groups.append(_hivemind_scope_tokens(node_class))
+        seen_tokens: set[str] = set()
+        budget = _HIVEMIND_SCOPE_PATTERN_CAP
+        or_groups: list[str] = []
+        for group_tokens in candidate_groups:
+            chosen: list[str] = []
+            for token in group_tokens:
+                if budget <= 0:
+                    break
+                key = token.casefold()
+                if key in seen_tokens:
+                    continue
+                seen_tokens.add(key)
+                chosen.append(token)
+                budget -= 1
+            if chosen:
+                or_groups.append(_hivemind_message_or(chosen, degraded=degraded))
         if len(or_groups) == 1:
             params["or"] = or_groups[0]
         elif len(or_groups) > 1:
@@ -1034,18 +1069,29 @@ def _hivemind_search_transport(
 ) -> dict[str, Any]:
     """Fetch, order, and page the Hivemind corpus for one validated request.
 
-    Returns ``{"hits": [...], "has_more": bool, "diagnostics": [...]}``.
-    Per-scope deadlines (§37.3): EACH scope gets its own full ``timeout``
-    budget, so one slow or failing scope cannot starve the others — a scope
-    that times out or errors records its diagnostic and the loop continues;
-    hits from all scopes merge after every scope has returned.  Only when
-    EVERY scope fails is the first :class:`HivemindError` re-raised so the
-    tool can type it.
+    Returns ``{"hits": [...], "has_more": bool, "diagnostics": [...]}`` plus
+    ``"rate_limit"`` when any scope ended HTTP 429-limited (review C4): the
+    tool layer opens the shared cooldown circuit while this call keeps its
+    merged hits.  Per-scope deadlines (§37.3): EACH scope gets its own full
+    ``timeout`` budget, so one slow or failing scope cannot starve the
+    others — a scope that times out or errors records its diagnostic and the
+    loop continues; hits from all scopes merge after every scope has
+    returned.  A scope whose fetch RETURNS counts as succeeded even with
+    zero rows; ONLY when EVERY attempted scope failed is the first
+    :class:`HivemindError` re-raised (§37.3 / review C3) so the tool can
+    type it.
     """
     scopes = _SOURCE_TYPE_SCOPES.get(source_type, ())
     rows: list[dict[str, Any]] = []
     diagnostics: list[dict[str, str]] = []
     first_error: HivemindError | None = None
+    # HIVEMIND-SCOPE-FIX-REV: per-scope outcome tracking (review C3) and
+    # partial-429 capture (review C4).  A scope SUCCEEDS when its fetch
+    # returns — even with zero rows; an empty corpus result is not a failure.
+    succeeded_scopes = 0
+    failed_scopes = 0
+    first_rate_limit_error: HivemindError | None = None
+    first_rate_limit_scope: str | None = None
 
     for table, kind in scopes:
         # §37.3: fresh per-scope deadline — computed INSIDE the loop so no
@@ -1110,10 +1156,22 @@ def _hivemind_search_transport(
                     except HivemindError as retry_exc:
                         last_error = retry_exc
             if parsed is None:
+                failed_scopes += 1
                 first_error = first_error or last_error
                 diagnostics.append(
                     {"scope": f"{table}:{kind}", "message": str(last_error)}
                 )
+                # Review C4: remember the FIRST 429 even though other scopes
+                # may still contribute hits, so the tool layer can open the
+                # shared cooldown circuit instead of hammering the
+                # rate-limited backend on subsequent calls.
+                if last_error.status_code == 429 and first_rate_limit_error is None:
+                    first_rate_limit_error = last_error
+                    first_rate_limit_scope = f"{table}:{kind}"
+            else:
+                succeeded_scopes += 1
+        else:
+            succeeded_scopes += 1
         for row in parsed if isinstance(parsed, list) else []:
             if not isinstance(row, dict):
                 continue
@@ -1125,10 +1183,29 @@ def _hivemind_search_transport(
             stamped["_hivemind_table"] = table
             rows.append(stamped)
 
+    # §37.3 / review C3: "empty" means NO scope succeeded — re-raise ONLY
+    # when EVERY attempted scope failed.  A successful-but-empty scope plus
+    # a failed scope returns OK with the failed scope's diagnostic attached.
+    if failed_scopes and not succeeded_scopes and first_error is not None:
+        raise first_error
+
+    # Review C4: surface any partial-scope 429 so the tool layer opens the
+    # shared R2-B2 cooldown circuit even though this call keeps its hits.
+    rate_limit: dict[str, Any] | None = None
+    if first_rate_limit_error is not None:
+        rate_limit = {
+            "status_code": int(first_rate_limit_error.status_code or 429),
+            "retry_after_seconds": first_rate_limit_error.retry_after_seconds,
+            "scope": first_rate_limit_scope,
+        }
+
     if not rows:
-        if first_error is not None:
-            raise first_error
-        return {"hits": [], "has_more": False, "diagnostics": tuple(diagnostics)}
+        return {
+            "hits": [],
+            "has_more": False,
+            "diagnostics": tuple(diagnostics),
+            "rate_limit": rate_limit,
+        }
 
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1147,6 +1224,7 @@ def _hivemind_search_transport(
         "hits": [_hivemind_hit(row, str(row.get("_hivemind_table") or "")) for row in page],
         "has_more": offset + limit < len(ordered),
         "diagnostics": tuple(diagnostics),
+        "rate_limit": rate_limit,
     }
 
 

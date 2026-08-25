@@ -478,7 +478,9 @@ def hivemind_search(
         scope gets its own fresh deadline of this size (§37.3), covering
         its fetches and the one 57014 degraded retry within it.
     cache_root:
-        R2-B2 cooldown-sentinel root (tests inject a temp dir).
+        R2-B2 cooldown-sentinel root (tests inject a temp dir).  A 429 on
+        any single search scope opens the same shared cooldown even when
+        other scopes contributed hits to this call.
 
     Returns a typed :class:`ToolResult`; every hit carries a stable
     ``evidence_id`` resolvable via :func:`hivemind_get`.
@@ -578,6 +580,32 @@ def hivemind_search(
         )
         for item in transport["diagnostics"]
     )
+    # R2-B2 / HIVEMIND-SCOPE-FIX-REV (review C4): a 429 on ANY single scope
+    # opens the shared cooldown circuit even when other scopes contributed
+    # hits — otherwise a partially-rate-limited search keeps hammering the
+    # backend on every subsequent call.  This call's merged hits, status,
+    # and result shape are unchanged; only the typed diagnostic rides along.
+    rate_limit = transport.get("rate_limit")
+    if rate_limit is not None:
+        _set_cooldown(
+            root, _HIVEMIND_COOLDOWN_ENDPOINT, rate_limit["retry_after_seconds"]
+        )
+        details: dict[str, Any] = {
+            "scope": rate_limit["scope"],
+            "status_code": rate_limit["status_code"],
+        }
+        if rate_limit["retry_after_seconds"] is not None:
+            details["retry_after_seconds"] = rate_limit["retry_after_seconds"]
+        diagnostics += (
+            ToolDiagnostic(
+                code="hivemind_rate_limited",
+                message=(
+                    f"Hivemind rate-limited (429) on {rate_limit['scope']}; "
+                    "shared cooldown opened."
+                ),
+                details=details,
+            ),
+        )
     hits = transport["hits"]
     if not hits:
         return ToolResult(

@@ -268,6 +268,50 @@ class TestLeanQueryShape:
             ("unified_feed", "distillation"),
         )
 
+    def test_composite_query_shares_one_pattern_budget_across_all_paths(self) -> None:
+        """Review C2 (HIVEMIND-SCOPE-FIX-REV): query + model_family +
+        capability + node_class share ONE <=6-pattern budget per request.
+        Tokens deduplicate across groups, then truncate deterministically in
+        documented priority order — free-text query tokens first, then
+        family aliases, then capability aliases, then node_class — so a
+        composite request can never sum past the table budget."""
+        seen: list[str] = []
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen(seen, _json_response([])),
+        ):
+            result = hivemind_search(
+                "wan animate vace",
+                filters={
+                    "source_type": "workflow",
+                    "model_family": "wan",
+                    "capability": "image_to_video",
+                    "node_class": "KSampler",
+                },
+            )
+        assert result.status is ToolStatus.NO_RESULTS
+        assert len(seen) == 2
+        resource_url, message_url = seen
+        # external_resources keeps its own table budget untouched.
+        assert len(_ilike_patterns(resource_url)) <= _HIVEMIND_SCOPE_PATTERN_CAP
+        message_patterns = _ilike_patterns(message_url)
+        assert all(p.startswith("content.ilike.") for p in message_patterns)
+        assert len(message_patterns) <= _HIVEMIND_SCOPE_PATTERN_CAP
+        # Deterministic shared-budget selection: the three query tokens win
+        # their slots first; the remaining slots go to family aliases (wan
+        # deduplicated against the query); capability/node_class overflow is
+        # dropped entirely.
+        assert message_patterns == [
+            "content.ilike.*wan*",
+            "content.ilike.*animate*",
+            "content.ilike.*vace*",
+            "content.ilike.*wanvideo*",
+            "content.ilike.*wan2*",
+            "content.ilike.*wan_2*",
+        ]
+        assert "img2vid" not in message_url
+        assert "KSampler" not in message_url
+
 
 # ── 2. Distillation retrieval without text-search ───────────────────────────
 
@@ -493,6 +537,33 @@ class TestPerScopeDeadlineIsolation:
             result = hivemind_search(_REPRESENTATIVE_QUERY, timeout=5.0)
         assert result.status is ToolStatus.TIMEOUT
         assert result.diagnostics[0].code == "hivemind_timeout"
+
+    def test_successful_empty_scope_with_failed_scope_returns_ok(self) -> None:
+        """Review C3 (HIVEMIND-SCOPE-FIX-REV): an empty result from a scope
+        that SUCCEEDED is not a failure.  external_resources returning []
+        plus a failing message_feed scope must return normally (typed
+        NO_RESULTS) with the failed scope's diagnostic attached — NOT
+        re-raise (§37.3: other scopes still contribute)."""
+        seen: list[str] = []
+
+        def _responder(req: Any, *args: Any, **kwargs: Any) -> Any:
+            if "/external_resources?" in unquote_plus(req.full_url):
+                return _json_response([])  # legitimate success, zero hits
+            raise urllib.error.HTTPError(
+                req.full_url, 500, "boom", {}, io.BytesIO(b"{}")
+            )
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen(seen, _responder),
+        ):
+            result = hivemind_search(_REPRESENTATIVE_QUERY)
+        assert len(seen) == 2  # one attempt per text scope, no retry
+        assert result.status is ToolStatus.NO_RESULTS
+        failed = [
+            d for d in result.diagnostics if d.code == "hivemind_scope_failed"
+        ]
+        assert [d.details["scope"] for d in failed] == ["message_feed:message"]
 
 
 # ── 4. LIVE regression (directive-required, env-gated) ──────────────────────
