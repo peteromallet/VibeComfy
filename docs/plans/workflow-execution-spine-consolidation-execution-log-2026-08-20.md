@@ -6875,3 +6875,65 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 - **Trajectory:** **5/50 total** (original finale staged 3 threaded 2) → **12/20** window (staged 70% MET) → **6/7** spot (5/5 targets converted) → **THIS finale 23/50** (staged 44% threaded 48%; 50%/52% excl. infra) — **~4.6× overall pass count**, both modes improved. Provider confound native vs pre-rotation preserved.
 - **Ledger:** fixes `P0`..`P8` (incl. P8-R3 name-authority) + hivemind lean + wrapper hardening; contradiction family `Δ claims changes…` eliminated and verified by conversion; residual risks recorded for report (image-dual-checkpoint intermittent, no_schema_witness, thin hivemind, 429, OpenRouter INVALID, PUSH-BLOCKED-001).
 - **Next:** G7 `status: open` pending final report/disposition; no further paid legs required for this evidence card; before/after comparison goes in final report per §33.1.
+
+## EVIDENCE-CLOSEOUT — final disposition record — 2026-08-25
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder does NOT judge substance; it transcribes the orchestrator-supplied final report (`b50a0548` REPORT-FINAL) and the recorded push-rejection outcome, plus the §10/§34 closeout disposition, into the durable record and commits once. No receipt is committed; receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` and disposable output `/tmp/t7-finale3`. This recorder's own `end_ts`/receipt digest are intentionally NOT recorded per brief. All credential material REDACTED per §29a — the rejected secret itself is NOT reproduced; referenced only as "dead rotated OpenRouter key".
+
+### 1. Final report `b50a0548` (REPORT-FINAL, ox-alpha) — authoritative finale
+
+- **Commit `b50a0548`** (`b50a054873945abc9c643fe1bec6a77b9d1946c8`) — `docs(spine): final report — post-fix campaign closeout: authoritative finale 23/50 (staged 44%/threaded 48%), trajectory 5→23 ~4.6x, campaign closed per §34` — doc-only, one file `docs/plans/workflow-execution-spine-consolidation-final-report-2026-08-25.md` (97 lines), authored `POM <peter@omalley.io>`, single coherent docs commit.
+- **Honest scorecard (§35 mechanical merge over ten `FIN-ASSESS-0..9` batches, no smoothing):** **23/50 total (staged 11/25 = 44%, threaded 12/25 = 48%)**; `5 infra-blocked` never counted as pass (harness `23 pass / 26 fail / 1 blocked` → assessor `23 pass / 22 fail / 0 undetermined / 5 infra-blocked` via `runner_exception` timeout → infra-blocked); **zero undetermined**; `applied-unverified` never passed. Conservative denominators incl. infra; excluding infra staged `11/22 = 50%`, threaded `12/23 = 52%`.
+- **Trajectory:** **5/50 baseline** (original authoritative finale `T7.2-FINALE-SPLIT` staged 3 threaded 2) → `12/20` round-1 window → `6/7` round-2 spot (5/5 targets converted) → **THIS 23/50 (~4.6×)**; both modes improved (staged 3→11, threaded 2→12).
+- **Provider confound caveat (not scored away):** campaign windows + THIS finale ran `native deepseek-v4-flash` (`--transport native`, ambient `DEEPSEEK` creds); original finale ran pre-rotation provider route. Cross-provider comparison caveat preserved verbatim from `EVIDENCE-R1-WINDOW20`/`EVIDENCE-R2-CLOSE`.
+- **Ledger:** fixes `P0`→`P8` (incl. P8-R3 name-authority `fae303b5`) + hivemind lean `a6419fc0` + wrapper hardening `1be8540b`/`69c719c6` + final50 lock regen `bacbccd9`; residual risks recorded (image-dual-checkpoint intermittent, `no_schema_witness`, thin hivemind, 429, OpenRouter INVALID per §33.3, PUSH-BLOCKED-001).
+
+### 2. Push attempt — REJECTED (§9 law, no history operation)
+
+- **Refspec:** `HEAD:fixer/workflow-execution-spine-consolidation` (explicit). Result: **REJECTED by remote secret protection** — GitHub response `push declined due to repository rule violations` (GH013 / secret scanning). GitHub names the **dead rotated OpenRouter key** in history and offers unblock URL (recorded in dispatch log `fin/…` actually `g0 closeout log`; URL: `https://github.com/peteromallet/VibeComfy/security/secret-scanning/unblock-secret/3INvnmR6En7rMpmXHeeCXQ2UU4X`); secret itself NOT reproduced per §29a.
+- **§9 law respected:** **NO history operation performed**; **NO force-push**; **NO scrub without operator authorization**. Remote branch remains `743cc1027010880bed873ad57a6daf346848c0fd` (`743cc102`); local HEAD `b50a0548` (`b50a054873945abc9c643fe1bec6a77b9d1946c8`).
+- **Historical material:** dead rotated OpenRouter key material sits in local history from `1f2fa5f7` onward (execution-log line 4521, never re-printed; referenced only by pinned `BASELINE_EXECUTION_LOG_SECRET_LINE_IDENTITIES` (lineno, sha256) identities per §29a). Branch remains **local-only** until operator authorizes scrub/clean-branch/accept-local.
+
+### 3. Final state
+
+- **Local HEAD `b50a0548` = remote-dirty delta unchanged in character:** `743cc102` remote unchanged; HEAD is 82 commits ahead of `origin/fixer/workflow-execution-spine-consolidation` (character `47+ commits ahead` preserved; exact count 82 at closeout time — grows with closeout commits, not product change).
+- **Tracked tree clean;** validator `EXIT=0` on the post-report tree and on this post-closeout tree (see Manifest / shards / validation).
+- **Active-allowances empty after this card:** `active-allowances.json` remains `{}`, lock absent; this card consumed no allowance and left none.
+
+### 4. Completion status vs §10 checklist
+
+- **G0-G7 dispositions recorded earlier (`743cc102`):** G0 passed, G1 passed, G2 passed, G3 passed, G4 passed, G5 continue, G6 passed (continue), G7 `status: open, disposition: pending` — evidence_sequence through `EVIDENCE-FINALE` (77) at `d2b3affa`/`b50a0548`. This card adds `78 EVIDENCE-CLOSEOUT` (evidence dispatch, NOT a gate pass).
+- **Campaign closed per §34 (≤3 rounds; criterion met round-1 staged ≥56% verified by round-2 conversion):** `R1-WINDOW20` staged `7/10 = 70%` MET ≥56%; `R2-SPOT7B` `6/7` with all five false-fail targets converted after P8 chain — both §34 success criteria satisfied; campaign closed at two rounds per authoritative finale `EVIDENCE-FINALE`/`b50a0548`.
+- **Authoritative finale honestly assessed 23/50 with zero undetermined and infra-blocked never passed:** staged `11/11/3`, threaded `12/11/2` (§35); honest counting throughout; no smoothing.
+- **All must-findings closed:** P4 breach reviewed+fixed (allowance-breach reviewed `P4-ALLOWANCE-REVIEW`, musts discharged P4-R2C; enforcement fixed `WRAPPER-ALLOWANCE-ENFORCE` pre-finale), P8 review musts fixed (`9e1670db`→`fae303b5`), forensic must fixed (`R2-SPOT-FORENSIC` verdict `residual bug` → P8 chain → `R2-SPOT7B` conversion).
+- **Protected state untouched:** base `5fc6be9d`/`743cc102` ancestry preserved; `final_five` intact; `test-shards.json` frozen; `live_runs` single authoritative `T7.2-FINALE-SPLIT` intact (validator greens).
+- **Report assembled:** `b50a0548` final report (97 lines) plus `EVIDENCE-FINALE` log section are the authoritative record; this closeout documents push disposition.
+- **Push BLOCKED on operator decision (unblock URL / authorized scrub):** resolution requires operator-authorized choice — scrub+force-push, clean redacted branch, or accept-local — per §9.
+- **This is the documented truthful shortfall:** honest 23/50, not inflated; infra-blocked excluded from passes; no undetermined hidden.
+
+### 5. Campaign CLOSED — orchestrator STOPPING per §10
+
+- **CAMPAIGN CLOSED.** Orchestrator **STOPPING after this card** per §10 (no merge to main, no promotion). G0-G7 dispositions are recorded; campaign criteria met; finale honestly scored; must-findings closed; protected state intact; push blocked is operator-reserved.
+- **No further cards:** active-allowances empty; no live/model/runtime call, wrapper dispatch, review, classification, or integration performed by this recorder beyond the allowed evidence promotion.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays **`status: open`**, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **78 records** (77 prior + `78 EVIDENCE-CLOSEOUT` evidence dispatch recording the final report `b50a0548` (23/50), push REJECTED (GH013 dead rotated OpenRouter key, unblock URL), remote `743cc102` / local `b50a0548`, and §10/§34 closeout STOP above; canonical_slot `EVIDENCE-CLOSEOUT`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`); `section_sha256` refreshed to new section hash (T1.1 slice to EOF).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the post-edit working tree and on the post-commit tree (§ Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `section_sha256` to new section hash (T1.1→EOF).
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `EVIDENCE-CLOSEOUT` section) + `manifest.json` G7 `evidence_sequence[78]` + `tasks[5].recovery_note.sha256`/`section_sha256` refresh; `test-shards.json` byte-identical, not rewritten. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `fae303b55e84a1b45c494258ef363aea69cde707` (+ `1522c000` + `d2b3affa` + `b50a0548` evidence/report) IS an ancestor of HEAD (`git merge-base --is-ancestor` exit 0; HEAD `b50a0548` itself is ancestor of new HEAD); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; the rejected secret itself is NOT reproduced anywhere in this append — referenced only as "dead rotated OpenRouter key"; historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; no `sk-or-v1-` or bearer material emitted (validator `CREDENTIAL_HYGIENE` green).
+- **No push / no history rewrite:** G7 does NOT pass via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at `b50a0548` + new commit (remote `743cc102`). G7 stays `status: open`. Campaign closed per §34; orchestrator STOPPING per §10.
+- **JUDGMENT_REQUIRED: none** (final report `b50a0548` and push-rejection are recorded facts; this recorder makes no new judgment; no scoring change by this dispatch).
+
+### Position — campaign CLOSED, report `b50a0548` 23/50, push REJECTED (dead rotated OpenRouter key), 743cc102 remote / b50a0548 local, STOP per §10
+
+- **Final report `b50a0548` authoritative:** 23/50 (staged 11/11/3 threaded 12/11/2, zero undetermined, infra never pass); trajectory 5→23 ~4.6×; provider confound native `deepseek-v4-flash` vs pre-rotation preserved; ledger `P0`→`P8` + hivemind + wrapper.
+- **Push REJECTED:** `HEAD:fixer/workflow-execution-spine-consolidation` → GH013 secret protection (dead rotated OpenRouter key); unblock URL `https://github.com/peteromallet/VibeComfy/security/secret-scanning/unblock-secret/3INvnmR6En7rMpmXHeeCXQ2UU4X`; §9 law respected — no history op, no scrub without operator authorization; remote `743cc102`, local `b50a0548`.
+- **§10 checklist truthfully met except push:** G0-G7 dispositions at `743cc102`, campaign §34 closed, 23/50 honestly assessed, must-findings closed, protected state untouched, report assembled; documented shortfall is push BLOCKED on operator decision.
+- **Orchestrator STOPPING:** no merge to main, no promotion; active-allowances empty.
