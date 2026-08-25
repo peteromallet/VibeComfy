@@ -273,9 +273,10 @@ class TestSearchValidation:
 
 
 class TestSearchScopeTranslation:
-    """HIVEMIND-SEARCH-SHAPE S1/S2: message_feed is the only text surface."""
+    """Directive §37: external_resources + message_feed are the text
+    surfaces; unified_feed stays the non-text distillation tier."""
 
-    def test_source_type_workflow_text_searches_message_feed(self) -> None:
+    def test_source_type_workflow_text_searches_both_surfaces(self) -> None:
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -285,15 +286,19 @@ class TestSearchScopeTranslation:
                 "ltx", filters={"source_type": "workflow"}, limit=5
             )
         assert result.status is ToolStatus.NO_RESULTS
-        assert len(seen) == 1
-        url = seen[0]
-        assert "/message_feed?" in url
-        assert "/external_resources?" not in url
-        assert "/unified_feed" not in url
-        assert "or=(content.ilike.*ltx*)" in url
-        assert "select=*" in url
-        assert "limit=20" in url  # bounded candidate pool, not the page size
-        assert "order=created_at.desc" in url
+        assert len(seen) == 2
+        resource_url, message_url = seen
+        # WHERE WORKFLOWS LIVE: title/body doubling on external_resources.
+        assert "/external_resources?" in resource_url
+        assert "/unified_feed" not in resource_url
+        assert "or=(title.ilike.*ltx*,body.ilike.*ltx*)" in resource_url
+        assert "select=*" in resource_url
+        assert "limit=20" in resource_url  # bounded candidate pool, not page size
+        assert "order=created_at.desc" in resource_url
+        # Community guidance surface keeps content-only patterns.
+        assert "/message_feed?" in message_url
+        assert "/unified_feed" not in message_url
+        assert "or=(content.ilike.*ltx*)" in message_url
 
     def test_source_type_discord_queries_raw_message_feed(self) -> None:
         seen: list[str] = []
@@ -325,10 +330,11 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert seen == []
 
-    def test_no_source_type_runs_single_message_feed_request(self) -> None:
-        """The corpus-wide search issues exactly ONE request — the lean
-        message_feed text query; the unified_feed tier contributes no
-        criteria for free-text-only searches and is skipped."""
+    def test_no_source_type_runs_both_text_scopes_skipping_unified(self) -> None:
+        """The corpus-wide search issues exactly TWO requests — the lean
+        external_resources title/body query and the message_feed content
+        query; the unified_feed tier contributes no criteria for
+        free-text-only searches and is skipped."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -336,9 +342,10 @@ class TestSearchScopeTranslation:
         ):
             result = hivemind_search("ltx", limit=5)
         assert result.status is ToolStatus.NO_RESULTS
-        assert len(seen) == 1
-        assert "/message_feed?" in seen[0]
-        assert "/unified_feed" not in seen[0]
+        assert len(seen) == 2
+        assert "/external_resources?" in seen[0]
+        assert "/message_feed?" in seen[1]
+        assert all("/unified_feed" not in u for u in seen)
 
     def test_filler_only_query_skips_all_scopes(self) -> None:
         """A question-shaped query with no distinctive token narrows nothing:
@@ -374,9 +381,10 @@ class TestSearchScopeTranslation:
         assert result.status is ToolStatus.NO_RESULTS
         assert seen == []
 
-    def test_channel_filter_applies_on_message_scope_for_workflow_tier(self) -> None:
-        """source_type='workflow' now rides the message-feed text surface,
-        so channel/author structured filters apply there too."""
+    def test_channel_filter_applies_only_to_message_scope_of_workflow_tier(self) -> None:
+        """§37: source_type='workflow' rides BOTH surfaces; channel/author are
+        message_feed columns, so they scope only that request — the
+        external_resources request is untouched by them."""
         seen: list[str] = []
         with patch(
             "urllib.request.urlopen",
@@ -387,9 +395,12 @@ class TestSearchScopeTranslation:
                 filters={"source_type": "workflow", "channel": "wan_chatter"},
             )
         assert result.status is ToolStatus.NO_RESULTS
-        assert len(seen) == 1
-        assert "/message_feed?" in seen[0]
-        assert "channel_name=eq.wan_chatter" in seen[0]
+        assert len(seen) == 2
+        resource_url, message_url = seen
+        assert "/external_resources?" in resource_url
+        assert "channel_name" not in resource_url
+        assert "/message_feed?" in message_url
+        assert "channel_name=eq.wan_chatter" in message_url
 
 
 class TestSearchFilterTranslation:
@@ -760,10 +771,10 @@ class TestTransportOnlyGuarantee:
             assert key not in result.result
 
     def test_partial_scope_failure_degrades_with_diagnostics(self) -> None:
-        """With structured criteria present, the corpus search runs the
-        message_feed text scope AND the non-text distillation scope; a
-        persistent 57014 on one scope degrades to a per-scope diagnostic
-        while the other still contributes hits."""
+        """With structured criteria present, the corpus search runs BOTH text
+        scopes and the non-text distillation scope; a persistent 57014 on a
+        scope degrades to a per-scope diagnostic while the others still
+        contribute hits."""
 
         def _responder(req: Any, url: str) -> Any:
             if "/message_feed?" in url:
@@ -783,7 +794,8 @@ class TestTransportOnlyGuarantee:
         assert result.result["count"] == 1
         codes = {d.code for d in result.diagnostics}
         assert codes == {"hivemind_scope_failed"}
-        assert result.diagnostics[0].details["scope"] == "unified_feed:distillation"
+        assert result.diagnostics[0].details["scope"] == "external_resources:workflow"
+        assert result.diagnostics[1].details["scope"] == "unified_feed:distillation"
 
     def test_all_scopes_failed_returns_typed_failure(self) -> None:
         def _responder(req: Any, url: str) -> Any:
@@ -1285,11 +1297,15 @@ class TestStatementTimeoutRetry:
         assert result.diagnostics[0].code == "hivemind_statement_timeout"
         assert result.evidence_ids == ()
         assert result.result is None
-        assert len(calls) == 3  # two fat attempts, then exactly one degraded attempt
+        assert len(calls) == 6  # per text scope: two fat attempts + one degraded
         degraded = [url for url in calls if "ilike." in url and "ilike.*" not in url]
-        assert len(degraded) == 1
+        assert len(degraded) == 2
 
-    def test_shared_deadline_stops_later_scopes(self) -> None:
+    def test_per_scope_deadline_gives_each_scope_full_budget(self) -> None:
+        """§37.3: deadlines are computed PER SCOPE — a scope that spends its
+        whole budget cannot starve later scopes; each attempt is offered the
+        full timeout, and only when EVERY scope fails does the first error
+        surface."""
         clock = {"t": 0.0}
         calls: list[float] = []
 
@@ -1305,11 +1321,12 @@ class TestStatementTimeoutRetry:
             result = hivemind_search("ltx", timeout=5.0)
         assert result.status is ToolStatus.TIMEOUT
         assert result.diagnostics[0].code == "hivemind_timeout"
-        assert calls == [5.0]
+        # BOTH text scopes were attempted, each with its own full budget.
+        assert calls == [5.0, 5.0]
 
-    def test_partial_rows_survive_later_scope_deadline(self) -> None:
-        """The message_feed text scope completes; a later scope spending the
-        whole budget must not discard the earlier scope's hits."""
+    def test_partial_rows_survive_later_scope_deadlines(self) -> None:
+        """§37.3: scopes that complete contribute hits even when other scopes
+        spend their whole budgets — no shared clock starves the merge."""
         clock = {"t": 0.0}
         seen: list[str] = []
 
@@ -1331,7 +1348,8 @@ class TestStatementTimeoutRetry:
         assert result.evidence_ids == (
             "hivemind:message_feed:5",
         )
-        assert len(seen) == 2
+        assert len(seen) == 3  # external_resources, message_feed, unified_feed
+        assert "/external_resources?" in seen[0]
         assert any("/message_feed?" in url for url in seen)
         assert any("kind=eq.distillation" in url for url in seen)
 
@@ -1354,7 +1372,7 @@ class TestStatementTimeoutRetry:
             result = hivemind_search("ltx", filters={"source_type": "workflow"})
         assert result.status is ToolStatus.UNAVAILABLE
         assert result.diagnostics[0].code == "hivemind_unavailable"
-        assert calls["n"] == 1  # no retry on a generic 500
+        assert calls["n"] == 2  # one attempt per text scope, no retry on a generic 500
 
 
 # ── REC-A: model-family / capability relevance (off-family demotion) ────────
@@ -1421,11 +1439,16 @@ class TestFamilyRelevance:
                 "ltx",
                 filters={"source_type": "workflow", "model_family": "ltx"},
             )
-        assert len(seen) == 1
-        url = seen[0]
-        assert "/message_feed?" in url
-        assert "and=(or:(content.ilike.*ltx*)" in url
-        assert "content.ilike.*ltxv*" in url
+        assert len(seen) == 2
+        # Family alias translation stays a message_feed content concern;
+        # external_resources carries the plain title/body token query.
+        resource_url, message_url = seen
+        assert "/external_resources?" in resource_url
+        assert "or=(title.ilike.*ltx*,body.ilike.*ltx*)" in resource_url
+        assert "ltxv" not in resource_url
+        assert "/message_feed?" in message_url
+        assert "and=(or:(content.ilike.*ltx*)" in message_url
+        assert "content.ilike.*ltxv*" in message_url
 
 
 class TestEvidenceIdResolvability:

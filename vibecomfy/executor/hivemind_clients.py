@@ -6,11 +6,13 @@ translation, deterministic ordering and paging for one model-authored query
 string.  There is no term expansion, no winner selection, no evidence
 thresholds, no latches, and no early-stop.
 
-Lean query shape (operator card HIVEMIND-SEARCH-SHAPE): free-text search runs
-ONLY against ``message_feed`` content with few distinctive tokens (2-4
-``content.ilike`` patterns).  ``unified_feed`` is never text-searched (its
-UNION scan trips Postgres SQLSTATE 57014); distillations are reached by id or
-through non-text structured filters.
+Lean query shape (operator directive §37, HIVEMIND-SCOPE-FIX): free-text
+search runs against ``external_resources`` (title/body — where workflows
+live) and ``message_feed`` (content) with FEW distinctive tokens per table
+(<=6 ilike patterns); each scope gets its OWN deadline so one slow scope
+cannot starve the others.  ``unified_feed`` is never text-searched (its
+UNION scan trips Postgres SQLSTATE 57014); distillations are reached by id
+or through non-text structured filters.
 """
 
 from __future__ import annotations
@@ -266,7 +268,8 @@ def _hivemind_get_table(
     logs the key.
 
     ``timeout`` is the total operation wall-clock budget when ``deadline`` is
-    omitted.  Search passes one shared deadline across every scope and retry.
+    omitted.  Search passes each scope its own fresh deadline (§37.3); the
+    scope's fat attempt and its one 57014 degraded retry share that budget.
 
     REC-A resilience: a Postgres statement-timeout (HTTP 500 + SQLSTATE
     57014) is retried ONCE with a short backoff — the query is valid, the
@@ -396,9 +399,9 @@ def _distinctive_tokens(query: str) -> list[str]:
 
 
 # Question/conversation words that survive the generic stopword sets but
-# never narrow a Hivemind search.  Dropped before the lean 4-token cap so
+# never narrow a Hivemind search.  Dropped before the per-table token cap so
 # question-shaped queries keep their distinctive tokens (e.g. "MiniMax H3")
-# instead of "do people think about" (HIVEMIND-SEARCH-SHAPE S1).
+# instead of "do people think about" (directive §37 lean shape).
 _HIVEMIND_QUERY_FILLER_WORDS = frozenset({
     "do", "does", "did", "is", "are", "was", "were", "what", "which",
     "how", "why", "when", "where", "who", "whom", "people", "think",
@@ -411,29 +414,65 @@ _HIVEMIND_QUERY_FILLER_WORDS = frozenset({
 })
 
 
+# Per-table ilike OR-pattern budget (§37.1): FEW DISTINCTIVE TOKENS — at most
+# 6 patterns per table, enforced where the terms are distilled so overflow
+# truncates deterministically to the query's most distinctive (earliest
+# non-stopword) tokens.
+_HIVEMIND_SCOPE_PATTERN_CAP = 6
+
+
+def _hivemind_scope_tokens(query: str) -> list[str]:
+    """Distinctive scope-query tokens, original order preserved.
+
+    Generic stopwords, domain fallback words, and question/filler words are
+    dropped first so the per-table caps keep the query's distinctive tokens.
+    """
+    stop = (
+        _SEARCH_STOPWORDS
+        | _HIVEMIND_FALLBACK_STOPWORDS
+        | _HIVEMIND_QUERY_FILLER_WORDS
+    )
+    return [t for t in _query_tokens(query) if t.casefold() not in stop]
+
+
 def _hivemind_message_ilike(query: str, *, degraded: bool = False) -> str | None:
     """Build the lean per-token content query for ``message_feed``.
 
-    HIVEMIND-SEARCH-SHAPE S1: at most 4 distinctive tokens, each one
-    ``content.ilike.*<token>*`` ORed together on the index-backed raw
-    message table.  No title/body doubling, no phrase explosion.  Filler
-    and generic stopword tokens are dropped first so the small cap keeps
-    the query's distinctive tokens.  Degraded mode (57014 recovery) drops
-    the leading wildcard so the planner can use a prefix scan.
+    §37.1: at most :data:`_HIVEMIND_SCOPE_PATTERN_CAP` distinctive tokens,
+    each one ``content.ilike.*<token>*`` ORed together on the index-backed
+    raw message table.  No phrase explosion; overflow truncates to the first
+    (most distinctive) surviving tokens.  Degraded mode (57014 recovery)
+    drops the leading wildcard so the planner can use a prefix scan.
     """
-    stop = _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
-    tokens = [
-        t
-        for t in _distinctive_tokens(query)
-        if t.casefold() not in stop and t.casefold() not in _HIVEMIND_QUERY_FILLER_WORDS
-    ]
-    if not tokens:
-        return None
     patterns = [
         f"content.ilike.{token}*" if degraded else f"content.ilike.*{token}*"
-        for token in tokens
+        for token in _hivemind_scope_tokens(query)[:_HIVEMIND_SCOPE_PATTERN_CAP]
     ]
-    return "(" + ",".join(patterns[:4]) + ")"
+    if not patterns:
+        return None
+    return "(" + ",".join(patterns) + ")"
+
+
+def _hivemind_resource_ilike(query: str, *, degraded: bool = False) -> str | None:
+    """Build the title/body text query for ``external_resources``.
+
+    WHERE WORKFLOWS LIVE (§37.2): each distinctive token doubles across the
+    table's two searchable columns — ``title.ilike.*<t>*`` and
+    ``body.ilike.*<t>*`` ORed together — so at most half the per-table
+    pattern budget in tokens keeps total patterns <=6.  Degraded mode uses
+    prefix patterns like the message builder.
+    """
+    tokens = _hivemind_scope_tokens(query)[: _HIVEMIND_SCOPE_PATTERN_CAP // 2]
+    patterns: list[str] = []
+    for token in tokens:
+        for column in ("title", "body"):
+            if degraded:
+                patterns.append(f"{column}.ilike.{token}*")
+            else:
+                patterns.append(f"{column}.ilike.*{token}*")
+    if not patterns:
+        return None
+    return "(" + ",".join(patterns) + ")"
 
 
 def _first_text(item: dict[str, Any], *keys: str) -> str:
@@ -682,20 +721,26 @@ _HIVEMIND_TABLE_ID_COLUMNS = {
     "message_feed": "message_id",
 }
 
-# source_type -> ordered (table, kind) scopes.  HIVEMIND-SEARCH-SHAPE S1/S2:
-# ``message_feed`` is the ONLY text-search surface (few distinctive
-# ``content.ilike`` tokens).  ``unified_feed`` appears only as the
-# distillation tier and is NON-TEXT there: any ilike over its UNION scan
-# trips Postgres SQLSTATE 57014, so distillations are served by id
-# (``hivemind_get``) or through structured filters.  A free-text-only
-# distillation request therefore produces no criteria and the scope is
-# skipped rather than guessed at.
+# source_type -> ordered (table, kind) scopes.  Operator directive §37
+# (HIVEMIND-SCOPE-FIX, supersedes §36 S1/S2): workflows are DISCOVERED via
+# ``external_resources`` and community guidance lives in ``message_feed``, so
+# BOTH tables are text-searched with few distinctive tokens per table (<=6
+# ilike patterns; the §36 "message_feed only" posture made workflow discovery
+# impossible).  ``unified_feed`` appears only as the distillation tier and is
+# NON-TEXT there: any ilike over its UNION scan trips Postgres SQLSTATE 57014,
+# so distillations are served by id (``hivemind_get``) or through structured
+# filters.  A free-text-only distillation request therefore produces no
+# criteria and the scope is skipped rather than guessed at.
 _SOURCE_TYPE_SCOPES: dict[str | None, tuple[tuple[str, str], ...]] = {
     None: (
+        ("external_resources", "workflow"),
         ("message_feed", "message"),
         ("unified_feed", "distillation"),
     ),
-    "workflow": (("message_feed", "message"),),
+    "workflow": (
+        ("external_resources", "workflow"),
+        ("message_feed", "message"),
+    ),
     "discord": (("message_feed", "message"),),
     "distillation": (("unified_feed", "distillation"),),
 }
@@ -818,8 +863,15 @@ def _hivemind_scope_params(
             params["channel_name"] = f"eq.{channel}"
         if author:
             params["author_name"] = f"eq.{author}"
+    elif table == "external_resources":
+        # WHERE WORKFLOWS LIVE (§37.2): title/body text search over few
+        # distinctive tokens; no channel/author columns on this table, so
+        # those structured filters stay a message_feed concern.
+        text_or = _hivemind_resource_ilike(query, degraded=degraded)
+        if text_or:
+            params["or"] = text_or
     elif table == "unified_feed":
-        # NON-TEXT ONLY (HIVEMIND-SEARCH-SHAPE S2/S3): an ilike over this
+        # NON-TEXT ONLY (§37.2): an ilike over this
         # UNION view trips the Postgres statement timeout (SQLSTATE 57014).
         # Distillations are reached by id (``hivemind_get``) or through the
         # structured filters below; a free-text-only request leaves no
@@ -983,27 +1035,22 @@ def _hivemind_search_transport(
     """Fetch, order, and page the Hivemind corpus for one validated request.
 
     Returns ``{"hits": [...], "has_more": bool, "diagnostics": [...]}``.
-    Scope failures degrade: successful scopes still contribute hits and a
-    per-scope diagnostic is recorded.  If every scope fails, the first
-    :class:`HivemindError` is re-raised so the tool can type it.
+    Per-scope deadlines (§37.3): EACH scope gets its own full ``timeout``
+    budget, so one slow or failing scope cannot starve the others — a scope
+    that times out or errors records its diagnostic and the loop continues;
+    hits from all scopes merge after every scope has returned.  Only when
+    EVERY scope fails is the first :class:`HivemindError` re-raised so the
+    tool can type it.
     """
     scopes = _SOURCE_TYPE_SCOPES.get(source_type, ())
-    deadline = time.monotonic() + timeout
     rows: list[dict[str, Any]] = []
     diagnostics: list[dict[str, str]] = []
     first_error: HivemindError | None = None
 
     for table, kind in scopes:
-        if time.monotonic() >= deadline:
-            exhausted = HivemindError(
-                f"Hivemind operation timed out after {timeout}s",
-                reason="timeout",
-            )
-            first_error = first_error or exhausted
-            diagnostics.append(
-                {"scope": f"{table}:{kind}", "message": str(exhausted)}
-            )
-            break
+        # §37.3: fresh per-scope deadline — computed INSIDE the loop so no
+        # earlier scope's spend eats a later scope's budget.
+        scope_deadline = time.monotonic() + timeout
         params = _hivemind_scope_params(
             table=table,
             kind=kind,
@@ -1022,7 +1069,7 @@ def _hivemind_search_transport(
             continue
         try:
             parsed = _hivemind_get_table(
-                table, params, timeout=timeout, deadline=deadline
+                table, params, timeout=timeout, deadline=scope_deadline
             )
         except HivemindError as exc:
             parsed = None
@@ -1043,7 +1090,7 @@ def _hivemind_search_transport(
                     limit=_HIVEMIND_DEGRADED_LIMIT,
                     degraded=True,
                 )
-                if degraded_params is not None and time.monotonic() < deadline:
+                if degraded_params is not None and time.monotonic() < scope_deadline:
                     try:
                         # Literal degrade-then-stop: one degraded HTTP attempt,
                         # without re-entering the generic 57014 retry loop.
@@ -1051,7 +1098,7 @@ def _hivemind_search_transport(
                             table,
                             degraded_params,
                             timeout=timeout,
-                            deadline=deadline,
+                            deadline=scope_deadline,
                             statement_timeout_retries=0,
                         )
                         diagnostics.append(
@@ -1067,9 +1114,6 @@ def _hivemind_search_transport(
                 diagnostics.append(
                     {"scope": f"{table}:{kind}", "message": str(last_error)}
                 )
-                if last_error.reason == "timeout" or time.monotonic() >= deadline:
-                    break
-                continue
         for row in parsed if isinstance(parsed, list) else []:
             if not isinstance(row, dict):
                 continue

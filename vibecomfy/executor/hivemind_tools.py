@@ -445,23 +445,24 @@ def hivemind_search(
     timeout: float = _HIVEMIND_TOOL_DEFAULT_TIMEOUT,
     cache_root: Path | None = None,
 ) -> ToolResult:
-    """Search the Hivemind corpus (lean message-content text search).
+    """Search the Hivemind corpus (lean multi-surface text search).
 
     Transport and query translation only: filters become PostgREST WHERE
     clauses, ``sort`` picks a deterministic ordering, ``cursor``/``limit``
     page the result.  Nothing here classifies the task, picks a winner, runs
     an enough-check, or decides to stop.
 
-    Lean shape (HIVEMIND-SEARCH-SHAPE): free-text queries are distilled to
-    2-4 distinctive tokens and matched as ``content.ilike`` ORs on
-    ``message_feed`` only.  ``unified_feed`` is never text-searched;
+    Lean shape (operator directive §37): free-text queries are distilled to
+    few distinctive tokens per table (<=6 ilike patterns) and matched on
+    ``external_resources`` title/body — where workflows live — and
+    ``message_feed`` content.  ``unified_feed`` is never text-searched;
     distillations are reached by id (``hivemind_get``) or via non-text
     structured filters.
 
     Parameters
     ----------
     query:
-        Free-text query; 2-4 distinctive tokens give the best recall.
+        Free-text query; a few distinctive tokens give the best recall.
     filters:
         ``source_type`` (``workflow`` | ``discord`` | ``distillation``),
         ``model_family``, ``capability``, ``node_class``, ``channel``,
@@ -473,8 +474,9 @@ def hivemind_search(
     limit:
         Page size, 1..20 (default 5).
     timeout:
-        Per-request transport budget in seconds (default 10), covering the
-        scope fetches and the one 57014 degraded retry within a call.
+        Per-scope transport budget in seconds (default 10): EACH table
+        scope gets its own fresh deadline of this size (§37.3), covering
+        its fetches and the one 57014 degraded retry within it.
     cache_root:
         R2-B2 cooldown-sentinel root (tests inject a temp dir).
 
