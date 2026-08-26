@@ -6,11 +6,14 @@ and synthetic Python packages with relative imports.
 
 from __future__ import annotations
 
-import ast
 import argparse
+import ast
+import contextlib
+import io
 import json
 import os
 import subprocess
+from collections import OrderedDict
 import sys
 import textwrap
 from pathlib import Path
@@ -929,3 +932,331 @@ class TestHandleOut:
 
         h3 = Handle(node_id="100", output_slot=1)
         assert h1 != h3
+
+
+# ============================================================================
+# (i) schemas ensure command — Batch C: --manifest gated-class capture
+# ============================================================================
+
+_FIXTURE_PACK_SOURCE = '''\
+class FixtureNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("INT", {"default": 1, "min": 0, "max": 100})}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+    CATEGORY = "fixture"
+
+
+NODE_CLASS_MAPPINGS = {"FixtureNode": FixtureNode}
+'''
+
+_FIXTURE_SLUG = "fixture-pack"
+_FIXTURE_URL = f"https://example.com/{_FIXTURE_SLUG}.git"
+_FIXTURE_VERSION = "1.0.0"
+
+
+def _make_fixture_clone(base: Path) -> Path:
+    """A real local git repo standing in for an ephemeral sandbox clone."""
+    clone = base / _FIXTURE_SLUG
+    clone.mkdir(parents=True, exist_ok=True)
+    (clone / "nodes.py").write_text(_FIXTURE_PACK_SOURCE)
+
+    def git(*argv: str) -> str:
+        proc = subprocess.run(
+            ["git", "-C", str(clone), *argv],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return proc.stdout.strip()
+
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init")
+    git("remote", "add", "origin", _FIXTURE_URL)
+    return clone
+
+
+def _patch_registry(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> None:
+    """Point the registry seam at the fixture pack (or make it fail)."""
+    from types import SimpleNamespace
+
+    from vibecomfy.registry import pack_resolver
+
+    if fail:
+        def _boom(*a, **kw):
+            raise RuntimeError("registry unreachable")
+
+        monkeypatch.setattr(pack_resolver, "resolve_missing_nodes", _boom)
+        monkeypatch.setattr(pack_resolver, "resolve_pack", _boom)
+        return
+
+    ref = pack_resolver.PackRef(
+        slug=_FIXTURE_SLUG,
+        source="registry",
+        version=_FIXTURE_VERSION,
+        url=_FIXTURE_URL,
+    )
+    monkeypatch.setattr(
+        pack_resolver,
+        "resolve_missing_nodes",
+        lambda *a, **kw: SimpleNamespace(candidates=[SimpleNamespace(ref=ref)]),
+    )
+
+
+def _sandbox_provider(sandbox_root: Path):
+    from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
+
+    return OnDemandInstallSchemaProvider(sandbox_root=sandbox_root)
+
+
+class TestSchemasEnsureCommand:
+    """CLI-level tests calling ``_cmd_schemas_ensure`` directly (Batch C)."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_consume_cache(self):
+        from vibecomfy.porting.object_info import consume as consume_module
+
+        consume_module.reset_cache()
+        yield
+        consume_module.reset_cache()
+
+    def _redirect_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cache_root: Path,
+    ) -> None:
+        from vibecomfy.porting.object_info import consume as consume_module
+
+        cache_root.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(consume_module, "CACHE_DIR", cache_root)
+        monkeypatch.setattr(consume_module, "INDEX_PATH", cache_root / "index.json")
+        consume_module.reset_cache()
+
+    @staticmethod
+    def _ns(**overrides) -> argparse.Namespace:
+        defaults = {
+            "template": None,
+            "manifest": None,
+            "json": True,
+            "comfy_version": None,
+            "no_embedded": False,
+        }
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    @staticmethod
+    def _make_manifest(tmp_path: Path) -> str:
+        """A real comparison-manifest file on disk (discovery itself is patched)."""
+        manifest_path = tmp_path / "comparison_manifest.json"
+        manifest_path.write_text(json.dumps({"entries": [{"id": "whatever"}]}))
+        return str(manifest_path)
+
+    def test_noop_when_attested_capture_exists(self, tmp_path, monkeypatch, capsys) -> None:
+        """An attested on-demand capture means the command is a no-op."""
+        from vibecomfy.schema.ensure_capture import persist_on_demand_pack
+
+        cache_root = tmp_path / "cache"
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        entry = OrderedDict((
+            ("pack", _FIXTURE_SLUG),
+            ("pack_version", _FIXTURE_VERSION),
+            ("python_module", f"custom_nodes.{_FIXTURE_SLUG}.nodes"),
+            ("category", "pack"),
+            ("name", "FixtureNode"),
+            ("display_name", "FixtureNode"),
+            ("description", ""),
+            ("inputs", {"required": {"value": ["INT", {"default": 1}]}}),
+            ("input_order", {"required": ["value"]}),
+            ("outputs", [{"type": "IMAGE", "name": "IMAGE", "is_list": False}]),
+            ("function", "run"),
+        ))
+        persist_on_demand_pack(
+            pack_slug=_FIXTURE_SLUG,
+            registry_pack_version=_FIXTURE_VERSION,
+            repo=_FIXTURE_URL,
+            locked_commit="a" * 40,
+            extraction_rung="ast",
+            entries={"FixtureNode": entry},
+            cache_dir=cache_root,
+        )
+
+        def _must_not_resolve(*a, **kw):
+            raise AssertionError("registry must not be consulted when all classes are attested")
+
+        from vibecomfy.registry import pack_resolver
+
+        monkeypatch.setattr(pack_resolver, "resolve_missing_nodes", _must_not_resolve)
+        monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: (["FixtureNode"], []))
+
+        code = schemas_command._cmd_schemas_ensure(self._ns(manifest=manifest_arg))
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert payload["action"] == "noop"
+        assert payload["missing_classes"] == []
+
+    def test_missing_class_captured_via_real_extract(self, tmp_path, monkeypatch, capsys) -> None:
+        """Missing gated class → mocked registry + pre-seeded sandbox clone +
+        REAL extract_pack_schemas on a fixture pack → cache file + provenance;
+        index provider serves it and @stub.json stays filtered."""
+        from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+        cache_root = tmp_path / "cache"
+        sandbox = tmp_path / "sandbox"
+        clone = _make_fixture_clone(sandbox)
+        assert clone.is_dir()
+        head = subprocess.run(
+            ["git", "-C", str(clone), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        sha7 = head[:7]
+
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(schemas_command, "_on_demand_provider", lambda: _sandbox_provider(sandbox))
+        monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: (["FixtureNode"], []))
+
+        code = schemas_command._cmd_schemas_ensure(self._ns(manifest=manifest_arg))
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0, payload
+        assert payload["action"] == "extracted"
+        assert payload["packs_extracted"][0]["pack"] == _FIXTURE_SLUG
+        assert payload["packs_extracted"][0]["method"] in ("ast", "import")
+
+        matches = list(cache_root.glob(f"{_FIXTURE_SLUG}@on_demand_*-{sha7}.json"))
+        assert len(matches) == 1, list(cache_root.iterdir())
+        pack_data = json.loads(matches[0].read_text())
+        assert "FixtureNode" in pack_data
+        assert set(pack_data) == {"FixtureNode"}
+        entry = pack_data["FixtureNode"]
+        expected_kind = (
+            "on_demand_import" if payload["packs_extracted"][0]["method"] == "import"
+            else "on_demand_static"
+        )
+        assert entry["source_kind"] == expected_kind
+
+        provenance = json.loads((cache_root / "provenance.json").read_text())
+        row = provenance["packs"][matches[0].name]
+        assert row["repo"] == _FIXTURE_URL
+        assert row["locked_commit"] == head
+        assert row["extraction_rung"] == payload["packs_extracted"][0]["method"]
+        assert row["registry_pack_version"] == _FIXTURE_VERSION
+        assert row["source_kind"] == expected_kind
+
+        index = json.loads((cache_root / "index.json").read_text())
+        assert index.get("FixtureNode") == matches[0].name
+
+        from vibecomfy.porting.object_info.consume import get_class
+
+        assert get_class("FixtureNode") is not None
+        provider = ObjectInfoIndexSchemaProvider(cache_root)
+        assert provider.get_schema("FixtureNode") is not None
+
+        # @stub.json rows stay filtered out of the index provider.
+        stub_file = cache_root / "SomePack@stub.json"
+        stub_file.write_text(json.dumps({"Stubbed": {"inputs": {}, "outputs": []}}))
+        index["Stubbed"] = stub_file.name
+        (cache_root / "index.json").write_text(json.dumps(index))
+        filtered_provider = ObjectInfoIndexSchemaProvider(cache_root)
+        assert filtered_provider.get_schema("Stubbed") is None
+        assert "Stubbed" not in filtered_provider.schemas()
+
+    def test_rung2_default_on_regardless_of_boot_env(self, tmp_path, monkeypatch, capsys) -> None:
+        """allow_import is always True on this command — VIBECOMFY_ON_DEMAND_BOOT
+        does not gate rung 2 here."""
+        from vibecomfy.schema import extract as extract_module
+
+        cache_root = tmp_path / "cache"
+        sandbox = tmp_path / "sandbox"
+        clone = _make_fixture_clone(sandbox)
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        _patch_registry(monkeypatch)
+        monkeypatch.setenv("VIBECOMFY_ON_DEMAND_BOOT", "0")
+        monkeypatch.delenv("VIBECOMFY_EMBEDDED_COMFY_VERSION", raising=False)
+        monkeypatch.setattr(schemas_command, "_on_demand_provider", lambda: _sandbox_provider(sandbox))
+        monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: (["FixtureNode"], []))
+
+        calls: dict[str, object] = {}
+        real = extract_module.extract_pack_schemas
+
+        def spy(pack_dir, **kwargs):
+            calls.update(kwargs)
+            return real(pack_dir, **kwargs)
+
+        monkeypatch.setattr(extract_module, "extract_pack_schemas", spy)
+
+        code = schemas_command._cmd_schemas_ensure(self._ns(manifest=manifest_arg))
+        assert code == 0
+        assert calls.get("allow_import") is True
+
+    def test_stub_indexed_class_is_a_gap(self, tmp_path, monkeypatch, capsys) -> None:
+        """A class indexed only via @stub.json counts as missing and gets a real
+        attested capture."""
+        cache_root = tmp_path / "cache"
+        sandbox = tmp_path / "sandbox"
+        clone = _make_fixture_clone(sandbox)
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        stub_file = cache_root / "SomePack@stub.json"
+        stub_file.write_text(json.dumps({"FixtureNode": {"inputs": {}, "outputs": []}}))
+        (cache_root / "index.json").write_text(json.dumps({"FixtureNode": stub_file.name}))
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(schemas_command, "_on_demand_provider", lambda: _sandbox_provider(sandbox))
+        monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: (["FixtureNode"], []))
+
+        code = schemas_command._cmd_schemas_ensure(self._ns(manifest=manifest_arg))
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0, payload
+        index = json.loads((cache_root / "index.json").read_text())
+        assert not index["FixtureNode"].endswith("@stub.json")
+        assert "@on_demand_" in index["FixtureNode"]
+
+    def test_json_failure_exits_nonzero_and_names_retry(self, tmp_path, monkeypatch, capsys) -> None:
+        """Registry miss → exit 1 with --json, naming class, step, retry command."""
+        cache_root = tmp_path / "cache"
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        _patch_registry(monkeypatch, fail=True)
+        monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: (["GhostClass"], []))
+
+        code = schemas_command._cmd_schemas_ensure(self._ns(manifest=manifest_arg))
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 1
+        assert payload["action"] == "failed"
+        resolve_failures = [f for f in payload["failures"] if f["step"] == "resolve"]
+        assert resolve_failures and resolve_failures[0]["class_type"] == "GhostClass"
+        assert payload["retry_command"] == f"vibecomfy schemas ensure --manifest {manifest_arg}"
+        # No hollow schema was written to close the gap.
+        assert not list(cache_root.glob("*@on_demand_*"))
+
+    def test_template_xor_manifest_enforced(self, tmp_path, monkeypatch, capsys) -> None:
+        cache_root = tmp_path / "cache"
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        both = self._ns(template="t.py", manifest=manifest_arg)
+        assert schemas_command._cmd_schemas_ensure(both) == 1
+        neither = self._ns(template=None, manifest=None)
+        assert schemas_command._cmd_schemas_ensure(neither) == 1
+
+    def test_ensure_help_shows_manifest(self) -> None:
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="top", required=True)
+        schemas_command.register(subparsers)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer), pytest.raises(SystemExit):
+            parser.parse_args(["schemas", "ensure", "--help"])
+        assert "--manifest" in buffer.getvalue()
+
+    def test_manifest_gated_classes_reuses_obligation_loader(self) -> None:
+        """Discovery runs offline against the real FINAL50 comparison manifest."""
+        manifest = REPO_ROOT / "tests" / "live_agentic_harness" / "threaded_comparison_manifest_final50.json"
+        classes, warnings = schemas_command._manifest_gated_classes(manifest)
+        assert warnings == []
+        assert "IndexTTSEngineNode" in classes
+        assert "IndexTTSEmotionOptionsNode" in classes
+        assert "easy forLoopStart" in classes

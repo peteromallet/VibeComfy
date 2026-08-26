@@ -1,12 +1,13 @@
 """``vibecomfy schemas`` — object_info cache management and coverage validation."""
 
-from __future__ import annotations
-
 import argparse
 import ast
 import hashlib
-import shutil
 import json as json_module
+import os
+import shutil
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -441,148 +442,347 @@ def _cmd_schemas_validate_coverage(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _cmd_schemas_ensure(args: argparse.Namespace) -> int:
-    """``schemas ensure <template>`` — ensure all class schemas are cached.
+def _import_scenario_obligations():
+    """Import the harness obligation module (single source of gated-class truth)."""
+    try:
+        from tests.live_agentic_harness import scenario_obligations as mod
+        return mod
+    except ImportError:
+        pass
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from tests.live_agentic_harness import scenario_obligations as mod
 
-    Parses class types from the template, diffs against the object_info cache,
-    maps missing classes to known node packs, and triggers pack extraction
-    (clone + extract) for any needed packs.  No-op when all classes are already
-    cached.
+    return mod
+
+
+def _manifest_gated_classes(manifest_path: Path) -> tuple[list[str], list[str]]:
+    """Gated classes needing captures for a comparison manifest (``entries[].id``).
+
+    Reuses the harness obligation loader and its ``_GATED_CLASS_RE`` — never a
+    copy. Classes come from each entry's source workflow plus its declared
+    schema-evidence requirements. Returns ``(classes, warnings)``.
     """
-    template_path = Path(args.template)
-    if not template_path.is_file():
-        payload: dict[str, Any] = {
-            "template": str(template_path),
-            "error": "Template not found",
-        }
-        if args.json:
-            return emit(payload, json=True, text_renderer=lambda _: None)
-        print(f"Template not found: {template_path}", file=__import__("sys").stderr)
-        return 1
+    mod = _import_scenario_obligations()
+    try:
+        manifest = json_module.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json_module.JSONDecodeError) as exc:
+        raise ValueError(f"unreadable comparison manifest {manifest_path}: {exc}") from exc
+    entries = manifest.get("entries") if isinstance(manifest, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError(f"comparison manifest {manifest_path} has no entries list")
+    classes: set[str] = set()
+    warnings: list[str] = []
+    for item in entries:
+        scenario_id = str(item.get("id") or "").strip() if isinstance(item, dict) else ""
+        if not scenario_id:
+            warnings.append("manifest entry without an id was skipped")
+            continue
+        obligation = mod.load_scenario_obligation(scenario_id)
+        if obligation is None:
+            warnings.append(f"no locked descriptor for scenario {scenario_id!r}; skipped")
+            continue
+        classes.update(
+            c for c in obligation.custom_node_classes if mod._GATED_CLASS_RE.search(c)
+        )
+        classes.update(
+            str(req.get("class_type"))
+            for req in obligation.schema_evidence_requirements
+            if req.get("class_type")
+        )
+    return sorted(classes), warnings
 
-    class_types = _extract_class_types_from_template(template_path)
-    all_cached = set(list_classes())
-    unique = sorted(set(class_types))
-    missing_classes = [ct for ct in unique if ct not in all_cached]
-    covered = [ct for ct in unique if ct in all_cached]
 
-    # --- No-op when all classes are cached ---
-    if not missing_classes:
-        payload = {
-            "template": str(template_path),
-            "classes_found": len(unique),
-            "covered": len(covered),
-            "missing": 0,
-            "covered_classes": covered,
-            "missing_classes": [],
-            "cache_classes_total": len(all_cached),
-            "packs_needed": [],
-            "packs_extracted": [],
-            "action": "noop",
-        }
-        if args.json:
-            return emit(payload, json=True, text_renderer=lambda _: None)
-        print(f"Template: {template_path}")
-        print(f"Classes found: {len(unique)}  |  covered: {len(covered)}  |  missing: 0")
-        print("All class schemas already cached — nothing to do.")
-        return 0
+def _resolve_pack_ref(class_type: str):
+    """Registry lookup → first candidate ``PackRef`` carrying a clone URL.
 
-    # --- Map missing classes to the lazy node-pack catalog ---
-    from vibecomfy.node_packs import resolve_node_packs
+    Registry REST metadata only; provisional ``/nodes/.../schema`` responses are
+    never persisted as cache truth.
+    """
+    from vibecomfy.registry import pack_resolver
 
-    packs_needed = resolve_node_packs(set(missing_classes))
+    ref = None
+    try:
+        resolution = pack_resolver.resolve_missing_nodes(class_type)
+    except Exception:  # noqa: BLE001 — resolver failures degrade to resolve_pack below
+        resolution = None
+    if resolution is not None:
+        for candidate in getattr(resolution, "candidates", ()) or ():
+            candidate_ref = getattr(candidate, "ref", None)
+            if candidate_ref is not None and getattr(candidate_ref, "url", None):
+                ref = candidate_ref
+                break
+    if ref is None:
+        try:
+            direct = pack_resolver.resolve_pack(class_type)
+        except Exception as exc:
+            raise LookupError(
+                f"registry lookup found no pack with a source URL for {class_type!r}: {exc}"
+            ) from exc
+        ref = next((r for r in [direct.ref, *direct.candidates] if getattr(r, "url", None)), None)
+        if ref is None:
+            raise LookupError(
+                f"registry resolved {class_type!r} but no candidate carries a source URL"
+            )
+    return ref
 
-    if not packs_needed:
-        payload = {
-            "template": str(template_path),
-            "classes_found": len(unique),
-            "covered": len(covered),
-            "missing": len(missing_classes),
-            "covered_classes": covered,
-            "missing_classes": missing_classes,
-            "cache_classes_total": len(all_cached),
-            "packs_needed": [],
-            "packs_extracted": [],
-            "unresolved": missing_classes,
-            "warning": (
-                "Some missing classes could not be mapped to a known node pack. "
-                "They may be built-in ComfyUI classes or from unregistered packs."
-            ),
-            "action": "partial",
-        }
-        if args.json:
-            return emit(payload, json=True, text_renderer=lambda _: None)
-        print(f"Template: {template_path}")
-        print(f"Classes found: {len(unique)}  |  covered: {len(covered)}  |  missing: {len(missing_classes)}")
-        print(f"Missing (unresolved): {', '.join(missing_classes)}")
-        print("Warning: some missing classes could not be mapped to a known node pack.")
-        return 1
 
-    # --- Extract missing packs ---
-    from tools.clone_and_extract_packs import (
-        INDEX_PATH,
-        load_index,
-        process_pack,
+def _clone_pin(clone_dir: Path, fallback_url: str | None) -> tuple[str, str]:
+    """Pin evidence from the clone itself: (remote URL, HEAD commit)."""
+
+    def _git(*argv: str) -> str | None:
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(clone_dir), *argv],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if proc.returncode != 0:
+            return None
+        return proc.stdout.strip() or None
+
+    url = _git("remote", "get-url", "origin") or fallback_url or ""
+    commit = _git("rev-parse", "HEAD") or ""
+    return url, commit
+
+
+def _on_demand_provider():
+    """LRU-bounded sandbox provider supplying ``_ensure_clone`` / ``_enforce_cap``."""
+    from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
+
+    return OnDemandInstallSchemaProvider()
+
+
+_EXTRACT_EXHAUSTED_DETAIL = (
+    "extraction produced no schema from any available rung "
+    "(rung 1: static AST; rung 2: stubbed-subprocess INPUT_TYPES — always on "
+    "for this command). Rung 3 (embedded comfy-as-library) is not yet available: "
+    "deferred Batch B."
+)
+
+
+def _embedded_note(comfy_version: str | None) -> str:
+    if comfy_version:
+        return f" Pinned comfy version {comfy_version} applies once rung 3 lands."
+    return (
+        " When it lands it will require --comfy-version or env "
+        "VIBECOMFY_EMBEDDED_COMFY_VERSION; neither is set."
     )
 
-    index = load_index()
-    original_index = dict(index)
 
-    pack_names_needed = [p.name for p in packs_needed]
-    reports = [process_pack(pack, index) for pack in packs_needed]
+def _capture_missing_classes(
+    missing_classes: list[str],
+    *,
+    cache_root: Path,
+    provider,
+    comfy_version: str | None,
+) -> dict[str, Any]:
+    """Per gap class: registry → ephemeral sandbox clone → ladder → persist.
 
-    # Write updated index if it changed
-    if index != original_index:
-        INDEX_PATH.write_text(
-            json_module.dumps(dict(sorted(index.items())), indent=2) + "\n",
-            encoding="utf-8",
+    Never writes hollow/stub schemas: a class whose extraction yields nothing
+    is reported as a failure instead of being closed with guessed data.
+    """
+    from vibecomfy.schema import extract as extract_module
+    from vibecomfy.schema.ensure_capture import persist_on_demand_pack
+
+    failures: list[dict[str, str]] = []
+    extracted: list[dict[str, Any]] = []
+    by_slug: dict[str, dict[str, Any]] = {}
+    for class_type in missing_classes:
+        try:
+            ref = _resolve_pack_ref(class_type)
+        except LookupError as exc:
+            failures.append({"class_type": class_type, "step": "resolve", "detail": str(exc)})
+            continue
+        slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or "pack"
+        group = by_slug.setdefault(slug, {"ref": ref, "classes": []})
+        group["classes"].append(class_type)
+
+    for slug, group in sorted(by_slug.items()):
+        ref = group["ref"]
+        classes = sorted(group["classes"])
+        clone_dir = provider._ensure_clone(ref)
+        if clone_dir is None:
+            failures.append(
+                {
+                    "class_type": ", ".join(classes),
+                    "step": "clone",
+                    "detail": (
+                        f"could not shallow-clone {getattr(ref, 'url', None)!r} into the "
+                        "LRU schema sandbox"
+                    ),
+                }
+            )
+            continue
+        result = extract_module.extract_pack_schemas(
+            clone_dir,
+            pack_name=slug,
+            allow_import=True,  # rung 2 cannot be turned off on this command
+            import_timeout=120,
         )
+        # NO allow_embedded kwarg: rung 3 does not exist until deferred Batch B;
+        # passing it would TypeError.
+        if not result.entries or result.method not in ("ast", "import"):
+            detail = "; ".join(result.failures) or "empty extract result"
+            failures.append(
+                {
+                    "class_type": ", ".join(classes),
+                    "step": "extract",
+                    "detail": _EXTRACT_EXHAUSTED_DETAIL + _embedded_note(comfy_version)
+                    + f" [{detail}]",
+                }
+            )
+            continue
+        repo_url, commit = _clone_pin(clone_dir, getattr(ref, "url", None))
+        persist_on_demand_pack(
+            pack_slug=slug,
+            registry_pack_version=getattr(ref, "version", None) or "",
+            repo=repo_url,
+            locked_commit=commit,
+            extraction_rung=result.method,
+            entries=result.entries,
+            cache_dir=cache_root,
+        )
+        provider._enforce_cap()  # LRU preserved; nothing permanent installed
+        extracted.append({"pack": slug, "method": result.method})
 
-    packs_extracted = [
-        {
-            "name": r.name,
-            "class_count": r.class_count,
-            "method": r.method or "none",
-            "cache_file": r.cache_file or "",
-            "cloned": r.cloned,
-            "sha7": r.sha7,
-            "failures": r.failures,
-            "warnings": r.warnings,
-        }
-        for r in reports
-    ]
+    return {"failures": failures, "packs_extracted": extracted}
+
+
+def _cmd_schemas_ensure(args: argparse.Namespace) -> int:
+    """``schemas ensure <template>`` / ``schemas ensure --manifest <path>``.
+
+    Ensures every needed class has an attested live capture: gaps come from
+    ``missing_live_captures`` (stub/unattested rows count as gaps), and each
+    gap is filled via registry resolve → ephemeral LRU-bounded clone → the
+    extraction ladder → ``persist_on_demand_pack`` with honest provenance tier.
+    Fail closed: any unfillable gap exits non-zero naming the class, the failed
+    step, and the exact retry command. No-op when all classes are attested.
+    """
+    template_arg = getattr(args, "template", None)
+    manifest_arg = getattr(args, "manifest", None)
+    if bool(template_arg) == bool(manifest_arg):
+        message = "provide exactly one of: <template> positional argument or --manifest PATH"
+        if args.json:
+            emit({"error": message}, json=True, text_renderer=lambda _: None)
+        else:
+            print(message, file=__import__("sys").stderr)
+        return 1
+
+    comfy_raw = (getattr(args, "comfy_version", None) or os.environ.get("VIBECOMFY_EMBEDDED_COMFY_VERSION") or "").strip()
+    comfy_version = _validate_comfy_version(comfy_raw) if comfy_raw else None
+
+    is_manifest = bool(manifest_arg)
+    source_path = Path(manifest_arg if is_manifest else template_arg)
+    if not source_path.is_file():
+        kind = "Manifest" if is_manifest else "Template"
+        payload = {"error": f"{kind} not found", kind.lower(): str(source_path)}
+        if args.json:
+            emit(payload, json=True, text_renderer=lambda _: None)
+        else:
+            print(f"{kind} not found: {source_path}", file=__import__("sys").stderr)
+        return 1
+
+    warnings: list[str] = []
+    if is_manifest:
+        try:
+            class_types, warnings = _manifest_gated_classes(source_path)
+        except ValueError as exc:
+            payload = {"error": str(exc)}
+            if args.json:
+                emit(payload, json=True, text_renderer=lambda _: None)
+            else:
+                print(str(exc), file=__import__("sys").stderr)
+            return 1
+    else:
+        class_types = _extract_class_types_from_template(source_path)
+
+    unique = sorted(set(class_types))
+
+    from vibecomfy.porting.object_info import consume as consume_module
+    from vibecomfy.schema.ensure_capture import missing_live_captures
+
+    cache_root = Path(consume_module.CACHE_DIR)
+    missing = missing_live_captures(unique, cache_dir=cache_root)
+    covered = [ct for ct in unique if ct not in set(missing)]
+    retry_command = (
+        f"vibecomfy schemas ensure --manifest {source_path}"
+        if is_manifest
+        else f"vibecomfy schemas ensure {source_path}"
+    )
 
     payload: dict[str, Any] = {
-        "template": str(template_path),
+        "template" if not is_manifest else "manifest": str(source_path),
         "classes_found": len(unique),
-        "covered": len(covered),
-        "missing": len(missing_classes),
         "covered_classes": covered,
-        "missing_classes": missing_classes,
-        "cache_classes_total": len(all_cached),
-        "packs_needed": pack_names_needed,
-        "packs_extracted": packs_extracted,
-        "action": "extracted",
+        "missing_classes": missing,
+        "warnings": warnings,
+        "embedded_comfy_version": comfy_version,
+        "retry_command": retry_command,
     }
 
+    if not missing:
+        payload.update(
+            {
+                "missing": 0,
+                "packs_needed": [],
+                "packs_extracted": [],
+                "failures": [],
+                "action": "noop",
+            }
+        )
+        if args.json:
+            return emit(payload, json=True, text_renderer=lambda _: None)
+        print(f"{('Manifest' if is_manifest else 'Template')}: {source_path}")
+        print(f"Classes: {len(unique)}  |  covered: {len(covered)}  |  missing: 0")
+        print("All class schemas already captured — nothing to do.")
+        return 0
+
+    outcome = _capture_missing_classes(
+        missing,
+        cache_root=cache_root,
+        provider=_on_demand_provider(),
+        comfy_version=comfy_version,
+    )
+    consume_module.reset_cache()
+    still_missing = missing_live_captures(unique, cache_dir=cache_root)
+
+    failures = outcome["failures"]
+    exit_code = 1 if failures or still_missing else 0
+    payload.update(
+        {
+            "missing": len(missing),
+            "packs_needed": sorted({r["pack"] for r in outcome["packs_extracted"]}),
+            "packs_extracted": outcome["packs_extracted"],
+            "failures": failures,
+            "still_missing": still_missing,
+            "action": "failed" if exit_code else "extracted",
+        }
+    )
+
     if args.json:
-        return emit(payload, json=True, text_renderer=lambda _: None)
+        emit(payload, json=True, text_renderer=lambda _: None)
+        return exit_code
 
-    print(f"Template: {template_path}")
-    print(f"Classes found: {len(unique)}  |  covered: {len(covered)}  |  missing: {len(missing_classes)}")
-    print(f"Packs needed: {', '.join(pack_names_needed)}")
-    for report in reports:
-        print(f"  - {report.name}: {report.class_count} classes, method={report.method or 'none'}")
-        if report.cache_file:
-            print(f"    cache: {report.cache_file}")
-        if report.warnings:
-            for warning in report.warnings:
-                print(f"    warning: {warning}")
-        if report.failures:
-            for failure in report.failures:
-                print(f"    FAILURE: {failure}")
+    label = "Manifest" if is_manifest else "Template"
+    print(f"{label}: {source_path}")
+    print(f"Classes: {len(unique)}  |  covered: {len(covered)}  |  missing: {len(missing)}")
+    for warning in warnings:
+        print(f"warning: {warning}")
+    for report in outcome["packs_extracted"]:
+        print(f"  - {report['pack']}: method={report['method']}")
+    for failure in failures:
+        print(f"FAILURE [{failure['step']}] {failure['class_type']}: {failure['detail']}")
+    if still_missing:
+        print(f"Still missing live capture: {', '.join(still_missing)}")
+    if exit_code:
+        print(f"Retry with: {retry_command}")
+    return exit_code
 
-    return 0 if not any(r.failures and r.class_count == 0 for r in reports) else 1
 
 
 # ---------------------------------------------------------------------------
@@ -642,8 +842,40 @@ def register(subparsers) -> None:
 
     # --- schemas ensure ---------------------------------------------------
     ensure = schemas_sub.add_parser(
-        "ensure", help="Ensure all class schemas in a template are cached"
+        "ensure",
+        help="Ensure class schemas for a template or comparison manifest are captured",
     )
-    ensure.add_argument("template", help="Path to narrative template (.py)")
+    ensure.add_argument(
+        "template",
+        nargs="?",
+        default=None,
+        help="Path to narrative template (.py) — or pass --manifest instead",
+    )
+    ensure.add_argument(
+        "--manifest",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Comparison manifest (entries[].id): discover gated classes via each "
+            "scenario's locked descriptor and ensure every one has an attested live capture"
+        ),
+    )
     ensure.add_argument("--json", action="store_true", help="Output as JSON")
+    ensure.add_argument(
+        "--comfy-version",
+        default=None,
+        metavar="VERSION",
+        help=(
+            "Rung 3 pin (or env VIBECOMFY_EMBEDDED_COMFY_VERSION). Unused today: "
+            "rung 3 is not yet available (deferred Batch B)"
+        ),
+    )
+    ensure.add_argument(
+        "--no-embedded",
+        action="store_true",
+        help=(
+            "Accepted no-op placeholder: rung 3 (embedded) is not yet available. "
+            "Rung 2 cannot be disabled on this command"
+        ),
+    )
     ensure.set_defaults(func=_cmd_schemas_ensure)
