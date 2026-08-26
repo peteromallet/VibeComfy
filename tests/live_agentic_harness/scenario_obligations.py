@@ -41,6 +41,14 @@ from .compare_pipeline_modes import (
 
 SCHEMA_RESOLUTION_ENV_VAR = "VIBECOMFY_OBLIGATION_SCHEMA_CHECK"
 
+# Declaration tokens. ``on_demand_runtime`` is not admissible.
+ON_DEMAND_SOURCE_KINDS = frozenset(
+    {"on_demand_static", "on_demand_import", "on_demand_embedded"}
+)
+DECLARED_SCHEMA_SOURCES = frozenset({"authoritative_object_info"}) | ON_DEMAND_SOURCE_KINDS
+# Explicit False wins over this env var. Independent of SCHEMA_RESOLUTION_ENV_VAR.
+RUNTIME_ONLY_ENV_VAR = "VIBECOMFY_OBLIGATION_RUNTIME_ONLY"
+
 #: Admissible infrastructure-failure vocabulary (T3.1 retry-owner freeze).
 ADMISSIBLE_INFRA_FAILURES: tuple[str, ...] = (
     "infra_timeout",
@@ -648,6 +656,16 @@ def validate_obligation_coverage(
                 f"{scenario_id}: no authoritative descriptor; obligations cannot be derived"
             )
             continue
+        for req in obligation.schema_evidence_requirements:
+            if req.get("undeclared"):
+                continue
+            req_source = str(req.get("source") or "").strip()
+            if req_source and req_source not in DECLARED_SCHEMA_SOURCES:
+                violations.append(
+                    f"{scenario_id}: {str(req.get('class_type') or '')!r} "
+                    f"declares source {req_source!r}; admissible declared "
+                    f"sources are {sorted(DECLARED_SCHEMA_SOURCES)}"
+                )
         descriptor = _load_json(REPO / str(canonical[scenario_id]["path"])) or {}
         assessment = (
             descriptor.get("assessment")
@@ -781,18 +799,150 @@ def _provenance_row(
     return True, ""
 
 
+
+def _pack_entry(
+    root: Path,
+    class_type: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Index filename + pack-JSON entry. Never ``NodeSchema.source_provider``."""
+    from vibecomfy.porting.object_info.serialize import _read_existing_index
+    from vibecomfy.schema.ensure_capture import _read_cache_entry
+
+    filename = _read_existing_index(root).get(class_type) or ""
+    if not filename:
+        return "", None
+    return filename, _read_cache_entry(root, filename, class_type)
+
+
+def _entry_source_kind(entry: Mapping[str, Any] | None) -> str:
+    """The pack-JSON entry's ``source_kind`` stamp ('' when unstamped)."""
+    return str((entry or {}).get("source_kind") or "").strip()
+
+
+def _is_runtime_family_entry(
+    filename: str,
+    entry: dict[str, Any] | None,
+) -> bool:
+    """Runtime-family evidence: runtime stamp, runpod/runtime_core filename, or unstamped legacy ingest.
+
+    On-demand-shaped filenames and stubs never qualify, even if the pack JSON
+    stamp claims otherwise (no masquerade).
+    """
+    from vibecomfy.schema.ensure_capture import (
+        RUNTIME_SOURCE_KINDS,
+        _is_stub_index_row,
+    )
+
+    if entry is None:
+        return False
+    if "@on_demand_" in filename or _is_stub_index_row(filename, entry):
+        return False
+    source_kind = _entry_source_kind(entry)
+    if source_kind in ON_DEMAND_SOURCE_KINDS:
+        return False
+    if source_kind in RUNTIME_SOURCE_KINDS:
+        return True
+    lowered = filename.lower()
+    if "@runpod-snapshot" in lowered or "runtime_core" in lowered:
+        return True
+    return not source_kind and not lowered.endswith("@stub.json")
+
+
+def _declaration_matches_entry(
+    declared: str,
+    filename: str,
+    entry: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    """Batch D two-vocabulary match: declaration token vs cache stamp.
+
+    On-demand declarations match their EXACT pack-JSON ``source_kind`` (no
+    upgrades, no downgrades); ``authoritative_object_info`` requires the
+    runtime-family recognizer above. Returns ``(matched, failure_text)``.
+    """
+    actual = _entry_source_kind(entry)
+    if declared in ON_DEMAND_SOURCE_KINDS:
+        if actual == declared:
+            return True, ""
+        return False, (
+            f"{filename} attests source_kind {actual or '<none>'!r}; the "
+            f"requirement declares {declared!r} and on-demand declarations "
+            "match their exact tier with no upgrades or downgrades"
+        )
+    if _is_runtime_family_entry(filename, entry):
+        return True, ""
+    return False, (
+        f"local capture {filename} is not a runtime-family object_info dump "
+        f"(source_kind {actual or '<none>'!r}) so it cannot satisfy an "
+        "'authoritative_object_info' declaration"
+    )
+
+
+def _runtime_only_violation(declared: str) -> str | None:
+    """Rejection text when the strict flag forbids an on-demand declaration."""
+    if declared not in ON_DEMAND_SOURCE_KINDS:
+        return None
+    return (
+        f"the {RUNTIME_ONLY_ENV_VAR}=1 strict flag forbids on-demand schema "
+        f"evidence, but this requirement declares {declared!r}; provide a "
+        "genuine runtime object_info capture instead"
+    )
+
+
+def _resolution_tier(requirement: Mapping[str, Any]) -> dict[str, str]:
+    """Cache stamp + provenance facts for a just-resolved requirement.
+
+    Records the CACHE stamp (never the declaration token) as ``source_kind``
+    plus provenance ``extraction_rung`` / ``locked_commit``; empty strings
+    where unstamped (legacy pins carry no extraction_rung).
+    """
+    from vibecomfy.schema.ensure_capture import (
+        _load_provenance,
+        _provenance_pack_row,
+    )
+
+    class_type = str(requirement.get("class_type") or "").strip()
+    declared_pack = str(requirement.get("pack") or "").strip()
+    declared_source = str(requirement.get("source") or "").strip()
+    for root in _authoritative_cache_roots():
+        filename, entry = _pack_entry(root, class_type)
+        if entry is None:
+            continue
+        if str(entry.get("pack") or "") != declared_pack:
+            continue
+        matched, _ = _declaration_matches_entry(declared_source, filename, entry)
+        if not matched:
+            continue
+        row = _provenance_pack_row(_load_provenance(root), filename) or {}
+        return {
+            "source_kind": _entry_source_kind(entry),
+            "extraction_rung": str(row.get("extraction_rung") or ""),
+            "locked_commit": str(row.get("locked_commit") or ""),
+        }
+    return {}
+
+
+
 def _resolve_schema_locally(
     requirement: Mapping[str, Any],
+    *,
+    runtime_only: bool = False,
 ) -> tuple[bool, list[str]]:
     """LOCAL-ONLY authoritative resolution of one declared schema evidence
     requirement. Never touches the network.
 
-    Proves (G5-B4-MUST-006), beyond bare ``provider.get(...)`` existence:
-    * the declaring ``source`` kind is ``authoritative_object_info``;
+    Proves (G5-B4-MUST-006, Batch D), beyond bare ``provider.get(...)``
+    existence:
+    * the declared ``source`` kind is inside ``DECLARED_SCHEMA_SOURCES``
+      (on-demand tiers are accepted AS THEMSELVES);
+    * under ``runtime_only``, on-demand declarations are rejected outright;
     * the class resolves from a local object_info cache ROOT whose
       provenance attests the DECLARED owning ``pack``;
     * the backing cache file carries real provenance (a repo or a locked
-      commit — never an unattested/stub capture);
+      commit — never an unattested/stub capture), and provenance and pack
+      file agree on ``source_kind``;
+    * the resolved capture is not stub-shaped (belt and suspenders on top of
+      the index's ``@stub.json`` filter) and matches the declaration per the
+      two-vocabulary table;
     * every ``required_field_evidence`` field name is visible in the
       resolved schema inputs (e.g. ``emotion_control``).
     """
@@ -801,11 +951,14 @@ def _resolve_schema_locally(
         return False, [f"requirement names no resolvable class ({class_type!r})"]
     declared_pack = str(requirement.get("pack") or "").strip()
     source_kind = str(requirement.get("source") or "").strip()
-    if source_kind != "authoritative_object_info":
+    if source_kind not in DECLARED_SCHEMA_SOURCES:
         return False, [
-            f"{class_type!r} declares source {source_kind!r}; only "
-            "'authoritative_object_info' is authoritative"
+            f"{class_type!r} declares source {source_kind!r}; admissible "
+            f"declared sources are {sorted(DECLARED_SCHEMA_SOURCES)}"
         ]
+    strict_violation = _runtime_only_violation(source_kind)
+    if runtime_only and strict_violation:
+        return False, [f"{class_type}: {strict_violation}"]
     if not declared_pack:
         return False, [f"{class_type!r} declares no owning pack"]
     required_fields = [
@@ -831,7 +984,16 @@ def _resolve_schema_locally(
         if str(name)
     ]
 
-    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+    from vibecomfy.schema.ensure_capture import (
+        STUB_SOURCE_KIND,
+        _is_stub_index_row,
+        _load_provenance,
+        _provenance_pack_row,
+    )
+    from vibecomfy.schema.provider import (
+        ObjectInfoIndexSchemaProvider,
+        is_workflow_stub_schema,
+    )
 
     failures: list[str] = []
     for root in _authoritative_cache_roots():
@@ -856,6 +1018,40 @@ def _resolve_schema_locally(
         attested, detail = _provenance_row(root, class_type)
         if not attested:
             failures.append(detail)
+            continue
+        # Batch D: read the pack FILE directly (never NodeSchema.source_provider).
+        filename, entry = _pack_entry(root, class_type)
+        prov_row = (
+            _provenance_pack_row(_load_provenance(root), filename)
+            if filename
+            else None
+        )
+        # Ledger/file agreement: provenance ``source_kind`` must equal the
+        # pack-JSON entry stamp whenever both exist; a stamped ledger row over
+        # an unstamped entry fails closed.
+        prov_kind = str((prov_row or {}).get("source_kind") or "").strip()
+        entry_kind = _entry_source_kind(entry)
+        if prov_kind and (not entry_kind or prov_kind != entry_kind):
+            failures.append(
+                f"provenance attests source_kind {prov_kind!r} for "
+                f"{filename!r} but its pack-file entry carries "
+                f"{entry_kind or '<none>'!r}; refusing the disagreement"
+            )
+            continue
+        # Stub rejection belt-and-suspenders ON TOP of the index suffix filter.
+        if (
+            _is_stub_index_row(filename, entry)
+            or entry_kind == STUB_SOURCE_KIND
+            or is_workflow_stub_schema(schema)
+        ):
+            failures.append(
+                f"resolved cache file {filename!r} is workflow-stub-shaped; "
+                "stubs never attest schema evidence"
+            )
+            continue
+        matched, mismatch = _declaration_matches_entry(source_kind, filename, entry)
+        if not matched:
+            failures.append(mismatch)
             continue
         schema_inputs = getattr(schema, "inputs", None) or {}
         missing_fields = [
@@ -934,6 +1130,7 @@ def preflight_scenario_obligations(
     manifest_path: Path | None = None,
     *,
     require_schema_resolution: bool | None = None,
+    runtime_only: bool | None = None,
 ) -> dict[str, Any]:
     """Fail-closed preflight over scenario obligations.
 
@@ -945,10 +1142,21 @@ def preflight_scenario_obligations(
     ``require_schema_resolution`` parameter is retained as a no-op for
     caller compatibility only; neither it nor ``SCHEMA_RESOLUTION_ENV_VAR``
     can defer or disable the gate anymore.
+
+    Batch D: on-demand tiers satisfy their own declarations (never the
+    ``authoritative_object_info`` one).  ``runtime_only=True`` (or
+    ``RUNTIME_ONLY_ENV_VAR=1``; an explicit ``False`` wins over the env
+    var) additionally rejects on-demand declarations even where matched —
+    paid-call lanes then demand runtime-family captures.  The payload adds
+    ``resolution_tiers[scenario_id][class_type]`` with the CACHE stamp and
+    provenance facts of each resolved capture.
     """
     del require_schema_resolution
+    if runtime_only is None:
+        runtime_only = os.environ.get(RUNTIME_ONLY_ENV_VAR) == "1"
     violations, warnings = validate_obligation_coverage(manifest_path)
     resolution_results: dict[str, dict[str, bool]] = {}
+    resolution_tiers: dict[str, dict[str, dict[str, str]]] = {}
     path = manifest_path or __import__(
         "tests.live_agentic_harness.compare_pipeline_modes",
         fromlist=["DEFAULT_COMPARISON_MANIFEST"],
@@ -960,6 +1168,7 @@ def preflight_scenario_obligations(
         if obligation is None:
             continue
         per_class: dict[str, bool] = {}
+        per_tier: dict[str, dict[str, str]] = {}
         declared_names = {
             str(req.get("class_type"))
             for req in obligation.schema_evidence_requirements
@@ -971,15 +1180,32 @@ def preflight_scenario_obligations(
                 "undeclared"
             ):
                 continue
-            resolved, resolution_failures = _resolve_schema_locally(req)
+            resolved, resolution_failures = _resolve_schema_locally(
+                req, runtime_only=bool(runtime_only)
+            )
             per_class[class_type] = resolved
-            if not resolved:
-                violations.append(
-                    f"{scenario_id}: exact schema evidence for "
-                    f"{class_type!r} is not available from any local "
-                    "authoritative source; refusing paid calls "
-                    "(fail-closed): " + "; ".join(resolution_failures)
+            if resolved:
+                tier = _resolution_tier(req)
+                if tier:
+                    per_tier[class_type] = tier
+                continue
+            detail = "; ".join(resolution_failures)
+            declared_source = str(req.get("source") or "").strip()
+            hint = ""
+            if (
+                declared_source in ON_DEMAND_SOURCE_KINDS
+                and not (runtime_only and _runtime_only_violation(declared_source))
+            ):
+                hint = (
+                    "; provision the on-demand tier with "
+                    f"`vibecomfy schemas ensure --manifest {path}`"
                 )
+            violations.append(
+                f"{scenario_id}: exact schema evidence for "
+                f"{class_type!r} is not available from any local "
+                "authoritative source; refusing paid calls "
+                f"(fail-closed): {detail}{hint}"
+            )
         # RRSYN-4 / RR1-FIX-REV / RR1-FIX-REV2: every gated, edit-required
         # class without a DECLARED requirement — i.e. every
         # UNPROVEN_PROVIDER_CLASSES entry and every undeclared marker row —
@@ -999,6 +1225,8 @@ def preflight_scenario_obligations(
                     )
         if per_class:
             resolution_results[scenario_id] = per_class
+        if per_tier:
+            resolution_tiers[scenario_id] = per_tier
 
     if violations:
         raise ScenarioObligationError(
@@ -1013,12 +1241,16 @@ def preflight_scenario_obligations(
             "edit-requiring final scenario"
         ),
         "resolution": resolution_results,
+        "resolution_tiers": resolution_tiers,
         "violations": [],
     }
 
 
 __all__ = [
     "ADMISSIBLE_INFRA_FAILURES",
+    "DECLARED_SCHEMA_SOURCES",
+    "ON_DEMAND_SOURCE_KINDS",
+    "RUNTIME_ONLY_ENV_VAR",
     "SCHEMA_EVIDENCE_REQUIREMENTS",
     "SCHEMA_RESOLUTION_ENV_VAR",
     "STRUCTURAL_MEMBER_KINDS",

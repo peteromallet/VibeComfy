@@ -553,3 +553,33 @@ def test_exact_port_evidence_is_validated_against_frozen_schema() -> None:
     }
     resolved, failures = _resolve_schema_locally(layermask_ok)
     assert resolved, failures
+
+
+# ---------------------------------------------------------------------------
+# Batch D — shipped FINAL5 legacy pins satisfy only the runtime-family clause
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_pin_entries_match_authoritative_declaration_only() -> None:
+    """Batch D: ``ComfyUI-IndexTTS@local.json`` / ``ComfyUI-LayerMask@local.json``
+    entries carry no ``source_kind`` stamp; the legacy-ingest clause of the
+    runtime-family recognizer satisfies ``authoritative_object_info`` — and
+    ONLY that declaration (never an on-demand tier)."""
+    from tests.live_agentic_harness.scenario_obligations import (
+        _declaration_matches_entry,
+        _pack_entry,
+    )
+
+    for class_type in (
+        "IndexTTSEmotionOptionsNode",
+        "LayerMask: SegmentAnythingUltra V3",
+    ):
+        filename, entry = _pack_entry(CACHE_DIR, class_type)
+        assert filename and entry is not None, class_type
+        ok, why = _declaration_matches_entry(
+            "authoritative_object_info", filename, entry
+        )
+        assert ok, f"{class_type}: {why}"
+        for tier in ("on_demand_static", "on_demand_import", "on_demand_embedded"):
+            matched, _ = _declaration_matches_entry(tier, filename, entry)
+            assert not matched, f"{class_type} must not satisfy {tier}"
