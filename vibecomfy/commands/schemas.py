@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import shutil
 import json as json_module
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -185,6 +187,109 @@ def _introspect_core_object_info(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("object_info provider must return a JSON object")
     return payload
 
+def _load_provenance() -> dict[str, Any]:
+    prov_path = CACHE_DIR / "provenance.json"
+    try:
+        provenance = (
+            json_module.loads(prov_path.read_text(encoding="utf-8"))
+            if prov_path.is_file()
+            else {}
+        )
+    except (OSError, json_module.JSONDecodeError):
+        provenance = {}
+    return provenance if isinstance(provenance, dict) else {}
+
+
+def _write_provenance(provenance: dict[str, Any]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    (CACHE_DIR / "provenance.json").write_text(
+        json_module.dumps(provenance, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _prune_stale_index_rows(index: dict[str, Any]) -> list[str]:
+    """Drop index rows whose mapped cache file no longer exists.
+
+    RRSYN2-3: regenerating the index after an ingest must not leave rows
+    pointing at a replaced/removed capture (e.g. a stale AceStep pack file
+    replaced by a real capture under a new pinned name).
+    """
+    stale = [
+        class_type
+        for class_type, filename in index.items()
+        if not isinstance(filename, str)
+        or not (CACHE_DIR / filename).is_file()
+    ]
+    for class_type in stale:
+        del index[class_type]
+    return stale
+
+
+def _attest_ingested_capture(
+    filename: str,
+    source_file: Path,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """Record/refresh the provenance attestation for one ingested pack.
+
+    RRSYN2-3: an ingested capture without a provenance row can never pass
+    the authoritative preflight (``_provenance_row`` requires a repo or a
+    locked commit), so the refresh path regenerates provenance together
+    with the index: sha256 over the exact payload bytes, class count,
+    owning pack identity, and any attestation carried by ``_cache_metadata``
+    (repo / locked_commit / captured_at).  Ingestion time is recorded as
+    ``ingested_at`` — never as the capture time, which only a real capture
+    can attest.
+    """
+    provenance = _load_provenance()
+    packs = provenance.get("packs")
+    if not isinstance(packs, dict):
+        packs = {}
+    existing = packs.get(filename)
+    existing = existing if isinstance(existing, dict) else {}
+    meta = data.get("_cache_metadata")
+    meta = meta if isinstance(meta, dict) else {}
+    pack_identity = (
+        str(meta.get("pack") or "")
+        or str(existing.get("pack") or "")
+        or next(
+            (
+                str(value.get("pack") or "")
+                for value in data.values()
+                if isinstance(value, dict) and value.get("pack")
+            ),
+            "",
+        )
+        or source_file.stem.split("@", 1)[0]
+    )
+    entry = {
+        **existing,
+        "pack": pack_identity,
+        "classes": len([key for key in data if key != "_cache_metadata"]),
+        "schema_sha256": hashlib.sha256(source_file.read_bytes()).hexdigest(),
+    }
+    for key in ("repo", "locked_commit"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            entry[key] = value.strip()
+    captured_at = meta.get("captured_at") or meta.get(
+        "capture_time"
+    )
+    if isinstance(captured_at, str) and captured_at.strip():
+        entry["captured_at"] = captured_at.strip()
+    entry["ingested_at"] = datetime.now(timezone.utc).isoformat(
+        timespec="milliseconds"
+    )
+    entry["ingested_from"] = str(source_file)
+    packs[filename] = entry
+    provenance["packs"] = packs
+    provenance["class_count"] = len(
+        json_module.loads((CACHE_DIR / "index.json").read_text(encoding="utf-8"))
+    )
+    _write_provenance(provenance)
+    return entry
+
 
 def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -192,10 +297,25 @@ def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
     for path in source_dir.glob("*.json"):
         shutil.copy2(path, CACHE_DIR / path.name)
         copied += 1
-    index = json_module.loads((CACHE_DIR / "index.json").read_text(encoding="utf-8"))
+    index_path = CACHE_DIR / "index.json"
+    index = json_module.loads(index_path.read_text(encoding="utf-8"))
+    if not isinstance(index, dict):
+        index = {}
+    # RRSYN2-3: regenerate — prune rows whose capture file is gone, then
+    # keep provenance.class_count consistent with the rewritten index.
+    pruned = _prune_stale_index_rows(index)
+    if pruned:
+        index_path.write_text(
+            json_module.dumps(index, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    provenance = _load_provenance()
+    provenance["class_count"] = len(index)
+    _write_provenance(provenance)
     return {
         "status": "ok",
-        "classes_indexed": len(index) if isinstance(index, dict) else 0,
+        "classes_indexed": len(index),
+        "stale_rows_pruned": len(pruned),
         "packs_written": max(0, copied - 1),
         "cache_dir": str(CACHE_DIR),
         "version": "structured-cache",
@@ -207,6 +327,14 @@ def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
 
 
 def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) -> dict[str, Any]:
+    """Ingest ONE pinned pack capture into the authoritative cache.
+
+    RRSYN2-3: this is the path ``schemas refresh --source <capture>.json``
+    uses for real pinned captures.  It regenerates the index rows AND the
+    provenance attestation (payload digest, class count, capture identity)
+    so an ingested capture is preflight-authoritative instead of silently
+    unattested.  No workflow-observation fallback exists here by design.
+    """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     target = CACHE_DIR / source_file.name
     shutil.copy2(source_file, target)
@@ -220,18 +348,23 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
     for class_type in data:
         if class_type != "_cache_metadata":
             index[str(class_type)] = target.name
+    pruned = _prune_stale_index_rows(index)
     index_path.write_text(json_module.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+    entry = _attest_ingested_capture(target.name, source_file, data)
     return {
         "status": "ok",
-        "classes_indexed": len([key for key in data if key != "_cache_metadata"]),
+        "classes_indexed": entry["classes"],
+        "stale_rows_pruned": len(pruned),
+        "provenance": entry,
         "packs_written": 1,
         "cache_dir": str(CACHE_DIR),
         "version": "structured-cache",
         "pack_version": "structured-cache",
         "source": str(source_file),
-        "authoritative": False,
+        "authoritative": bool(entry.get("repo") or entry.get("locked_commit")),
         "source_kind": "structured_cache_copy",
     }
+
 
 
 def _looks_like_structured_pack_cache(data: Any) -> bool:
@@ -239,7 +372,6 @@ def _looks_like_structured_pack_cache(data: Any) -> bool:
         return False
     entries = [value for key, value in data.items() if key != "_cache_metadata"]
     return bool(entries) and all(isinstance(value, dict) and "inputs" in value and "outputs" in value for value in entries)
-
 
 # ---------------------------------------------------------------------------
 # subcommand: validate-coverage
