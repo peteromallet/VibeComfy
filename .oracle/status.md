@@ -1,8 +1,6 @@
-# Status — megado schema-capture integration run
-
-- Phase: 3 (plan settle) — plan v1 received from Grok 4.6, tasklist complete
-- Base: 96a9d810 (oracle-run worktree)
-- Estimate: 4-7 focused days, NOT a huge run (no cumulative gates needed)
-- Batches: A persist glue (normal) / B rung-3 embedded [XHARD] / C ensure --manifest (normal) / D preflight bridge [XHARD] / E doctor+docs+e2e (normal)
-- Next: settled-plan streamlining wave (ox-alpha critics), then pre-execution contract review (Grok), freeze tasklist, execute
-- Parallel: 44-leg finale run in flight on agentbox (r4-finale44, proven flags, healthy at 10 processes)
+# Status — onboarding-mode run
+- Phase: 5 (execute) — Batch 1
+- Base SHA: 8a4ff90b356a07d43021e3d6255adae36678b227 | Worktree branch oracle-onboard-20260826
+- Huge run: NO | Plan: STABLE v2 (+W1 amendments A1–A7) | Tasklist: FROZEN (pre-exec PASS @ attempt 3)
+- Next action: execute B1 via GLM 5.3 Flash executor brief batch-1-glm.md
+- Blockers: none

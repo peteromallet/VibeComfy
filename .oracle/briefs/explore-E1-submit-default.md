@@ -1,3 +1,6 @@
+MECHANICAL RESEARCH BRIEF — read-only. Repo: this worktree (base 8a4ff90b).
+
+NORTH STAR:
 # North Star — VibeComfy agent panel: one coherent assistant, user-fit execution
 
 ## End state
@@ -19,3 +22,13 @@ A ComfyUI artist opens the VibeComfy panel for the first time and, without readi
 
 ## Aligned progress feels like
 First-run → one clear question with tradeoffs; Settings → the same choice, changeable, explained; after switching, the message area instantly matches the chosen mental model.
+
+RUN CONTEXT: Objective: fresh-profile onboarding asks single-thread vs pipeline once with consequence copy; choice persists into the SAME store the Settings 'Agent mode' select uses; settings reveal + explain it; threaded mode hides staged progress chrome under messages; live switching re-renders. Non-goals: no executor/stage logic changes, no telemetry, no redesign.
+
+Explore area E1 — submit-path mode resolution & backend default semantics:
+1. Trace how a panel submit resolves pipeline_mode today: buildSubmitSnapshot() in vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js (~line 3213), buildSubmitBody()/pipeline_mode handling in vibecomfy/comfy_nodes/web/agent_submit_flow.js (~line 22+60), and the localStorage key vibecomfy_agent_pipeline_mode (~line 409 area).
+2. Can any real submit path bypass the mandatory welcome overlay while NO explicit preference is persisted? Identify exact gate conditions (syncChooseEngineGate() in vibecomfy/comfy_nodes/web/agent_status_poller.js ~895).
+3. Backend: resolve_orchestration_mode() in vibecomfy/executor/contracts.py (~148) + VIBECOMFY_EXECUTOR_PIPELINE_MODE usage across vibecomfy/. Is that env var consumed by browser-panel sessions or only headless? Does /vibecomfy/agent/status (_handle_agent_status in vibecomfy/comfy_nodes/agent/routes.py ~502) expose any effective/default mode?
+4. Answer Sol's open questions: Q1 can a submit bypass overlay without stored preference? Q2 should env default be surfaced as panel default or stays backend-only?
+
+Report <400 words, ranked facts with file:line evidence, then a RECOMMENDED approach for preference precedence (missing vs staged vs threaded distinguished; no second store). No architecture invention.

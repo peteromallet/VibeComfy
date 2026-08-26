@@ -1,0 +1,6 @@
+2026-08-26 Phase0 worktree oracle-onboard-20260826 @ 8a4ff90b; custody+NS+goal written
+2026-08-26 Phase1 Sol plan v1 (not huge run)
+2026-08-26 Phase2 GLM x3 explorers -> findings E1..E3 (resolved OQ1..OQ4; found provider auto-adopt bypass + rehydrate overwrite)
+2026-08-26 Phase3 Sol revision v2 = material (unset tri-state, gate matrix, sentinel, renderMeta gating); STABLE-with-amendments
+2026-08-26 Phase3 settled wave W1 (GLM simplify+contracts) -> synthesis A1-A7 accepted, R1 rejected
+2026-08-26 DEVIATION note: planner already produced batched tasklist inside plan v2 with classifications; host extracts to tasklist.md with A1-A7 folded in instead of re-dispatching a duplicate Sol conversion pass. Fresh independent pre-execution contract review still required before freeze.

@@ -1,3 +1,6 @@
+MECHANICAL RESEARCH BRIEF — read-only. Repo: this worktree (base 8a4ff90b).
+
+NORTH STAR:
 # North Star — VibeComfy agent panel: one coherent assistant, user-fit execution
 
 ## End state
@@ -19,3 +22,15 @@ A ComfyUI artist opens the VibeComfy panel for the first time and, without readi
 
 ## Aligned progress feels like
 First-run → one clear question with tradeoffs; Settings → the same choice, changeable, explained; after switching, the message area instantly matches the chosen mental model.
+
+RUN CONTEXT: Objective: fresh-profile onboarding asks single-thread vs pipeline once with consequence copy; choice persists into the SAME store the Settings 'Agent mode' select uses; settings reveal + explain it; threaded mode hides staged progress chrome under messages; live switching re-renders. Non-goals: no executor/stage logic changes, no telemetry, no redesign.
+
+Explore area E3 — staged-chrome inventory & render invalidation:
+1. renderExecutorProgressRow() in vibecomfy/comfy_nodes/web/panel_thread.js (~832): how the Decide→Research→Execute→Review strip renders; what DOM markers/data attributes exist (e.g. data-vibecomfy-executor-stage); what spinner copy shows per stage.
+2. Expanded Progress section (~1388): where staged phase lists render inside bubble details; what must stay (candidate changes, failures, diagnostics).
+3. bubbleRenderSignature()/bubbleDetailSignature() (~661): what inputs key cached DOM; would adding current mode force correct repaint on settings change?
+4. The Settings onchange handler (~roundtrip 3790) and how the select persists which value; does anything dirty the thread section after change today?
+5. Inventory OTHER user-facing spots that assume staged flow (agent_turn_feed.js ~332, executor_progress.js ~468, renderMeta() roundtrip ~6248). Classify each hit: ordinary chrome (should gate) vs lifecycle/diagnostic terminology (leave).
+6. Existing tests: tests/browser/pipeline_mode_surface.test.mjs, active_row_rendering.test.mjs (~320), agent_status_poller.test.mjs (~1203) — what they already cover.
+
+Report <450 words, file:line evidence, the classified inventory table, and RECOMMENDED gating boundary (single function?) for B2 implementation.

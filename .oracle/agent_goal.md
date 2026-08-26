@@ -1,34 +1,62 @@
-# Agent Goal — Registry-pinned ephemeral schema capture + preflight bridge
+# Agent goal — onboarding mode choice (single-thread vs pipeline)
 
-[North Star](./northstar.md) — this run turns the North Star's end state into shipped code: one-command install-free schema capture, persisted and preflight-accepted.
+Source ref: `8a4ff90b356a07d43021e3d6255adae36678b227` (`origin/main`, branch `main`)
+Worktree: `../vibecomfy-oracle-onboard` branch `oracle-onboard-20260826`
+Previous campaign North Star snapshot: `.oracle/findings/northstar-previous-schema-campaign-snapshot.md`
+(sha256 of pre-existing northstar.md at snapshot time: d9b4d1d294e11054bb145ab539f1fea28b1cd031234955c4a5393b49aa9928bd, source path `/Users/peteromalley/Documents/reigh-workspace/vibecomfy/.oracle/northstar.md` — campaign-scoped, superseded for this run by [North Star](./northstar.md))
+
+[North Star](./northstar.md) — this run advances "one coherent assistant, user-fit execution": first-run asks the mode question with honest tradeoffs; settings reveal it; pipeline chrome respects the choice.
 
 ## Objective
-On the VibeComfy repo (base `96a9d810`, branch `oracle-run`), implement and validate:
-1. **`vibecomfy schemas ensure --manifest <m>`** — for every gated class in the manifest lacking a live capture: resolve the pack via the Comfy registry (`registry/pack_resolver.py`), temp shallow-clone (`schema/on_demand.py`), run the extraction ladder (`schema/extract.py:extract_pack_schemas`) with three rungs: (r1) AST parse; (r2, default-ON per operator) stubbed-subprocess import; (r3) pip-installable ComfyUI as a library — install the pip comfy package in the throwaway venv and load the pack's NODE_CLASS_MAPPINGS against genuine comfy modules to generate object_info-equivalent schemas in-process, **no server, no serve, no GPU**. Persist via `porting/object_info/serialize.py:build_cache` with `CacheIdentity` stamped `source_kind=on_demand_static|on_demand_import|on_demand_embedded`, registry pack version + resolved commit + rung in the provenance ledger. Sandbox evicted after (LRU bounds preserved).
-2. **Preflight bridge** — the live-agentic-harness scenario-obligations preflight accepts `on_demand_static`/`on_demand_import`/`on_demand_embedded` tiers as valid provenance, recorded as their own tier; `@stub.json` rejection unchanged; a strict flag preserves runtime-only mode for campaign-grade runs.
-3. **Doctor gap reporting** — `vibecomfy doctor` (or schemas validate-coverage) reports gated classes lacking captures + the exact `schemas ensure` command.
-4. **Tests** — unit (persistence glue, tier stamping), preflight (on-demand accepted, stub still rejected, strict flag), e2e: a manifest with a missing-capture class → ensure → preflight green.
-## Authoritative inputs / source ref
-- Base SHA `96a9d81021a6ccee43ccb9afccdf49ff6ae4a5b5` (origin/fixer/workflow-execution-spine-consolidation, box HEAD), worktree `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle`.
-- Scout findings: `.oracle/findings/` (three scout reports: static extraction map, registry sources, trust tiering).
+1. **Onboarding ask** — when the agent panel first runs for a user (fresh browser profile / no prior choice persisted), the existing welcome overlay additionally asks: single-thread vs pipeline, with consequence-first copy:
+   - Pipeline: structures each request into multiple steps (Decide → Research → Execute → Review). Works better with smaller models.
+   - Single-thread: one instance gets all tools in one pass. Works better with larger models.
+2. **Persistence** — choice lands in the SAME store the settings Agent-mode toggle reads/writes today (single source of truth; backend default respected unless user chose).
+3. **Settings reveal** — Settings keeps/extends the existing "Agent mode: Staged pipeline | Threaded agent" control so it shows which mode is active and carries the same tradeoff explanation (tooltip/subtext), changeable at any time.
+4. **Mode-honest UX** — when single-thread is active the staged indicator below messages ("Decide→Research→Execute→Review" / stage chips) is not rendered; any other pipeline-only affordances discovered during exploration get the same treatment. Switching modes live updates without reload if feasible.
 
-## In scope / non-goals
-- In scope: the four items above; agent-skill SKILL.md section documenting the flow.
-- Non-goals: pip/uv ComfyUI runtime provisioning (separate future feature); changes to runtime-capture pipeline; assessment rubrics; live model calls; changes to `docs/plans/**` campaign evidence.
+## In scope
+- Frontend: welcome overlay flow, settings panel agent-mode control, message-stage rendering gate, persistence glue.
+- Minimal backend/config touch ONLY to expose current mode to the UI or honor a stored preference if not already wired.
+- Browser contract tests updated/added for: onboarding ask appears once + persists; settings reflects choice; stage row hidden in single-thread.
 
-## Settled decisions (operator)
-- Rung 2 (stubbed-subprocess import) **default-ON** in `schemas ensure`.
-- Venue: land on **main** (operator: "MAIN LIKE EVERYTHING FROM THE BOX"); source = box latest (`96a9d810`).
-- Model declaration (operator): **Normal = ox-alpha; Oracle = Grok 4.6; XHARD = oracle class (Grok 4.6)**.
+## Non-goals
+- No new model providers, no changes to executor internals/stage logic itself.
+- No redesign beyond mode-gating and copy.
+- No telemetry/analytics additions.
+- No migration of unrelated settings.
+
+## Settled decisions
+- Reuse existing welcomeOverlay + existing agent-mode setting key; do not invent a parallel store.
+- Tradeoff copy wording as in Objective 1 (consequence-first, plain language).
+
+## Open boundaries
+- Exact visual placement inside the welcome overlay = explorer's call within current overlay structure.
+- Whether backend already persists agent-mode preference per session/profile — explorer verifies; if server-side default exists, frontend must show what will actually be used before first submit.
+
+## Model policy (user-declared)
+- Normal tasks: **GLM 5.3 Flash** (user pin).
+- [XHARD] tasks: **Grok 4.6** (user pin). Expected count: 0 — this is scoped UI work.
 
 ## Authorization boundaries
-- Mutate: worktree only; commit per batch.
-- Sync: after final review PASS — push `oracle-run` to origin, then fast-forward `main` to the reviewed merge (explicit refspec, recorded). No force-push.
-- No deployment.
+- Mutations only inside worktree `../vibecomfy-oracle-onboard`.
+- Sync to origin: stage reviewed paths onto `oracle-onboard-20260826`; push that branch to `origin` explicitly. NO merge to `main`, NO deploy. Merge-to-main is a separate user-authorized action after review.
 
-## Done criteria
-- All four items implemented, tests green (`pytest tests/ -k "schema or on_demand or obligation" -q` plus full suite once by host), preflight green for a previously-blocked manifest subset using only on-demand captures, evidence matrix complete, final oracle review PASS.
+## Done criteria (all required)
+1. Fresh-profile panel open surfaces the mode question once; answering persists; second open does NOT re-ask (already-chosen state skips to ready) but Settings can still change it.
+2. Settings control reflects chosen mode, explains tradeoffs, switching takes effect (stage row visibility matches immediately or on next render).
+3. Single-thread: no staged indicator under messages; pipeline: unchanged behavior from base.
+4. `uv run node --test tests/browser/*.mjs` green (incl. new tests); `make fast` green; IR boundary clean.
+5. Evidence matrix maps each done criterion to command output under `.oracle/evidence/`.
 
-## Stop conditions
-- `blocked` if the Comfy registry API is unreachable from this machine (capture e2e needs it) — report and stop.
-- `failed` on any reproducible unmet criterion after rework loop.
+## Stop criteria
+All done criteria met and final oracle review passes; OR blocked/failed classification recorded in status.md.
+
+## Final validation commands
+- `uv run node --test tests/browser/*.mjs`
+- `uv run make fast`
+- `uv run python scripts/check_ir_boundary.py`
+- Targeted: the new onboarding/settings contract test files.
+
+## Sync/promotion policy
+Push reviewed `oracle-onboard-20260826` to origin only. Report PR-readiness; do not merge.

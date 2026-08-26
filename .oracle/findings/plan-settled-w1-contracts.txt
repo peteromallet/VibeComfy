@@ -1,0 +1,17 @@
+**Verdict:** Plan's verification spine is solid and mostly proportionate; gaps concentrate on unmapped Settings/storage contracts and two non-mechanical criteria.
+
+**Ranked gaps**
+
+1. **B1-T3 acceptance has no mapped test.** B1-T4 lists overlay flows only. Unproven: unset-state Settings placeholder, live-field sync on helper writes, copy-parity between overlay and Settings. Done criterion 2 rests on review alone.
+2. **Copy assertions missing → North Star anti-pattern unverifiable.** "Approved consequence-first copy" is never specified; nothing asserts overlay text == Settings subtext despite B1-T3 mandating a shared source. One cheap string-equality contract test closes it; without it, drift ships silently.
+3. **Submit-guard bypass left open (exploration #5) but tests map only the main button** (`pipeline_mode_surface.test.mjs:110` clicks `#vibecomfy-agent-panel-submit`). If any second entry exists, the guard is incomplete while the suite stays green. Resolve #5 pre-plan or add a static single-funnel ownership test (repo precedent: `*_ownership_static.test.mjs`).
+4. **Storage-failure recovery is prose-only.** Potential-issue list raises reopen-loop; B1-T4 omits it. `_lsSet` failure (Safari private mode) leaves the user unable to persist — invisible to the whole matrix. Add a mocked-throw case asserting recoverable explicit-choice flow.
+5. **Fresh-profile precondition unstated.** If harness setup seeds defaults (Settings init reads `_lsGet(key) || DEFAULT_PIPELINE_MODE`, roundtrip.js:3679–3681 per explore-E1/E2 findings), mode/sentinel branches pass vacuously. Require every B1-T4 case to start from cleared storage.
+6. **Ceremonial wording:** "Both consequences are available without documentation" isn't mechanically checkable; replace with exact-copy assertions (subsumed by #2). Matrix rows otherwise concrete and testable.
+7. **Simplification:** `pipelineChromeEnabled()` plus one `modeUnset() && !sentinelOpen` predicate could collapse the four-row gate matrix into two checks — minor.
+
+**Verified correct as-is**
+
+- Validation triple is non-redundant: `fast` = pytest only (`Makefile:162`); browser tests run separately (`:196–197`). New `*.mjs` files are auto-globbed.
+- Legacy staged values cannot strand users: stored key is written solely by Settings onchange (roundtrip.js:3790–3798) and buggy rehydrate (:4430–4433); no boot-time seeder found — stored `"staged"` implies a real choice, so matrix row Present|Present covers that cohort identically. Invalid/corrupt values fall through to onboarding per T1.
+0

@@ -1,0 +1,1 @@
+{"phase":"pre-execution-contract-review","pass":2,"model":"openrouter/z-ai/glm-5.3-flash","verdict":"ISSUES(2): copy drift 'multiple' + uv run prefixes","fixes":"applied verbatim-copy restore + uv run prefixes","brief":".oracle/briefs/pre-exec-review-v2-brief.md","result":".oracle/findings/pre-exec-contract-review-v2.txt","exit":0}

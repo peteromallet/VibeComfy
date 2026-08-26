@@ -1,3 +1,6 @@
+MECHANICAL RESEARCH BRIEF — read-only. Repo: this worktree (base 8a4ff90b).
+
+NORTH STAR:
 # North Star — VibeComfy agent panel: one coherent assistant, user-fit execution
 
 ## End state
@@ -19,3 +22,13 @@ A ComfyUI artist opens the VibeComfy panel for the first time and, without readi
 
 ## Aligned progress feels like
 First-run → one clear question with tradeoffs; Settings → the same choice, changeable, explained; after switching, the message area instantly matches the chosen mental model.
+
+RUN CONTEXT: Objective: fresh-profile onboarding asks single-thread vs pipeline once with consequence copy; choice persists into the SAME store the Settings 'Agent mode' select uses; settings reveal + explain it; threaded mode hides staged progress chrome under messages; live switching re-renders. Non-goals: no executor/stage logic changes, no telemetry, no redesign.
+
+Explore area E2 — welcome overlay structure & races:
+1. Map openChooseEngineOverlay() in vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js (~9317): current screens/steps (provider choose, research-contribution ack?), how buttons write choices, how the overlay closes.
+2. commitRoute() (~9411): what happens when provider status refresh lands while overlay is open — can it tear down/reopen mid-flow (race with syncChooseEngineGate() in agent_status_poller.js ~895)?
+3. Rehydration: normalizeChatRehydratePayload() (~5128), CHAT_REHYDRATE_SUCCESS lifecycle path, and the write near line 4430 — confirm whether recovering an old session writes its historical pipeline_mode into the global localStorage key (would violate single-source precedence).
+4. Where does the overlay sequence decide "first run"? What exactly triggers reopen?
+
+Report <400 words, file:line evidence, ranked facts, and RECOMMENDED minimal insertion point for a new mode-choice step (independent of engine/provider step), incl. how to keep overlay alive across status refreshes. No redesign proposals.

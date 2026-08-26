@@ -1,0 +1,16 @@
+E1 findings — submit-path mode resolution & backend default semantics
+
+**Ranked facts**
+
+1. **Panel always sends an explicit canonical mode; "unset" collapses to staged before hitting the wire.** Settings select initializes from `_lsGet(PIPELINE_MODE_STORAGE_KEY) || DEFAULT_PIPELINE_MODE` (roundtrip.js:3679–3681; key defined :409; `"staged"` default in agent_submit_flow.js:22); onchange persists both localStorage and `panel.fields.pipelineMode.value` (:3790–3798). Submit reads `normalizePipelineMode(panel.fields.pipelineMode?.value)` (:3225) whose fallback arm returns `"staged"` for undefined/blank/unknown (agent_submit_flow.js:25–34), then bodies `pipeline_mode:` (flow :92). So a real panel submit can never carry absence — a skipped onboarding silently becomes staged with no write-back.
+
+2. **Backend precedence is request → env → staged** (`resolve_orchestration_mode`, executor/contracts.py:148–166; env `VIBECOMFY_EXECUTOR_PIPELINE_MODE` :111; default :113). Because fact 1 holds, **the env var is dead code for browser-panel sessions**: panel POSTs go to `/vibecomfy/agent-executor` → `_handle_agent_executor_submit` (agent/routes.py:1715–1735), parsed via `coerce_orchestration_mode(payload.get("pipeline_mode"))` (agent/contracts.py:320), which is always non-None from the panel. Env only matters headless: CLI leaves `--pipeline-mode` None (vibecomfy/agent/__main__.py:67–77) so env applies; readiness probing honors it via the same resolver (vibecomfy/agent/service.py:77–95). core.py:3609–3624 additionally promotes `None`→threaded under env (staged keeps legacy omission).
+
+3. **`/vibecomfy/agent/status` exposes no mode** — `_handle_agent_status` (routes.py:502–558) returns provider readiness + `ProviderStatus` + debug only. Backend default/effective mode is not observable by the panel.
+
+4. **Q1: yes, a submit can bypass the ask without user choice.** `syncChooseEngineGate` gates only on persisted *provider* (poller :895–932) and **auto-persists any ready provider reported by status** (`storedReadyProviderFromStatus`, :907–909) — fresh profile + one ready engine = overlay never asked. Submit's own guards are route-readiness and scope (roundtrip :8169–8183, :8190+); paid-submit confirm asks about cost, not mode (:8061–8096). Mode specifically has no gate at all today.
+
+5. **Q2: env default should stay backend-only.** No endpoint surfaces it (fact 3), and plumbing it into panel defaults would mint a second source of truth against the settings-select/localStorage pair.
+
+**RECOMMENDED precedence**: treat three distinct states — `unset` / `threaded` / `staged` — read as raw string, not normalized-to-staged. Resolution order: stored explicit value → welcome/onboarding answer (written to the same key) → `"staged"` only as last resort, and persist it back on first resolution so body, stage-chrome visibility, and Settings select all read one store. Never consult `VIBECOMFY_EXECUTOR_PIPELINE_MODE` client-side.
+0

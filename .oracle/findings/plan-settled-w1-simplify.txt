@@ -1,0 +1,20 @@
+## Streamlining critique — ranked
+
+**Verdict:** Plan direction is sound and well-grounded in `.oracle/findings/`; remaining fat is one merged-out checkpoint, one dead exploration item, and an over-wide test matrix.
+
+### Simplifications (rank by payoff)
+
+1. **Merge B2 into Batch 1's checkpoint.** All B2 insertion points are already precisely located (roundtrip.js:6254 chip; panel_thread.js:832 strip, :1390 Progress; signatures :661/:705 confirmed mode-less). No discovery separates the batches; one review handoff is saved. Validation stays single-pass in B3.
+2. **Drop exploration item #4 (localStorage failure UX).** A failed write leaves stored value unset → existing unset semantics naturally re-ask next session; the live field projection still allows submitting this session. Zero dedicated recovery code is warranted — delete the requirement, don't design for it.
+3. **`pipelineChromeEnabled()` — keep, but fix its spec.** Justified only by half-gate risk across exactly three sites (E3 inventory). Critical: base it on the new explicit-mode getter, **not** E3's suggested `DEFAULT_PIPELINE_MODE` fallback — that reimplements the silent default the plan rejects. A shared explicit-getter with inline ternaries is an acceptable substitute; don't litigate further either way.
+4. **Sentinel: keep, it's not speculative** (gate reopen loop proven at poller.js:771–774, 895–932; close paths 9399/3096 per E2). One verification owed, see gap 3.
+
+### Gaps (rank by risk)
+
+1. **Submit-guard chokepoint unverified (exploration #5).** Guard must land where all entries converge (`buildSubmitSnapshot` roundtrip.js:~3213 / `createSubmitFlow` agent_submit_flow.js:22+) before any bypassing caller (keyboard/programmatic) is ruled out. Confirm before writing the guard, not after.
+2. **Contract collision unstated:** pipeline_mode_surface.test.mjs:23–27 asserts `normalize(undefined)==="staged"` and "submit always emits canonical mode." Keeping the normalizer while adding unset tri-state means those exact assertions flip or gain fixtures. B3 says "don't weaken staged assertions" — without naming which flip, B1-T4 will collide with B3-T1.
+3. **Sentinel durability:** E2 notes the mount is "destroy-and-rebuild." Confirm `panel.state.chooseEngineFlowOpen` survives that rebuild cycle — if state resets per mount, the sentinel dies exactly in the race it guards.
+4. **B1-T4 matrix over-broad:** rehydrate matching/conflicting/absent × refresh-during-five-screens doubles cases without distinct failure modes. Trim to: conflicting + absent rehydrate; refresh during mode-selection and research screens (the two observed races).
+
+Net: executable sooner at ~equal rigor; effort realistically sits at 3 days, not 5, after items 1–2.
+0

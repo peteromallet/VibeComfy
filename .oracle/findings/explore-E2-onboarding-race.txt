@@ -1,0 +1,19 @@
+## E2 Report — welcome overlay structure & races
+
+**1. Overlay anatomy** (`vibecomfy_roundtrip.js`)
+One function, three screens swapped via `box.innerHTML`. Engine cards built inline 9345–9608; `showResearchContributionChoice()` 9715; `showThankYouAndClose()` 9664 (countdown → `teardownOverlay()` 9399 → `onResolved(route)` 9707). Flow: card click `selectRoute` 9654 → Confirm `onConfirm` 9775 (OpenRouter key store 9782–9806) → `commitRoute` 9808 → research Yes/No 9757 → thank-you. No Escape/click-outside (9330).
+
+**2. commitRoute / refresh race**
+`commitRoute` (9411–9416) persists provider, updates field/select, fires quiet refresh — **does not** tear down the overlay. But every `refreshAgentStatus` commit calls the gate (`agent_status_poller.js:771–774`). `syncChooseEngineGate` (poller:895–932): persisted provider → `closeChooseEngineOverlay`; ready-provider-in-status → adopt+persist+close; else route status ≠ LOADING → `openChooseEngineOverlay({onResolved: () => {}})` 928–930. Since mount is destroy-and-rebuild (removes existing element, 9321–9325), a **pre-commit** refresh rebuilds the box, wiping the user's selected card / half-typed OpenRouter key. Post-commit the gate's persisted branch (901–905) closes rather than reopens — research/thank-you survive in practice but their DOM removal bypasses `teardownOverlay`'s countdown clear (external `closeChooseEngineOverlay` 3096 just removes the node).
+
+**3. Rehydrate pipeline-mode write — CONFIRMED violation** (`vibecomfy_roundtrip.js`)
+4430–4433: on successful session recovery, `panel.fields.pipelineMode.value = normalizePipelineMode(payload.pipelineMode); _lsSet(PIPELINE_MODE_STORAGE_KEY, …)`, key `"vibecomfy_agent_pipeline_mode"` (409). Normalizer defaults missing `pipeline_mode` to `DEFAULT_PIPELINE_MODE` (5128–5130). The Settings "Agent mode" select reads/writes the **same** key (init 3679–3681; `onchange` 3790–3797). So recovering any old/default session silently overwrites the global mode — breaks single-source precedence for onboarding choice. Lifecycle handler `_handleChatRehydrateSuccess` (`agent_edit_lifecycle.js:2457`) touches no localStorage.
+
+**4. "First run" decision**
+No explicit flag. Implicit = "no persisted provider after first status settle": boot path `openAgentPanel` 4772–4797 → `renderAgentPanel` 4788 → persisted hydrate 4789–4793 → `pollerRefreshAgentStatus(quiet)` 4794 → gate opens overlay. Every subsequent refresh re-evaluates the gate, so absence of provider ⇒ reopen forever.
+
+**Recommended insertion point (minimal, no redesign)**
+- New mode screen as step 0 inside `openChooseEngineOverlay`: render `showModeChoice()` into `box` instead of cards initially; card flow unchanged afterward. Persist via existing `_lsSet(PIPELINE_MODE_STORAGE_KEY, …)` (`edit-comfy-workflow` boundary honored — same key Settings uses, so one source of truth; then `panel.fields.pipelineMode.value = mode` mirroring settings onchange 3790–3797).
+- Keep-alive across refreshes: add sentinel `panel.state.chooseEngineFlowOpen = true` (set in `openChooseEngineOverlay`, cleared in both `teardownOverlay` 9399 and `closeChooseEngineOverlay` 3096); early-return in `syncChooseEngineGate` when set. Smallest blast radius; avoids touching poller open logic otherwise.
+- Fix 4430–4433 precedence when wiring the new key: skip the rehydrate overwrite when user has an explicit mode stored (same guard pattern suggested above).
+0

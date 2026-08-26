@@ -1,0 +1,7 @@
+**ISSUES**
+
+1. **Copy drift vs frozen settled decision.** Agent-goal Objective 1 pins pipeline copy: "Structures each request into **multiple** steps (…)". B1-T2 quotes "Structures each request into steps (…)". The word "multiple" is dropped. Settled decisions say wording *as in Objective 1*, and B1-T4 builds a copy-parity test off this text — the implementer will bake in non-canonical copy. Restore "into multiple steps".
+2. **Minor:** B3-T1 lists commands bare (`node --test …`, `make fast`, `check_ir_boundary.py`) while the goal's final-validation block uses `uv run` prefixes. Same targets, but since validation clauses were declared "unchanged and consistent," mirror them verbatim.
+
+Otherwise verified clean: all nine tasks carry DC+NS citations; classifications all-NORMAL with stated evidence, matching Model policy's expected-[XHARD]-0; single source of truth holds (one key `vibecomfy_agent_pipeline_mode`, settings writes through shared helper, no second store/backend plumbing); DC1–DC5 all mapped to tasks including second-open-skips, auto-adopt-cannot-bypass-mode-ask, zero stage nodes in threaded, evidence matrix to `.oracle/evidence/`; sync/push-only clause intact. Fix #1 (and optionally #2) → PASS.
+0
