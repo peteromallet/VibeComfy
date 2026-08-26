@@ -79,18 +79,112 @@ def _canonical_delta_ops_envelope_payload(delta_ops: tuple[Any, ...]) -> dict[st
     ).to_dict()
 
 
+def _lint_noop_statement_keys(turn: Mapping[str, Any]) -> frozenset[tuple[str, str]]:
+    """``(uid, field_path)`` pairs the turn's lint gate classified as no-ops."""
+    raw = turn.get("noop_field_changes")
+    if not isinstance(raw, (list, tuple)):
+        return frozenset()
+    keys: set[tuple[str, str]] = set()
+    for item in raw:
+        if isinstance(item, Mapping) and item.get("uid") is not None:
+            keys.add((str(item.get("uid")), str(item.get("field_path"))))
+    return frozenset(keys)
+
+
+def _statement_lint_target_key(op: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Map a serialized edit op to its ``(uid, field_path)`` lint identity."""
+    kind = str(op.get("op") or "")
+    if kind == "set_mode":
+        target = op.get("target")
+        if isinstance(target, (list, tuple)) and len(target) >= 2:
+            return str(target[1]), "mode"
+        return None
+    if kind == "set_node_field":
+        target = op.get("target")
+    elif kind in {"upsert_link", "remove_link"}:
+        target = op.get("to")
+    else:
+        # add_node/remove_node have no FieldChange representation and are
+        # never lint-dropped as field no-ops.
+        return None
+    if isinstance(target, (list, tuple)) and len(target) >= 3:
+        return str(target[1]), str(target[2])
+    return None
+
+
+def _statement_is_lint_noop(
+    statement: Mapping[str, Any],
+    noop_keys: frozenset[tuple[str, str]],
+) -> bool:
+    """True when the statement's landed op is lint-proven to change nothing."""
+    if not noop_keys:
+        return False
+    op = statement.get("op")
+    if not isinstance(op, Mapping):
+        return False
+    key = _statement_lint_target_key(op)
+    return key is not None and key in noop_keys
+
+
+def _effective_accepted_batch_statements(
+    state: AgentEditState,
+) -> tuple[dict[str, Any], ...]:
+    """Durable Δ minus lint-proven no-op statements.
+
+    A landed statement whose op the batch loop's lint gate classified
+    ``dropped_noop`` — its ``(uid, field_path)`` is recorded on the turn as
+    ``noop_field_changes`` — changed no bytes. The live candidate does not
+    contain any effect for it and ``real_field_changes`` already excludes it
+    from reply claims, yet minting Δ membership for it made authority replay
+    fail closed on a benign redundant write (rr1-window20 staged f65774: an
+    explicit ``pbr = True`` re-assertion alongside the real texture-quality
+    write → receipt replay error ``no_op`` → ``authority_rejected`` with the
+    product unchanged). The durable Δ is therefore the EFFECTIVE Δ: what
+    landed AND changed bytes, keeping Δ ≡ candidate ≡ claims.
+    """
+    from types import SimpleNamespace
+
+    accepted: list[dict[str, Any]] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, Mapping):
+            continue
+        noop_keys = _lint_noop_statement_keys(turn)
+        if not noop_keys:
+            accepted.extend(
+                _accepted_batch_statements(SimpleNamespace(batch_turns=(turn,)))
+            )
+            continue
+        kept = dict(turn)
+        kept["statements"] = [
+            statement
+            for statement in turn.get("statements") or []
+            if not (
+                isinstance(statement, Mapping)
+                and statement.get("ok") is True
+                and statement.get("landed") is True
+                and _statement_is_lint_noop(statement, noop_keys)
+            )
+        ]
+        accepted.extend(
+            _accepted_batch_statements(SimpleNamespace(batch_turns=(kept,)))
+        )
+    return tuple(accepted)
+
+
 def _build_cumulative_batch_repl_delta_envelope(state: AgentEditState) -> dict[str, Any] | None:
-    """Assemble one cumulative V2 delta envelope from landed accepted-batch ops.
+    """Assemble one cumulative V2 delta envelope from effective accepted-batch ops.
 
     Returns ``{schema_version, ops}`` or ``None`` when no ops were landed.
     Transient apply-time serializer only — not a durable product field.
+
+    Uses :func:`_effective_accepted_batch_statements` so lint-proven no-op
+    statements never enter the apply/receipt Δ: replay must never be asked
+    to re-apply a write the engine itself proved changed nothing.
     """
-    ops = _accepted_batch_delta_ops(state)
-    if not ops:
+    accepted = _effective_accepted_batch_statements(state)
+    if not accepted:
         return None
-    return derived_accepted_delta_envelope(
-        {"accepted_batch": list(_accepted_batch_statements(state))}
-    )
+    return derived_accepted_delta_envelope({"accepted_batch": list(accepted)})
 
 
 def _product_failure_response(failure: AgentError) -> dict[str, Any]:
@@ -1522,7 +1616,7 @@ def _build_batch_repl_response(
         compatibility_fields=compatibility_fields,
         accepted_ops=[
             dict(item["op"])
-            for item in _accepted_batch_statements(state)
+            for item in _effective_accepted_batch_statements(state)
             if isinstance(item.get("op"), Mapping)
         ]
         if has_candidate
@@ -1740,7 +1834,9 @@ def _build_batch_repl_response(
     # carries those statements (each with its landed op) so consumers can
     # verify claims ⊆ Δ (the reply-must-match-diff law).  It is the sole
     # durable Δ; apply/plan_hash derive a transient envelope from it.
-    response["accepted_batch"] = _json_safe(list(_accepted_batch_statements(state)))
+    # Lint-proven no-op statements are excluded: they changed no bytes, so
+    # carrying them minted authority a fail-closed replay must reject.
+    response["accepted_batch"] = _json_safe(list(_effective_accepted_batch_statements(state)))
     # accepted_batch is the sole durable Δ.  Apply/plan_hash derive ops from
     # accepted_batch[*].op at the call site.
     if response["accepted_batch"] or delta_evidence_envelope is not None:
@@ -1864,11 +1960,9 @@ def _build_dev_success_response(
     if contract == "delta" and has_candidate:
         derived_ops = _canonical_delta_ops_envelope_payload(state.delta_ops)["ops"]
         accepted_batch = [{"op": dict(op)} for op in derived_ops if isinstance(op, Mapping)]
-        accepted_ops_for_plan = [dict(item["op"]) for item in accepted_batch]
-    elif has_candidate:
         accepted_ops_for_plan = [
             dict(item["op"])
-            for item in _accepted_batch_statements(state)
+            for item in _effective_accepted_batch_statements(state)
             if isinstance(item.get("op"), Mapping)
         ]
     else:
