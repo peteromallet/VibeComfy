@@ -1,0 +1,5 @@
+I'll read the full contract set and re-verify against the attempt-4 persist/index fixes.I’ll spot-check the cited persist/index/extract code against the goal so the contract verdict isn’t just a plan-text read.Filename and identity claims need a code check — previous reviews hung on merge/index hygiene, so I’ll verify those paths too.CONTRACT-PASS
+
+Attempt-4 persist hygiene closes the last mixed-pack hole: after `build_cache` merge, the on_demand file is stripped to newly captured classes only and pre-existing `index.json` rows are restored. Checkpoint A now asserts `keys == {G}`, `index[R]` on the runtime file, `index[G]` on the on_demand file, and unique `get_class_by_identity(R)` — matching `serialize.py:327–333` / `:229–230` and `consume.py:193–200`.
+
+Goal items 1–4 map to A/C/D/E (r3 fail-closed; B unused in-path: C does not pass `allow_embedded`). North Star anti-patterns are blocked (no stub-as-truth, no silent demotion, declaration must match `source_kind`). Validation matches the goal (`pytest tests/ -k "schema or on_demand or obligation" -q` + full suite). Sync is push `oracle-run`, fast-forward `main`, no force, no deploy.

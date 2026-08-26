@@ -343,3 +343,6 @@ Rung 3 exploration (item 1) may cut B if pip-comfy cannot load packs without ser
 
 Implementer model per operator: Normal = ox-alpha; [XHARD] = Grok 4.6.
 
+
+---
+FROZEN 2026-08-26 after CONTRACT-PASS (contract-review-4). Batch order: A → C → D → E (B deferred). Executor pool: ox-alpha; oracle: Grok 4.6.
