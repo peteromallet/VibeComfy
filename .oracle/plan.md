@@ -127,9 +127,9 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 
 ## Batch C — `schemas ensure --manifest`
 
-**Seam:** one command fills gaps for a comparison manifest and leaves LRU-bounded clones. Depends on A+B.
+**Seam:** one command fills gaps for a comparison manifest and leaves LRU-bounded clones. Depends on A. (B is DEFERRED; this command ships with r3 fail-closed — `--no-embedded` semantics default until B lands.)
 
-**Normal** (CLI glue; r3 is already landed).
+**Normal** (CLI glue; r3 is fail-closed unavailable until Batch B lands (if ever)).
 
 ### Tasks
 

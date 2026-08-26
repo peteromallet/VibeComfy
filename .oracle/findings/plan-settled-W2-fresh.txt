@@ -1,0 +1,13 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+Not clean. Verified against code (`_provenance_row` actually at `scenario_obligations.py:745`; stamp at `on_demand.py:193`).
+
+1. **Defer-B not propagated** — B's header says DEFERRED, but C still reads "Depends on A+B" and "r3 is already landed" (plan.md:130–132); Synchronization keeps `A → B → C → D → E` (:275–280); Effort still budgets B 1.5–2.5d in-path (:323). Executor would land B before C, defeating the accepted deferral.
+2. **Alias contradiction** — Canonical tokens say no alias surface (:43), yet D task 1 still adds `on_demand_runtime`→import with "alias-aware" matching (:188, :192) and OQ1 still offers "preflight accepts both" (:296).
+3. **resolution_tiers unresolved** — :194 still offers dual representation ("dict with `__bool__` or a parallel `resolution_tiers` map") instead of the picked single map; also `_provenance_row` ref still `777–780` vs actual :745.
+
+Applied cleanly: comfy-version fail-closed (:140), doctor pointer (:237), effort dedup.
+[launch_hermes_agent] done in 85.3s (exit=0)
+0
