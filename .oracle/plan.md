@@ -61,6 +61,7 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 3. `persist_on_demand_pack(...)` must:
    - Call `build_cache(..., identity=CacheIdentity(pack_slug, pack_version, git_commit=resolved_sha, evidence_identity=f"on_demand:{rung}:{sha}", source_kind=<token above>), full_pack_refresh=False)` — MERGE semantics. `full_pack_refresh=True` would drop other same-pack classes from the pack file and index.json, silently retargeting existing `@runpod-snapshot` index rows to on-demand (silent tier demotion — forbidden).
    - Before writing, drop from the extract result any class that already has a higher-tier capture (tier order: runtime family > on_demand_embedded > on_demand_import > on_demand_static); if ALL classes in the result are lower-tier-covered, write nothing (no-op).
+   - **Index hygiene (serialize merge caveat):** `build_cache` merge re-adds every same-pack class from existing files and repoints `index[class_type]` to the new file (`serialize.py:229-230,327-333`). After `build_cache`, the glue MUST post-process `index.json`: restore every pre-existing class's index mapping to its original file unless that class was newly written by this extraction. Net effect: only newly captured classes point at `Pack@on_demand_*-{sha}.json`; a mixed pack (runtime class R + gap G) leaves `index[R]` on the runtime file while `index[G]` gains the on_demand entry.
    - After write, attest `provenance.json` packs[`filename`] with **at least**: `pack`, `repo`, `locked_commit`, `schema_sha256`, `source_kind`, `extraction_rung` (`ast`|`import`|`embedded`), `registry_pack_version`, `captured_at`. Reuse `_load_provenance`/`_write_provenance`; do not invent a second ledger.
    - Leave `repo`/`locked_commit` as the **clone’s** git remote + `rev-parse HEAD`. That is pin evidence, not a claim of runtime `/object_info`.
 
@@ -84,6 +85,7 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 - Persist an import extract → `on_demand_import`, **not** `runtime_object_info`.
 - Attempting to persist on-demand over an existing `runtime_object_info` / `@runpod-snapshot` row is a no-op; runtime file unchanged.
 - A `@stub.json` index row is treated as a gap.
+- **Mixed-pack case:** cache contains a runtime capture for class R of pack P; ensure extracts P (R + gap class G). Assert: `index[R]` still maps to the runtime file (byte-identical mapping), `index[G]` maps to the new on_demand file, and the on_demand file does not silently shadow R.
 - `pytest tests/ -k "on_demand_persist or ensure_capture" -q` green.
 - Commit this batch.
 
