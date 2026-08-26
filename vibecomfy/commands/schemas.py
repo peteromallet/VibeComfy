@@ -628,16 +628,17 @@ def _on_demand_provider():
 _EXTRACT_EXHAUSTED_DETAIL = (
     "extraction produced no schema from any available rung "
     "(rung 1: static AST; rung 2: stubbed-subprocess INPUT_TYPES — always on "
-    "for this command). Rung 3 (embedded comfy-as-library) is not yet available: "
-    "deferred Batch B."
+    "for this command; rung 3: embedded comfy-as-library when enabled)."
 )
 
 
-def _embedded_note(comfy_version: str | None) -> str:
+def _embedded_note(comfy_version: str | None, *, no_embedded: bool = False) -> str:
+    if no_embedded:
+        return " Rung 3 was skipped (--no-embedded)."
     if comfy_version:
-        return f" Pinned comfy version {comfy_version} applies once rung 3 lands."
+        return f" Rung 3 used pinned comfy version {comfy_version}."
     return (
-        " When it lands it will require --comfy-version or env "
+        " Rung 3 requires --comfy-version or env "
         "VIBECOMFY_EMBEDDED_COMFY_VERSION; neither is set."
     )
 
@@ -648,6 +649,7 @@ def _capture_missing_classes(
     cache_root: Path,
     provider,
     comfy_version: str | None,
+    no_embedded: bool = False,
 ) -> dict[str, Any]:
     """Per gap class: registry → ephemeral sandbox clone → ladder → persist.
 
@@ -691,16 +693,16 @@ def _capture_missing_classes(
             pack_name=slug,
             allow_import=True,  # rung 2 cannot be turned off on this command
             import_timeout=120,
+            allow_embedded=not no_embedded,
+            comfy_version=comfy_version,
         )
-        # NO allow_embedded kwarg: rung 3 does not exist until deferred Batch B;
-        # passing it would TypeError.
-        if not result.entries or result.method not in ("ast", "import"):
+        if not result.entries or result.method not in ("ast", "import", "embedded"):
             detail = "; ".join(result.failures) or "empty extract result"
             failures.append(
                 {
                     "class_type": ", ".join(classes),
                     "step": "extract",
-                    "detail": _EXTRACT_EXHAUSTED_DETAIL + _embedded_note(comfy_version)
+                    "detail": _EXTRACT_EXHAUSTED_DETAIL + _embedded_note(comfy_version, no_embedded=no_embedded)
                     + f" [{detail}]",
                 }
             )
@@ -820,6 +822,7 @@ def _cmd_schemas_ensure(args: argparse.Namespace) -> int:
         cache_root=cache_root,
         provider=_on_demand_provider(),
         comfy_version=comfy_version,
+        no_embedded=bool(getattr(args, "no_embedded", False)),
     )
     consume_module.reset_cache()
     still_missing = missing_live_captures(unique, cache_dir=cache_root)
@@ -944,17 +947,11 @@ def register(subparsers) -> None:
         "--comfy-version",
         default=None,
         metavar="VERSION",
-        help=(
-            "Rung 3 pin (or env VIBECOMFY_EMBEDDED_COMFY_VERSION). Unused today: "
-            "rung 3 is not yet available (deferred Batch B)"
-        ),
+        help="Rung 3 pin (or env VIBECOMFY_EMBEDDED_COMFY_VERSION) for the embedded extractor",
     )
     ensure.add_argument(
         "--no-embedded",
         action="store_true",
-        help=(
-            "Accepted no-op placeholder: rung 3 (embedded) is not yet available. "
-            "Rung 2 cannot be disabled on this command"
-        ),
+        help="Skip rung 3 (embedded comfy-as-library). Rung 2 cannot be disabled on this command",
     )
     ensure.set_defaults(func=_cmd_schemas_ensure)

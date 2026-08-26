@@ -1,4 +1,4 @@
-"""Pack schema extraction — rungs 1 & 2 of the on-demand node-schema ladder.
+"""Pack schema extraction — rungs 1, 2 & 3 of the on-demand node-schema ladder.
 
 Factored out of ``tools/clone_and_extract_packs.py`` so the on-demand resolver
 (:mod:`vibecomfy.schema.on_demand`) and the corpus builder share ONE extraction
@@ -6,6 +6,10 @@ core instead of two diverging parsers.
 
 The ladder (each rung catches what the prior missed):
 
+* **Rung 3** (``allow_embedded=True``): install ``comfyui=={version}`` into a
+  throwaway venv and import real ``comfy``/``nodes`` in a child interpreter,
+  load the pack's ``NODE_CLASS_MAPPINGS`` and call ``INPUT_TYPES()``. No
+  HTTP server. No ``main.main``. Parent never imports ``comfy``.
 * **Rung 2** (``allow_import=True``): spawn a subprocess that stubs the comfy
   imports, execs the pack's package, and calls ``cls.INPUT_TYPES()`` **at
   runtime**. Faithful to dynamic ``INPUT_TYPES`` (folder scans, computed lists,
@@ -16,7 +20,7 @@ The ladder (each rung catches what the prior missed):
   literals. No execution; catches the majority of packs but misses anything
   whose ``INPUT_TYPES`` is built at runtime.
 
-Both rungs normalize to the ``object_info`` dict shape consumed by
+All three rungs normalize to the ``object_info`` dict shape consumed by
 :func:`vibecomfy.schema.provider._schema_from_object_info`, so a schema can be
 handed straight to a :class:`~vibecomfy.schema.types.NodeSchema` via that helper.
 """
@@ -25,13 +29,17 @@ from __future__ import annotations
 import ast
 import json
 import operator
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
+
+from vibecomfy.porting.object_info.pinned_venv import CommandRunner, provision_comfyui_venv
 
 # Type strings that denote a slot-bound (link) input rather than a widget, used
 # when deriving the object_info widget ordering.
@@ -54,7 +62,7 @@ class ExtractResult:
     """Outcome of running the extraction ladder over one pack source dir."""
 
     entries: dict[str, "OrderedDict[str, Any]"] = field(default_factory=dict)
-    method: str = ""  # "import" | "ast" | "" (nothing extracted)
+    method: str = ""  # "import" | "ast" | "embedded" | "" (nothing extracted)
     failures: list[str] = field(default_factory=list)
 
 
@@ -445,6 +453,188 @@ def extract_by_import(
     return entries, "import"
 
 
+_EMBEDDED_EXTRACTOR = r"""
+import os
+import sys
+import json
+import importlib
+import importlib.util
+from pathlib import Path
+
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
+pack_dir = Path(sys.argv[1])
+pack_name = sys.argv[2]
+_version = sys.argv[3]  # argv parity with the import extractor; unused here
+
+try:
+    import comfy
+    import nodes
+except Exception as exc:
+    raise SystemExit(f"failed to import comfy/nodes: {exc}") from exc
+
+parent_dir = str(pack_dir.parent)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+pack_str = str(pack_dir)
+if pack_str not in sys.path:
+    sys.path.insert(0, pack_str)
+
+mod = None
+try:
+    mod = importlib.import_module(pack_name)
+except Exception as exc:
+    init = pack_dir / "__init__.py"
+    if init.exists():
+        spec = importlib.util.spec_from_file_location(
+            "_vibecomfy_pack_under_test", init, submodule_search_locations=[str(pack_dir)]
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["_vibecomfy_pack_under_test"] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as exc2:
+            raise SystemExit(f"importlib.import_module failed ({exc}) and direct init load failed ({exc2})")
+    else:
+        raise SystemExit(f"pack has no __init__.py and import_module failed: {exc}")
+
+mappings = getattr(mod, "NODE_CLASS_MAPPINGS", {})
+out = {}
+for class_name, cls in mappings.items():
+    if hasattr(cls, "INPUT_TYPES"):
+        try:
+            out[class_name] = {
+                "inputs": cls.INPUT_TYPES(),
+                "return_types": getattr(cls, "RETURN_TYPES", ()),
+                "return_names": getattr(cls, "RETURN_NAMES", None),
+                "output_is_list": getattr(cls, "OUTPUT_IS_LIST", ()),
+                "category": getattr(cls, "CATEGORY", ""),
+                "function": getattr(cls, "FUNCTION", class_name),
+                "module": getattr(cls, "__module__", ""),
+            }
+        except Exception as exc:
+            out[class_name] = {"_error": str(exc)}
+print(json.dumps(out, default=str))
+"""
+
+
+def _default_embedded_timeout() -> int:
+    try:
+        val = int(os.environ.get("VIBECOMFY_EMBEDDED_TIMEOUT", "300"))
+    except Exception:
+        val = 300
+    return val if val > 120 else 300
+
+
+def _run_embedded_extractor(
+    pack_dir: Path,
+    pack_name: str,
+    version: str,
+    *,
+    python_path: Path,
+    timeout: int,
+    runner: CommandRunner | None = None,
+) -> dict[str, dict[str, Any]]:
+    cmd = [str(python_path), "-c", _EMBEDDED_EXTRACTOR, str(pack_dir), pack_name, version]
+    try:
+        if runner is not None:
+            result = runner(cmd)
+        else:
+            result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"embedded extraction timed out after {timeout}s") from exc
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "embedded extraction failed")
+    payload = result.stdout.strip()
+    for line in reversed(payload.splitlines()):
+        if line.lstrip().startswith("{"):
+            payload = line
+            break
+    raw = json.loads(payload)
+    return {name: entry for name, entry in raw.items() if isinstance(entry, dict) and "_error" not in entry}
+
+
+def extract_by_embedded(
+    pack_dir: Path,
+    *,
+    pack_name: str,
+    version: str,
+    only_classes: set[str] | None = None,
+    comfy_version: str,
+    timeout: int | None = None,
+    scratch_dir: Path | None = None,
+    runner: CommandRunner | None = None,
+) -> tuple[dict[str, OrderedDict[str, Any]], str]:
+    """Rung 3: install comfyui=={version} into a throwaway venv and import real comfy/nodes."""
+    resolved_timeout = timeout if timeout is not None else _default_embedded_timeout()
+    tmp_holder = None
+    env_dir: Path | None = None
+    try:
+        if scratch_dir is None:
+            tmp_holder = tempfile.TemporaryDirectory(prefix="vibecomfy-embedded-")
+            env_dir = Path(tmp_holder.name) / "venv"
+        else:
+            scratch_path = Path(scratch_dir)
+            scratch_path.mkdir(parents=True, exist_ok=True)
+            env_dir = scratch_path / "venv"
+        if runner is not None:
+            provision_runner = runner
+        else:
+            def _timed_runner(cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    list(cmd),
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=resolved_timeout,
+                )
+            provision_runner = _timed_runner
+        python_path = provision_comfyui_venv(env_dir, comfy_version, runner=provision_runner)
+        raw = _run_embedded_extractor(
+            pack_dir,
+            pack_name,
+            version,
+            python_path=python_path,
+            timeout=resolved_timeout,
+            runner=runner,
+        )
+        entries: dict[str, OrderedDict[str, Any]] = {}
+        for class_name, payload in raw.items():
+            if only_classes is not None and class_name not in only_classes:
+                continue
+            if not isinstance(payload.get("inputs"), dict):
+                continue
+            entries[class_name] = normalize_entry(
+                class_name=class_name,
+                raw_inputs=payload.get("inputs"),
+                pack_name=pack_name,
+                version=version,
+                python_module=payload.get("module") or pack_name,
+                attrs={
+                    "RETURN_TYPES": payload.get("return_types"),
+                    "RETURN_NAMES": payload.get("return_names"),
+                    "OUTPUT_IS_LIST": payload.get("output_is_list"),
+                    "CATEGORY": payload.get("category"),
+                    "FUNCTION": payload.get("function"),
+                },
+            )
+        return entries, "embedded"
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"embedded extraction timed out after {resolved_timeout}s") from exc
+    finally:
+        if tmp_holder is not None:
+            tmp_holder.cleanup()
+        elif env_dir is not None:
+            shutil.rmtree(env_dir, ignore_errors=True)
+
+
 def _sanitize_observed_inputs(raw_inputs: Any) -> Any:
     """Strip stub artifacts from an INPUT_TYPES mapping observed at runtime.
 
@@ -743,12 +933,17 @@ def extract_pack_schemas(
     allow_import: bool = True,
     scratch_dir: Path | None = None,
     import_timeout: int = 120,
+    allow_embedded: bool = False,
+    comfy_version: str | None = None,
+    embedded_timeout: int | None = None,
 ) -> ExtractResult:
     """Run the extraction ladder over a cloned pack source dir.
 
     Tries rung 2 (subprocess runtime INPUT_TYPES) when ``allow_import`` is set,
-    falling back to rung 1 (static AST). ``only_classes`` restricts extraction to
-    a known class set (``None`` extracts every resolvable class in the pack).
+    falling back to rung 1 (static AST), then rung 3 (embedded comfy-as-library)
+    when ``allow_embedded`` and no entries were produced. ``only_classes``
+    restricts extraction to a known class set (``None`` extracts every resolvable
+    class in the pack).
     """
     entries: dict[str, OrderedDict[str, Any]] = {}
     method = ""
@@ -777,5 +972,27 @@ def extract_pack_schemas(
         entries = ast_entries
         method = ast_method if entries else method
         failures.extend(ast_failures)
+
+    if not entries and allow_embedded and pack_dir.is_dir():
+        if not comfy_version:
+            failures.append(
+                "embedded: missing --comfy-version / VIBECOMFY_EMBEDDED_COMFY_VERSION (no comfy pin for rung 3)"
+            )
+        else:
+            try:
+                emb_entries, emb_method = extract_by_embedded(
+                    pack_dir,
+                    pack_name=pack_name,
+                    version=version,
+                    only_classes=only_classes,
+                    comfy_version=comfy_version,
+                    timeout=embedded_timeout,
+                    scratch_dir=scratch_dir,
+                )
+                if emb_entries:
+                    entries = emb_entries
+                    method = emb_method
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"embedded: {exc}")
 
     return ExtractResult(entries=entries, method=method, failures=failures)

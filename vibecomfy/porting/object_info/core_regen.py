@@ -9,17 +9,17 @@ offline consumers of existing JSON.
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import tempfile
 import textwrap
-import venv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any
 
-
-CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+from vibecomfy.porting.object_info.pinned_venv import (
+    CommandRunner,
+    provision_comfyui_venv,
+    run_checked,
+)
 
 
 @dataclass(frozen=True)
@@ -41,13 +41,13 @@ class CoreObjectInfoRunner:
 
     def _capture_in_root(self, root: Path) -> dict[str, Any]:
         env_dir = root / "venv"
-        if not (env_dir / "pyvenv.cfg").is_file():
-            venv.EnvBuilder(with_pip=True, clear=False).create(env_dir)
-        python = _venv_python(env_dir)
-        runner = self.runner or _run_checked
-        package = self.package_template.format(version=self.comfy_version)
-
-        runner([str(python), "-m", "pip", "install", "--disable-pip-version-check", package])
+        python = provision_comfyui_venv(
+            env_dir,
+            self.comfy_version,
+            runner=self.runner,
+            package_template=self.package_template,
+        )
+        runner = self.runner or run_checked
         proc = runner([str(python), "-c", _OBJECT_INFO_CAPTURE_SCRIPT])
         payload = json.loads(proc.stdout)
         if not isinstance(payload, dict):
@@ -70,22 +70,6 @@ def capture_core_object_info(
         env_root=Path(env_root) if env_root is not None else None,
         package_template=package_template,
     ).capture()
-
-
-def _venv_python(env_dir: Path) -> Path:
-    if sys.platform == "win32":
-        return env_dir / "Scripts" / "python.exe"
-    return env_dir / "bin" / "python"
-
-
-def _run_checked(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        list(command),
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
 
 
 _OBJECT_INFO_CAPTURE_SCRIPT = textwrap.dedent(
