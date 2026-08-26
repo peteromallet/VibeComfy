@@ -1,0 +1,438 @@
+{
+  "VibeVoiceTTS": {
+    "category": "audio/tts",
+    "class_schema_sha256": "45ccbc6b5a0e37d639e800d9a1a062da61bb899c4b6af94ff83e5448bc8923f8",
+    "description": "",
+    "display_name": "VibeVoiceTTS",
+    "evidence_identity": "on_demand:ast:99a98031d79e07f279a7aa6d01ce89042e8bba26",
+    "function": "generate_audio",
+    "git_commit": "99a98031d79e07f279a7aa6d01ce89042e8bba26",
+    "input_order": {
+      "optional": [
+        "speaker_1_voice",
+        "speaker_2_voice",
+        "speaker_3_voice",
+        "speaker_4_voice"
+      ],
+      "required": [
+        "model_name",
+        "text",
+        "quantize_llm_4bit",
+        "attention_mode",
+        "cfg_scale",
+        "inference_steps",
+        "seed",
+        "do_sample",
+        "temperature",
+        "top_p",
+        "top_k",
+        "force_offload"
+      ]
+    },
+    "input_order_all": [
+      "model_name",
+      "text",
+      "quantize_llm_4bit",
+      "attention_mode",
+      "cfg_scale",
+      "inference_steps",
+      "seed",
+      "do_sample",
+      "temperature",
+      "top_p",
+      "top_k",
+      "force_offload",
+      "speaker_1_voice",
+      "speaker_2_voice",
+      "speaker_3_voice",
+      "speaker_4_voice"
+    ],
+    "inputs": {
+      "optional": {
+        "speaker_1_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 1' or '[1]' in the script."
+          }
+        ],
+        "speaker_2_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 2' or '[2]' in the script."
+          }
+        ],
+        "speaker_3_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 3' or '[3]' in the script."
+          }
+        ],
+        "speaker_4_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 4' or '[4]' in the script."
+          }
+        ]
+      },
+      "required": {
+        "attention_mode": [
+          "ATTENTION_MODES",
+          {
+            "default": "sdpa",
+            "tooltip": "Attention implementation: Eager (safest), SDPA (balanced), Flash Attention 2 (fastest), Sage (quantized)"
+          }
+        ],
+        "cfg_scale": [
+          "FLOAT",
+          {
+            "default": 1.3,
+            "max": 50.0,
+            "min": 0.1,
+            "step": 0.05,
+            "tooltip": "Classifier-Free Guidance scale. Higher values increase adherence to the voice prompt but may reduce naturalness. Recommended: 1.3"
+          }
+        ],
+        "do_sample": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "label_off": "Disabled (Greedy)",
+            "label_on": "Enabled (Sampling)",
+            "tooltip": "Enable to use sampling methods (like temperature and top_p) for more varied output. Disable for deterministic (greedy) decoding."
+          }
+        ],
+        "force_offload": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "label_off": "Keep in VRAM",
+            "label_on": "Force Offload",
+            "tooltip": "Force model to be offloaded from VRAM after generation. Useful to free up memory between generations but may slow down subsequent runs."
+          }
+        ],
+        "inference_steps": [
+          "INT",
+          {
+            "default": 10,
+            "max": 500,
+            "min": 1,
+            "tooltip": "Number of diffusion steps for audio generation. More steps can improve quality but take longer. Recommended: 10"
+          }
+        ],
+        "model_name": [
+          [],
+          {
+            "tooltip": "Select the VibeVoice model to use. Official models will be downloaded automatically."
+          }
+        ],
+        "quantize_llm_4bit": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "label_off": "Full precision",
+            "label_on": "Q4 (LLM only)",
+            "tooltip": "Quantize the Qwen2.5 LLM to 4-bit NF4 via bitsandbytes. Diffusion head stays BF16/FP32."
+          }
+        ],
+        "seed": [
+          "INT",
+          {
+            "control_after_generate": true,
+            "default": 42,
+            "max": 18446744073709551615,
+            "min": 0,
+            "tooltip": "Seed for reproducibility. Set to 0 for a random seed on each run."
+          }
+        ],
+        "temperature": [
+          "FLOAT",
+          {
+            "default": 0.95,
+            "max": 2.0,
+            "min": 0.0,
+            "step": 0.01,
+            "tooltip": "Controls randomness. Higher values make the output more random and creative, while lower values make it more focused and deterministic. Active only if 'do_sample' is enabled."
+          }
+        ],
+        "text": [
+          "STRING",
+          {
+            "default": "[1] Hello, this is a cloned voice.\n[2] And this is a generated voice, how cool is that?",
+            "multiline": true,
+            "tooltip": "The script for generation. Use '[1]' or 'Speaker 1:' for speakers. If a speaker in the script lacks a reference voice, it will be generated via zero-shot TTS."
+          }
+        ],
+        "top_k": [
+          "INT",
+          {
+            "default": 0,
+            "max": 500,
+            "min": 0,
+            "step": 1,
+            "tooltip": "Top-K sampling. Restricts sampling to the K most likely next tokens. Set to 0 to disable. Active only if 'do_sample' is enabled."
+          }
+        ],
+        "top_p": [
+          "FLOAT",
+          {
+            "default": 0.95,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01,
+            "tooltip": "Nucleus sampling (Top-P). The model samples from the smallest set of tokens whose cumulative probability exceeds this value. Active only if 'do_sample' is enabled."
+          }
+        ]
+      }
+    },
+    "name": "VibeVoiceTTS",
+    "object_info_widget_order": [
+      "model_name",
+      "text",
+      "quantize_llm_4bit",
+      "attention_mode",
+      "cfg_scale",
+      "inference_steps",
+      "seed",
+      "do_sample",
+      "temperature",
+      "top_p",
+      "top_k",
+      "force_offload",
+      null,
+      null,
+      null,
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "ComfyUI-VibeVoice",
+    "pack_slug": "ComfyUI-VibeVoice",
+    "pack_version": "on_demand_static-99a9803",
+    "python_module": "ComfyUI-VibeVoice.vibevoice_nodes",
+    "schema_hash": "45ccbc6b5a0e37d639e800d9a1a062da61bb899c4b6af94ff83e5448bc8923f8",
+    "source_kind": "on_demand_static"
+  },
+  "VibeVoiceTTSNode": {
+    "category": "audio/tts",
+    "class_schema_sha256": "45ccbc6b5a0e37d639e800d9a1a062da61bb899c4b6af94ff83e5448bc8923f8",
+    "description": "",
+    "display_name": "VibeVoiceTTSNode",
+    "evidence_identity": "on_demand:ast:99a98031d79e07f279a7aa6d01ce89042e8bba26",
+    "function": "generate_audio",
+    "git_commit": "99a98031d79e07f279a7aa6d01ce89042e8bba26",
+    "input_order": {
+      "optional": [
+        "speaker_1_voice",
+        "speaker_2_voice",
+        "speaker_3_voice",
+        "speaker_4_voice"
+      ],
+      "required": [
+        "model_name",
+        "text",
+        "quantize_llm_4bit",
+        "attention_mode",
+        "cfg_scale",
+        "inference_steps",
+        "seed",
+        "do_sample",
+        "temperature",
+        "top_p",
+        "top_k",
+        "force_offload"
+      ]
+    },
+    "input_order_all": [
+      "model_name",
+      "text",
+      "quantize_llm_4bit",
+      "attention_mode",
+      "cfg_scale",
+      "inference_steps",
+      "seed",
+      "do_sample",
+      "temperature",
+      "top_p",
+      "top_k",
+      "force_offload",
+      "speaker_1_voice",
+      "speaker_2_voice",
+      "speaker_3_voice",
+      "speaker_4_voice"
+    ],
+    "inputs": {
+      "optional": {
+        "speaker_1_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 1' or '[1]' in the script."
+          }
+        ],
+        "speaker_2_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 2' or '[2]' in the script."
+          }
+        ],
+        "speaker_3_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 3' or '[3]' in the script."
+          }
+        ],
+        "speaker_4_voice": [
+          "AUDIO",
+          {
+            "tooltip": "Reference audio for 'Speaker 4' or '[4]' in the script."
+          }
+        ]
+      },
+      "required": {
+        "attention_mode": [
+          "ATTENTION_MODES",
+          {
+            "default": "sdpa",
+            "tooltip": "Attention implementation: Eager (safest), SDPA (balanced), Flash Attention 2 (fastest), Sage (quantized)"
+          }
+        ],
+        "cfg_scale": [
+          "FLOAT",
+          {
+            "default": 1.3,
+            "max": 50.0,
+            "min": 0.1,
+            "step": 0.05,
+            "tooltip": "Classifier-Free Guidance scale. Higher values increase adherence to the voice prompt but may reduce naturalness. Recommended: 1.3"
+          }
+        ],
+        "do_sample": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "label_off": "Disabled (Greedy)",
+            "label_on": "Enabled (Sampling)",
+            "tooltip": "Enable to use sampling methods (like temperature and top_p) for more varied output. Disable for deterministic (greedy) decoding."
+          }
+        ],
+        "force_offload": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "label_off": "Keep in VRAM",
+            "label_on": "Force Offload",
+            "tooltip": "Force model to be offloaded from VRAM after generation. Useful to free up memory between generations but may slow down subsequent runs."
+          }
+        ],
+        "inference_steps": [
+          "INT",
+          {
+            "default": 10,
+            "max": 500,
+            "min": 1,
+            "tooltip": "Number of diffusion steps for audio generation. More steps can improve quality but take longer. Recommended: 10"
+          }
+        ],
+        "model_name": [
+          [],
+          {
+            "tooltip": "Select the VibeVoice model to use. Official models will be downloaded automatically."
+          }
+        ],
+        "quantize_llm_4bit": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "label_off": "Full precision",
+            "label_on": "Q4 (LLM only)",
+            "tooltip": "Quantize the Qwen2.5 LLM to 4-bit NF4 via bitsandbytes. Diffusion head stays BF16/FP32."
+          }
+        ],
+        "seed": [
+          "INT",
+          {
+            "control_after_generate": true,
+            "default": 42,
+            "max": 18446744073709551615,
+            "min": 0,
+            "tooltip": "Seed for reproducibility. Set to 0 for a random seed on each run."
+          }
+        ],
+        "temperature": [
+          "FLOAT",
+          {
+            "default": 0.95,
+            "max": 2.0,
+            "min": 0.0,
+            "step": 0.01,
+            "tooltip": "Controls randomness. Higher values make the output more random and creative, while lower values make it more focused and deterministic. Active only if 'do_sample' is enabled."
+          }
+        ],
+        "text": [
+          "STRING",
+          {
+            "default": "[1] Hello, this is a cloned voice.\n[2] And this is a generated voice, how cool is that?",
+            "multiline": true,
+            "tooltip": "The script for generation. Use '[1]' or 'Speaker 1:' for speakers. If a speaker in the script lacks a reference voice, it will be generated via zero-shot TTS."
+          }
+        ],
+        "top_k": [
+          "INT",
+          {
+            "default": 0,
+            "max": 500,
+            "min": 0,
+            "step": 1,
+            "tooltip": "Top-K sampling. Restricts sampling to the K most likely next tokens. Set to 0 to disable. Active only if 'do_sample' is enabled."
+          }
+        ],
+        "top_p": [
+          "FLOAT",
+          {
+            "default": 0.95,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01,
+            "tooltip": "Nucleus sampling (Top-P). The model samples from the smallest set of tokens whose cumulative probability exceeds this value. Active only if 'do_sample' is enabled."
+          }
+        ]
+      }
+    },
+    "name": "VibeVoiceTTSNode",
+    "object_info_widget_order": [
+      "model_name",
+      "text",
+      "quantize_llm_4bit",
+      "attention_mode",
+      "cfg_scale",
+      "inference_steps",
+      "seed",
+      "do_sample",
+      "temperature",
+      "top_p",
+      "top_k",
+      "force_offload",
+      null,
+      null,
+      null,
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "ComfyUI-VibeVoice",
+    "pack_slug": "ComfyUI-VibeVoice",
+    "pack_version": "on_demand_static-99a9803",
+    "python_module": "ComfyUI-VibeVoice.vibevoice_nodes",
+    "schema_hash": "45ccbc6b5a0e37d639e800d9a1a062da61bb899c4b6af94ff83e5448bc8923f8",
+    "source_kind": "on_demand_static"
+  }
+}

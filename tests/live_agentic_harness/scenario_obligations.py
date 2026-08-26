@@ -107,6 +107,9 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
     # unindexed; every class they carried is recorded honestly below as
     # UNPROVEN — the enforced preflight refuses paid calls instead of grading
     # an impossible leg as product failure.
+    # OQ2 (operator-authorized, 2026-08-26): the 10 on_demand captures above
+    # are honest same-pack LIVE attestations, so the 6 previously-blocked
+    # scenarios are restored here with capture-wins port lists.
     # Exact port expectations stay encoded here so that when a same-pack LIVE
     # capture lands, the declaration can be restored WITH its ports:
     #   audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676 /
@@ -119,6 +122,151 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
     #   image-llama-cpp-instruct-image-preview-and-save-5b54bf:
     #     llama_cpp_model_loader / llama_cpp_instruct_adv /
     #     llama_cpp_parameters (ComfyUI-llama-cpp_vlm).
+    "audio-acestep-audio-generation-and-processing-workfl-1b1360": (
+        {
+            "class_type": "AudioCombine",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "on_demand_import",
+            "required_inputs": ("audio_1", "audio_2"),
+            "required_outputs": ("AUDIO",),
+        },
+        {
+            "class_type": "AudioSeparation",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "on_demand_import",
+            "required_inputs": ("audio",),
+            "required_outputs": ("Bass",),
+        },
+        {
+            "class_type": "AudioFilter",
+            "pack": "comfyui_ryanonyheinside",
+            "source": "on_demand_import",
+            "required_inputs": ("audio", "filters"),
+            "required_outputs": ("AUDIO",),
+        },
+        {
+            "class_type": "AudioVolumeNormalization",
+            "pack": "comfyui_ryanonyheinside",
+            "source": "on_demand_import",
+            "required_inputs": ("audio", "target_level"),
+            "required_outputs": ("AUDIO",),
+        },
+        {
+            "class_type": "VocalAndSoundRemoverNode",
+            "pack": "ComfyUI-DeepExtract",
+            "source": "on_demand_import",
+            "required_inputs": ("input_sound",),
+            "required_outputs": ("Vocals",),
+        },
+    ),
+    "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (
+        {
+            "class_type": "AudioCombine",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "on_demand_import",
+            "required_inputs": ("audio_1", "audio_2"),
+            "required_outputs": ("AUDIO",),
+        },
+        {
+            "class_type": "AudioSeparation",
+            "pack": "audio-separation-nodes-comfyui",
+            "source": "on_demand_import",
+            "required_inputs": ("audio",),
+            "required_outputs": ("Bass",),
+        },
+        {
+            "class_type": "AudioFilter",
+            "pack": "comfyui_ryanonyheinside",
+            "source": "on_demand_import",
+            "required_inputs": ("audio", "filters"),
+            "required_outputs": ("AUDIO",),
+        },
+        {
+            "class_type": "AudioVolumeNormalization",
+            "pack": "comfyui_ryanonyheinside",
+            "source": "on_demand_import",
+            "required_inputs": ("audio", "target_level"),
+            "required_outputs": ("AUDIO",),
+        },
+        {
+            "class_type": "VocalAndSoundRemoverNode",
+            "pack": "ComfyUI-DeepExtract",
+            "source": "on_demand_import",
+            "required_inputs": ("input_sound",),
+            "required_outputs": ("Vocals",),
+        },
+    ),
+    "audio-audio-processing-with-voice-tts-and-noise-remo-b80848": (
+        {
+            "class_type": "VibeVoiceTTS",
+            "pack": "ComfyUI-VibeVoice",
+            "source": "on_demand_static",
+            "required_inputs": ("text", "model_name"),
+            "required_outputs": ("AUDIO",),
+        },
+    ),
+    "image-generates-a-2x2-seed-variation": (
+        {
+            "class_type": "ImageBatchSplitter //Inspire",
+            "pack": "ComfyUI-Inspire-Pack",
+            "source": "on_demand_import",
+            "required_inputs": ("images", "split_count"),
+            "required_outputs": ("IMAGE",),
+        },
+        {
+            "class_type": "easy forLoopStart",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "on_demand_import",
+            "required_inputs": ("total",),
+            "required_outputs": ("flow", "index"),
+        },
+        {
+            "class_type": "easy forLoopEnd",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "on_demand_import",
+            "required_inputs": ("flow",),
+            "required_outputs": ("value1",),
+        },
+        {
+            "class_type": "easy int",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "on_demand_import",
+            "required_inputs": ("value",),
+            "required_outputs": ("int",),
+        },
+    ),
+    "image-llama-cpp-instruct-image-preview-and-save-5b54bf": (
+        {
+            "class_type": "llama_cpp_model_loader",
+            "pack": "ComfyUI-llama-cpp",
+            "source": "on_demand_import",
+            "required_inputs": ("model",),
+            "required_outputs": ("llama_model",),
+        },
+        {
+            "class_type": "llama_cpp_instruct_adv",
+            "pack": "ComfyUI-llama-cpp",
+            "source": "on_demand_import",
+            "required_inputs": ("llama_model", "custom_prompt"),
+            "required_outputs": ("output",),
+        },
+        {
+            "class_type": "llama_cpp_parameters",
+            "pack": "ComfyUI-llama-cpp",
+            "source": "on_demand_import",
+            "required_inputs": ("temperature",),
+            "required_outputs": ("parameters",),
+        },
+    ),
+    "image-sd3-image-generation-with-controlnet-19d221": (
+        {
+            "class_type": "ACN_AdvancedControlNetApply",
+            "pack": "ComfyUI-Advanced-ControlNet",
+            "source": "on_demand_static",
+            "required_inputs": ("control_net", "image", "positive", "negative"),
+            "required_outputs": ("positive",),
+        },
+    ),
 }
 
 #: Class-type families that trigger the exact-schema-evidence gate wherever
@@ -152,50 +300,17 @@ _GATED_CLASS_RE = re.compile(
 #:   * llama_cpp_model_loader / llama_cpp_instruct_adv /
 #:     llama_cpp_parameters (ComfyUI-llama-cpp_vlm).
 UNPROVEN_PROVIDER_CLASSES: dict[str, tuple[str, ...]] = {
-    "audio-acestep-audio-generation-and-processing-workfl-1b1360": (
-        "AudioCombine",
-        "AudioSeparation",
-        "AudioFilter",
-        "AudioVolumeNormalization",
-        "VocalAndSoundRemoverNode",
-    ),
-    "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (
-        "AudioCombine",
-        "AudioSeparation",
-        "AudioFilter",
-        "AudioVolumeNormalization",
-        "VocalAndSoundRemoverNode",
-    ),
-    "audio-audio-processing-with-voice-tts-and-noise-remo-b80848": (
-        "VibeVoiceTTS",
-    ),
-    # comfy_api v3-schema node: INPUT_TYPES is a shim object, not faithfully
-    # observable by the offline stub extractor at this commit.
-    # RR1-FIX-REV: ImageBatchSplitter //Inspire + easy forLoopStart/End join
-    # ``easy int`` — their Inspire/Easy-Use captures were simulated imports,
-    # not live object_info.
-    "image-generates-a-2x2-seed-variation": (
-        "easy int",
-        "ImageBatchSplitter //Inspire",
-        "easy forLoopStart",
-        "easy forLoopEnd",
-    ),
+    # OQ2: 6 scenarios above now have honest on_demand captures and
+    # declarations; the remaining honest gap is the VACE multi-video
+    # retargeting scenario whose Easy-Use loop surface was never captured
+    # for that workflow (not in final50).  It stays blocked until a
+    # same-pack LIVE capture lands.
     # Easy-Use loop nodes: dynamic outputs were the motivation for the
     # original obligation; without a LIVE capture the output surface is
     # unproven and stays honestly blocked.
     "multi-wan-vace-video-retargeting-driven": (
         "easy forLoopStart",
         "easy forLoopEnd",
-    ),
-    "image-llama-cpp-instruct-image-preview-and-save-5b54bf": (
-        "llama_cpp_model_loader",
-        "llama_cpp_instruct_adv",
-        "llama_cpp_parameters",
-    ),
-    # ACN_AdvancedControlNetApply extraction fails under offline stubs;
-    # provider (ComfyUI-Advanced-ControlNet) is known but UNPROVEN here.
-    "image-sd3-image-generation-with-controlnet-19d221": (
-        "ACN_AdvancedControlNetApply",
     ),
 }
 

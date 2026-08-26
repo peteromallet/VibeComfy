@@ -1,0 +1,85 @@
+{
+  "CSVPromptProcessor": {
+    "category": "CSV Processing",
+    "class_schema_sha256": "1e7b1451bef32a7c83146e6a3ef75ac550b567737b55fe5be6d795b4b9db7170",
+    "description": "",
+    "display_name": "CSVPromptProcessor",
+    "evidence_identity": "on_demand:ast:47667313d3d489603b98d93b9811d68a63a0d7d1",
+    "function": "process_prompts",
+    "git_commit": "47667313d3d489603b98d93b9811d68a63a0d7d1",
+    "input_order": {
+      "required": [
+        "style",
+        "subject",
+        "log_prompt",
+        "text_positive",
+        "text_negative"
+      ]
+    },
+    "input_order_all": [
+      "style",
+      "subject",
+      "log_prompt",
+      "text_positive",
+      "text_negative"
+    ],
+    "inputs": {
+      "required": {
+        "log_prompt": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "label_off": "no",
+            "label_on": "yes"
+          }
+        ],
+        "style": [
+          "styles"
+        ],
+        "subject": [
+          "subjects"
+        ],
+        "text_negative": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": true
+          }
+        ],
+        "text_positive": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": true
+          }
+        ]
+      }
+    },
+    "name": "CSVPromptProcessor",
+    "object_info_widget_order": [
+      "style",
+      "subject",
+      "log_prompt",
+      "text_positive",
+      "text_negative"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "positive_prompt",
+        "type": "STRING"
+      },
+      {
+        "is_list": false,
+        "name": "negative_prompt",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-SubjectStyle-CSV",
+    "pack_slug": "ComfyUI-SubjectStyle-CSV",
+    "pack_version": "on_demand_static-4766731",
+    "python_module": "ComfyUI-SubjectStyle-CSV.csv_loader",
+    "schema_hash": "1e7b1451bef32a7c83146e6a3ef75ac550b567737b55fe5be6d795b4b9db7170",
+    "source_kind": "on_demand_static"
+  }
+}

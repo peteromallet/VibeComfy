@@ -1,0 +1,3425 @@
+{
+  "easy ab": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy ab",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "A or B",
+        "in"
+      ]
+    },
+    "input_order_all": [
+      "A or B",
+      "in"
+    ],
+    "inputs": {
+      "required": {
+        "A or B": [
+          "BOOLEAN",
+          {
+            "default": true,
+            "label_off": "B",
+            "label_on": "A"
+          }
+        ],
+        "in": [
+          "*"
+        ]
+      }
+    },
+    "name": "easy ab",
+    "object_info_widget_order": [
+      "A or B",
+      "in"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "A",
+        "type": "*"
+      },
+      {
+        "is_list": false,
+        "name": "B",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy anythingIndexSwitch": {
+    "category": "EasyUse/Logic/Index Switch",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy anythingIndexSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "index_switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "value0",
+        "value1",
+        "value2",
+        "value3",
+        "value4",
+        "value5",
+        "value6",
+        "value7",
+        "value8",
+        "value9",
+        "value10",
+        "value11",
+        "value12",
+        "value13",
+        "value14",
+        "value15",
+        "value16",
+        "value17",
+        "value18",
+        "value19"
+      ],
+      "required": [
+        "index"
+      ]
+    },
+    "input_order_all": [
+      "index",
+      "value0",
+      "value1",
+      "value2",
+      "value3",
+      "value4",
+      "value5",
+      "value6",
+      "value7",
+      "value8",
+      "value9",
+      "value10",
+      "value11",
+      "value12",
+      "value13",
+      "value14",
+      "value15",
+      "value16",
+      "value17",
+      "value18",
+      "value19"
+    ],
+    "inputs": {
+      "optional": {
+        "value0": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value1": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value10": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value11": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value12": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value13": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value14": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value15": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value16": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value17": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value18": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value19": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value2": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value3": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value4": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value5": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value6": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value7": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value8": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "value9": [
+          "*",
+          {
+            "lazy": true
+          }
+        ]
+      },
+      "required": {
+        "index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 9,
+            "min": 0,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy anythingIndexSwitch",
+    "object_info_widget_order": [
+      "index",
+      "value0",
+      "value1",
+      "value2",
+      "value3",
+      "value4",
+      "value5",
+      "value6",
+      "value7",
+      "value8",
+      "value9",
+      "value10",
+      "value11",
+      "value12",
+      "value13",
+      "value14",
+      "value15",
+      "value16",
+      "value17",
+      "value18",
+      "value19"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "value",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy anythingInversedSwitch": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy anythingInversedSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "index",
+        "in"
+      ]
+    },
+    "input_order_all": [
+      "index",
+      "in"
+    ],
+    "inputs": {
+      "required": {
+        "in": [
+          "*"
+        ],
+        "index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 9,
+            "min": 0,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy anythingInversedSwitch",
+    "object_info_widget_order": [
+      "index",
+      "in"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "out0",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy batchAnything": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy batchAnything",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "batch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "any_1",
+        "any_2"
+      ]
+    },
+    "input_order_all": [
+      "any_1",
+      "any_2"
+    ],
+    "inputs": {
+      "required": {
+        "any_1": [
+          "*",
+          {}
+        ],
+        "any_2": [
+          "*",
+          {}
+        ]
+      }
+    },
+    "name": "easy batchAnything",
+    "object_info_widget_order": [
+      "any_1",
+      "any_2"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "batch",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy blocker": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy blocker",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "continue",
+        "in"
+      ]
+    },
+    "input_order_all": [
+      "continue",
+      "in"
+    ],
+    "inputs": {
+      "required": {
+        "continue": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ],
+        "in": [
+          "*",
+          {
+            "default": null
+          }
+        ]
+      }
+    },
+    "name": "easy blocker",
+    "object_info_widget_order": [
+      "continue",
+      "in"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "out",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy boolean": {
+    "category": "EasyUse/Logic/Type",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy boolean",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "value"
+      ]
+    },
+    "input_order_all": [
+      "value"
+    ],
+    "inputs": {
+      "required": {
+        "value": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ]
+      }
+    },
+    "name": "easy boolean",
+    "object_info_widget_order": [
+      "value"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy cleanGpuUsed": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy cleanGpuUsed",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "empty_cache",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "anything"
+      ]
+    },
+    "input_order_all": [
+      "anything"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "anything": [
+          "*",
+          {}
+        ]
+      }
+    },
+    "name": "easy cleanGpuUsed",
+    "object_info_widget_order": [
+      "anything"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "output",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy clearCacheAll": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy clearCacheAll",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "empty_cache",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "anything"
+      ]
+    },
+    "input_order_all": [
+      "anything"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "anything": [
+          "*",
+          {}
+        ]
+      }
+    },
+    "name": "easy clearCacheAll",
+    "object_info_widget_order": [
+      "anything"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "output",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy clearCacheKey": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy clearCacheKey",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "empty_cache",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "anything",
+        "cache_key"
+      ]
+    },
+    "input_order_all": [
+      "anything",
+      "cache_key"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "anything": [
+          "*",
+          {}
+        ],
+        "cache_key": [
+          "STRING",
+          {
+            "default": "*"
+          }
+        ]
+      }
+    },
+    "name": "easy clearCacheKey",
+    "object_info_widget_order": [
+      "anything",
+      "cache_key"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "output",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy compare": {
+    "category": "EasyUse/Logic/Math",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy compare",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "compare",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "a",
+        "b",
+        "comparison"
+      ]
+    },
+    "input_order_all": [
+      "a",
+      "b",
+      "comparison"
+    ],
+    "inputs": {
+      "optional": {
+        "a": [
+          "*",
+          {
+            "default": 0
+          }
+        ],
+        "b": [
+          "*",
+          {
+            "default": 0
+          }
+        ],
+        "comparison": [
+          [
+            "a == b",
+            "a != b",
+            "a < b",
+            "a > b",
+            "a <= b",
+            "a >= b",
+            "a > 0",
+            "a <= 0",
+            "b > 0",
+            "b <= 0"
+          ],
+          {
+            "default": "a == b"
+          }
+        ]
+      }
+    },
+    "name": "easy compare",
+    "object_info_widget_order": [
+      "a",
+      "b",
+      "comparison"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy conditioningIndexSwitch": {
+    "category": "EasyUse/Logic/Index Switch",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy conditioningIndexSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "index_switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "cond0",
+        "cond1",
+        "cond2",
+        "cond3",
+        "cond4",
+        "cond5",
+        "cond6",
+        "cond7",
+        "cond8",
+        "cond9",
+        "cond10",
+        "cond11",
+        "cond12",
+        "cond13",
+        "cond14",
+        "cond15",
+        "cond16",
+        "cond17",
+        "cond18",
+        "cond19"
+      ],
+      "required": [
+        "index"
+      ]
+    },
+    "input_order_all": [
+      "index",
+      "cond0",
+      "cond1",
+      "cond2",
+      "cond3",
+      "cond4",
+      "cond5",
+      "cond6",
+      "cond7",
+      "cond8",
+      "cond9",
+      "cond10",
+      "cond11",
+      "cond12",
+      "cond13",
+      "cond14",
+      "cond15",
+      "cond16",
+      "cond17",
+      "cond18",
+      "cond19"
+    ],
+    "inputs": {
+      "optional": {
+        "cond0": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond1": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond10": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond11": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond12": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond13": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond14": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond15": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond16": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond17": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond18": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond19": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond2": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond3": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond4": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond5": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond6": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond7": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond8": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ],
+        "cond9": [
+          "CONDITIONING",
+          {
+            "lazy": true
+          }
+        ]
+      },
+      "required": {
+        "index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 9,
+            "min": 0,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy conditioningIndexSwitch",
+    "object_info_widget_order": [
+      "index",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "conditioning",
+        "type": "CONDITIONING"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy convertAnything": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy convertAnything",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "convert",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "*",
+        "output_type"
+      ]
+    },
+    "input_order_all": [
+      "*",
+      "output_type"
+    ],
+    "inputs": {
+      "required": {
+        "*": [
+          "*"
+        ],
+        "output_type": [
+          [
+            "string",
+            "int",
+            "float",
+            "boolean"
+          ],
+          {
+            "default": "string"
+          }
+        ]
+      }
+    },
+    "name": "easy convertAnything",
+    "object_info_widget_order": [
+      "*",
+      "output_type"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "*",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy float": {
+    "category": "EasyUse/Logic/Type",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy float",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "value"
+      ]
+    },
+    "input_order_all": [
+      "value"
+    ],
+    "inputs": {
+      "required": {
+        "value": [
+          "FLOAT",
+          {
+            "default": 0,
+            "max": 18446744073709551615,
+            "min": -18446744073709551615,
+            "step": 0.01
+          }
+        ]
+      }
+    },
+    "name": "easy float",
+    "object_info_widget_order": [
+      "value"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "float",
+        "type": "FLOAT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy ifElse": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy ifElse",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "boolean",
+        "on_true",
+        "on_false"
+      ]
+    },
+    "input_order_all": [
+      "boolean",
+      "on_true",
+      "on_false"
+    ],
+    "inputs": {
+      "required": {
+        "boolean": [
+          "BOOLEAN"
+        ],
+        "on_false": [
+          "*",
+          {
+            "lazy": true
+          }
+        ],
+        "on_true": [
+          "*",
+          {
+            "lazy": true
+          }
+        ]
+      }
+    },
+    "name": "easy ifElse",
+    "object_info_widget_order": [
+      "boolean",
+      "on_true",
+      "on_false"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "*",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy imageIndexSwitch": {
+    "category": "EasyUse/Logic/Index Switch",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy imageIndexSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "index_switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "image0",
+        "image1",
+        "image2",
+        "image3",
+        "image4",
+        "image5",
+        "image6",
+        "image7",
+        "image8",
+        "image9",
+        "image10",
+        "image11",
+        "image12",
+        "image13",
+        "image14",
+        "image15",
+        "image16",
+        "image17",
+        "image18",
+        "image19"
+      ],
+      "required": [
+        "index"
+      ]
+    },
+    "input_order_all": [
+      "index",
+      "image0",
+      "image1",
+      "image2",
+      "image3",
+      "image4",
+      "image5",
+      "image6",
+      "image7",
+      "image8",
+      "image9",
+      "image10",
+      "image11",
+      "image12",
+      "image13",
+      "image14",
+      "image15",
+      "image16",
+      "image17",
+      "image18",
+      "image19"
+    ],
+    "inputs": {
+      "optional": {
+        "image0": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image1": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image10": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image11": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image12": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image13": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image14": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image15": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image16": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image17": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image18": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image19": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image2": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image3": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image4": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image5": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image6": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image7": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image8": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ],
+        "image9": [
+          "IMAGE",
+          {
+            "lazy": true
+          }
+        ]
+      },
+      "required": {
+        "index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 9,
+            "min": 0,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy imageIndexSwitch",
+    "object_info_widget_order": [
+      "index",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "image",
+        "type": "IMAGE"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy imageSwitch": {
+    "category": "EasyUse/Logic/Switch",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy imageSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "image_switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "image_a",
+        "image_b",
+        "boolean"
+      ]
+    },
+    "input_order_all": [
+      "image_a",
+      "image_b",
+      "boolean"
+    ],
+    "inputs": {
+      "required": {
+        "boolean": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ],
+        "image_a": [
+          "IMAGE"
+        ],
+        "image_b": [
+          "IMAGE"
+        ]
+      }
+    },
+    "name": "easy imageSwitch",
+    "object_info_widget_order": [
+      null,
+      null,
+      "boolean"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "IMAGE",
+        "type": "IMAGE"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy indexAnything": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy indexAnything",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "getIndex",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "any",
+        "index"
+      ]
+    },
+    "input_order_all": [
+      "any",
+      "index"
+    ],
+    "inputs": {
+      "required": {
+        "any": [
+          "*",
+          {}
+        ],
+        "index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 1000000,
+            "min": -1000000,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy indexAnything",
+    "object_info_widget_order": [
+      "any",
+      "index"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "out",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy int": {
+    "category": "EasyUse/Logic/Type",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy int",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "value"
+      ]
+    },
+    "input_order_all": [
+      "value"
+    ],
+    "inputs": {
+      "required": {
+        "value": [
+          "INT",
+          {
+            "default": 0,
+            "max": 999999,
+            "min": -999999
+          }
+        ]
+      }
+    },
+    "name": "easy int",
+    "object_info_widget_order": [
+      "value"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "int",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy isFileExist": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy isFileExist",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "file_path",
+        "file_name",
+        "file_extension"
+      ]
+    },
+    "input_order_all": [
+      "file_path",
+      "file_name",
+      "file_extension"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "file_extension": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ],
+        "file_name": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ],
+        "file_path": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ]
+      }
+    },
+    "name": "easy isFileExist",
+    "object_info_widget_order": [
+      "file_path",
+      "file_name",
+      "file_extension"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy isMaskEmpty": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy isMaskEmpty",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "mask"
+      ]
+    },
+    "input_order_all": [
+      "mask"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "mask": [
+          "MASK"
+        ]
+      }
+    },
+    "name": "easy isMaskEmpty",
+    "object_info_widget_order": [
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy isNone": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy isNone",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "any"
+      ]
+    },
+    "input_order_all": [
+      "any"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "any": [
+          "*"
+        ]
+      }
+    },
+    "name": "easy isNone",
+    "object_info_widget_order": [
+      "any"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy isSDXL": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy isSDXL",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "optional_pipe",
+        "optional_clip"
+      ],
+      "required": []
+    },
+    "input_order_all": [
+      "optional_pipe",
+      "optional_clip"
+    ],
+    "inputs": {
+      "optional": {
+        "optional_clip": [
+          "CLIP"
+        ],
+        "optional_pipe": [
+          "PIPE_LINE"
+        ]
+      },
+      "required": {}
+    },
+    "name": "easy isSDXL",
+    "object_info_widget_order": [
+      "optional_pipe",
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy lengthAnything": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy lengthAnything",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "getLength",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "any"
+      ]
+    },
+    "input_order_all": [
+      "any"
+    ],
+    "inputs": {
+      "required": {
+        "any": [
+          "*",
+          {}
+        ]
+      }
+    },
+    "name": "easy lengthAnything",
+    "object_info_widget_order": [
+      "any"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "length",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy mathFloat": {
+    "category": "EasyUse/Logic/Math",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy mathFloat",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "float_math_operation",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "a",
+        "b",
+        "operation"
+      ]
+    },
+    "input_order_all": [
+      "a",
+      "b",
+      "operation"
+    ],
+    "inputs": {
+      "required": {
+        "a": [
+          "FLOAT",
+          {
+            "default": 0,
+            "max": 999999999999.0,
+            "min": -999999999999.0,
+            "step": 0.01
+          }
+        ],
+        "b": [
+          "FLOAT",
+          {
+            "default": 0,
+            "max": 999999999999.0,
+            "min": -999999999999.0,
+            "step": 0.01
+          }
+        ],
+        "operation": [
+          [
+            "add",
+            "subtract",
+            "multiply",
+            "divide",
+            "modulo",
+            "power"
+          ]
+        ]
+      }
+    },
+    "name": "easy mathFloat",
+    "object_info_widget_order": [
+      "a",
+      "b",
+      "operation"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "FLOAT",
+        "type": "FLOAT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy mathInt": {
+    "category": "EasyUse/Logic/Math",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy mathInt",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "int_math_operation",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "a",
+        "b",
+        "operation"
+      ]
+    },
+    "input_order_all": [
+      "a",
+      "b",
+      "operation"
+    ],
+    "inputs": {
+      "required": {
+        "a": [
+          "INT",
+          {
+            "default": 0,
+            "max": 18446744073709551615,
+            "min": -18446744073709551615,
+            "step": 1
+          }
+        ],
+        "b": [
+          "INT",
+          {
+            "default": 0,
+            "max": 18446744073709551615,
+            "min": -18446744073709551615,
+            "step": 1
+          }
+        ],
+        "operation": [
+          [
+            "add",
+            "subtract",
+            "multiply",
+            "divide",
+            "modulo",
+            "power"
+          ]
+        ]
+      }
+    },
+    "name": "easy mathInt",
+    "object_info_widget_order": [
+      "a",
+      "b",
+      "operation"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "INT",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy mathString": {
+    "category": "EasyUse/Logic/Math",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy mathString",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "string_math_operation",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "a",
+        "b",
+        "operation",
+        "case_sensitive"
+      ]
+    },
+    "input_order_all": [
+      "a",
+      "b",
+      "operation",
+      "case_sensitive"
+    ],
+    "inputs": {
+      "required": {
+        "a": [
+          "STRING",
+          {
+            "multiline": false
+          }
+        ],
+        "b": [
+          "STRING",
+          {
+            "multiline": false
+          }
+        ],
+        "case_sensitive": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ],
+        "operation": [
+          [
+            "a == b",
+            "a != b",
+            "a IN b",
+            "a MATCH REGEX(b)",
+            "a BEGINSWITH b",
+            "a ENDSWITH b"
+          ]
+        ]
+      }
+    },
+    "name": "easy mathString",
+    "object_info_widget_order": [
+      "a",
+      "b",
+      "operation",
+      "case_sensitive"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "BOOLEAN",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy outputToList": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy outputToList",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "output_to_List",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "tuple"
+      ]
+    },
+    "input_order_all": [
+      "tuple"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "tuple": [
+          "*",
+          {}
+        ]
+      }
+    },
+    "name": "easy outputToList",
+    "object_info_widget_order": [
+      "tuple"
+    ],
+    "outputs": [
+      {
+        "is_list": true,
+        "name": "list",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy pixels": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy pixels",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "create",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "resolution",
+        "width",
+        "height",
+        "scale",
+        "flip_w/h"
+      ]
+    },
+    "input_order_all": [
+      "resolution",
+      "width",
+      "height",
+      "scale",
+      "flip_w/h"
+    ],
+    "inputs": {
+      "required": {
+        "flip_w/h": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ],
+        "height": [
+          "INT",
+          {
+            "default": 512,
+            "min": 64,
+            "step": 8
+          }
+        ],
+        "resolution": [
+          [
+            "width x height (custom)",
+            "512 x 512",
+            "512 x 768",
+            "576 x 1024",
+            "768 x 512",
+            "768 x 768",
+            "768 x 1024",
+            "768 x 1280",
+            "768 x 1344",
+            "768 x 1536",
+            "816 x 1920",
+            "832 x 1152",
+            "832 x 1216",
+            "896 x 1152",
+            "896 x 1088",
+            "1024 x 1024",
+            "1024 x 576",
+            "1024 x 768",
+            "1080 x 1920",
+            "1440 x 2560",
+            "1088 x 896",
+            "1216 x 832",
+            "1152 x 832",
+            "1152 x 896",
+            "1280 x 768",
+            "1344 x 768",
+            "1536 x 640",
+            "1536 x 768",
+            "1920 x 816",
+            "1920 x 1080",
+            "2560 x 1440"
+          ]
+        ],
+        "scale": [
+          "FLOAT",
+          {
+            "default": 2.0,
+            "max": 10,
+            "min": 0.001,
+            "step": 0.001
+          }
+        ],
+        "width": [
+          "INT",
+          {
+            "default": 512,
+            "min": 64,
+            "step": 8
+          }
+        ]
+      }
+    },
+    "name": "easy pixels",
+    "object_info_widget_order": [
+      "resolution",
+      "width",
+      "height",
+      "scale",
+      "flip_w/h"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "width_norm",
+        "type": "INT"
+      },
+      {
+        "is_list": false,
+        "name": "height_norm",
+        "type": "INT"
+      },
+      {
+        "is_list": false,
+        "name": "width",
+        "type": "*"
+      },
+      {
+        "is_list": false,
+        "name": "height",
+        "type": "*"
+      },
+      {
+        "is_list": false,
+        "name": "scale_factor",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy rangeFloat": {
+    "category": "EasyUse/Logic/Type",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy rangeFloat",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "build_range",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "range_mode",
+        "start",
+        "stop",
+        "step",
+        "num_steps",
+        "end_mode"
+      ]
+    },
+    "input_order_all": [
+      "range_mode",
+      "start",
+      "stop",
+      "step",
+      "num_steps",
+      "end_mode"
+    ],
+    "inputs": {
+      "required": {
+        "end_mode": [
+          [
+            "Inclusive",
+            "Exclusive"
+          ],
+          {
+            "default": "Inclusive"
+          }
+        ],
+        "num_steps": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 1
+          }
+        ],
+        "range_mode": [
+          [
+            "step",
+            "num_steps"
+          ],
+          {
+            "default": "step"
+          }
+        ],
+        "start": [
+          "FLOAT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 0.1
+          }
+        ],
+        "step": [
+          "FLOAT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 0.1
+          }
+        ],
+        "stop": [
+          "FLOAT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 0.1
+          }
+        ]
+      }
+    },
+    "name": "easy rangeFloat",
+    "object_info_widget_order": [
+      "range_mode",
+      "start",
+      "stop",
+      "step",
+      "num_steps",
+      "end_mode"
+    ],
+    "outputs": [
+      {
+        "is_list": true,
+        "name": "range",
+        "type": "FLOAT"
+      },
+      {
+        "is_list": true,
+        "name": "range_sizes",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy rangeInt": {
+    "category": "EasyUse/Logic/Type",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy rangeInt",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "build_range",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "range_mode",
+        "start",
+        "stop",
+        "step",
+        "num_steps",
+        "end_mode"
+      ]
+    },
+    "input_order_all": [
+      "range_mode",
+      "start",
+      "stop",
+      "step",
+      "num_steps",
+      "end_mode"
+    ],
+    "inputs": {
+      "required": {
+        "end_mode": [
+          [
+            "Inclusive",
+            "Exclusive"
+          ],
+          {
+            "default": "Inclusive"
+          }
+        ],
+        "num_steps": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 1
+          }
+        ],
+        "range_mode": [
+          [
+            "step",
+            "num_steps"
+          ],
+          {
+            "default": "step"
+          }
+        ],
+        "start": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 1
+          }
+        ],
+        "step": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 1
+          }
+        ],
+        "stop": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": -4096,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy rangeInt",
+    "object_info_widget_order": [
+      "range_mode",
+      "start",
+      "stop",
+      "step",
+      "num_steps",
+      "end_mode"
+    ],
+    "outputs": [
+      {
+        "is_list": true,
+        "name": "range",
+        "type": "INT"
+      },
+      {
+        "is_list": true,
+        "name": "range_sizes",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy saveText": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy saveText",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "save_text",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "image"
+      ],
+      "required": [
+        "text",
+        "output_file_path",
+        "file_name",
+        "file_extension",
+        "overwrite"
+      ]
+    },
+    "input_order_all": [
+      "text",
+      "output_file_path",
+      "file_name",
+      "file_extension",
+      "overwrite",
+      "image"
+    ],
+    "inputs": {
+      "optional": {
+        "image": [
+          "IMAGE"
+        ]
+      },
+      "required": {
+        "file_extension": [
+          [
+            "txt",
+            "csv"
+          ]
+        ],
+        "file_name": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": false
+          }
+        ],
+        "output_file_path": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": false
+          }
+        ],
+        "overwrite": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ],
+        "text": [
+          "STRING",
+          {
+            "default": "",
+            "forceInput": true
+          }
+        ]
+      }
+    },
+    "name": "easy saveText",
+    "object_info_widget_order": [
+      "text",
+      "output_file_path",
+      "file_name",
+      "file_extension",
+      "overwrite",
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "text",
+        "type": "STRING"
+      },
+      {
+        "is_list": false,
+        "name": "image",
+        "type": "IMAGE"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy saveTextLazy": {
+    "category": "EasyUse/🚫 Deprecated",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy saveTextLazy",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "save_text",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "image"
+      ],
+      "required": [
+        "text",
+        "output_file_path",
+        "file_name",
+        "file_extension",
+        "overwrite"
+      ]
+    },
+    "input_order_all": [
+      "text",
+      "output_file_path",
+      "file_name",
+      "file_extension",
+      "overwrite",
+      "image"
+    ],
+    "inputs": {
+      "optional": {
+        "image": [
+          "IMAGE"
+        ]
+      },
+      "required": {
+        "file_extension": [
+          [
+            "txt",
+            "csv"
+          ]
+        ],
+        "file_name": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": false
+          }
+        ],
+        "output_file_path": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": false
+          }
+        ],
+        "overwrite": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ],
+        "text": [
+          "STRING",
+          {
+            "default": "",
+            "forceInput": true
+          }
+        ]
+      }
+    },
+    "name": "easy saveTextLazy",
+    "object_info_widget_order": [
+      "text",
+      "output_file_path",
+      "file_name",
+      "file_extension",
+      "overwrite",
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "text",
+        "type": "STRING"
+      },
+      {
+        "is_list": false,
+        "name": "image",
+        "type": "IMAGE"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.deprecated",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy showAnything": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy showAnything",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "log_input",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "anything"
+      ],
+      "required": []
+    },
+    "input_order_all": [
+      "anything"
+    ],
+    "inputs": {
+      "optional": {
+        "anything": [
+          "*",
+          {}
+        ]
+      },
+      "required": {}
+    },
+    "name": "easy showAnything",
+    "object_info_widget_order": [
+      "anything"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "output",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy showTensorShape": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy showTensorShape",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "log_input",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [],
+      "required": [
+        "tensor"
+      ]
+    },
+    "input_order_all": [
+      "tensor"
+    ],
+    "inputs": {
+      "optional": {},
+      "required": {
+        "tensor": [
+          "*"
+        ]
+      }
+    },
+    "name": "easy showTensorShape",
+    "object_info_widget_order": [
+      "tensor"
+    ],
+    "outputs": [],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy simpleMath": {
+    "category": "EasyUse/Logic/Math",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy simpleMath",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "a",
+        "b",
+        "c"
+      ],
+      "required": [
+        "value"
+      ]
+    },
+    "input_order_all": [
+      "value",
+      "a",
+      "b",
+      "c"
+    ],
+    "inputs": {
+      "optional": {
+        "a": [
+          "*"
+        ],
+        "b": [
+          "*"
+        ],
+        "c": [
+          "*"
+        ]
+      },
+      "required": {
+        "value": [
+          "STRING",
+          {
+            "default": "",
+            "placeholder": "输入数学公式，如: a + b, pow(a, 2), ceil(a / b), floor(a * b), round(a / b, 2)"
+          }
+        ]
+      }
+    },
+    "name": "easy simpleMath",
+    "object_info_widget_order": [
+      "value",
+      "a",
+      "b",
+      "c"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "int",
+        "type": "INT"
+      },
+      {
+        "is_list": false,
+        "name": "float",
+        "type": "FLOAT"
+      },
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy simpleMathDual": {
+    "category": "EasyUse/Logic/Math",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy simpleMathDual",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "required": [
+        "value1",
+        "value2"
+      ]
+    },
+    "input_order_all": [
+      "value1",
+      "value2",
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "inputs": {
+      "optional": {
+        "a": [
+          "*"
+        ],
+        "b": [
+          "*"
+        ],
+        "c": [
+          "*"
+        ],
+        "d": [
+          "*"
+        ]
+      },
+      "required": {
+        "value1": [
+          "STRING",
+          {
+            "default": "",
+            "placeholder": "输入数学公式1，如: a + b, pow(a, 2), ceil(a / b)"
+          }
+        ],
+        "value2": [
+          "STRING",
+          {
+            "default": "",
+            "placeholder": "输入数学公式2，如: c * d, sqrt(c), floor(d / 2)"
+          }
+        ]
+      }
+    },
+    "name": "easy simpleMathDual",
+    "object_info_widget_order": [
+      "value1",
+      "value2",
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "int1",
+        "type": "INT"
+      },
+      {
+        "is_list": false,
+        "name": "float1",
+        "type": "FLOAT"
+      },
+      {
+        "is_list": false,
+        "name": "int2",
+        "type": "INT"
+      },
+      {
+        "is_list": false,
+        "name": "float2",
+        "type": "FLOAT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy sleep": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy sleep",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "any",
+        "delay"
+      ]
+    },
+    "input_order_all": [
+      "any",
+      "delay"
+    ],
+    "inputs": {
+      "required": {
+        "any": [
+          "*",
+          {}
+        ],
+        "delay": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "max": 1000000,
+            "min": 0.0,
+            "step": 0.1
+          }
+        ]
+      }
+    },
+    "name": "easy sleep",
+    "object_info_widget_order": [
+      "any",
+      "delay"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "out",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy string": {
+    "category": "EasyUse/Logic/Type",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy string",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "value"
+      ]
+    },
+    "input_order_all": [
+      "value"
+    ],
+    "inputs": {
+      "required": {
+        "value": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ]
+      }
+    },
+    "name": "easy string",
+    "object_info_widget_order": [
+      "value"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "string",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy stringJoinLines": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy stringJoinLines",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "string",
+        "delimiter"
+      ]
+    },
+    "input_order_all": [
+      "string",
+      "delimiter"
+    ],
+    "inputs": {
+      "required": {
+        "delimiter": [
+          "STRING",
+          {
+            "default": " | "
+          }
+        ],
+        "string": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": true
+          }
+        ]
+      }
+    },
+    "name": "easy stringJoinLines",
+    "object_info_widget_order": [
+      "string",
+      "delimiter"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "STRING",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy stringToFloatList": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy stringToFloatList",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "string"
+      ]
+    },
+    "input_order_all": [
+      "string"
+    ],
+    "inputs": {
+      "required": {
+        "string": [
+          "STRING",
+          {
+            "default": "1, 2, 3",
+            "multiline": true
+          }
+        ]
+      }
+    },
+    "name": "easy stringToFloatList",
+    "object_info_widget_order": [
+      "string"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "FLOAT",
+        "type": "FLOAT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy stringToIntList": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy stringToIntList",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "execute",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "string"
+      ]
+    },
+    "input_order_all": [
+      "string"
+    ],
+    "inputs": {
+      "required": {
+        "string": [
+          "STRING",
+          {
+            "default": "1, 2, 3",
+            "multiline": true
+          }
+        ]
+      }
+    },
+    "name": "easy stringToIntList",
+    "object_info_widget_order": [
+      "string"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "INT",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy textIndexSwitch": {
+    "category": "EasyUse/Logic/Index Switch",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy textIndexSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "index_switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "text0",
+        "text1",
+        "text2",
+        "text3",
+        "text4",
+        "text5",
+        "text6",
+        "text7",
+        "text8",
+        "text9",
+        "text10",
+        "text11",
+        "text12",
+        "text13",
+        "text14",
+        "text15",
+        "text16",
+        "text17",
+        "text18",
+        "text19"
+      ],
+      "required": [
+        "index"
+      ]
+    },
+    "input_order_all": [
+      "index",
+      "text0",
+      "text1",
+      "text2",
+      "text3",
+      "text4",
+      "text5",
+      "text6",
+      "text7",
+      "text8",
+      "text9",
+      "text10",
+      "text11",
+      "text12",
+      "text13",
+      "text14",
+      "text15",
+      "text16",
+      "text17",
+      "text18",
+      "text19"
+    ],
+    "inputs": {
+      "optional": {
+        "text0": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text1": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text10": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text11": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text12": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text13": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text14": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text15": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text16": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text17": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text18": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text19": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text2": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text3": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text4": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text5": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text6": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text7": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text8": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ],
+        "text9": [
+          "STRING",
+          {
+            "forceInput": true,
+            "lazy": true
+          }
+        ]
+      },
+      "required": {
+        "index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 9,
+            "min": 0,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "easy textIndexSwitch",
+    "object_info_widget_order": [
+      "index",
+      "text0",
+      "text1",
+      "text2",
+      "text3",
+      "text4",
+      "text5",
+      "text6",
+      "text7",
+      "text8",
+      "text9",
+      "text10",
+      "text11",
+      "text12",
+      "text13",
+      "text14",
+      "text15",
+      "text16",
+      "text17",
+      "text18",
+      "text19"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "text",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy textSwitch": {
+    "category": "EasyUse/Logic/Switch",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy textSwitch",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "switch",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "optional": [
+        "text1",
+        "text2"
+      ],
+      "required": [
+        "input"
+      ]
+    },
+    "input_order_all": [
+      "input",
+      "text1",
+      "text2"
+    ],
+    "inputs": {
+      "optional": {
+        "text1": [
+          "STRING",
+          {
+            "forceInput": true
+          }
+        ],
+        "text2": [
+          "STRING",
+          {
+            "forceInput": true
+          }
+        ]
+      },
+      "required": {
+        "input": [
+          "INT",
+          {
+            "default": 1,
+            "max": 2,
+            "min": 1
+          }
+        ]
+      }
+    },
+    "name": "easy textSwitch",
+    "object_info_widget_order": [
+      "input",
+      "text1",
+      "text2"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "STRING",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  },
+  "easy xyAny": {
+    "category": "EasyUse/Logic",
+    "class_schema_sha256": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "description": "",
+    "display_name": "easy xyAny",
+    "evidence_identity": "on_demand:import:b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "function": "to_xy",
+    "git_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+    "input_order": {
+      "required": [
+        "X",
+        "Y",
+        "direction"
+      ]
+    },
+    "input_order_all": [
+      "X",
+      "Y",
+      "direction"
+    ],
+    "inputs": {
+      "required": {
+        "X": [
+          "*",
+          {}
+        ],
+        "Y": [
+          "*",
+          {}
+        ],
+        "direction": [
+          [
+            "horizontal",
+            "vertical"
+          ],
+          {
+            "default": "horizontal"
+          }
+        ]
+      }
+    },
+    "name": "easy xyAny",
+    "object_info_widget_order": [
+      "X",
+      "Y",
+      "direction"
+    ],
+    "outputs": [
+      {
+        "is_list": true,
+        "name": "X",
+        "type": "*"
+      },
+      {
+        "is_list": true,
+        "name": "Y",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-Easy-Use",
+    "pack_slug": "ComfyUI-Easy-Use",
+    "pack_version": "on_demand_import-b5e31ef",
+    "python_module": "ComfyUI-Easy-Use.py.nodes.logic",
+    "schema_hash": "e34df584dc7eef5007c4a7f0b9a374ae4dff2111f52b27b7c67ec7e53068679b",
+    "source_kind": "on_demand_import"
+  }
+}
