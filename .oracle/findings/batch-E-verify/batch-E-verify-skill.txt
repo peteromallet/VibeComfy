@@ -1,0 +1,28 @@
+**Batch E probe at `d2975269` (base `86e4a6ba`) — read-only PASS**
+
+- **docs/plans dirty: NO** — `git diff --stat 86e4a6ba..d2975269 -- docs/plans` empty. Non-oracle diff = 6 files only: `docs/agent-skill/SKILL.md`, `tests/live_agentic_harness/scenario_obligations.py`, `tests/test_batch_e_e2e.py`, `vibecomfy/commands/{doctor,schemas}.py`, `vibecomfy/schema/ensure_capture.py`.
+
+- **SKILL section: PRESENT** — one mechanical section `## Schema Capture and Preflight (Batch E)` (+25 lines at L103). Quoted start:
+> `Missing schema captures block preflight — the harness fails closed and tells you exactly how to provision: vibecomfy schemas ensure --manifest <comparison-manifest.json>` + `Registry → ephemeral clone → extraction ladder → cache + provenance tier...`
+
+- **6-bullet checklist — all PRESENT:**
+  - missing blocks preflight: `Missing schema captures block preflight — the harness fails closed...` (L108)
+  - `ensure --manifest` flow: `Registry resolves... shallow clone ... LRU-bounded sandbox ~/.cache/vibecomfy/schema-sandbox (max 64/2GiB), then extract_pack_schemas rung 1 (static AST) and rung 2 (stubbed-subprocess INPUT_TYPES — always on). Rung 3 deferred; fails closed` (L116) — honest r1/r2, r3 deferred OK
+  - preflight accepts `on_demand_*` as themselves: `Declarations accepted: authoritative_object_info | on_demand_static | on_demand_import | on_demand_embedded. ... requires declared source to match cache source_kind exactly — no silent upgrades` (L121)
+  - `@stub.json` never: `@stub.json / workflow_json_stub never counts as evidence (filtered and stub-rejected even if indexed)` (L122)
+  - strict: `Campaign-grade strict lane: VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1 rejects any on_demand_*` (L123)
+  - doctor/validate-coverage: `vibecomfy schemas validate-coverage --manifest <m> --json reports missing_classes and ensure_command... exits 1` + `vibecomfy doctor <workflow.py> ... prints vibecomfy schemas ensure... Doctor never clones or extracts` (L127-128)
+  - **FAIL gates clear:** no `on_demand_runtime` token, no `static parse = runtime capture` claim.
+
+- **Four agent-goal items (`.oracle/plan.md:24-29`) — all PRESENT in CODE:**
+  1. `schemas ensure --manifest` — `vibecomfy/commands/schemas.py:725,445` + `schema/ensure_capture.py`
+  2. Preflight bridge + strict — `tests/live_agentic_harness/scenario_obligations.py:50,880,928,1155` (`RUNTIME_ONLY_ENV_VAR`, `DECLARED_SCHEMA_SOURCES` includes `on_demand_*`)
+  3. Doctor/coverage gap — `vibecomfy/commands/doctor.py:106,112` + `commands/schemas.py:398-453` (`format_schema_gap`, `ensure_command`, `missing_live_captures`)
+  4. Tests+SKILL — `tests/test_batch_e_e2e.py` + `SKILL.md` section above
+
+- **Evidence matrix: PRESENT** — `.oracle/evidence/batch-E-matrix.md` (also docstring in `test_batch_e_e2e.py`). Columns: `command | source_kind | commit | rung | preflight verdict | strict verdict | stub verdict` all present. Location `.oracle/` only — allowed; `docs/plans/**` untouched (forbidden ok).
+
+- **North Star trust story (SKILL text only): ALIGNED** — no stub-as-truth (`never @stub.json`), no permanent install (ephemeral LRU clone), no unactionable wall (prints exact command), no parallel system (`no parallel schema system, compose only`), no silent upgrade (`no silent upgrades`).
+
+**Overall: PASS** — no issues.
+0

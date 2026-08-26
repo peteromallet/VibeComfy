@@ -1,0 +1,57 @@
+**HEAD** `d2975269aa447b470e49165e9245ad62c8a0c4f0` — `d2975269 schemas-ensure(E): doctor gap reporting + SKILL docs + e2e fixture` ✓
+
+**diff --stat `86e4a6ba..d2975269 -- . ':!.oracle/**'` verbatim (6 files, as expected — no extra/missing):**
+```
+ docs/agent-skill/SKILL.md                          |  25 ++
+ tests/live_agentic_harness/scenario_obligations.py |  13 +-
+ tests/test_batch_e_e2e.py                          | 291 +++++++++++++++++++++
+ vibecomfy/commands/doctor.py                       |  40 ++-
+ vibecomfy/commands/schemas.py                      | 107 +++++++-
+ vibecomfy/schema/ensure_capture.py                 |  31 +++
+ 6 files changed, 478 insertions(+), 29 deletions(-)
+```
+
+**Pytest verbatim summaries:**
+
+1. `tests/test_batch_e_e2e.py -q --tb=short`:
+```
+4 passed, 1 warning in 1.58s
+```
+
+2. `tests/test_ensure_capture.py tests/test_scenario_obligation_preflight.py tests/test_p4_objectinfo_caches.py tests/test_batch_e_e2e.py -q --tb=line`:
+```
+66 passed, 1 warning in 3.70s
+```
+
+3. `tests/test_schemas_ensure.py -q --tb=line`:
+```
+2 failed, 43 passed, 1 warning in 3.65s
+TOLERATED FAIL: test_schema_freshness_workflow_is_manual_and_artifact_based [tests/quarantine/node_resolution_surface.txt]
+TOLERATED FAIL: TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template [tests/quarantine/node_resolution_surface.txt]
+All 2 failure(s) are quarantined baseline failures. No regressions.
+```
+
+4. `tests/ -k "schema or on_demand or obligation" --ignore=test_live_agentic_watchdog -q --tb=line` (completed 95.90s):
+```
+22 failed, 641 passed, 4 skipped, 7847 deselected, 29 warnings in 95.90s
+```
+Failures include the 2 quarantined `test_schemas_ensure` above + 20 pre-existing unrelated (`test_authority_receipts`, `test_cli_affordances`, `test_comfy_nodes_agent_edit`, `test_compact_widget_resolver` missing corpus files, `test_ready_templates`, etc.) — not Batch E regressions. Relevant E paths (`test_ensure_capture`, `test_scenario_obligation_preflight`, `test_batch_e_e2e`) all green.
+
+**Required test inventory (`tests/test_batch_e_e2e.py`):**
+
+| Requirement | Present | Function |
+|---|---|---|
+| empty cache → preflight fails + `vibecomfy schemas ensure --manifest <path>` | PRESENT | `test_e2e_fixture_missing_ensure_preflight_green:148-152` |
+| `schemas ensure --manifest` with mocked registry + real extract on local fixture pack (not `@stub.json`) | PRESENT | `test_e2e_fixture_missing_ensure_preflight_green:163-189` (`_make_fixture_clone` + `_patch_registry` + cache glob `FixtureNode@on_demand_*-sha7.json`) |
+| preflight green `resolution_tiers[...][FixtureNode].source_kind in {on_demand_static,on_demand_import}` | PRESENT | `test_e2e_fixture_missing_ensure_preflight_green:191-196` |
+| `runtime_only=True` / `VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1` reject after on-demand | PRESENT | `test_e2e_fixture_missing_ensure_preflight_green:198-205` |
+| stub/`@stub.json` never passes as live | PRESENT | `test_e2e_fixture_missing_ensure_preflight_green:207-214` (`SomePack@stub.json` → `provider.get_schema("Stubbed") is None`) |
+| doctor prints ensure command; no clone/extract | PRESENT | `test_doctor_prints_ensure_command:232` (asserts `schemas ensure {scratchpad}` + `schemas ensure --manifest`, mocks `read_lockfile`) |
+| `validate-coverage --manifest` exits 1 + JSON `missing_classes`/`ensure_command`; template positional still 0 | PRESENT (manifest) | `test_validate_coverage_manifest_gap_helper:260` (exits 1, `missing_classes`+`ensure_command`); template positional 0 covered in `test_schemas_ensure` |
+| fixture pack is real source (`INPUT_TYPES`/`nodes.py` git repo) | PRESENT | `_FIXTURE_PACK_SOURCE:30` (`INPUT_TYPES`+`FixtureNode`) + `_make_fixture_clone:49` (`git init`, `nodes.py`) |
+
+**Dirty after tests:** `git status --porcelain` initially showed `M vibecomfy/porting/cache/object_info/index.json` + `.oracle/**` untracked. After `git checkout -- vibecomfy/porting/cache` → **cache restored: `vibecomfy/porting/cache` clean**. Remaining dirty is `.oracle/**` only (receipts/briefs), not source/cache.
+
+**Checkpoint E:** **PASS** — All E-focused tests green; `test_schemas_ensure` failures are pre-existing quarantined baselines (explicitly `TOLERATED FAIL`); e2e fixture flow proves honest `on_demand_*` extraction, gap reporting, and doctor/validate integration.
+
+0

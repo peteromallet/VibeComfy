@@ -1,0 +1,21 @@
+{
+  "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/batch-E-verify-tests.md",
+  "elapsed_s": 203.003,
+  "error": null,
+  "error_class": null,
+  "finish_reason": null,
+  "finished_at": "2026-08-26T15:15:28Z",
+  "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/batch-E-verify/batch-E-verify-tests.meta.json",
+  "model": "openrouter/meta/muse-spark-1.2-contributor",
+  "pid": 31230,
+  "raw_result_keys": [
+    "stdout"
+  ],
+  "response_chars": 4330,
+  "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/batch-E-verify/batch-E-verify-tests.txt",
+  "started_at": "2026-08-26T15:12:05Z",
+  "status": "ok",
+  "stem": "batch-E-verify-tests",
+  "task_timeout_s": 1800,
+  "tool_calls": 0
+}

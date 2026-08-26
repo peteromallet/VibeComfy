@@ -1,0 +1,21 @@
+{
+  "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-northstar.md",
+  "elapsed_s": 54.385,
+  "error": null,
+  "error_class": null,
+  "finish_reason": null,
+  "finished_at": "2026-08-26T15:25:10Z",
+  "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-northstar.meta.json",
+  "model": "openrouter/meta/muse-spark-1.2-contributor",
+  "pid": 43376,
+  "raw_result_keys": [
+    "stdout"
+  ],
+  "response_chars": 3701,
+  "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-northstar.txt",
+  "started_at": "2026-08-26T15:24:16Z",
+  "status": "ok",
+  "stem": "final-northstar",
+  "task_timeout_s": 1800,
+  "tool_calls": 0
+}

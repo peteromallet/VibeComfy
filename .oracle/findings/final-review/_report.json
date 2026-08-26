@@ -1,0 +1,129 @@
+{
+  "briefs_dir": null,
+  "default_model": "openrouter/meta/muse-spark-1.2-contributor",
+  "failed_count": 0,
+  "isolation": "threads",
+  "max_tokens": 65536,
+  "max_workers": 5,
+  "model_map": [],
+  "output_dir": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review",
+  "project_dir": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle",
+  "stopped_by_signal": false,
+  "succeeded_count": 5,
+  "sum_agent_seconds": 511.487,
+  "task_timeout_s": 1800,
+  "tasks": [
+    {
+      "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-e2e.md",
+      "elapsed_s": 41.5,
+      "error": null,
+      "error_class": null,
+      "finish_reason": null,
+      "finished_at": "2026-08-26T15:24:57Z",
+      "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-e2e.meta.json",
+      "model": "openrouter/meta/muse-spark-1.2-contributor",
+      "pid": 43373,
+      "raw_result_keys": [
+        "stdout"
+      ],
+      "response_chars": 3824,
+      "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-e2e.txt",
+      "started_at": "2026-08-26T15:24:16Z",
+      "status": "ok",
+      "stem": "final-e2e",
+      "task_timeout_s": 1800,
+      "tool_calls": 0
+    },
+    {
+      "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-focused-classify.md",
+      "elapsed_s": 146.558,
+      "error": null,
+      "error_class": null,
+      "finish_reason": null,
+      "finished_at": "2026-08-26T15:26:42Z",
+      "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-focused-classify.meta.json",
+      "model": "openrouter/meta/muse-spark-1.2-contributor",
+      "pid": 43377,
+      "raw_result_keys": [
+        "stdout"
+      ],
+      "response_chars": 3850,
+      "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-focused-classify.txt",
+      "started_at": "2026-08-26T15:24:16Z",
+      "status": "ok",
+      "stem": "final-focused-classify",
+      "task_timeout_s": 1800,
+      "tool_calls": 0
+    },
+    {
+      "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-kiss.md",
+      "elapsed_s": 83.729,
+      "error": null,
+      "error_class": null,
+      "finish_reason": null,
+      "finished_at": "2026-08-26T15:25:39Z",
+      "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-kiss.meta.json",
+      "model": "openrouter/meta/muse-spark-1.2-contributor",
+      "pid": 43374,
+      "raw_result_keys": [
+        "stdout"
+      ],
+      "response_chars": 2889,
+      "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-kiss.txt",
+      "started_at": "2026-08-26T15:24:16Z",
+      "status": "ok",
+      "stem": "final-kiss",
+      "task_timeout_s": 1800,
+      "tool_calls": 0
+    },
+    {
+      "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-live.md",
+      "elapsed_s": 185.315,
+      "error": null,
+      "error_class": null,
+      "finish_reason": null,
+      "finished_at": "2026-08-26T15:27:21Z",
+      "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-live.meta.json",
+      "model": "openrouter/meta/muse-spark-1.2-contributor",
+      "pid": 43378,
+      "raw_result_keys": [
+        "stdout"
+      ],
+      "response_chars": 1808,
+      "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-live.txt",
+      "started_at": "2026-08-26T15:24:16Z",
+      "status": "ok",
+      "stem": "final-live",
+      "task_timeout_s": 1800,
+      "tool_calls": 0
+    },
+    {
+      "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-northstar.md",
+      "elapsed_s": 54.385,
+      "error": null,
+      "error_class": null,
+      "finish_reason": null,
+      "finished_at": "2026-08-26T15:25:10Z",
+      "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-northstar.meta.json",
+      "model": "openrouter/meta/muse-spark-1.2-contributor",
+      "pid": 43376,
+      "raw_result_keys": [
+        "stdout"
+      ],
+      "response_chars": 3701,
+      "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-northstar.txt",
+      "started_at": "2026-08-26T15:24:16Z",
+      "status": "ok",
+      "stem": "final-northstar",
+      "task_timeout_s": 1800,
+      "tool_calls": 0
+    }
+  ],
+  "toolsets": [
+    "('file'",
+    "'web'",
+    "'terminal')"
+  ],
+  "total_count": 5,
+  "wall_clock_s": 185.399
+}

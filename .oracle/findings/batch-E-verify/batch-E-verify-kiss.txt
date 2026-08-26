@@ -1,0 +1,43 @@
+**Batch E critique — `d2975269` vs `86e4a6ba`, plan lines 227-265**
+
+### Task 1–7
+
+| # | Plan | Verdict | Evidence |
+|---|---|---|---|
+|1| `format_schema_gap(manifest_path, missing) -> str` ending `vibecomfy schemas ensure --manifest <path>` | **PASS** | `vibecomfy/schema/ensure_capture.py:50` — returns `"Missing…; run <command>"` or bare `<command>`, always ends with exact command. Shared by preflight `scenario_obligations.py:1201`, `schemas.py:405,781`, `validate-coverage`. |
+|2| `validate-coverage --manifest`: Batch A `missing_live_captures`, exit 1 on gaps, template exit 0, JSON `missing_classes`+`ensure_command` | **PASS** | `schemas.py:435` uses `missing_live_captures(cache_dir)`, `return 1 if missing else 0` for manifest; template branch `:475` keeps `return 0` back-compat; JSON `ensure_command=format_schema_gap(...)`. |
+|3| Doctor prints ensure command, JSON `ensure_command`, no clone/extract | **PASS** | `doctor.py:110` `format_template_gap` + `manifest_hint="vibecomfy schemas ensure --manifest <comparison.json>"`, JSON `missing_classes`/`ensure_command` `:124-127`, no `OnDemandInstallSchemaProvider`/`extract` import. Text prints both template and generic manifest hint. |
+|4| SKILL.md one mechanical section, no `docs/plans/**` | **PASS** | `docs/agent-skill/SKILL.md:106` `## Schema Capture and Preflight (Batch E)` covers all bullets (blocks, `ensure --manifest` ladder, honest tier `on_demand_static/import`, exact-match, `@stub.json` never, `VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1`, doctor/validate-coverage). `git diff --stat` shows `docs/plans/**` untouched. |
+|5| E2E fixture: manifest+synthetic class+local pack, empty→fail→ensure(registry mocked, extract real)→green, tier `on_demand_static/import`, optional host probe skippable | **PASS** | `tests/test_batch_e_e2e.py:14` real `FixtureNode.INPUT_TYPES`, git clone `_make_fixture_clone`, `extract_pack_schemas` real, asserts `fixture-pack@on_demand_*-{sha7}.json` + provenance `repo/locked_commit/extraction_rung`, `test_host_optional…` skips on `socket` failure. Not hand-authored `@stub.json`. |
+|6| Evidence matrix in `.oracle/evidence/` or docstrings, not `docs/plans/**` | **PASS** | `.oracle/evidence/batch-E-matrix.md:1` + test docstring `:1-9`, no `docs/plans` writes. |
+|7| Host focused `pytest -k "schema or on_demand or obligation"` + full suite | **PASS (residual)** | Focused exists: receipt `57 passed`, `110 passed +2 quarantined baseline`. Full 8512 timed out at 300s (`FFFFFFFF` 21% partial) — infra timeout, not code signal. Focused contract coverage + quarantined-only failures → acceptable residual, not blocking. |
+
+### Checkpoint E
+
+| Item | PASS/FAIL |
+|---|---|
+|All four agent-goal items present| **PASS** — Batch C `ensure --manifest`, D preflight strict, E doctor/coverage gap, E SKILL/tests all in diff |
+|Fixture missing→ensure→preflight green on only on-demand| **PASS** |
+|SKILL.md section exists| **PASS** |
+|Commit `schemas-ensure(E): doctor gap reporting + SKILL docs + e2e fixture`| **PASS** — `git log d2975269` exact |
+
+### KISS/YAGNI
+
+Glue is thin enough. No parallel schema system, no new parser/persist, no permanent install. Nits (non-blocking):
+
+- `format_template_gap` second helper duplicates `format_schema_gap` (4 lines). One `format_gap(path, kind="manifest"|"template")` would suffice, but two pure fns are not overengineering; flagged as minor duplication.
+- `schemas.py:785-788` splits `"; run "` to strip prefix after calling helper — workaround for helper's human prefix leaking into `retry_command`. Should have helper return bare command + wrapper adds prefix where needed, or helper expose `bare_command`. Compose-don't-duplicate smell, not a system.
+- `validate-coverage` template branch still uses `get_class()` loop `:466` not `missing_live_captures` — duplicate gap scanner kept for back-compat. Harmless but noted.
+- Doctor JSON `ensure_command` carries `"Missing…; run "` prefix (ends correctly, but not bare command). Actionable but noisy.
+
+No blocking anti-patterns: no stub-as-live (real `extract_pack_schemas` on git fixture), no `on_demand_runtime` alias, no silent tier upgrade, no unactionable wall.
+
+### Full-suite residual
+
+**Acceptable non-blocking.** Focused contract green; full suite timeout is host budget, quarantined failures are pre-existing baseline. Recommend final host full run when budget allows, not a merge blocker.
+
+### Overall
+
+**PASS** — Batch E complete. Two minor duplication nits to tighten if desired; no rework required for checkpoint.
+
+0

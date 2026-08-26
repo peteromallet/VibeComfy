@@ -1,0 +1,16 @@
+{
+  "elapsed_seconds": 631.281,
+  "exit_code": 0,
+  "max_tokens": 65536,
+  "model": "openrouter/meta/muse-spark-1.2-contributor",
+  "resolved_model": "openrouter/meta/muse-spark-1.2-contributor",
+  "resumed_session_id": null,
+  "schema_version": "arnold-hermes-launcher-metadata-v1",
+  "session_id": null,
+  "status": "completed",
+  "toolsets": [
+    "file",
+    "web",
+    "terminal"
+  ]
+}

@@ -1,0 +1,20 @@
+**Glue vs parallel-system: Thin glue — `ensure_capture.py` stamps/persists only, all extraction/clone/cache/provenance delegated to existing ladders.**
+
+| # | Q | PASS/FAIL | Evidence |
+|---|---|---|---|
+|1|One persist/gap module| **PASS** | `ensure_capture.py:1` doc: "No extraction happens here" — `206:persist_on_demand_pack` only adapts `extract.normalize_entry` → `build_cache`; `143:capture_tier` / `166:missing_live_captures` are gap readers |
+|2|Calls existing ladder + clone + build_cache + provenance| **PASS** | `commands/schemas.py:676` `provider._ensure_clone` (LRU, `on_demand.py:211`) + `689:extract_pack_schemas` + `ensure_capture.py:255:build_cache(...,full_pack_refresh=False)` + `101:_load_provenance`/`301:_schemas_write` wrapping `commands/schemas.py:191/204`. No second writer; hygiene `276/293` edits files `build_cache` just wrote — not parallel system |
+|3|No `tools/clone_and_extract_packs.write_cache`| **PASS** | `rg --include="*.py" clone_and_extract_packs vibecomfy/` → only `schema/extract.py:3` comment. `commands/schemas.py` zero hits |
+|4|Smallest allowlist, exact `source_kind`| **PASS** | `on_demand.py:193` `on_demand_runtime` → `on_demand_import` (diff); `scenario_obligations.py:42` `DECLARED_SOURCE_KINDS={authoritative_object_info}+{on_demand_static,import,embedded}`; `660` exact match, no alias/provider layer |
+|5|Shared `format_schema_gap`| **PASS** | `ensure_capture.py:50/69` single impl; reused `commands/schemas.py:405,775` + `doctor.py:110`. No copied retry strings |
+|6|Deferred B dead machinery| **PASS** | No pip/venv/server. `commands/schemas.py:953` `--no-embedded` no-op placeholder; `636:_embedded_note` + `695` comment fail-closed (`method not in ("ast","import")`) cannot fire runtime |
+|7|New public func count| **PASS** | `ensure_capture.py` 5 public: `50:format_schema_gap`, `69:format_template_gap`, `143:capture_tier`, `166:missing_live_captures`, `206:persist_on_demand_pack`. `commands/schemas.py` adds 0 public (private `_manifest_gated_classes:528`, `_capture_missing_classes:645`). Thin. |
+
+**Overengineering to revert:** None. Nothing creates a second schema system worth deleting.
+
+**YAGNI:**
+*Now (trivial):* `ensure_capture.py:33 RUNTIME_SOURCE_KINDS` unused — dead constant (keep or delete, not blocker). `commands/schemas.py:788` `retry_command.split("; run ")` legacy tail-strip — harmless compat shim.
+*Later:* `format_template_gap` companion to `format_schema_gap` (doctor vs ensure) — duplication justified; `scenario_obligations.py:848` unstamped `@*.json` legacy ingest counting as `authoritative_object_info` — intentional pinned-legacy compat, revisit only if attestation tightened.
+
+**Overall: KISS-PASS — merge-ok.** Compose map honored: `registry/pack_resolver` → `on_demand._ensure_clone` → `schema/extract` ladder → `porting/object_info/serialize.build_cache` → `commands/schemas` provenance ledger.
+0

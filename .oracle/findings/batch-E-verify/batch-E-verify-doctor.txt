@@ -1,0 +1,40 @@
+**Isolation: PASS**
+- `rg doctor.py OnDemand…|clone…|persist…`: 0 hits on unknown-class path. Only pre-existing `subprocess` at `doctor.py:10` for `git_head` (`:268`), not called from new block.
+- New import `format_template_gap` at `doctor.py:110` — pure formatter:
+```py
+# ensure_capture.py:50-66
+def format_schema_gap(manifest_path, missing_classes=None):
+    command = f"vibecomfy schemas ensure --manifest {path_str}"
+    if missing_classes: return f"Missing live captures for {missing}; run {command}"
+    return command
+# :69-79
+def format_template_gap(template_path, missing_classes=None):
+    command = f"vibecomfy schemas ensure {path_str}"
+    if missing_classes: return f"Missing live captures for {missing}; run {command}"
+    return command
+```
+No I/O/clone/venv/TemporaryDirectory.
+
+**Task 3 shape: PASS**
+- `doctor.py:100-104` collects `missing_classes` where `code=="unknown_class_type"`.
+- `doctor.py:112` `ensure_command=format_template_gap(args.path, missing_classes)` + `:113` `manifest_hint="vibecomfy schemas ensure --manifest <comparison.json>"`, fallback `:115` `f"vibecomfy schemas ensure {args.path}"`.
+- Text `:147-150` prints both + `Or for a comparison manifest: {manifest_hint}`. JSON `:123-127` injects `missing_classes`/`ensure_command`/`ensure_manifest_hint`. Both paths covered; no `--manifest` arg added to doctor (`register :627-634` unchanged), no ensure invocation.
+
+**Claim 1 single-source `format_schema_gap`: FAIL (nit/blocking)**
+- `rg "vibecomfy schemas ensure --manifest" vibecomfy` finds canon `ensure_capture.py:62` + **duplicates**:
+  - `vibecomfy/commands/schemas.py:445` `f"vibecomfy schemas ensure --manifest {manifest_path}"` (else-branch when `missing` falsy — should be `format_schema_gap(manifest_path)`).
+  - `vibecomfy/commands/doctor.py:113` literal hint `"vibecomfy schemas ensure --manifest <comparison.json>"` (string literal, not helper call — minor but drift risk).
+  - `vibecomfy/commands/doctor.py:115` fallback `f"vibecomfy schemas ensure {args.path}"` duplicates `format_template_gap` (allowed sibling but still duplicated f-string).
+  - `tests/live_agentic_harness/scenario_obligations.py:1206` fallback `f"`vibecomfy schemas ensure --manifest {path}`"` inside `except` after trying `format_schema_gap` — violates “every construction via helper” rule.
+- `schemas.py:781-783` (`ensure` retry_command) **PASS**: correctly uses `format_schema_gap`/`format_template_gap`.
+
+**Claim 2 `validate-coverage --manifest` reuse: PASS**
+- `schemas.py:405` imports `format_schema_gap, missing_live_captures`; `:435` `missing=missing_live_captures(unique, cache_dir=cache_root)`; `:445` `ensure_command=format_schema_gap(...)`.
+- Payload `:446-453` contains `missing_classes`+`ensure_command`; text `:467` prints command.
+- Exits `1` when `missing` with `--manifest` (`:469` text, `:471` json); template path `:504` keeps `return 0` (back-compat). Doc `SKILL.md:127` matches.
+
+**Doctor reporting-only: PASS** — no new CLI flag.
+
+**Overall: ISSUE (Claim 1 duplicates)** — blocking if strict single-source required; otherwise PASS with nits to rewrite `schemas.py:445` and harness `:1206` fallback to helper.
+
+0

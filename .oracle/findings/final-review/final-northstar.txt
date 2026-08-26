@@ -1,0 +1,18 @@
+**HEAD `d2975269` vs `.oracle/northstar.md`** — End state: registry→ephemeral clone→ladder→committed cache with honest tier. Anti-patterns per `northstar.md:12-17`.
+
+| Anti-pattern | Verdict | file:line evidence |
+|---|---|---|
+| 1. Hand-authored / stub schemas as authoritative (R3) | **AVOIDED** | `ensure_capture.py:36-37` `STUB_SOURCE_KIND="workflow_json_stub"` `STUB_PACK_VERSION="stub"`; `ensure_capture.py:120-128` `_is_stub_index_row` + `143-158` `capture_tier` → `_MISSING_TIER` for stub/unattested/unpinned; `scenario_obligations.py:838-848` runtime-family rejects `@on_demand_*`/`@stub.json`; `test_batch_e_e2e.py:30-43` real `INPUT_TYPES` fixture source (not `@stub.json`), `118-120` "not hand-authored" |
+| 2. Permanent pack installs / venvs as capture side-effect | **AVOIDED** | `on_demand.py:32-34,50-51` LRU sandbox `~/.cache/vibecomfy/schema-sandbox` `max_packs=64` `max_bytes=2GiB`; `on_demand.py:211-264` `_ensure_clone` `git clone --depth 1` + `_enforce_cap` LRU eviction; `schemas.py:621-625` `_on_demand_provider` reuses it, `718` `_enforce_cap` post-persist; `rg pip install|venv` → 0 hits; `rg clone_and_extract_packs` → 0 hits |
+| 3. Preflight walls of unactionable failures | **AVOIDED** | `ensure_capture.py:50-66` `format_schema_gap` ends with exact `vibecomfy schemas ensure --manifest <path>`; `scenario_obligations.py:1199-1207` hint `provision ... with format_schema_gap`; `schemas.py:828,856` `exit_code=1` fail-closed + `Retry with: {retry_command}`; `doctor.py:43-181` reporting only, no clone/extract |
+| 4. Parallel schema systems where ladder suffices | **AVOIDED** | `on_demand.py:118-123` rung1 `SourceSchemaProvider([clone_path])` no execution; `151-172` rung2 `extract_by_import` subprocess; `schemas.py:689-694` `extract_pack_schemas(..., allow_import=True)` + `// NO allow_embedded` Batch B; `ensure_capture.py:249-267` `build_cache(...,CacheIdentity, full_pack_refresh=False)` + `271-298` two-layer file hygiene (compose, not duplicate) |
+| 5. Silent tier upgrades | **AVOIDED** | `rg on_demand_runtime vibecomfy` → 0; `scenario_obligations.py:44-48` `ON_DEMAND_SOURCE_KINDS={"on_demand_static","on_demand_import","on_demand_embedded"}` + `525-540` `on_demand_runtime` rejected at declaration+coverage; `on_demand.py:131-133,192-193` stamps `on_demand_static`/`on_demand_import` never `runtime_*`; `ensure_capture.py:27-31` `SOURCE_KIND_BY_RUNG` canonical; `scenario_obligations.py:862-876` exact match `actual==declared` — no upgrade, `authoritative_object_info` requires `_is_runtime_family_entry` `841-844` |
+
+**Enduring qualities**
+- **Ephemeral by construction** — **held**: `on_demand.py:211-232` temp `--depth 1` clone into LRU sandbox, `schemas.py:718` eviction; nothing installed to user env.
+- **Honest provenance** — **held**: `ensure_capture.py:225-264,307-315` tier (`_TIER_RANK` 0/1/2 vs `_RUNTIME_TIER 3` `42-47`) + `registry_pack_version` + `locked_commit` + `extraction_rung` in filename, `CacheIdentity`, `provenance.json`; `scenario_obligations.py:891-920` `resolution_tiers` records cache stamp.
+- **Fail closed, degrade honestly** — **held**: stub/unattested = gap `143-158`, `resolution_tiers` separate from bool `resolution` `1248-1249`, `preflight` unconditional `1137-1144` raises `ScenarioObligationError`.
+- **Compose, don't duplicate** — **held**: reuses `registry/pack_resolver`, `schema/extract` ladder, `object_info/build_cache`, provenance ledger; `schemas.py:565-577` `_resolve_pack_ref`→`_ensure_clone`.
+
+**Verdict: NORTHSTAR-PASS** — no REPRODUCED; zero merge blockers. All `rg` hunts clean (`on_demand_runtime` 0 in `vibecomfy`, `clone_and_extract_packs` 0, `full_pack_refresh=True` only `comfy-core`, not on-demand).
+0

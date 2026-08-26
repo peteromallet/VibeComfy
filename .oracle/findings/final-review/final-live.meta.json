@@ -1,0 +1,21 @@
+{
+  "brief": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/briefs/final-live.md",
+  "elapsed_s": 185.315,
+  "error": null,
+  "error_class": null,
+  "finish_reason": null,
+  "finished_at": "2026-08-26T15:27:21Z",
+  "meta_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-live.meta.json",
+  "model": "openrouter/meta/muse-spark-1.2-contributor",
+  "pid": 43378,
+  "raw_result_keys": [
+    "stdout"
+  ],
+  "response_chars": 1808,
+  "response_file": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/findings/final-review/final-live.txt",
+  "started_at": "2026-08-26T15:24:16Z",
+  "status": "ok",
+  "stem": "final-live",
+  "task_timeout_s": 1800,
+  "tool_calls": 0
+}

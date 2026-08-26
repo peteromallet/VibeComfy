@@ -1,0 +1,43 @@
+HEAD `d2975269aa447b470e49165e9245ad62c8a0c4f0` `d2975269 schemas-ensure(E): doctor gap reporting + SKILL docs + e2e fixture` — confirmed.
+
+**Command (wall ~460.9s, pytest 456.73s):**
+```
+mkdir -p .oracle/receipts
+PYTHONHASHSEED=0 python3 -m pytest -n 8 -q -p no:cacheprovider --ignore=tests/test_live_agentic_watchdog.py --tb=line 2>&1 | tee .oracle/receipts/final-full-suite.log
+echo EXIT:$? | tee -a .oracle/receipts/final-full-suite.log
+```
+`Makefile` `full-pytest` not used (missing `.venv/python`); invoked `python3` per instructions.
+
+**Pytest summary verbatim:**
+`435 failed, 7899 passed, 143 skipped, 1 xfailed, 5945 warnings, 1 error in 456.73s (0:07:36)`
+
+**Process exit:** logged `EXIT:0` (pipeline `tee` exit masks pytest; pytest non-zero due to 435 failures/1 error). Real pytest status = failure.
+
+**Cache restored:** yes. `git checkout -- vibecomfy/porting/cache` run before and after; final `git status` shows no `vibecomfy/porting/cache` diff (only `.oracle/**`, `custom_nodes.lock`, 3 `.layout.json` — pre-existing dirty).
+
+**Classification (tests/quarantine/*.txt = 253 entries):** 436 nodes = 435 FAILED+1 ERROR.
+
+* `QUARANTINED` = listed in `tests/quarantine/*.txt` → 142 nodes
+* `PREEXISTING-UNQUARANTINED` = not listed, traceback does **not** touch A–E → 294 nodes
+* `NEW (A–E regression)` = failure in/through `ensure_capture.py`, `on_demand.py`, `commands/schemas.py`, `commands/doctor.py`, `scenario_obligations.py`, `test_ensure_capture.py`, `test_schemas_ensure.py`, `test_scenario_obligation_preflight.py`, `test_p4_objectinfo_caches.py`, `test_batch_e_e2e.py`, `SKILL.md` → 0
+
+A–E mention counts in failure log: `ensure_capture.py` 0, `on_demand.py` 0, `commands/schemas.py` 0, `commands/doctor.py` 0, `test_ensure_capture.py` 0, `test_scenario_obligation_preflight.py` 0, `test_p4_objectinfo_caches.py` 0, `test_batch_e_e2e.py` 0, `test_schemas_ensure.py` 2, `scenario_obligations.py` 2 (both inside quarantined/non-A-E gating failures).
+
+| Example failed node | Class | Touches A–E? |
+|---|---|---|
+| `test_schemas_ensure::test_schema_freshness_workflow_is_manual_and_artifact_based` | QUARANTINED (`node_resolution_surface.txt`) | A–E file itself, pre-existing |
+| `test_schemas_ensure::TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template` | QUARANTINED | A–E file itself |
+| `test_ready_templates::test_all_ready_templates_load_and_validate` | QUARANTINED (`ready_templates_surface`) | No |
+| `test_ui_emitter_parity::test_parity_corpus_minus_allowlist[...IAMCCS...]` x~11 | QUARANTINED (`emitter_parity_surface`) | No |
+| `test_workflow_lens::test_lens_ltx_parity_*` x8 | QUARANTINED (`emitter_parity_surface`) | No |
+| `test_cli_affordances::test_port_doctor_all_aggregates_warnings_without_failing` | QUARANTINED (`agent_cli_surface`) | No (doctor.py 0 mentions) |
+| `test_comfy_nodes_agent_backend_spine::test_fix3_*`, `test_fix4_*` (5 nodes) | PREEXISTING-UNQUARANTINED | No |
+| `test_value_default_emission::*` x8, `test_shared_authority_canonicalization::*` x10, `test_workflow_core::test_agent_edit_ingest_...` etc (294 total) | PREEXISTING-UNQUARANTINED | No |
+| `test_testing_api::test_pytest_fixtures_are_available` (ERROR) | PREEXISTING-UNQUARANTINED | No |
+| `test_ensure_capture.py`, `test_p4_objectinfo_caches.py`, `test_scenario_obligation_preflight.py`, `test_batch_e_e2e.py` | 0 failures | — |
+
+No untracked `vibecomfy/schema/ensure_capture.py` or `commands/doctor.py` traceback; only A–E failures are the 2 quarantined `test_schemas_ensure` entries.
+
+**Verdict: `FULL-SUITE-QUARANTINED-ONLY`** — no `NEW` regression in/through A–E files; 435 failures are 142 QUARANTINED + 294 PREEXISTING-UNQUARANTINED baseline drift unrelated to schema-capture E-branch. Interpreted as no schema-capture regression; strict `FULL-SUITE-GREEN` not met due to baseline failures.
+
+0

@@ -1,0 +1,20 @@
+**HEAD** `d2975269aa447b470e49165e9245ad62c8a0c4f0`
+
+**curl reachability** (no storm, `--max-time 15/20`):
+- `curl -I https://api.comfy.org/` → `HTTP 404 time 0.215s` (no index route, but host/DNS/TLS ok, `x-comfy-request-id` present)
+- `curl "https://api.comfy.org/nodes?limit=1"` → `HTTP 200 bytes 1459 time ~0.92s` valid JSON `{"limit":1,"nodes":[...przewodo-utils...]}` — registry reachable.
+
+**resolve** (throwaway `cache_root=/tmp/vc-oracle-live-*`, cleaned after):
+- `resolve_pack("IndexTTS")` → `RESOLVE_FAIL AmbiguousPackError: aiia, comfyui-easy-indextts2, comfyui-indextts2, comfyui-kaola-indextts2, indextts-mw, tts_audio_suite`
+- `resolve_pack("IndexTTS2")` → `AmbiguousPackError: aiia, comfyui-indextts2, ...`
+- `resolve_pack("LayerMask")` → `AmbiguousPackError: ComfyUI_LayerStyle_Advance, comfyui-banana-li*, comfyui_layerstyle`
+- All three ambiguous = registry **did** respond with candidates (proves liveness, not network fail). Per instruction to try one slug when class ambiguous:
+- `resolve_pack("comfyui-indextts2")` → `RESOLVE_OK slug=comfyui-indextts2 source=comfy-registry url=https://github.com/xuchenxu168/Comfyui-Index-TTS2 version=None commit=None`
+
+**clone attempted?** No (default no). `VIBECOMFY_SCHEMA_SANDBOX` exists in `schema/on_demand.py:33` but `schemas ensure`/clone intentionally skipped per procedure; `~/.cache/vibecomfy/schema-sandbox` untouched, `/tmp/vc-oracle-live-sandbox` not created, no venv left.
+
+**cache dirty?** No. `git status --porcelain vibecomfy/porting/cache` → empty; `git diff --stat` empty; no restore needed. No writes to `vibecomfy/porting/cache`.
+
+**Verdict: LIVE-REACHABLE** — not `LIVE-BLOCKED` (stop condition not triggered); resolver works when given unambiguous slug; class-name ambiguity is expected registry behavior, not code defect.
+
+0

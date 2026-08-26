@@ -1,0 +1,31 @@
+**HEAD** `d2975269` — read-only — no pytest run.
+
+*Identified by name: 2/22 definitively* (receipt `batch-E-verify-tests.txt:36-38`); 20 remainder named only by file/category (`test_authority_receipts`, `test_cli_affordances`, `test_comfy_nodes_agent_edit`, `test_compact_widget_resolver`, `test_ready_templates`) + inferred via quarantine + `git diff --stat 96a9d810..d2975269 -- tests/` (7 files touched).
+
+**A–E touched files:** `test_ensure_capture.py`, `test_schemas_ensure.py`, `test_on_demand_resolver.py`, `test_p4_objectinfo_caches.py`, `test_scenario_obligation_preflight.py`, `live_agentic_harness/scenario_obligations.py`, `test_batch_e_e2e.py` (new).
+
+### Classification (reconstructed)
+
+| test (example) | file | quarantine? | touched A–E? | introduced? | disposition |
+|---|---|---|---|---|---|
+| `test_schema_freshness_workflow_is_manual_and_artifact_based` | `test_schemas_ensure.py` | YES `node_resolution_surface.txt` | YES | NO | QUARANTINED-BASELINE |
+| `TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template` | `test_schemas_ensure.py` | YES same | YES | NO | QUARANTINED-BASELINE |
+| `test_authority_receipt_schema_covers_every_serialized_v2_field` + `test_missing_or_unknown_receipt_contract_and_delta_schema_fail_closed` + `test_add_node...with_original_schema_provider` (keyword `schema` in name) | `test_authority_receipts.py` | NO | NO | NO | UNTOUCHED-PREEXISTING |
+| `test_port_validate_call_reads_uuid_subgraph_schema`, `test_eval_node_raw_queue_once_and_schema_only_never_queues` etc. | `test_cli_affordances.py` | YES `agent_cli_surface.txt` (both) | NO | NO | QUARANTINED-BASELINE |
+| `test_svd_schema_provider_aliases...`, `test_set_node_field_*_with_schema_provider`, `test_acn_source_backed_schema...`, `test_linked_widget_input_stub_defers_compact_alias_to_schema_provider` etc. | `test_compact_widget_resolver.py` | NO (not listed) | NO | NO | UNTOUCHED-PREEXISTING |
+| `test_ltx_*_uses_live_resize_schema_inputs`, `test_wan_vace_template_uses_live_wanvideo_schema_inputs` | `test_ready_templates.py` | YES `ready_templates_surface.txt` | NO | NO | QUARANTINED-BASELINE |
+| ~30 `test_comfy_nodes_agent_edit` `*schema*` (e.g. `test_schema_less_*`, `test_schema_precedence_*`, `test_workflow_schema_clarify*`) | `test_comfy_nodes_agent_edit.py` | partially `comfy_nodes_agent_surface.txt` | NO | NO | UNTOUCHED-PREEXISTING / QUARANTINED-BASELINE mix |
+| ~8 remaining `UNKNOWN` by exact name (receipt says 20 total in this bucket; only categories listed) | `test_cli_sources...`, `test_schema.py` etc. | 9 matching `schema` in `quarantine/*.txt` total | NO | NO | UNKNOWN (inferred UNTOUCHED-PREEXISTING) |
+
+*Zero `CONTRACT-REGRESSION`*: relevant E paths `test_ensure_capture + test_scenario_obligation_preflight + test_p4_objectinfo_caches + test_batch_e_e2e` → `66 passed`/`110 passed` (only 2 quarantined fail) per `.oracle/receipts/batch-E-execution.log`.
+
+### Keyword overbroad: **YES**
+
+`-k "schema or on_demand or obligation"` matches `pytest` node-ids (module+class+func+params). So **every** test in `test_schema.py`/`test_schemas_ensure.py` (module name contains `schema`) + any test with `schema` in function name (authority receipts, widget resolver `schema_provider`, agent-edit `schema_precedence`, ready-templates `schema_inputs`) is selected. 664 tests selected vs. ~110 true schema-capture obligations. Failures are collateral unrelated surfaces, not `ensure --manifest`/`on_demand_*`/`VIBECOMFY_OBLIGATION_RUNTIME_ONLY` contract.
+
+### Done criterion
+
+Literally **unmet** (`22 failed, 641 passed`), but **not a batch-E regression**. Scoped to intended contract (ensure-capture + obligation preflight + quarantined-excluded) it **is green**.
+
+**Verdict: `FOCUSED-GREEN-IF-SCOPED`** ( `FOCUSED-REGRESSION` false; `FOCUSED-GREEN` only after `quarantine` filter or narrow file set).
+0
