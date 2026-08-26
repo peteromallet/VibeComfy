@@ -25,20 +25,20 @@ Each merged piece shortens the path from "scenario blocked: missing capture" to 
 ## TASK (from frozen plan — read .oracle/plan.md "Batch E" section for full detail)
 Work in vibecomfy-oracle (branch oracle-run, HEAD = post-Batch-D 86e4a6ba). Batches A+C+D landed.
 
-1. Shared helper `format_schema_gap(manifest_path, missing_classes) -> str` that ends with the exact command `vibecomfy schemas ensure --manifest <path>` (Batch A gap helper already exists — reuse it; do not duplicate).
-2. `vibecomfy schemas validate-coverage`: add `--manifest` (reuses gap helper + Batch A missing_live_captures logic). Exit 1 when --manifest and gaps exist (template positional keeps exit 0 for back-compat). JSON includes missing_classes, ensure_command.
-3. `vibecomfy doctor <path>` (vibecomfy/commands/doctor.py or commands/__init__.py entry): on unknown_class_type / missing schema for a workflow/template path, print the same ensure command (workflow/template: `vibecomfy schemas ensure <template>`; if a comparison manifest is not in hand, also print "or --manifest <comparison.json>"). Doctor must NOT clone or extract — reporting only.
-4. `docs/agent-skill/SKILL.md`: one mechanical section: missing capture blocks preflight; `vibecomfy schemas ensure --manifest <m>` (registry→ephemeral clone→r1/r2→cache+provenance tier); preflight accepts on_demand_* as those tiers, @stub.json never; campaign-grade VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1; doctor / schemas validate-coverage --manifest print the command. Do NOT edit docs/plans/**.
-5. E2E (deterministic, no GPU, network gated): fixture comparison-manifest + one synthetic gated class + local fixture pack (NOT a hand-authored @stub.json presented as live). In tests: empty tmp cache → preflight fails with ensure command in text → schemas ensure --manifest (registry mocked; real extract on fixture pack) → preflight green; recorded tier is on_demand_static or on_demand_import. Optionally host-only (skip if api.comfy.org unreachable — stop condition, do not fake schemas).
+1. Shared helper format_schema_gap(...) -> str ending with exact command vibecomfy schemas ensure --manifest <path> (reuse Batch A helper if exists; keep single helper).
+2. vibecomfy schemas validate-coverage: add --manifest (reuses gap helper + missing_live_captures). Exit 1 when --manifest and gaps exist (template positional keeps exit 0 for back-compat). JSON includes missing_classes, ensure_command.
+3. vibecomfy doctor <path> (commands/doctor.py entry): on unknown_class_type / missing schema, print same ensure command. Doctor must NOT clone or extract — reporting only.
+4. docs/agent-skill/SKILL.md: one mechanical section: missing capture blocks preflight; vibecomfy schemas ensure --manifest <m> (registry->ephemeral clone->r1/r2->cache+provenance tier); preflight accepts on_demand_* as those tiers, @stub.json never; campaign-grade VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1; doctor / schemas validate-coverage --manifest print the command. Do NOT edit docs/plans/**.
+5. E2E (deterministic, no GPU, network gated): fixture comparison-manifest + synthetic gated class + local fixture pack (NOT a hand-authored @stub.json presented as live). In tests: empty tmp cache -> preflight fails with ensure command in text -> schemas ensure --manifest (registry mocked; real extract on fixture pack) -> preflight green; recorded tier is on_demand_static or on_demand_import. Optionally host-only (skip if api.comfy.org unreachable - stop condition, do not fake schemas).
 6. Evidence matrix — test docstrings or .oracle/evidence/ entry (not docs/plans/**): command, source_kind, commit, rung, preflight verdict, strict verdict, stub verdict.
-7. Host once (executor, not a separate agent): pytest tests/ -k "schema or on_demand or obligation" -q AND a full suite sweep.
+7. Host once (executor): pytest tests/ -k "schema or on_demand or obligation" -q AND full suite once.
 
 ## ACCEPTANCE (Checkpoint E → done criteria)
 - All four agent-goal items present in code.
 - Focused pytest green; host full suite once (report verbatim).
-- Fixture manifest: missing→ensure→preflight green USING ONLY on_demand captures (honest tier).
+- Fixture manifest: missing->ensure->preflight green USING ONLY on_demand captures (honest tier).
 - docs/agent-skill/SKILL.md section exists.
-- Final oracle full-contract review of the four-item contract (dispatched by host after this batch passes).
+- Final overall oracle review of the four-item contract (dispatched by host after this batch passes).
 
 ## RULES
 - Read .oracle/plan.md Batch E IN FULL first; compose-map mechanisms only, no parallel systems.
