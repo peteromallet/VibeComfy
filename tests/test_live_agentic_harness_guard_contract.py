@@ -2359,3 +2359,244 @@ def test_only_pass_satisfies_a_semantic_scenario(
     undetermined = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
     assert undetermined["live_agentic_success"] is False
     assert undetermined["assessment"]["verdict"] == "undetermined"
+
+# ---------------------------------------------------------------------------
+# RRSYN2-1: grounded refusals are graded by evidence/terminal substance, not
+# by the classifier route label.  Positive controls close clarify /
+# requires_custom_nodes on a pre-search ``adapt`` label with zero accepted
+# operations and complete TOOL-PRODUCED absence proof (engine-captured
+# schema-search statement misses); negatives keep every conjunction
+# fail-closed.
+# ---------------------------------------------------------------------------
+
+
+_HOTSHOT_CONTRACT = {
+    "expect_graph_changed": False,
+    "expected_no_candidate_reason": (
+        "Hotshot frame-interpolation classes are absent from the runtime "
+        "schema"
+    ),
+    "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+    "expected_no_candidate_absent_classes": ["Hotshot"],
+}
+
+_SEARCH_MISS_STATEMENT = {
+    "ok": True,
+    "detail": {
+        "query": "search",
+        "missing_classes": ["HotshotXLTextToImage", "HotshotXLImg2Img"],
+    },
+}
+
+
+def _write_groundable_refusal(
+    output_dir: Path,
+    *,
+    kind: str,
+    landed_operation_count: int = 0,
+    with_engine_misses: bool = True,
+    blocker: dict | None = None,
+    projected_missing: list[str] | None = None,
+) -> None:
+    change_details: dict = {"landed_operation_count": landed_operation_count}
+    if with_engine_misses:
+        change_details["batch_turns"] = [
+            {"statements": [dict(_SEARCH_MISS_STATEMENT)]}
+        ]
+    outcome: dict = {"kind": kind}
+    if projected_missing is not None:
+        outcome["missing_classes"] = projected_missing
+    response: dict = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "adapt",
+        "message": (
+            "I searched the requested Hotshot classes; they are not present "
+            "in this runtime's node catalog."
+        ),
+        "outcome": outcome,
+        "change_details": change_details,
+        "gates": {
+            "ir_validate_ok": False,
+            "lower_ok": False,
+            "python_load_ok": False,
+            "queue_validate_ok": False,
+            "state_match_ok": True,
+            "ui_emit_ok": False,
+            "ui_fidelity_ok": False,
+            "ui_load_safe_ok": False,
+        },
+    }
+    if blocker is not None:
+        response["report"] = {"authoring_blocker": blocker}
+    (output_dir / "response.json").write_text(
+        json.dumps(response), encoding="utf-8"
+    )
+
+
+def _grounded_refusal_scenario(scenario_id: str) -> dict:
+    return {"id": scenario_id, "assessment": dict(_HOTSHOT_CONTRACT)}
+
+
+@pytest.mark.parametrize("kind", ["clarify", "requires_custom_nodes"])
+def test_rrsyn2_1_grounded_refusal_passes_on_adapt_route_with_tool_proof(
+    tmp_path: Path, kind: str
+) -> None:
+    output_dir = tmp_path / f"rrsyn2-1-{kind}"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(output_dir, kind=kind)
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is True, assessment["issues"]
+    assert assessment["verdict"] == "pass"
+    assert assessment["outcome_class"] == "expected_no_candidate"
+    assert any(
+        issue["check"] == "expected_no_candidate_grounded"
+        and issue["severity"] == "info"
+        for issue in assessment["issues"]
+    )
+    # The pre-search ``adapt`` label is diagnostic only — never an error.
+    assert any(
+        issue["check"] == "expected_no_candidate_route_label"
+        and issue["severity"] == "info"
+        for issue in assessment["issues"]
+    )
+    assert not [
+        issue
+        for issue in assessment["issues"]
+        if issue["check"] == "expected_no_candidate_route"
+    ]
+
+
+def test_rrsyn2_1_prose_only_proof_is_never_grounded(tmp_path: Path) -> None:
+    output_dir = tmp_path / "rrsyn2-1-prose-only"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(
+        output_dir, kind="clarify", with_engine_misses=False
+    )
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is False
+    assert assessment["verdict"] == "undetermined"
+    assert any(
+        issue["check"] == "expected_no_candidate_ungrounded"
+        and issue["severity"] == "undetermined"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rrsyn2_1_partial_class_coverage_is_not_grounded(tmp_path: Path) -> None:
+    output_dir = tmp_path / "rrsyn2-1-partial-coverage"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    partial = dict(_HOTSHOT_CONTRACT)
+    partial["expected_no_candidate_absent_classes"] = [
+        "Hotshot",
+        "AudioLDM2",
+    ]
+    _write_groundable_refusal(output_dir, kind="clarify")
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={"id": output_dir.name, "assessment": partial},
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is False
+    assert assessment["verdict"] == "undetermined"
+    assert any(
+        issue["check"] == "expected_no_candidate_ungrounded"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rrsyn2_1_accepted_delta_contradicts_refusal_contract(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "rrsyn2-1-accepted-delta"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(
+        output_dir, kind="clarify", landed_operation_count=2
+    )
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is False
+    assert assessment["verdict"] == "fail"
+    assert any(
+        issue["check"] == "expected_no_candidate_landed_operations"
+        and issue["severity"] == "error"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rrsyn2_1_contradictory_carriers_fail_closed(tmp_path: Path) -> None:
+    output_dir = tmp_path / "rrsyn2-1-contradictory"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(
+        output_dir,
+        kind="requires_custom_nodes",
+        with_engine_misses=False,
+        blocker={
+            "reason": "named_class_absent_from_schema",
+            "missing_runtime_classes": [
+                "HotshotXLTextToImage",
+                "HotshotXLImg2Img",
+            ],
+        },
+        projected_missing=["AudioLDM2ModelLoader"],
+    )
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is False
+    assert assessment["verdict"] == "fail"
+    assert any(
+        issue["check"] == "expected_no_candidate_evidence_contradiction"
+        and issue["severity"] == "error"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rrsyn2_1_named_contract_descriptor_accepts_both_terminals() -> None:
+    """The descriptor law no longer forces ``requires_custom_nodes``: both
+    rubric terminals are recognized; foreign kinds stay rejected."""
+    from tests.live_agentic_harness.scenario_obligations import (
+        descriptor_contract_violations,
+    )
+
+    base = {"assessment": dict(_HOTSHOT_CONTRACT)}
+    assert descriptor_contract_violations(base) == ()
+    clarify_only = {
+        "assessment": dict(
+            _HOTSHOT_CONTRACT,
+            allow_safe_refusal_outcome_kinds=["clarify"],
+        )
+    }
+    assert descriptor_contract_violations(clarify_only) == ()
+    foreign = {
+        "assessment": dict(
+            _HOTSHOT_CONTRACT,
+            allow_safe_refusal_outcome_kinds=["noop", "clarify"],
+        )
+    }
+    violations = descriptor_contract_violations(foreign)
+    assert violations and "safe-refusal terminals" in violations[0]

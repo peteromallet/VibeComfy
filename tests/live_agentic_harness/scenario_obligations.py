@@ -205,11 +205,16 @@ TERMINAL_NO_CANDIDATE_REASONS = frozenset({"no_changes", "no_graph"})
 #: Member kinds admissible in declared structural-feature checks.
 STRUCTURAL_MEMBER_KINDS = ("input", "widget", "output")
 
-#: Refusal-kind compatibility (ADJUDICATION-4 rulings 1.1b/1.1d): a proven
-#: named-schema absence terminates in ``requires_custom_nodes``; a typed
-#: structural-feature absence asks the operator a question and terminates in
-#: ``clarify``.
-_NAMED_CLASS_REQUIRED_KIND = "requires_custom_nodes"
+#: Refusal-kind compatibility (ADJUDICATION-4 rulings 1.1b/1.1d, RRSYN2-1):
+#: a proven named-schema absence terminates in ONE OF THE RUBRIC'S SAFE-
+#: REFUSAL TERMINALS — ``requires_custom_nodes`` or ``clarify``.  Which of
+#: the two the agent closes with is terminal substance, not a descriptor
+#: law: forcing ``requires_custom_nodes`` failed honest ``clarify`` stops
+#: whose typed evidence was complete (hotshot-16-frames-agent-edit).  A
+#: typed structural-feature absence still asks the operator a question and
+#: terminates in ``clarify``.  Foreign kinds stay rejected (fail closed).
+_SAFE_REFUSAL_TERMINAL_KINDS = frozenset({"clarify", "requires_custom_nodes"})
+_NAMED_CLASS_REQUIRED_KINDS = _SAFE_REFUSAL_TERMINAL_KINDS
 _STRUCTURAL_REQUIRED_KIND = "clarify"
 
 
@@ -368,12 +373,6 @@ def descriptor_contract_violations(
             "expected_no_candidate_absent_features; exactly one typed "
             "evidence mode is required"
         )
-    elif mode == "named_class":
-        if _NAMED_CLASS_REQUIRED_KIND not in contract["refusal_kinds"]:
-            violations.append(
-                "named-class absence contracts require the typed terminal "
-                f"outcome kind {_NAMED_CLASS_REQUIRED_KIND!r}"
-            )
     elif mode == "structural_feature":
         if _STRUCTURAL_REQUIRED_KIND not in contract["refusal_kinds"]:
             violations.append(
@@ -390,6 +389,21 @@ def descriptor_contract_violations(
                         f"{check['member_kind']!r}; expected one of "
                         f"{list(STRUCTURAL_MEMBER_KINDS)!r}"
                     )
+    elif mode == "named_class":
+        declared = set(contract["refusal_kinds"])
+        foreign = sorted(declared - _NAMED_CLASS_REQUIRED_KINDS)
+        if foreign:
+            violations.append(
+                "named-class absence contracts accept only the rubric's "
+                f"safe-refusal terminals {sorted(_NAMED_CLASS_REQUIRED_KINDS)!r} "
+                f"but also declare {foreign!r}"
+            )
+        elif not (declared & _NAMED_CLASS_REQUIRED_KINDS):
+            violations.append(
+                "named-class absence contracts require at least one "
+                "recognized safe-refusal terminal outcome kind in "
+                f"{sorted(_NAMED_CLASS_REQUIRED_KINDS)!r}"
+            )
     return tuple(violations)
 
 

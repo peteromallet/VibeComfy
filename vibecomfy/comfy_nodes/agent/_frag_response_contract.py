@@ -515,27 +515,43 @@ def _sync_narrated_clarify_outcome(
     return synced_internal, synced_public
 
 
-_CLASS_FAMILY_IDENTITIES: frozenset[str] = frozenset({
-    # Curated brand/family tokens (normalized to [a-z0-9]) eligible for
-    # substring family matching against a missed class name.  RR1-FIX-REV
-    # (RRSYN-2): the former rule matched ANY request token of ≥4 letters as a
-    # substring, so generic domain words — "image", "audio", "model",
-    # "loader" — promoted unrelated exploratory schema misses into
-    # requires_custom_nodes blockers that suppressed candidates and drove
-    # terminal promotion.  Family relevance now requires an explicit bounded
-    # identity; extend this set deliberately per brand, never generically.
-    "acestep",
-    "advancedcontrolnet",
-    "easyuse",
-    "groundingdino",
-    "indextts",
-    "inspire",
-    "layermask",
-    "llamacpp",
-    "segmentanything",
-    "tripo",
-    "ultralytics",
-    "vibevoice",
+#: Generic domain words that appear in nearly every edit request.  They may
+#: NEVER establish that a searched-and-missed class is request-relevant by
+#: prefix/substring identity alone (RR1-FIX-REV invariant: generic words
+#: once promoted unrelated exploratory schema misses into candidate-
+#: suppressing blockers).  RRSYN2-1 removes the hand-maintained BRAND
+#: allowlist that previously bounded family relevance — it could never list
+#: every family an agent may legitimately search, so honest stops citing
+#: Hotshot / AudioLDM2 / MTCNN-class misses could not reach the typed
+#: blocker carrier.  Brand relevance is now DERIVED from the request token
+#: being a one-way case-folded prefix of the missed class name; only these
+#: generic words stay excluded.
+_GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
+    "audio",
+    "generate",
+    "generation",
+    "image",
+    "images",
+    "input",
+    "inputs",
+    "latent",
+    "load",
+    "loader",
+    "mask",
+    "model",
+    "models",
+    "node",
+    "nodes",
+    "output",
+    "outputs",
+    "preview",
+    "process",
+    "prompt",
+    "prompts",
+    "save",
+    "text",
+    "video",
+    "workflow",
 })
 
 
@@ -543,14 +559,21 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
     """Return structured schema misses that the current edit request named.
 
     ``search(focus_types=[...])`` records provider-backed misses in statement
-    detail.  We intentionally do not infer absence from refusal prose: a class
-    must be both a structured exact miss and a named target in this request.
+    detail (written by
+    ``vibecomfy.porting.edit._resolve._resolve_query_statement`` from the
+    live schema provider).  We intentionally do not infer absence from
+    refusal prose: a class must be both a structured exact miss and a named
+    target in this request.
 
-    RR1-FIX-REV: "named" means EITHER the exact delimited class token in the
-    request, OR an explicit bounded class-family/brand identity (see
-    ``_CLASS_FAMILY_IDENTITIES``) carried by both a request token and the
-    missed class name.  Generic domain words never establish relevance by
-    substring alone.
+    RRSYN2-1: "named" no longer depends on a hand-maintained brand allowlist.
+    A missed class counts when the request names it via EITHER its exact
+    delimited class token OR a specific request token that is a case-folded
+    ONE-WAY PREFIX of the missed class's folded name — the same direction
+    the assessor applies to declared tokens
+    (``assessor._cited_class_matches_declared``).  Generic domain words
+    (``_GENERIC_DOMAIN_TOKENS``) never establish relevance, preserving the
+    RR1-FIX-REV invariant that unrelated exploratory misses cannot be
+    promoted into candidate-suppressing blockers by common words alone.
     """
     request_text = " ".join(
         str(value or "")
@@ -561,18 +584,12 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
             else "",
         )
     )
-    request_tokens = {
-        token
-        for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", request_text)
-    }
-    family_tokens = {
-        normalized
-        for token in request_tokens
-        if (
-            normalized := re.sub(r"[^a-z0-9]", "", token.lower())
+    request_tokens = tuple(
+        dict.fromkeys(
+            re.sub(r"[^a-z0-9]", "", token.lower())
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", request_text)
         )
-        in _CLASS_FAMILY_IDENTITIES
-    }
+    )
 
     def _names_class(class_type: str) -> bool:
         if re.search(
@@ -581,8 +598,15 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
             re.IGNORECASE,
         ):
             return True
-        lowered_class = class_type.lower()
-        return any(family in lowered_class for family in family_tokens)
+        folded_class = re.sub(r"[^a-z0-9]", "", class_type.lower())
+        if len(folded_class) < 4:
+            return False
+        return any(
+            len(token) >= 4
+            and token not in _GENERIC_DOMAIN_TOKENS
+            and folded_class.startswith(token)
+            for token in request_tokens
+        )
 
     missing: list[str] = []
     for turn in getattr(state, "batch_turns", ()) or ():

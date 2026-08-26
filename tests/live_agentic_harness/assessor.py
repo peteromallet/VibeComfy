@@ -429,25 +429,73 @@ def _response_cited_missing_classes(response: Mapping[str, Any]) -> tuple[str, .
     return tuple(dict.fromkeys(cited))
 
 
+def _engine_captured_search_misses(response: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return focus-type misses captured by successful schema-search statements.
+
+    RRSYN2-1: reads exactly the engine seam —
+    ``change_details.batch_turns[].statements[].detail.missing_classes``
+    where the statement is an ``ok`` search query whose detail was written
+    by ``vibecomfy.porting.edit._resolve._resolve_query_statement`` from the
+    live schema provider.  Failed statements, other statement kinds, and
+    prose are never consulted.
+    """
+    change_details = response.get("change_details")
+    if not isinstance(change_details, Mapping):
+        return ()
+    turns = change_details.get("batch_turns")
+    if not isinstance(turns, (list, tuple)):
+        return ()
+    cited: list[str] = []
+    for turn in turns:
+        if not isinstance(turn, Mapping):
+            continue
+        statements = turn.get("statements")
+        if not isinstance(statements, (list, tuple)):
+            continue
+        for statement in statements:
+            if not isinstance(statement, Mapping):
+                continue
+            if statement.get("ok") is not True:
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping) or detail.get("query") != "search":
+                continue
+            raw = detail.get("missing_classes")
+            if isinstance(raw, (list, tuple)):
+                cited.extend(
+                    item.strip()
+                    for item in raw
+                    if isinstance(item, str) and item.strip()
+                )
+    return tuple(dict.fromkeys(cited))
+
+
 def _named_class_absence_evidence(
     response: Mapping[str, Any],
     contract: Mapping[str, Any],
 ) -> tuple[str, str]:
-    """Adjudicate named-class absence evidence (ruling 1.1b).
+    """Adjudicate named-class absence evidence (ruling 1.1b, RRSYN2-1).
 
     Returns ``(tri_state, detail)`` with ``tri_state`` in
     ``pass`` | ``undetermined`` | ``fail``.
 
-    * The AUTHORITATIVE carrier is ``report.authoring_blocker`` with
+    * An AUTHORITATIVE carrier is ``report.authoring_blocker`` with
       ``reason == "named_class_absent_from_schema"`` and a
       ``missing_runtime_classes`` list covering EVERY declared token
       (flat list = logical AND) under the one-way prefix rule.
+    * RRSYN2-1: engine-captured
+      ``change_details.batch_turns[].statements[].detail.missing_classes``
+      from SUCCESSFUL schema-search statements is equally authoritative
+      tool evidence — it is produced by the same schema-provider seam that
+      feeds the blocker, so a leg whose stop never shaped a blocker can
+      still ground its declared premise.
     * ``outcome.missing_classes`` is only the public projection: it may
-      corroborate but alone is never sufficient; when both carriers exist
-      they must agree on the contract-relevant classes — contradiction is a
-      hard failure.
-    * Generic terminal labels (``TERMINAL_NO_CANDIDATE_REASONS``) carry no
-      authority here and are deliberately never consulted.
+      corroborate but alone is never sufficient; when both public carriers
+      exist they must agree on the contract-relevant classes —
+      contradiction is a hard failure.
+    * Prose-only claims and generic terminal labels
+      (``TERMINAL_NO_CANDIDATE_REASONS``) carry no authority here and are
+      deliberately never consulted.
     """
     report = response.get("report")
     blocker = (
@@ -488,6 +536,7 @@ def _named_class_absence_evidence(
                 item.strip() for item in raw
                 if isinstance(item, str) and item.strip()
             )
+    engine = _engine_captured_search_misses(response)
 
     def _covered_tokens(names: tuple[str, ...]) -> set[str]:
         return {
@@ -498,13 +547,9 @@ def _named_class_absence_evidence(
 
     covered_authoritative = _covered_tokens(authoritative)
     covered_projected = _covered_tokens(projected)
+    covered_engine = _covered_tokens(engine)
+    declared_all = set(contract["absent_classes"])
     if authoritative:
-        if covered_authoritative != set(contract["absent_classes"]):
-            return "undetermined", (
-                f"authoritative blocker cites {list(authoritative)!r}, which "
-                "does not cover every declared absent class "
-                f"{list(contract['absent_classes'])!r}"
-            )
         if projected and covered_projected != covered_authoritative:
             return "fail", (
                 "contradictory carriers: authoring_blocker covers declared "
@@ -512,22 +557,50 @@ def _named_class_absence_evidence(
                 f"outcome.missing_classes projection covers "
                 f"{sorted(covered_projected)!r}"
             )
+        if covered_authoritative != declared_all:
+            if covered_engine == declared_all:
+                return "pass", (
+                    "authoritative blocker cites only "
+                    f"{sorted(covered_authoritative)!r}, but engine-captured "
+                    "schema-search statement misses cover every declared "
+                    f"absent class {sorted(declared_all)!r} via "
+                    f"{sorted(engine)!r}"
+                )
+            return "undetermined", (
+                f"authoritative blocker cites {list(authoritative)!r}, which "
+                "does not cover every declared absent class "
+                f"{sorted(declared_all)!r}"
+            )
         return "pass", (
             "authoritative named-class blocker covers declared absent classes "
-            f"{list(contract['absent_classes'])!r} via {sorted(authoritative)!r}"
+            f"{sorted(declared_all)!r} via {sorted(authoritative)!r}"
+        )
+    if engine:
+        if covered_engine == declared_all:
+            return "pass", (
+                "engine-captured schema-search statement misses cover every "
+                f"declared absent class {sorted(declared_all)!r} via "
+                f"{sorted(engine)!r}"
+            )
+        return "undetermined", (
+            "engine-captured search misses cite only "
+            f"{sorted(covered_engine)!r} of the declared absent classes "
+            f"{sorted(declared_all)!r}; partial coverage cannot ground the "
+            "contract"
         )
     if projected:
         return "undetermined", (
             "only the public projection (outcome.missing_classes="
-            f"{list(projected)!r}) is present; without the authoritative "
-            "report.authoring_blocker named-class carrier it can never "
-            "ground the contract"
+            f"{list(projected)!r}) is present; without an authoritative "
+            "report.authoring_blocker named-class carrier or engine-captured "
+            "schema-search misses it can never ground the contract"
         )
     return "undetermined", (
         "no structured absence evidence: neither "
         "report.authoring_blocker.missing_runtime_classes nor "
+        "change_details batch-turn schema-search misses nor "
         "outcome.missing_classes cites the declared absent classes "
-        f"{list(contract['absent_classes'])!r}; generic no_candidate_reason "
+        f"{sorted(declared_all)!r}; prose and generic no_candidate_reason "
         "labels carry no adjudicative authority"
     )
 
@@ -815,6 +888,11 @@ def _assess_expected_no_candidate(
     response grades ``undetermined`` (issue
     ``expected_no_candidate_response_missing``), never pass.
 
+    RRSYN2-1: grounding is graded by TERMINAL SUBSTANCE — graph_unchanged
+    is True, zero accepted/landed operations, a safe-refusal outcome kind,
+    and passing typed absence evidence.  The classifier's route label is
+    diagnostic only when the closed terminal carries no delta.
+
     Accepted contracts emit ``expected_no_candidate_grounded`` (info) and
     grade the leg ``outcome_class="expected_no_candidate"``.
     """
@@ -870,9 +948,20 @@ def _assess_expected_no_candidate(
     kind_ok = (
         isinstance(outcome_kind, str) and outcome_kind in contract["refusal_kinds"]
     )
-    route_ok = route in _NON_EDIT_ROUTES
+    # RRSYN2-1: the pass prerequisites are AUTHORITATIVE OUTCOME FACTS —
+    # graph_unchanged is True (enforced above), no accepted/landed
+    # operations, a safe-refusal outcome kind inside the declared terminal
+    # set, and passing typed absence evidence.  The classifier's route label
+    # is NOT substance: an honest schema-search stop can carry a pre-search
+    # ``adapt`` label while closing clarify/requires_custom_nodes with no
+    # delta; grading that label as a failure punished truthful refusals
+    # (hotshot-16-frames-agent-edit, image-face-detection-949658).
     landed_count = _landed_operation_count(response)
-    explicit_edit_route = route in _EDIT_ROUTES or (
+    # A POSITIVE integer landed count is a hard contradiction.  An absent
+    # count is not gated here: ``graph_unchanged is True`` is already
+    # enforced above (fail-closed), minimal legacy envelopes predate
+    # change_details, and no producer lands edits without flipping that flag.
+    ops_landed = (
         isinstance(landed_count, int)
         and not isinstance(landed_count, bool)
         and landed_count > 0
@@ -885,20 +974,22 @@ def _assess_expected_no_candidate(
             f"in {sorted(contract['refusal_kinds'])!r} but got "
             f"{outcome_kind!r}.",
         )
-    if explicit_edit_route:
+    if ops_landed:
         _add(
-            "expected_no_candidate_route",
+            "expected_no_candidate_landed_operations",
             "error",
-            "Declared expected-no-candidate scenario took an explicit edit "
-            f"route/candidate (route={route!r}, landed_operation_count="
-            f"{landed_count!r}); this contradicts the refusal contract.",
+            "Declared expected-no-candidate scenario landed "
+            f"change_details.landed_operation_count={landed_count!r}; an "
+            "accepted delta contradicts the refusal contract regardless of "
+            f"the {route!r} route label.",
         )
-    elif not route_ok:
+    elif route in _EDIT_ROUTES:
         _add(
-            "expected_no_candidate_route",
-            "error",
-            "Declared expected-no-candidate scenario requires a canonical "
-            f"non-edit route but got {route!r}.",
+            "expected_no_candidate_route_label",
+            "info",
+            f"Envelope closed on outcome.kind={outcome_kind!r} with zero "
+            f"landed operations; the pre-search edit route label {route!r} "
+            "is diagnostic only and does not contradict the refusal.",
         )
 
     mode = contract["evidence_mode"]
@@ -932,7 +1023,7 @@ def _assess_expected_no_candidate(
 
     if any(issue["severity"] == "error" for issue in issues):
         return "fail", issues
-    if evidence_tri == "pass" and kind_ok and route_ok:
+    if evidence_tri == "pass" and kind_ok and not ops_landed:
         _add(
             "expected_no_candidate_grounded",
             "info",
