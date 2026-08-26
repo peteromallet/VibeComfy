@@ -691,3 +691,62 @@ def test_t41_exhausted_and_unsupported_source_agree_across_modes() -> None:
         "unsupported_research_source"
     ]
     assert core_result[1] == policy
+
+
+def test_threaded_implement_failure_keeps_retained_durable_turn() -> None:
+    """RRSYN2-2: the threaded implement-failure branch must pass the
+    retained failed ImplementationResult to build_report — a bare
+    build_report() is why threaded failures published
+    evidence.implementation={} and a blank lineage manifest."""
+    from vibecomfy.executor.core import _ExecutorPhaseError
+
+    def run_implement(*args: Any, **kwargs: Any) -> ImplementationResult:
+        raise _ExecutorPhaseError(
+            stage="implement",
+            failure_kind="ValidationError",
+            message="Emit refused: unknown port AUDIO_0.",
+            implementation_result=ImplementationResult(
+                message="Emit refused: unknown port AUDIO_0.",
+                failure={
+                    "failure_kind": "ValidationError",
+                    "stage": "implement",
+                    "message": "Emit refused: unknown port AUDIO_0.",
+                    "session_id": "sess-threaded",
+                    "turn_id": "turn-t7",
+                },
+                durable_response={
+                    "session_id": "sess-threaded",
+                    "turn_id": "turn-t7",
+                    "accepted_batch": [],
+                    "change_details": {"landed_operation_count": 0},
+                },
+            ),
+        )
+
+    kernel = ThreadedKernel(
+        resolve_spec=lambda profile, stage: AgentSpecShape(
+            "hermes", "model", "medium"
+        ),
+        run_implement=run_implement,
+        emit_phase=lambda *args, **kwargs: None,
+        enforce_reply_grounding=lambda reply, **kwargs: reply,
+        accepted_delta_ops=lambda implementation: (),
+        implementation_landed_edit=lambda implementation: False,
+        no_candidate_reason=lambda implementation: None,
+    )
+    result = run_threaded_executor(
+        ExecutorRequest(query="edit", graph={"nodes": [], "links": []}),
+        kernel=kernel,
+        host_ports=_ports(),
+        executor_id="executor-test",
+    )
+
+    assert result.ok is False
+    report = result.report.to_dict()["executor"]
+    implementation = report["implementation"]
+    assert implementation is not None
+    assert implementation["failure"]["session_id"] == "sess-threaded"
+    assert implementation["failure"]["turn_id"] == "turn-t7"
+    lineage = report["artifact_lineage"]
+    assert lineage["lineage"]["session_id"] == "sess-threaded"
+    assert lineage["lineage"]["turn_id"] == "turn-t7"

@@ -185,6 +185,25 @@ def _turn_dir_from_response(response: Mapping[str, Any]) -> Path | None:
     return None
 
 
+def _turn_dir_from_implementation_failure(report: Mapping[str, Any]) -> Path | None:
+    """Resolve the failed turn directory from a retained failed implementation.
+
+    RRSYN2-2: the staged/threaded failure paths retain the durable turn under
+    ``report.executor.implementation``; its ``failure`` payload carries the
+    same identity fields (``detail_json_path`` / ``session_path`` +
+    ``turn_id``) a success envelope stamps at top level.
+    """
+    if not isinstance(report, Mapping):
+        return None
+    implementation = report.get("implementation")
+    if not isinstance(implementation, Mapping):
+        return None
+    failure = implementation.get("failure")
+    if not isinstance(failure, Mapping):
+        return None
+    return _turn_dir_from_response(failure)
+
+
 def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
     copied: list[str] = []
     if not turn_dir.is_dir():
@@ -373,7 +392,15 @@ def persist_universal_ui_evidence(
     if original is None:
         original = dict(_EMPTY_UI)
 
+    # RRSYN2-2: on a failed leg the copied turn candidate is AUDIT-ONLY — it
+    # was refused by the gate and must never be projected as the product UI.
+    # Original stays authoritative.
+    failed_leg = (
+        response.get("ok") is False or getattr(result, "ok", True) is False
+    )
     if _route_projects_final_from_original(response):
+        final = original
+    elif failed_leg:
         final = original
     else:
         final = _load_ui_mapping(final_path)
@@ -457,35 +484,18 @@ def synthesize_headless_artifacts(
     classification = report.get("plan")
     model_response = report.get("model_response")
     reply_request = report.get("reply_request")
+    classification_payload: dict[str, Any] | None = None
+    research_payload: dict[str, Any] | None = None
     if isinstance(classification, Mapping):
         classification_payload = _redact(classification)
         _safe_write(output_dir / "classification.json", classification_payload)
         _append_manifest(manifest, "classification.json")
 
         research = report.get("research")
-        research_payload: dict[str, Any] | None = None
         if isinstance(research, Mapping):
             research_payload = _redact(research)
             _safe_write(output_dir / "research.json", research_payload)
             _append_manifest(manifest, "research.json")
-
-        implementation = report.get("implementation")
-        if isinstance(implementation, Mapping):
-            implementation_payload = _implementation_payload_from_report(
-                request=request,
-                classification=classification_payload,
-                research=research_payload,
-            )
-            _safe_write(
-                output_dir / "implementation_payload.json",
-                _redact(implementation_payload),
-            )
-            _append_manifest(manifest, "implementation_payload.json")
-            _safe_write(
-                output_dir / "implementation_result.json",
-                _redact(implementation),
-            )
-            _append_manifest(manifest, "implementation_result.json")
     elif report.get("classification_status") or model_response is not None:
         # Truthful failed-classification artifact: no fabricated decision/plan.
         # Persist the typed status plus the model-call evidence so the failure
@@ -499,14 +509,47 @@ def synthesize_headless_artifacts(
         _safe_write(output_dir / "classification.json", classification_payload)
         _append_manifest(manifest, "classification.json")
 
+    # RRSYN2-2: a FAILED implementation must still produce its payload
+    # artifacts whenever the report carries one.  The retained failed turn
+    # (session_id / turn_id / session_path / detail_json_path, rejected ops,
+    # audit-only candidate and artifact refs) is what makes the leg
+    # adjudicable; skipping these files because no plan survived is why
+    # implement-stage failures had no gate rationale or implementation
+    # payload to assess.
+    implementation = report.get("implementation")
+    if isinstance(implementation, Mapping):
+        implementation_payload = _implementation_payload_from_report(
+            request=request,
+            classification=classification_payload or {},
+            research=research_payload,
+        )
+        _safe_write(
+            output_dir / "implementation_payload.json",
+            _redact(implementation_payload),
+        )
+        _append_manifest(manifest, "implementation_payload.json")
+        _safe_write(
+            output_dir / "implementation_result.json",
+            _redact(implementation),
+        )
+        _append_manifest(manifest, "implementation_result.json")
+
     if model_response is not None:
         _safe_write(output_dir / "model_response.json", _redact(model_response))
         _append_manifest(manifest, "model_response.json")
     if isinstance(reply_request, Mapping):
         _safe_write(output_dir / "reply_request.json", _redact(reply_request))
         _append_manifest(manifest, "reply_request.json")
-
     turn_dir = _turn_dir_from_response(response)
+    if turn_dir is None:
+        # RRSYN2-2: a retained FAILED turn announces its durable identity in
+        # report.executor.implementation.failure (the executor envelope may
+        # be a bare failure without top-level session fields).  Copy the
+        # exact turn's artifacts — candidate.ui.json (audit-only),
+        # batch_failure_evidence.json, abort.json, messages.jsonl, and the
+        # audit response — so the failure is diagnosable at the artifact
+        # boundary.
+        turn_dir = _turn_dir_from_implementation_failure(report)
     copied: list[str] = []
     if turn_dir is not None and turn_dir.is_dir():
         copied = _copy_turn_artifacts(turn_dir, output_dir)

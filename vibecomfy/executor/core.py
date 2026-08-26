@@ -1594,11 +1594,44 @@ def _run_implement(
                 "implement",
                 agent_failure_context=failure_context_payload,
             )
+        # RRSYN2-2: retain the durable failed turn across the executor
+        # boundary.  ``result`` is the host's closed turn envelope: it
+        # carries session_id / turn_id / session_path / detail_json_path,
+        # the typed agent_failure_context, any submitted-but-rejected ops,
+        # and artifact refs.  Redaction posture is identical to the success
+        # path's ``durable_response`` (artifact writers redact at the file
+        # boundary); collapsing it to kind/stage/message only is why failed
+        # threaded legs published evidence.implementation={} and blank
+        # lineage.
+        retained_failure = dict(failure_payload)
+        for retain_key in (
+            "session_id",
+            "turn_id",
+            "session_path",
+            "session_path_resolved",
+            "detail_json_path",
+            "detail_json_path_resolved",
+            "candidate",
+            "candidate_graph",
+            "accepted_batch",
+            "operations",
+            "change_details",
+            "authority_receipt",
+        ):
+            retained_value = result.get(retain_key)
+            if retained_value is not None:
+                retained_failure[retain_key] = retained_value
+        retained = ImplementationResult(
+            message=fm,
+            failure=retained_failure,
+            durable_response=dict(result),
+        )
         raise _ExecutorPhaseError(
             stage="implement",
             failure_kind=failure.kind.value,
             message=failure.user_facing_message,
             failure_envelope=failure,
+            implementation_result=retained,
         )
 
     # Success: extract graph and message from the durable response,
@@ -2841,6 +2874,7 @@ class _ExecutorPhaseError(Exception):
         failure_envelope: Any = None,
         warning_details: tuple[dict[str, Any], ...] = (),
         model_attempts: tuple[dict[str, Any], ...] = (),
+        implementation_result: ImplementationResult | None = None,
     ) -> None:
         super().__init__(message)
         self.stage = stage
@@ -2848,7 +2882,11 @@ class _ExecutorPhaseError(Exception):
         self.failure_envelope = failure_envelope
         self.warning_details = tuple(warning_details)
         self.model_attempts = coerce_model_attempts(model_attempts)
-
+        # RRSYN2-2: the durable failed turn, retained across the executor
+        # boundary.  A structured refused-emit result must not collapse into
+        # kind/stage/message only; the handler builds the reported
+        # ImplementationResult from this payload when present.
+        self.implementation_result = implementation_result
 
 # ── public entry point ───────────────────────────────────────────────────────
 
@@ -3309,13 +3347,36 @@ def _run_staged_executor(
                         if key in {"issues", "diagnostics", "validation_errors"}
                     }
                     failure_payload.update(diagnostics_payload)
+            retained = getattr(exc, "implementation_result", None)
+            if isinstance(retained, ImplementationResult):
+                # RRSYN2-2: report the RETAINED failed turn (session/turn
+                # identity, rejected ops, artifact refs, typed context)
+                # instead of a newly synthesized evidence-light shell.  The
+                # shell's kind/stage/message stay authoritative; every other
+                # retained fact survives.
+                merged_failure = {
+                    **(
+                        dict(retained.failure)
+                        if isinstance(retained.failure, Mapping)
+                        else {}
+                    ),
+                    **failure_payload,
+                }
+            else:
+                merged_failure = failure_payload
             report = _build_report(
                 plan=plan,
                 research=research_result,
                 implementation=ImplementationResult(
                     message=str(exc),
                     diagnostics=diagnostics_payload,
-                    failure=failure_payload,
+                    failure=merged_failure,
+                    durable_response=(
+                        dict(retained.durable_response)
+                        if isinstance(retained, ImplementationResult)
+                        and isinstance(retained.durable_response, Mapping)
+                        else None
+                    ),
                 ),
             )
             return _finish(ExecutorResult.failure(

@@ -346,11 +346,19 @@ def run_threaded_executor(
         )
         failure_kind = str(getattr(exc, "failure_kind", "ValidationError"))
         stage = str(getattr(exc, "stage", "execute"))
+        # RRSYN2-2: a failed implement phase that closed a durable turn must
+        # keep that turn in the report.  build_report() with no implementation
+        # is why threaded failures published evidence.implementation={} and a
+        # blank lineage manifest.
+        retained = getattr(exc, "implementation_result", None)
+        retained_implementation = (
+            retained if isinstance(retained, ImplementationResult) else None
+        )
         return finish(ExecutorResult.failure(
             kind=failure_kind,
             stage=stage,
             message=str(exc),
-            report=build_report(),
+            report=build_report(retained_implementation),
         ))
 
     durable = implementation.durable_response

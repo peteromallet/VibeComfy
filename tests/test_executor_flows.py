@@ -5708,3 +5708,122 @@ def test_reply_grounding_does_not_confuse_local_absence_with_empty_graph(
         landed=False,
         graph=graph,
     ) == original
+
+# ── RRSYN2-2: durable failed turn retention across the executor boundary ────
+
+
+def _refused_emit_result() -> dict:
+    """A structured host refusal that closed a durable turn (RRSYN2-2)."""
+    return {
+        "ok": False,
+        "failure_kind": "ValidationError",
+        "stage": "agent_emit",
+        "message": "Emit refused: unknown port AUDIO_0.",
+        "graph_unchanged": True,
+        "session_id": "sess-failed",
+        "turn_id": "turn-0042",
+        "session_path": "/tmp/vibecomfy-sessions/sess-failed",
+        "detail_json_path": (
+            "/tmp/vibecomfy-sessions/sess-failed/turns/turn-0042/response.json"
+        ),
+        "agent_failure_context": {
+            "explanation": "Emit refused: unknown port AUDIO_0.",
+            "issues": [{"code": "unknown_port", "severity": "error"}],
+        },
+        # Nothing was accepted; the audit-only candidate and the typed gate
+        # evidence travel with the closed turn.
+        "accepted_batch": [],
+        "candidate": {"transaction_id": "tx-refused", "graph": {"nodes": []}},
+        "change_details": {"landed_operation_count": 0},
+    }
+
+
+def test_refused_emit_result_retains_durable_failed_turn() -> None:
+    request = ExecutorRequest(
+        query="wire the audio output through a VAE decode",
+        graph={"nodes": [{"id": 1, "type": "LTXVAudioVAEDecode"}], "links": []},
+        profile="default",
+    )
+    plan = ClassifyDecision(
+        route="adapt", implement=True, intent="edit", task="edit_graph"
+    )
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit",
+        return_value=_refused_emit_result(),
+    ):
+        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
+            executor_core._run_implement(
+                request,
+                AgentSpecShape(agent="codex", model="gpt-5.4", effort="high"),
+                plan=plan,
+            )
+
+    retained = excinfo.value.implementation_result
+    assert retained is not None
+    assert retained.durable_session_id == "sess-failed"
+    assert retained.durable_turn_id == "turn-0042"
+    failure = retained.failure or {}
+    assert failure["detail_json_path"].endswith("turn-0042/response.json")
+    assert failure["candidate"]["transaction_id"] == "tx-refused"
+    assert failure["agent_failure_context"]["issues"][0]["code"] == "unknown_port"
+    assert executor_core._accepted_delta_ops(retained) == ()
+
+    # The lineage manifest binds to the RETAINED session/turn: candidate and
+    # terminal-response rows become primary digests instead of
+    # no_candidate_built / projection_unavailable fallbacks.
+    from vibecomfy.executor.core import _build_artifact_lineage_manifest
+
+    manifest = _build_artifact_lineage_manifest(
+        request,
+        plan=plan,
+        research=None,
+        implementation_result=retained,
+        model_attempts=(),
+        orchestration_mode="staged",
+    )
+    assert manifest is not None
+    assert manifest["lineage"]["session_id"] == "sess-failed"
+    assert manifest["lineage"]["turn_id"] == "turn-0042"
+    rows = {row["kind"]: row for row in manifest["rows"]}
+    assert rows["terminal_response"]["row_class"] == "primary"
+    assert rows["candidate"]["row_class"] == "primary"
+    assert rows["candidate"]["detail"] == {"transaction_id": "tx-refused"}
+    assert rows["accepted_delta"] == {
+        "kind": "accepted_delta",
+        "row_class": "fallback",
+        "reason": "no_accepted_operations",
+    }
+
+
+@mock.patch(
+    "vibecomfy.executor.core.run_classify_turn",
+    side_effect=_fake_classify_simple_edit,
+)
+@mock.patch("vibecomfy.executor.core.run_reply_turn")
+@mock.patch(
+    "vibecomfy.executor.core.handle_agent_edit",
+    return_value=_refused_emit_result(),
+)
+def test_staged_implement_failure_reports_retained_turn(
+    mock_edit, mock_reply, mock_classify, profile_dir: Path
+) -> None:
+    request = ExecutorRequest(
+        query="wire the audio output",
+        graph={"nodes": [{"id": 1}], "links": []},
+        profile="default",
+    )
+    result = run_executor(request)
+
+    assert result.ok is False
+    report = result.report.to_dict()["executor"]
+    implementation = report["implementation"]
+    assert (
+        "Emit refused"
+        in implementation["failure"]["agent_failure_context"]["explanation"]
+    )
+    assert implementation["failure"]["session_id"] == "sess-failed"
+    assert implementation["failure"]["turn_id"] == "turn-0042"
+    assert implementation["failure"]["candidate"]["transaction_id"] == "tx-refused"
+    lineage = report["artifact_lineage"]
+    assert lineage["lineage"]["session_id"] == "sess-failed"
+    assert lineage["lineage"]["turn_id"] == "turn-0042"
