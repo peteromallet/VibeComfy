@@ -449,11 +449,13 @@ def raw_link_identity(
     UI-format sidecars only; API-format or missing sidecars yield ``{}``.
     Callers fail closed to "identity unavailable" instead of inventing IDs.
     """
+    from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_nodes
+
     raw = snapshot.raw_sidecar
-    if not isinstance(raw, Mapping) or not isinstance(raw.get("nodes"), list):
+    if not isinstance(raw, Mapping) or not isinstance(door_get_nodes(raw), list):
         return {}
     nodes_by_id: dict[str, dict[str, Any]] = {}
-    for node in raw["nodes"]:
+    for node in door_nodes(raw):
         if isinstance(node, Mapping) and node.get("id") is not None:
             nodes_by_id[str(node["id"])] = dict(node)
 
@@ -480,7 +482,7 @@ def raw_link_identity(
         return str(name) if isinstance(name, str) and name else None
 
     identity: dict[tuple[str, str, str, str], int] = {}
-    links = raw.get("links")
+    links = door_get_links(raw)
     if not isinstance(links, list):
         return {}
 

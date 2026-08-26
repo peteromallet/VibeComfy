@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from vibecomfy.ingest.normalize import door_get_nodes
+
 from .candidate_transaction import (
     AUTHORITY_RECEIPT_DELTA_SCHEMA,
     build_schema_witness,
@@ -478,7 +480,7 @@ def _submit_graph_existing_uids(submit_graph: Any) -> frozenset[str]:
     """
     if not isinstance(submit_graph, Mapping):
         return frozenset()
-    nodes = submit_graph.get("nodes")
+    nodes = door_get_nodes(submit_graph)
     if not isinstance(nodes, list):
         return frozenset()
     uids: set[str] = set()
@@ -509,7 +511,7 @@ def _submit_graph_uid_to_node_id(submit_graph: Any) -> dict[str, str]:
     if not isinstance(submit_graph, Mapping):
         return {}
     key_by_uid: dict[str, str] = {}
-    for node in submit_graph.get("nodes", []) or []:
+    for node in door_get_nodes(submit_graph, []) or []:
         if not isinstance(node, Mapping):
             continue
         properties = node.get("properties")

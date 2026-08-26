@@ -7,9 +7,6 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy._compile._graph import node_id_sort_key
-
-
-from vibecomfy.ingest.normalize import door_get_nodes
 HF_SPLIT_FILES_DIRS = {
     "text_encoders",
     "diffusion_models",
@@ -71,6 +68,7 @@ def extract_from_raw_workflow(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
 
     if not isinstance(raw, Mapping):
         return []
+    from vibecomfy.ingest.normalize import door_get_nodes
     has_nodes = bool(door_get_nodes(raw))
     has_subgraphs = bool(_subgraphs(raw))
     if not has_nodes and not has_subgraphs:
@@ -378,6 +376,7 @@ def _strip_download_true(url: str) -> str:
 
 
 def _iter_workflow_nodes(raw: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    from vibecomfy.ingest.normalize import door_get_nodes
     yield from _sorted_nodes(door_get_nodes(raw))
     for subgraph in _subgraphs(raw):
         yield from _iter_workflow_nodes(subgraph)
