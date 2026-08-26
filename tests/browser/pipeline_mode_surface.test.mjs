@@ -353,6 +353,187 @@ test("unset preference blocks submit at the funnel and opens the mode ask (no re
     await harness.dispose();
   }
 });
+// ── RW1 [G1]: contract-test the REAL WeakSet sentinel through the REAL gate ──
+// Every decision below flows through the production deps object built by
+// roundtrip's own agentStatusDeps() (real isChooseEngineFlowOpen closure) —
+// no fake injection anywhere. The sentinel is module-private, so it is
+// asserted BEHAVIORALLY: gate open/skip/close decisions that could not happen
+// unless the WeakSet really held (or lacked) the panel entry.
+//
+// Mirror constraint: readPipelineModeChoice prefers the page-load session
+// mirror over storage, so these flows enter via a STORAGE-borne mode choice
+// (engine-cards first screen); no Continue write happens before the probe
+// steps, letting the later storage.removeItem legitimately flip the gate back
+// to mode-missing within the same module instance.
+
+const RESEARCH_HEADING = "Contribute agent research?";
+const THANKS_HEADING = "Thank you for making your choice.";
+const CONFIRM_LABEL = "Confirm Selection";
+const CLAUDE_LABEL = "Claude";
+
+test("live flow sentinel survives a status refresh during engine cards (same overlay, selection kept)", async () => {
+  globalThis.localStorage?.clear?.();
+  globalThis.localStorage?.removeItem(PROVIDER_KEY);
+  globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+
+  const harness = await createBrowserHarness({
+    responses: {
+      ...READY_AUTO_STATUS,
+      ...READY_CODEX_STATUS,
+    },
+    seedPipelineMode: false,
+  });
+
+  try {
+    // Storage-borne staged choice + no provider: the overlay mounts straight
+    // at the engine-cards screen and marks the sentinel (roundtrip :9506).
+    globalThis.localStorage.setItem(PIPELINE_MODE_KEY, "staged");
+    await bootPanel(harness);
+
+    await waitFor(() => Boolean(harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay")));
+    await waitFor(() => Boolean(findButton(harness, CONFIRM_LABEL)));
+
+    const overlayBefore = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+    const nodesBefore = overlayBefore.querySelectorAll(() => true);
+
+    // Make a real selection so the "must not reset selection" claim bites.
+    const claudeCard = findTileByLabel(harness, CLAUDE_LABEL);
+    assert.ok(claudeCard, "claude card rendered on the engine-cards screen");
+    claudeCard.click();
+    assert.equal(claudeCard.style.borderColor, "#e6a817", "selection visibly applied");
+
+    // Synthetic status refresh through the ONLY public re-entry: the panel
+    // command re-runs openAgentPanel → refreshAgentStatus → syncChooseEngineGate
+    // with the production deps (real WeakSet view).
+    const statusRequestsBefore = harness.requests.filter((entry) =>
+      entry.url.startsWith("/vibecomfy/agent/status"),
+    ).length;
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    const statusRequestsAfter = harness.requests.filter((entry) =>
+      entry.url.startsWith("/vibecomfy/agent/status"),
+    ).length;
+    assert.ok(statusRequestsAfter > statusRequestsBefore, "synthetic refresh actually ran");
+
+    const overlayAfter = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+    assert.ok(overlayAfter, "overlay still mounted after the refresh");
+    assert.equal(
+      overlayAfter,
+      overlayBefore,
+      "flow-open sentinel made the gate SKIP the idempotent remount (second-open skip)",
+    );
+    const nodesAfter = overlayAfter.querySelectorAll(() => true);
+    assert.equal(nodesAfter.length, nodesBefore.length, "box was not rebuilt under the user");
+    nodesAfter.forEach((node, index) => {
+      assert.equal(node, nodesBefore[index], `overlay node ${index} kept its identity`);
+    });
+    assert.equal(claudeCard.style.borderColor, "#e6a817", "card selection survived the refresh");
+    assert.ok(findButton(harness, CONFIRM_LABEL), "confirm affordance still live");
+  } finally {
+    globalThis.localStorage?.removeItem(PROVIDER_KEY);
+    globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+    await harness.dispose();
+  }
+});
+
+test("thank-you countdown teardown clears the sentinel; a later unset re-asks once (real gate remount)", async () => {
+  globalThis.localStorage?.clear?.();
+  globalThis.localStorage?.removeItem(PROVIDER_KEY);
+  globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+  globalThis.localStorage?.removeItem("vibecomfy_research_contribution_enabled");
+
+  let triggerCount = 0;
+  const settingsBodies = [];
+  const harness = await createBrowserHarness({
+    responses: {
+      ...READY_AUTO_STATUS,
+      ...READY_CODEX_STATUS,
+      "/vibecomfy/agent/settings": async ({ options }) => {
+        if (options?.method === "POST") {
+          const body = JSON.parse(options.body);
+          settingsBodies.push(body);
+          return { status: 200, body: { ok: true, research_contribution_enabled: body.research_contribution_enabled } };
+        }
+        return { status: 200, body: { ok: true, research_contribution_enabled: false } };
+      },
+      "/vibecomfy/agent/research-contribution/run": async () => {
+        triggerCount += 1;
+        return { status: 200, body: { ok: true, triggered: true } };
+      },
+    },
+    seedPipelineMode: false,
+  });
+
+  try {
+    // Engine-cards entry again (storage-borne mode, mirror untouched).
+    globalThis.localStorage.setItem(PIPELINE_MODE_KEY, "staged");
+    await bootPanel(harness);
+    await waitFor(() => Boolean(findButton(harness, CONFIRM_LABEL)));
+
+    const codexCard = findTileByLabel(harness, "Codex");
+    assert.ok(codexCard, "codex card rendered");
+    codexCard.click();
+    findButton(harness, CONFIRM_LABEL).click();
+    await waitFor(() => harness.textDump().includes(RESEARCH_HEADING));
+
+    // Decline research: full lifecycle → thanks screen → real 2-tick countdown
+    // → internal teardownOverlay() clears the sentinel (roundtrip :9564/:10066).
+    findButton(harness, "No").click();
+    await waitFor(() => harness.textDump().includes(THANKS_HEADING));
+    await waitFor(
+      () => !harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      6000,
+    );
+    assert.equal(globalThis.localStorage.getItem(PROVIDER_KEY), "openai-codex", "route commit persisted");
+    assert.equal(globalThis.localStorage.getItem("vibecomfy_research_contribution_enabled"), "0");
+
+    // Control: with the mode still present, a refresh must stay SILENT
+    // (ask-once). The gate consults the real sentinel; !modeMissing prevents
+    // any remount regardless.
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      null,
+      "completed flow is never flappily re-asked",
+    );
+
+    // Now the discriminating step: the user explicitly clears their stored
+    // answer. Because this flow never wrote the session mirror, the gate
+    // honestly sees mode-missing. If the countdown teardown had leaked the
+    // WeakSet entry, flowOpen would suppress this remount forever (the exact
+    // regression silence G1 froze). Cleared sentinel → gate REMOUNTS at the
+    // mode question, keyed off the REAL isChooseEngineFlowOpen closure.
+    globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => Boolean(findButton(harness, CONTINUE_LABEL)));
+    const reopened = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+    assert.ok(reopened, "unset answer re-asks: gate proved the sentinel was cleared");
+    assert.equal(findButton(harness, CONFIRM_LABEL), null, "fresh ask starts at the mode step");
+    assert.match(harness.textDump(), /How should the agent work\?/);
+
+    // Remounted flow re-marks the sentinel — a further refresh must again be
+    // a no-op on element identity, and mode-only Continue closes WITHOUT the
+    // research prompt (the other :9564 caller, mode-only completion :9984).
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      reopened,
+      "reopened flow is itself sentinel-guarded",
+    );
+    const stagedTile = findTileByLabel(harness, TILE_LABEL_STAGED);
+    stagedTile.click();
+    findButton(harness, CONTINUE_LABEL).click();
+    await waitFor(() => !harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
+    assert.doesNotMatch(harness.textDump(), new RegExp(RESEARCH_HEADING.replace("?", "\\?")), "mode-only completion skips research");
+    assert.equal(globalThis.localStorage.getItem(PIPELINE_MODE_KEY), "staged");
+    assert.equal(triggerCount, 0, "decline path never triggers a research run");
+    assert.deepEqual(settingsBodies, [{ research_contribution_enabled: false }]);
+  } finally {
+    globalThis.localStorage?.removeItem(PROVIDER_KEY);
+    globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+    globalThis.localStorage?.removeItem("vibecomfy_research_contribution_enabled");
+    await harness.dispose();
+  }
+});
 
 test("explicit choice stays submit-eligible when localStorage writes fail (recoverable)", async () => {
   globalThis.localStorage?.clear?.();
