@@ -71,12 +71,35 @@ PACK_URL_FALLBACKS: dict[str, str] = {
     # pack slug → git URL (all public; verified via hivemind/ComfyUI-Manager)
     "ComfyUI-Inspire-Pack": "https://github.com/ltdrdata/ComfyUI-Inspire-Pack",
     "ComfyUI-Easy-Use": "https://github.com/yolain/ComfyUI-Easy-Use",
-    # llama_cpp family — stavsap is the off-registry target; kijai is an
-    # on-registry alternative that also carries the classes (used as fallback
-    # candidate when verification is applied).
-    "ComfyUI-llama-cpp": "https://github.com/stavsap/ComfyUI-llama-cpp",
+    # llama_cpp family — lihaoyun6 is the live upstream carrying the exact
+    # class names (llama_cpp_instruct_adv / llama_cpp_model_loader /
+    # llama_cpp_parameters); stavsap/ComfyUI-llama-cpp is 404 Not Found
+    # (verified: git ls-remote fails; checked 2026-08-26).
+    # Keep both slug spellings pointing at the same live repo.
+    "ComfyUI-llama-cpp": "https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm",
+    "ComfyUI-llama-cpp_vlm": "https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm",
     "ComfyUI-DeepExtract": "https://github.com/abdozmantar/ComfyUI-DeepExtract",
     "audio-separation-nodes-comfyui": "https://github.com/christian-byrke/audio-separation-nodes-comfyui",
+    # ACN — Suzie1/ComfyUI-Advanced-ControlNet is 404 Not Found
+    # (verified 2026-08-26); live upstream is Kosinkadink (original) /
+    # omneky-org (fork). Use Kosinkadink as canonical.
+    "ComfyUI-Advanced-ControlNet": "https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
+}
+
+# Fallback version pins — when current master has migrated to the v3
+# ComfyExtension/define_schema API, the static INPUT_TYPES extractor (rung 1)
+# and the stubbed-import extractor (rung 2) miss the class. Pin to the last
+# INPUT_TYPES-based commit so the fallback ladder can still extract the
+# class via rungs 1/2 without needing rung 3 (no comfy serve).
+PACK_FALLBACK_VERSION_PINS: dict[str, str] = {
+    # Easy-Use: Int ("easy int") switched from INPUT_TYPES to
+    # io.ComfyNode.define_schema in commit aef19b8 (2026-03-19, Fix NodesMap
+    # #969). Last good INPUT_TYPES tag is v1.3.6 (b5e31ef, 2026-01-23).
+    "ComfyUI-Easy-Use": "v1.3.6",
+    # Advanced-ControlNet: nodes migrated to io.ComfyNode.define_schema /
+    # ComfyExtension in commit 0a0c10b (2026-??, Migrate all nodes to the V3
+    # API). Last INPUT_TYPES commit is a0563a3 (Bump version to 1.5.8).
+    "ComfyUI-Advanced-ControlNet": "a0563a3fa09b8cb8a4e19aa5880e61005626fe0e",
 }
 
 

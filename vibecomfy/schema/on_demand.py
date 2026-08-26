@@ -211,24 +211,80 @@ class OnDemandInstallSchemaProvider:
     def _ensure_clone(self, ref: Any) -> Path | None:
         slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or _slug_from_url(ref.url)
         target = self.sandbox_root / slug
+        pin = getattr(ref, "version", None) or getattr(ref, "commit", None)
+        # Fallback map may have version pins for packs whose current master
+        # uses the v3 ComfyExtension API (define_schema) which our rung 1/2
+        # extractors miss. Pinned packs must check out the pre-v3 commit.
         if target.is_dir():
             # LRU: bump mtime so this clone reads as recently used for eviction.
             try:
                 os.utime(target, None)
             except OSError:
                 pass
+            if pin:
+                # Ensure the existing clone is at the pinned version; if not,
+                # fetch and checkout. This handles stale LRU clones from prior
+                # runs that were at HEAD.
+                try:
+                    head = subprocess.run(
+                        ["git", "-C", str(target), "rev-parse", "HEAD"],
+                        capture_output=True, text=True, timeout=10,
+                    ).stdout.strip()
+                    # Resolve pin to a commit (tag → commit)
+                    want = subprocess.run(
+                        ["git", "-C", str(target), "rev-parse", pin + "^{commit}"],
+                        capture_output=True, text=True, timeout=10,
+                    ).stdout.strip()
+                    if want and head != want:
+                        # Fetch the pin if not present, then checkout
+                        subprocess.run(
+                            ["git", "-C", str(target), "fetch", "--tags", "--depth", "1", "origin", pin],
+                            capture_output=True, timeout=30,
+                        )
+                        subprocess.run(
+                            ["git", "-C", str(target), "checkout", pin],
+                            capture_output=True, timeout=10,
+                        )
+                except Exception:
+                    pass
             return target
         self._enforce_cap()  # make room before adding a new clone
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                ["git", "clone", "--depth", "1", ref.url, str(target)],
-                check=True,
-                capture_output=True,
-                timeout=self.clone_timeout,
-            )
+            if pin:
+                # For pinned fallbacks, clone without --depth 1 then checkout
+                # the pin so the extraction sees the INPUT_TYPES-era code.
+                subprocess.run(
+                    ["git", "clone", ref.url, str(target)],
+                    check=True,
+                    capture_output=True,
+                    timeout=self.clone_timeout,
+                )
+                # Fetch tags if pin is a tag
+                subprocess.run(
+                    ["git", "-C", str(target), "fetch", "--tags", "--depth", "1", "origin", pin],
+                    capture_output=True, timeout=30,
+                )
+                subprocess.run(
+                    ["git", "-C", str(target), "checkout", pin],
+                    check=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+            else:
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", ref.url, str(target)],
+                    check=True,
+                    capture_output=True,
+                    timeout=self.clone_timeout,
+                )
             return target
         except Exception:
+            # Cleanup half-cloned dir
+            try:
+                shutil.rmtree(target, ignore_errors=True)
+            except Exception:
+                pass
             return None
 
     def _enforce_cap(self) -> None:

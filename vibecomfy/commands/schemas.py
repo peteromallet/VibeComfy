@@ -638,7 +638,11 @@ _CLASS_FALLBACK_SLUGS: dict[str, tuple[str, ...]] = {
     "easy forloop": ("ComfyUI-Easy-Use",),
     "easy forLoop": ("ComfyUI-Easy-Use",),
     "easy int": ("ComfyUI-Easy-Use",),
-    "llama_cpp": ("ComfyUI-llama-cpp",),
+    "llama_cpp": ("ComfyUI-llama-cpp", "ComfyUI-llama-cpp_vlm"),
+    # ACN — Advanced-ControlNet Apply (Suzie1 slug was 404; live upstream
+    # is Kosinkadink/ComfyUI-Advanced-ControlNet, now under omneky-org).
+    "acn_advancedcontrolnetapply": ("ComfyUI-Advanced-ControlNet",),
+    "advancedcontrolnetapply": ("ComfyUI-Advanced-ControlNet",),
     # generic audio fallbacks when the specific class token is not matched
     "audiosep": ("audio-separation-nodes-comfyui",),
     "audiocombine": ("audio-separation-nodes-comfyui",),
@@ -652,6 +656,7 @@ def _fallback_pack_refs_for_class(class_type: str) -> list[Any]:
     hook for future workflow-declared refs), (b) hardcoded PACK_URL_FALLBACKS
     filtered by class substring match.
     """
+    from vibecomfy.registry.pack_resolver import PACK_FALLBACK_VERSION_PINS as _PINS
     from vibecomfy.registry.pack_resolver import PACK_URL_FALLBACKS as _MAP
     from vibecomfy.registry.pack_resolver import PackRef
 
@@ -682,9 +687,12 @@ def _fallback_pack_refs_for_class(class_type: str) -> list[Any]:
         if not url or slug in seen:
             continue
         seen.add(slug)
-        candidates.append(PackRef(slug=slug, source="git", url=url))
+        pin = _PINS.get(slug)
+        if pin:
+            candidates.append(PackRef(slug=slug, source="git", url=url, version=pin))
+        else:
+            candidates.append(PackRef(slug=slug, source="git", url=url))
     return candidates
-
 
 def _clone_contains_class(clone_dir: Path, class_type: str) -> bool:
     """True when *clone_dir*'s Python sources mention *class_type*.
@@ -716,8 +724,6 @@ def _clone_contains_class(clone_dir: Path, class_type: str) -> bool:
     except Exception:
         return False
     return False
-
-
 def _resolve_fallback_pack_ref(class_type: str, provider: Any) -> Any:
     """Registry-miss fallback: clone-verify each fallback URL and return the first that contains *class_type*."""
     candidates = _fallback_pack_refs_for_class(class_type)
@@ -728,9 +734,20 @@ def _resolve_fallback_pack_ref(class_type: str, provider: Any) -> Any:
         clone_dir = provider._ensure_clone(ref)
         if clone_dir is None:
             last_detail = f"could not clone {ref.url!r} for {class_type!r}"
+            # include version pin in detail when present so failures are auditable
+            if getattr(ref, "version", None):
+                last_detail += f" (pin {ref.version!r})"
+            # dead-upstream check: stavsap and Suzie1 are known 404s — surface
+            # that explicitly instead of a generic clone failure.
+            if "stavsap" in (ref.url or ""):
+                last_detail += " — upstream 404 Not Found (verified 2026-08-26: git ls-remote fails; live repo is lihaoyun6/ComfyUI-llama-cpp_vlm)"
+            if "Suzie1" in (ref.url or ""):
+                last_detail += " — upstream 404 Not Found (verified 2026-08-26: git ls-remote fails; live repo is Kosinkadink/ComfyUI-Advanced-ControlNet)"
             continue
         if not _clone_contains_class(clone_dir, class_type):
             last_detail = f"class {class_type!r} not found in {ref.slug!r} ({ref.url!r})"
+            if getattr(ref, "version", None):
+                last_detail += f" at pin {ref.version!r}"
             continue
         return ref
     raise LookupError(f"fallback pack for {class_type!r} not found: {last_detail}")
@@ -785,19 +802,45 @@ def _capture_missing_classes(
     for class_type in missing_classes:
         ref = None
         is_fallback = False
+        # For packs whose current master uses the v3 define_schema API, the
+        # registry's HEAD clone will not extract via rung 1/2. Prefer the
+        # pinned fallback (which is at the last INPUT_TYPES commit) when it
+        # is available and actually contains the class.
+        pinned_ref = None
         try:
-            ref = _resolve_pack_ref(class_type)
-        except LookupError as exc:
-            # Registry-miss → try direct_url fallback before reporting resolve failure
+            from vibecomfy.registry.pack_resolver import PACK_FALLBACK_VERSION_PINS as _PINS
+
+            cands = _fallback_pack_refs_for_class(class_type)
+            for cand in cands:
+                if getattr(cand, "version", None) and getattr(cand, "slug", None) in _PINS:
+                    # Verify the pinned clone actually contains the class
+                    # (text search, cheap) before preferring it over registry.
+                    from vibecomfy.registry.pack_resolver import PACK_URL_FALLBACKS as _FBMAP
+
+                    # Ensure we have a clone to verify (may already be cached)
+                    tmp_clone = provider._ensure_clone(cand)
+                    if tmp_clone is not None and _clone_contains_class(tmp_clone, class_type):
+                        pinned_ref = cand
+                        break
+        except Exception:
+            pinned_ref = None
+        if pinned_ref is not None:
+            ref = pinned_ref
+            is_fallback = True
+        else:
             try:
-                ref = _resolve_fallback_pack_ref(class_type, provider)
-                is_fallback = True
-            except LookupError as fb_exc:
-                failures.append({"class_type": class_type, "step": "resolve", "detail": f"{exc}; fallback: {fb_exc}"})
-                continue
-            except Exception as fb_exc:  # noqa: BLE001
-                failures.append({"class_type": class_type, "step": "resolve", "detail": f"{exc}; fallback error: {fb_exc}"})
-                continue
+                ref = _resolve_pack_ref(class_type)
+            except LookupError as exc:
+                # Registry-miss → try direct_url fallback before reporting resolve failure
+                try:
+                    ref = _resolve_fallback_pack_ref(class_type, provider)
+                    is_fallback = True
+                except LookupError as fb_exc:
+                    failures.append({"class_type": class_type, "step": "resolve", "detail": f"{exc}; fallback: {fb_exc}"})
+                    continue
+                except Exception as fb_exc:  # noqa: BLE001
+                    failures.append({"class_type": class_type, "step": "resolve", "detail": f"{exc}; fallback error: {fb_exc}"})
+                    continue
         slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or "pack"
         group = by_slug.setdefault(slug, {"ref": ref, "classes": [], "is_fallback": is_fallback})
         # if any class in the same slug was fallback, mark group as fallback for provenance null version
