@@ -189,9 +189,9 @@ Preflight stays **local-only / no network**. It must **not** call `OnDemandInsta
 
 2. After `ObjectInfoIndexSchemaProvider.get`:
    - Read the cache entry’s `source_kind` (from the pack JSON, not `NodeSchema.source_provider`, which index provider overwrites to `object_info_index` at `provider.py:592–604`).
-   - Require `entry.source_kind` to match the **declared** source (alias-aware). A declaration of `authoritative_object_info` is **not** satisfied by `on_demand_*` (no masquerade). A declaration of `on_demand_static` is **not** satisfied by `on_demand_import` either (don’t upgrade).
+   - Require `entry.source_kind` to match the **declared** source exactly (no aliases). A declaration of `authoritative_object_info` is **not** satisfied by `on_demand_*` (no masquerade). A declaration of `on_demand_static` is **not** satisfied by `on_demand_import` either (don’t upgrade).
    - Still require provenance `repo` or `locked_commit` (pin). Also require provenance `source_kind` to match the entry (if present).
-   - Put the actual tier on the preflight payload: `resolution[scenario_id][class_type] = {ok, source_kind, extraction_rung, locked_commit}` (keep boolean compatibility if callers assume `bool`; prefer a dict with `__bool__` or a parallel `resolution_tiers` map so existing tests that compare `True` can be updated in this batch).
+   - Put the actual tier on the preflight payload: `resolution[scenario_id][class_type] = {ok, source_kind, extraction_rung, locked_commit}` (single surface: parallel `resolution_tiers` map; boolean payload untouched).
 
 3. Stub rejection unchanged: keep `@stub.json` index filter. Add an explicit fail if a resolved file is stub-shaped (`source_kind==workflow_json_stub` or filename suffix) so a future index bug cannot pass.
 
