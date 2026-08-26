@@ -15,6 +15,10 @@ import {
   selectTranscriptMessages,
 } from "./agent_edit_response_contract.js";
 import { routeStatusState } from "./agent_status_poller.js";
+import {
+  matchPipelineMode,
+  PIPELINE_MODE_STORAGE_KEY,
+} from "./agent_submit_flow.js";
 
 const THREAD_WINDOW_SIZE = 30;
 const THREAD_NEAR_BOTTOM_TOLERANCE_PX = 120;
@@ -22,6 +26,9 @@ const RATING_WIDGET_CLEAR_DELAY_MS = 2400;
 const RATING_WIDGET_EXPIRY_MS = 120000;
 const RATING_PACK_SHARE_DEFAULT_LS_KEY = "vibecomfy_pack_share_default";
 const RATING_WIDGET_DISABLED_LS_KEY = "vibecomfy_rating_widget_disabled";
+// Neutral pending indicator for threaded/unset agent modes: an honest
+// "still working" placeholder that carries none of the staged vocabulary.
+const NEUTRAL_PENDING_LABEL = "Working…";
 
 export function collectThreadMessageEntries(panel, deps = {}) {
   const { messageStableKey } = deps;
@@ -658,7 +665,41 @@ export function appendQueueDetail(body, panel, snapshot = null, deps = {}) {
   }
 }
 
-function bubbleDetailSignature(panel, msg, detailSnapshot) {
+// ── Explicit agent-mode chrome gating (B2-T1/B2-T2) ────────────────────────
+// Resolves the CURRENT explicit preference ("staged" | "threaded" | null).
+// Wired callers receive the roundtrip's readPipelineModeChoice getter, whose
+// session mirror also covers failed-storage page loads; unwired direct
+// callers fall back to the persisted explicit choice only. Neither path ever
+// consults a forgiving default-coercing wrapper — unset stays unset.
+function explicitPipelineModeForDeps(panel, deps = {}) {
+  const reader = typeof deps?.pipelineModeChoice === "function"
+    ? deps.pipelineModeChoice
+    : null;
+  if (reader) {
+    try {
+      const choice = reader();
+      return matchPipelineMode(choice?.mode);
+    } catch (_error) {
+      // fall through to the persisted storage read below
+    }
+  }
+  let raw = null;
+  try {
+    raw = safeStorageGet(PIPELINE_MODE_STORAGE_KEY);
+  } catch (_error) {
+    raw = null;
+  }
+  return matchPipelineMode(raw);
+}
+
+// Staged chrome (stage strip + staged copy) renders only for an EXPLICIT
+// staged preference. Threaded and unset both suppress it (A7: no silent
+// staged default in either direction).
+function stagedChromeForDeps(panel, deps = {}) {
+  return explicitPipelineModeForDeps(panel, deps) === "staged";
+}
+
+function bubbleDetailSignature(panel, msg, detailSnapshot, deps = {}) {
   const responseDetail = responseDetailForMessage(panel, msg, detailSnapshot);
   const normalDetail = normalDetailSnapshotForRender(responseDetail) || {};
   const detailSigParts = [
@@ -669,6 +710,9 @@ function bubbleDetailSignature(panel, msg, detailSnapshot) {
     msg?.turn_id || "",
     msg?.detail_turn_id || "",
     String(msg?.text || "").slice(0, 80),
+    // Mode participates in detail invalidation so a Settings switch repaints
+    // cached panes on the next render (B2-T2 keyed-DOM contract).
+    explicitPipelineModeForDeps(panel, deps) || "unset",
   ];
   return detailSigParts.join("|");
 }
@@ -705,6 +749,9 @@ function bubbleRenderSignature(panel, msg, deps = {}) {
     isPendingAgentMessage(msg) ? "pending-response" : "",
     msg?.progress ? JSON.stringify(msg.progress) : "",
     msg?.progress_label || "",
+    // Current explicit mode: any staged<->threaded/unset flip invalidates the
+    // keyed bubble cache so the next reconcile repaints chrome (B2-T2).
+    explicitPipelineModeForDeps(panel, deps) || "unset",
   ];
   return signatureParts.join("|");
 }
@@ -833,6 +880,21 @@ function renderExecutorProgressRow(msg, panel, deps = {}) {
   const { el } = deps;
   if (!isPendingAgentMessage(msg) || typeof el !== "function") {
     return null;
+  }
+  if (!stagedChromeForDeps(panel, deps)) {
+    // Threaded / unset: the staged Decide→Research→Execute→Review strip and
+    // its secondary label would lie about mode. Render an honest neutral
+    // "Working…" placeholder instead — never blank (B2-T1).
+    const working = el("div", NEUTRAL_PENDING_LABEL);
+    working.dataset.vibecomfyPendingNeutral = "1";
+    Object.assign(working.style, {
+      display: "flex",
+      alignItems: "center",
+      marginTop: "0",
+      fontSize: "11px",
+      color: "#9aa3b2",
+    });
+    return working;
   }
   const progress = (msg.progress && typeof msg.progress === "object"
     ? msg.progress
@@ -1387,7 +1449,10 @@ export function populateAgentBubbleDetail(target, panel, message, snapshot = nul
     target.appendChild(changesSection.section);
   }
 
-  if (ordinarySnapshot?.progress && typeof ordinarySnapshot.progress === "object") {
+  // Staged "Progress" detail section: pipeline vocabulary — render only when
+  // the EXPLICIT preference is staged (threaded/unset suppress just this
+  // section; diagnostics/candidate/failure/queue stay untouched).
+  if (stagedChromeForDeps(panel, deps) && ordinarySnapshot?.progress && typeof ordinarySnapshot.progress === "object") {
     const progressSection = createBubbleDetailSection("Progress");
     const progress = ordinarySnapshot.progress;
     const headline = typeof progress.headline === "string" && progress.headline
@@ -1496,7 +1561,10 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
     lineHeight: "1.4",
     minWidth: "0",
   });
-  const progressRow = renderExecutorProgressRow(msg, panel, { el });
+  const progressRow = renderExecutorProgressRow(msg, panel, {
+    el,
+    pipelineModeChoice: deps.pipelineModeChoice,
+  });
   if (progressRow) {
     text.appendChild(progressRow);
   }
@@ -1535,7 +1603,7 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
         : `agent:${messageKey || messageIndex}:${String(msg.text || "").slice(0, 24)}`);
   const responseDetail = responseDetailForMessage(panel, msg, null);
   const detailSnapshot = normalDetailSnapshotForRender(responseDetail);
-  const detailSignature = bubbleDetailSignature(panel, msg, detailSnapshot);
+  const detailSignature = bubbleDetailSignature(panel, msg, detailSnapshot, deps);
   const detailRow = el("div");
   Object.assign(detailRow.style, {
     marginTop: "3px",

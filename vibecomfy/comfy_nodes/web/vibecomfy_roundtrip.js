@@ -254,6 +254,7 @@ import {
   DEFAULT_PIPELINE_MODE,
   matchPipelineMode,
   normalizePipelineMode,
+  PIPELINE_MODE_STORAGE_KEY,
 } from "./agent_submit_flow.js";
 import { registerRoundtripExtension } from "./roundtrip_extension.js";
 
@@ -407,10 +408,10 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 // matching FailureKind.
 
 const SUPPORTED_FRONTEND = "1.39.x";
-const PIPELINE_MODE_STORAGE_KEY = "vibecomfy_agent_pipeline_mode";
-// Honest consequence-first copy — ONE source shared by the welcome overlay's
-// mode step and the Settings subtext. Copy parity between the two surfaces is
-// contract-tested (drift here breaks tests, not silently diverges).
+// PIPELINE_MODE_STORAGE_KEY lives in agent_submit_flow.js (single source
+// shared with renderer modules). Honest consequence-first copy below — ONE
+// source shared by the welcome overlay's mode step and the Settings subtext.
+// Copy parity between the two surfaces is contract-tested (drift breaks tests).
 export const AGENT_PIPELINE_MODE_COPY = Object.freeze({
   staged: "Structures each request into multiple steps (Decide → Research → Execute → Review). Works better with smaller models.",
   threaded: "One instance gets all tools in one pass. Works better with larger models.",
@@ -454,6 +455,14 @@ export function writePipelineModeChoice(mode) {
     // Session mirror above keeps the explicit choice alive for this page load.
   }
   return { present: true, mode: canonical };
+}
+
+// Staged pipeline chrome (Decide→Research→Execute→Review indicators) renders
+// ONLY for an explicit staged preference. Threaded AND unset both mean the
+// user has not asked for stage structure, so the UI must not show it — this is
+// the single gate every display site consults (B2-T1).
+function pipelineChromeEnabled(_panel) {
+  return readPipelineModeChoice().mode === "staged";
 }
 
 // Sync every Settings-surface projection of the preference (select value,
@@ -3940,6 +3949,15 @@ function createAgentPanelShell() {
       hint: pipelineModeHint,
       panel: currentAgentPanel(),
     });
+    // Mid-flight switch repaints presentation NOW (thread + meta chrome);
+    // execution picks the new mode on the NEXT submit only. Uses the existing
+    // scheduler primitive — no event bus, no progress-state clearing.
+    if (currentAgentPanel()) {
+      scheduleRenderAgentPanel("pipeline-mode-change", currentAgentPanel(), [
+        RENDER_SECTIONS.THREAD,
+        RENDER_SECTIONS.META,
+      ]);
+    }
   };
   modelInput.onchange = () => {
     const panel = currentAgentPanel();
@@ -6393,7 +6411,7 @@ function renderMeta(panel) {
   panel.metaRow.appendChild(labelValue("session", panel.state.sessionId || "new"));
   panel.metaRow.appendChild(labelValue("turn", panel.state.turnId || "pending"));
   panel.metaRow.appendChild(labelValue("baseline", panel.state.baselineTurnId || "none"));
-  if (panel.state.executorProgress) {
+  if (panel.state.executorProgress && pipelineChromeEnabled(panel)) {
     panel.metaRow.appendChild(labelValue("phase", executorProgressLabel(panel.state.executorProgress)));
   }
 }
@@ -6429,6 +6447,7 @@ function renderChatBubbleNode(bubble, panel, msg, messageKey, messageIndex) {
     createDetails,
     el,
     ensureThreadRenderState,
+    pipelineModeChoice: readPipelineModeChoice,
     showIssueModal,
     submitRating,
   });
@@ -6449,6 +6468,7 @@ function reconcileChatBubbles(panel, messagesMount, displayEntries) {
     el,
     ensureThreadRenderState,
     messageSignature,
+    pipelineModeChoice: readPipelineModeChoice,
     showIssueModal,
     submitRating,
   });
@@ -6588,6 +6608,7 @@ function populateAgentBubbleDetail(target, panel, message, snapshot = null) {
     createBubbleDetailSection,
     createDetails,
     el,
+    pipelineModeChoice: readPipelineModeChoice,
   });
 }
 

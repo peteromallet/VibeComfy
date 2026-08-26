@@ -338,6 +338,9 @@ test("DOM: Decide secondary text renders from progress label and clears on next 
 
   try {
     const mod = await harness.loadExtension();
+    // Explicit staged fixture: these assertions pin staged-strip bytes, so the
+    // preference must be written deliberately, not inherited from a default.
+    globalThis.localStorage?.setItem("vibecomfy_agent_pipeline_mode", "staged");
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((r) => r.url === "/vibecomfy/agent/status?route=auto"));
@@ -415,6 +418,9 @@ test("DOM: phase strip present while pending and legacy activity rows stay hidde
 
   try {
     const mod = await harness.loadExtension();
+    // Explicit staged fixture: these assertions pin staged-strip bytes, so the
+    // preference must be written deliberately, not inherited from a default.
+    globalThis.localStorage?.setItem("vibecomfy_agent_pipeline_mode", "staged");
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((r) => r.url === "/vibecomfy/agent/status?route=auto"));
@@ -1248,6 +1254,198 @@ test("DOM: all non-applyable routes (clarify, inspect, respond, research) suppre
       assert.doesNotMatch(text, /route_not_applyable/i, `${route} route must not leak route_not_applyable`);
     }
   } finally {
+    await harness.dispose();
+  }
+});
+
+// ── B2-T3: pipeline chrome gating — staged / threaded / unset parity ────────
+// The UI never lies about mode: staged chrome only for an EXPLICIT staged
+// preference; threaded and unset both get the neutral Working… placeholder,
+// zero stage nodes, no staged copy in bubbles/details, no meta phase chip.
+
+const PIPELINE_MODE_KEY = "vibecomfy_agent_pipeline_mode";
+const STAGE_LABEL_RE = /\bDecide\b|\bResearch\b|\bExecute\b|\bReview\b/;
+
+function domHarnessResponses() {
+  return {
+    "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    "/vibecomfy/agent/status?route=auto": {
+      status: 200,
+      body: {
+        ok: true,
+        provider_available: true,
+        route: "deepseek",
+        requested_route: "auto",
+        route_options: {
+          auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+        },
+      },
+    },
+  };
+}
+
+const stageNodes = (harness) =>
+  harness.document.body.querySelectorAll((node) => node.dataset?.vibecomfyExecutorStage);
+const neutralNodes = (harness) =>
+  harness.document.body.querySelectorAll((node) => node.dataset?.vibecomfyPendingNeutral === "1");
+const pendingBubbles = (harness) =>
+  harness.document.body.querySelectorAll((node) => node.dataset?.vibecomfyMessageKey && node.dataset.vibecomfyMessageKey.length > 0);
+const phaseChips = (harness) =>
+  harness.document.body.querySelectorAll(
+    // labelValue renders "<span>phase: </span><span>value</span>" inside a
+    // div; count the unique label spans so wrappers are not double-counted.
+    (node) => node.tagName === "SPAN" && node.textContent === "phase: ",
+  );
+
+async function bootModeDomHarness({ seededMode } = {}) {
+  const harness = await createBrowserHarness({
+    responses: domHarnessResponses(),
+    seedPipelineMode: false,
+  });
+  try {
+    if (seededMode !== undefined) {
+      globalThis.localStorage?.setItem(PIPELINE_MODE_KEY, seededMode);
+    }
+    const mod = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((r) => r.url === "/vibecomfy/agent/status?route=auto"), { attempts: 400 });
+    return { harness, mod };
+  } catch (err) {
+    await harness.dispose();
+    throw err;
+  }
+}
+
+function mountPendingFixture(mod, progress) {
+  const panel = mod.ensureAgentPanel();
+  panel.root.dataset.open = "1";
+  panel.state.sessionId = "sess-mode-gate";
+  panel.state.turns = [];
+  panel.state.executorProgress = progress;
+  panel.state.chatMessages = [
+    {
+      role: "agent",
+      text: "",
+      pending_response: true,
+      executor_pending: true,
+      progress,
+      progress_label: null,
+      local_id: "pending-mode-gate",
+    },
+  ];
+  mod.resetThreadRenderState(panel);
+  mod.markAgentPanelDirty(panel, ["THREAD", "META"]);
+  mod.renderAgentPanel(panel, { dirtySections: ["THREAD", "META"] });
+  return panel;
+}
+
+test("DOM: explicit threaded mode renders neutral Working… with zero staged chrome", async () => {
+  const { harness, mod } = await bootModeDomHarness({ seededMode: "threaded" });
+  try {
+    assert.equal(globalThis.localStorage.getItem(PIPELINE_MODE_KEY), "threaded");
+    const progress = createExecutorProgressSnapshot({ decide: "active" });
+    mountPendingFixture(mod, progress);
+
+    assert.equal(stageNodes(harness).length, 0, "no Decide/Research/Execute/Review nodes when threaded");
+    assert.equal(phaseChips(harness).length, 0, "meta phase chip suppressed when threaded");
+    const neutrals = neutralNodes(harness);
+    assert.equal(neutrals.length, 1, "exactly one neutral Working… indicator");
+    assert.equal(neutrals[0].textContent, "Working…");
+
+    const bubble = pendingBubbles(harness)[0];
+    assert.ok(bubble, "pending bubble is mounted");
+    assert.doesNotMatch(bubble.textContent, STAGE_LABEL_RE, "bubble carries no staged vocabulary");
+    assert.doesNotMatch(bubble.textContent, /Research node choices/, "staged secondary label suppressed");
+
+    // Details pane: even with snapshot.progress present, the staged Progress
+    // section must stay hidden while threaded (half-gated UX tripwire).
+    const detailToggle = bubble.querySelectorAll(
+      (node) => node.textContent === "\u25b6 details" && typeof node.onclick === "function",
+    )[0];
+    detailToggle.click();
+    assert.ok(!/\bProgress\b/.test(bubble.textContent), "no staged Progress section in details");
+    assert.doesNotMatch(bubble.textContent, /decide:\s*active/i, "no per-stage status lines in details");
+    assert.match(bubble.textContent, /Working…/, "neutral indicator survives inside bubble subtree");
+  } finally {
+    globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+    await harness.dispose();
+  }
+});
+
+test("DOM: unset agent mode shows the same honest neutral chrome until a choice exists", async () => {
+  const { harness, mod } = await bootModeDomHarness({});
+  try {
+    assert.equal(globalThis.localStorage.getItem(PIPELINE_MODE_KEY), null, "storage starts honestly unset");
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-pipeline-mode")?.value ?? "",
+      "",
+      "Settings select reflects unset via disabled placeholder",
+    );
+    const progress = createExecutorProgressSnapshot({ decide: "active" });
+    mountPendingFixture(mod, progress);
+
+    assert.equal(stageNodes(harness).length, 0, "unset renders zero stage nodes — never a silent staged default");
+    assert.equal(phaseChips(harness).length, 0);
+    const neutrals = neutralNodes(harness);
+    assert.equal(neutrals.length, 1);
+    assert.equal(neutrals[0].textContent, "Working…");
+    const bubble = pendingBubbles(harness)[0];
+    assert.doesNotMatch(bubble.textContent, STAGE_LABEL_RE);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("DOM: real Settings onchange repaints chrome both directions mid-flight, keyed DOM reused", async () => {
+  const { harness, mod } = await bootModeDomHarness({ seededMode: "staged" });
+  try {
+    const progress = createExecutorProgressSnapshot({ decide: "active" });
+    const panel = mountPendingFixture(mod, progress);
+    const pendingMessage = panel.state.chatMessages[0];
+    const select = harness.document.getElementById("vibecomfy-agent-panel-pipeline-mode");
+    assert.ok(select, "settings select exists");
+    assert.equal(select.value, "staged", "explicit staged seed drives the selector");
+
+    assert.equal(stageNodes(harness).length, 4, "staged fixture keeps all four stage nodes");
+    assert.equal(phaseChips(harness).length, 1, "staged fixture keeps the meta phase chip");
+    const stagesBefore = [...stageNodes(harness)].map((n) => `${n.dataset.vibecomfyExecutorStage}:${n.dataset.vibecomfyExecutorStatus}`);
+    assert.deepEqual(stagesBefore, ["decide:active", "research:pending", "execute:pending", "review:pending"]);
+    assert.equal(neutralNodes(harness).length, 0, "staged chrome never mixes with the neutral placeholder");
+    const keyedBubbleBefore = pendingBubbles(harness)[0];
+    const keyBefore = keyedBubbleBefore.dataset.vibecomfyMessageKey;
+
+    // staged -> threaded through the REAL handler; scheduler flushes async.
+    select.value = "threaded";
+    select.onchange();
+    await waitFor(() => stageNodes(harness).length === 0, { attempts: 600 });
+    assert.equal(globalThis.localStorage.getItem(PIPELINE_MODE_KEY), "threaded", "handler writes the choice");
+    assert.equal(phaseChips(harness).length, 0, "phase chip drops on switch");
+    assert.equal(neutralNodes(harness).length, 1, "neutral Working… appears on switch");
+    assert.equal(pendingBubbles(harness)[0], keyedBubbleBefore, "keyed DOM node reused, not remounted");
+    assert.equal(keyedBubbleBefore.dataset.vibecomfyMessageKey, keyBefore);
+    assert.match(keyedBubbleBefore.textContent, /Working…/, "reused node repainted to neutral");
+
+    // Mid-flight switch NEVER clears progress state or restarts the executor.
+    assert.equal(panel.state.chatMessages[0], pendingMessage, "same pending message object");
+    assert.equal(panel.state.executorProgress?.decide, "active", "executor progress preserved");
+
+    // threaded -> staged restores byte-equivalent chrome on the same node.
+    select.value = "staged";
+    select.onchange();
+    await waitFor(() => stageNodes(harness).length === 4, { attempts: 600 });
+    assert.deepEqual(
+      [...stageNodes(harness)].map((n) => `${n.dataset.vibecomfyExecutorStage}:${n.dataset.vibecomfyExecutorStatus}`),
+      stagesBefore,
+      "chrome returns identical after round-trip",
+    );
+    assert.equal(phaseChips(harness).length, 1);
+    assert.equal(neutralNodes(harness).length, 0);
+    assert.equal(panel.state.chatMessages[0], pendingMessage);
+    assert.equal(panel.state.executorProgress?.decide, "active");
+  } finally {
+    globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
     await harness.dispose();
   }
 });

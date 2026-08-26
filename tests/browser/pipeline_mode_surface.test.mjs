@@ -672,3 +672,57 @@ test("chat rehydration leaves an ABSENT mode unset (never fabricates a default)"
     await harness.dispose();
   }
 });
+
+// ── B2-T1/B2-T2: staged-chrome gate derives from the EXPLICIT getter only ───
+
+// Boundary-based extractor: functionBody()'s brace counter mis-parses
+// signatures containing object-literal defaults (`deps = {}`).
+function fnSource(text, name) {
+  const start = text.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} should exist`);
+  const next = text.indexOf("\nfunction ", start + 1);
+  return text.slice(start, next === -1 ? text.length : next);
+}
+
+test("pipeline chrome gating derives from the explicit getter only (A7 source contract)", async () => {
+  const rt = await source("vibecomfy_roundtrip.js");
+  const thread = await source("panel_thread.js");
+
+  // The single display gate consults readPipelineModeChoice and NEVER the
+  // forgiving normalizer / silent staged default.
+  const gate = fnSource(rt, "pipelineChromeEnabled");
+  assert.match(gate, /readPipelineModeChoice\(\)/, "gate reads the explicit preference getter");
+  assert.match(gate, /=== "staged"/, "only an explicit staged choice shows staged chrome");
+  assert.doesNotMatch(gate, /DEFAULT_PIPELINE_MODE|normalizePipelineMode/);
+
+  // Every thread-side renderer receives that same getter as glue — no second
+  // store, no per-message snapshots of mode.
+  for (const wrapper of ["renderChatBubbleNode", "reconcileChatBubbles", "populateAgentBubbleDetail"]) {
+    assert.match(
+      fnSource(rt, wrapper),
+      /pipelineModeChoice:\s*readPipelineModeChoice/,
+      `${wrapper} injects the shared getter`,
+    );
+  }
+
+  // Threaded/unset pending bubbles keep an honest placeholder — never blank,
+  // never staged copy (half-gated UX tripwire at source level).
+  assert.match(thread, /NEUTRAL_PENDING_LABEL = "Working…"/);
+  assert.match(fnSource(thread, "renderExecutorProgressRow"), /vibecomfyPendingNeutral/);
+  assert.match(
+    fnSource(thread, "populateAgentBubbleDetail"),
+    /stagedChromeForDeps\(panel, deps\) && ordinarySnapshot\?\.progress/,
+    "staged Progress detail section gated on explicit staging",
+  );
+  // Both keyed signatures include the current explicit mode so a Settings
+  // switch invalidates cached DOM (B2-T2).
+  const sigParts = thread.match(/explicitPipelineModeForDeps\(panel, deps\) \|\| "unset"/g) || [];
+  assert.ok(sigParts.length >= 2, "bubble + detail signatures both key on explicit mode");
+  // Renderer layer never reaches for a default-coercing helper.
+  assert.doesNotMatch(thread, /DEFAULT_PIPELINE_MODE/);
+  assert.doesNotMatch(thread, /normalizePipelineMode/);
+
+  // Live switching reuses the existing scheduler primitive from the REAL
+  // Settings onchange handler — no event bus.
+  assert.match(rt, /scheduleRenderAgentPanel\("pipeline-mode-change", currentAgentPanel\(\), \[/);
+});

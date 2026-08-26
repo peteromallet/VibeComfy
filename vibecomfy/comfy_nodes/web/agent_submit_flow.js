@@ -21,6 +21,11 @@
 
 export const DEFAULT_PIPELINE_MODE = "staged";
 
+// Single source of truth for the persisted explicit agent-mode choice. Lives
+// here (not roundtrip) so renderer modules can READ the stored choice without
+// importing the composition root.
+export const PIPELINE_MODE_STORAGE_KEY = "vibecomfy_agent_pipeline_mode";
+
 /**
  * Map a raw value to a canonical mode WITHOUT any default fallback.
  * Returns null for unset/blank/invalid values — callers that must distinguish
