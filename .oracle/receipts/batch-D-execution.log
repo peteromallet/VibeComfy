@@ -1,0 +1,48 @@
+I'll treat this as the trust-boundary kernel: read Batch D in the frozen plan first, then dispatch implementation and critique to ox-alpha rather than writing the preflight myself.Batch D is the R3 trust boundary. I’ll have ox-alpha map the current preflight and cache stamp first so the allowlist and exact-match rules are written against real code, not plan line numbers.I’ll map the current allowlist, `source_kind` stamp, and preflight payload so the implementation brief can lock exact-match semantics instead of aliases.HEAD is one commit past Batch C (`megado: batch D brief`). I’ll read the current preflight gate and the on-disk stamp so the trust-boundary spec matches what’s actually on disk.The kernel is the declaration-vs-cache vocabulary split: `authoritative_object_info` is a family, on-demand tokens must match exactly. Next I’ll lock how `source_kind` is stored on disk so the brief can’t accidentally match `NodeSchema.source_provider`.The kernel is locked: `authoritative_object_info` is a family, on-demand tokens match exactly, and no silent upgrades. I’ll write that as a spec and hand implementation to ox-alpha.ox-alpha is running. I’ll check liveness shortly, then only step in if the trust-boundary work stalls.Implementation is in flight. I’ll draft the KISS critique brief so it can launch as soon as ox-alpha lands a patch.Ten minutes with only “Working...” — I’ll check whether ox-alpha is actually editing files or whether the launcher has stalled.ox-alpha is writing the preflight gate. I’ll inspect the in-progress diff for trust-boundary mistakes without touching the files.Implementation is committed. I’ll validate the trust-boundary semantics myself and send ox-alpha a KISS critique in parallel.Critique wants KISS cuts; the stub test also passes for the wrong class name. I’ll apply both as kernel fixes and keep this a single Batch D commit.I’ll close three kernel holes: the stub test was matching the wrong class, on-demand filenames must not masquerade as runtime, and a missing on-demand capture has to name the ensure command.Checkpoint D is landed on `oracle-run` as `86e4a6ba`.
+
+Preflight now accepts on-demand tiers **as themselves**. A declaration of `authoritative_object_info` is a runtime-family claim, not a cache stamp, and is never satisfied by `on_demand_*`. `runtime_only` / `VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1` keeps paid-call lanes on genuine runtime captures.
+
+## Files changed
+
+- `tests/live_agentic_harness/scenario_obligations.py`
+- `tests/test_scenario_obligation_preflight.py`
+- `tests/test_p4_objectinfo_caches.py`
+
+Campaign `SCHEMA_EVIDENCE_REQUIREMENTS` rows and assessment rubrics were not edited. Preflight stays local-only (no clone, no `OnDemandInstallSchemaProvider`).
+
+## Trust boundary (the kernel)
+
+| Declaration | What satisfies it |
+|---|---|
+| `on_demand_static` / `on_demand_import` / `on_demand_embedded` | Exact pack-JSON `source_kind`. No upgrades. |
+| `authoritative_object_info` | Runtime family only: `runtime_*` stamps, `@runpod-snapshot` / `runtime_core` filenames, or unstamped legacy ingest (`IndexTTS@local.json` / LayerMask). **Never** `on_demand_*`, **never** stubs, **never** an `@on_demand_` filename even if the JSON stamp lies. |
+
+`on_demand_runtime` is invalid. Cache `source_kind` is read from the pack file, not `NodeSchema.source_provider`. Provenance still requires `repo` or `locked_commit`; if the ledger has `source_kind`, it must match the file. Boolean `resolution` is unchanged; `resolution_tiers` records the **cache** stamp plus `extraction_rung` / `locked_commit`.
+
+## Tests
+
+```
+$ pytest tests/test_scenario_obligation_preflight.py tests/test_p4_objectinfo_caches.py -q
+53 passed, 1 warning in 0.88s
+```
+
+```
+$ pytest tests/test_ensure_capture.py -q
+9 passed, 1 warning in 0.29s
+```
+
+Batch C `--manifest` cases (`noop_when_attested`, `missing_class_captured`, `rung2_default`, `stub_indexed`, `json_failure`, `template_xor`, `ensure_help`, `manifest_gated`): **8 passed**.
+
+Old allowlist string is gone (`rg` exit 1). Explicit `DECLARED_SCHEMA_SOURCES` is present.
+
+```
+$ git log -1 --oneline
+86e4a6ba schemas-ensure(D): preflight accepts on_demand tiers as themselves; runtime_only strict flag
+```
+
+## Deviations
+
+1. **Two vocabularies (required).** Cache files do not stamp `authoritative_object_info`. FINAL5 pins are `@local.json` with **no** `source_kind`. Treating that declaration as an exact cache-string match would have failed IndexTTS/LayerMask. They pass via the legacy-ingest clause of the runtime-family recognizer.
+2. **Stale FINAL50 test rewritten.** `test_preflight_declaration_level_passes_for_locked_manifests` expected FINAL50 `ok=True` with `schema_resolution_enforced is False`, which already contradicted RR1-FIX-REV2 and `test_p4`. It now asserts FINAL50 still fails (unproven) and FINAL5 still passes.
+3. **`test_schemas_ensure.py` has two pre-existing failures** (`test_schema_freshness_workflow_is_manual_and_artifact_based`, `TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template`), identical on `0647334a` before this batch. Not caused by D; those tests also rewrite shipped `index.json` (trailing newline). Left untouched.
+4. **Kernel follow-up after ox-alpha.** The first stub test resolved `GapNode` against a `Stubbed` file and passed because the tmp path contained `"stub"`. Fixed to use `cls="Stubbed"`. Also: `@on_demand_` filenames cannot satisfy `authoritative_object_info`; on-demand misses name `vibecomfy schemas ensure --manifest <that manifest>`; KISS cuts (reuse `_read_existing_index`, no substring-sniff for the strict flag).
