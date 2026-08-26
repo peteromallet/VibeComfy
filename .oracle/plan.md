@@ -40,7 +40,7 @@ Persist `CacheIdentity.source_kind` and provenance `source_kind`:
 | 2 | Stubbed-subprocess `INPUT_TYPES()` (`extract_by_import` / method `"import"`) | `on_demand_import` |
 | 3 | Pack `NODE_CLASS_MAPPINGS` against **genuine** pip `comfy` modules, in-process, **no server** | `on_demand_embedded` |
 
-Preflight also accepts legacy live-provider name `on_demand_runtime` as an **alias of** `on_demand_import` (existing `OnDemandInstallSchemaProvider` stamp at `on_demand.py:193`). Never persist `runtime_object_info` / `runtime_core_object_info` / `executed_object_info` / `workflow_json_stub` from this path.
+Preflight does NOT accept `on_demand_runtime`; the single stamp at `on_demand.py:193` migrates to `on_demand_import` in Batch A (no alias surface). Never persist `runtime_object_info` / `runtime_core_object_info` / `executed_object_info` / `workflow_json_stub` from this path.
 
 Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@local-{sha7}`, not `@stub.json`).
 
@@ -56,7 +56,7 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 
 1. Add a glue module (new, thin): `vibecomfy/schema/ensure_capture.py` (name may be `on_demand_persist.py`; one module, not a parallel schema system).
 
-2. Adapter: `extract.normalize_entry` shape (`inputs` plural, `outputs` list-of-dicts, `schema/extract.py:158–174`) → the raw dump `build_cache` expects (`input` singular, `output` type list, `serialize.py:71–113`). Do not teach `build_cache` a second input dialect.
+2. Adapter: `extract.normalize_entry` shape (`inputs` plural, `outputs` list-of-dicts, `schema/extract.py:110`) → the raw dump `build_cache` expects (`input` singular, `output` type list, `serialize.py:71–113`). Do not teach `build_cache` a second input dialect.
 
 3. `persist_on_demand_pack(...)` must:
    - Call `build_cache(..., identity=CacheIdentity(pack_slug, pack_version, git_commit=resolved_sha, evidence_identity=f"on_demand:{rung}:{sha}", source_kind=<token above>), full_pack_refresh={pack_slug})`.
@@ -88,7 +88,7 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 
 ---
 
-## Batch B — Rung 3 (embedded comfy-as-library) `[XHARD]`
+## Batch B — Rung 3 (embedded comfy-as-library) `[XHARD]` — DEFERRED (conditional follow-on; ship A/C/D/E first with r3 fail-closed; land B only if a real manifest class reaches r3)
 
 **Seam:** `extract_pack_schemas` can return `method=="embedded"` without starting a server. No CLI yet.
 
@@ -137,7 +137,7 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
    - Keep positional `template` (back-compat).
    - Add `--manifest PATH` (comparison manifest: `entries[].id`, as in `threaded_comparison_manifest_final50.json`).
    - Exactly one of template / `--manifest` required.
-   - `--json`, `--comfy-version` (rung 3 pin; default from env `VIBECOMFY_EMBEDDED_COMFY_VERSION` or the already-pinned core cache version `0.24.0.1` if present — fail closed with the env/flag name if r3 is needed and unset; see Q3).
+   - `--json`, `--comfy-version` (rung 3 pin; flag or env `VIBECOMFY_EMBEDDED_COMFY_VERSION` only — fail closed naming both if r3 is needed and unset (no core-cache sniffing)).
    - `--no-embedded` to skip rung 3; rung 2 **cannot** be turned off on this command (operator: r2 default-ON). Do not honor `VIBECOMFY_ON_DEMAND_BOOT=0` here.
 
 2. Manifest gated-class discovery: reuse `load_scenario_obligation` + `_GATED_CLASS_RE`. Do not copy the regex. Input is the comparison manifest path; classes come from each entry’s source workflow + declared requirements. Template path keeps `_extract_class_types_from_template`.
@@ -341,16 +341,3 @@ Rung 3 exploration (item 1) may cut B if pip-comfy cannot load packs without ser
 
 Implementer model per operator: Normal = ox-alpha; [XHARD] = Grok 4.6.
 
-## Effort and huge-run
-
-**Not a huge run** (≪ 2 weeks). Best effort: **4–7 focused days**
-
-- A: 0.5–1d  
-- B: 1.5–2.5d (the unknown)  
-- C: 1d  
-- D: 0.5–1d  
-- E: 0.5–1d  
-
-Rung 3 exploration (item 1) may cut B if pip-comfy cannot load packs without serving; then ship r1+r2 ensure + fail-closed r3 stub and re-scope r3 — still not a huge run.
-
----

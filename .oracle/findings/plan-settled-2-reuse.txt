@@ -1,0 +1,23 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+## Verification (reuse lens)
+
+All compose-map citations exist at HEAD with matching semantics: `resolve_pack`/`resolve_missing_nodes`, `PackRef.url/version/commit` (`pack_resolver.py:90-98`), `_ensure_clone`/`_enforce_cap`, `on_demand_runtime` stamp (`on_demand.py:193`), `extract_pack_schemas(allow_import=True)` (`extract.py:743`), `build_cache`/`CacheIdentity.source_kind` (`serialize.py:35-42`), ledger trio (`schemas.py:190-294`), `_GATED_CLASS_RE:121`, `require_schema_resolution` no-op (`scenario_obligations.py:949`), core_regen venv pattern, `test_core_regen_runner_installs_pinned_comfyui_and_captures_object_info` (`tests/test_schemas_ensure.py:281`). Every batch routes through the frozen map; no parallel mechanism found. Provisional-schema warning confirmed at `pack_resolver.py:817`.
+
+## Findings (ranked)
+
+1. **Batch D task 2 — two payload representations offered.** "dict with `__bool__` *or* a parallel `resolution_tiers` map" is a dual surface; the parallel map is exactly the speculative surface the lens forbids. Pick one (dict payload; update comparing tests same batch). Acceptance unaffected: tier still recorded.
+
+2. **Batch C task 1 — drop the `--comfy-version` inference from "already-pinned core cache version if present."** Inferring rung-3's library pin from an unrelated regen-core cache file is hidden coupling and can silently pin a wrong comfy version. Require flag-or-env, else fail closed naming both (this is Open Q3's stricter horn; resolves it). Doesn't weaken acceptance — rung 3 was fail-closed anyway.
+
+3. **Batch E tasks 2+3 — doctor work exceeds goal.** Agent-goal item 3 says "doctor *(or)* schemas validate-coverage." Keep `validate-coverage --manifest` + shared `format_schema_gap`; make doctor a one-line pointer to that command rather than a second reporting surface with its own command-copy logic.
+
+4. **Plan-vs-code line drift (cosmetic).** `normalize_entry` is at `extract.py:110`, not 158–174; `_provenance_row` def at `scenario_obligations.py:745`, not 777–780. Symbols/signatures correct; fix references before implementation agents anchor on stale lines.
+
+5. **plan.md self-duplication.** "Effort and huge-run" appears twice (lines ~318 and ~344). Delete one copy; zero behavioral impact.
+
+No permanent installs, tier masquerade, or ceremonial validation patterns found; validation per checkpoint is proportionate to each seam.
+[launch_hermes_agent] done in 120.3s (exit=0)
+0

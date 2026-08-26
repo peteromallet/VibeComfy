@@ -1,0 +1,24 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+Ranked findings:
+
+**1. Batch B (rung 3) is speculative for this run — gate it behind demonstrated need.**
+Evidence: plan §Effort ("B: 1.5–2.5d, the unknown"; "exploration item 1 may cut B… then ship r1+r2"), §Additional areas #1 (feasibility unproven). Rung 2 already handles any pack that imports; rung 3 only fires if import fails *and* pip-comfy loads — an undemonstrated slice.
+Simplification: implement A, C, D, E now with r3 fail-closed ("unavailable"); land B only if the E2E fixture or a real manifest class actually reaches it. Doesn't weaken acceptance: the plan's own effort section already blesses this outcome; preflight tier honesty (the actual North Star) is intact via r1/r2.
+
+**2. Drop the `on_demand_runtime` alias (§Canonical tokens, OQ1).**
+Evidence: plan proposes persisting `on_demand_import` while preflight accepts `on_demand_runtime` "as an alias," citing one stamp site (`on_demand.py:193`). An alias layer maintained forever for one constant is speculative surface.
+Simplification: migrate the single stamp to `on_demand_import`; no alias. Honesty unchanged — fewer strings to masquerade-check in D.
+
+**3. Simplify `--comfy-version` defaulting (Batch C task 1).**
+Evidence: three-way resolution (flag → env → sniff pinned core-cache version `0.24.0.1`) is speculative; core-cache presence says nothing about r3 compatibility.
+Simplification: flag/env-or-fail-closed only (matches OQ3's stricter option). Removes cache-sniffing glue; failure message already names the fix.
+
+**4. Preflight payload: pick one shape (Batch D task 2).**
+Evidence: plan offers "`__bool__` dict **or** parallel `resolution_tiers` map." Two mechanisms for one concern.
+Simplification: parallel `resolution_tiers` map; booleans untouched, zero caller risk. Delete the other half-sentence.
+
+**5. Mechanical: duplicate "Effort and huge-run" section (lines 318–328 = 344–354).**
+Dedup; no semantic effect.
