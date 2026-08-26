@@ -255,13 +255,12 @@ def _interpret_ops(
                             raise
                     else:
                         raise
-            # for AddNodeOp, its explicit widget_field_names), while Python
-            # source batches are replayed from source by apply_gate. Keep the
-            # typed-op interpreter aligned with typed validation here.
+            # Compute apply diagnostics before the result is consumed.
             before = post
             from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp2
             _apply_provider = None if isinstance(op, _AddNodeOp2) else schema_provider
             post = apply_edit_cow(post, op, schema_provider=_apply_provider)
+            diagnostics.extend(_apply_diagnostics(before, post, op))
         except Exception as exc:
             _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
             code = getattr(exc, "code", "apply_failed")

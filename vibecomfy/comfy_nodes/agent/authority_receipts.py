@@ -1101,7 +1101,8 @@ def build_authority_receipt(
     # persisted bytes instead of re-resolving names under an ambient provider.
     frozen_name_table = canonical_frozen_name_table(
         submit_graph,
-        schema_provider=persisted_schema_provider,
+        # Use original ingest-bound provider (carries frozen snapshot) not witness-reconstructed
+        schema_provider=schema_provider,
     )
     # RR1-FIX-REV (RRSYN-1) / RR1-FIX-REV2: a delta that touches an EXISTING
     # node may never mint authority without an explicit frozen name-domain
