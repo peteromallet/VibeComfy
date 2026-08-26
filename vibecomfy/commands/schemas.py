@@ -246,13 +246,10 @@ def _attest_ingested_capture(
     packs = provenance.get("packs")
     if not isinstance(packs, dict):
         packs = {}
-    existing = packs.get(filename)
-    existing = existing if isinstance(existing, dict) else {}
     meta = data.get("_cache_metadata")
     meta = meta if isinstance(meta, dict) else {}
     pack_identity = (
         str(meta.get("pack") or "")
-        or str(existing.get("pack") or "")
         or next(
             (
                 str(value.get("pack") or "")
@@ -263,8 +260,14 @@ def _attest_ingested_capture(
         )
         or source_file.stem.split("@", 1)[0]
     )
+    # Batch-review RR2: the entry is built FRESH — capture-identity fields
+    # come ONLY from the newly ingested payload's own ``_cache_metadata``
+    # attestation.  A replacement payload under an existing filename must
+    # never inherit the previous revision's repo / locked_commit /
+    # captured_at: stale authority on unattested bytes violates the
+    # provenance law, so absent fields are removed and the ingest stays
+    # non-authoritative.
     entry = {
-        **existing,
         "pack": pack_identity,
         "classes": len([key for key in data if key != "_cache_metadata"]),
         "schema_sha256": hashlib.sha256(source_file.read_bytes()).hexdigest(),
@@ -345,6 +348,18 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
             index = {}
     else:
         index = {}
+    # Batch-review RR2: same-filename replacement must REGENERATE index
+    # membership — drop EVERY row mapped to the target file (its old classes
+    # may be gone from the new payload) before adding exactly the captured
+    # classes.  Pruning only missing-file rows would leave the index (and
+    # provenance.class_count) attesting classes absent from the payload.
+    superseded = [
+        class_type
+        for class_type, mapped in index.items()
+        if mapped == target.name
+    ]
+    for class_type in superseded:
+        del index[class_type]
     for class_type in data:
         if class_type != "_cache_metadata":
             index[str(class_type)] = target.name
@@ -354,7 +369,7 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
     return {
         "status": "ok",
         "classes_indexed": entry["classes"],
-        "stale_rows_pruned": len(pruned),
+        "stale_rows_pruned": len(pruned) + len(superseded),
         "provenance": entry,
         "packs_written": 1,
         "cache_dir": str(CACHE_DIR),

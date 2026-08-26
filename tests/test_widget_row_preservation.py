@@ -62,6 +62,15 @@ def test_trailing_captured_value_is_never_trimmed() -> None:
     assert values == [1.0, "multiply"]
 
 
+def test_trailing_captured_none_is_never_trimmed() -> None:
+    """Batch-review RR2 finding 6: a CAPTURED trailing ``null`` is an
+    untouched raw value — the immutable source array length survives, so
+    ``[1.0, null]`` emits ``[1.0, null]``, never the shortened ``[1.0]``."""
+    node = _node(inputs={}, raw_row=[1.0, None])
+    values = _build_widget_values(node, ["strength"])
+    assert values == [1.0, None]
+
+
 def test_genuinely_absent_trailing_none_still_trims() -> None:
     """No raw row at all — legacy trim behavior is preserved."""
     node = _node(widgets={}, inputs={}, raw_row=[])

@@ -13,7 +13,10 @@ import json
 from types import SimpleNamespace
 from typing import Any, Mapping
 
-from vibecomfy.porting.edit._interpret import canonical_renderer_output
+from vibecomfy.porting.edit._interpret import (
+    canonical_renderer_output,
+    renderer_output_slots,
+)
 from vibecomfy.porting.edit._op_validate import _known_output
 
 
@@ -271,3 +274,118 @@ def test_rejection_evidence_names_node_offered_slot_and_valid_slots() -> None:
     assert "AUDIO_9" in joined
     assert "0:AUDIO" in joined           # the valid slot listing
     assert "frozen_render_ui" in joined  # evidence source attribution
+
+
+
+# ── batch-review RR2: interior blank output rows keep frozen slot indices ────
+
+
+def test_interior_blank_ui_row_keeps_slot_indices() -> None:
+    """``[IMAGE, {}, AUDIO]``: the blank interior row OWNS index 1.  The
+    canonical alias domain must advertise ``2:AUDIO`` — never ``1:AUDIO`` —
+    so AUDIO_2 resolves and AUDIO_1 rejects (fail-closed)."""
+    node = _node(
+        {"_ui": {"outputs": [{"type": "IMAGE"}, {}, {"type": "AUDIO"}]}}
+    )
+    assert canonical_renderer_output(node, "AUDIO_2") == "AUDIO_2"
+    assert canonical_renderer_output(node, "AUDIO_1") is None
+    assert canonical_renderer_output(node, "IMAGE_0") == "IMAGE_0"
+    assert canonical_renderer_output(node, "IMAGE_1") is None
+    slots, _sources = renderer_output_slots(node)
+    assert slots == ("0:IMAGE", "2:AUDIO")
+    assert _known_output(node, "AUDIO_2", None) is True
+    assert _known_output(node, "AUDIO_1", None) is False
+
+
+_BLANK_ROW_GRAPH: dict[str, Any] = {
+    "nodes": [
+        {
+            "id": 1,
+            "type": "AudioDecoder",
+            "inputs": {},
+            "outputs": [
+                {"name": "FRAME", "type": "IMAGE", "links": []},
+                {},
+                {"name": "CLIP", "type": "AUDIO", "links": []},
+            ],
+        },
+        {
+            "id": 2,
+            "type": "SaveAudio",
+            # Declared socket input; the literal-write channel stays closed.
+            "inputs": {"audio": None},
+            "outputs": [],
+        },
+    ],
+    "links": [],
+}
+
+
+def test_blank_interior_row_alias_admits_and_replays_true_index() -> None:
+    """Admission AND authority replay agree through the shared seam when the
+    frozen render carries an interior blank output row: AUDIO_2 lands on
+    slot 2; AUDIO_1 is rejected identically on both paths."""
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operations,
+    )
+
+    good_op = {
+        "op": "upsert_link",
+        "from": ["", "1", "AUDIO_2"],
+        "to": ["", "2", "audio"],
+    }
+    workflow = from_ui(
+        dict(_BLANK_ROW_GRAPH),
+        schema_provider=None,
+        use_comfy_converter=False,
+    )
+    admitted = admit_operations(
+        admission_snapshot_for(workflow, _provider()),
+        [good_op],
+        working_workflow=workflow,
+    )
+    assert not isinstance(admitted, AdmissionRejected)
+
+    ok, candidate, error, op_count = recompute_apply(
+        _BLANK_ROW_GRAPH,
+        _envelope(good_op),
+        schema_provider=_provider(),
+    )
+    assert ok is True, error
+    assert candidate is not None
+    assert op_count == 1
+    by_id = {str(node.get("id")): node for node in candidate.get("nodes", [])}
+    save_node = by_id.get("2") or {}
+    entries = [
+        item
+        for item in (save_node.get("inputs") or [])
+        if isinstance(item, Mapping) and item.get("name") == "audio"
+    ]
+    assert entries, json.dumps(save_node)[:200]
+    assert entries[0].get("link") is not None
+
+    bad_op = {
+        "op": "upsert_link",
+        "from": ["", "1", "AUDIO_1"],
+        "to": ["", "2", "audio"],
+    }
+    rejected = admit_operations(
+        admission_snapshot_for(workflow, _provider()),
+        [bad_op],
+        working_workflow=workflow,
+    )
+    assert isinstance(rejected, AdmissionRejected)
+    joined = " ".join(rejected.evidence_refs)
+    assert "0:FRAME" in joined
+    assert "2:CLIP" in joined
+    ok2, _candidate2, error2, _count2 = recompute_apply(
+        _BLANK_ROW_GRAPH,
+        _envelope(bad_op),
+        schema_provider=_provider(),
+    )
+    assert ok2 is False
+    assert error2 == "unknown_port"

@@ -2126,18 +2126,24 @@ def _frozen_output_evidence(
         "retained_emit_names",
     )
     # The rendered UI list may carry mapping rows OR bare name strings.
+    # Batch-review RR2: the roster keeps ONE entry PER raw output row — a
+    # row lacking the field stays a blank placeholder so downstream indices
+    # match the frozen render exactly.  Filtering blank rows out shifts
+    # every later alias onto the wrong slot ([IMAGE, {}, AUDIO] would
+    # advertise 1:AUDIO and accept AUDIO_1 while rejecting real AUDIO_2).
     ui_names = [
-        str(item.get("name"))
-        if isinstance(item, Mapping)
-        else str(item)
+        (
+            str(item.get("name"))
+            if isinstance(item, Mapping) and item.get("name") is not None
+            else (str(item) if not isinstance(item, Mapping) else "")
+        )
         for item in outputs_ui
-        if (isinstance(item, Mapping) and item.get("name") is not None)
-        or not isinstance(item, Mapping)
     ]
     ui_types = [
         str(item.get("type"))
-        for item in outputs_ui
         if isinstance(item, Mapping) and item.get("type") is not None
+        else ""
+        for item in outputs_ui
     ]
     _absorb(ui_names, ui_types, "frozen_render_ui")
     if provider is not None:

@@ -950,11 +950,13 @@ def _assess_expected_no_candidate(
     )
     # RRSYN2-1: the pass prerequisites are AUTHORITATIVE OUTCOME FACTS —
     # graph_unchanged is True (enforced above), no accepted/landed
-    # operations, a safe-refusal outcome kind inside the declared terminal
-    # set, and passing typed absence evidence.  The classifier's route label
-    # is NOT substance: an honest schema-search stop can carry a pre-search
-    # ``adapt`` label while closing clarify/requires_custom_nodes with no
-    # delta; grading that label as a failure punished truthful refusals
+    # operations (both ``change_details.landed_operation_count`` AND the
+    # sole durable Δ ``response.accepted_batch``), a safe-refusal outcome
+    # kind inside the declared terminal set, and passing typed absence
+    # evidence.  The classifier's route label is NOT substance: an honest
+    # schema-search stop can carry a pre-search ``adapt`` label while
+    # closing clarify/requires_custom_nodes with no delta; grading that
+    # label as a failure punished truthful refusals
     # (hotshot-16-frames-agent-edit, image-face-detection-949658).
     landed_count = _landed_operation_count(response)
     # A POSITIVE integer landed count is a hard contradiction.  An absent
@@ -992,6 +994,37 @@ def _assess_expected_no_candidate(
             "is diagnostic only and does not contradict the refusal.",
         )
 
+    # RRSYN2-1 conjunct 2: ``accepted_batch`` is the sole durable Δ.  A
+    # grounded no-candidate refusal must carry NO canonical accepted delta:
+    # an absent or empty list is clean; a MALFORMED carrier (non-list, or
+    # non-mapping entries) or a NON-EMPTY batch contradicts the refusal
+    # contract exactly like landed operations do — fail closed.
+    accepted_batch = response.get("accepted_batch")
+    batch_ok = True
+    if accepted_batch is not None:
+        if not isinstance(accepted_batch, list) or any(
+            not isinstance(item, Mapping) for item in accepted_batch
+        ):
+            batch_ok = False
+            _add(
+                "expected_no_candidate_accepted_batch_malformed",
+                "error",
+                "Declared expected-no-candidate scenario carries a malformed "
+                f"response.accepted_batch carrier ({type(accepted_batch).__name__}"
+                "); the sole durable Δ must be an absent or empty statement "
+                "list when no candidate was accepted.",
+            )
+        elif accepted_batch:
+            batch_ok = False
+            _add(
+                "expected_no_candidate_accepted_delta",
+                "error",
+                "Declared expected-no-candidate scenario carried a non-empty "
+                f"response.accepted_batch ({len(accepted_batch)} statement(s)); "
+                "an accepted delta contradicts the refusal contract regardless "
+                f"of the {route!r} route label.",
+            )
+
     mode = contract["evidence_mode"]
     if mode == "named_class":
         evidence_tri, evidence_detail = _named_class_absence_evidence(
@@ -1023,7 +1056,7 @@ def _assess_expected_no_candidate(
 
     if any(issue["severity"] == "error" for issue in issues):
         return "fail", issues
-    if evidence_tri == "pass" and kind_ok and not ops_landed:
+    if evidence_tri == "pass" and kind_ok and not ops_landed and batch_ok:
         _add(
             "expected_no_candidate_grounded",
             "info",

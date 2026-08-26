@@ -169,3 +169,82 @@ def test_reingest_prunes_rows_pointing_at_removed_captures(
     assert index["KeptNode"] == "ComfyUI-LTXVideo@runpod-snapshot.json"
     assert index["NewNode"] == source.name
     assert result["stale_rows_pruned"] == 1
+
+
+def test_reingest_under_existing_filename_never_inherits_stale_authority(
+    cache_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Batch-review RR2: capture identity comes ONLY from the newly ingested
+    payload's own attestation.  Hand-authored/unattested bytes re-ingested
+    under an existing filename must not retain the previous revision's
+    repo / locked_commit / captured_at, and must report non-authoritative."""
+    (cache_dir / "index.json").write_text("{}", encoding="utf-8")
+    source = tmp_path / "ComfyUI-SomePack@local-abc123.json"
+    source.write_text(
+        json.dumps(
+            _capture(
+                {"WidgetA"},
+                metadata={
+                    "pack": "ComfyUI-SomePack",
+                    "repo": "https://github.com/example/ComfyUI-SomePack.git",
+                    "locked_commit": "abc123def4567890abc123def4567890abc123de",
+                    "captured_at": "2026-08-26T00:00:00Z",
+                },
+            )
+        ),
+        encoding="utf-8",
+    )
+    first = schemas_cmd.refresh_schema_cache_from_source(str(source))
+    assert first["authoritative"] is True
+
+    # Unattested replacement bytes under the SAME filename.
+    source.write_text(json.dumps(_capture({"HandNode"})), encoding="utf-8")
+    second = schemas_cmd.refresh_schema_cache_from_source(str(source))
+
+    assert second["authoritative"] is False
+    provenance = json.loads(
+        (cache_dir / "provenance.json").read_text(encoding="utf-8")
+    )
+    entry = provenance["packs"][source.name]
+    assert not entry.get("repo")
+    assert not entry.get("locked_commit")
+    assert not entry.get("captured_at")
+    assert entry["schema_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+
+
+def test_same_filename_replacement_regenerates_index_membership(
+    cache_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """OldNode -> replacement: every index row mapped to the replaced file is
+    removed before the new payload's classes are added — a surviving row
+    would attest a class absent from the payload."""
+    (cache_dir / "index.json").write_text(
+        json.dumps({"OldNode": "Pack.json"}), encoding="utf-8"
+    )
+    # The OLD pack file still exists on disk (it was overwritten in place),
+    # so missing-file pruning alone cannot catch this.
+    (cache_dir / "Pack.json").write_text(
+        json.dumps(_capture({"OldNode"})), encoding="utf-8"
+    )
+    source = tmp_path / "Pack.json"
+    source.write_text(
+        json.dumps(
+            _capture(
+                {"NewNode"},
+                metadata={"repo": "https://github.com/example/newpack.git"},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    result = schemas_cmd.refresh_schema_cache_from_source(str(source))
+
+    index = json.loads((cache_dir / "index.json").read_text(encoding="utf-8"))
+    assert index == {"NewNode": "Pack.json"}
+    assert result["stale_rows_pruned"] == 1
+    provenance = json.loads(
+        (cache_dir / "provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["class_count"] == len(index)

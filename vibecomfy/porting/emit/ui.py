@@ -1481,13 +1481,13 @@ def _build_widget_values(
             values.append(None)
 
     # Trailing ``None`` slots are trimmed to match the litegraph reference
-    # length — but a trailing CAPTURED value is never trimmed (RRSYN2-5):
-    # trimming stops at the last non-None captured raw position.
-    raw_tail_floor = 0
-    for idx in range(len(raw_widgets) - 1, -1, -1):
-        if raw_widgets[idx] is not None:
-            raw_tail_floor = idx + 1
-            break
+    # length — but a CAPTURED raw row is never trimmed (RRSYN2-5): every
+    # untouched raw value AND the immutable source array length survive,
+    # including trailing nulls ([1.0, null] emits [1.0, null]).  Stopping at
+    # the last non-None raw position shortened captured rows whose tail
+    # control was simply untouched.  Only GENERATED positions beyond
+    # len(raw_widgets) may shrink.
+    raw_tail_floor = len(raw_widgets) if raw_widgets else 0
     while len(values) > raw_tail_floor and values[-1] is None:
         values.pop()
     return values

@@ -27,6 +27,14 @@ _WIDGET_KEY_RE = re.compile(r"widget_(\d+)")
 _MISSING_WIDGET_VALUE = object()
 _CONTROL_AFTER_GENERATE_VALUES = {"fixed", "randomize", "increment", "decrement"}
 _PRIMITIVE_CONTROL_WIDGET_CLASSES = {"PrimitiveBoolean", "PrimitiveFloat", "PrimitiveInt"}
+# Batch-review RR2: roster-shape law.  ``metadata.input_aliases`` lists
+# connection sockets INTERLEAVED with literal widgets in full input order,
+# so a linked entry must be deleted (compact ``widgets_values`` holds
+# literals only).  Every other candidate source is already a compact
+# widget-only roster where deleting would shift later literals; there a
+# linked entry becomes an unresolved positional hole instead.
+_FULL_INPUT_ORDER_SOURCES = frozenset({"metadata.input_aliases"})
+
 
 
 _FIELD_SNAPSHOT_SOURCE = "field_snapshot"
@@ -96,6 +104,8 @@ def _resolved_linked_input_names(
 def _exclude_linked(
     names: list[str | None],
     linked: frozenset[str],
+    *,
+    full_input_order: bool,
 ) -> list[str | None]:
     """Compact linked sockets out of a candidate roster (R1, RR1-FIX-1).
 
@@ -105,15 +115,31 @@ def _exclude_linked(
     nulling them in place — removes the positional holes BEFORE
     ``_align_names`` maps names onto compact slots, so a leading custom-typed
     socket can no longer shift every widget name right and truncate the tail.
-    Widget-only rosters never contain a linked input's name, so compaction is
-    a no-op for them. Unlinked socket-typed names cannot be distinguished
-    from widgets here; they stay in the roster and the resulting ambiguity is
-    rejected downstream (live/replay table equality + candidate-byte
-    equality), never guessed.
+
+    Batch-review RR2: an ALREADY-COMPACT widget roster (every other source)
+    must NOT shrink. Deleting a linked entry there shifts every following
+    literal left, so linking KSampler ``seed`` resolved position 0 as
+    ``control_after_generate`` instead of the required ``widget_0`` hole.
+    In a compact roster a linked entry becomes an unresolved positional
+    placeholder (``None`` → honest ``widget_N`` addressing) and subsequent
+    literals keep their positions.
+
+    Unlinked socket-typed names cannot be distinguished from widgets here;
+    they stay in the roster and the resulting ambiguity is rejected
+    downstream (live/replay table equality + candidate-byte equality),
+    never guessed.
     """
     if not linked:
         return names
-    return [name for name in names if not (isinstance(name, str) and name in linked)]
+    if full_input_order:
+        return [
+            name for name in names
+            if not (isinstance(name, str) and name in linked)
+        ]
+    return [
+        None if isinstance(name, str) and name in linked else name
+        for name in names
+    ]
 
 
 def compact_widget_names_for_node(
@@ -156,7 +182,15 @@ def compact_widget_names_for_node(
     ):
         if not names:
             continue
-        return _align_names(_exclude_linked(names, linked), count, source)
+        return _align_names(
+            _exclude_linked(
+                names,
+                linked,
+                full_input_order=source in _FULL_INPUT_ORDER_SOURCES,
+            ),
+            count,
+            source,
+        )
 
     return _align_names([], count, "unresolved")
 

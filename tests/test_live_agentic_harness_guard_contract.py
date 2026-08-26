@@ -2397,6 +2397,7 @@ def _write_groundable_refusal(
     with_engine_misses: bool = True,
     blocker: dict | None = None,
     projected_missing: list[str] | None = None,
+    accepted_batch: Any = None,
 ) -> None:
     change_details: dict = {"landed_operation_count": landed_operation_count}
     if with_engine_misses:
@@ -2429,6 +2430,8 @@ def _write_groundable_refusal(
     }
     if blocker is not None:
         response["report"] = {"authoring_blocker": blocker}
+    if accepted_batch is not None:
+        response["accepted_batch"] = accepted_batch
     (output_dir / "response.json").write_text(
         json.dumps(response), encoding="utf-8"
     )
@@ -2600,3 +2603,90 @@ def test_rrsyn2_1_named_contract_descriptor_accepts_both_terminals() -> None:
     }
     violations = descriptor_contract_violations(foreign)
     assert violations and "safe-refusal terminals" in violations[0]
+
+
+def test_rrsyn2_1_non_empty_accepted_batch_contradicts_refusal(
+    tmp_path: Path,
+) -> None:
+    """RRSYN2-1 conjunct 2: ``accepted_batch`` is the sole durable Δ.  A
+    non-empty batch contradicts the refusal even when
+    ``landed_operation_count`` is 0 and every other conjunct passes."""
+    output_dir = tmp_path / "rrsyn2-1-accepted-batch"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(
+        output_dir,
+        kind="clarify",
+        accepted_batch=[
+            {
+                "op": {
+                    "op": "set_node_field",
+                    "target": ["", "1", "seed"],
+                    "value": 1,
+                }
+            }
+        ],
+    )
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is False
+    assert assessment["verdict"] == "fail"
+    assert any(
+        issue["check"] == "expected_no_candidate_accepted_delta"
+        and issue["severity"] == "error"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rrsyn2_1_malformed_accepted_batch_fails_closed(tmp_path: Path) -> None:
+    """A malformed ``accepted_batch`` carrier (non-list, or non-mapping
+    entries) can never ground a no-candidate refusal."""
+    output_dir = tmp_path / "rrsyn2-1-batch-malformed"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(
+        output_dir,
+        kind="clarify",
+        accepted_batch={"ops": []},
+    )
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is False
+    assert assessment["verdict"] == "fail"
+    assert any(
+        issue["check"] == "expected_no_candidate_accepted_batch_malformed"
+        and issue["severity"] == "error"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rrsyn2_1_empty_accepted_batch_still_grounds_refusal(
+    tmp_path: Path,
+) -> None:
+    """An explicitly EMPTY batch records zero accepted Δ (layout writers do
+    this) and keeps the grounded refusal passing."""
+    output_dir = tmp_path / "rrsyn2-1-batch-empty"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_groundable_refusal(
+        output_dir,
+        kind="clarify",
+        accepted_batch=[],
+    )
+    _seed_lineage(output_dir)
+
+    verdict = guard_output_dir(
+        output_dir, scenario=_grounded_refusal_scenario(output_dir.name)
+    )
+
+    assessment = verdict["assessment"]
+    assert verdict["live_agentic_success"] is True, assessment["issues"]
+    assert assessment["verdict"] == "pass"
+    assert assessment["outcome_class"] == "expected_no_candidate"
