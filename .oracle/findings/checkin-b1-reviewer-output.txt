@@ -1,0 +1,21 @@
+**Verdict: evidence-backed issues (fix-forward, not blocking)**
+
+Checks executed myself in the worktree — tests and greps can't be delegated without violating "verify in repo, don't trust the report" (delegation net-negative here; all seven checks are single commands or pointed reads).
+
+**Verified green**
+- Test runs exit 0: pipeline_mode_surface + agent_status_poller; roundtrip_smoke 256 pass / 0 fail.
+- One store: only `vibecomfy_agent_pipeline_mode` in web/; all writes via `writePipelineModeChoice` (roundtrip:448); rehydrate writes nothing (tests :418/:457).
+- Sentinel survives destroy-rebuild structurally: module-scope `WeakSet` keyed by panel (:488), marked :9506 before mount rebuild — A3 holds honestly.
+- Copy verbatim vs frozen wording incl. "multiple steps"; one shared constant drives overlay tiles + Settings subtext, parity tested against independent literals (:21–23/:266/:325).
+- No B2 creep (`pipelineChromeEnabled` absent), no telemetry/deps; funnel guard at buildSubmitSnapshot:3326 with static ownership test :204.
+
+**Issues**
+1. **G1** — Frozen B1-T4 case "sentinel cleanup all paths" untested: poller gate tests inject fake `isChooseEngineFlowOpen`, so the real WeakSet clear sites (:3211, :9564) have no contract test.
+2. **G2** — Frozen case "refresh races … research screens" untested: phase guard at :3199 is new code (`git show 9a6552b0` confirms) with zero exercise.
+
+Both are additive-test-sized; code as written reads correct. Non-blocking notes: dead junk→staged coercion fallback in `writePipelineModeChoice` (callers pre-guard); `make fast`/IR boundary correctly deferred to B3-T1.
+
+**Check #7 — North Star alignment:** Ask-once-explain-honest ✓ consequence-first mode-leading flow; discoverable+reversible ✓ shared constant/helper-mediated live sync; compose-don't-duplicate ✓ no parallel store; UI-honest groundwork correct for scope (chrome gating is B2); no silent defaults ✓ submit refused unset with honest thread narration.
+
+Full evidence matrix in `.oracle/checkins/batch-1.md`. Fix-forward within Batch 3: one smoke case cycling open→close→unset-reopen that also asserts the research screen survives a synthetic refresh closes G1+G2 together.
+0

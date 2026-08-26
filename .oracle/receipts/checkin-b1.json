@@ -1,0 +1,2 @@
+{"phase":"checkin","batch":1,"pass_attempt":1,"verdict":"ISSUES G1,G2 (additive-test gaps)","model":"openrouter/z-ai/glm-5.3-flash","result":".oracle/findings/checkin-b1-reviewer-output.txt","written":".oracle/checkins/batch-1.md"}
+{"phase":"rework-recheck","batch":1,"attempt":1,"verdict":"PASS","model":"openrouter/z-ai/glm-5.3-flash","delta":"1447e6fe..HEAD (RW1+RW2 additive tests +347/-0)","host_verify":"74/74 focused","result":".oracle/findings/checkin-b1-rereview-output.txt","written":".oracle/checkins/batch-1-rework.md"}

@@ -1,0 +1,10 @@
+**Files changed** (5): `agent_submit_flow.js` (+`PIPELINE_MODE_STORAGE_KEY`, single source), `vibecomfy_roundtrip.js` (+`pipelineChromeEnabled` from `readPipelineModeChoice` only; renderMeta phase-chip gate; getter injected into 3 thread wrappers; onchange schedules `THREAD+META` via existing `scheduleRenderAgentPanel`), `panel_thread.js` (+`explicitPipelineModeForDeps`/`stagedChromeForDeps`; staged-only strip, neutral `dataset.vibecomfyPendingNeutral`="Working…" row; gated Progress detail section; mode part in both keyed signatures), both test suites extended.
+
+**Counts**: 40/40 surface+active-row (4 new behavioral tests incl. both-direction real-handler switch proving keyed-node reuse + executor-state preservation; 2 legacy tests given explicit staged fixtures); smoke 257 pass/0 fail. No deviations from spec.
+
+**Deviations/judgment calls**:
+1. Moved the storage-key const to `agent_submit_flow.js` so panel_thread reads the same choice without importing the composition root (cycle-free layering).
+2. Signature helpers fall back to the persisted key when unwired (direct unit calls) — still never `DEFAULT_PIPELINE_MODE`.
+3. Chip assertions count `phase:` label spans (`labelValue` wraps div+span, naive text-prefix counts double).
+4. Untouched: `.oracle/checkins/batch-1.md` (pre-existing dirty state), diagnostics/candidate/failure/queue vocabulary, executor/stage logic.
+0
