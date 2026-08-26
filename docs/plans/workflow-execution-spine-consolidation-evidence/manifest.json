@@ -1552,6 +1552,14 @@
           "label": "EVIDENCE-SCOPEFIX \u2014 record operator directive \u00a737 hivemind scope-fix chain (2026-08-25) \u2014 evidence dispatch",
           "role": "evidence",
           "disposition": "recorded"
+        },
+        {
+          "sequence": 80,
+          "canonical_slot": "RR1-ROUND1-EVIDENCE",
+          "task_id": "RR1-ROUND1-EVIDENCE",
+          "label": "RR1-ROUND1-EVIDENCE \u2014 record reopened-campaign round-1 incident/fix-chain/window/delta (2026-08-26) \u2014 evidence dispatch",
+          "role": "evidence",
+          "disposition": "recorded"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1975,8 +1983,8 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "31fcc590dbbf111244c09f77ff6b5d001d70988e4afaf6d6c56f39f29604991f",
-        "section_sha256": "9816f3f1afb5255087325cb88d15abe5aca4622f42c42323277590ef15fec940"
+        "sha256": "07681537e24ef9a787232096290972899d22badd019880f838aef0230fff97dd",
+        "section_sha256": "8bb4f626f75612d7b2282ca4dd1462df90b85af2e27fe5c14451746891b00af0"
       },
       "wrapper_death_recovery": {
         "original_wrapper_death": {

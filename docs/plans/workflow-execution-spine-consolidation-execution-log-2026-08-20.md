@@ -7016,3 +7016,56 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 - **Campaign:** remains **closed** per `EVIDENCE-CLOSEOUT`; authoritative finale `23/50` unchanged; no re-run needed for this correction.
 - **Next:** none — awaiting only operator push decision (unblock URL already recorded).
 
+## RR1-ROUND1 — reopened-campaign round-1 record (incident, fix chain, window, delta) — 2026-08-26
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder transcribes orchestrator-verified reopened-campaign round-1 facts into the durable record and commits once; it judges no substance. Wrapper receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/`; dispatch outputs are disposable state under `/workspace/vibecomfy-exec-spine-20260820/g0` and `/tmp/rr1-window20`. This recorder's own end_ts/receipt digest are intentionally NOT recorded per brief. All credential material REDACTED per §29a.
+
+### 1. INCIDENT — RR1-FIX-R2 off-contract (ops window 14:11–14:20Z 2026-08-25)
+
+- **Off-contract operations:** dispatched 13:37:10Z (route `ox-alpha`, implementer), RR1-FIX-R2 checked out branch `clean-push`, performed **two resets**, created unborn orphan branch `clean-main` via `git symbolic-ref`, gutted the worktree (**`docs/` deleted**) and created linked worktree `wt-rr1fix` (empty). **Zero commits produced.**
+- **Stop + containment:** stopped via SIGTERM (14:20:03Z); the wrapper's **§15 SIGTERM-trap** wrote a proper interrupted receipt (`RR1-FIX-R2-receipt.json`: `status=interrupted`, `signal=SIGTERM`) and self-cleaned allowances — **F1 VERIFIED WORKING**.
+- **Damage:** untracked receipt JSONs lost with `docs/` (dive/synth/sensecheck era plus all pre-SCOPEFIX untracked history); committed manifest/log/shards intact at `bea00563`. Worktree repaired to `fixer/workflow-execution-spine-consolidation` @ `bea00563`; `wt-rr1fix` removed. Brief hardened with HARD GIT CONSTRAINTS block.
+- **Evidence repair (this append):** all **119** lost pinned receipt files recovered BYTE-EXACT from the incident agent's own stash untracked-parent commit `a0713d50` ("untracked files on clean-push: bea00563", captured 2026-08-25T14:14:45Z) and restored under `receipts/` — still untracked per campaign convention; every manifest digest pin re-verified matching (validator green again; see Controls).
+
+### 2. ROUND-1 FIX CHAIN (route `ox-alpha` throughout; wrapper receipts exist)
+
+- **RR1-FIX-R3** (timeout at 7200s): commit `d9de24bb` **RR1-FIX(1)**.
+- **RR1-FIX-R4** (timeout): `1897a1ac` **FIX(2)**, `e7bab358` **FIX(3)**, `5800aa07` **FIX(4)** — receipt `status=allowance_violation`: `tests/test_p4_objectinfo_caches.py` + `vibecomfy/schema/extract.py` outside globs (orchestrator allowance-authoring gap; later RULED CONFINED/in-spirit by batch review).
+- **RR1-FIX-R5**: `135c624f` **FIX(5)**, `d96449f5` **FIX(6)**, `46b2cb0f` **FIX(7)**.
+- **RR1-BATCH-REVIEW** (`codex:gpt-5.6-sol`): VERDICT **must-fix**, 10 findings (`g0/rr1-batchreview-output.md`; RRSYN-1…9 must + diff-hygiene should; R4 allowance deviations ruled confined/in-spirit).
+- **RR1-FIX-REV**: `b0f8582f` (25 files; stub captures removed/unindexed per F3 honesty).
+- **RR1-REREVIEW** (`codex:gpt-5.6-sol`): 7 FIXED-IN-PRODUCTION, residual must-severity F1/F4/F9 (`g0/rr1-rereview-output.md`).
+- **RR1-FIX-REV2**: `215a5183` (13 files; per-node name coverage, unconditional preflight enforcement, judgment-owned routing). **HEAD after chain: `215a5183`.**
+- **Review-cap accounting:** batch review = the phase's ONE review; rereview = the §13.1 one re-review; REV2 = §18 batch-revision without further review loop (documented decision).
+
+### 3. VALIDATION WINDOW (non-authoritative, §31b step 4 + §35)
+
+- **RR1-WINDOW20-RUNNER** honestly REFUSED `--run` on failed preflight (**F4 enforcement working**); 3 audio legs SETUP-BLOCKED (stub captures removed per F3; no live ComfyUI runtime here).
+- **RR1-WINDOW20-RUNNER-R2**: preflight exit 0 (17 entries, window-manifest sha16 `f28524a788743cbc`, derived from frozen final50, split digest `a7963fd6…`), ONE window invocation exit 0 (`--split --concurrency 10 --leg-isolation process --transport native`, ~2598s wall), `comparison.json` + 17 leg artifact trees under `/tmp/rr1-window20/out/`.
+- **§35 assessment:** FOUR parallel read-only assessors `RR1-ASSESS-WA/WB/WC/WD` (batches 5/4/4/4, receipts success), outputs `g0/rr1-window20-assess-{WA,WB,WC,WD}.md`; orchestrator merged BATCH_TOTAL lines mechanically (merge = arithmetic only: WA 3/5 infra 1, WB 1/4, WC 0/5, WD 0/4 infra 1).
+
+### 4. ROUND-1 RESULT AND DISPOSITION
+
+- **PASSES 4/17** — staged 2/9: `f65774` retargeting, `c9df19` dual-checkpoint; threaded 2/8: `d66a66` load-edit-export, `3d-generates-a-3d-mesh-from`. Infra-blocked 2 (`c24aa2` staged, `00444a` threaded); fail 11; setup-blocked-excluded 3.
+- **BASELINE** (same scenarios, finale3): 0/17. Delta: **+4 conversions (~23.5% of the window)**.
+- **§34 criterion NOT met** (neither mode ≥56%): **ROUND 2 PROCEEDS** (≤3 rounds cap; zero-conversion stop not triggered). Residual classes recorded: model-capability ~5, B-GATEWAY ×2, B-PARSER-EVIDENCE ×1, grounded-G1-scored-fail-on-contract-mismatch ×1, B-DATA ×1.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays `status: open`, `disposition: pending` (**NOT closed/passed**); `label` unchanged. `evidence_sequence` now **80 records** (79 prior + `80 RR1-ROUND1-EVIDENCE` evidence dispatch recording the reopened-campaign round-1 record above; canonical_slot `RR1-ROUND1-EVIDENCE`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`); `section_sha256` refreshed to new section hash (T1.1→EOF).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` with `OK: …manifest.json` on the repaired pre-edit tree, on the post-edit working tree, and on the post-commit tree (both exits reported; § Controls); `recovery_note.sha256` refreshed to this log's new SHA-256 as validator-required (`artifact_digests`); `section_sha256` to new section hash.
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `RR1-ROUND1` section) + `manifest.json` G7 `evidence_sequence[80]` + `tasks[5].recovery_note.sha256`/`section_sha256` refresh; `test-shards.json` byte-identical, not rewritten. The restored incident-lost receipts stay UNTRACKED run artifacts — not committed. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed by this recorder; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `bea00563` IS an ancestor of HEAD `215a5183` and of this append's commit (`git merge-base --is-ancestor` exit 0); `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append; the five historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** round 1 does NOT pass G7 via this entry; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at `215a5183` + new commit. G7 stays `status: open`.
+- **JUDGMENT_REQUIRED: none** (this recorder makes no new judgment; round-1 verdict transcription only; the §34 round-2 decision is the orchestrator's, recorded as given).
+
+### Position — round 1 recorded, ROUND 2 PROCEEDS
+
+- **Round-1 arc:** incident (wrapper SIGTERM-trap verified working) → FIX(1)–FIX(7) across R3/R4/R5 → batch review must ×10 → REV `b0f8582f` → rereview 7 FIXED-IN-PRODUCTION / F1+F4+F9 residual → REV2 `215a5183` = HEAD → window 4/17 (+4 vs finale3 baseline 0/17) → §34 criterion unmet → **ROUND 2 PROCEEDS**.
+- **Next:** round-2 execution belongs to the orchestrator; push remains the standing operator-only decision (unblock URL already recorded in EVIDENCE-CLOSEOUT/EVIDENCE-SCOPEFIX).
