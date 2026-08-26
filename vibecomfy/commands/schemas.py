@@ -187,8 +187,8 @@ def _introspect_core_object_info(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("object_info provider must return a JSON object")
     return payload
 
-def _load_provenance() -> dict[str, Any]:
-    prov_path = CACHE_DIR / "provenance.json"
+def _load_provenance(cache_root: Path | None = None) -> dict[str, Any]:
+    prov_path = (cache_root or CACHE_DIR) / "provenance.json"
     try:
         provenance = (
             json_module.loads(prov_path.read_text(encoding="utf-8"))
@@ -200,9 +200,10 @@ def _load_provenance() -> dict[str, Any]:
     return provenance if isinstance(provenance, dict) else {}
 
 
-def _write_provenance(provenance: dict[str, Any]) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / "provenance.json").write_text(
+def _write_provenance(provenance: dict[str, Any], cache_root: Path | None = None) -> None:
+    root = cache_root or CACHE_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "provenance.json").write_text(
         json_module.dumps(provenance, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )

@@ -190,7 +190,7 @@ class OnDemandInstallSchemaProvider:
             return None
         return replace(
             schema,
-            source_provider="on_demand_runtime",
+            source_provider="on_demand_import",
             source_package=slug,
             confidence=1.0,
         )

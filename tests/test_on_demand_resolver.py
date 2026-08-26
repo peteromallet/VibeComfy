@@ -139,7 +139,7 @@ def test_l3_runtime_resolves_dynamic_node_when_ast_misses(
     """L3 (deterministic): rung 2 resolves a node whose INPUT_TYPES is built at runtime.
 
     With the boot gate OFF, rung 1 (AST) misses the dynamic node -> None. With the boot gate
-    ON, rung 2 (subprocess runtime INPUT_TYPES) resolves it and stamps on_demand_runtime.
+    ON, rung 2 (subprocess runtime INPUT_TYPES) resolves it and stamps on_demand_import.
     """
     clone = _write_runtime_built_pack(tmp_path / "runtime-pack")
     provider = OnDemandInstallSchemaProvider(sandbox_root=tmp_path / "sandbox")
@@ -159,7 +159,7 @@ def test_l3_runtime_resolves_dynamic_node_when_ast_misses(
     provider._cache.clear()
     schema = provider.get_schema("RuntimeBuiltNode")
     assert schema is not None
-    assert schema.source_provider == "on_demand_runtime"
+    assert schema.source_provider == "on_demand_import"
     assert schema.confidence == 1.0
     assert set(schema.inputs) == {"alpha", "beta"}
 

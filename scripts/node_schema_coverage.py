@@ -13,7 +13,7 @@ The resolution ladder (each rung catches what the prior missed):
 * shipped corpus (``ObjectInfoIndexSchemaProvider`` — ``source_provider=object_info_index``)
 * static AST parse (``SourceSchemaProvider`` — ``source_provider=source_parser``)
 * on-demand clone + AST (``on_demand_static``)
-* on-demand stub-import runtime (``on_demand_runtime``, gated on ``VIBECOMFY_ON_DEMAND_BOOT=1``)
+* on-demand stub-import runtime (``on_demand_import``, gated on ``VIBECOMFY_ON_DEMAND_BOOT=1``)
 
 Each resolved schema carries ``source_provider`` and ``confidence``. We bucket:
 
@@ -75,7 +75,7 @@ _LADDER_PROVIDERS = frozenset(
         "object_info_index",
         "source_parser",
         "on_demand_static",
-        "on_demand_runtime",
+        "on_demand_import",
         "object_info_cache",
         "node_index",
         "vibecomfy_builtin",
