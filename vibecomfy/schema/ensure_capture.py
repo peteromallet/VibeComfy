@@ -206,12 +206,13 @@ def _to_raw_dump(entry: dict[str, Any]) -> dict[str, Any]:
 def persist_on_demand_pack(
     *,
     pack_slug: str,
-    registry_pack_version: str,
+    registry_pack_version: str | None,
     repo: str,
     locked_commit: str,
     extraction_rung: str,
     entries: dict[str, OrderedDict[str, Any]],
     cache_dir: str | Path | None = None,
+    source: str | None = None,
 ) -> PersistResult:
     """Persist one on-demand pack extract with honest identity and provenance.
 
@@ -219,6 +220,8 @@ def persist_on_demand_pack(
     file hygiene strips non-newly-captured classes from the new on-demand file
     and restores pre-existing index mappings, so the on-demand file's keys equal
     exactly this extraction's classes and higher-tier captures are untouched.
+    When *registry_pack_version* is ``None`` (registry had no entry) the
+    provenance records ``null`` and an optional ``source`` (e.g. ``direct_url``).
     """
     if extraction_rung not in SOURCE_KIND_BY_RUNG:
         raise ValueError(f"unknown extraction rung: {extraction_rung!r}")
@@ -304,7 +307,7 @@ def persist_on_demand_pack(
     packs = provenance.get("packs")
     if not isinstance(packs, dict):
         packs = {}
-    packs[filename] = {
+    row: dict[str, Any] = {
         "pack": pack_slug,
         "repo": repo,
         "locked_commit": locked_commit,
@@ -314,6 +317,9 @@ def persist_on_demand_pack(
         "registry_pack_version": registry_pack_version,
         "captured_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
     }
+    if source is not None:
+        row["source"] = source
+    packs[filename] = row
     provenance["packs"] = packs
     provenance["class_count"] = len(index)
     _schemas_write(provenance, cache_root)
@@ -325,4 +331,3 @@ def persist_on_demand_pack(
         written_classes=sorted(captured),
         skipped_classes=skipped,
     )
-

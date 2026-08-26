@@ -5,13 +5,13 @@ import ast
 import hashlib
 import json as json_module
 import os
+import re
 import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
 from vibecomfy.commands._output import emit
 from vibecomfy.porting.object_info.consume import get_class, list_classes
 from vibecomfy.porting.object_info.serialize import CACHE_DIR, CacheIdentity, build_cache, refresh_from_source
@@ -597,7 +597,6 @@ def _resolve_pack_ref(class_type: str):
 
 
 def _clone_pin(clone_dir: Path, fallback_url: str | None) -> tuple[str, str]:
-    """Pin evidence from the clone itself: (remote URL, HEAD commit)."""
 
     def _git(*argv: str) -> str | None:
         try:
@@ -616,6 +615,125 @@ def _clone_pin(clone_dir: Path, fallback_url: str | None) -> tuple[str, str]:
     url = _git("remote", "get-url", "origin") or fallback_url or ""
     commit = _git("rev-parse", "HEAD") or ""
     return url, commit
+
+
+# ---------------------------------------------------------------------------
+# Registry-miss fallback — direct pack URLs for off-registry packs
+# ---------------------------------------------------------------------------
+# Re-exported from the registry module so tests and the ensure command share
+# one map.  The ensure command consults this only when the registry has no
+# entry for a gated class.
+try:
+    from vibecomfy.registry.pack_resolver import PACK_URL_FALLBACKS  # noqa: F401
+except Exception:  # pragma: no cover — import-time guard for isolated tests
+    PACK_URL_FALLBACKS: dict[str, str] = {}  # type: ignore[no-redef]
+
+# Class substring → candidate pack slugs (in priority order).  A class that
+# matches a substring tries each slug's URL; verification (clone + mapping
+# check) picks the first that actually contains the class.
+_CLASS_FALLBACK_SLUGS: dict[str, tuple[str, ...]] = {
+    "imagebatchsplitter": ("ComfyUI-Inspire-Pack",),
+    "//inspire": ("ComfyUI-Inspire-Pack",),
+    "vocalandsoundremover": ("ComfyUI-DeepExtract", "audio-separation-nodes-comfyui"),
+    "easy forloop": ("ComfyUI-Easy-Use",),
+    "easy forLoop": ("ComfyUI-Easy-Use",),
+    "easy int": ("ComfyUI-Easy-Use",),
+    "llama_cpp": ("ComfyUI-llama-cpp",),
+    # generic audio fallbacks when the specific class token is not matched
+    "audiosep": ("audio-separation-nodes-comfyui",),
+    "audiocombine": ("audio-separation-nodes-comfyui",),
+}
+
+
+def _fallback_pack_refs_for_class(class_type: str) -> list[Any]:
+    """Ordered PackRef candidates for *class_type* from the fallback map.
+
+    Order: (a) custom_node_refs entries carrying URLs (not yet populated —
+    hook for future workflow-declared refs), (b) hardcoded PACK_URL_FALLBACKS
+    filtered by class substring match.
+    """
+    from vibecomfy.registry.pack_resolver import PACK_URL_FALLBACKS as _MAP
+    from vibecomfy.registry.pack_resolver import PackRef
+
+    # (a) custom_node_refs hook — currently no checked-in refs carry a URL, but
+    # keep the priority slot so a future workflow-declared URL would win.
+    # (Intentionally empty; real workflow refs are consulted at capture time if
+    # they become available.)
+    candidates: list[Any] = []
+    seen: set[str] = set()
+
+    # (b) hardcoded fallbacks filtered by class match
+    lowered = class_type.lower()
+    # also try a normalized form without separators for fuzzy match
+    norm = re.sub(r"[^a-z0-9]+", "", lowered)
+    matched_slugs: list[str] = []
+    for substr, slugs in _CLASS_FALLBACK_SLUGS.items():
+        key = substr.lower()
+        key_norm = re.sub(r"[^a-z0-9]+", "", key)
+        if key in lowered or key_norm in norm:
+            for slug in slugs:
+                if slug not in matched_slugs:
+                    matched_slugs.append(slug)
+    # If nothing matched, do not guess — leave candidates empty and let the
+    # caller report a clean resolve failure.  This avoids cloning unrelated
+    # packs speculatively.
+    for slug in matched_slugs:
+        url = _MAP.get(slug)
+        if not url or slug in seen:
+            continue
+        seen.add(slug)
+        candidates.append(PackRef(slug=slug, source="git", url=url))
+    return candidates
+
+
+def _clone_contains_class(clone_dir: Path, class_type: str) -> bool:
+    """True when *clone_dir*'s Python sources mention *class_type*.
+
+    Verification is deliberately shallow (text search) so it works for both
+    literal NODE_CLASS_MAPPINGS keys like ``"easy forLoopStart"`` and class
+    definitions like ``class VocalAndSoundRemoverNode``.  The subsequent
+    extraction ladder is the authoritative check; this only filters obviously
+    wrong packs before paying for extraction.
+    """
+    needle = class_type.strip()
+    if not needle:
+        return False
+    try:
+        for path in clone_dir.rglob("*.py"):
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if needle in text:
+                return True
+            # also try normalized (underscores ↔ spaces) for easy_* variants
+            norm_needle = needle.replace("_", " ")
+            if norm_needle != needle and norm_needle in text:
+                return True
+            norm_needle2 = needle.replace(" ", "_")
+            if norm_needle2 != needle and norm_needle2 in text:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _resolve_fallback_pack_ref(class_type: str, provider: Any) -> Any:
+    """Registry-miss fallback: clone-verify each fallback URL and return the first that contains *class_type*."""
+    candidates = _fallback_pack_refs_for_class(class_type)
+    if not candidates:
+        raise LookupError(f"no fallback pack URL mapped for {class_type!r}")
+    last_detail = ""
+    for ref in candidates:
+        clone_dir = provider._ensure_clone(ref)
+        if clone_dir is None:
+            last_detail = f"could not clone {ref.url!r} for {class_type!r}"
+            continue
+        if not _clone_contains_class(clone_dir, class_type):
+            last_detail = f"class {class_type!r} not found in {ref.slug!r} ({ref.url!r})"
+            continue
+        return ref
+    raise LookupError(f"fallback pack for {class_type!r} not found: {last_detail}")
 
 
 def _on_demand_provider():
@@ -655,6 +773,8 @@ def _capture_missing_classes(
 
     Never writes hollow/stub schemas: a class whose extraction yields nothing
     is reported as a failure instead of being closed with guessed data.
+    Registry-miss fallback (direct_url) is attempted when the registry has no
+    entry: each fallback URL is clone-verified for the gated class.
     """
     from vibecomfy.schema import extract as extract_module
     from vibecomfy.schema.ensure_capture import persist_on_demand_pack
@@ -663,18 +783,32 @@ def _capture_missing_classes(
     extracted: list[dict[str, Any]] = []
     by_slug: dict[str, dict[str, Any]] = {}
     for class_type in missing_classes:
+        ref = None
+        is_fallback = False
         try:
             ref = _resolve_pack_ref(class_type)
         except LookupError as exc:
-            failures.append({"class_type": class_type, "step": "resolve", "detail": str(exc)})
-            continue
+            # Registry-miss → try direct_url fallback before reporting resolve failure
+            try:
+                ref = _resolve_fallback_pack_ref(class_type, provider)
+                is_fallback = True
+            except LookupError as fb_exc:
+                failures.append({"class_type": class_type, "step": "resolve", "detail": f"{exc}; fallback: {fb_exc}"})
+                continue
+            except Exception as fb_exc:  # noqa: BLE001
+                failures.append({"class_type": class_type, "step": "resolve", "detail": f"{exc}; fallback error: {fb_exc}"})
+                continue
         slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or "pack"
-        group = by_slug.setdefault(slug, {"ref": ref, "classes": []})
+        group = by_slug.setdefault(slug, {"ref": ref, "classes": [], "is_fallback": is_fallback})
+        # if any class in the same slug was fallback, mark group as fallback for provenance null version
+        if is_fallback:
+            group["is_fallback"] = True
         group["classes"].append(class_type)
 
     for slug, group in sorted(by_slug.items()):
         ref = group["ref"]
         classes = sorted(group["classes"])
+        is_fallback = bool(group.get("is_fallback"))
         clone_dir = provider._ensure_clone(ref)
         if clone_dir is None:
             failures.append(
@@ -710,12 +844,13 @@ def _capture_missing_classes(
         repo_url, commit = _clone_pin(clone_dir, getattr(ref, "url", None))
         persist_on_demand_pack(
             pack_slug=slug,
-            registry_pack_version=getattr(ref, "version", None) or "",
+            registry_pack_version=None if is_fallback else (getattr(ref, "version", None) or ""),
             repo=repo_url,
             locked_commit=commit,
             extraction_rung=result.method,
             entries=result.entries,
             cache_dir=cache_root,
+            source="direct_url" if is_fallback else None,
         )
         provider._enforce_cap()  # LRU preserved; nothing permanent installed
         extracted.append({"pack": slug, "method": result.method})

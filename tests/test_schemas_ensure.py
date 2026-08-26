@@ -1260,3 +1260,67 @@ class TestSchemasEnsureCommand:
         assert "IndexTTSEngineNode" in classes
         assert "IndexTTSEmotionOptionsNode" in classes
         assert "easy forLoopStart" in classes
+
+    def test_fallback_direct_url_on_registry_miss(self, tmp_path, monkeypatch, capsys) -> None:
+        """Registry miss → fallback direct_url via ephemeral clone + ladder → on_demand_* with null version."""
+        # Fixture pack that carries an off-registry gated class (Inspire) using a
+        # string-keyed NODE_CLASS_MAPPINGS — mirrors the real Inspire pack shape.
+        fallback_source = """\
+class InspireNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("INT", {"default": 1, "min": 0, "max": 10})}}
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+    CATEGORY = "inspire"
+
+NODE_CLASS_MAPPINGS = {"ImageBatchSplitter //Inspire": InspireNode}
+"""
+        fallback_slug = "ComfyUI-Inspire-Pack"
+        fallback_url = "https://github.com/ltdrdata/ComfyUI-Inspire-Pack"
+        gated = "ImageBatchSplitter //Inspire"
+
+        cache_root = tmp_path / "cache"
+        sandbox = tmp_path / "sandbox"
+        # Build a real local git clone that will serve as the fallback pack
+        clone = sandbox / fallback_slug
+        clone.mkdir(parents=True, exist_ok=True)
+        (clone / "nodes.py").write_text(fallback_source)
+
+        def git(*argv: str):
+            proc = subprocess.run(["git", "-C", str(clone), *argv], check=True, capture_output=True, text=True)
+            return proc.stdout.strip()
+
+        git("init", "-q")
+        git("add", "-A")
+        git("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init")
+        git("remote", "add", "origin", fallback_url)
+        head = git("rev-parse", "HEAD")
+        sha7 = head[:7]
+
+        self._redirect_cache(monkeypatch, cache_root)
+        manifest_arg = self._make_manifest(tmp_path)
+        # Registry has no entry — force both resolvers to fail
+        _patch_registry(monkeypatch, fail=True)
+        monkeypatch.setattr(schemas_command, "_on_demand_provider", lambda: _sandbox_provider(sandbox))
+        monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: ([gated], []))
+
+        code = schemas_command._cmd_schemas_ensure(self._ns(manifest=manifest_arg))
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0, payload
+        assert payload["action"] == "extracted"
+        assert payload["packs_extracted"][0]["pack"] == fallback_slug
+
+        matches = list(cache_root.glob(f"{fallback_slug}@on_demand_*-{sha7}.json"))
+        assert len(matches) == 1, list(cache_root.iterdir())
+        data = json.loads(matches[0].read_text())
+        assert gated in data
+        # Honest provenance: registry version is null, source is direct_url
+        provenance = json.loads((cache_root / "provenance.json").read_text())
+        row = provenance["packs"][matches[0].name]
+        assert row["registry_pack_version"] is None
+        assert row["source"] == "direct_url"
+        assert row["repo"] == fallback_url
+        assert row["locked_commit"] == head
+        # Source kind stays on_demand_* (never masqueraded as runtime)
+        assert row["source_kind"] in ("on_demand_static", "on_demand_import")

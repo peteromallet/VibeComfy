@@ -60,6 +60,25 @@ GITHUB_SEARCH_BUDGET_ENV = "VIBECOMFY_REGISTRY_GITHUB_SEARCH_BUDGET"
 GITHUB_SEARCH_MAX_REQUESTS_ENV = "VIBECOMFY_REGISTRY_GITHUB_SEARCH_MAX_REQUESTS"
 GITHUB_SKIP_ENV = "VIBECOMFY_REGISTRY_SKIP_GITHUB"
 
+# ---------------------------------------------------------------------------
+# Registry-miss fallback — direct pack URLs for off-registry packs (schemas
+# ensure).  When api.comfy.org has no entry, the ensure glue falls back to
+# these URLs and verifies the class is present via an ephemeral LRU clone.
+# Kept here so both the ensure command and direct pack_resolver consumers
+# can consult the same map.  Compose-only: no extraction lives here.
+# ---------------------------------------------------------------------------
+PACK_URL_FALLBACKS: dict[str, str] = {
+    # pack slug → git URL (all public; verified via hivemind/ComfyUI-Manager)
+    "ComfyUI-Inspire-Pack": "https://github.com/ltdrdata/ComfyUI-Inspire-Pack",
+    "ComfyUI-Easy-Use": "https://github.com/yolain/ComfyUI-Easy-Use",
+    # llama_cpp family — stavsap is the off-registry target; kijai is an
+    # on-registry alternative that also carries the classes (used as fallback
+    # candidate when verification is applied).
+    "ComfyUI-llama-cpp": "https://github.com/stavsap/ComfyUI-llama-cpp",
+    "ComfyUI-DeepExtract": "https://github.com/abdozmantar/ComfyUI-DeepExtract",
+    "audio-separation-nodes-comfyui": "https://github.com/christian-byrke/audio-separation-nodes-comfyui",
+}
+
 
 class PackResolverError(RuntimeError):
     """Base error for custom-node pack resolution failures."""
