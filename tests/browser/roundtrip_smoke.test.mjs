@@ -8382,6 +8382,7 @@ test("VibeComfy onboarding asks for research contribution after engine selection
     "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
   };
   const harness = await createBrowserHarness({
+    seedPipelineMode: false,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/settings": async ({ options }) => {
@@ -8412,6 +8413,13 @@ test("VibeComfy onboarding asks for research contribution after engine selection
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
+
+    // Agent-mode question leads the flow; an explicit choice unlocks the
+    const stagedLabel = harness.document.body.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Staged pipeline",
+    )[0];
+    stagedLabel.parentNode.click();
+    harness.getButton("Continue").click();
 
     const codexLabel = harness.document.body.querySelectorAll((node) => node.textContent === "Codex")[0];
     codexLabel.parentNode.click();
@@ -8478,6 +8486,7 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
       },
     },
     withQueuePrompt: false,
+    seedPipelineMode: false,
   });
 
   try {
@@ -8492,11 +8501,25 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
       && harness.document.getElementById("vibecomfy-agent-panel-route")?.value === "deepseek",
     );
 
-    assert.equal(
-      harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
-      null,
-      "ready stored DeepSeek key should not force the choose-engine gate",
+    // Auto-adopted provider must not bypass the agent-mode ask: the overlay
+    // stays up AT the mode step even though DeepSeek was auto-selected.
+    const overlay = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+    assert.ok(overlay, "auto-adoption cannot skip the mode question");
+    await waitFor(() => harness.getButton("Continue"));
+    assert.ok(harness.getButton("Confirm Selection") === null, "engine cards are NOT the first screen");
+
+    const stagedLabel = harness.document.body.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Staged pipeline",
+    )[0];
+    stagedLabel.parentNode.click();
+    harness.getButton("Continue").click();
+
+    await waitFor(() =>
+      globalThis.localStorage.getItem("vibecomfy_agent_pipeline_mode") === "staged",
     );
+    // Mode completes onboarding cleanly — no engine re-ask, no research prompt.
+    await waitFor(() => !harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
+    assert.doesNotMatch(harness.textDump(), /Contribute agent research\?/);
     assert.equal(harness.getButton("Confirm Selection"), null);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-route").value, "deepseek");
     assert.equal(
@@ -8504,6 +8527,7 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
       false,
       "saved-key path should not POST an empty replacement credential",
     );
+    globalThis.localStorage?.removeItem("vibecomfy_agent_pipeline_mode");
   } finally {
     globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
     await harness.dispose();

@@ -252,6 +252,7 @@ import { createRebaselineUndoFlow } from "./agent_rebaseline_undo.js";
 import {
   createSubmitFlow,
   DEFAULT_PIPELINE_MODE,
+  matchPipelineMode,
   normalizePipelineMode,
 } from "./agent_submit_flow.js";
 import { registerRoundtripExtension } from "./roundtrip_extension.js";
@@ -407,6 +408,100 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 
 const SUPPORTED_FRONTEND = "1.39.x";
 const PIPELINE_MODE_STORAGE_KEY = "vibecomfy_agent_pipeline_mode";
+// Honest consequence-first copy — ONE source shared by the welcome overlay's
+// mode step and the Settings subtext. Copy parity between the two surfaces is
+// contract-tested (drift here breaks tests, not silently diverges).
+export const AGENT_PIPELINE_MODE_COPY = Object.freeze({
+  staged: "Structures each request into multiple steps (Decide → Research → Execute → Review). Works better with smaller models.",
+  threaded: "One instance gets all tools in one pass. Works better with larger models.",
+});
+const PIPELINE_MODE_PLACEHOLDER_TEXT = "Choose agent mode…";
+const PIPELINE_MODE_UNSET_HINT_TEXT = "Pick how you want the agent to work before sending a request.";
+// Thrown by buildSubmitSnapshot when no explicit agent-mode choice exists.
+const PIPELINE_MODE_REQUIRED_ERROR_CODE = "missing_pipeline_mode_choice";
+
+// ── Explicit agent-mode preference helpers ──────────────────────────────────
+// unset / blank / invalid ALL mean "the user has not chosen yet". Never use
+// normalizePipelineMode for presence: it forgives everything into "staged",
+// which is exactly the silent default these helpers exist to prevent.
+// Writes are mirrored into pipelineModeSessionChoice because _lsSet swallows
+// storage failures (private browsing, quota): an explicit choice made during
+// this page load must stay submit-eligible even when persistence fails.
+let pipelineModeSessionChoice = null;
+
+export function readPipelineModeChoice() {
+  let canonical = matchPipelineMode(pipelineModeSessionChoice);
+  if (!canonical) {
+    let raw = null;
+    try {
+      raw = _lsGet(PIPELINE_MODE_STORAGE_KEY);
+    } catch (_e) {
+      raw = null;
+    }
+    canonical = matchPipelineMode(raw);
+  }
+  return canonical
+    ? { present: true, mode: canonical }
+    : { present: false, mode: null };
+}
+
+export function writePipelineModeChoice(mode) {
+  const canonical = matchPipelineMode(mode) || normalizePipelineMode(mode);
+  pipelineModeSessionChoice = canonical;
+  try {
+    _lsSet(PIPELINE_MODE_STORAGE_KEY, canonical);
+  } catch (_e) {
+    // Session mirror above keeps the explicit choice alive for this page load.
+  }
+  return { present: true, mode: canonical };
+}
+
+// Sync every Settings-surface projection of the preference (select value,
+// explanation subtext, live panel field). Missing nodes are skipped so the
+// overlay can drive the same routine without owning DOM it did not create.
+function renderPipelineModeControls({ select = null, hint = null, panel = null } = {}) {
+  const choice = readPipelineModeChoice();
+  const value = choice.present ? choice.mode : "";
+  const hintNode = hint
+    || (typeof document !== "undefined" && document.getElementById
+      ? document.getElementById(PANEL_IDS.pipelineModeHint)
+      : null);
+  if (select) {
+    select.value = value;
+  }
+  if (hintNode) {
+    hintNode.textContent = choice.present
+      ? (AGENT_PIPELINE_MODE_COPY[choice.mode] || "")
+      : PIPELINE_MODE_UNSET_HINT_TEXT;
+  }
+  const field = panel?.fields?.pipelineMode;
+  if (field && field !== select) {
+    field.value = value;
+  }
+  return choice;
+}
+
+// A3-verified holder for the onboarding flow sentinel: the overlay element is
+// destroyed and rebuilt by every idempotent mount, so the sentinel lives at
+// module scope instead of on panel.state or the element itself. Every close
+// path clears the panel's entry.
+const chooseEngineFlowOpenPanels = new WeakSet();
+
+function markChooseEngineFlowOpen(panel) {
+  if (panel) {
+    chooseEngineFlowOpenPanels.add(panel);
+  }
+}
+
+function clearChooseEngineFlowOpen(panel) {
+  if (panel) {
+    chooseEngineFlowOpenPanels.delete(panel);
+  }
+}
+
+function chooseEngineFlowIsOpen(panel) {
+  return Boolean(panel && chooseEngineFlowOpenPanels.has(panel));
+}
 
 const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
@@ -425,6 +520,7 @@ const PANEL_IDS = Object.freeze({
   prompt: "vibecomfy-agent-panel-prompt",
   route: "vibecomfy-agent-panel-route",
   pipelineMode: "vibecomfy-agent-panel-pipeline-mode",
+  pipelineModeHint: "vibecomfy-agent-panel-pipeline-mode-hint",
   model: "vibecomfy-agent-panel-model",
   apiKey: "vibecomfy-agent-panel-api-key",
   researchContribution: "vibecomfy-agent-panel-research-contribution",
@@ -3057,6 +3153,8 @@ function agentStatusDeps() {
       pollerScheduleAgentStatusRetry(panel, route, model, opts, deps),
     SETTINGS_STATUS_RENDER_SECTIONS,
     RENDER_SECTIONS,
+    readPipelineModeChoice: () => readPipelineModeChoice(),
+    isChooseEngineFlowOpen: (panel) => chooseEngineFlowIsOpen(panel),
     syncChooseEngineGate: (panel) => pollerSyncChooseEngineGate(panel, deps),
   };
   return deps;
@@ -3095,12 +3193,22 @@ function hasStoredOpenRouterCredential(panel) {
 
 function closeChooseEngineOverlay(panel) {
   const existing = getPanelElementById(panel, PANEL_IDS.welcomeOverlay);
+  const phase = existing?.__vibecomfyPhase?.engine || "";
+  // Post-commit screens own their lifetime — a status refresh landing during
+  // the research question or the thank-you countdown must never yank them.
+  if (phase === "research" || phase === "thanks") {
+    return;
+  }
   if (existing && typeof existing.remove === "function") {
     existing.remove();
   }
   if (panel?.state?.chooseEngineRefresh) {
     panel.state.chooseEngineRefresh = null;
   }
+  if (panel?.state) {
+    panel.state.chooseEngineNavigateTo = null;
+  }
+  clearChooseEngineFlowOpen(panel);
 }
 
 
@@ -3209,6 +3317,16 @@ function recoveryForPanelState(recovery) {
 }
 
 async function buildSubmitSnapshot(panel) {
+  // ── Single-funnel agent-mode guard (A1) ────────────────────────────────
+  // This is the verified single funnel into the executor POST body. An unset
+  // preference must NEVER silently fall back to staged: cancel the submit and
+  // surface the onboarding mode step instead (caller handles the coded error).
+  const modeChoice = readPipelineModeChoice();
+  if (!modeChoice.present) {
+    const error = new Error("Choose how you want the agent to work before submitting.");
+    error.code = PIPELINE_MODE_REQUIRED_ERROR_CODE;
+    throw error;
+  }
   const graph = captureSerializedGraphForAgent();
   const workflowId = resolveActiveWorkflowUuid();
   if (!workflowId) {
@@ -3222,7 +3340,9 @@ async function buildSubmitSnapshot(panel) {
   const layoutHash = await layoutGraphHash(graph);
   const liveCanvasToken = captureLiveCanvasToken(graphHash, structuralHash);
   const route = normalizeRoutePreference(panel.fields.route.value);
-  const pipelineMode = normalizePipelineMode(panel.fields.pipelineMode?.value);
+  // Preference is the single source of truth; the Settings field is a
+  // projection kept in lockstep by the shared writers.
+  const pipelineMode = modeChoice.mode;
   const model = normalizeModelPreference(panel.fields.model.value);
   const idempotencyKey = buildSubmitIdempotencyKey({
     sessionId: panel.state.sessionId,
@@ -3656,6 +3776,13 @@ function createAgentPanelShell() {
   });
   const pipelineModeSelect = document.createElement("select");
   pipelineModeSelect.id = PANEL_IDS.pipelineMode;
+  // Disabled placeholder = honest "unset" state; never user-selectable and
+  // never submitted (the submit funnel rejects unset preferences outright).
+  const pipelineModePlaceholder = document.createElement("option");
+  pipelineModePlaceholder.value = "";
+  pipelineModePlaceholder.disabled = true;
+  pipelineModePlaceholder.textContent = PIPELINE_MODE_PLACEHOLDER_TEXT;
+  pipelineModeSelect.appendChild(pipelineModePlaceholder);
   for (const [value, text] of [
     ["staged", "Staged pipeline"],
     ["threaded", "Threaded agent"],
@@ -3676,9 +3803,17 @@ function createAgentPanelShell() {
     fontSize: "12px",
     boxSizing: "border-box",
   });
-  pipelineModeSelect.value = normalizePipelineMode(
-    _lsGet(PIPELINE_MODE_STORAGE_KEY) || DEFAULT_PIPELINE_MODE,
-  );
+  // Consequence-first explanation subtext under the select — same shared copy
+  // constants the overlay's mode step renders (A2 copy-parity).
+  const pipelineModeHint = el("div");
+  pipelineModeHint.id = PANEL_IDS.pipelineModeHint;
+  Object.assign(pipelineModeHint.style, {
+    fontSize: "11px",
+    lineHeight: "1.45",
+    color: "#8d93a1",
+    marginTop: "4px",
+  });
+  renderPipelineModeControls({ select: pipelineModeSelect, hint: pipelineModeHint });
   const modelInput = document.createElement("input");
   modelInput.id = PANEL_IDS.model;
   modelInput.placeholder = "Model override (optional)";
@@ -3788,13 +3923,23 @@ function createAgentPanelShell() {
     return undefined;
   };
   pipelineModeSelect.onchange = () => {
-    const canonicalMode = normalizePipelineMode(pipelineModeSelect.value);
-    pipelineModeSelect.value = canonicalMode;
-    _lsSet(PIPELINE_MODE_STORAGE_KEY, canonicalMode);
-    const panel = currentAgentPanel();
-    if (panel) {
-      panel.fields.pipelineMode.value = canonicalMode;
+    const picked = matchPipelineMode(pipelineModeSelect.value);
+    if (!picked) {
+      // Placeholder is disabled so this should not happen; resync instead of
+      // ever storing a junk value.
+      renderPipelineModeControls({
+        select: pipelineModeSelect,
+        hint: pipelineModeHint,
+        panel: currentAgentPanel(),
+      });
+      return;
     }
+    writePipelineModeChoice(picked);
+    renderPipelineModeControls({
+      select: pipelineModeSelect,
+      hint: pipelineModeHint,
+      panel: currentAgentPanel(),
+    });
   };
   modelInput.onchange = () => {
     const panel = currentAgentPanel();
@@ -3833,6 +3978,7 @@ function createAgentPanelShell() {
   settingsRegion.body.appendChild(routeSelect);
   settingsRegion.body.appendChild(pipelineModeLabel);
   settingsRegion.body.appendChild(pipelineModeSelect);
+  settingsRegion.body.appendChild(pipelineModeHint);
   settingsRegion.body.appendChild(modelInput);
   settingsRegion.body.appendChild(apiKeyInput);
   settingsRegion.body.appendChild(settingsButtons);
@@ -4426,10 +4572,6 @@ async function _rehydrateChat(panel) {
       // on this scope use the correct session id.
       if (requestScopeId && typeof payload.sessionId === "string" && payload.sessionId) {
         setScopedSessionId(requestScopeId, payload.sessionId);
-      }
-      if (panel.fields.pipelineMode) {
-        panel.fields.pipelineMode.value = normalizePipelineMode(payload.pipelineMode);
-        _lsSet(PIPELINE_MODE_STORAGE_KEY, panel.fields.pipelineMode.value);
       }
       fulfillAgentPanelCommitObligations(panel, successObligations, "rehydrate");
       resetThreadRenderState(panel);
@@ -8351,6 +8493,42 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
+      if (e && e.code === PIPELINE_MODE_REQUIRED_ERROR_CODE) {
+        // Honest cancel: no fabricated default, no request. Give the user
+        // back their prompt and open the onboarding flow at the mode step.
+        if (promptEl && typeof promptEl.value === "string" && task) {
+          promptEl.value = task;
+          try {
+            if (typeof promptEl.dispatchEvent === "function" && typeof Event === "function") {
+              promptEl.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          } catch (_e) { /* best-effort */ }
+        }
+        openChooseEngineOverlayAtModeStep(panel);
+        const obligations = transition(panel, "STOP_ABORT", {
+          message: e.message,
+          syntheticAgentMessage: {
+            role: "agent",
+            text: e.message,
+            session_id: panel.state.sessionId || null,
+            synthetic: true,
+            local_id: `cancelled:${Date.now()}`,
+          },
+          debugPayload: {
+            cancelled: true,
+            reason: "missing_pipeline_mode_choice",
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        pushHistory(panel, "cancelled", task);
+        pushTurnStatus(panel, "cancelled", {
+          session_id: panel.state.sessionId,
+          task,
+          message: e.message,
+        });
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
       const failure = agentPanelFailure("SerializeError", String(e), {
         retryable: true,
         next_action: "Make sure the canvas can serialize, then retry.",
@@ -9314,7 +9492,7 @@ function makeBox(overlay) {
   return box;
 }
 
-function openChooseEngineOverlay(panel, { onResolved }) {
+function openChooseEngineOverlay(panel, { onResolved } = {}) {
   if (!panel?.shell || typeof document === "undefined") {
     return null;
   }
@@ -9323,11 +9501,14 @@ function openChooseEngineOverlay(panel, { onResolved }) {
   if (existing && typeof existing.remove === "function") {
     existing.remove();
   }
+  // Flow-open sentinel (module-scope holder; the element itself does not
+  // survive this destroy-and-rebuild mount).
+  markChooseEngineFlowOpen(panel);
 
   // Constrain the overlay to the panel area (mirrors the "Having issues?" modal,
   // which appends to panel.shell with position:absolute). panel.shell is a
   // positioned ancestor, so inset:0 anchors to the panel, not the viewport.
-  // Deliberately NO click-outside / Escape close — the user must pick an engine.
+  // Deliberately NO click-outside / Escape close — the user must finish the flow.
   const overlay = el("div");
   overlay.id = PANEL_IDS.welcomeOverlay;
   Object.assign(overlay.style, {
@@ -9341,6 +9522,12 @@ function openChooseEngineOverlay(panel, { onResolved }) {
     padding: "16px",
     boxSizing: "border-box",
   });
+
+  // Phase tracker lives on an expando (not `dataset`) so fake-DOM test hosts
+  // behave identically to the browser. Close paths consult it.
+  function setPhase(name) {
+    overlay.__vibecomfyPhase = { engine: name };
+  }
 
   const box = el("div");
   Object.assign(box.style, {
@@ -9356,36 +9543,6 @@ function openChooseEngineOverlay(panel, { onResolved }) {
   });
   overlay.appendChild(box);
 
-  // ── header ──
-  const titleRow = el("div");
-  Object.assign(titleRow.style, {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    marginBottom: "2px",
-  });
-  const titleLogo = el("img");
-  titleLogo.src = VIBECOMFY_LOGO_URL;
-  titleLogo.alt = "VibeComfy";
-  Object.assign(titleLogo.style, { width: "24px", height: "24px", display: "block", flexShrink: "0" });
-  titleRow.appendChild(titleLogo);
-  const title = el("div", "Choose Your Engine");
-  Object.assign(title.style, {
-    fontSize: "17px",
-    fontWeight: "700",
-    color: "#edf2f7",
-  });
-  titleRow.appendChild(title);
-  box.appendChild(titleRow);
-
-  const subtitle = el("div", "Choose who does the thinking. You can change this later.");
-  Object.assign(subtitle.style, {
-    fontSize: "11px",
-    color: "#8d93a1",
-    marginBottom: "14px",
-  });
-  box.appendChild(subtitle);
-
   // Countdown timer handle so the thank-you screen can never fire twice.
   let countdownTimer = null;
   function clearCountdown() {
@@ -9395,12 +9552,16 @@ function openChooseEngineOverlay(panel, { onResolved }) {
     }
   }
 
-  // Tear down the overlay (and any pending countdown) exactly once.
+  // Tear down the overlay (and any pending countdown) exactly once. Screen-
+  // scoped helpers (engine confirm refresher) belong to the live screens, so
+  // their handles are cleared unconditionally here.
   function teardownOverlay() {
     clearCountdown();
-    if (panel?.state?.chooseEngineRefresh === updateConfirmEnabled) {
+    if (panel?.state) {
       panel.state.chooseEngineRefresh = null;
+      panel.state.chooseEngineNavigateTo = null;
     }
+    clearChooseEngineFlowOpen(panel);
     if (overlay && typeof overlay.remove === "function") {
       overlay.remove();
     }
@@ -9420,249 +9581,447 @@ function openChooseEngineOverlay(panel, { onResolved }) {
   const codexColor = "#02d4b3";
   const openrouterColor = "#7e8ba3";
 
-  // Selection state. Each card registers a setSelected() that lights it up and
-  // reveals its extra content; selecting one deselects the others.
+  // Selection state shared across screens: each card registers a setSelected()
+  // that lights it up and reveals its extra content; selecting one deselects
+  // the others. showModeStep clears these when the cards screen tears down;
+  // onConfirm reads them from whichever live screen produced the selection.
   let selectedRoute = null;
   const cardRegistry = []; // { route, setSelected(bool) }
   let openrouterKeyInput = null;
   let openrouterErrorNode = null;
-
-  // ── card helper ──
-  // makeCard returns { card, body, setSelected }. The card is a single-select
-  // radio-like tile; `body` is an (initially hidden) container directly under
-  // the description for per-card revealed content.
-  function makeCard(label, description, accentColor, route) {
-    const card = el("div");
-    Object.assign(card.style, {
-      border: "1px solid #333a45",
-      borderRadius: "8px",
-      background: "#1a1d24",
-      padding: "12px",
-      cursor: "pointer",
-      marginBottom: "8px",
-      transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+  let confirmBtnRef = null;
+  // ── engine cards screen ────────────────────────────────────────────────
+  // Built lazily: when the agent-mode question comes first, this runs only
+  // after the mode choice, so refreshes racing the mode step never wipe half-
+  // typed OpenRouter keys or card selection.
+  function showEngineCards() {
+    setPhase("cards");
+    box.innerHTML = "";
+    Object.assign(box.style, {
+      display: "block",
+      textAlign: "left",
     });
 
-    const labelNode = el("div", label);
-    Object.assign(labelNode.style, {
-      fontWeight: "700",
-      fontSize: "13px",
-      color: accentColor,
-      marginBottom: "4px",
-    });
-    card.appendChild(labelNode);
-
-    const descNode = el("div", description);
-    Object.assign(descNode.style, {
-      fontSize: "11px",
-      color: "#9da1ac",
-      lineHeight: "1.45",
-    });
-    card.appendChild(descNode);
-
-    // Per-card revealed content lives here (hidden until selected).
-    const body = el("div");
-    Object.assign(body.style, {
-      display: "none",
-      marginTop: "10px",
-      flexDirection: "column",
+    // ── header ──
+    const titleRow = el("div");
+    Object.assign(titleRow.style, {
+      display: "flex",
+      alignItems: "center",
       gap: "8px",
+      marginBottom: "2px",
     });
-    card.appendChild(body);
+    const titleLogo = el("img");
+    titleLogo.src = VIBECOMFY_LOGO_URL;
+    titleLogo.alt = "VibeComfy";
+    Object.assign(titleLogo.style, { width: "24px", height: "24px", display: "block", flexShrink: "0" });
+    titleRow.appendChild(titleLogo);
+    const title = el("div", "Choose Your Engine");
+    Object.assign(title.style, {
+      fontSize: "17px",
+      fontWeight: "700",
+      color: "#edf2f7",
+    });
+    titleRow.appendChild(title);
+    box.appendChild(titleRow);
 
-    function setSelected(isSelected) {
-      if (isSelected) {
-        card.style.borderColor = accentColor;
-        card.style.background = "#242830";
-        card.style.boxShadow = `0 0 0 1px ${accentColor}, 0 0 12px -2px ${accentColor}`;
-        body.style.display = "flex";
+    const subtitle = el("div", "Choose who does the thinking. You can change this later.");
+    Object.assign(subtitle.style, {
+      fontSize: "11px",
+      color: "#8d93a1",
+      marginBottom: "14px",
+    });
+    box.appendChild(subtitle);
+
+    // ── cards (order: Claude, OpenRouter, Codex) ──
+    // Card factory is scoped to the engine screen so its click handlers can
+    // close over this screen's selectRoute (defined below in this function).
+    function makeCard(label, description, accentColor, route) {
+      const card = el("div");
+      Object.assign(card.style, {
+        border: "1px solid #333a45",
+        borderRadius: "8px",
+        background: "#1a1d24",
+        padding: "12px",
+        cursor: "pointer",
+        marginBottom: "8px",
+        transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+      });
+
+      const labelNode = el("div", label);
+      Object.assign(labelNode.style, {
+        fontWeight: "700",
+        fontSize: "13px",
+        color: accentColor,
+        marginBottom: "4px",
+      });
+      card.appendChild(labelNode);
+
+      const descNode = el("div", description);
+      Object.assign(descNode.style, {
+        fontSize: "11px",
+        color: "#9da1ac",
+        lineHeight: "1.45",
+      });
+      card.appendChild(descNode);
+
+      const body = el("div");
+      Object.assign(body.style, {
+        display: "none",
+        marginTop: "10px",
+        flexDirection: "column",
+        gap: "8px",
+      });
+      card.appendChild(body);
+
+      function setSelected(isSelected) {
+        if (isSelected) {
+          card.style.borderColor = accentColor;
+          card.style.background = "#242830";
+          card.style.boxShadow = `0 0 0 1px ${accentColor}, 0 0 12px -2px ${accentColor}`;
+          body.style.display = "flex";
+        } else {
+          card.style.borderColor = "#333a45";
+          card.style.background = "#1a1d24";
+          card.style.boxShadow = "none";
+          body.style.display = "none";
+        }
+      }
+      setSelected(false);
+
+      card.onmouseenter = function () {
+        if (selectedRoute !== route) card.style.background = "#21242b";
+      };
+      card.onmouseleave = function () {
+        if (selectedRoute !== route) card.style.background = "#1a1d24";
+      };
+
+      card.onclick = function () { selectRoute(route); };
+
+      return { card, body, setSelected };
+    }
+
+    const claudeCard = makeCard(
+      "Claude",
+      "The sharpest hand. Uses your local Claude CLI.",
+      claudeColor,
+      "anthropic",
+    );
+    const openrouterCard = makeCard(
+      "OpenRouter",
+      "OpenRouter-backed models. Pay as you go — your key, your bill.",
+      openrouterColor,
+      "openrouter",
+    );
+    const codexCard = makeCard(
+      "Codex",
+      "Sanctioned. Uses your local Codex CLI login. This should be okay.",
+      codexColor,
+      "openai-codex",
+    );
+
+    cardRegistry.length = 0;
+    cardRegistry.push({ route: "anthropic", setSelected: claudeCard.setSelected });
+    cardRegistry.push({ route: "openrouter", setSelected: openrouterCard.setSelected });
+    cardRegistry.push({ route: "openai-codex", setSelected: codexCard.setSelected });
+
+    // ── Claude revealed content: ToS warning (no buttons) ──
+    const claudeWarning = el(
+      "div",
+      "VibeComfy drives your local `claude` CLI in headless mode. Anthropic’s terms don’t explicitly sanction automated CLI use — use at your own risk.",
+    );
+    Object.assign(claudeWarning.style, {
+      fontSize: "11px",
+      lineHeight: "1.45",
+      color: "#e6c98a",
+      padding: "8px",
+      borderRadius: "4px",
+      border: `1px solid ${claudeColor}`,
+      background: "#2a230f",
+    });
+    claudeCard.body.appendChild(claudeWarning);
+
+    // ── OpenRouter revealed content: key field + "where do I get a key?" + error ──
+    openrouterKeyInput = el("input");
+    openrouterKeyInput.onclick = function (event) { event.stopPropagation(); };
+    openrouterKeyInput.type = "password";
+    openrouterKeyInput.placeholder = "Paste your OpenRouter API key...";
+    Object.assign(openrouterKeyInput.style, {
+      width: "100%",
+      boxSizing: "border-box",
+      padding: "6px 8px",
+      borderRadius: "4px",
+      border: "1px solid #414855",
+      background: "#0d0f14",
+      color: "#edf2f7",
+      fontFamily: "monospace",
+      fontSize: "12px",
+    });
+    openrouterKeyInput.oninput = function () { updateConfirmEnabled(); };
+    openrouterCard.body.appendChild(openrouterKeyInput);
+
+    const keyLink = el("a", "Where do I get a key?");
+    keyLink.onclick = function (event) { event.stopPropagation(); };
+    keyLink.href = "https://openrouter.ai/settings/keys";
+    keyLink.target = "_blank";
+    keyLink.rel = "noopener";
+    Object.assign(keyLink.style, {
+      fontSize: "11px",
+      color: openrouterColor,
+      textDecoration: "underline",
+      cursor: "pointer",
+    });
+    openrouterCard.body.appendChild(keyLink);
+
+    const openrouterStoredKeyNode = el("div");
+    Object.assign(openrouterStoredKeyNode.style, {
+      display: "none",
+      fontSize: "11px",
+      color: "#b8d9c7",
+      padding: "6px 8px",
+      borderRadius: "4px",
+      background: "#142218",
+      border: "1px solid #2f6842",
+    });
+    openrouterCard.body.appendChild(openrouterStoredKeyNode);
+
+    openrouterErrorNode = el("div");
+    Object.assign(openrouterErrorNode.style, {
+      display: "none",
+      fontSize: "11px",
+      color: "#e07070",
+      padding: "6px 8px",
+      borderRadius: "4px",
+      background: "#2a1a1a",
+    });
+    openrouterCard.body.appendChild(openrouterErrorNode);
+
+    // Vertical order: Claude (top), OpenRouter (middle), Codex (bottom).
+    box.appendChild(claudeCard.card);
+    box.appendChild(openrouterCard.card);
+    box.appendChild(codexCard.card);
+
+    // ── Confirm button (below all cards) ──
+    const confirmBtn = button("Confirm Selection", function () {
+      onConfirm();
+    });
+    Object.assign(confirmBtn.style, {
+      width: "100%",
+      marginTop: "6px",
+    });
+    box.appendChild(confirmBtn);
+    confirmBtnRef = confirmBtn;
+
+    function openrouterKeyOk() {
+      return hasStoredOpenRouterCredential(panel) || !!(openrouterKeyInput && openrouterKeyInput.value.trim());
+    }
+
+    function confirmEnabled() {
+      if (!selectedRoute) return false;
+      if (selectedRoute === "openrouter") return openrouterKeyOk();
+      return true;
+    }
+
+    function updateConfirmEnabled() {
+      const storedOpenRouterKey = hasStoredOpenRouterCredential(panel);
+      if (openrouterStoredKeyNode) {
+        openrouterStoredKeyNode.style.display = storedOpenRouterKey ? "block" : "none";
+        openrouterStoredKeyNode.textContent = storedOpenRouterKey
+          ? "Saved OpenRouter key present. Paste a new key only if you want to replace it."
+          : "";
+      }
+      if (openrouterKeyInput) {
+        openrouterKeyInput.placeholder = storedOpenRouterKey
+          ? "Optional replacement OpenRouter API key..."
+          : "Paste your OpenRouter API key...";
+      }
+      const enabled = confirmEnabled();
+      confirmBtn.disabled = !enabled;
+      if (enabled) {
+        Object.assign(confirmBtn.style, {
+          opacity: "1",
+          cursor: "pointer",
+          background: "#2f6f8f",
+          borderColor: "#3f93bd",
+          color: "#edf2f7",
+        });
       } else {
-        card.style.borderColor = "#333a45";
-        card.style.background = "#1a1d24";
-        card.style.boxShadow = "none";
-        body.style.display = "none";
+        Object.assign(confirmBtn.style, {
+          opacity: "0.5",
+          cursor: "not-allowed",
+          background: "#272b33",
+          borderColor: "#414855",
+          color: "#edf2f7",
+        });
       }
     }
-    setSelected(false);
 
-    card.onmouseenter = function () {
-      if (selectedRoute !== route) card.style.background = "#21242b";
-    };
-    card.onmouseleave = function () {
-      if (selectedRoute !== route) card.style.background = "#1a1d24";
-    };
-
-    card.onclick = function () { selectRoute(route); };
-
-    return { card, body, setSelected };
-  }
-
-  // ── cards (order: Claude, OpenRouter, Codex) ──
-  const claudeCard = makeCard(
-    "Claude",
-    "The sharpest hand. Uses your local Claude CLI.",
-    claudeColor,
-    "anthropic",
-  );
-  const openrouterCard = makeCard(
-    "OpenRouter",
-    "OpenRouter-backed models. Pay as you go — your key, your bill.",
-    openrouterColor,
-    "openrouter",
-  );
-  const codexCard = makeCard(
-    "Codex",
-    "Sanctioned. Uses your local Codex CLI login. This should be okay.",
-    codexColor,
-    "openai-codex",
-  );
-
-  cardRegistry.push({ route: "anthropic", setSelected: claudeCard.setSelected });
-  cardRegistry.push({ route: "openrouter", setSelected: openrouterCard.setSelected });
-  cardRegistry.push({ route: "openai-codex", setSelected: codexCard.setSelected });
-
-  // ── Claude revealed content: ToS warning (no buttons) ──
-  const claudeWarning = el(
-    "div",
-    "VibeComfy drives your local `claude` CLI in headless mode. Anthropic’s terms don’t explicitly sanction automated CLI use — use at your own risk.",
-  );
-  Object.assign(claudeWarning.style, {
-    fontSize: "11px",
-    lineHeight: "1.45",
-    color: "#e6c98a",
-    padding: "8px",
-    borderRadius: "4px",
-    border: `1px solid ${claudeColor}`,
-    background: "#2a230f",
-  });
-  claudeCard.body.appendChild(claudeWarning);
-
-  // ── OpenRouter revealed content: key field + "where do I get a key?" + error ──
-  openrouterKeyInput = el("input");
-  openrouterKeyInput.onclick = function (event) { event.stopPropagation(); };
-  openrouterKeyInput.type = "password";
-  openrouterKeyInput.placeholder = "Paste your OpenRouter API key...";
-  Object.assign(openrouterKeyInput.style, {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: "6px 8px",
-    borderRadius: "4px",
-    border: "1px solid #414855",
-    background: "#0d0f14",
-    color: "#edf2f7",
-    fontFamily: "monospace",
-    fontSize: "12px",
-  });
-  openrouterKeyInput.oninput = function () { updateConfirmEnabled(); };
-  openrouterCard.body.appendChild(openrouterKeyInput);
-
-  const keyLink = el("a", "Where do I get a key?");
-  keyLink.onclick = function (event) { event.stopPropagation(); };
-  keyLink.href = "https://openrouter.ai/settings/keys";
-  keyLink.target = "_blank";
-  keyLink.rel = "noopener";
-  Object.assign(keyLink.style, {
-    fontSize: "11px",
-    color: openrouterColor,
-    textDecoration: "underline",
-    cursor: "pointer",
-  });
-  openrouterCard.body.appendChild(keyLink);
-
-  const openrouterStoredKeyNode = el("div");
-  Object.assign(openrouterStoredKeyNode.style, {
-    display: "none",
-    fontSize: "11px",
-    color: "#b8d9c7",
-    padding: "6px 8px",
-    borderRadius: "4px",
-    background: "#142218",
-    border: "1px solid #2f6842",
-  });
-  openrouterCard.body.appendChild(openrouterStoredKeyNode);
-
-  openrouterErrorNode = el("div");
-  Object.assign(openrouterErrorNode.style, {
-    display: "none",
-    fontSize: "11px",
-    color: "#e07070",
-    padding: "6px 8px",
-    borderRadius: "4px",
-    background: "#2a1a1a",
-  });
-  openrouterCard.body.appendChild(openrouterErrorNode);
-
-  // Vertical order: Claude (top), OpenRouter (middle), Codex (bottom).
-  box.appendChild(claudeCard.card);
-  box.appendChild(openrouterCard.card);
-  box.appendChild(codexCard.card);
-
-  // ── Confirm button (below all cards) ──
-  const confirmBtn = button("Confirm Selection", function () {
-    onConfirm();
-  });
-  Object.assign(confirmBtn.style, {
-    width: "100%",
-    marginTop: "6px",
-  });
-  box.appendChild(confirmBtn);
-
-  function openrouterKeyOk() {
-    return hasStoredOpenRouterCredential(panel) || !!(openrouterKeyInput && openrouterKeyInput.value.trim());
-  }
-
-  function confirmEnabled() {
-    if (!selectedRoute) return false;
-    if (selectedRoute === "openrouter") return openrouterKeyOk();
-    return true;
-  }
-
-  function updateConfirmEnabled() {
-    const storedOpenRouterKey = hasStoredOpenRouterCredential(panel);
-    if (openrouterStoredKeyNode) {
-      openrouterStoredKeyNode.style.display = storedOpenRouterKey ? "block" : "none";
-      openrouterStoredKeyNode.textContent = storedOpenRouterKey
-        ? "Saved OpenRouter key present. Paste a new key only if you want to replace it."
-        : "";
-    }
-    if (openrouterKeyInput) {
-      openrouterKeyInput.placeholder = storedOpenRouterKey
-        ? "Optional replacement OpenRouter API key..."
-        : "Paste your OpenRouter API key...";
-    }
-    const enabled = confirmEnabled();
-    confirmBtn.disabled = !enabled;
-    if (enabled) {
-      Object.assign(confirmBtn.style, {
-        opacity: "1",
-        cursor: "pointer",
-        background: "#2f6f8f",
-        borderColor: "#3f93bd",
-        color: "#edf2f7",
+    function selectRoute(route) {
+      selectedRoute = route;
+      cardRegistry.forEach(function (entry) {
+        entry.setSelected(entry.route === route);
       });
-    } else {
-      Object.assign(confirmBtn.style, {
-        opacity: "0.5",
-        cursor: "not-allowed",
-        background: "#272b33",
-        borderColor: "#414855",
-        color: "#edf2f7",
-      });
+      if (openrouterErrorNode) openrouterErrorNode.style.display = "none";
+      updateConfirmEnabled();
     }
-  }
 
-  function selectRoute(route) {
-    selectedRoute = route;
-    cardRegistry.forEach(function (entry) {
-      entry.setSelected(entry.route === route);
-    });
-    if (openrouterErrorNode) openrouterErrorNode.style.display = "none";
+    // Refresh hook the status poller uses; scoped to the live engine screen.
+    panel.state.chooseEngineRefresh = updateConfirmEnabled;
     updateConfirmEnabled();
+  }
+
+  // ── agent-mode screen (ask-once, consequence-first) ────────────────────
+  function showModeStep() {
+    setPhase("mode");
+    selectedRoute = null;
+    openrouterKeyInput = null;
+    openrouterErrorNode = null;
+    confirmBtnRef = null;
+    box.innerHTML = "";
+    Object.assign(box.style, {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "stretch",
+      gap: "10px",
+      textAlign: "left",
+    });
+
+    const heading = el("div", "How should the agent work?");
+    Object.assign(heading.style, {
+      fontSize: "17px",
+      fontWeight: "700",
+      color: "#edf2f7",
+    });
+    box.appendChild(heading);
+
+    const subtext = el("div", "Pick how each request is run. You can change this later in Settings.");
+    Object.assign(subtext.style, {
+      fontSize: "11px",
+      lineHeight: "1.45",
+      color: "#8d93a1",
+    });
+    box.appendChild(subtext);
+
+    let selectedPipelineMode = null;
+    const modeTiles = [];
+
+    function applyTileSelection() {
+      modeTiles.forEach(function (tile) {
+        tile.setSelected(tile.mode === selectedPipelineMode);
+      });
+      updateContinueEnabled();
+    }
+
+    function makeModeTile(mode, label) {
+      const accentColor = "#3f93bd";
+      const tile = el("div");
+      Object.assign(tile.style, {
+        border: "1px solid #333a45",
+        borderRadius: "8px",
+        background: "#1a1d24",
+        padding: "12px",
+        cursor: "pointer",
+        transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+      });
+      const labelNode = el("div", label);
+      Object.assign(labelNode.style, {
+        fontWeight: "700",
+        fontSize: "13px",
+        color: "#edf2f7",
+        marginBottom: "4px",
+      });
+      tile.appendChild(labelNode);
+      // Copy parity contract: EXACTLY AGENT_PIPELINE_MODE_COPY[mode].
+      const descNode = el("div", AGENT_PIPELINE_MODE_COPY[mode] || "");
+      Object.assign(descNode.style, {
+        fontSize: "11px",
+        color: "#9da1ac",
+        lineHeight: "1.45",
+      });
+      tile.appendChild(descNode);
+      tile.onclick = function () {
+        selectedPipelineMode = mode;
+        applyTileSelection();
+      };
+      function setSelected(isSelected) {
+        if (isSelected) {
+          tile.style.borderColor = accentColor;
+          tile.style.background = "#242830";
+          tile.style.boxShadow = `0 0 0 1px ${accentColor}, 0 0 12px -2px ${accentColor}`;
+        } else {
+          tile.style.borderColor = "#333a45";
+          tile.style.background = "#1a1d24";
+          tile.style.boxShadow = "none";
+        }
+      }
+      setSelected(false);
+      return { mode, card: tile, setSelected };
+    }
+
+    const stagedTile = makeModeTile("staged", "Staged pipeline");
+    const threadedTile = makeModeTile("threaded", "Single-thread");
+    modeTiles.push(stagedTile, threadedTile);
+    const tileRow = el("div");
+    Object.assign(tileRow.style, {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "8px",
+    });
+    tileRow.appendChild(stagedTile.card);
+    tileRow.appendChild(threadedTile.card);
+    box.appendChild(tileRow);
+
+    const continueBtn = button("Continue", function () {
+      if (!selectedPipelineMode) return;
+      // Persist through the SAME helpers the Settings select uses (single
+      // source of truth) and sync the live Settings field immediately.
+      writePipelineModeChoice(selectedPipelineMode);
+      renderPipelineModeControls({ panel });
+      if (getPersistedAgentProvider()) {
+        // The engine was already decided earlier (chosen explicitly or
+        // auto-adopted from a ready credential). The mode answer completed
+        // onboarding — close cleanly WITHOUT the research prompt or provider
+        // callbacks.
+        teardownOverlay();
+        if (typeof onResolved === "function") {
+          onResolved(null);
+        }
+        return;
+      }
+      showEngineCards();
+    });
+    Object.assign(continueBtn.style, {
+      width: "100%",
+      marginTop: "2px",
+    });
+    box.appendChild(continueBtn);
+
+    function updateContinueEnabled() {
+      continueBtn.disabled = !selectedPipelineMode;
+      if (selectedPipelineMode) {
+        Object.assign(continueBtn.style, {
+          opacity: "1",
+          cursor: "pointer",
+          background: "#2f6f8f",
+          borderColor: "#3f93bd",
+          color: "#edf2f7",
+        });
+      } else {
+        Object.assign(continueBtn.style, {
+          opacity: "0.5",
+          cursor: "not-allowed",
+          background: "#272b33",
+          borderColor: "#414855",
+          color: "#edf2f7",
+        });
+      }
+    }
+    updateContinueEnabled();
   }
 
   // ── thank-you screen + deferred resolution ──
   function showThankYouAndClose(route) {
     // Replace the box's contents with a centered thank-you screen.
+    setPhase("thanks");
     box.innerHTML = "";
     Object.assign(box.style, {
       display: "flex",
@@ -9713,6 +10072,7 @@ function openChooseEngineOverlay(panel, { onResolved }) {
   }
 
   function showResearchContributionChoice(route) {
+    setPhase("research");
     box.innerHTML = "";
     Object.assign(box.style, {
       display: "flex",
@@ -9773,7 +10133,8 @@ function openChooseEngineOverlay(panel, { onResolved }) {
   }
 
   async function onConfirm() {
-    if (!confirmEnabled()) return;
+    const confirmBtn = confirmBtnRef;
+    if (!confirmBtn || !selectedRoute) return;
     const route = selectedRoute;
 
     if (route === "openrouter") {
@@ -9799,7 +10160,7 @@ function openChooseEngineOverlay(panel, { onResolved }) {
         if (!stored) {
           // Stay on the screen; restore the button.
           confirmBtn.textContent = "Confirm Selection";
-          updateConfirmEnabled();
+          panel.state.chooseEngineRefresh?.();
           return;
         }
       }
@@ -9809,12 +10170,42 @@ function openChooseEngineOverlay(panel, { onResolved }) {
     showResearchContributionChoice(route);
   }
 
-  // Initial disabled state.
-  panel.state.chooseEngineRefresh = updateConfirmEnabled;
-  updateConfirmEnabled();
+  // External cancel paths (submit funnel hitting an unset mode) navigate the
+  // LIVE flow back to the mode question instead of rebuilding from scratch.
+  panel.state.chooseEngineNavigateTo = function (screen) {
+    if (screen === "mode") {
+      showModeStep();
+    } else {
+      showEngineCards();
+    }
+  };
+
+  // First screen rule: when the explicit agent-mode choice is missing, the
+  // mode question leads — even when a provider is present or auto-detected.
+  const initialScreen = readPipelineModeChoice().present ? "engine" : "mode";
+  if (initialScreen === "mode") {
+    showModeStep();
+  } else {
+    showEngineCards();
+  }
 
   panel.shell.appendChild(overlay);
   return overlay;
+}
+
+// Submit-funnel companion: guarantee an overlay showing the mode question.
+// Navigates the live flow when one is already open (never wipes a mounted
+// decision mid-flight); otherwise mounts fresh — which derives the mode-first
+// screen from the still-missing preference itself.
+function openChooseEngineOverlayAtModeStep(panel) {
+  const navigate = chooseEngineFlowIsOpen(panel)
+    ? panel?.state?.chooseEngineNavigateTo
+    : null;
+  if (typeof navigate === "function") {
+    navigate("mode");
+    return;
+  }
+  openChooseEngineOverlay(panel, { onResolved: () => {} });
 }
 
 
