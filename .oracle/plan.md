@@ -185,7 +185,7 @@ Preflight stays **local-only / no network**. It must **not** call `OnDemandInsta
 ### Tasks
 
 1. Expand declaration `source` allowlist to:
-   `authoritative_object_info` | `on_demand_static` | `on_demand_import` | `on_demand_embedded` | alias `on_demand_runtime`→import.
+   `authoritative_object_info` | `on_demand_static` | `on_demand_import` | `on_demand_embedded`. (No alias: `on_demand_runtime` is invalid; stamp migrated in Batch A.)
 
 2. After `ObjectInfoIndexSchemaProvider.get`:
    - Read the cache entry’s `source_kind` (from the pack JSON, not `NodeSchema.source_provider`, which index provider overwrites to `object_info_index` at `provider.py:592–604`).
@@ -273,8 +273,7 @@ Preflight stays **local-only / no network**. It must **not** call `OnDemandInsta
 
 ```
 A persist identity
-    → B rung 3 extract
-        → C ensure --manifest
+    → C ensure --manifest (r3 fail-closed; B deferred)
             → D preflight allowlist (can start after A; must not merge before A’s on-disk shape is stable)
                 → E doctor + SKILL + e2e
 ```
@@ -293,7 +292,7 @@ Do not rescan/rewrite A–C while D is in flight. Each batch is one commit. If D
 
 ## Open questions (oracle)
 
-1. **Rung-2 persist token.** Agent goal persist list is `on_demand_import`; live provider and North Star say `on_demand_runtime`; planning-brief item 2 says `on_demand_runtime`. Plan default: persist `on_demand_import`, preflight accepts both. Confirm or pick one string.
+1. **Rung-2 persist token.** Agent goal persist list is `on_demand_import`; live provider and North Star say `on_demand_runtime`; planning-brief item 2 says `on_demand_runtime`. RESOLVED: persist `on_demand_import`; preflight accepts only canonical tiers (no `on_demand_runtime`).
 
 2. **Campaign UNPROVEN declarations.** FINAL50 stays red until `SCHEMA_EVIDENCE_REQUIREMENTS` rows exist with `source=on_demand_*`. Non-goal says no assessment-rubric edits. Plan default: **fixture e2e only**; do not add campaign rows in this run. If the oracle wants a real previously-blocked scenario green, authorize adding declarations (not rubrics) for one subset id (candidate: `image-generates-a-2x2-seed-variation`).
 
@@ -320,7 +319,7 @@ Aligned progress: A makes the stamp honest; C shortens “blocked: missing captu
 **Not a huge run** (≪ 2 weeks). Best effort: **4–7 focused days**
 
 - A: 0.5–1d  
-- B: 1.5–2.5d (the unknown)  
+- B: DEFERRED (1.5–2.5d if ever needed)  
 - C: 1d  
 - D: 0.5–1d  
 - E: 0.5–1d  

@@ -1,0 +1,2 @@
+# SETTLED-PLAN CRITIC — W3 confirmation (mechanical)
+W2 found 3 revision-application gaps (defer-B propagation, alias contradiction, resolution_tiers dual surface). All were fixed (commits 403d991b, a94e4c61). Re-read /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/.oracle/plan.md and verify ONLY: (1) the 3 W2 findings are now fully applied, (2) no new contradiction introduced by the fixes. If clean answer exactly: W3-CLEAN. Else max 2 findings, <80 words.

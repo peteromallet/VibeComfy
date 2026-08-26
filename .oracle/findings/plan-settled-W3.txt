@@ -1,0 +1,10 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+W3 result: **not clean** — 2 findings:
+
+1. **Alias residue:** `plan.md:43` + Batch D task 2 say no aliases / preflight does NOT accept `on_demand_runtime`, but D task 1 (`plan.md:188`) still lists `alias on_demand_runtime→import` in the allowlist, and Open question 1 (`plan.md:296`) still defaults "preflight accepts both".
+2. **Defer-B not propagated:** Synchronization (`plan.md:275-280`) still chains A→B→C→D→E (implies C needs B); Effort table (`plan.md:323`) lists B unconditionally.
+[launch_hermes_agent] done in 78.8s (exit=0)
+0
