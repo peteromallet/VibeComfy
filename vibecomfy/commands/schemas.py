@@ -396,25 +396,95 @@ def _looks_like_structured_pack_cache(data: Any) -> bool:
 
 
 def _cmd_schemas_validate_coverage(args: argparse.Namespace) -> int:
-    """``schemas validate-coverage <template>``"""
-    template_path = Path(args.template)
-    if not template_path.is_file():
+    """``schemas validate-coverage <template>`` / ``--manifest <path>``.
+
+    Template positional keeps its historical exit 0 for back-compat. With
+    ``--manifest`` gaps exit 1 and the payload carries ``ensure_command``.
+    Both modes reuse ``missing_live_captures`` (stub/unattested counts as gap).
+    """
+    from vibecomfy.schema.ensure_capture import format_schema_gap, missing_live_captures
+    from vibecomfy.porting.object_info import consume as consume_module
+
+    manifest_arg = getattr(args, "manifest", None)
+    template_arg = getattr(args, "template", None)
+    is_manifest = bool(manifest_arg)
+    # Exactly one source required when --manifest is in use; template-only
+    # keeps backward compatibility (template is required positional).
+    if is_manifest:
+        if template_arg:
+            msg = "provide exactly one of: <template> or --manifest PATH"
+            if getattr(args, "json", False):
+                return emit({"error": msg}, json=True, text_renderer=lambda _: None)
+            print(msg, file=__import__("sys").stderr)
+            return 1
+        manifest_path = Path(manifest_arg)
+        if not manifest_path.is_file():
+            if getattr(args, "json", False):
+                return emit({"error": f"Manifest not found: {manifest_path}"}, json=True, text_renderer=lambda _: None)
+            print(f"Manifest not found: {manifest_path}", file=__import__("sys").stderr)
+            return 1
+        try:
+            class_types, warnings = _manifest_gated_classes(manifest_path)
+        except ValueError as exc:
+            if getattr(args, "json", False):
+                return emit({"error": str(exc)}, json=True, text_renderer=lambda _: None)
+            print(str(exc), file=__import__("sys").stderr)
+            return 1
+        unique = sorted(set(class_types))
+        cache_root = Path(consume_module.CACHE_DIR)
+        missing = missing_live_captures(unique, cache_dir=cache_root)
+        covered = [ct for ct in unique if ct not in set(missing)]
+        all_cached = set(consume_module.list_classes() if hasattr(consume_module, "list_classes") else [])
+        # Fallback to list_classes import if consume lacks it (patched in tests)
+        if not all_cached:
+            try:
+                from vibecomfy.porting.object_info.consume import list_classes
+                all_cached = set(list_classes())
+            except Exception:
+                all_cached = set()
+        ensure_command = format_schema_gap(manifest_path, missing) if missing else f"vibecomfy schemas ensure --manifest {manifest_path}"
+        payload: dict[str, Any] = {
+            "manifest": str(manifest_path),
+            "classes_found": len(unique),
+            "covered": len(covered),
+            "missing": len(missing),
+            "covered_classes": covered,
+            "missing_classes": missing,
+            "ensure_command": ensure_command,
+            "warnings": warnings,
+            "cache_classes_total": len(all_cached),
+        }
+        if not getattr(args, "json", False):
+            print(f"Manifest: {manifest_path}")
+            print(f"Classes found: {len(unique)}  |  covered: {len(covered)}  |  missing: {len(missing)}")
+            if covered:
+                print(f"  Covered: {', '.join(covered)}")
+            if missing:
+                print(f"  Missing:  {', '.join(missing)}")
+            for w in warnings:
+                print(f"warning: {w}")
+            if missing:
+                print(ensure_command)
+            print(f"Cache: {len(all_cached)} classes indexed")
+            return 1 if missing else 0
+        emit(payload, json=True, text_renderer=lambda _: None)
+        return 1 if missing else 0
+    # --- template path (back-compat: exit 0 even when missing) --------------
+    template_path = Path(template_arg) if template_arg else None
+    if template_path is None or not template_path.is_file():
         print(f"Template not found: {template_path}", file=__import__("sys").stderr)
         return 1
-
     class_types = _extract_class_types_from_template(template_path)
     all_cached = set(list_classes())
     unique = sorted(set(class_types))
     covered: list[str] = []
     missing: list[str] = []
-
     for ct in unique:
         if get_class(ct) is not None:
             covered.append(ct)
         else:
             missing.append(ct)
-
-    payload: dict[str, Any] = {
+    payload = {
         "template": str(template_path),
         "classes_found": len(unique),
         "covered": len(covered),
@@ -423,8 +493,7 @@ def _cmd_schemas_validate_coverage(args: argparse.Namespace) -> int:
         "missing_classes": missing,
         "cache_classes_total": len(all_cached),
     }
-
-    if not args.json:
+    if not getattr(args, "json", False):
         print(f"Template: {template_path}")
         print(f"Classes found: {len(unique)}  |  covered: {len(covered)}  |  missing: {len(missing)}")
         if covered:
@@ -433,7 +502,6 @@ def _cmd_schemas_validate_coverage(args: argparse.Namespace) -> int:
             print(f"  Missing:  {', '.join(missing)}")
         print(f"Cache: {len(all_cached)} classes indexed")
         return 0
-
     return emit(payload, json=True, text_renderer=lambda _: None)
 
 
@@ -704,16 +772,21 @@ def _cmd_schemas_ensure(args: argparse.Namespace) -> int:
     unique = sorted(set(class_types))
 
     from vibecomfy.porting.object_info import consume as consume_module
-    from vibecomfy.schema.ensure_capture import missing_live_captures
+    from vibecomfy.schema.ensure_capture import format_schema_gap, format_template_gap, missing_live_captures
 
     cache_root = Path(consume_module.CACHE_DIR)
     missing = missing_live_captures(unique, cache_dir=cache_root)
     covered = [ct for ct in unique if ct not in set(missing)]
     retry_command = (
-        f"vibecomfy schemas ensure --manifest {source_path}"
+        format_schema_gap(source_path, missing)
         if is_manifest
-        else f"vibecomfy schemas ensure {source_path}"
+        else format_template_gap(source_path, missing)
     )
+    # Ensure retry_command ends with the exact ensure invocation (helper
+    # already does). Normalise to just the command when missing list is
+    # embedded as prefix: extract tail after last '; run ' if present.
+    if "; run " in retry_command:
+        retry_command = retry_command.split("; run ")[-1]
 
     payload: dict[str, Any] = {
         "template" if not is_manifest else "manifest": str(source_path),
@@ -836,7 +909,13 @@ def register(subparsers) -> None:
     validate = schemas_sub.add_parser(
         "validate-coverage", help="Check which classes in a template have cache entries"
     )
-    validate.add_argument("template", help="Path to narrative template (.py)")
+    validate.add_argument("template", nargs="?", default=None, help="Path to narrative template (.py) — or pass --manifest")
+    validate.add_argument(
+        "--manifest",
+        default=None,
+        metavar="PATH",
+        help="Comparison manifest (entries[].id): gated classes are those declared for each scenario",
+    )
     validate.add_argument("--json", action="store_true", help="Output as JSON")
     validate.set_defaults(func=_cmd_schemas_validate_coverage)
 

@@ -103,6 +103,31 @@ Keep ComfyUI's terms precise: a **workflow** is any graph; a **template** is a c
 
 ## When You Need More Detail
 
+## Schema Capture and Preflight (Batch E)
+
+Missing schema captures block preflight — the harness fails closed and tells you exactly how to provision:
+
+```bash
+vibecomfy schemas ensure --manifest <comparison-manifest.json>
+```
+
+What the command does (no parallel schema system, compose only):
+
+- **Registry → ephemeral clone → extraction ladder → cache + provenance tier.** Registry resolves the owning pack (`pack_resolver`), a shallow clone is materialized in the LRU-bounded sandbox `~/.cache/vibecomfy/schema-sandbox` (max 64 packs / 2 GiB), then `extract_pack_schemas` runs rung 1 (static AST) and rung 2 (stubbed-subprocess `INPUT_TYPES` — always on for this command). Rung 3 (embedded comfy-as-library) is deferred; the command fails closed if a class needs it.
+- **Persist with honest tier.** `persist_on_demand_pack` stamps `source_kind` as `on_demand_static` (rung 1) or `on_demand_import` (rung 2), writes `Pack@on_demand_*-{sha7}.json` (never `@runpod-snapshot` or `@stub.json`), and attests `provenance.json` with `repo`, `locked_commit` (clone HEAD), `extraction_rung`, `registry_pack_version`, `source_kind`, `schema_sha256`.
+
+How preflight accepts it:
+
+- Declarations accepted: `authoritative_object_info` | `on_demand_static` | `on_demand_import` | `on_demand_embedded`. Preflight requires the declared `source` to match the cache entry's `source_kind` exactly — no silent upgrades (`on_demand_static` does not satisfy `authoritative_object_info`, `on_demand_import` does not satisfy `on_demand_static`).
+- `@stub.json` / `workflow_json_stub` never counts as evidence (filtered and stub-rejected even if indexed).
+- Campaign-grade strict lane: `VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1` rejects any `on_demand_*` declaration — runtime-family captures only.
+
+Discovering the command:
+
+- `vibecomfy schemas validate-coverage --manifest <m> --json` reports `missing_classes` and `ensure_command` (`vibecomfy schemas ensure --manifest <m>`); it exits 1 when `--manifest` and gaps exist (template positional keeps exit 0 for back-compat).
+- `vibecomfy doctor <workflow.py>` on `unknown_class_type` / missing schema prints `vibecomfy schemas ensure <workflow.py>` and the generic `vibecomfy schemas ensure --manifest <comparison.json>` hint. Doctor never clones or extracts — reporting only.
+
+
 Read [REFERENCE.md](REFERENCE.md) for the API surface, layer model, command catalog, plugin hooks, known limitations, RunPod environment, and durable-template checklist.
 
 In-repo references:

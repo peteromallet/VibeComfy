@@ -47,6 +47,37 @@ _TIER_RANK = {
 _RUNTIME_TIER = 3
 _MISSING_TIER = -1
 
+def format_schema_gap(
+    manifest_path: str | Path,
+    missing_classes: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> str:
+    """Human-readable gap text that **ends** with the exact retry command.
+
+    Shared by ``schemas validate-coverage --manifest``, ``doctor``, ensure
+    failures, and preflight. Keeping a single helper guarantees the command
+    is identical everywhere and avoids drift. The returned string always ends
+    with ``vibecomfy schemas ensure --manifest <path>`` (no trailing newline).
+    """
+    path_str = str(manifest_path)
+    command = f"vibecomfy schemas ensure --manifest {path_str}"
+    if missing_classes:
+        missing = ", ".join(sorted(set(missing_classes)))
+        return f"Missing live captures for {missing}; run {command}"
+    return command
+
+
+def format_template_gap(
+    template_path: str | Path,
+    missing_classes: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> str:
+    """Template-scoped companion: ends with ``vibecomfy schemas ensure <template>``."""
+    path_str = str(template_path)
+    command = f"vibecomfy schemas ensure {path_str}"
+    if missing_classes:
+        missing = ", ".join(sorted(set(missing_classes)))
+        return f"Missing live captures for {missing}; run {command}"
+    return command
+
 
 @dataclass(frozen=True)
 class PersistResult:

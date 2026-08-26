@@ -97,6 +97,22 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if not report.ok:
         validation_findings = _validation_findings(report)
         validation_issues = finding_messages(validation_findings)
+        missing_classes = {
+            str(issue.detail.get("class_type"))
+            for issue in report.issues
+            if issue.code == "unknown_class_type" and issue.detail.get("class_type")
+        }
+        # Batch E: shared helpers for actionable commands (no clone/extract)
+        ensure_command = None
+        manifest_hint = None
+        if missing_classes:
+            try:
+                from vibecomfy.schema.ensure_capture import format_template_gap
+
+                ensure_command = format_template_gap(args.path, missing_classes)
+                manifest_hint = "vibecomfy schemas ensure --manifest <comparison.json>"
+            except Exception:
+                ensure_command = f"vibecomfy schemas ensure {args.path}"
         payload = {
             "status": "error",
             "layer": "VibeWorkflow validation",
@@ -104,20 +120,18 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "nodepack_warnings": drift_warnings,
             "suggested_patches": suggested_patches,
         }
+        if missing_classes:
+            payload["missing_classes"] = sorted(missing_classes)
+            if ensure_command:
+                payload["ensure_command"] = ensure_command
+                payload["ensure_manifest_hint"] = manifest_hint
         if json_output:
             emit(payload, json=True, text_renderer=_render_doctor_error)
-        else:
-            print("Layer: VibeWorkflow validation")
-            for issue in validation_issues:
-                print(f"- {issue}")
-            print(f"Next: vibecomfy port check {args.path} --json")
-        if json_output:
             return 1
-        missing_classes = {
-            str(issue.detail.get("class_type"))
-            for issue in report.issues
-            if issue.code == "unknown_class_type" and issue.detail.get("class_type")
-        }
+        print("Layer: VibeWorkflow validation")
+        for issue in validation_issues:
+            print(f"- {issue}")
+        print(f"Next: vibecomfy port check {args.path} --json")
         if missing_classes:
             packs = resolve_node_packs(missing_classes)
             if packs:
@@ -130,6 +144,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                 print("Unmapped node classes:")
                 for class_type in unresolved:
                     print(f"- {class_type}")
+            if ensure_command:
+                print(ensure_command)
+                if manifest_hint:
+                    print(f"Or for a comparison manifest: {manifest_hint}")
         return 1
     if check_models and "VIBECOMFY_MODELS_ROOT" not in os.environ:
         payload = {

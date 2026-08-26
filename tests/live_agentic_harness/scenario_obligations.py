@@ -1196,10 +1196,15 @@ def preflight_scenario_obligations(
                 declared_source in ON_DEMAND_SOURCE_KINDS
                 and not (runtime_only and _runtime_only_violation(declared_source))
             ):
-                hint = (
-                    "; provision the on-demand tier with "
-                    f"`vibecomfy schemas ensure --manifest {path}`"
-                )
+                try:
+                    from vibecomfy.schema.ensure_capture import format_schema_gap
+
+                    hint = f"; provision the on-demand tier with `{format_schema_gap(path)}`"
+                except Exception:
+                    hint = (
+                        "; provision the on-demand tier with "
+                        f"`vibecomfy schemas ensure --manifest {path}`"
+                    )
             violations.append(
                 f"{scenario_id}: exact schema evidence for "
                 f"{class_type!r} is not available from any local "
