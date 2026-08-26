@@ -1,0 +1,29 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+Batch A complete. Commit `b430bbcb` on `oracle-run`.
+
+## Files changed
+- **`vibecomfy/schema/ensure_capture.py`** (new, glue only) — `SOURCE_KIND_BY_RUNG` (`ast→on_demand_static`, `import→on_demand_import`, `embedded→on_demand_embedded`), `capture_tier`, `missing_live_captures()`, `_to_raw_dump()` adapter (`inputs`→`input`, `outputs[]`→`output/output_name/output_is_list` lists), `persist_on_demand_pack(...)`.
+- **`vibecomfy/commands/schemas.py`** — `_load_provenance`/`_write_provenance` gained optional `cache_root` param (back-compat; no second ledger invented — the glue reuses them).
+- **`vibecomfy/schema/on_demand.py:193`** — stamp migrated `on_demand_runtime` → `on_demand_import` per plan (no alias surface); same token updated in `tests/test_on_demand_resolver.py` and `scripts/node_schema_coverage.py`.
+- **`tests/test_ensure_capture.py`** (new) — 9 tests covering all Checkpoint A cases.
+
+## Key implementation decisions
+- **Filename canonical token** achieved by passing `pack_version=f"{source_kind}-{sha7}"` to `build_cache` (it derives `{pack}@{version}.json` from that field); registry version lives in provenance as `registry_pack_version`. `evidence_identity = f"on_demand:{rung}:{full_sha}"`, `git_commit = clone rev-parse`.
+- **Tier guard**: stub-indexed/stub-stamped/unattested/no-pin → tier −1 (replaceable); attested non-on-demand kinds rank runtime (real captures beat static parses); same-or-higher → per-class no-op.
+- **Hygiene strip refinement found while writing tests**: blind "strip everything not newly captured" would orphan classes already homed in the *same* versioned file when a second extract of the same pack at the same tier+commit adds a class. Strip now keeps `captured ∪ {classes whose prior index row points at this file}`. Mixed-pack R (index→runtime file) is still stripped exactly.
+
+## Test results (verbatim)
+```
+tests/test_ensure_capture.py -q          → 9 passed, 1 warning in 0.20s
+pytest tests/ -k "on_demand_persist or ensure_capture" -q → 9 passed, 2 skipped, 8483 deselected
+tests/test_schemas_ensure.py + test_on_demand_resolver.py -q → 2 failed, 45 passed
+```
+The 2 failures are **pre-existing on base `02927248`** (verified via `git stash`): `test_schema_freshness_workflow_is_manual_and_artifact_based` and `TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template`. The `-k` run's collection error in `test_live_agentic_watchdog.py` is environmental (`ModuleNotFoundError: arnold.pipelines.megaplan`), unrelated.
+
+## Deviations from plan
+- None functional. One additive nuance beyond plan text: the same-file keep-rule above (required for idempotent re-ensures; strictly narrows what gets stripped).
+[launch_hermes_agent] done in 1087.4s (exit=0)
+0

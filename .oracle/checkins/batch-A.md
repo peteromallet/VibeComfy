@@ -1,0 +1,9 @@
+I'll treat this as a manager/validator review of Batch A: load Checkpoint A acceptance criteria, then dispatch ox-alpha to verify tests, mixed-pack behavior, and tier-masquerade resistance.Checkpoint A is loaded. Next I’ll map the batch delta and dispatch ox-alpha briefs for tests, mixed-pack, and tier-masquerade probes.One commit, six files. I’ll write four ox-alpha briefs covering tests, mixed-pack, tier masquerade, and Checkpoint A/KISS.All four ox-alpha jobs are live. I’ll wait for their reports rather than redoing the review inline.Delegated reports are in. I’ll spot-check the cited glue, stamp, and tier-guard so the verdict rests on the code, not the summaries.**PASS**
+
+Checkpoint A holds at `b430bbcb`. Glue is one module (`vibecomfy/schema/ensure_capture.py`): extract `inputs`/`outputs` → `build_cache` dump, `full_pack_refresh=False`, rung tokens `on_demand_static` / `on_demand_import` (unknown rung raises), two-layer hygiene, existing provenance ledger, `reset_cache()`. Filename `{pack}@{source_kind}-{sha7}.json`. Stamp at `on_demand.py:193` is `on_demand_import`; no `on_demand_runtime` left in code.
+
+ox-alpha + independent re-run: `pytest tests/test_ensure_capture.py` **9 passed**. Mixed-pack: on-demand keys `{GapNode}`, `index[R]` stays `@runpod-snapshot`, `get_class_by_identity(R)` unique. Persist-over-runtime is a no-op. Stub rows are gaps.
+
+**North Star:** no stub-as-truth, no permanent install, no parallel schema system, no tier masquerade (AST cannot stamp runtime; import ≠ `runtime_object_info`).
+
+Nits only (not blocking): unused `RUNTIME_SOURCE_KINDS`; `test_gap_definitions` never indexes the “unattested” class (production still treats unattested as gap). Unpinned `@runpod-snapshot` rows are replaceable by design — watch in Batch C against core snapshots. Repo-wide `-k` still hits a pre-existing watchdog collection error outside this delta.
