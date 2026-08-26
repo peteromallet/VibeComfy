@@ -1,0 +1,1524 @@
+I'll start from the planning skill and the scout findings, then inspect the current CLI, extraction ladder, cache, and preflight so the tasklist matches the repo as it is.Scout findings and the existing CLI/cache/preflight surfaces are next; I'll read those in parallel so the tasklist is grounded in the current code.I'll fan out read-only exploration across the CLI, extraction ladder, cache, and preflight so the batches map to real seams, not guesses.While the scouts run, I’ll pin HEAD and the current plan/brief format so the tasklist matches this repo’s oracle style.I'll inspect the extraction ladder, on-demand cloneI'll map pack provider, and how resolution, doctor CLII'll inspect the, coverage validation tools schemas CLI,, gated persist packI'll command map registration,- andclass manifests schemas related. tests, and related the live-agent without tests fromic-harness changing anything the repo without scenario. changing-obligations preI'll map cache identity anything., provenance, andflight from the repo: files consume/index flow from, provenance the files checks, stub rejection you named, and where, then on-demand tiers search would for ` plugsource_kind` in. and on-demand cache artifacts.Next I’ll read pack_resolver, doctor/schemas CLIs, SKTheILL.md, and harness files are in related place; next I’ll tests in parallel read. `scenario_obligations.py` and related provenance/stub checks.Next I’ll read the extract/on-demand modules and the persist tools that call them.Key files are located; next I’ll read CacheIdentity, consume-side identity checks, and the provenance ledger writers.HEAD is the expected `96a9dThe810` on schemas command `oracle-run exists;`. Next I’ll read next I’ll read its the CLI, obligations handlers, and cache identity, so doctor reporting the batches, and related can name tests. the real functions.The obligations file is the core gate; I’ll now read the rest of it plus stub/provenance/on-demand checks and tests.I’ll pull the public resolver signatures, doctor/schemas command bodies, and how manifests declare gated classes.I’ll now read provider wiring, schema types, and the pip-installable ComfyUI path so rung 3 can be classified accurately.I’ll look at scenario/workflow manifests for gated node classes, then collect the matching test files and git HEAD.## Verdict up front
+
+There are **two implemented extraction rungs**, plus a **clone LRU**. There is **no** `extract_by_embedded`, **no** `on_demand_embedded`, and **no** custom-pack path that imports genuine `comfy` as a library. Plan “rung 3” (transitive deps / heavy boot) is documented and TODO’d, not coded. `source_kind` is **not** stamped by extract/on-demand; they stamp **`source_provider`** on live `NodeSchema`. Persist tools **do not call `build_cache`**.
+
+---
+
+## 1. Public signatures (cite file:line)
+
+### `vibecomfy/schema/extract.py`
+
+```52:58:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/extract.py
+@dataclass
+class ExtractResult:
+    entries: dict[str, "OrderedDict[str, Any]"] = field(default_factory=dict)
+    method: str = ""  # "import" | "ast" | "" (nothing extracted)
+    failures: list[str] = field(default_factory=list)
+```
+
+```409:417:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/extract.py
+def extract_by_import(
+    pack_dir: Path,
+    *,
+    pack_name: str,
+    version: str,
+    only_classes: set[str] | None = None,
+    scratch_dir: Path | None = None,
+    timeout: int = 120,
+) -> tuple[dict[str, OrderedDict[str, Any]], str]:
+```
+
+Returns `(entries, "import")`. `timeout` is subprocess wall clock (default **120s**). `scratch_dir` defaults to `tempfile.mkdtemp(prefix="vibecomfy_extract_")` (419).
+
+```686:692:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/extract.py
+def extract_by_ast(
+    pack_dir: Path,
+    *,
+    pack_name: str,
+    version: str,
+    only_classes: set[str] | None = None,
+) -> tuple[dict[str, OrderedDict[str, Any]], str, list[str]]:
+```
+
+Returns `(entries, "ast", failures)`. No timeout (in-process AST walk of `*.py`).
+
+```737:746:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/extract.py
+def extract_pack_schemas(
+    pack_dir: Path,
+    *,
+    pack_name: str,
+    version: str = "on-demand",
+    only_classes: set[str] | None = None,
+    allow_import: bool = True,
+    scratch_dir: Path | None = None,
+    import_timeout: int = 120,
+) -> ExtractResult:
+```
+
+Helpers (same module, used by both rungs): `normalize_entry` (110), `normalize_inputs` (75), `jsonable` (61). Entry shape is object_info-like: `pack`, `pack_version`, `python_module`, `category`, `name`, `display_name`, `description`, `inputs`, `input_order`, `input_order_all`, `object_info_widget_order`, `outputs`, `function` (158–174). **No `source_kind` / `source_provider` / `confidence` keys.**
+
+There is **no** `extract_by_embedded`.
+
+### `vibecomfy/schema/on_demand.py`
+
+```78:93:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/on_demand.py
+class OnDemandInstallSchemaProvider:
+    def __init__(
+        self,
+        sandbox_root: str | Path | None = None,
+        *,
+        clone_timeout: int = 120,
+        max_packs: int | None = None,
+        max_bytes: int | None = None,
+    ) -> None:
+```
+
+Public methods: `get` / `get_schema` → `NodeSchema | None` (95–103); `schemas()` → already-resolved hits only (105–107). Internals: `_resolve_pack`, `_ensure_clone`, `_enforce_cap`, `_resolve_runtime`.
+
+Return type is `vibecomfy.schema.provider.NodeSchema` via `SourceSchemaProvider` or `_schema_from_object_info` + `dataclasses.replace`.
+
+### Wiring
+
+```823:847:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/provider.py
+# AuthoringSchemaProvider._build_providers
+# ... ObjectInfo* then SourceSchemaProvider, then optionally:
+# OnDemandInstallSchemaProvider()
+```
+
+```1281:1293:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/schema/provider.py
+def get_authoring_schema_provider(..., on_demand_schemas: bool | None = None) -> AuthoringSchemaProvider
+```
+
+Pack lookup used by on-demand:
+
+```607:617:/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/registry/pack_resolver.py
+def resolve_missing_nodes(query: str, *, query_intent=None, cache_root=None, ... ) -> MissingNodeResolution
+```
+
+`PackRef`: `slug`, `source`, `version`, `commit`, `url`, `path`, `name`, `registry_id` (90–98). On-demand takes the **first candidate with `ref.url`** (205–208).
+
+---
+
+## 2. How rungs work (default-ON vs gated)
+
+Two ladders share names but **not the same parser / gate**.
+
+### A. On-demand provider (per-class, network+git)
+
+| Rung | What | Gate | Confidence |
+|---|---|---|---|
+| 1 | Clone pack; `SourceSchemaProvider([clone_path]).get_schema(class_type)` — **separate AST**, not `extract_by_ast` | Provider appended when `on_demand_schemas` is True, or env `VIBECOMFY_ON_DEMAND_SCHEMAS` **default `"1"`**; **opt-out is `"0"`** | 0.9 |
+| 2 | `extract_by_import(...)` then `_schema_from_object_info` | **`VIBECOMFY_ON_DEMAND_BOOT == "1"` exactly** | 1.0 |
+
+Rung-1 hit only if `static_schema is not None and static_schema.inputs` (126–135). Empty-inputs AST is kept as fallback after rung 2 (141–148).
+
+**Production default:** on-demand **ON** (`provider.py:838–839`, `baseline.py:71`, `types.py:424`). Tests autouse-force `"0"` unless already set (`tests/conftest.py:181–193`). Module docstring at `on_demand.py:20–21` still says opt-in `=1`; that is stale vs `_build_providers`.
+
+Rung 2 **stays off** unless `VIBECOMFY_ON_DEMAND_BOOT=1` (`on_demand.py:157–158`). CLI `--resolve-on-demand` only sets `VIBECOMFY_ON_DEMAND_SCHEMAS=1` (`commands/port/_shared.py:269–270`); boot remains separate.
+
+### B. Shared extract core (batch tools)
+
+`extract_pack_schemas` (`737–781`):
+
+1. If `allow_import` (default **True**) → `extract_by_import`. Import failures append `failures` and do **not** abort.
+2. If `entries` still empty → `extract_by_ast`.
+
+This path **does not read** `VIBECOMFY_ON_DEMAND_*`. Tools always pass `allow_import=True`.
+
+Plan table (`docs/plans/all-installable-nodes.md:40–47`) lists rungs 3–6 (transitive deps, version retry, LLM, crowdsource). Status: 3–4 “folded into L6 heavy boot”, **not implemented** in extract/on-demand. Scaffold: `_HEAVY_BOOT_TODO` in `tools/build_node_corpus.py:56–66`.
+
+---
+
+## 3. Clone lifecycle
+
+**On-demand clones**
+
+- Default root: `VIBECOMFY_SCHEMA_SANDBOX` or `~/.cache/vibecomfy/schema-sandbox` (`on_demand.py:32–34`).
+- Target: `sandbox_root / slug` where slug is `ref.slug` or `ref.registry_id` or URL tail (`211–213`).
+- If dir exists: `os.utime` (LRU bump) and reuse — **no fetch, no install** (`214–220`).
+- Else: `_enforce_cap()` then `git clone --depth 1` with `timeout=self.clone_timeout` (default 120) (`221–232`). Failure → `None`.
+- LRU: dirs sorted by **mtime oldest-first**; evict while `total_packs > max_packs` **or** `total_bytes > max_bytes` (`234–264`). Defaults: **64 packs**, **2 GiB** (`50–51`); env `VIBECOMFY_SCHEMA_SANDBOX_MAX_PACKS` / `_MAX_BYTES`.
+- In-process memo: `self._cache[class_type] = schema | None` (`93, 99–103`) — negatives cached.
+- **Nothing is pip-installed** into the user env or a venv. Clone is source only. Eviction is `shutil.rmtree`.
+
+**ETL clones (tools)**
+
+- `tools/clone_and_extract_packs.py`: `ROOT## 1/.tmp_packs. `pack_/<packresolver.name` public API>` (` (`30v,ibecomfy/ 72–85registry/pack_`). Recreate eachresolver.py`)
+
+ run**. `--keep`Exported only types** skips
+
+| deleting `_ Symbolimport_extract.py` (` | Lines165 |
+–168|---|---|
+`); pack| `PackResolver dirs are notError` | [ cleaned64].
+- `tools(vibecom/build_nodefy/registry/_corpus.py`:pack_resolver.py same) `.tmp_packs |
+| `Pack` default (`NotFoundError`381 | [68]`). `(processvibecomfy_/packregistry`/ `packfinally_resolver`.py is) a |
+ no|- `opAmb eveniguousPackError when` ` |keep= [72False` (`308](vibecomfy/registry–311`).
+
+**/pack_resolverPermanent install?**.py) |
+| No. Corpus `PackRef` JSON | [90– under101 `vibecom](vibefy/portingcomfy/registry/cache/object/pack_resolver_info/` is the durable.py) |
+| artifact, `PackResolution` not a Python | [105 install.
+
+---
+
+–111## 4.](vibe How provenancecomfy/registry is stamped (`/pack_resolversource_kind`.py) |
+| vs `source_ `ResolverEvidence`provider`)
+
+** / `ResolverCandidate`extract.py` never sets` / `MissingNodeResolution` | [115 `source_kind` or `source_provider`.**–212 Conf](vibeirmed by grep oncomfy/registry those two/pack_resolver files.
+
+On.py) |
+|-demand stamps ` **Registry`HTTPNodeClientSchema.source_provider`` protocol | [ + `confidence215–` + `source216](vibecomfy/_package`**:
+
+```registry/pack_129resolver.py) |
+
+:135`:/Users/peterPackomalley/Documents/reigh-Ref` fields:workspace/vibe `slug`, `source`,comfy-oracle/ `vversion`,ibecomfy/schema/ `commit`, `on_demand.pyurl`, `path
+return replace(static_`, `name`,schema, source_ `registry_idprovider="on_`.
+
+**Publicdemand_static", functions**
+
+``` source_package=533:542slug, confidence=:0v.ibe9com)
+```
+
+```191fy/registry/:196pack_resolver.py:/Users/peter
+def resolve_omalley/Documentspack(
+    class/reigh-_name_orworkspace/vibecomfy-oracle_slug: str/vibecom,
+    *,
+fy/schema/    version_pinon_demand.py: str | None
+return replace(schema, source_ = None,
+   provider="on_ aux_id:demand_runtime", str | None = source_package= Noneslug,,
+ confidence   = local_metadata: Pack1.0)
+Ref | dict[```
+
+`NodeSchema` fieldsstr, Any] (` | None = Noneprovider.py:104,
+    allow_–126`): `source_remote_lookup: bool = True,
+provider`, `source_package    cache_root`, `confidence: Path | None` = None,
+    — **no ` client:source Registry_HTTPkindClient` |**. None
+
+ =After persist, consumers None,
+) -> re PackResolution:
+```-wrap
+
+Resolution shards as `source_ order: local pathprovider="object_ → git URL →info_index"` (`provider.py: `aux_id` (`592–604https://github.com/{aux_id`). Live}. ongit-`)demand → provenance Com is **notfy Registry class** on (` disk.
+
+`source/comfy-_kind` existsnodes/{class}/ onnode`, **`CacheIdentity` then `/nodes/** /search?comfy `build_cache_node_search` (`port=`) → sluging/object_/infoname/serialize (`.py/nodes:35/{id}` or–42 `/nodes/search, 124?search=``)). — a Pins applied **different** persist path in `_apply_. Core regen usesversion_pin` ([ `source_kind="runtime_161core_object_info3:"`163 (`9commands](/vschemasibe.pycom:fy107/registry/pack–116`). Clone_resolver.py)):/ 7extract tools never–40 hex pass → that.
+
+--- `
+
+## 5commit`;. Rung  otherwise `version`.3 (embedded pip
+
+``` Com597:604fyUI:vibecom,fy/ no serverregistry):/ **netpack_resolver.py-new for
+def lookup_ this ladder**
+
+Doesclass_candidates(
+ **    class_namenot** exist in: str,
+    extract *,
+    cache/on-demand_root: Path:
+
+- No | None = None `on_demand_embedded`, no,
+    client: `extract_by Registry_HTTPembeddedClient`. |
+ None- = R None,
+) ->ung list[-2 **PackRef]:
+stubs** `com```
+
+```607fy` (`:extract617.py:v:303ibecom–fy/registry/304`: `ifpack_resolver.py root == "com
+def resolve_fy" or rootmissing_nodes(
+ in STUB_    query: strROOTS`). Packs never import,
+ a    *,
+    query_intent real Com: str | NonefyUI = None,
+   .
+- cache_ Plan rungroot: Path | None = None,
+    registry 3 is **transitive_ pipclient: RegistryHTTPClient | None deps + boot = None,
+    ComfyUI `/ manager_client:object_info` RegistryHTTPClient |**, deferred to None corpus = heavy None,
+    github_client job (`all: RegistryHTTPClient-installable- | None = Nonenodes,
+   .md github:_67token–:69 str |, 94– None = None,
+98, 180    deadline: float–183 | None = None`; `build_,
+) -> Missingnode_corpus.pyNodeResolution:
+```
+
+T:iers13: Com–16fy,UI -Manager56–66`).
+
+Closest ** mapsadjacent → Com** (corefy Registry (plus **schema fetch**) → GitHub. Evidence-only; no only, not custom packs): `vibecomfy/porting/object_info/core_regen.py` clone — `pip install/install (` comrunnablefy`ui== forced `{version}` in a tempFalse` at venv, then [159 either](vibe incom-fyprocess/registry `/nodespack_resolver.NODE_CLASS.py),_MAPPINGS [184` **](vibeor** start `comfy/registrymain./pack_resolvermain` and HTTP.py), `/ [object202_]info(vibecomfy/registry` (`/pack_resolver91.py)).
+
+CLI–152 surface`).: Wired ` asvibe `schemas regen-comfy nodes lookupcore` + <query>` ([ `build_cache(..., source_kind273:="runtime_core287](v_object_infoibecomfy/commands")/`.nodes That is **not.py**)) dumps an extract `PackResolution-ladder rung and` JSON is, not used by `OnDemandInstallSchema not schemas.
+
+Re-exported from `vibecomProviderfy.node`._
+
+packsGlue`: for `Pack “rung 3:NotFoundError`, pip `-PackinstallableRef Comfy as library,`, `resolve_pack` ([14 NODE–_CLASS_MAP17P](INGSv againstibecom genuine comfyfy/,node_packs/ no server” would__init__.py be **new API)). `vibe**.
+
+comfy---
+
+## .registry.__6. Sandbox / timeout /init__` does ** subprocessnot for** ` reextract-export_ theby_import resolver.
+
+---`
+
+**Process
+
+## 2**. Does
+
+ registry- REST return `_ `run_import_extractor` writes `_INPUT_TYPES`IMPORT_EXTRACTOR or pack metadata?
+
+` to `{**Bothscratch}/, depending_import_extract on the.py` (` function386 —– but387`).
+- ` neversubprocess.run([sys live Python `INPUT._executable,TYPES script()`, pack_dir, pack_name.**
+
+`, version], cwdresolve_pack`=pack / `lookup__dir.parent,class_candidates` check=False, only parse capture_output= **packTrue, metadata text**= viaTrue, timeout= `_pack_reftimeout)` (`388_from_payload–395`).
+` ([1198- Non-zero: →123 `0RuntimeError(stderr or stdout)`](vibe (`396comfy/registry–397`).
+/pack_resolver- Std.py)): `out:id`/`slug last line starting`/` withname `{`,` ` parsedlatest_version`/`version`, as JSON (`398 `commit`–405/`git`)._ Classescommit with_ `"sha_`,error `repository"`` dropped/`url`. End (`406points:
+
+- `GET`). https
+- `Timeout://api.comfyExpired` is **.org/comfynot** special-nodes-/{casedclass}/;node it`
+ is `- `GET /Exception`.nodes/search? `extract_pack_comfyschemas`_node swallows_ itsearch into=` `failures or` (` `?search=`767–768`).
+- `GET `_resolve_runtime /nodes/{id` swallows and}`
+
+`resolve_missing_nodes returns `None`` (`173 additionally fetches–174:
+
+1`).
+
+**Isolation (this is all. `GET / ofnodes/{id}/ it)**
+
+- Childversions interpreter`
+,2. `GET not in /nodes/{id-process exec}/versions/{concrete.
+- `sys}/schema`.meta_path` ** ([817AutoStubFinder**::823]( stubsv `ibecomcomfyfy/` +registry/pack_resolver.py)) listed
+
+The heavy/ schemanetwork modules payload is stored as `provisional_schema = {" (`201version",–212 "schema": payload`, , "runnable303": False}`.–304). Pack Class name is names never are harvested from keys (`class_type`, stubbed (` `nodes`, `300–301classes`, `schemas`,`). `
+-object **_infoCatch`)All ([StubFinder** last1342:136: stub1](v any missing module exceptibecomfy/ theregistry/pack_ pack;resolver.py)). Fixture yield to real ` inPath tests isFinder` if on disk (`314 object_–330info-shaped,`).
+- Dummy `folder not_ `pathsINPUT_`TYPES helpers`:
+
+```813:815 return `:tests""` / `[]/test_pack` (`233_resolver.py
+–244            ("https://api`)..com
+fy-.org/ `_nodessanitize/_comobserved_inputs` stripsfyui-video stub artifactshelpersuite/versions; junk/ comb1os become.2.3/schema", ()): {
+ `["COMBO                "nodes":", {"unresolved {"VHS__choices": True}]Video`Combine (`":448 {"–500input": {}}`).
+- Fail
+-```closed
+
+:` non-dict `inputs` skippedProvisionalRegistrySchema (`425Provider` ([699–430:`)708 — v3 schema](vibe shims.
+comfy/schema- **/provider.py),No** venv, [_pro **visional_schemas_fromno_** pipcandidates of 131 pack `7:1374requirements.txt`, **](vibeno** rcomlimitsfy//schema/provider.py)) treatsseccomp, ** that nestedno** env scrub dict, **no** as **object_ uid dropinfo-like**. Timeouts (`:input extract`/` default 120sinputs;`) and on- buildsdemand a reuses `clone low-confidence `_NodetimeoutSchema``. ( Classalso 120) for-map import (`on-only hits_demand.py: become empty-input171`).
+
+Import placeholders (` strategycomfy_registry in the_ childclass:_map `import`). Reallib.import_ `INPUT_TYPESmodule(pack_` comename from cloning)` then + AST fallback `/pack_dir/runtime in__init__.py` as `schema `_vibecom/on_demandfy_pack_.py`,under_test` (` not337 from– REST355.
+
+`).---
+
+## 3. Doctor Reads CLI
+
+Three commands `NODE_CLASS,_MAPPINGS` not and one calls:
+
+ `**clsA.INPUT_TYPES()` (`357. `vibe–373comfy doctor <`).
+
+Onpath>`-**demand — matching [:v exactibe keycomfy,/ thencommands fold/doctor `_.py`/`]( ` +v caseibefoldcom (`fy175/commands–/184doctor`)..py
+
+)
+
+---Flags
+
+:## `-- lint7`, `--.allow Persist pattern- (driftnot`, `-- `build_cachemodels`, `--json`)
+
+Neither` ([609:616 tool calls]( `buildv_cache`. Theyibecomfy/ **commands/doctor.pyhand)).-write
+
+ shardsPipeline + (` `_cmd_doctorindex.json`**.` [43:
+
+### `tools162](v/clone_and_ibeextractcomfy_/packs.py`
+
+```87commands/doctor.py:99)):
+
+1.:... Load via/ `load_workflowtools/clone__any`
+2and_extract_. Helper diagnostics →packs.py
+def fail write +_cache(...):
+    filename suggest = f"{pack `port check`
+.name}@{version3. Optional}.json"
+    un path = CACHE_DIR / filename
+typed-raw-    ordered = Orderedref lint
+4Dict((name,. Node entries[name])pack lockfile git-HEAD / for name in sorted(entries))
+ source-hash    path.write_text( driftjson (`.customdumps_(nodesordered.lock, indent=2,`) sort_keys=
+5. PackFalse) + "\ pin compatibilityn
+",6 ...).
+ `    forworkflow.validate(schema_ class_name inprovider="auto") sorted(entries):`; unknown
+        index[class classes_ →name] `resolve = filename _node_packs # remap warning` suggestions
+ if collision7
+.``` Optional
+
+ modelCall site presence (`-- (`101models` + `–126`): cloneVIBECOMFY → `_versionMODELS = f"local_ROOT`)
+-{sha7}"8` →.
+
+ Warnings: embedded```python
+extractHere config, video/_pack_schemas is the HEADaudio wiring(pack_dir map,
+9 pack_.name JSON success= ofpack attaches the.name live,- contract versionagent=icversion-,
+harness scenario                     +-obligations pre only surfaceflight.
+
+_classes=set(##
+
+pack Docs.1:classes. [), Pre allowdocs_import/errors_and_doctor.mdflight acceptance=True, of schema captures —](docs/ scratch_dir=TMP_ROOT)
+ fileserrors_and_``` +doctor.md). Contract
+
+then `write functions
+
+**Paid helper_cache(...)-call entry: [vibe**com`. Afterfy
+
+ all/-contracts packs `/, rewrite `index.json`Users/peteromal/doctor.py]( ifv changedibe (`148comley/Documents/–149`). Cachefy/contracts/reigh-workspacedoctor/ dir.pyvibe).com Tests:: `fyv [-testsibeoraclecom/fy/porting/cache/test_clitests/live_/object_infoagentic_har_doctor_contract`ness/compare__validate.py] (`28–29pipeline_modes.py`).
+
+(tests###/ `test` `run_tools/build__cli_doctorcomparison` `node_corpus.py`100_8contract:_validate.py).
+
+** (1016` —B. `vparity copy afteribecomfy runtime)
+
+`_ `validate_only doctor`** —write_shard` is`, [ callsv `ibepreflightcom_fy/commands/scenario the same_ JSONobligations+runtime.py]((path)` with no flagsvibecomfyindex pattern (`315–334./commands`). `process/runtime.py)_pack` (` Comment: enforcement [19:83268]– is( unconditional312v;`):ibe
+
+ no```com envfypython/ override
+commands.
+
+**Coreextract_pack_/runtime.py), gateschemas(dest, register**
+
+- `/ pack_name=Users [pack214/.name:peter,216omal]ley version(/=Documentsreport/.version,
+                     only_vibecomfyreigh-workspaceclasses=set(/commands/runtime/vibecompack.classes)fy-oracle/.py). Prints if pack.classestests/live_ runtime else None,
+                    agentic_har modes + split- allow_import=True, scratch_dirnessbrain pip/=scenario vsscratch_ checkout_ warningobligdir.ations)
+ Always.py``` exit`
+
+
+
+ |0.
+
+ Function** | Lines | Role |
+|`buildC. `v---|---|---|
+_corpus` (`ibecomfy370–416`):| mkdir port ` doctorload-_allscenario`_**obligation — [` | ` cache, load existing517:618vibecomfy index, loop` | Walk source/commands/port packs, write workflow, match/_doctor_all index if mutated `_GATED_.py](v, writeCLASS_RE`,ibe `comfy/ attach `commands/port/_outSCHEMA/_doctornodeEV__IDallcorpus.pyENCE).__ JSONcoverage-REQUIREMENTS.jsononly`.
+
+**` +Vs: port- `undeclared `build_cachecheck, nodes install` markers` |
+:**- `|planbuild, `_ validatevalidate,cache_ doctor`obligation reads,_ runtimecoverage a **mon` | `621 doctor.
+
+`olithic `/object_:733schemas validateinfo` dump**,` | Declaration-coverage` is-level: every groups ** by ` gated class must havenot** doctorpython `_module`,pack stamps;` ` + itCache ` is aIdentitysource.source schemas`;_ sub undekind`,command.
+
+--- `cl
+
+ared## gated 4. classes G are **schema_hash`,atedviol `ationspack classes** |
+ on_ a|slug `_`, merge-on-refresh (`authoritative_cache “serialize.py:141_roots` |manifest”
+
+They–163 `735:742 are **not**`). Clone` | ` listed on the comparison toolsVIBECOMF JSON. Discovery dumpY_OBJECT_ is **:
+
+extractINFO1 `_normalizeCACHE_.entry_ **`DIRWorkflow` dict class then `vibecomfys as types** from the/porting/-is** — scenario descriptor/cache/object_info nosource ` graph`source
+ |
+|_ `_kind`,provenance_ norow hash, no` | `7452. **Regex merge-preserving gate:781 pack` | Cache** `_GATED file must appear rewrite_CLASS_RE beyond class in `provenance` ([121:→file.json` with `128](tests remap/repo.
+
+live`_Ifagent ** glueicor_** `lockedharness should look_commit` |
+/scenario_oblig| `_resolve_ like coreations.py)): regenschema /_locally` ` ` |schemasIndex refresh `TTS784`,|:Layer883Mask`| |Segment Local-only resolution ofAnything|AudioCombine that is `|Audio` one declared requirementbuild_cache`Separation|…|source |
+_|kind `_port`llama_evidence_failures lives + `CacheIdentity`. The_`cpp | `|886AC on cache **:930N_Advanced **existingentries` |**, corpus not Required on persist inputControl to `/Netindexwidget`
+/3. **Declared copy** is ` packoutput ports.json`. `write_cache` vs frozen schema |
++on_demand_* / `_write_| `preflightshardschema`_ requirements is`.scenario a
+
+_ **---oblig
+
+ations`## | Planner `provider** name today** in; pitfalls933:1017 `SCHEMA_EV ` (do not invent` | CoverageIDENCE_REQUIRE)
+
+1. **runpod-snapshot + localMENTS` ([Two` AST / implementations `local resolution55:93:**-*` are **; raises `Scenario](tests/ on-demand rungfilenameObligation/Error` |
+
+ **packlive_1version_ =**agent `ic tokens_.
+
+SourceSchemaharnessProvider/Lookup used asscenario_obligations._---
+
+### “authoritative source.py))
+
+Exampleschema_from_ 1. `” (python**in_
+
+Cache-sourceIdentity ```Object andInfo ( howIndexclass `Schema **Providersource.get_`name** match,-kind`code, not is stored in `/ `provider.py: JSON):
+
+```
+
+DefinedUsers/peteromal1606–16256 in `/6`). Toolsley/Documents/Users/peteromalreigh-workspace:78 =:tests/liveley/Documents//vibecom_agentic_ `extract_byfyharre-ness_igh/oracleast-scenarioworkspace/`_/ (vvNODEibeobligibe_comcomationsCLASSfyfy.py_/-schemaoracle//provider
+    "audiovibecomfy.pyMAPP`INGS ` aliases495-tts-narr,/porting/:604ation-using- `extract.py:object_info/`,indextts-660–683serialize.py`:
+
+ called`). Un2": (
+        from `_resolve_```34:42 {
+            "classifying them is newschema:v_ibelocally`com_type": " work.
+2. `834fy:/842portingIndexTTSEngineNode **``./object
+
+_Thereinfo",
+            " is **no**source_kind`/serialize.py
+@dataclass on(-frozendemand= provider valuespackTrue":)
+ inclass ` " thison CacheCom_ pathfyIdentity.demandUI `_:
+_-static   Index """` /resolve_schema_ `on_demandTTS",
+           Identity metadata stamped onto "source": "locally` never_runtime` are generatedauthor objectitative__infoobject imports not on cache entries."""
+
+_info",
+ `OnDemandInstall disk.** Live    pack_slugSchemaProvider`.
+
+ field            "required_inputs": ("model---: str | None is `source_ = None
+   _path", "
+
+## 2provider`. Aftertemperature", "top pack_version:. Accepted cache str | None = provenance / `_p"),
+,source_kind` None
+    git            "required_ everything values
+
+Pre_commit: strwidgetsflight | is": None ` does ("objectmodel **__ =infonot None**_path
+ readindex",`.),    evidence_
+            "required
+3. ** cache-_identityoutputs: str": | ("`VIBECOentry `source_MFY_ONTTS_engine",kind`. The), None =
+        None
+ },    source_kind_DEMAND_ only allowlist is: str = "SCHEMAS`
+        {
+            the **requirement fieldobject_info"
+** `source`: default ON in "class_type```
+
+`
+
+```804: prod": "IndexTTS_make_cache808:/; BOOTEmotionOptionsNode",_entry` copies defaultUsers/peteromal
+            "pack thoseley/Documents/ off": "Comfy fields onto **eachUI.** class Doc- dictIndexstring atTTS",
+            ... `
+           ** (not theon_demand.py "required_field index:20` is_evidence": (" wrong relative):
+
+```118 to `Sad", "Dis:125provider.py:838:vibecomgusted", "`.
+4.Calm"),
+       fy/porting **Rung numbering },
+   /object_info in `extract.py ),
+```
+
+/serialize.py
+` docstringMulti-video:    return OrderedDict (reigh-workspace `({importclass=/
+_       v "typeibepack`":com ` packfy-_oracle/tests/live_agentic_harness/scenario_obligations.py
+    if source_kind != "authoritative_object_info":
+        return False, [
+           2 f,"{ ASTclass=_type!r} declares source {source_kind!Layerslug,
+Mask:        Load "r}; only "
+1)pack_slugSegmentAnythingModels`            "'authoritative vs on-demand": pack_slug / `LayerMask_object_info (AST,
+        "pack' is authoritative"
+=1, import_version": pack        ]
+```
+
+=2)**: SegmentAnythingUltra V3`, `_version,
+       pack` `ShCom — samefy "UIgit_Layer_commit twoipped declarations all use that one":Style_ identityAdvance.git`._ techniques string (`SCHEMA, inverted
+
+`load_commit,
+        " try_scenario-evidence_EVorderobligationID in_` `identityENCEextract": ([__570packREQUIRE: identityMENTS_608.` `evidence55_:identity93,
+`):        "source_kind":](tests/
+
+- `audioschemas` (importlive_agentic-tts-narr identity.source_kind first).
+5_harness/ation,
+       - "using-schema. Embeddedscenario_obligationsindextts-_hash": schema.py)) attaches2` → `_hash,
+``` genuine-`comfy undeIndexTTSEngineNode
+
+`` importclared gated`, `IndexTTSsource_kind` for classes as `{EmotionOptionsNode`, custom is packs is a ** free string pack `classCom_fytype,net-new**.. There is noUI-IndexTTS undeclared: ` enum in ``, `source: True}`. Failcore_regen.pyserialize.py`. Defaults-closed: missing "authoritative_` is core:
+
+|object_info"` declaration-only and may Path
+- `multi start is a violation-video-based | ` a server., not a warning-character-replacementsource_kind`.
+
+Related-using` → |
+|---|---| but two
+| `Cache different `LayerMask:*Identity`: demo scenarios` classes, pack field default | `" `ComfyUI only list **packobject_info"`_LayerStyle_ names**, (`serialize.py:Advance`, same not classes:
+
+-42`) |
+| source
+
+** [Second `build_cachevibecomfy gate(...,/comfy_ (cache source_kind=nodes/agent/ attestation)` default | `, not `sourcedemo_scenarios.jsonLEGACY_IMPORT](vibe_SOURCE__KINDkind`)** —comfy/com = `_provenance_row "legacy_objectfy_nodes/` `771agent/demo__info_import:781`:
+
+"` (`27scenarios.json) key- index– maps `required_node_28`,packs ``151 class`) |
+| No → filename
+- (e.g identity `provenance.json[". `" **packs"][filenameComfyUI-and** no `]` existsEasy-Use"`pack_version`
+- `entry)
+- Schema: | forced to `".get("repo") [vibecomlegacy_object_ or entry.get("info_import"` (`261fy/comfy_nodes/agentlocked_commit")/agent_demo–263`) |
+
+` is truthMost_scenarios_schema committed shardsy
+.json](v **ibecomfy/- otherwiseomitcomfy_nodes: `"an unattested cache is not an authoritative** `source_/agent/agent source"` / `"kind`_demo_scenarioscarries neither repo (_schema.json)
+
+ nor locked_commitextractorTemplate"`
+
+Then writes pack string-side, must match `schema class→pack catalog not `build_.pack` (` (cache`). `consume849used.get_class`:854 by doctor`), then / then port sees evidence `schemas ensure`, `source.
+
+** not gated_kind` asNot consulted missing obligations.
+
+---
+
+ by this preflight): `**### 2.CustomNodePack` `build_cache
+
+- Cache in [ `source_kind` signature,` (`vibecomfy filesobject_info`,/node_packs written `executed/_defs.py], `_object_info(indexv.jsonibe`
+
+com````, `runtime141:163_fy/nodeobject__info`, `runtime_:vibecompacks/_defs.pycore_object_) (`fy/portinginfo`, `workflowname`, `repo/object_info_json_stub`, `classes`);/serialize.py
+`, `legacy_ `resolve_nodedef build_cacheobject_info__packs` [import`, `(
+    source_structured_cache_465:467path: str |copy`)
+-](vibe Path,
+    version `NodeSchema.sourcecomfy/node: str | None_provider` (`_packs/_defsobject_info_ = None,
+   .pyindex).`,
+
+ `---on cache_dir:
+
+## 5_demand_static str | Path |. Test inventory (`, `on_ None = None,
+demand_runtime`,schema / on_    *,
+    …)
+- `demand / obligation)
+
+ identity: CacheIdentityconsume._entry_| File | Co | None = Nonehas_authoritativevers |
+|---|,
+    pack__identity` (`---|
+| `/vslug: str |Users/peteromalibecomfy/ None = None,
+ley/Documents/porting/object    pack_version_info/consumereigh-workspace: str | None.py` `443/vibecom = None,
+   :451fy-oracle/ git_commit:`) — that dentests/test_ str | None =ylist is a differentpack_resolver.py identity path None,
+    evidence
+
+`_identity: str` | REST lookup | None = Noneon_demand_static` / `, pins,
+    source_, cache,kind: str =on_demand_runtime ` LEGACY_IMPORT` existresolve_missing__SOURCE_KIND on,
+nodes   ` Manager full_ the authoring ladder/Registry/Gitpack_refresh: (`vibecomHub,fy schema/schema/ bool | set[on_demand.py versionstr] = False` `132`, fetch, budgets,
+) -> tuple `193`). `, Git[int, inton_demand_]:
+```Hub
+
+ 401/import` and `Behavior422/cooldown |
+on_demand_| `/Users/:
+
+1embedded` **. Loadpeteromalley/do not exist** a ** in theDocuments/reigh repo.
+
+raw Com-workspace/v---
+
+## fy `/ibecomfy-3. How `@object_info`oracle/tests/stub.json` is dump** (`classtest_on_ rejected
+
+**_type → {demand_resolver.pyNot** a dedicatedpython` |_ ASTmodule, input, … INPUT obligation check}`).
+2. St_TYPES,ubs. are Group by pack runtime rung dropped ** (`pack_slug, env flagbefore** provenance` or `pack, **:
+
+_key_fromsandbox```_module`).
+528:5333. Stamp:/Users/peter identity +omalley/Documents/ LRUre evictionigh**- |
+| `/Users/peteromal canonicalley/Documents/ `workspace/vibereigh-workspacecomfy-oracleschema_hash`./vibecom/vibecom
+4. Mergefy-oracle/ withfy/schema/provider.py
+           tests/test_ existing same self._index =schemas_ensure.py-pack classes unless {
+                str(` | `schemas `full_packkey): str( refresh/_refresh`.value)
+                forregen-core/
+5. Write key, value inensure/ data.items()
+ **`<validate-coverage`;                if isinstance(cache template_root>/<key, str)pack>@<( class extraction and isinstance(valueversion or pack |
+, str)
+               _version) and not| str `/(Users/value).lower().peteromalley/>.json`** (`216–endswithDocuments/("@restubigh.json225")
+            }
+-workspace/v`).
+6.```
+
+Soibecomfy- Rewrite `_oracle/tests/ **resolve_schema_`<cache_roottest_schema.pylocally` sees>/index.json`` | providers `schema,**: `Pro is None` → `class_typevisionalRegistrySchemaProvider ` → filename` (`` placeholders"{class_type vs real213!r} absent–234`). St schemas |
+| `/ from cache root {aleUsersroot/ classes}" droppedpeter`omal (`ley/Documents/846 only for refreshed packs underreigh-workspace:848`). Pre/vibecom fullflight then:
+
+ refresh.
+
+Doesfy-oracle/#``` **testsnot/**test write_ `vibecom977schema `_provenance.jsonvalidate`..pyfy schemas` CLI:981` | validation
+
+Filename map:/Users/peter vs entry `,
+
+Entryomalley/Documents normalizationpack_version`:/reigh- can diverge, snapshot `v APIworkspace/vibe: filenameibecomfy =comfy-oracle uses the/tests/live vibe |
+ `version` argument_agentic_comfy.cli| `/Users/ firstharness/scenario:main` (`peteromalley/ (`216_`),obligations.pypyproject.toml:Documents/reigh
+               - while theworkspace/v77`). Parser entry uses `identity violations.append(
+                   ibecomfy- f"{scenario_.pack_version buildsoracle/ subtests/parsers andid}: exact schema` (`116test_object_ calls `register_`, evidence for "
+                   info_schema.pycommands` f"{class_ `232` | offline object (`vibecom–type!r}_info cache (`fy/cli/237 is` not available fromKSampler`,__init__.py in tests: any local "
+                    pack:16– "authoritative source file schemas) |
+|26`).; refusing paid calls `/Users/peter `ComfyUI Dispatch is `return "
+omalley/Documents-KJNodes@                    "(fail- args.func(unused-version.json/reigh-closed): " +args)` (`cliworkspace/vibe`, `comfy-oracle/__init__. "; ".join(pack_version:resolution_failures)
+/tests/testpy:71 "2.0                )
+```
+
+_runtime_schema–72.0"`Related (not in_probe.py``);). Runtime writers | live `/object the pass the obligation same string_info` probe capability-fence errors exit to preflight):
+
+ receipts `42` |
+-| `is `/_Users both (`ensure_workflow_stub/ (`_clipeter/omalley__env.py:868schema` `/Documents/reinit__.py:–902129igh-73workspace/–78`).`).
+
+---:vibe142`comfy —
+
+There is no
+
+### 3 `source_version-oracle/tests. Provenance ledger `commands/registry/test_ ==agent "stub"`/__init__. path_obligation_ledger or `sourcepy`. Registration is + entry_.pycache`_ |path ledger the explicit ` schema
+
+**.endswith kinds (`("@stub.jsonCOMMANDS` tuplePath:** `/Usersclass")_present`
+`,- ` in `vibe …compact),_ statusresolver._/peteromalleycomfy/commands,object serialize/_Documents |
+info/re_/__init__.| `/Users/entry_is_igh-workspace/py`.
+
+---workflowpeter_omalstubley`/vibecomfy `
+
+650##: 6621Documents/reigh--`oracleworkspace —// `vvsource. Registrationibecomfy/_kind ==ibe "comfy +-porting/cacheworkflow_json_oracle/tests/ file/object_infotest_scenario_stub"`//provenance.json`
+
+ or `obligation_preflightfunction map
+
+###Writ.pycategory`.endswith |("/ gatedstub Command")ers` are or class ` registry
+
+|pack_/ inversionpack == declarations Item ", `stub fail"`v
+ibecom | Location- Hot |
+-closed preflightfy/commands/|---|---|
+shot |
+ file| `/Usersschemas.py`, `v| `CommandSpec/peteromalley not `build_ibecomfy/` | `v/Documents/recache`:
+
+-porting/ibecachecomfy/igh-workspace/ `_load_provenance/object_infovibecomfycommands/__init` / `_write-oracle/tests/ComfyUI__.py:10-Hot_shotprovenance@` (`/live_agent–13stub.json` is190–208ic_harness` |
+| ` **not** in`)
+- `_/scenario_obligCOMMANDS` includes `index.json`attest_ingestedations.py` | `CommandSpec(" or `provenance.json implementation +_capture` (``
+schemas", "v `229–294-ibecomSCHEMA Simulatedfy_ offline.EV capturesID`) — single- were physicallycommands.schemas")ENCE_REQUIREMENTSfile ingest
+- removed (`test`` |
+ | `__| `/ `_copy_structured_simulated_Usersinit_stub__./pycachepeter:`omal_ (`captures_areley/Documents16/–31543_removed_andreigh-workspace` (_unindexed–`,317/vibecomschemas`) — only `_fy-oracle/ at **37 updates `class_REMOVED_SIMULtests/test_**) |
+| `count`
+
+Committed topATED_CAPTUREScli_doctor_load` in-level schema (`contract_validate.py `tests_provenancecommand/.json`test requires:1` | doctor CLI_p4_ `–161register( + contractsobjectinfo_cachessub`):parsers
+
+)```` |json |
+| `/Users
+ `__{
+ .py "` `413/peteromalley:437init/__.py:schema_versionDocuments":/re`)
+
+If aigh-workspace/ 1,
+ 89–93 stub filename` |
+| ` were "classregister_commands`_count":  indexed **vibecomfy-oracle/tests/test_live1504,
+  wraps suband** attested_agentic_ "source": "parsers with `--, `_resolveintent_judge_yescopied from/- vibecom_schema_locallyschema_context.pyfy/porting` would still noty/--` | judge/cache/object inspectnon-interactive` schema context |
+
+_ `sourceinfo_",kind
+ |Harness `. " Filename filterpacks": is manifests `__init__.py the real stub wall ( {
+    "<Pack:96>.
+
+---
+
+##–106 4. Strict@<provenance / runtime`- |
+
+onlyID>.sjson only":): {
+ `tests/live_agentic flag
+
+**`schemas` is      "pack_harness/Does ": "...threaded_comparison_ not exist as a22manifest",_
+final     50 " workingclassesnd": in < the frozen.json`, `… switch.**
+
+ order_final5.jsonint>,
+     - `SCHEMA;`.
+
+---
+
+_ "RESOLUTIONlocked__ENVcommit##  `6.": "<sha>|_VAR = " SKtests/test_VnullIBE",CO
+MF     ILLcli.md_ andmisc.pyY "repo_": "<OBL schemas-ensure
+
+IGATION:19_–SCHEMA47_gitPath: `/`CHECK"` asserts (` that42 order urlUsers>|/nullpeter",omal.
+
+### ``)v isley/Documents/
+      "schema **_sha256":reigh-workspaceneveribecomfy/commands/schemas.py/vibe "<comhex read**.fy-oracle/>|null"
+docs/`agent (full- surface    Only defined/)
+
+| Function | }
+exported.
+skill /- }
+SK}
+```
+
+ `requireILLIn Lines.md_gest |`
+
+schema also_ RoleSectionsresolution: adds |
+` First| is Moves accepted---|, then---| Author---|ing
+ `del require `ingested_ Model, Rules,| `_extract__schema_resolutionat`, `ing Agent-Edit Policy`class (`_949types_ested,_from When`, You`).from Need Doc_template` More Detail optional.string ** | ` No `25schemas–940- `captured_at64ensure`` from `_cache /:947 ` |schemas AST ensure-`_metadata` (``: flag sectionwalk.** `_ Mentnodeions`271 and env var cannot `v defer/– /287 `node`ibecomfy runtimedisable the gate.
+`). / Authority `raw_ doctor` ([- Successcall for` live / `_55 payload always `"-](docs/at` stringagenticagent-skill/ classschema_resolution_SKILL.md)), preflight is ** types not `schemas ensureenforced": True`` (`100`. |
+
+
+`|nodes `_cmdrepo` or ` ensure` (_schemas_refresh8locked_commit`install` | 72**,:100 packs–95, not not the schema9`).
+
+There is no runtime-only / live | `schemas cache) is digest (`-`/ refresh` |
+| in [docsscenario_obligationsobject_info`- `_cmd_schemas/agent-skillonly flag. “.py:777/REFERENCE.md]_regen_coreAuthor–780`; `(docs/agentitative” here means` | 98test_schema_-skill/REFERENCE **att–138refresh_path.py.md) ~92ested local cache | `schemas regen–93:80–85 file**,-core` |
+`).
+
+`clone not a| `refresh_ live Com and [docs/agent-skill/_and_extractskills/vibeschema_cache__packs.py`fy capturecomfy-setupfrom_source`.
+
+** / `build_/SKILL.md | 141–Stale vsnode_corpus.py](docs/ HEAD153` updateagent-skill/:** | refreshskills/vibe pack `testscomfy-setup helper (file files + `/test_scenario / dir / dumpindex.json/`SK onlyILL.md_obligation_pre)) |
+| `_;flight.py` ` ~110–validate_comfy they do **not159:165114_version` |**` attest still.
+
+---
+
+##  provenance expects162–168 7. Git FINAL | regen.
+
+---
+
+### HEAD50 to pass with-core version token
+
+ 4. Recogn `require_schema |
+| `_izedintros `Work_resolution=Falsepectsource__corekind_`tree: `` and `schemaobject /git_ tierdirinfo tokens:` …_resolution_en/vibecom |
+
+There  is171– **forced isfy/.git/no single188 | regen False`. That contradictsworktrees/v allowlist-core HEAD capture**. Valuesibecomfy-. in source |
+| `_oracle`
+
+- ** Matching playload_provenance`Branch:** `oracle tests are:
+
+** / `_write_-run`
+- `test_pre`provenance` |  **SHAflight_fails_CacheIdentity.source_190–208closed_regardless_:** `kind96a` (st | provenanceof_schema_9d81021amped on.json |
+| `_resolution_flag`a6ccee entriesprune (`_testsst/aletest43ccb9 by_p4__index_rowsafccdf49 `build_cache` | object211info_cachesff6ae4.py` `484`):**
+
+|–226a5:b4965`).
+
+ Value---
+
+##  |`
+
+ drop---
+
+## | Where index rows whose file5. Where 8. Existing |
+ is gone |
+| gated classes live|---|---|
+ LRU ( `_attest_ing / sandbox eviction tests| `ested_capture`object_info`not
+
+Yes in, the manifest)
+
+ | 229– | dataclass default;Manifest in `294 `s do **nottests/test_ | provenancecomfy_core** liston_demand_@ row forobject_info gatedresolver.py`:_ classescomfy.
+
+**ui one ingestedScenario pack |
+| `__0.
+
+24- ` manifesttest_**sandbox (`scenario_.0copy.1_structured_cap_evictcache`.json |_ manifest`.py |
+`| `112s `_legacyoldest__object297–329:117_infopacks__importfirst` | copy whole cache`): `schema_` | default ` [254:version`, `scenario dirbuild_cache` |
+| `_copy_single__268](tests/test_onroot /`, ` `refreshstructuredscenario__cache__count`,from_source` entriesfile_`demand | _resolver |
+| `runtime with.py332)– — `381 |_object `id`, ` ingest one pinnedmax_packs=_info` |path`, `descriptor1` keeps pack `ensure_env_sha256`,.py:873` newest m JSON ` |
+inclusion| `__status (customlooktimes
+_-like ``, `revision_status`, `scenario packstest__structuredsandbox__pack from_kind_cap`,cache_ ``respect |ssource_workflow live`. `/object_ 385–389_byte_budgetinfo
+
+`)**Comparison |
+ manifest|` | `** [ detectruntime (271_:core_object_info `{inputs, outputs287](e.g.` | ` `ensurethreaded_}`comparison shape__manifest_envfinaltests.py/test:_ |
+| `_oncmd_demand_50.json`):836 ``,_schemas_validateresolver.py) —id `schemas.py:_coverage` | byte cap115` |
+|` + hashes 396–435 only ` evict.
+
+executed_sGobject oldest | `schemasating_info` |
+- `test is **code tests only (` validate-coverage` + source_sandbox_clone |
+|test_porting `_cmd_reuse_bum workflow**:__objectschemas__infoensureps_lru_
+
+1.py`)` | 443.mtime `_` [290 |
+| `static–584workflow_class_:308_evidence` | | `schemastypes` `481 tests] only(tests |
+/:514` — ensure`| `structuredtest_on every |
+| `register_cache_copy_demand_resolver `class_type` | 592` | ingest **` / UI.py) — reuse–648 | argparseresult** (` `type` in `schemas |
+
+###.py:328 the descriptoros,380 `’sregister.()`utime` `workflow_path`); also ins clone`.
+ argparse2. consume’s `_GATED_
+
+Implementation: ` (` *CLASS_RE`OnDemandInstallschemasSchema.py:592non-authoritative `121:127Provider._enforce_`:* setcap` [234 |
+–648`)
+
+Parent
+
+```
+| `workflow_:264](:IndexTTS|Layerjson_stub` `Mask|schemasSegmentAnythingvibecomfy | `/schema/on
+`| (`generateAudioCombine|Audio_help_hotshot_demand.py);Separation|Audiostub envFilter=" `_ObjectVschema_IBEinfo.py|AudioVolumeNormalization:101`; cache management"`),
+|VocalCOMFY_ `ComfyUI `destAnd="SoundschemasRemoverSCHEMA_SAN-DBHotshot@|_VsubibecmdVoice"stub.json` |
+
+OX_MAX_
+|//InPACKS` (`, **Consumespire|easy`required=True “64), `V`author**.itative
+
+ identity forLoop|\beasy int\bIBECOMFY| Subcommand” is_SCHEMA_SAN
+|llama_ **not** an | Flags | Handlercpp|ACNDBOX_MAX allowlist of good |
+|---|---|_AdvancedControlNet kinds. It is_BYTES` (---|
+| `
+```
+
+32:
+
+ Gi```B443:).refresh` | `--. `SCHEMA451:vibe
+
+Other `lru_EVIDENCEsource`,comfy/port:` hits_REQUIREMENTS` `--json`, `--ing/object_ are `55:113server-url`,info/consume.py` — only two Com
+def _entry `--runtime { scenarios currentlyfyUI_has_authorembedded,server, **itative_identity( **sessionrunpod}` (declare** exact evidenceentry: dict[ cache_help.
+4. `str, Any])policy**,UNPROVEN_: “not implemented -> bool:
+   PROVIDER_CLASSES` not pack”) | `_ if entry.get `("146:192cmd_-schemassandbox_ eviction.
+
+git_commit"):` — honest----
+
+## Ensure
+        return Truerefresh` |
+|gap registry. ** `regen--corefrom-manifest
+    source_Exported` | `--kindcom = str(:, never iteratedfy-version` noneentry.get("source.** Gate is: **required**, `--_kind") or
+
+Closest "") gated
+    regexjson return`, existing hidden ensure hit bool(entry.get `--source`, `-- paths:
+
+| +("evidence_identityserver-url` Command | Input not in declared requirements")) and source_ | `_cmd_ | Behaviorkind not in {
+.
+
+schemas_regen_ |
+|---|---|Descriptors        "",
+       core` |
+| (---|
+| ` "legacy_object `validate-coverageexample_info_importvibecom` | positional `testsfy schemas ensure",
+        " `template`, `--/live_agent <template.pyjson` | `_structured_cache_ic_harnesscopy",
+   >` | narrative/scenarios/imagecmd_schemas_- `.generpyates`- | }
+```
+
+Anyvalidate_coverage` `git_commita-2x AST- |
+| `ensure` counts2-seed-extract classes` | positional `variation.json`) have as proven → objecttemplate`, noanced, **_info cache → schema `--json` |including on `resolve- `_cmd_schemas-demand**,_nodeevidence_ fieldspacks_ensure` |
+
+ unless.
+
+` → `tools**There you leave---
+
+##.clone _and_ is no `--manifest it6`extract. on_ Testspacks.process covering this_ pre unsetpackflight.
+
+`** ([` `NodeSchema
+
+443:.source**584_ensure` (Primary](vibeprovider` (resolutionor any schemas**comfy/commands ladder, not cache
+
+- `/ subcommand).** Only `source_kind/schemas.py))Users/peteromal ``):**
+
+` |
+| `vley/Documents/template` + `--ibecomfy schemasobject_info_reigh-workspacejson`index`, `source/vibecom validate-coverage < (`643–648fy-oracle/_parser`, `template.py>` |tests/test_`).
+
+Inherited fromon_demand_ same ASTscenario_obligation_ everystatic`, `on extractpreflight.py` top_demand_runtime | report —-level command:`, `object load covered/missing vs `--yes/-_info_cache obligations cache;, Indexy`,`, `node **TTS/LayerMask_ `--index`,non `-interactivealways exit 0vibecomfy` (`commands declarations** in, local_builtin`/__init__. text mode ([396 resolve success, unde (`scripts/node:435clared gatedpy:46–_66] classschema`).(,_
+
+v missing---coverageibe pack.py:73–
+
+com##fy/ commands283, empty-root. Exact/schemas.py)) fail`); current- |
+closed| behavior `,v
+
+Cache env-var test plus ` rootibecomfy nodes (envwidget used is by schemas ensure --workflow_/--schematemplate``, refresh ` | loaded unused;workflow_json_ workflow it/ |regen ( **provisional`, ` monkeyinstallimported** from missing packscomfy_registrypatches roots from serialize →_provisional`, catalog), ` consume):
+
+ `comfyrun__comparison`, not schema cache``` order,registry_class_ ([319:34021:22: **map`.
+
+**](vibevibecomfystale** FINALNotcomfy/commands50 declaration/porting/ in this repo:**/nodes.py))-level pass.
+object_info/ `on_demand |
+
+No command- `/Users/consume.py
+CACHE_import`, `peteromalley/ walkson_demand__DocumentsDIR:/ Pathreigh scenario = Path(__fileembedded`. Extract-workspace/v manifestsibecomfy-or methods are `"__).resolve().parentoracleimport/"`tests |/.parent / "cache / `SCHEMA_EVIDENCE_test `"_astp"`4 (`" / "objectREQUIREMENTS` /_objectinfo_schema/extract.py_info"
+INDEX `required_nodecaches.py` `:58`,_PATH: Path399_packs` to `445 = CACHE_DIR:555 ensure`, `735 / "index`.json — provenance schemas. G for TTS classes;"
+```
+
+###`).
+
+**Filenameated class removed / `schemas→pack mapping simulated stubs `pack_version refresh`
+
+` lives; FINAL only` tokens_ incmd (not_ `schemas50_scenariorefresh_ raises`oblig `ations (`un.py72proven–/95unde`): `source_kind`):**
+
+- `run
+
+clpod1ared-. If`; declaration-snapshot` — elevel `--. violationsserverg;-`..url flag ``: isCom ` nofyRuntimeUI-Schema-opProviderKJ;(serverNodes_@runurl= exactpod- portssnapshot.json...).object_info`
+- `.
+
+**Harness wiringlocal()` (`**
+
+-` ` / `localschema/provider.pytests/test_-<:1205–shalive_agentic121_threaded_comparison7>` — clone2`), write `.py` `_seed+out/cache/_gated_schemaextract (`clone_cache` `object_info._and_extract339:391_packs.py:schemas-refresh.json` / `_comparison107`,`, then `refresh `build_node_manifest_with_from_source_entries` `_corpus.py:(str(source394:415285`)`
+ —- concurrency tests))` `stub (`serialize.py: **avoid` /** the340–360` `@ gate → `build_stub.json`
+ by filtering `SCHEMAcache`).
+2- `legacy-_EVIDENCE. Else ifimport`
+- `_REQUIREMENTS` `--source` missingruntime-core` ids and: stderr ( seeding attested `"--source isensure cache.
+
+ required unless --server-**Stub filtering- (authorurl ising supplied,env core)
+
+"`, **exit---
+
+###  not obligation 2**5. How consumers)** distinguish (`84– runtime86 vs
+
+- stub `tests/test_schema`).
+3 vs. on-demand.py` `164
+
+**Author Else `refresh_:188ing ladderschema_cache_` —**from_source( Hot (`AuthoringSchemaargs.source)` (`shot/`141–Provider153._`):build_providers`, `provider
+   - dir.py:823–@stub.json` classes not in authoring schema847 with `index.json`.
+
+ →--- `_
+
+##`), 7. Smallcopy_structured_ first hitest change surface forcache` (copy wins:
+
+1. on-demand tiers `*.json` Builtin  
+2.
+
+Do into `CACHE_ Optional single **not** ingestDIR`, prune stale `object on-demand results index rows, rewrite_info` as JSON provenance ` `runtime_object  
+3. **class_count`)._info` /`ObjectInfoIndex ** `executed_objectSchemaProvider`**Does not call_info` / → `build_cache `runtime_core committed `_object_info`.**
+  ` - path cacheporting/cache/ rows namedobject_info`. The `  
+index4.json.` ` preflight alreadyout/cache/ → same treats any attestedobject_info*. on parent dir.
+ cachejson`  
+   - file whose file as `5. `Source payloadauthoritative_objectSchemaProvider` (` looks like structured packsource_provider_info`. cache (`inputs`="
+
+**source_parser+"``outputs`)Must)  
+6 → `_. changecopy**_ `OnDemandInstallsingle_structured_
+
+1. `_SchemaProvider` (`resolvecache_schema__file`:on copylocally` file `,803 regenerate_demand_static:808 index membership` / `on` — expand for that filename,_demand_runtime the ` `_`)
+
+Once asource` allowlistattest_ingested class is in ` toindex.json`, on_capture`-demand never runs (sha256,:
+   - `on class.
+
+_demand_static**Stub filtering count, pack`
+   - ` (index,on_demand_ provider optional `repo`import`
+, not consume):**
+
+```   - `on/`locked_commit_demand_embedded129`/`captured_`
+   - `at:`).142:von_demand_ibecomfy/ `authoritative`runtime`
+   Keepschema/provider.py iff repo `authoritative_
+def is_ or locked_commitworkflow_stub_ present (`object_info`schema(schema: for379 object | None) real`). -> bool:
+    cache ...
+    return captures.
+2.
+   - else ` Same source_version ==refresh " function_ `stubfrom"_ orsource`834 cache:_883path`.endswith — ** → `build_("@stub.json")branch**:cache(..., version="
+```
+
+``` onlegacy528-import",-demand sources:533 source_kind=" must **:vibecomlegacy_object_fynot**/schema use/info_import") `ObjectInfoIndexprovider.py
+           ` (`serializeSchemaProvider` + self._index = `_.pyprovenance:_345row {
+                ...
+`.– That360`). Merge                and not str path-preserving;(value).lower is ` “attauthoritative:().endswith("@stubested False cache`..json
+
+")`--
+ file            = }
+ live```
+
+` captureObjectInfoIndexSchema.” Route toProvider` always stamps `OnDemandInstall `source_providerruntime` is registered (`603–608="`)objectSchema andProvider_`info ** (never reador**. a
+
+ thinOutput via_index"` and wrapper `)source_version `emit and=` assertinfo (`commands/_ `["outputschemapack.py.source_:_version8provider =="]` (`592––60316 declared`).`) It → does ** source`.
+3.not ** `**alwaysSCHEMA copy returns _ `EVsource0ID_**.kindENCE Text_`.:REQUIRE `"
+
+MENTS``consume.get_class`Cache refreshed: { ` /55:113`classes `index —} add classes rows across {.json` **still for currentlypacks} packs → load unde {cache_dir stubsclared gated} [{author**. Widget path classes withitative|non treats- stub as:
+
+ the```authoritative}; identity intended650:662: …]"`.
+
+ onvibecomfy### `schemas regen/-demandporting `/source-core`
+
+`widgets_`/ +compactcmd `__schemasresolver.py
+   pack` + ports_regen_core return source_kind. Until` (`98– == "workflow_ a138`):
+
+1 rowjson_ existsstub". `_validate_ or category.endswith("/, `comvalidatefy_versionstub") or pack_obligation`:_coverage_version == " emptystub"
+```` `
+
+703**Runtime vs /:712 whitespace on- /demand `/ after`` still ` persist:**
+
+| fails Signal as | Runtime |\` → `Value unde StubError` (uncaclared |.
+ught →4 Live. `pre traceback on-demand |flight_scenario_, not a Local extract shardsobligations` ` coded |
+|---|---|983:999 CLI---|---|---|
+` — unde exit).
+2| `source_clared +.provider edit` | `_intros `pectobject_core_object-required still fail_info_index_info`: test-closed;` | hooks declarations filtered `object_info are what out of index provider un_blocksprovider.
+
+` /** |Should ` `onobject_info not change_runner`, else_demand_static `--source (`` / JSON `onor, else `--_serverdemand_runtime- only`url if |` you ` want `object_ stubsinfoRuntimeSchema_indexProvider`, to` fail |
+| else filename `capture_ with | a stubcore_object_ `@-specific message)**info` (`port
+
+run-pod- `Objectsnapshoting/object_Info.jsonIndexSchemaProviderinfo/core_._`loadregen.py: /_1 `@indexruntime`- stubcore.json-`– |7 `@,filenamestub filter.json
+` | none-  `_34provenance–_39 (`)in-memoryrow` repo/)commit rule ( — pipkeep- |install `@s pinnedlocal that-<sha>. Comjson` for |
+ cache|fyUI and-backed ` executessource_kind `` | usually it.authoritative_ **object Warning_absent** on committedinfo`)
+: uns- Writing runpod files;andboxed (` ` on-156demand– payloadsruntime159_*` only`, into ` ifv writtenibecom alsofy/ via `build in_portcache helping`)./
+ |cache `3workflow/.object_ Writesjson_ `infoout_/`stubcache with`/ runtime | `object not persisted_infosource_kind |`
+
+ **.comfy-core**Doesabsent** |
+|.{version not ` existgit yet}.json`.
+**
+
+_- `commit` on4. **`on_demand_ entry | presentimport`build /_ `cache(..., onlyon_demand_ identity=CacheIdentity ifembedded ``build_ as(pack_slugcache` ` identitysource_provider="comfy-` | stamps nocore", | … no | source no. Today_kind="runtime |
+|: ` `provenanceon.json__`demandcore |__static oftenobject ``repo (`_AST+info,"), full `on`_packlocked__refreshcommit`_={" |demandcom not.pyfy`- `130 attestedcore"})`** (`: as107135 authoritative–`)118 and ` | none | attested`).on
+ for_5 thedemand._runtime` (boot `emit` → local packs- **exit thatgated import 0**.
+
+ were,### ` `151schemas validate ingested:196-coverage`
+
+`). Extract |
+
+On`_ ladder methods-demand is **cmd are `"_astschemas_in-process only"`validate /_ `"coverageimport`** (`on"` (`extract_demand.py: (`396–435.py` `445`):93–
+
+103- Missing`, `734`). template file`).: A Cl stderrones `" bridge liveTemplate not under found: should …" stamp ``, **~exit/. cache/vibecom those four1**.
+-fy/ namesschema on- Reads:sandbox` (` template32 `NodeSchema.source_–provider34` and `.py``). via No `Pack match `_extract them_@class_types in_ `_….fromresolve_schema_json_`template write`; cachelocally`, not collapse.
+
+--- via `list_ them into cacheclasses
+
+()`### + 6 `source_kind. ` Glueget_class=" to persist on(object_info"-demand **ct`.)`
+
+--- (`consumewithout** looking
+
+## 8.py:262–. like Currently runtime
+
+Today276 blocked there is no, 710– e persist2 pathe target715`).
+-
+
+Best. Clos lockedest writers Covered target: iff  
+:
+
+- ``build/ `_Userscacheget`/_classpeteromalley/ —(ct identity) + isDocuments/reigh not None` ( `index-workspace/v.jsonincludes`, ** **curnoatedibecomfy-**- ledgeroracle/tests/  
+- `clonelive_agenticoutput fallbacks**,__andhar_ness/extract not only indexthreaded__packscomparison.write_ rowsmanifest_final50).
+- Writes_cache` /.json`
+
+It is `build_node: already asserted to fail_ nothingcorpus._write (`.
+-_ JSONshard` —test payload `_en:Pack@forced_preflight `localtemplate-{,sha7_rejects_un classes_found,}.json`proven_gated_ covered, missing from,edit_scenarios`). covered_classes `extract.normalize, Includes_ missingentry_` (**classes, unno** cache_classes_proven edit scenarios `sourcetotal_`.kind
+- such` / **Exit as:
+
+- ` `git_commit 0 even whenaudio-acestep`) classes-audio-generation  
+- `refresh are missing.**-and-processing_schema_cache JSON-workfl-_from_source path always1b1360` — `emit` (`93 copy file` →`) 0.
+
+### + index — `AudioCombine + `_ `schemas ensure`attest_ingested` / `AudioSeparation` / …
+ (current)
+
+`_capture`
+
+Exact- `image- gluegenerates_-cmd_aschemas_ensure` (`-2x2 that443–584`): matches-seed-variation
+
+- Pos existing contracts` (`207`)itional **:
+
+1. ** — `easyBuildnarrative int`, `Image `. anBatchSplitter //Inpy` template only object_info-spire`, `**. No `--manifestshaped dump** fromeasy forLoopStart`.
+- Missing the extraction/ file: payloadEnd (`schema`
+- ` `error:image-sd3/ "Template not found-image-generationextract.py"`; JSON-with-control:normalizenet-19d `_entry`,emit` (**221` (`273 same`) — `ACexit shape onN_AdvancedControl 0**-demand already usesNetApply`
+
+**); text stderr).Small + **exit  Do **not**er1**.
+- feed Reads: single-scenario target it through:** `image- AST `ensuregenerates-a class types; `-2x_2env._list_classes()`-seed-variationwrite_object_ as cached`  
+Descriptorinfo_cache` set. Missing =: (`source_kind not `tests/live="runtime_object in index_agentic__info"`).har
+
+ keysness/2 (scenarios.unlike/ validate **`image-build-_coveragegener,atescache curated-`a fallback withs- a do2 non **x-not2runtime**- count identity asseed and cached- matching).variation `.json
+version-`` If (`:**
+
+apply```:python true`,
+ `identityexpect_graph_changed: true`). No `SCHEMA_EV = CacheIdentity(
+IDENCE_REQUIRE none    pack_slugMENTS=`slug row,
+.    missing: `action Fail-closed text: "noop" pack_version=:
+
+-`, printsf"on- declarationdemand-{sha7 `": `gatedAll class}", schemas already   class { # NOT cached — nothing toclass_type! runpod-snapshotr do}." has`, no ** / runtime-coreexit exact  schema provenance0**. requirement …
+- Else ` /`
+- paidresolve_node_ stub
+    git prepacks(set(_commit=Noneflight: `gatedmissing_classes)) edit-required class,                    # omit unless` (`node_ you want consume {class_typepacks/_defs.py to treat it as!r} has provenanced:465
+–   467 no proven same-`) against evidence_identity=pack provider evidence (f"on-unproven/ theunde **static lockdemand:{methodfile}",-clared); refusing  # " paid calls (failaware catalog** (`-astCustomclosedNode)`Pack"
+
+.nameFINAL/ |5 " (`repoimportthreaded/"
+classes   `, source_kind_comparison="_on_manifest `_defs_demandfinal_5static.json",.py:16–    `) is22`). # the ** or ** onpassing**Not** ` gated_demand_runtime; NOTregistry.pack set (IndexTTS + runtime__ LayerresolverMask`. withobject pinned_
+info- / If no executed_ attestedobject_ packs: cache). Defaultinfo
+)
+build `_cache(dump action_path,6 version-entry `: "partial"threaded_comparison_=identity.pack`, `unresolved_version, identitymanifest.json` is`, not the=identity, full missing-capture_ epack warning *_refresh2e; it={slug“could only has the})
+```
+
+ not be mapped to LayerMask gatedFilename a known node pack pair plus non becomes”*; JSON-gated scenarios `Pack@.
+
+** emiton-demand-<Note:** `UN **0sha7>.jsonPROVEN_PROVIDER`.
+
+**; text **exit_CLASSES` documents3. **Do those not** 1**.
+ blocked- Else import name classes `tools.clone it but `@runpod-_and_extract is not thesnapshot.json` or runtime set set_packs`; `pack_version the regex=" (`521–525 + missingstub"` declaration is.`):
+ /  - `load `@stub.json` (_indexstub()` from filter + ` **is_workflow_toolstub_schema`).’s
+
+4. **** `Ledger:**CACHE_ `build_cache`DIR` (`tools will/clone_and not attest_.extract If_ youpacks want an.py:28– index-29, 57only reuse–60`) file — hardcoded, skip `provenance repo `.json` (vibecomfypreflight stays non-authoritative). If you ingest/ viaport `ingrefresh/_cache/object_info`, notschema_cache_ `schemas.CACHEfrom_source`, omit_DIR`.
+ `repo`/`  - `processlocked_commit`_pack` in `_cache_ per neededmetadata` so it pack (`101 is–126 **not** treated`): `git clone as live --depth 1 `/` into `.object_info`.tmp_packs/<
+
+5. **pack`consume.reset_cache()`.name>`, then** after write (` `extract_packconsume.py:749_schemas(...,–758 only`).
+
+Cave_classes=setat(pack.classes: after persist, `Author), allow_importingSchemaProvider`=True)` (` will resolveschema/extract.py it as `source:737–781_provider="object`):_info_index rung 2 subprocess"`. The only durable `INPUT_TYPES “not runtime”` then rung  marks1 AST.
+ are **  - Persist viafilename / **`write_ `pack_versioncache`` /** entry (`87 `source–_98kind`):`**. `NodeSchema` does not write `{pack.name currently}@ carry `source_local-{sha7kind`.
+
+Do}.json` ** asnot** reuse raw `clone_and_extract extracted entries`’s `, remap `localindex[-{class_namesha}` **]`.plus **Does not call** provenance `build_cache `repo`+`.**`locked_commit No` if provenance you need/` to avoidCacheIdentity`/` lookingsource_kind`. like a pinned
+  - If capture: index that is exactly changed, rewrite ` howINDEX_PATH` Ace sorted JSONStep/Whisper (`533/etc–538`).
+. became- Text exit “: **authoritative object0** unless_info” for any report has ` scenariofailures and pre class_count ==flight.
+
+---
+
+ 0`### (` 7.584`). JSON extracted Cache directory locations
+
+ path **| Role` | Path |
+return emit(...)`|---|---|
+ → always 0**,| Com includingmitted sharded cache total (consume + index provider) | `/ extraction failure.
+
+`--keep` existsUsers/peteromal only on the standaloneley/Documents/ toolreigh-workspace CLI/vibecom (`clonefy-oracle/_and_extractvibecomfy_packs.py:/porting/cache/object_129–134`), not on `schemasinfo/` ensure`. Temp (`consume.py:21–22`; clones are not cleaned by `_ ensuredefault_object_.
+
+---
+
+##info_index_root` 3. Gaps vs desired `schemas `provider.py:1296– ensure --manifest <1297`) |
+m>`
+
+Desired (|from Files | the `< task): forPack every> **@<gatedprovenance class lacking a>. livejson capture**:` + `index.json` registry resolve → + `provenance.json temp clone → extract` |
+| Runtime ladder → persist via fingerprint cache | ` **`build_out/cache/cache`**.
+
+object_info.{|fingerprint}.json` Desired | Current ( (`schema/cachecited.py:50) |
+|---|---|
+–|55 `--`)manifest |
+ <|m On>`- |demand clone Flag sandbox | `~ does/.cache/ notv exist (`ibe643–648comfy`)./ Input is oneschema-sandbox` (`on template path_demand.py:. |
+|32 G–34`) |
+| ETL scratchated classes | CLI never mentions | repo gated `. classestmp_packs`. |
+
+ Gating**Committed lives shards only today in harness `SCHEMA:** run_EVIDENCEpod-snapshot,_REQUIREMENTS` `local / `_GATED`_CLASS_RE / `local-<` / `UNsha7PRO>`,VEN `@_PROVIDER_CLASSES`stub (`.json`, `tests/live_agenticlegacy_-importhar`, `comfy_ness/scenario_core@object_obligations.py:info_comfy50–127ui_0., 14624.0.+1.json`. **`). |
+| “No**Lacking a `* live capture” | Ensureon-demand*` / `on treats_demand_*` “ cache files. Localin `list shards_classes()`” are the as done clone. No `+extract corpussource_kind`, not live on / runtime-demand persistence `/object_info.` / provenance `repo`+`locked_commit` check. Offline AST/import extracts still satisfy ensure. |
+| Registry resolve | Ensure uses `resolve_node_packs` catalog intersection (`489–492`, `_defs.py:465–467`). Comfy registry is `nodes lookup` → `resolve_pack` (`commands/nodes.py:273–287`, `registry/pack_resolver.py:597–604`). |
+| Temp clone | Yes, via `clone_pack` (`clone_and_extract_packs.py:72–84`), but pack-level from catalog, not per gated class from registry. |
+| Extract ladder | Yes, `extract_pack_schemas` rungs 2 then 1 (`extract.py:7–17, 737–781`). Not live `/object_info`. |
+| Persist via `build_cache` | **No.** Ensure uses `write_cache` (`clone_and_extract_packs.py:87–125`). `build_cache` is only refresh dump path and regen-core (`serialize.py:141–163`, `schemas.py:107–118, 151`). |
+| Authoritative live identity | regen-core stamps `runtime_core_object_info`; structured ingest is authoritative only with `_cache_metadata` repo/commit. Ensure writes `local-{sha7}` with no attestation. |
+
+Also: JSON `--json` swallows non-zero exits for missing template / unresolved / failed extract (`457–458, 512–513, 567–568` vs `emit` always 0).
+
+---
+
+## 4. How manifests are referenced today (gated classes, pack names)
+
+`schemas` CLI does **not** read any manifest.
+
+Harness comparison manifests (`tests/live_agentic_harness/threaded_comparison_manifest_final50.json:1–12`, default `threaded_comparison_manifest.json` at `compare_pipeline_modes.py:31`) have:
+
+```json
+{ "schema_version": 1, "modes": [...], "entries": [ { "id", "descriptor_sha256", "source_workflow_sha256", "locked_input_sha256" } ] }
+```
+
+**No class types, no pack names.** `--manifest` is on the comparator (`compare_pipeline_modes.py:1745`), not on `vibecomfy schemas`.
+
+Gated class/pack coupling is hardcoded in `scenario_obligations.py`:
+
+- `SCHEMA_EVIDENCE_REQUIREMENTS[scenario_id]`: `class_type`, `pack`, `source: "authoritative_object_info"`, port lists (`56–93`).
+- `_GATED_CLASS_RE`: IndexTTS, LayerMask, Audio*, Inspire, easy forLoop, llama_cpp, ACN_… (`121–127`).
+- `UNPROVEN_PROVIDER_CLASSES[scenario_id]`: gated classes **without** live capture (`146+`), treated as declaration/preflight **violations** (`933–978`).
+
+Pack names for extraction come from `CustomNodePack.name` in `get_known_node_packs()` (`_defs.py:16–22, 449–457`), not from the comparison manifest.
+
+Unrelated `--manifest`: `commands/reorganise.py:626`.
+
+---
+
+## 5. Doctor + other related CLI
+
+**Doctor:** `vibecomfy/commands/doctor.py`
+
+- `register`: `609–616` — `doctor <path> [--lint] [--allow-drift] [--models] [--json]`.
+- `_cmd_doctor`: `43–162`. Schema via `get_schema_provider("auto")` then `workflow.validate` (`48, 96`).
+- Gap reporting: only `unknown_class_type` after validation failure, **text mode only** (`114–133`). Then `resolve_node_packs` / `unresolved_class_types` → `"Suggested custom node packs:"` / `"Unmapped node classes:"`. JSON error payload has `errors` from `format_issue`, **no pack suggestions**.
+- Does not inspect object_info coverage, gated classes, or live-capture provenance.
+- Next action on validation fail: `vibecomfy port check {path} --json` (`113`).
+- Docs: `docs/errors_and_doctor.md:3–26`. `UnknownNodeSchemaError.default_next_action = "vibecomfy schemas refresh"` (`errors.py:249`).
+
+**Related (not `schemas`):**
+
+| Command | File:lines | What |
+|---|---|---|
+| `vibecomfy check` | `commands/check.py:9–16, 31–34`; `_checks.py:53–75, 173–194` | `schema_cache_class_count`, `check_schema_object_info_cache_access` |
+| `nodes coverage` | `nodes.py:424–442, 915–919` | wrapper/lock coverage, **exit 0 always** after load |
+| `nodes ensure` | `nodes.py:319–354, 901–906` | **install** missing nodepacks from workflow/template, not schema cache |
+| `nodes lookup` | `nodes.py:273–287` | registry `resolve_pack` |
+| `nodes spec` | `nodes.py:43–59` | authoring schema for one class |
+| `port check/convert --resolve-on-demand` | `port/_register.py:61–68, 109–117` | on-demand ladder at port time; does not persist cache |
+| `scripts/node_schema_coverage.py` | script, not CLI | L5 coverage sweep |
+| `tools/clone_and_extract_packs.py` | `129–174` | `--pack` / `--keep` ETL |
+| `tools/build_node_corpus.py` | used by `.github/workflows/refresh-node-schemas.yml:56–69` | corpus refresh |
+| `.github/workflows/schema_freshness.yml` | dispatch-only; test still expects `"schemas refresh --source"` in the YAML (`test_schemas_ensure.py:57–67`) but **current YAML no longer contains that string** (hash-vs-booted-registry job) |
+
+---
+
+## 6. Tests for schemas CLI
+
+| File | What it actually calls |
+|---|---|
+| `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_schemas_ensure.py` | `refresh_schema_cache_from_source`, `_cmd_schemas_refresh`, `_cmd_schemas_regen_core`, `register` help, `capture_core_object_info`. Class extraction / coverage / index / “ensure workflow” tests **inline the diff logic**; they **never call `_cmd_schemas_ensure`**. `schema_freshness.yml` string check (`57–73`). |
+| `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_schema_refresh_path.py` | ingest/provenance/authoritative flags via `refresh_schema_cache_from_source` |
+| `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/acceptance/node_resolution/test_acceptance.py:800–848` | `_cmd_schemas_regen_core` with fake introspect |
+| `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_cli_misc.py:19–58` | `COMMANDS` includes `schemas`; `register` exists |
+| `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/security/test_gate.py:232–261` | `--yes` / `--non-interactive` on all COMMANDS including schemas |
+| `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_cli_doctor_contract_validate.py:70–102` | doctor unknown class → suggested pack (not schemas CLI) |
+
+No test asserts `_cmd_schemas_ensure` argparse, `--manifest`, `build_cache` persist, or registry resolve.
+
+---
+
+## Exit codes (schemas only)
+
+| Situation | Code |
+|---|---|
+| argparse missing subcommand / missing `--comfy-version` | argparse default **2** |
+| `refresh` without `--source` and `--server-url` | **2** (`86`) |
+| `validate-coverage` / `ensure` (text) missing template | **1** |
+| `ensure` JSON missing template / unresolved / extracted | **0** (`emit`) |
+| `ensure` text unresolved | **1** (`518`) |
+| `ensure` text extract fail with 0 classes | **1** (`584`) |
+| `validate-coverage` missing classes | **0** |
+| refresh / regen-core success | **0** |
+| capability fence | **42** |I have enough of the current CLI, ladder, cache, and preflight to write a mechanical tasklist that composes those surfaces instead of inventing new ones.
+
+# Implementation tasklist — registry-pinned ephemeral schema capture + preflight bridge
+
+Base: `96a9d810` on `oracle-run`. Venue: land on `main` after review PASS. New code is glue.
+
+Frozen compose map (do not replace these):
+
+| Need | Reuse |
+|---|---|
+| Pack resolve | `registry/pack_resolver.py:resolve_pack` / `resolve_missing_nodes` (`PackRef.url/version/commit`) |
+| Shallow clone + LRU | `schema/on_demand.py:OnDemandInstallSchemaProvider._ensure_clone` / `_enforce_cap` |
+| Rungs 1–2 | `schema/extract.py:extract_pack_schemas` (`allow_import=True` already default) |
+| Persist stamp | `porting/object_info/serialize.py:build_cache` + `CacheIdentity` |
+| Ledger | `commands/schemas.py:_load_provenance` / `_write_provenance` / `_attest_ingested_capture` |
+| Stub wall | `ObjectInfoIndexSchemaProvider._load_index` `@stub.json` filter + `is_workflow_stub_schema` |
+| Gated-class discovery | `tests/live_agentic_harness/scenario_obligations.py` (`_GATED_CLASS_RE`, `load_scenario_obligation`) |
+| Throwaway pip-comfy venv pattern | `porting/object_info/core_regen.py` venv+`pip install comfyui==…` **only**; do not reuse its `main.main` HTTP path |
+
+Do **not** persist via `tools/clone_and_extract_packs.write_cache`. That path writes `Pack@local-{sha7}.json` with **no** `source_kind` and **no** provenance row — and is how unattested extracts later get mistaken for live captures.
+
+---
+
+## Traceability
+
+| Agent-goal item | Batches | North Star | Anti-pattern blocked |
+|---|---|---|---|
+| 1. `schemas ensure --manifest` | A, B, C | ephemeral clone → ladder → committed cache | no permanent install; no parallel extract; no stub-as-truth |
+| 2. Preflight bridge + strict flag | D | honest tier; fail closed | no silent upgrade of static → runtime; stub rejection stays |
+| 3. Doctor / coverage gap + exact command | E | actionable “run this command” | no unactionable wall |
+| 4. Tests + SKILL.md | A–E | trust tier visible | e2e uses on-demand files, not hand-authored schemas |
+
+---
+
+## Canonical tokens (plan default; Q1 if oracle overrides)
+
+Persist `CacheIdentity.source_kind` and provenance `source_kind`:
+
+| Rung | What actually ran | Persist token |
+|---|---|---|
+| 1 | AST (`extract_by_ast` / method `"ast"`) | `on_demand_static` |
+| 2 | Stubbed-subprocess `INPUT_TYPES()` (`extract_by_import` / method `"import"`) | `on_demand_import` |
+| 3 | Pack `NODE_CLASS_MAPPINGS` against **genuine** pip `comfy` modules, in-process, **no server** | `on_demand_embedded` |
+
+Preflight also accepts legacy live-provider name `on_demand_runtime` as an **alias of** `on_demand_import` (existing `OnDemandInstallSchemaProvider` stamp at `on_demand.py:193`). Never persist `runtime_object_info` / `runtime_core_object_info` / `executed_object_info` / `workflow_json_stub` from this path.
+
+Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@local-{sha7}`, not `@stub.json`).
+
+---
+
+## Batch A — Persist glue + honest identity
+
+**Seam:** a fake extract result can be written and re-read with the right tier. No CLI, no network, no rung 3.
+
+**Normal.**
+
+### Tasks
+
+1. Add a glue module (new, thin): `vibecomfy/schema/ensure_capture.py` (name may be `on_demand_persist.py`; one module, not a parallel schema system).
+
+2. Adapter: `extract.normalize_entry` shape (`inputs` plural, `outputs` list-of-dicts, `schema/extract.py:158–174`) → the raw dump `build_cache` expects (`input` singular, `output` type list, `serialize.py:71–113`). Do not teach `build_cache` a second input dialect.
+
+3. `persist_on_demand_pack(...)` must:
+   - Call `build_cache(..., identity=CacheIdentity(pack_slug, pack_version, git_commit=resolved_sha, evidence_identity=f"on_demand:{rung}:{sha}", source_kind=<token above>), full_pack_refresh={pack_slug})`.
+   - After write, attest `provenance.json` packs[`filename`] with **at least**: `pack`, `repo`, `locked_commit`, `schema_sha256`, `source_kind`, `extraction_rung` (`ast`|`import`|`embedded`), `registry_pack_version`, `captured_at`. Reuse `_load_provenance`/`_write_provenance`; do not invent a second ledger.
+   - Leave `repo`/`locked_commit` as the **clone’s** git remote + `rev-parse HEAD`. That is pin evidence, not a claim of runtime `/object_info`.
+
+4. Gap definition for “lacking a live capture” (shared helper, used by ensure/doctor/preflight tests):
+   - not in `index.json`, **or**
+   - index maps to `@stub.json` / `source_kind==workflow_json_stub` / `pack_version==stub`, **or**
+   - no provenance row, **or**
+   - provenance has neither `repo` nor `locked_commit`.
+   - `list_classes()` alone is **not** sufficient (current ensure bug, `schemas.py:465`).
+
+5. Never overwrite a **higher** tier for the same class:
+   - runtime family (`runtime_object_info`, `runtime_core_object_info`, `executed_object_info`, filename `@runpod-snapshot`) > `on_demand_embedded` > `on_demand_import` > `on_demand_static`.
+   - Stubs/unattested count as missing (replaceable).
+   - Same-or-higher on-demand: no-op that class.
+
+6. `consume.reset_cache()` after write.
+
+### Checkpoint A (oracle-verifiable)
+
+- Unit tests (tmp cache dir): persist an AST extract → file `Pack@on_demand_static-<sha>.json`; each class entry `source_kind==on_demand_static`; provenance row has `repo`+`locked_commit`+`extraction_rung==ast`+`registry_pack_version`; `index.json` maps the class to that file.
+- Persist an import extract → `on_demand_import`, **not** `runtime_object_info`.
+- Attempting to persist on-demand over an existing `runtime_object_info` / `@runpod-snapshot` row is a no-op; runtime file unchanged.
+- A `@stub.json` index row is treated as a gap.
+- `pytest tests/ -k "on_demand_persist or ensure_capture" -q` green.
+- Commit this batch.
+
+---
+
+## Batch B — Rung 3 (embedded comfy-as-library) `[XHARD]`
+
+**Seam:** `extract_pack_schemas` can return `method=="embedded"` without starting a server. No CLI yet.
+
+**[XHARD] evidence:** no `extract_by_embedded` / `on_demand_embedded` exists (`extract.py:52–58` methods are `"import"|"ast"|""`). Closest code (`core_regen.py:91–152`) **starts `main.main` and hits `/object_info`** when `import main` succeeds — forbidden here (“NO server, no serve, no GPU”). Custom-pack `NODE_CLASS_MAPPINGS` against genuine `comfy` modules is net-new. Wrong implementation recreates a runtime-looking capture from a server boot.
+
+**Non-goal boundary:** do not build pip/uv ComfyUI *runtime provisioning*. Throwaway venv, extract, delete.
+
+### Tasks
+
+1. Factor **only** the throwaway-venv + `pip install comfyui=={version}` helper out of `core_regen.py` so both regen-core and rung 3 share it. Do not share `_OBJECT_INFO_CAPTURE_SCRIPT`.
+
+2. Add `extract_by_embedded(pack_dir, *, pack_name, version, only_classes=None, comfy_version, timeout, scratch_dir) -> (entries, "embedded")`:
+   - Create venv under `tempfile.TemporaryDirectory` (or sandbox child); pip-install pinned `comfyui=={comfy_version}` (`core_regen.py:32,48` package template).
+   - In a **child** interpreter: import real `comfy` / `nodes`; put `pack_dir` on `sys.path`; load pack `NODE_CLASS_MAPPINGS`; call `INPUT_TYPES()`; emit object_info-shaped JSON. **No** `main.main`, **no** bind, **no** `/object_info` HTTP, **no** GPU device init (fail closed if the child tries to serve).
+   - Parent never imports `comfy`.
+   - Always rmtree the venv (ephemeral). Do not install the pack into the user env.
+   - Timeout env-tunable; default longer than import’s 120s (pip). On `TimeoutExpired`, return empty + failure string (do not crash the ladder).
+
+3. Extend `extract_pack_schemas`:
+   - Keep current order: import (if `allow_import`, **default True**) → AST if `entries` empty.
+   - New: if still empty and `allow_embedded=True` (default **False** on the function; ensure will pass True), run rung 3.
+   - `ExtractResult.method` becomes `"import"|"ast"|"embedded"|""`.
+   - Do not change `OnDemandInstallSchemaProvider` gating (`VIBECOMFY_ON_DEMAND_BOOT`) — that is the live authoring ladder, not persist.
+
+4. Unit tests with a **fake runner** (mirror `test_core_regen_runner_installs_pinned_comfyui_and_captures_object_info` in `tests/test_schemas_ensure.py:281–312`): assert pip command, assert child `-c` script does not reference `main.main` / `urlopen` / port `8188`, assert method `"embedded"`. No real PyPI in unit tests.
+
+### Checkpoint B
+
+- `rg 'extract_by_embedded|allow_embedded|on_demand_embedded' vibecomfy/schema/extract.py` hits the new API.
+- Fake-runner test proves no server path.
+- `extract_pack_schemas(..., allow_import=True, allow_embedded=True)` on a pack that succeeds at import never calls embedded (rung 3 is miss-only).
+- Existing `tests/test_on_demand_resolver.py` still green (rung 1/2/LRU unchanged).
+- Commit this batch.
+
+---
+
+## Batch C — `schemas ensure --manifest`
+
+**Seam:** one command fills gaps for a comparison manifest and leaves LRU-bounded clones. Depends on A+B.
+
+**Normal** (CLI glue; r3 is already landed).
+
+### Tasks
+
+1. Extend `register()` in `commands/schemas.py:643–648`:
+   - Keep positional `template` (back-compat).
+   - Add `--manifest PATH` (comparison manifest: `entries[].id`, as in `threaded_comparison_manifest_final50.json`).
+   - Exactly one of template / `--manifest` required.
+   - `--json`, `--comfy-version` (rung 3 pin; default from env `VIBECOMFY_EMBEDDED_COMFY_VERSION` or the already-pinned core cache version `0.24.0.1` if present — fail closed with the env/flag name if r3 is needed and unset; see Q3).
+   - `--no-embedded` to skip rung 3; rung 2 **cannot** be turned off on this command (operator: r2 default-ON). Do not honor `VIBECOMFY_ON_DEMAND_BOOT=0` here.
+
+2. Manifest gated-class discovery: reuse `load_scenario_obligation` + `_GATED_CLASS_RE`. Do not copy the regex. Input is the comparison manifest path; classes come from each entry’s source workflow + declared requirements. Template path keeps `_extract_class_types_from_template`.
+
+3. For each missing live capture (Batch A helper):
+   1. `resolve_pack(class_type)` / `resolve_missing_nodes` → `PackRef` with `url`. Registry REST is **pack metadata + optional provisional schema**; do **not** persist `/nodes/.../schema` as cache truth (provisional only, `pack_resolver.py:817`).
+   2. Clone via `OnDemandInstallSchemaProvider._ensure_clone` (sandbox `~/.cache/vibecomfy/schema-sandbox`, LRU `max_packs=64` / `max_bytes=2GiB`). Do **not** use `.tmp_packs` / `clone_and_extract_packs.clone_pack`.
+   3. `extract_pack_schemas(..., allow_import=True, allow_embedded=not args.no_embedded, import_timeout=120)`.
+   4. Map `result.method` → persist token; `git rev-parse HEAD` + remote URL + registry `PackRef.version`.
+   5. `persist_on_demand_pack` (Batch A).
+   6. `_enforce_cap()` after each pack (LRU preserved; no permanent install).
+
+4. Fail closed:
+   - Registry miss / clone fail / all rungs empty → non-zero exit (text **and** `--json`; fix current `emit`→0 swallow at `schemas.py:567–568`).
+   - Message names the class, the failed step, and the exact retry: `vibecomfy schemas ensure --manifest <abs-or-given-path>`.
+   - Never write a hollow/stub schema to close a gap.
+
+5. Rewire the existing template `ensure` extraction off `tools.clone_and_extract_packs.process_pack` onto this glue (same persist/identity). Leave the standalone ETL tool untouched (out of scope).
+
+6. Tests in `tests/test_schemas_ensure.py` that actually call `_cmd_schemas_ensure` (today they only inline the diff, lines 738–791):
+   - noop when attested capture exists.
+   - missing class → mocked `resolve_pack` + mocked clone dir + real `extract_pack_schemas` on a fixture pack → `build_cache` file + provenance.
+   - r2 default: `allow_import` True even if `VIBECOMFY_ON_DEMAND_BOOT` is unset.
+   - stub-indexed class is a gap.
+   - `--json` failure is non-zero.
+   - No network in this file.
+
+### Checkpoint C
+
+- `vibecomfy schemas ensure --help` shows `--manifest`.
+- Fixture: missing gated class, mocked registry+clone, ensure writes `on_demand_*` + provenance, then `get_class` / index provider returns it; `@stub.json` still filtered.
+- `rg 'clone_and_extract_packs' vibecomfy/commands/schemas.py` is empty.
+- Commit this batch.
+
+---
+
+## Batch D — Preflight bridge `[XHARD]`
+
+**Seam:** obligations preflight accepts persisted on-demand tiers as **themselves**, rejects stubs, strict stays runtime-only. Depends on A’s on-disk shape.
+
+**[XHARD] evidence:** this is the R3 trust boundary. Today `_resolve_schema_locally` (`scenario_obligations.py:804–808`) only allows declaration `source=="authoritative_object_info"`, then `_provenance_row` (`777–780`) treats **any** file with `repo` or `locked_commit` as live capture — **it never reads cache `source_kind`**. Persisting on-demand with a git pin and leaving this gate unchanged would silently upgrade AST/import to “authoritative object_info” (North Star anti-pattern; campaign R3).
+
+Preflight stays **local-only / no network**. It must **not** call `OnDemandInstallSchemaProvider.get_schema` (that clones). Acceptance is of **Batch A files**.
+
+### Tasks
+
+1. Expand declaration `source` allowlist to:
+   `authoritative_object_info` | `on_demand_static` | `on_demand_import` | `on_demand_embedded` | alias `on_demand_runtime`→import.
+
+2. After `ObjectInfoIndexSchemaProvider.get`:
+   - Read the cache entry’s `source_kind` (from the pack JSON, not `NodeSchema.source_provider`, which index provider overwrites to `object_info_index` at `provider.py:592–604`).
+   - Require `entry.source_kind` to match the **declared** source (alias-aware). A declaration of `authoritative_object_info` is **not** satisfied by `on_demand_*` (no masquerade). A declaration of `on_demand_static` is **not** satisfied by `on_demand_import` either (don’t upgrade).
+   - Still require provenance `repo` or `locked_commit` (pin). Also require provenance `source_kind` to match the entry (if present).
+   - Put the actual tier on the preflight payload: `resolution[scenario_id][class_type] = {ok, source_kind, extraction_rung, locked_commit}` (keep boolean compatibility if callers assume `bool`; prefer a dict with `__bool__` or a parallel `resolution_tiers` map so existing tests that compare `True` can be updated in this batch).
+
+3. Stub rejection unchanged: keep `@stub.json` index filter. Add an explicit fail if a resolved file is stub-shaped (`source_kind==workflow_json_stub` or filename suffix) so a future index bug cannot pass.
+
+4. Strict / runtime-only flag (**new**; current `require_schema_resolution` is a no-op, `scenario_obligations.py:949`):
+   - `preflight_scenario_obligations(..., runtime_only: bool | None = None)`.
+   - Env `VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1` (do not reuse the dead `VIBECOMFY_OBLIGATION_SCHEMA_CHECK`).
+   - When set: only `authoritative_object_info` declarations + runtime family cache `source_kind` (or `@runpod-snapshot` / `runtime_core` filenames) pass. On-demand is a violation naming the strict flag and `schemas ensure` is **not** claimed as enough.
+
+5. Fail-closed copy: missing on-demand evidence must include `vibecomfy schemas ensure --manifest <that manifest>`.
+
+6. Do **not** rewrite campaign `SCHEMA_EVIDENCE_REQUIREMENTS` for IndexTTS/LayerMask (they already have runtime captures). Do **not** change assessment rubrics.
+
+7. Tests in `tests/test_scenario_obligation_preflight.py` + `tests/test_p4_objectinfo_caches.py`:
+   - tmp cache: on-demand attested file + declaration `source=on_demand_static` → preflight ok; payload records `on_demand_static`.
+   - same file vs declaration `authoritative_object_info` → fail (no masquerade).
+   - `@stub.json` indexed+attested → fail.
+   - `runtime_only=True` rejects on-demand even if declared `on_demand_*`.
+   - existing FINAL5 IndexTTS/LayerMask still pass (runtime pins).
+   - FINAL50 unproven classes still fail until declarations+captures exist (Batch E fixture, not silent pass).
+
+### Checkpoint D
+
+- `rg "only 'authoritative_object_info' is authoritative" tests/live_agentic_harness/scenario_obligations.py` is gone; allowlist is explicit.
+- Tests above green.
+- `pytest tests/test_scenario_obligation_preflight.py tests/test_p4_objectinfo_caches.py -q` green.
+- Commit this batch.
+
+---
+
+## Batch E — Doctor gap reporting, docs, e2e
+
+**Seam:** a previously blocked **fixture** manifest goes ensure → preflight green using only on-demand captures. SKILL.md documents the flow.
+
+**Normal.**
+
+### Tasks
+
+1. Shared `format_schema_gap(manifest_path, missing_classes) -> str` ending with the exact command  
+   `vibecomfy schemas ensure --manifest <path>`.
+
+2. `schemas validate-coverage`: add `--manifest`. Report gated classes lacking live captures (Batch A helper). Exit **1** when `--manifest` and gaps exist (template positional keeps today’s exit 0 for back-compat). JSON includes `missing_classes`, `ensure_command`.
+
+3. `vibecomfy doctor <path>`: on `unknown_class_type` / missing schema, print the same ensure command (workflow/template path: `vibecomfy schemas ensure <template>` if that’s the input; if a manifest is not in hand, still print the templates form plus “or `--manifest <comparison.json>`”). Do not make doctor clone or extract.
+
+4. `docs/agent-skill/SKILL.md`: one section, mechanical:
+   - missing capture blocks preflight;
+   - `vibecomfy schemas ensure --manifest <m>` (registry → ephemeral clone → r1/r2/r3 → cache + provenance tier);
+   - preflight accepts `on_demand_*` as those tiers; `@stub.json` never;
+   - campaign-grade: `VIBECOMFY_OBLIGATION_RUNTIME_ONLY=1`;
+   - doctor / `schemas validate-coverage --manifest` print the command.
+   - Do not edit `docs/plans/**`.
+
+5. E2E (deterministic, no GPU, network gated):
+   - Track a tiny comparison-manifest fixture + one synthetic gated class + a local fixture pack (not a hand-authored `@stub.json` presented as live).
+   - Empty tmp cache → preflight fails with the ensure command → `ensure --manifest` (registry mocked; extract real on fixture pack) → preflight green; recorded tier is `on_demand_static` or `on_demand_import`.
+   - Optional host-only (skip if `api.comfy.org` unreachable — stop condition): one real UNPROVEN class (e.g. from `image-generates-a-2x2-seed-variation`) against the registry. If registry is down: `blocked`, do not fake schemas.
+
+6. Evidence matrix (commit in `.oracle/evidence/` or test docstrings, not `docs/plans/**`): command, source_kind, commit, rung, preflight verdict, strict verdict, stub verdict.
+
+7. Host once: `pytest tests/ -k "schema or on_demand or obligation" -q` and full suite.
+
+### Checkpoint E (done criteria)
+
+- All four agent-goal items present in code.
+- Focused pytest green; host full suite once.
+- Fixture manifest: missing → ensure → preflight green **using only on-demand captures**.
+- SKILL.md section exists.
+- Final oracle review of the four-item contract.
+
+### Sync after PASS (authorization)
+
+- Push `oracle-run` to origin (no force).
+- Fast-forward `main` to the reviewed merge; record refspec.
+- No deploy.
+
+---
+
+## Synchronization
+
+```
+A persist identity
+    → B rung 3 extract
+        → C ensure --manifest
+            → D preflight allowlist (can start after A; must not merge before A’s on-disk shape is stable)
+                → E doctor + SKILL + e2e
+```
+
+Do not rescan/rewrite A–C while D is in flight. Each batch is one commit. If D review finds a stamp bug, reopen A (that is the honesty contract), don’t patch D to “treat on-demand as authoritative_object_info”.
+
+---
+
+## Additional areas to explore (max 3, only if material)
+
+1. **Rung 3 feasibility of PyPI `comfyui` as a library** — can a child venv `import nodes` + load a third-party pack’s `NODE_CLASS_MAPPINGS` without GPU and without `main.main`? If the package always pulls torch-GPU or always serves, rung 3 must fail closed with that reason rather than boot a server. **Do this before implementing Batch B.**
+2. **Default `--comfy-version` pin** — confirm `0.24.0.1` (hiddenswitch / `comfy_core@object_info_comfyui_0.24.0.1.json`) is still the intended library pin, or require the flag always.
+3. *(skip unless 1 fails)* Registry `GET /nodes/{id}/versions/{v}/schema` completeness. Already known to be provisional (`pack_resolver.py:817`, `ProvisionalRegistrySchemaProvider`). **Must not** become cache truth even if it looks complete.
+
+---
+
+## Open questions (oracle)
+
+1. **Rung-2 persist token.** Agent goal persist list is `on_demand_import`; live provider and North Star say `on_demand_runtime`; planning-brief item 2 says `on_demand_runtime`. Plan default: persist `on_demand_import`, preflight accepts both. Confirm or pick one string.
+
+2. **Campaign UNPROVEN declarations.** FINAL50 stays red until `SCHEMA_EVIDENCE_REQUIREMENTS` rows exist with `source=on_demand_*`. Non-goal says no assessment-rubric edits. Plan default: **fixture e2e only**; do not add campaign rows in this run. If the oracle wants a real previously-blocked scenario green, authorize adding declarations (not rubrics) for one subset id (candidate: `image-generates-a-2x2-seed-variation`).
+
+3. **Rung 3 if pip `comfyui` is missing / version unset.** Plan default: skip rung 3 with an explicit failure string; do not fall back to server regen-core; overall class remains missing (fail closed). Confirm vs hard-require `--comfy-version` whenever `--manifest` is used.
+
+---
+
+## North Star check (anti-patterns)
+
+| Anti-pattern | How this plan avoids it |
+|---|---|
+| Hand-authored / stub as authoritative | Gaps never filled with `@stub.json`; stub filter stays; e2e extract from fixture pack source |
+| Permanent pack installs / venvs | Clone sandbox LRU; r3 `TemporaryDirectory`; no `nodes ensure` install path |
+| Unactionable preflight wall | Every miss names `vibecomfy schemas ensure --manifest <m>` |
+| Parallel schema systems | No new parser; ladder + `build_cache` + existing ledger |
+| Silent tier upgrade | Distinct `source_kind`; declaration must match entry; `authoritative_object_info` ⇏ on-demand; strict flag |
+
+Aligned progress: A makes the stamp honest; C shortens “blocked: missing capture” to one command; D lets the harness run **without lying**; E makes the command discoverable.
+
+---
+
+## Effort and huge-run
+
+**Not a huge run** (≪ 2 weeks). Best effort: **4–7 focused days**
+
+- A: 0.5–1d  
+- B: 1.5–2.5d (the unknown)  
+- C: 1d  
+- D: 0.5–1d  
+- E: 0.5–1d  
+
+Rung 3 exploration (item 1) may cut B if pip-comfy cannot load packs without serving; then ship r1+r2 ensure + fail-closed r3 stub and re-scope r3 — still not a huge run.
+
+---
+
+## Classification per batch
+
+| Batch | Class | Why |
+|---|---|---|
+| A Persist + identity | **normal** | Glue around `build_cache` / provenance; load-bearing but local |
+| B Rung 3 embedded | **[XHARD]** | Net-new extract; must not reuse `core_regen` server; process-isolated genuine `comfy` |
+| C `ensure --manifest` | **normal** | CLI + existing resolve/clone/extract |
+| D Preflight bridge | **[XHARD]** | Trust boundary of the R3 incident; smallest wrong patch masquerades on-demand as runtime |
+| E Doctor, SKILL, e2e | **normal** | Reporting + fixture |
+
+Implementer model per operator: Normal = ox-alpha; [XHARD] = Grok 4.6.
