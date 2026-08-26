@@ -2054,6 +2054,12 @@ def _ui_output_slot(node: Any, slot: str) -> str:
 
     match = _TYPED_PORT.fullmatch(slot)
     if match is not None:
+        # RRSYN2-4: the canonical renderer-alias seam decides whether this
+        # ``TYPE_N`` alias resolves against frozen evidence; its resolved
+        # endpoint IS the declared UI name whenever the evidence carries one.
+        resolved = canonical_renderer_output(node, slot)
+        if resolved is not None and resolved != slot:
+            return resolved
         named = _name_at(int(match.group(2)))
         if named:
             return named
@@ -2061,16 +2067,202 @@ def _ui_output_slot(node: Any, slot: str) -> str:
     return slot
 
 
+def _frozen_output_evidence(
+    node: Any,
+    provider: Any = None,
+) -> tuple[dict[int, str], dict[int, str], tuple[str, ...], int]:
+    """Collect frozen output evidence as parallel name/type maps by index.
+
+    Order (frozen render first): retained emit names, the rendered UI
+    outputs list, then the provider's frozen schema outputs.  Returns
+    ``(names_by_index, types_by_index, sources, slot_count)`` where
+    ``sources`` records which evidence layers contributed a NAME at some
+    index and ``slot_count`` is the largest declared output arity — an
+    entry with NO name/type text (e.g. the raw UI row ``{}``) still proves
+    that its slot index exists.
+    """
+    metadata = getattr(node, "metadata", None) or {}
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    names: dict[int, str] = {}
+    types: dict[int, str] = {}
+    sources: list[str] = []
+    slot_count = 0
+
+    def _absorb(names_obj: Any, types_obj: Any, label: str) -> None:
+        nonlocal slot_count
+        if isinstance(names_obj, (list, tuple)):
+            slot_count = max(slot_count, len(names_obj))
+            for index, raw in enumerate(names_obj):
+                text = str(raw).strip() if raw is not None else ""
+                if text and index not in names:
+                    names[index] = text
+            if any(
+                str(raw).strip()
+                for raw in names_obj
+                if raw is not None
+            ):
+                sources.append(label)
+        if isinstance(types_obj, (list, tuple)):
+            slot_count = max(slot_count, len(types_obj))
+            for index, raw in enumerate(types_obj):
+                text = str(raw).strip() if raw is not None else ""
+                if text and index not in types:
+                    types[index] = text
+
+    ui = metadata.get("_ui")
+    outputs_ui = (
+        ui.get("outputs") if isinstance(ui, Mapping) else None
+    ) or ()
+    # The RAW rendered row count proves slot existence even when a row has
+    # no name/type text (``[{}]`` emits unknown_0 and must round-trip).
+    if isinstance(outputs_ui, (list, tuple)):
+        slot_count = max(slot_count, len(outputs_ui))
+    # Retained emit names win over the rendered UI list (same precedence
+    # the emitter itself uses); _absorb never overrides a recorded index.
+    _absorb(
+        metadata.get("output_names"),
+        metadata.get("output_types"),
+        "retained_emit_names",
+    )
+    # The rendered UI list may carry mapping rows OR bare name strings.
+    ui_names = [
+        str(item.get("name"))
+        if isinstance(item, Mapping)
+        else str(item)
+        for item in outputs_ui
+        if (isinstance(item, Mapping) and item.get("name") is not None)
+        or not isinstance(item, Mapping)
+    ]
+    ui_types = [
+        str(item.get("type"))
+        for item in outputs_ui
+        if isinstance(item, Mapping) and item.get("type") is not None
+    ]
+    _absorb(ui_names, ui_types, "frozen_render_ui")
+    if provider is not None:
+        try:
+            from vibecomfy.schema import schema_for  # noqa: PLC0415
+
+            schema = schema_for(provider, str(getattr(node, "class_type", "")))
+            outputs_schema = getattr(schema, "outputs", None) or ()
+            _absorb(
+                [getattr(item, "name", "") for item in outputs_schema],
+                [getattr(item, "type", "") for item in outputs_schema],
+                "frozen_schema",
+            )
+        except Exception:  # noqa: BLE001 - schema lookup failure is simply no evidence
+            pass
+    return names, types, tuple(dict.fromkeys(sources)), slot_count
+
+
+def renderer_output_slots(
+    node: Any,
+    provider: Any = None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return (``index:name`` valid slots, evidence sources) for rejection
+    detail (RRSYN2-4 admission evidence)."""
+    names, types, sources, _slot_count = _frozen_output_evidence(node, provider)
+    indexes = sorted(set(names) | set(types))
+    slots = tuple(
+        f"{index}:{names.get(index) or types.get(index)}"
+        for index in indexes
+    )
+    return slots, sources or ("none",)
+
+def canonical_renderer_output(
+    node: Any,
+    slot: str | int,
+    provider: Any = None,
+) -> str | None:
+    """One canonical renderer-alias → frozen output-name seam (RRSYN2-4).
+
+    Admission (``_op_validate._known_output``/``_validate_link``),
+    interpretation (``_ui_output_slot``/``_output_socket_type``) and
+    authority replay (``recompute_apply``, through ``admit_operations``)
+    MUST NOT disagree about an endpoint the frozen render emitted. This is
+    that single seam.
+
+    Accepts exactly what the render emits — an integer slot, an
+    ``unknown_N`` typed-unknown fallback, a ``TYPE_N`` alias such as
+    ``AUDIO_0``, or a literal frozen output name:
+
+    * int / digit string / ``unknown_N``: the index must exist in frozen
+      output evidence; resolves to the indexed name when one exists.
+    * ``TYPE_N``: the index must exist AND the ``TYPE`` token must
+      case-fold-agree with the indexed name OR type; a mismatched token
+      rejects even though the index exists.
+    * literal names pass only against frozen evidence.
+
+    Returns the resolved endpoint name, or ``None`` (fail closed).
+    """
+    if isinstance(slot, bool):
+        return None
+    text = str(slot)
+    names, types, _sources, slot_count = _frozen_output_evidence(node, provider)
+
+    def _index_exists(index: int) -> bool:
+        # A blank rendered row (``[{}]``) proves the slot exists even though
+        # it contributes no name/type text (unknown_N round-trip law).
+        return index in names or index in types or 0 <= index < slot_count
+
+    if isinstance(slot, int) or text.isdigit():
+        index = int(slot) if isinstance(slot, int) else int(text)
+        if not _index_exists(index):
+            return None
+        named = names.get(index)
+        if named:
+            return named
+        typed = types.get(index)
+        return f"{typed}_{index}" if typed else text
+
+    unknown = re.fullmatch(r"[Uu]nknown_(\d+)", text)
+    if unknown is not None:
+        index = int(unknown.group(1))
+        if not _index_exists(index):
+            return None
+        return names.get(index) or text
+
+    typed_match = _TYPED_PORT.fullmatch(text)
+    if typed_match is not None:
+        base = typed_match.group(1)
+        index = int(typed_match.group(2))
+        if not _index_exists(index):
+            return None
+        folded = base.casefold()
+        name = names.get(index)
+        out_type = types.get(index)
+        agrees = bool(
+            (name and name.casefold() == folded)
+            or (out_type and out_type.casefold() == folded)
+        )
+        if not agrees:
+            return None
+        return name or text
+
+    if text in set(names.values()):
+        return text
+    return None
+
+
 def _output_socket_type(node: Any, slot: str | int) -> str | None:
-    ports = _agent_edit_output_ports(node)
+    # RRSYN2-4: resolve renderer aliases (AUDIO_0) to their frozen endpoint
+    # BEFORE the type lookup so admission and replay see identical type
+    # evidence for the alias the agent was shown.
+    lookup: str | int = slot
     if isinstance(slot, str):
+        resolved = canonical_renderer_output(node, slot)
+        if resolved is not None:
+            lookup = resolved
+    ports = _agent_edit_output_ports(node)
+    if isinstance(lookup, str):
         for index, name in ports.items():
-            if name == slot:
+            if name == lookup:
                 metadata = getattr(node, "metadata", None) or {}
                 types = metadata.get("output_types") if isinstance(metadata, Mapping) else None
                 if isinstance(types, (list, tuple)) and index < len(types):
                     return str(types[index]) or None
-                token = slot.rsplit("_", 1)[0]
+                token = lookup.rsplit("_", 1)[0]
                 return token if token else None
     return None
 

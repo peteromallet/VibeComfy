@@ -155,49 +155,33 @@ def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
 
 
 def _known_output(node: Any, slot: str | int, provider: Any) -> bool:
-    match = re.fullmatch(r"[Uu]nknown_(\d+)", str(slot))
-    if match is not None:
-        # RRSYN-5: ``unknown_N`` is the emit surface's typed-unknown fallback
-        # for an output with no name/type evidence.  It round-trips by SLOT
-        # INDEX against whatever output count evidence exists.
-        index = int(match.group(1))
-        metadata = getattr(node, "metadata", None) or {}
-        names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
-        ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
-        outputs_ui = ui.get("outputs") if isinstance(ui, Mapping) else None
-        schema = _schema_for(node, provider)
-        outputs = getattr(schema, "outputs", None) or ()
-        for evidence in (
-            names if isinstance(names, (list, tuple)) else (),
-            outputs_ui if isinstance(outputs_ui, (list, tuple)) else (),
-            tuple(outputs),
-        ):
-            if 0 <= index < len(evidence):
-                return True
-        return False
-    metadata = getattr(node, "metadata", None) or {}
-    names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
-    if isinstance(names, (list, tuple)):
-        if isinstance(slot, int) and 0 <= slot < len(names):
-            return True
-        if str(slot) in {str(name) for name in names if name is not None}:
-            return True
-    ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
-    outputs_ui = ui.get("outputs") if isinstance(ui, Mapping) else None
-    if isinstance(outputs_ui, (list, tuple)):
-        if isinstance(slot, int) and 0 <= slot < len(outputs_ui):
-            return True
-        for index, item in enumerate(outputs_ui):
-            if isinstance(item, Mapping):
-                if str(item.get("name", "")) == str(slot) or item.get("slot_index") == slot:
-                    return True
-            elif str(item) == str(slot) or index == slot:
-                return True
-    schema = _schema_for(node, provider)
-    outputs = getattr(schema, "outputs", None) or ()
-    if isinstance(slot, int) and 0 <= slot < len(outputs):
-        return True
-    return any(str(getattr(item, "name", "") or "") == str(slot) for item in outputs)
+    # RRSYN2-4: ONE canonical renderer-alias seam decides admission.  The
+    # frozen render may emit ``TYPE_N`` aliases (``AUDIO_0``), integer
+    # slots, and ``unknown_N`` fallbacks; the resolver accepts an alias only
+    # when its index exists AND its type/name evidence agrees, so admission
+    # and authority replay cannot disagree about a rendered endpoint.
+    from vibecomfy.porting.edit._interpret import canonical_renderer_output
+
+    return (
+        canonical_renderer_output(node, slot, provider=provider) is not None
+    )
+
+
+def _unknown_output_detail(
+    node: Any,
+    slot: str | int,
+    provider: Any,
+) -> str:
+    """Rejection evidence: node, offered alias, valid slots, evidence source."""
+    from vibecomfy.porting.edit._interpret import renderer_output_slots
+
+    valid_slots, sources = renderer_output_slots(node, provider)
+    return (
+        f"output {str(slot)!r} is not resolvable on {node.class_type!r} "
+        f"(node uid={getattr(node, 'uid', '')!r}); "
+        f"valid output slots: {list(valid_slots)}; "
+        f"evidence source: {list(sources)}"
+    )
 
 
 
@@ -222,12 +206,17 @@ def _known_input(node: Any, field: str, provider: Any) -> bool:
 
 
 def _validate_link(workflow: Any, op: UpsertLinkOp, provider: Any) -> None:
+    from vibecomfy.porting.edit._interpret import canonical_renderer_output
+
     source = _require_node(workflow, op.source.uid)
     target = _require_node(workflow, op.target.uid)
-    if not _known_output(source, op.source.output_slot, provider):
+    resolved_output = canonical_renderer_output(
+        source, op.source.output_slot, provider=provider
+    )
+    if resolved_output is None:
         raise ApplyOpsError(
             "unknown_port",
-            f"output {op.source.output_slot!r} is not present on {source.class_type!r}.",
+            _unknown_output_detail(source, op.source.output_slot, provider),
         )
     if not _known_input(target, op.target.input_field, provider):
         raise ApplyOpsError(
@@ -241,13 +230,15 @@ def _validate_link(workflow: Any, op: UpsertLinkOp, provider: Any) -> None:
     from vibecomfy.schema import socket_types_compatible
 
     source_type = _output_socket_type(source, op.source.output_slot)
+    if source_type is None and resolved_output != op.source.output_slot:
+        source_type = _output_socket_type(source, resolved_output)
     if source_type is None:
         metadata = getattr(source, "metadata", None) or {}
         names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
         types = metadata.get("output_types") if isinstance(metadata, Mapping) else None
         if isinstance(names, (list, tuple)) and isinstance(types, (list, tuple)):
             try:
-                source_type = str(types[list(names).index(op.source.output_slot)])
+                source_type = str(types[list(names).index(resolved_output)])
             except (ValueError, IndexError):
                 source_type = None
     target_type = _input_socket_type(target, op.target.input_field, provider)
@@ -297,12 +288,19 @@ def _validate_one(workflow: Any, op: EditOp, provider: Any) -> None:
             str(node_id) for node_id in workflow.nodes
         }:
             raise ApplyOpsError("duplicate_identity", f"node id {op.node_id!r} already exists.")
+        from vibecomfy.porting.edit._interpret import canonical_renderer_output
+
         for input_name, source in op.inputs.items():
             source_node = _require_node(workflow, source.uid)
-            if not _known_output(source_node, source.output_slot, provider):
+            resolved = canonical_renderer_output(
+                source_node, source.output_slot, provider=provider
+            )
+            if resolved is None:
                 raise ApplyOpsError(
                     "unknown_port",
-                    f"output {source.output_slot!r} is not present on {source_node.class_type!r}.",
+                    _unknown_output_detail(
+                        source_node, source.output_slot, provider
+                    ),
                 )
             if not isinstance(input_name, str) or not input_name:
                 raise ApplyOpsError("invalid_arguments", "add_node input names must be non-empty.")

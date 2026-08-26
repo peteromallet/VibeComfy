@@ -595,6 +595,76 @@ def _schema_provider_for(pair: AdmissionSnapshot) -> Any:
     return None
 
 
+def _offered_endpoint_refs(operation: Any) -> tuple[str, ...]:
+    """Return the endpoint aliases an operation offered, for rejection
+    evidence (RRSYN2-4)."""
+    mapping = operation if isinstance(operation, Mapping) else None
+    if mapping is None:
+        try:
+            mapping = _operation_mapping(operation)
+        except Exception:  # noqa: BLE001 - evidence extraction must never raise
+            return ()
+    op_name = str(mapping.get("op") or "")
+    refs: list[str] = []
+    if op_name == "upsert_link":
+        source = mapping.get("source")
+        if source is None and isinstance(mapping.get("from"), (list, tuple)):
+            from_ref = mapping["from"]
+            source = (
+                {"uid": from_ref[0] if len(from_ref) > 0 else None,
+                 "output_slot": from_ref[2] if len(from_ref) > 2 else None}
+                if isinstance(from_ref, (list, tuple)) and len(from_ref) >= 3
+                else None
+            )
+        if not isinstance(source, Mapping) and hasattr(operation, "source"):
+            src_obj = getattr(operation, "source", None)
+            if src_obj is not None:
+                source = {
+                    "uid": getattr(src_obj, "uid", None),
+                    "output_slot": getattr(src_obj, "output_slot", None),
+                }
+        target = mapping.get("target")
+        if target is None and isinstance(mapping.get("to"), (list, tuple)):
+            to_ref = mapping["to"]
+            target = (
+                {"uid": to_ref[0] if len(to_ref) > 0 else None,
+                 "input_field": to_ref[2] if len(to_ref) > 2 else None}
+                if isinstance(to_ref, (list, tuple)) and len(to_ref) >= 3
+                else None
+            )
+        if not isinstance(target, Mapping) and hasattr(operation, "target"):
+            tgt_obj = getattr(operation, "target", None)
+            if tgt_obj is not None:
+                target = {
+                    "uid": getattr(tgt_obj, "uid", None),
+                    "input_field": getattr(tgt_obj, "input_field", None),
+                }
+        if isinstance(source, Mapping):
+            refs.append(
+                f"source:{source.get('uid')}.{source.get('output_slot')}"
+            )
+        if isinstance(target, Mapping):
+            refs.append(
+                f"target:{target.get('uid')}.{target.get('input_field')}"
+            )
+    elif op_name == "add_node":
+        inputs = mapping.get("inputs")
+        if isinstance(inputs, Mapping):
+            for field, link_source in inputs.items():
+                slot = None
+                uid = None
+                if isinstance(link_source, Mapping):
+                    slot = link_source.get("output_slot")
+                    uid = link_source.get("uid")
+                elif isinstance(link_source, (list, tuple)) and len(link_source) >= 3:
+                    uid, slot = link_source[0], link_source[2]
+                elif hasattr(link_source, "output_slot"):
+                    slot = getattr(link_source, "output_slot", None)
+                    uid = getattr(link_source, "uid", None)
+                refs.append(f"{field}<-{uid}.{slot}")
+    return tuple(refs)
+
+
 def admit_operation(
     snapshot: Any,
     canonical_operation: Any,
@@ -685,14 +755,25 @@ def admit_operation(
     try:
         _validate_one(workflow, parsed, provider)
     except ApplyOpsError as exc:
+        # RRSYN2-4: unknown_port rejections retain the ORIGINAL alias plus
+        # its resolution outcome (node, offered slot, valid slots, evidence
+        # source) so the rejection is diagnosable from evidence alone and
+        # admission/replay can never disagree silently about a rendered
+        # endpoint.
+        extra: tuple[str, ...] = (
+            exc.message,
+            "resolver:canonical_renderer_output",
+        )
+        for ref in _offered_endpoint_refs(operation):
+            extra = (*extra, f"offered:{ref}")
         if exc.code in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
             # Allow only when touching provisional/unknown node (touched-only)
             if _is_provisional_touched(operation, workflow, pair.schema if pair.schema is not None else schema_catalog):
                 pass
             else:
-                return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
+                return _reject(pair, operation, exc.code, extra=extra, touched=touched)
         else:
-            return _reject(pair, operation, exc.code, extra=(exc.message,), touched=touched)
+            return _reject(pair, operation, exc.code, extra=extra, touched=touched)
     return AdmissionAllowed(touched_scope=touched)
 
 
