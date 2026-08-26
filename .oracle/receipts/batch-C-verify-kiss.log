@@ -1,0 +1,40 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+[0m[33mWarning[0m[2m:[0m [1mThe 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.[0m
+[0m      [2mat [0memitWarning[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0mwarnOnDeactivatedColors[2m ([0m[0m[36minternal:tty[0m[2m:[0m[33m33[0m[2m:[33m24[0m[2m)[0m
+[0m      [2mat [0mgetColorDepth[2m ([0m[0m[36minternal:tty[0m[2m:[0m[33m42[0m[2m:[33m39[0m[2m)[0m
+[0m      [2mat [0mshouldColorize[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m14[0m[2m:[33m109[0m[2m)[0m
+[0m      [2mat [0mrefresh[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m18[0m[2m:[33m31[0m[2m)[0m
+[0m      [2mat [0minternal:util/colors[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m24[0m[2m:[33m16[0m[2m)[0m
+[0m      [2mat [0manonymous[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0minternal:assert/assertion_error[2m ([0m[0m[36minternal:assert/assertion_error[0m[2m:[0m[33m2[0m[2m:[33m187[0m[2m)[0m
+[0m      [2mat [0manonymous[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0mloadAssertionError[2m ([0m[0m[36mnode:assert[0m[2m:[0m[33m28[0m[2m:[33m96[0m[2m)[0m
+
+Working...
+## Task verdicts
+
+| # | Task | Verdict | Evidence |
+|---|------|---------|----------|
+| 1 | register() surface | **PASS** | `schemas.py:844–881`: positional `template nargs="?"`, `--manifest PATH`, xor enforced at `:668–674` (exit 1), `--json`, `--comfy-version`/env at `:676–677` (`_validate_comfy_version` reused, no core-cache sniffing), `--no-embedded` documented no-op (never read — correct placeholder). r2 hardcoded on `:624`. `VIBECOMFY_ON_DEMAND_BOOT` unchecked here; the env gate lives on the *boot* path (`on_demand.py:157`), not `_ensure_clone` (`:211`) — verified |
+| 2 | Gated-class discovery | **PASS** | `:467` `load_scenario_obligation`; `:487` `mod._GATED_CLASS_RE.search` (no copy); `:486–493` regex-filtered `custom_node_classes` ∪ declared `schema_evidence_requirements[].class_type` |
+| 3 | Per-gap capture ladder | **PASS** | `_resolve_pack_ref` `:507/:518` (resolve_missing_nodes → resolve_pack fallback, url-bearing ref only); `_ensure_clone` `:608` sandbox LRU, no `.tmp_packs`; `extract_pack_schemas(allow_import=True, import_timeout=120)` `:621–626` with explicit NO `allow_embedded`; pin via `_clone_pin` git remote+HEAD `:640`; `persist_on_demand_pack` `:641`; `_enforce_cap()` per pack `:650`. Nice touch: grouping by slug avoids re-cloning one pack per class |
+| 4 | Fail closed | **PASS** | exit 1 iff `failures or still_missing` `:755`, honored in json branch `:767–769` and text `:782–784`; failure dicts name class/step/detail; `retry_command` in payload + printed; hollow writes impossible — only non-empty entries reach persist |
+| 5 | Template rewire off process_pack | **PASS** | old code (`b430bbcb`) imported `tools.clone_and_extract_packs.process_pack`; new template path shares `missing_live_captures` + `_capture_missing_classes` (`:701–750`). Diff touches only schemas.py + tests — ETL tool untouched |
+| 6 | Tests calling `_cmd_schemas_ensure` | **PASS** | `test_schemas_ensure.py:1015–1262`: noop-with-attested (`:1057`, resolver poisoned to prove no consult), mocked registry + pre-seeded sandbox clone + REAL extract asserting file/provenance/index/provider/stub-filter (`:1101–1166`), r2-on-under-boot-env=0 with kwargs spy (`:1168`), stub-is-gap (`:1197`), json failure exit 1 naming class/step/retry + no on_demand files written (`:1219`), xor (`:1237`), help (`:1246`), unpatched offline discovery against FINAL50 manifest (`:1255`). Local git only; no network |
+
+## Checkpoint C: **PASS**
+`--manifest` in live `--help` output (ran the CLI); `rg clone_and_extract_packs vibecomfy/commands/schemas.py` → empty; fixture test proves write→serve→stub-filter; HEAD commit message matches exactly.
+
+## KISS / YAGNI
+7 new functions (`_import_scenario_obligations`, `_manifest_gated_classes`, `_resolve_pack_ref`, `_clone_pin`, `_on_demand_provider`, `_embedded_note`, `_capture_missing_classes`). This is glue, not a parallel engine: no copied regex, one ledger writer (Batch A's `persist_on_demand_pack`), gap logic delegated to `missing_live_captures`. `_on_demand_provider()` looks like a wrapper but is the test seam — keep. `--comfy-version` validate-only is plan-mandated, not speculative. Nits only: three `__import__("sys")` calls when `sys` is already imported (cosmetic), and `_resolve_pack_ref` re-resolves per class even within one pack (cheap).
+
+## Deviations
+- **On-disk manifest with patched discovery:** non-blocking, correct — `is_file()` runs before the patch point, so this tests real fail-closed behavior rather than bypassing it.
+- **Payload-shape change:** real break — old keys `cache_classes_total`, rich `packs_extracted` reports, `covered`, `unresolved` gone; `{pack, method}` replaces them. Acceptable: the plan explicitly orders the rewire onto the new engine, the old JSON encoded the buggy `list_classes()` gap definition, and nothing in-repo consumes this payload programmatically. Worth one line in the batch checkin, not a blocker.
+
+## Overall: **PASS**
+[launch_hermes_agent] done in 151.7s (exit=0)
+0

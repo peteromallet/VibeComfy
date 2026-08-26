@@ -1,0 +1,48 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+[0m[33mWarning[0m[2m:[0m [1mThe 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.[0m
+[0m      [2mat [0memitWarning[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0mwarnOnDeactivatedColors[2m ([0m[0m[36minternal:tty[0m[2m:[0m[33m33[0m[2m:[33m24[0m[2m)[0m
+[0m      [2mat [0mgetColorDepth[2m ([0m[0m[36minternal:tty[0m[2m:[0m[33m42[0m[2m:[33m39[0m[2m)[0m
+[0m      [2mat [0mshouldColorize[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m14[0m[2m:[33m109[0m[2m)[0m
+[0m      [2mat [0mrefresh[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m18[0m[2m:[33m31[0m[2m)[0m
+[0m      [2mat [0minternal:util/colors[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m24[0m[2m:[33m16[0m[2m)[0m
+[0m      [2mat [0manonymous[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0minternal:assert/assertion_error[2m ([0m[0m[36minternal:assert/assertion_error[0m[2m:[0m[33m2[0m[2m:[33m187[0m[2m)[0m
+[0m      [2mat [0manonymous[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0mloadAssertionError[2m ([0m[0m[36mnode:assert[0m[2m:[0m[33m28[0m[2m:[33m96[0m[2m)[0m
+
+Working...
+## Report
+
+### 1. Cache mutation: **YES** — confirmed and root-caused
+
+- Before: porcelain clean, size 106683, `endswith_nl=True`, sha `4a85cfe0…`
+- After full file run: `M vibecomfy/porting/cache/object_info/index.json`, size 106682, `endswith_nl=False`, sha `7352f299…`. Diff = trailing newline stripped only.
+- **Restored** with `git checkout -- vibecomfy/porting/cache` after each bisect step; tree is clean now.
+
+Bisected to a single test: `test_schemas_refresh_command_text_surfaces_non_authoritative_identity`.
+
+Root cause chain:
+1. `tests/test_schemas_ensure.py:122` patches only `schemas_command.CACHE_DIR`.
+2. Its source fixture is a **raw object_info dump**, so `_cmd_schemas_refresh` (`vibecomfy/commands/schemas.py:88`) → `refresh_schema_cache_from_source` falls through to line 152: `refresh_from_source(str(source_path))` with no `cache_dir`.
+3. `refresh_from_source` (`vibecomfy/porting/object_info/serialize.py:340`) defaults `cache_dir=None` → build_cache resolves serialize's own committed `CACHE_DIR`, ignoring the patched name → rewrites committed `index.json` via bare `json.dump` (`serialize.py:233-234`, no trailing `\n`).
+4. Content happens to be identical because committed index already contains `OfflineNode → custom_nodes.offline@legacy-import.json` (HEAD has it), so only the newline differs.
+
+Sibling test at `:79` escapes because its structured-pack source takes `_copy_single_structured_cache_file`, which does use the patched module-global `CACHE_DIR`. Fix direction: patch `serialize.CACHE_DIR`/pass explicit `cache_dir`, or have `refresh_schema_cache_from_source` forward a cache_dir param. Note `TestSchemasEnsureCommand` itself is safe — `_redirect_cache` patches `consume_module.CACHE_DIR` + `INDEX_PATH` correctly; `TestCacheIndexUpdate` etc. also clean.
+
+### 2. Mixed-pack: **UNTESTED-BUT-DELEGATES** (delegation verified safe)
+
+- Batch C glue `_capture_missing_classes` (`schemas.py:579-651`) groups gaps by slug, extracts via ladder, then calls **Batch A's** `persist_on_demand_pack(..., entries=result.entries, cache_dir=cache_root)` (`schemas.py:641-648`). No whole-pack write, no `full_pack_refresh=True`, no `clone_and_extract_packs` on this path.
+- `persist_on_demand_pack` (`vibecomfy/schema/ensure_capture.py:175`) enforces the contract: tier guard drops same-or-higher-tier classes, merge semantics (`full_pack_refresh=False`), hygiene layer (a) strips non-newly-captured classes from the on-demand file keeping only `captured ∪ prior-same-file keys`, layer (b) restores pre-existing index mappings — so runtime capture of R stays indexed to its runtime file, G maps to on_demand.
+- Batch A mixed-pack test exists and passes in suite: `tests/test_ensure_capture.py:184-191` asserts `set(on_demand_data) == {"GapNode"}  # R not copied` and `index["GapNode"] == on_demand_file`.
+- **No C-level mixed-pack test**: `TestSchemasEnsureCommand` never seeds R of pack P as a runtime file while ensuring G of P. A tmp-cache probe wasn't constructed; delegation argument above plus the passing Batch A test covers safety today.
+
+### Findings
+
+1. `tests/test_schemas_ensure.py::test_schemas_refresh_command_text_surfaces_non_authoritative_identity` mutates the committed cache (newline strip via unpatched `serialize.CACHE_DIR`). Restored; must be fixed before merge.
+2. Minor: same latent hazard applies to any caller of `refresh_from_source` that assumes patching `schemas.CACHE_DIR` suffices — the seam is split across two modules' globals.
+3. Missing C-level mixed-pack regression test (low risk; Batch A owns hygiene).
+[launch_hermes_agent] done in 315.0s (exit=0)
+0

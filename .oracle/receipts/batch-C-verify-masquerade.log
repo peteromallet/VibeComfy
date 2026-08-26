@@ -1,0 +1,38 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+[0m[33mWarning[0m[2m:[0m [1mThe 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.[0m
+[0m      [2mat [0memitWarning[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0mwarnOnDeactivatedColors[2m ([0m[0m[36minternal:tty[0m[2m:[0m[33m33[0m[2m:[33m24[0m[2m)[0m
+[0m      [2mat [0mgetColorDepth[2m ([0m[0m[36minternal:tty[0m[2m:[0m[33m42[0m[2m:[33m39[0m[2m)[0m
+[0m      [2mat [0mshouldColorize[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m14[0m[2m:[33m109[0m[2m)[0m
+[0m      [2mat [0mrefresh[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m18[0m[2m:[33m31[0m[2m)[0m
+[0m      [2mat [0minternal:util/colors[2m ([0m[0m[36minternal:util/colors[0m[2m:[0m[33m24[0m[2m:[33m16[0m[2m)[0m
+[0m      [2mat [0manonymous[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0minternal:assert/assertion_error[2m ([0m[0m[36minternal:assert/assertion_error[0m[2m:[0m[33m2[0m[2m:[33m187[0m[2m)[0m
+[0m      [2mat [0manonymous[2m ([0m[0m[36munknown[0m[2m:[0m[33m1[0m[2m:[33m1[0m[2m)[0m
+[0m      [2mat [0mloadAssertionError[2m ([0m[0m[36mnode:assert[0m[2m:[0m[33m28[0m[2m:[33m96[0m[2m)[0m
+
+Working...
+## Batch C attack report — HEAD `5f3e635f`
+
+| # | Vector | Verdict | Evidence |
+|---|--------|---------|----------|
+| A | `"ast"` → `runtime_object_info`/`on_demand_runtime` | **BLOCKED** | `schemas.py:629` whitelists `method not in ("ast","import")`; map is `SOURCE_KIND_BY_RUNG = {"ast": "on_demand_static", "import": "on_demand_import"}` (`ensure_capture.py:27-31`). Probe confirms: AST persist wrote `probe-pack@on_demand_static-deadbee.json`, provenance `source_kind=on_demand_static`. No `on_demand_runtime` token anywhere in the three files. |
+| B | `"import"` → `runtime_object_info` | **BLOCKED** | Same map; import → `on_demand_import` (`ensure_capture.py:29`). Unknown rung raises at `persist_on_demand_pack` (`ensure_capture.py:192-193`). |
+| C | `allow_embedded=True` | **BLOCKED** | `extract_pack_schemas` signature has no such kwarg (`extract.py:737-746`) → TypeError if passed; call site omits it with comment (`schemas.py:627-628`). No second persist path invented around Batch A — single `persist_on_demand_pack` call (`schemas.py:641-649`). |
+| D | Stub on empty extract | **BLOCKED** | Empty/bad method → recorded as failure, `continue` before any persist (`schemas.py:629-639`); `STUB_SOURCE_KIND` exists only as a detector constant, never written from this path. |
+| E | Registry `/nodes/.../schema` as cache truth | **BLOCKED** | `_resolve_pack_ref` consumes REST metadata for a clone URL only (`schemas.py:497-528`); entries come exclusively from the sandbox clone extraction. |
+| F | `VIBECOMFY_ON_DEMAND_BOOT=0` skips rung 2 | **BLOCKED** | Rung 2 here is gated by the literal `allow_import=True` argument (`schemas.py:624`, `extract.py:757`); no env check exists in `extract.py` — the env gate lives only in `OnDemandInstallSchemaProvider.get_schema` (`on_demand.py:157`), which this command doesn't use for extraction. Env ignored; r2 always on. |
+| G | `emit(...)` + implicit return 0 | **BLOCKED** | Explicit returns on both paths: JSON `return exit_code` (`schemas.py:769`), text `return exit_code` after retry hint (`schemas.py:782-784`); early failures return 1 (`:674,:688,:700`). No `sys.exit` in file. |
+| H | `.tmp_packs` / `clone_and_extract_packs` | **BLOCKED** | Zero matches in all three files; clone goes through `OnDemandInstallSchemaProvider._ensure_clone` LRU sandbox (`on_demand.py:211`). |
+| I | Skip `_enforce_cap()` | **BLOCKED** | Called after every successful pack persist (`schemas.py:650`); cap also enforced inside the provider (max 64 packs / 2 GiB defaults). Minor note: a clone that fails *extraction* leaves its clone until the next successful iteration's `_enforce_cap` — bounded regardless by provider caps. |
+| J | `@local-{sha7}` / `@runpod-snapshot` / `@stub.json` filenames | **BLOCKED** | Filename is `{slug}@{source_kind}-{locked_commit[:7]}.json` (`ensure_capture.py:196-197`); probe produced `@on_demand_static-deadbee`. |
+
+**Confirmations:** `--no-embedded` documented no-op, never read (`schemas.py:873-880`; zero `no_embedded` references) ✓. r3 miss names both `--comfy-version` and `VIBECOMFY_EMBEDDED_COMFY_VERSION` when unset (`_embedded_note`, `schemas.py:571-574`) ✓. Retry command `vibecomfy schemas ensure --manifest <path>` (`schemas.py:712-716`) ✓. Gated discovery imports `mod._GATED_CLASS_RE` from `tests.live_agentic_harness.scenario_obligations` (`schemas.py:487`) — imported, not copied ✓. Exactly-one enforcement `bool(template)==bool(manifest)` → error+1 (`schemas.py:668-674`) ✓.
+
+**North Star disposition: ALIGNED.** No masquerade path writes a higher-tier stamp; probe evidence attached.
+
+**KISS note:** N/A — C did not invent a second persist path.
+[launch_hermes_agent] done in 127.1s (exit=0)
+0

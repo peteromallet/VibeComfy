@@ -1,0 +1,34 @@
+[launch_hermes_agent] model=stealth/ox-alpha → resolved=stealth/ox-alpha toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+# Batch C complete — `5f3e635f` on `oracle-run`
+
+## Files changed
+- **`vibecomfy/commands/schemas.py`** — rewrote `_cmd_schemas_ensure` + new glue helpers; updated `register()` ensure parser; imports (`os`, `subprocess`, `sys`).
+- **`tests/test_schemas_ensure.py`** — new `TestSchemasEnsureCommand` (8 CLI-level tests) + fixture-clone/registry-sandbox helpers.
+
+## What landed
+1. **`--manifest PATH`**: gated-class discovery via `_manifest_gated_classes` → imports `load_scenario_obligation` + `_GATED_CLASS_RE` from `tests/live_agentic_harness/scenario_obligations.py` (regex reused, not copied); classes = workflow classes matching the regex ∪ declared `schema_evidence_requirements[].class_type`. Verified offline against the real FINAL50 manifest (8 gated classes, incl. `IndexTTSEngineNode`, `easy forLoopStart`). Positional `template` kept (nargs="?"); exactly-one enforced → exit 1.
+2. **Per-gap capture engine** (`_capture_missing_classes`): `_resolve_pack_ref` (`resolve_missing_nodes` → candidates-with-url, fallback `resolve_pack`) → `OnDemandInstallSchemaProvider._ensure_clone` (sandbox LRU, no `.tmp_packs`) → `extract_pack_schemas(..., allow_import=True, import_timeout=120)` — **no `allow_embedded` kwarg anywhere** → `method` mapped through Batch A's `SOURCE_KIND_BY_RUNG` rungs → pin from the clone itself (`git remote get-url origin` / `rev-parse HEAD`) → `persist_on_demand_pack` → `_enforce_cap()` per pack.
+3. **Fail closed**: registry miss / clone fail / all-rungs-empty each produce `{class_type, step, detail}` failures; exit 1 in text AND `--json` (the old `return emit(...)`→0 swallow is gone — exit code returned after emit). Extract-exhausted message names deferred Batch B and, when unset, both `--comfy-version` and `VIBECOMFY_EMBEDDED_COMFY_VERSION`. Retry command printed/payloaded verbatim.
+4. **Template ensure rewired** off `tools.clone_and_extract_packs.process_pack` onto the same engine; gap detection now via `missing_live_captures` (stub/unattested = gap), fixing the old `list_classes()`-only diff. Standalone ETL tool untouched. `grep -r clone_and_extract_packs vibecomfy/commands/schemas.py` → empty.
+5. **`--no-embedded`** registered as documented no-op placeholder; rung 2 unconditional (`allow_import=True` hardcoded, `VIBECOMFY_ON_DEMAND_BOOT` never consulted).
+
+## Verification (verbatim)
+```
+$ python3 -m pytest tests/test_schemas_ensure.py tests/test_on_demand_resolver.py tests/test_ensure_capture.py -q
+2 failed, 62 passed, 5 deselected
+```
+The 2 failures (`test_schema_freshness_workflow_is_manual_and_artifact_based`, `TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template`) reproduce identically on stashed HEAD → pre-existing, unrelated to C. Batch A suite (`test_ensure_capture.py`) and `test_on_demand_resolver.py` fully green.
+
+Checkpoint C:
+- `schemas ensure --help` (editable pyenv entrypoint): shows `[--manifest PATH] ... [--comfy-version VERSION] [--no-embedded] [template]`.
+- Fixture test proves: mocked registry + pre-seeded sandbox git clone + real extraction → `fixture-pack@on_demand_static|import-{sha7}.json` with `set(keys)=={"FixtureNode"}`, provenance row (`repo`==clone origin, `locked_commit`==HEAD, `extraction_rung`, `registry_pack_version`), index remap, `get_class()` + `ObjectInfoIndexSchemaProvider.get_schema()` serve it, and an injected `@stub.json` row stays filtered.
+
+## Deviations
+- Tests create a real on-disk manifest file even where discovery is monkeypatched — the command checks `is_file()` before discovery (fail-closed path).
+- Template-mode payload keys preserved (`classes_found`/`covered_classes`/`missing_classes`/`packs_extracted`/`action`), but per-pack report shape changed to `{pack, method}` since `process_pack` reports are gone.
+- Pre-existing quirk noticed (out of scope, unfixed): running the test file rewrites the committed `vibecomfy/porting/cache/object_info/index.json` stripping its trailing newline; I restored it before commit and excluded it.
+[launch_hermes_agent] done in 1308.1s (exit=0)
+0
