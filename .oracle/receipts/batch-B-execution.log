@@ -1,0 +1,54 @@
+I'll start from the frozen plan's Batch B factory detail and the launcher skill, then dispatch Spark for the implementation while I keep the judgment kernel.Next I’ll pull the Batch B factory spec and the existing extract/regen code so Spark’s brief is concrete, not reconstructed.I have the factory spec. Next I’ll map the existing extract/regen seams so Spark’s implementation brief can name exact files and reuse points.I have the seams. Next I’ll write a precise Spark implementation brief and dispatch it; I’ll keep only the acceptance judgment here.Spark is running in the background. I’ll check that it actually started, then wait on the implementation rather than polling.Spark finished the implementation. I’ll read the diff and send an elegance critique in parallel, then decide what actually needs to change.Implementation looks structurally right. I’ll restore the accidental cache-file change, run the tests myself, and send Spark a KISS/YAGNI critique in parallel.Tests passed and the critique found no spec violations. I’ll apply the small KISS nits it flagged, then re-run the acceptance checks.Batch B is landed on `oracle-run` as `0831bcce`.
+
+**Commit:** `schemas-ensure(B): embedded comfy-as-library extraction (rung 3, no server)`
+
+Rung 3 is now a real miss-only step: throwaway venv, pinned `comfyui=={version}`, child-interpreter `INPUT_TYPES()` against genuine `comfy`/`nodes`, no server. `schemas ensure` passes `allow_embedded=True` unless `--no-embedded`. Persist still uses the existing `"embedded" → on_demand_embedded` token.
+
+## Files changed
+
+| File | Change |
+|---|---|
+| `vibecomfy/porting/object_info/pinned_venv.py` | **new** shared throwaway-venv + `pip install comfyui=={version}` helper |
+| `vibecomfy/porting/object_info/core_regen.py` | regen-core uses the helper; `_OBJECT_INFO_CAPTURE_SCRIPT` stays private (still serves HTTP) |
+| `vibecomfy/schema/extract.py` | `extract_by_embedded`, `allow_embedded` (default `False`), method `"embedded"` |
+| `vibecomfy/commands/schemas.py` | ensure passes `allow_embedded=not no_embedded`; accepts method `"embedded"`; `--no-embedded` is live |
+| `tests/test_extract_embedded.py` | **new** fake-runner / miss-only / timeout / ensure-spy tests |
+
+`OnDemandInstallSchemaProvider` / `VIBECOMFY_ON_DEMAND_BOOT` untouched.
+
+## Acceptance
+
+- `rg 'extract_by_embedded|allow_embedded|on_demand_embedded'` hits the new API in `extract.py` and the existing persist token in `ensure_capture.py`.
+- Child `-c` script contains none of `main.main` / `urlopen` / `8188` / `urllib` / `/object_info`.
+- Import-success packs never call embedded (miss-only).
+- `tests/test_on_demand_resolver.py` green.
+
+## Verbatim test results
+
+Focused Batch B + A/C/D/E seams:
+
+```
+python -m pytest -q tests/test_extract_embedded.py tests/test_on_demand_resolver.py tests/test_ensure_capture.py tests/test_batch_e_e2e.py tests/test_schemas_ensure.py::test_core_regen_runner_installs_pinned_comfyui_and_captures_object_info tests/test_schemas_ensure.py::TestSchemasEnsureCommand tests/test_scenario_obligation_preflight.py tests/test_p4_objectinfo_caches.py
+92 passed, 5 deselected, 1 warning in 4.53s
+```
+
+Broader `test_schemas_ensure.py` + embedded + on-demand:
+
+```
+2 failed, 60 passed, 5 deselected, 1 warning in 2.59s
+======================== TOLERATED QUARANTINED FAILURES ========================
+  TOLERATED FAIL: tests/test_schemas_ensure.py::TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template
+  TOLERATED FAIL: tests/test_schemas_ensure.py::test_schema_freshness_workflow_is_manual_and_artifact_based
+All 2 failure(s) are quarantined baseline failures. No regressions.
+```
+
+Those two quarantined failures predate this batch (`assert 0 > 0` on the LTX template class set; stale `schemas refresh --source` workflow string).
+
+## Deviations
+
+1. **`runner=` on `extract_by_embedded`** — not in the frozen signature; required to mirror `capture_core_object_info`’s fake-runner test. No real PyPI.
+2. **Pip timeout** is a timed wrapper around the shared helper, not a new helper parameter. Shared helper stays venv+pip only.
+3. **Ensure CLI wiring** — plan B said “No CLI yet” as the *then-current* seam. The executor brief said “ensure will pass True”; `--no-embedded` is now a real skip, not a placeholder.
+4. **Did not persist live `easy int` / `easy forLoopEnd` captures** — that needs a real `comfyui==*` install. Unit tests stay fake-runner only.
+
+KISS nits applied after Spark critique: dead `_venv_python`/`_run_checked` wrappers removed, one `CommandRunner` type, dead `elif emb_method: pass` deleted, single `TimeoutExpired` conversion.
