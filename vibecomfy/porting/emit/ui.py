@@ -1447,8 +1447,20 @@ def _build_widget_values(
     values: list[Any] = []
     for idx in range(length):
         name = widget_names[idx] if idx < len(widget_names) else None
+        has_raw = idx < len(raw_widgets)
+        raw_value = raw_widgets[idx] if has_raw else None
         if isinstance(name, str) and name in pool:
-            values.append(pool[name])
+            pool_value = pool[name]
+            if pool_value is None and has_raw and raw_value is not None:
+                # RRSYN2-5: a ``None`` carrier (unset/socket-shaped entry
+                # riding in ``inputs``) never masks the immutable captured
+                # literal at that position.  Overwriting only its resolved
+                # position is why accepted deltas must replay byte-for-byte:
+                # [null, null, 1.0, "multiply"] once emitted as
+                # [null, null, 1.8], silently dropping strength_type.
+                values.append(raw_value)
+            else:
+                values.append(pool_value)
         elif (
             use_schema_defaults
             and preserve_observed_widget_carriers
@@ -1459,8 +1471,8 @@ def _build_widget_values(
             values.append(pool[f"widget_{idx}"])
         elif isinstance(name, str) and name in defaults:
             values.append(deepcopy(defaults[name]))
-        elif idx < len(raw_widgets):
-            values.append(raw_widgets[idx])
+        elif has_raw:
+            values.append(raw_value)
         elif name is None and isinstance(node.metadata.get("control_after_generate"), str):
             values.append(node.metadata["control_after_generate"])
         elif name is None and has_seed_control_slot:
@@ -1468,7 +1480,15 @@ def _build_widget_values(
         else:
             values.append(None)
 
-    while values and values[-1] is None:
+    # Trailing ``None`` slots are trimmed to match the litegraph reference
+    # length — but a trailing CAPTURED value is never trimmed (RRSYN2-5):
+    # trimming stops at the last non-None captured raw position.
+    raw_tail_floor = 0
+    for idx in range(len(raw_widgets) - 1, -1, -1):
+        if raw_widgets[idx] is not None:
+            raw_tail_floor = idx + 1
+            break
+    while len(values) > raw_tail_floor and values[-1] is None:
         values.pop()
     return values
 

@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .candidate_transaction import (
     AUTHORITY_RECEIPT_DELTA_SCHEMA,
@@ -723,6 +723,53 @@ def canonical_frozen_name_table(
         return {}
 
 
+def _unresolved_named_field_reason(
+    ops: tuple[Any, ...],
+    workflow: Any,
+    *,
+    name_authority: Mapping[str, Any] | None,
+) -> str | None:
+    """Return a typed rejection reason for ambiguous/unresolvable named
+    widget writes, or ``None`` when every named field resolves to exactly
+    one raw position (RRSYN2-5)."""
+    from vibecomfy.porting.edit.ops import SetNodeFieldOp
+    from vibecomfy.porting.widgets.compact_resolver import (
+        widget_index_for_field,
+    )
+
+    def _row_for(node_id: str, uid: str) -> tuple[str | None, ...] | None:
+        if not isinstance(name_authority, Mapping):
+            return None
+        row = name_authority.get(node_id)
+        if row is None:
+            row = name_authority.get(uid)
+        return tuple(row) if isinstance(row, (list, tuple)) else None
+
+    for op in ops:
+        if not isinstance(op, SetNodeFieldOp):
+            continue
+        field = str(getattr(op.target, "field_path", "") or "")
+        target_uid = str(getattr(op.target, "uid", "") or "")
+        if not field or not target_uid:
+            continue
+        for node_id, node in getattr(workflow, "nodes", {}).items():
+            uid = str(getattr(node, "uid", "") or "") or str(node_id)
+            if uid != target_uid and str(node_id) != target_uid:
+                continue
+            # Same row-lookup direction as _verify_seal_coverage: the frozen
+            # table is keyed by replayed node id; fall back to sealed uid.
+            authority_row = _row_for(str(node_id), uid)
+            if widget_index_for_field(
+                node,
+                field,
+                name_authority=(
+                    {uid: authority_row} if authority_row is not None else None
+                ),
+            ) is None:
+                return f"field_resolution_unresolved:{uid}.{field}"
+            break
+    return None
+
 def recompute_apply(
     submit_graph: Mapping[str, Any],
     cumulative_delta_envelope: Mapping[str, Any] | None,
@@ -798,6 +845,19 @@ def recompute_apply(
         divergence = _verify_seal_coverage(workflow, name_authority, ops)
         if divergence:
             return False, None, divergence, len(ops)
+        # RRSYN2-5: a NAMED field that cannot resolve to EXACTLY ONE raw
+        # widget position must fail the receipt closed BEFORE any landing.
+        # Reporting batch_ok=true and discovering the ambiguity only at
+        # receipt time minted authority for rows that never matched live
+        # materialization.  The same sealed frozen name table that live
+        # materialization consumed decides here.
+        field_resolution_error = _unresolved_named_field_reason(
+            ops,
+            workflow,
+            name_authority=name_authority,
+        )
+        if field_resolution_error:
+            return False, None, field_resolution_error, len(ops)
         from vibecomfy.porting.edit.admit import (
             AdmissionRejected,
             admission_snapshot_for,
