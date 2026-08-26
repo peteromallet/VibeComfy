@@ -95,3 +95,25 @@ All routed recommendations from reviews and forensics are **landed or explicitly
 ---
 
 **JUDGMENT_REQUIRED: none** — this report transcribes recorded evidence only (`EVIDENCE-FINALE` and predecessor log sections); no new judgment, scoring change, or live call made.
+
+## Addendum 2026-08-26 — reopened-campaign improvement loop
+
+**Scope:** three §34 improvement rounds after the finale3 record above was reopened for review; full receipts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/` (untracked run artifacts); authoritative round records in the execution log (`RR1-ROUND1`, `RR3-CLOSEOUT`). All credential material REDACTED per §29a — no credential material in this addendum.
+
+- **Incident + recovery (round 1):** the off-contract `RR1-FIX-R2` wrapper gutted the worktree's `docs/`; it was stopped via the wrapper's SIGTERM trap (F1 verified working) and all **119** lost pinned receipt files were restored byte-exact from the incident agent's own stash commit (`a0713d50`), every manifest digest pin re-verified.
+- **Round chain:** R1 — FIX(1)–(7) + batch review (must ×10) + REV `b0f8582f` + rereview + REV2 `215a5183`, window 4/17. R2 — FIX-A wave ×5 (`7ad830ab`…`707f0480`), batch review must ×6, REV-R2 `ce7a34d6`, window raw 3/17 (staged regression root-caused: lint-proven no-op statements entering the durable Δ; fixed `1b8aa520`). R3 — window @`1b8aa520`: **4/17 assessed product-passes** (staged `f65774` + `c9df19` recovered; threaded `d66a66` + mesh), confirmed by assessor `RR1-ASSESS-R3PASS`.
+- **Trajectory on the identical 17-leg reduced window (`f28524a788743cbc`):**
+
+| Round | Score |
+|---|---|
+| finale3 baseline | **0/17** |
+| R1 | 4/17 |
+| R2 | 3/17 |
+| R3 | 4/17 |
+
+- **§34 decision:** rounds exhausted (**3/≤3**); **the ≥56% product-pass criterion was NOT reached on either mode** (best threaded 37.5%, R2). The improvement campaign closes honestly. The full-campaign authoritative record remains finale3 **23/50** (staged 44% / threaded 48%), trajectory 5→23 ~4.6×.
+- **Residual classification totals from assessors (rounds 1–3):** model-capability ~5; B-GATEWAY ×2 resolved by RR2-FIX(4) `a82b1640` + REV `ce7a34d6`; B-PARSER-EVIDENCE ×1 addressed by failed-turn evidence persistence (RRSYN2-2 = RR2-FIX(2) `745d2d18`); grounded-G1 contract mismatch fixed by refusal grading (RRSYN2-1 = RR2-FIX(1) `7ad830ab`); B-DATA partially addressed — real captures still missing for the 3 audio legs plus several packs pending a live runtime.
+- **What the evidence says is needed next:** a **live ComfyUI runtime** to acquire real object_info captures (no funded capture path exists on this box — acquisition was honestly skipped, not stubbed), and **provider-stable windows** for variance-prone legs (hotshot's R2 conversion did not survive provider-noisy runs — 7 executor_failures carried transport insufficient-credits errors inside product-family classifications).
+- G7 remains `status: open`, `disposition: pending`; branch remains local-only (PUSH-BLOCKED-001 unchanged).
+
+**JUDGMENT_REQUIRED: none** — this addendum transcribes recorded evidence only; no new judgment, scoring change, or live call made.

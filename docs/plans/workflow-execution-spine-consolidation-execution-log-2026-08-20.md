@@ -7069,3 +7069,48 @@ The following is the complete canonical T29A chain. Receipt file SHA-256 values 
 
 - **Round-1 arc:** incident (wrapper SIGTERM-trap verified working) → FIX(1)–FIX(7) across R3/R4/R5 → batch review must ×10 → REV `b0f8582f` → rereview 7 FIXED-IN-PRODUCTION / F1+F4+F9 residual → REV2 `215a5183` = HEAD → window 4/17 (+4 vs finale3 baseline 0/17) → §34 criterion unmet → **ROUND 2 PROCEEDS**.
 - **Next:** round-2 execution belongs to the orchestrator; push remains the standing operator-only decision (unblock URL already recorded in EVIDENCE-CLOSEOUT/EVIDENCE-SCOPEFIX).
+
+## RR3-CLOSEOUT — rounds 2-3 + reopened-campaign closeout — 2026-08-26
+
+> [!NOTE]
+> **Evidence dispatch only (§6).** This recorder transcribes orchestrator-verified reopened-campaign rounds 2–3 facts and the §34 closeout into the durable record and commits once; it judges no substance. Wrapper receipts remain untracked run artifacts under `docs/plans/workflow-execution-spine-consolidation-evidence/receipts/`; dispatch outputs are disposable state under `/workspace/vibecomfy-exec-spine-20260820/g0` and `/tmp/rr1-window20`. This recorder's own end_ts/receipt digest are intentionally NOT recorded per brief. All credential material REDACTED per §29a.
+
+### 1. ROUND 2 — fix chain, review, window, regression
+
+- **RR2-FIX-A** (one dispatch wave; route `ox-alpha`; receipt `success`): `7ad830ab` **RR2-FIX(1)** — grounded refusals graded by terminal substance, not route label (RRSYN2-1); `745d2d18` **FIX(2)** — durable failed-turn evidence persistence across the executor boundary (RRSYN2-2); `e12bdb4c` **FIX(3)** — schemas refresh-path correctness, live capture acquisition **HONEST-SKIPPED** (no live ComfyUI runtime on this box, no funded capture path; blocked list recorded in the commit message); `a82b1640` **FIX(4)** — renderer-emitted output aliases valid at admission AND replay; `707f0480` **FIX(5)** — untouched widget-row preservation for byte-for-byte replay.
+- **RR2-BATCH-REVIEW** (`codex:gpt-5.6-sol`): VERDICT **must-fix**, six findings each proven with a direct probe (`g0/rr2-batchreview-output.md`).
+- **RR2-FIX-REV attempt 1**: wrapper died on a provider SSE error (`server_error` JSON injected mid-stream) with partial work done; its receipt is mislabeled `status=success` — recorded as another instance of the receipt-mislabel family.
+- **RR2-FIX-REV-R2**: `ce7a34d6` discharges all six findings — accepted-delta conjunct, fresh capture identity on re-ingest, index regeneration, frozen slot indices, compact-roster holes, raw-tail floor. **HEAD after chain: `ce7a34d6`.**
+- **RR2-WINDOW-RUNNER** (17-leg reduced manifest sha16 `f28524a788743cbc`, derived from frozen final50; preflight exit 0): ONE invocation exit 0 (`--split --concurrency 10 --leg-isolation process --transport native`). Raw harness `{fail: 13, pass: 3, blocked: 1}` = **raw 3/17** — staged 0/9 with `f65774` + `c9df19` REGRESSED to fail vs round 1; threaded 3/8 with **hotshot CONVERTED**, `d66a66`/mesh held (identical canonical deltas); staged `face-detection-949658` infra-blocked (`infra_timeout`, LEG_ATTEMPT_LIMIT=2). Runner's launcher-abort/re-dispatch incidents disclosed in its own output (`g0/rr2-window-dispatch.log`; artifacts under `/tmp/rr1-window20/out/`).
+- **RR2-REGRESSION root cause + fix:** the staged regressions traced to **lint-proven no-op statements entering the durable Δ** — agent variance (one redundant op) amplified by a pre-existing seam (`_frag_state._accepted_batch_statements` mints Δ membership on `ok ∧ landed` alone); no breaker commit in `7ad830ab..ce7a34d6` (seam byte-identical across the wave; A/B-proven on the persisted payload). Fix `1b8aa520`: effective-Δ filter drops lint-classified `dropped_noop` statements at all four minting seams (+387 lines incl. `tests/test_edit_lint_noop_delta.py`, failing pre-fix / passing post-fix). **HEAD entering round 3: `1b8aa520`.**
+
+### 2. ROUND 3 (FINAL per §31b ≤3) — window and confirmation
+
+- **RR3-WINDOW-RUNNER @ `1b8aa520`** (same reduced manifest `f28524a788743cbc`, preflight exit 0, ONE invocation exit 0, same flags): raw **4/17** — staged 2/9: `f65774` RECOVERED, `c9df19` RECOVERED; threaded 2/8: `d66a66`, mesh.
+- **Confirmation assessor `RR1-ASSESS-R3PASS`** (`g0/rr1-window20-assess-R3PASS.md`): all four verdicts **pass**, each a product-pass with `assessment.json` citations; zero applied-unverified, zero undetermined. `hotshot` flipped back to fail — variance-noted: the R2 conversion was NOT stable across provider-noisy runs (7 executor_failures in this window carry the insufficient-credits transport error verbatim; harness classified them family=`product`, recorded raw per runner mandate). Zero infra-blocked this run; the 3 audio legs remain setup-blocked (no captures).
+
+### 3. §34 DECISION — reopened campaign CLOSES honestly
+
+- **TRAJECTORY on the identical 17-leg window:** finale3 baseline **0/17 → R1 4/17 → R2 3/17 → R3 4/17**.
+- Rounds exhausted (**3/≤3**); neither mode reached ≥56% product-pass (best threaded 37.5%, round 2). **The reopened improvement campaign CLOSES honestly without meeting the §34 criterion.**
+- The full-campaign authoritative record remains finale3 **23/50** (staged 44% / threaded 48%), trajectory 5→23 ~4.6×; G7 stays `status: open`, `disposition: pending`.
+- Residual classification totals carried from assessors (rounds 1–3): model-capability ~5; B-GATEWAY ×2 resolved by RR2-FIX(4)+REV; B-PARSER-EVIDENCE ×1 addressed by failed-turn evidence persistence (RRSYN2-2 = FIX(2)); grounded-G1 contract mismatch fixed by refusal grading (RRSYN2-1 = FIX(1)); B-DATA partially addressed — captures still missing for 3 audio legs plus several packs pending a live runtime.
+
+### Manifest / shards / validation (this evidence append)
+
+- **Manifest:** `G7` stays `status: open`, `disposition: pending`; label unchanged. `evidence_sequence` now **81 records** (80 prior + `81 RR3-CLOSEOUT` evidence dispatch recording this closeout; canonical_slot `RR3-CLOSEOUT`; no receipt — evidence dispatch only). `tasks[5].recovery_note.sha256` refreshed to this log's new SHA-256 (validator-required, `ARTIFACT_DIGEST`); `section_sha256` refreshed to new section hash (T1.1→EOF).
+- **Shards:** `test-shards.json` **byte-identical** (`f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353`; frozen at `54467724e4fe3db617689e454e0a210a0820135a`). No shard rewrite required.
+- **Validator proof:** `python3 scripts/validate_workflow_execution_spine_evidence.py docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json` exits `0` on the pre-edit tree AND on the post-edit working tree and post-commit tree (both exits reported under Controls).
+
+### Controls (this evidence append)
+
+- This evidence append changes ONLY the allowed docs files in ONE coherent commit authored by `POM <peter@omalley.io>`: execution log (this `RR3-CLOSEOUT` section), final report addendum (`workflow-execution-spine-consolidation-final-report-2026-08-25.md`), and `manifest.json` G7 `evidence_sequence[81]` + `tasks[5].recovery_note.sha256`/`section_sha256` refresh; `test-shards.json` byte-identical, not rewritten. Round receipts stay UNTRACKED run artifacts — not committed. No receipt, protected state, wrapper, validator, plan, goal, code, harness, or fixture file changed by this recorder; no push, merge, rebase, reset, promotion beyond the allowed evidence promotion, live/model/runtime call, secret access, wrapper dispatch, review, classification, or integration performed by this recorder. Do NOT record own end_ts or receipt digest per brief.
+- **Protected state:** base `1b8aa520` IS HEAD before this append and an ancestor of this append's commit; `final_five` intact (validator `FINAL_FIVE_INTEGRITY` green); `test-shards.json` frozen at `f7d6408e…` (`TEST_SINGLETON` green); single authoritative live_run `T7.2-FINALE-SPLIT` intact (`LIVE_RUN_SINGLETON` green).
+- **Secret hygiene:** all credential material REDACTED per §29a; no credential material anywhere in this append or the report addendum; historical secret lines remain referenced only by their pinned (lineno, sha256) identities, never re-printed; PUSH-BLOCKED-001 unchanged — branch remains local-only.
+- **No push / no history rewrite:** this entry does NOT pass G7; everything above plus this docs commit stays LOCAL on `fixer/workflow-execution-spine-consolidation` at `1b8aa520` + new commit. G7 stays `status: open`.
+- **JUDGMENT_REQUIRED: none** (this recorder makes no new judgment; rounds 2–3 transcription only; the §34 closeout decision is the orchestrator's, recorded as given).
+
+### Position — reopened campaign closed honestly; what the evidence says is next
+
+- **Rounds 2–3 arc:** FIX-A wave ×5 → batch review must ×6 (probed) → REV attempt 1 died on provider SSE (receipt mislabeled success) → REV-R2 `ce7a34d6` → window raw 3/17 (regression) → forensics + `1b8aa520` → R3 window 4/17 confirmed product-passes → §34 criterion unmet at the ≤3 cap → **CLOSED honestly**.
+- **Next (evidence-driven, operator decisions):** a **live ComfyUI runtime** to acquire real captures (unblocks the 3 audio setup-blocked legs plus several packs; B-DATA fully addressable only there), and **provider-stable windows** for variance-prone legs (hotshot conversion unstable across runs; transport noise surfacing inside product-family failures). Push remains the standing operator-only decision (PUSH-BLOCKED-001).

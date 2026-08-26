@@ -1560,6 +1560,14 @@
           "label": "RR1-ROUND1-EVIDENCE \u2014 record reopened-campaign round-1 incident/fix-chain/window/delta (2026-08-26) \u2014 evidence dispatch",
           "role": "evidence",
           "disposition": "recorded"
+        },
+        {
+          "sequence": 81,
+          "canonical_slot": "RR3-CLOSEOUT",
+          "task_id": "RR3-CLOSEOUT",
+          "label": "RR3-CLOSEOUT \u2014 record reopened-campaign rounds 2-3 and honest \u00a734 closeout (2026-08-26) \u2014 evidence dispatch",
+          "role": "evidence",
+          "disposition": "recorded"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1983,8 +1991,8 @@
       "recovery_note": {
         "path": "../workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
         "section": "### T1.1 wrapper-death recovery verification-3",
-        "sha256": "07681537e24ef9a787232096290972899d22badd019880f838aef0230fff97dd",
-        "section_sha256": "8bb4f626f75612d7b2282ca4dd1462df90b85af2e27fe5c14451746891b00af0"
+        "sha256": "d9af92c33adaacd4e3b88ac46a4ea01f4f85aac0a5d928c5b50bb29eb3dde709",
+        "section_sha256": "5d86aaabf996680aea9b19764a8b6558b2200f3abe8b558f34b9b99b8ebc97b1"
       },
       "wrapper_death_recovery": {
         "original_wrapper_death": {
