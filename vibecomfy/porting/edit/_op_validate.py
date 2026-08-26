@@ -13,7 +13,7 @@ import re
 
 from typing import Any, Mapping, Sequence
 
-from vibecomfy.porting.edit._ir_utils import apply_edit_cow
+from vibecomfy.porting.edit._ir_utils import apply_edit_cow, _subgraph_node_for_uid
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
@@ -253,11 +253,18 @@ def _validate_one(workflow: Any, op: EditOp, provider: Any) -> None:
     if isinstance(op, SetNodeFieldOp):
         _validate_field(workflow, op, provider)
     elif isinstance(op, SetModeOp):
-        node = _require_node(workflow, op.target.uid)
         from vibecomfy.workflow import mode_to_litegraph
 
-        if mode_to_litegraph(node.mode) == op.mode:
-            raise ApplyOpsError("no_op", f"node {op.target.uid!r} already has mode {op.mode}.")
+        if op.target.scope_path:
+            sg_node = _subgraph_node_for_uid(workflow, op.target.scope_path, op.target.uid)
+            if sg_node is None:
+                raise ApplyOpsError("unknown_target", f"no retained subgraph node for uid {op.target.uid!r}.")
+            if int(sg_node.get("mode", 0)) == int(op.mode):
+                raise ApplyOpsError("no_op", f"node {op.target.uid!r} already has mode {op.mode}.")
+        else:
+            node = _require_node(workflow, op.target.uid)
+            if mode_to_litegraph(node.mode) == op.mode:
+                raise ApplyOpsError("no_op", f"node {op.target.uid!r} already has mode {op.mode}.")
     elif isinstance(op, UpsertLinkOp):
         _validate_link(workflow, op, provider)
     elif isinstance(op, RemoveLinkOp):

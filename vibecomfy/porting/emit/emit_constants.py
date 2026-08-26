@@ -1030,6 +1030,8 @@ def _metadata_extras_for_emit(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "coverage_tier",
         "custom_node_packs",
         "_has_public_inputs_for_emit",
+        "_workflow_snapshot",
+        "_ingest_snapshot",
     }
     extras = {
         str(key): value

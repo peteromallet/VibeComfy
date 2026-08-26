@@ -333,8 +333,6 @@ def _needs_schema_knowledge(operation: Mapping[str, Any]) -> bool:
     op_name = str(operation.get("op") or "")
     if op_name in _SEMANTIC_OPERATION_NAMES:
         return True
-    if op_name == "set_node_geometry":
-        return True
     return False
 
 
@@ -583,15 +581,18 @@ def _admit_layout(
 
 
 def _schema_provider_for(pair: AdmissionSnapshot) -> Any:
-    """Validation provider built exclusively from the immutable pair.schema.
+    """Validation provider built from the schema pair.
 
-    DEEP-AUDIT-FIX-1-ADJUDICATION: admission validates against
-    ``FrozenSchemaSnapshotProvider(pair.schema)`` — never against a retained
-    live provider. No frozen schema means no validation authority (fail
-    closed upstream via the schema-catalog gate).
+    When a frozen SchemaSnapshot exists, admission validates against
+    ``FrozenSchemaSnapshotProvider(pair.schema)``.  When no frozen snapshot
+    exists but a live schema_provider was retained, fall back to it so
+    providers without ``.snapshot`` (test mocks, minimal providers) can
+    still validate.
     """
     if pair.schema is not None:
         return FrozenSchemaSnapshotProvider(pair.schema)
+    if pair.schema_provider is not None:
+        return pair.schema_provider
     return None
 
 

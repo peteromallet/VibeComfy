@@ -8,6 +8,7 @@ import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, Literal
+from vibecomfy.ingest.normalize import door_get_nodes
 
 from .contracts import DiagnosticRecord
 
@@ -389,7 +390,7 @@ def iter_turn_records_impl(
 
         candidate_graph = response.get("graph")
         candidate_nodes = (
-            len(candidate_graph.get("nodes", []))
+            len(door_get_nodes(candidate_graph, []))
             if isinstance(candidate_graph, dict)
             else None
         )
