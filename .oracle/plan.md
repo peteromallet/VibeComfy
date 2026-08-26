@@ -59,7 +59,8 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 2. Adapter: `extract.normalize_entry` shape (`inputs` plural, `outputs` list-of-dicts, `schema/extract.py:110`) → the raw dump `build_cache` expects (`input` singular, `output` type list, `serialize.py:71–113`). Do not teach `build_cache` a second input dialect.
 
 3. `persist_on_demand_pack(...)` must:
-   - Call `build_cache(..., identity=CacheIdentity(pack_slug, pack_version, git_commit=resolved_sha, evidence_identity=f"on_demand:{rung}:{sha}", source_kind=<token above>), full_pack_refresh={pack_slug})`.
+   - Call `build_cache(..., identity=CacheIdentity(pack_slug, pack_version, git_commit=resolved_sha, evidence_identity=f"on_demand:{rung}:{sha}", source_kind=<token above>), full_pack_refresh=False)` — MERGE semantics. `full_pack_refresh=True` would drop other same-pack classes from the pack file and index.json, silently retargeting existing `@runpod-snapshot` index rows to on-demand (silent tier demotion — forbidden).
+   - Before writing, drop from the extract result any class that already has a higher-tier capture (tier order: runtime family > on_demand_embedded > on_demand_import > on_demand_static); if ALL classes in the result are lower-tier-covered, write nothing (no-op).
    - After write, attest `provenance.json` packs[`filename`] with **at least**: `pack`, `repo`, `locked_commit`, `schema_sha256`, `source_kind`, `extraction_rung` (`ast`|`import`|`embedded`), `registry_pack_version`, `captured_at`. Reuse `_load_provenance`/`_write_provenance`; do not invent a second ledger.
    - Leave `repo`/`locked_commit` as the **clone’s** git remote + `rev-parse HEAD`. That is pin evidence, not a claim of runtime `/object_info`.
 
@@ -145,7 +146,7 @@ Filename: `{pack}@{source_kind}-{sha7}.json` (not `@runpod-snapshot`, not `@loca
 3. For each missing live capture (Batch A helper):
    1. `resolve_pack(class_type)` / `resolve_missing_nodes` → `PackRef` with `url`. Registry REST is **pack metadata + optional provisional schema**; do **not** persist `/nodes/.../schema` as cache truth (provisional only, `pack_resolver.py:817`).
    2. Clone via `OnDemandInstallSchemaProvider._ensure_clone` (sandbox `~/.cache/vibecomfy/schema-sandbox`, LRU `max_packs=64` / `max_bytes=2GiB`). Do **not** use `.tmp_packs` / `clone_and_extract_packs.clone_pack`.
-   3. `extract_pack_schemas(..., allow_import=True, allow_embedded=not args.no_embedded, import_timeout=120)`.
+   3. `extract_pack_schemas(..., allow_import=True, import_timeout=120)` — NO `allow_embedded` kwarg (it does not exist until deferred Batch B lands; passing it TypeErrors). `--no-embedded` is accepted as a no-op placeholder documented as "r3 not yet available"; if a class can only be served by r3, fail closed naming deferred B.
    4. Map `result.method` → persist token; `git rev-parse HEAD` + remote URL + registry `PackRef.version`.
    5. `persist_on_demand_pack` (Batch A).
    6. `_enforce_cap()` after each pack (LRU preserved; no permanent install).
