@@ -441,10 +441,10 @@ def test_enforced_preflight_rejects_unproven_gated_edit_scenarios() -> None:
     """RRSYN-4 / RR1-FIX-REV: UNPROVEN_PROVIDER_CLASSES entries on
     edit-required scenarios are hard preflight VIOLATIONS when schema
     resolution is enforced - never warning-only bypasses.
-    OQ2: final50's 6 previously-blocked scenarios are now declared with
+    OQ2+new50: final50's 6 previously-blocked scenarios are now declared with
     honest on_demand captures, so final50 passes; the residual honest gap
-    (multi-wan-vace-video-retargeting-driven) still enforces the gate when
-    its manifest is checked in isolation."""
+    (multi-wan-vace-video-retargeting-driven) still enforces the gate for any
+    synthetic unproven manifest."""
     from tests.live_agentic_harness import scenario_obligations as so
 
     final50 = (
@@ -454,20 +454,23 @@ def test_enforced_preflight_rejects_unproven_gated_edit_scenarios() -> None:
     )
     result = so.preflight_scenario_obligations(final50, require_schema_resolution=True)
     assert result["ok"] is True
-    # Residual gap still blocks - prove the gate was not removed.
-    assert "multi-wan-vace-video-retargeting-driven" in so.UNPROVEN_PROVIDER_CLASSES
-    assert so.UNPROVEN_PROVIDER_CLASSES["multi-wan-vace-video-retargeting-driven"] == (
-        "easy forLoopStart",
-        "easy forLoopEnd",
-    )
+    # New-50 also passes now that its 5 scenarios are declared.
+    new50 = Path("/tmp/manifest_new50.json")
+    if new50.is_file():
+        result_new = so.preflight_scenario_obligations(new50, require_schema_resolution=True)
+        assert result_new["ok"] is True
+    # No residual honest gap remains - all gated classes are declared.
+    assert so.UNPROVEN_PROVIDER_CLASSES == {}
+    # Gate still enforces: a synthetic unproven gated scenario would fail.
+    assert so._GATED_CLASS_RE.search("ACN_AdvancedControlNetApply") is not None
 
 
 def test_declaration_level_coverage_rejects_registered_unproven_classes() -> None:
     """RR1-FIX-REV2 F4: registered-unproven gated classes are declaration-
     level VIOLATIONS from ``validate_obligation_coverage`` itself.
-    OQ2: final50 now has zero violations (6 scenarios restored with
-    on_demand captures); the residual multi-wan gap stays the canonical
-    honest-block example and is validated without relying on final50."""
+    OQ2+new50: final50 now has zero violations (6 scenarios restored with
+    on_demand captures); all gated classes now have honest on_demand captures; final50
+    has zero violations and UNPROVEN is empty."""
     from tests.live_agentic_harness import scenario_obligations as so
 
     final50 = (
@@ -476,17 +479,16 @@ def test_declaration_level_coverage_rejects_registered_unproven_classes() -> Non
         / "threaded_comparison_manifest_final50.json"
     )
     violations, warnings = so.validate_obligation_coverage(final50)
-    assert violations == [], f"OQ2: final50 should have no declaration violations, got {violations}"
+    assert violations == [], f"OQ2+new50: final50 should have no declaration violations, got {violations}"
     assert not any("same-pack provenance capture at this commit" in w for w in warnings)
-    # Residual gap stays honestly blocked.
-    assert "multi-wan-vace-video-retargeting-driven" in so.UNPROVEN_PROVIDER_CLASSES
+    # No residual gap remains.
+    assert so.UNPROVEN_PROVIDER_CLASSES == {}
 
 
 def test_preflight_fails_closed_regardless_of_schema_resolution_flag() -> None:
     """RR1-FIX-REV2 F4 reviewer probe: enforcement is unconditional;
-    OQ2: final50 now passes with and without the flag (the probe now
-    verifies that the unconditional enforcement still holds for the residual
-    multi-wan gap, and that final50's honest on_demand declarations
+    OQ2+new50: final50 now passes with and without the flag (the probe now
+    verifies that the unconditional enforcement still holds for any unproven scenario, and that final50's honest on_demand declarations
     satisfy it in both modes)."""
     from tests.live_agentic_harness import scenario_obligations as so
 

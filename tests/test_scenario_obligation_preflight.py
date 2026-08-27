@@ -157,10 +157,10 @@ def test_descriptor_granting_safe_refusal_on_edit_scenario_fails_closed(
 
 
 def test_preflight_fails_closed_for_unproven_final50_and_passes_final5() -> None:
-    """OQ2: FINAL50's 6 previously-blocked gated classes now have honest
+    """OQ2+new50: FINAL50's 6 previously-blocked gated classes now have honest
     on_demand captures and declarations, so BOTH final50 and final5 pass
-    the preflight (the legacy "unproven still fails" gate is now covered
-    by the residual multi-wan case)."""
+    the preflight (UNPROVEN is
+    empty and the enforcement gate remains)."""
     result50 = so.preflight_scenario_obligations(FINAL50, require_schema_resolution=False)
     assert result50["ok"] is True
     assert result50["schema_resolution_enforced"] is True
@@ -176,9 +176,8 @@ def test_preflight_fails_closed_for_unproven_final50_and_passes_final5() -> None
     ]
     assert layermask_rows
     assert layermask_rows[0]["LayerMask: SegmentAnythingUltra V3"] is True
-    # Residual honest gap (multi-wan) still blocks when isolated - proves
-    # the enforcement gate was not removed, just satisfied for final50.
-    assert "multi-wan-vace-video-retargeting-driven" in so.UNPROVEN_PROVIDER_CLASSES
+    # No residual gap - all gated classes declared.
+    assert so.UNPROVEN_PROVIDER_CLASSES == {}
 
 
 def test_preflight_schema_resolution_fails_closed_without_local_evidence(

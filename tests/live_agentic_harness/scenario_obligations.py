@@ -267,6 +267,58 @@ SCHEMA_EVIDENCE_REQUIREMENTS: dict[str, tuple[Mapping[str, Any], ...]] = {
             "required_outputs": ("positive",),
         },
     ),
+    "multi-animatediff-video-face-swapping-with-deflicker-506ebd": (
+        {
+            "class_type": "ACN_AdvancedControlNetApply",
+            "pack": "ComfyUI-Advanced-ControlNet",
+            "source": "on_demand_static",
+            "required_inputs": ("control_net", "image", "positive", "negative"),
+            "required_outputs": ("positive",),
+        },
+    ),
+    "multi-wan-vace-video-retargeting-driven": (
+        {
+            "class_type": "easy forLoopStart",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "on_demand_import",
+            "required_inputs": ("total",),
+            "required_outputs": ("flow", "index"),
+        },
+        {
+            "class_type": "easy forLoopEnd",
+            "pack": "ComfyUI-Easy-Use",
+            "source": "on_demand_import",
+            "required_inputs": ("flow",),
+            "required_outputs": ("value1",),
+        },
+    ),
+    "video-animatediff-video-with-controlnet-and-depth-89b02a": (
+        {
+            "class_type": "ACN_AdvancedControlNetApply_v2",
+            "pack": "ComfyUI-Advanced-ControlNet",
+            "source": "on_demand_static",
+            "required_inputs": ("control_net", "image", "positive", "negative"),
+            "required_outputs": ("positive",),
+        },
+    ),
+    "video-animatediff-video-with-ipadapter-and-controlne-4eebf3": (
+        {
+            "class_type": "ACN_AdvancedControlNetApply",
+            "pack": "ComfyUI-Advanced-ControlNet",
+            "source": "on_demand_static",
+            "required_inputs": ("control_net", "image", "positive", "negative"),
+            "required_outputs": ("positive",),
+        },
+    ),
+    "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2": (
+        {
+            "class_type": "ACN_AdvancedControlNetApply",
+            "pack": "ComfyUI-Advanced-ControlNet",
+            "source": "on_demand_static",
+            "required_inputs": ("control_net", "image", "positive", "negative"),
+            "required_outputs": ("positive",),
+        },
+    ),
 }
 
 #: Class-type families that trigger the exact-schema-evidence gate wherever
@@ -300,18 +352,12 @@ _GATED_CLASS_RE = re.compile(
 #:   * llama_cpp_model_loader / llama_cpp_instruct_adv /
 #:     llama_cpp_parameters (ComfyUI-llama-cpp_vlm).
 UNPROVEN_PROVIDER_CLASSES: dict[str, tuple[str, ...]] = {
-    # OQ2: 6 scenarios above now have honest on_demand captures and
-    # declarations; the remaining honest gap is the VACE multi-video
-    # retargeting scenario whose Easy-Use loop surface was never captured
-    # for that workflow (not in final50).  It stays blocked until a
-    # same-pack LIVE capture lands.
-    # Easy-Use loop nodes: dynamic outputs were the motivation for the
-    # original obligation; without a LIVE capture the output surface is
-    # unproven and stays honestly blocked.
-    "multi-wan-vace-video-retargeting-driven": (
-        "easy forLoopStart",
-        "easy forLoopEnd",
-    ),
+    # OQ2 (2026-08-26) + new-50 (2026-08-27): all gated classes now have
+    # honest on_demand captures (ComfyUI-Advanced-ControlNet@on_demand_static-
+    # a0563a3, ComfyUI-Easy-Use@on_demand_import-4de1ab3) and declarations;
+    # no residual honest gap remains.  The dict stays as a fail-closed
+    # registry — empty means no scenario is blocked for missing same-pack
+    # provenance.
 }
 
 
