@@ -1,0 +1,77 @@
+[launch_hermes_agent] model=openrouter/meta/muse-spark-1.2-contributor → resolved=openrouter/meta/muse-spark-1.2-contributor toolsets=['file', 'web'] max_tokens=65536 context_budget_tokens=(auto)
+[launch_hermes_agent] NOTE: omp gives the full toolset (Bash, Read, Edit, web, …); the file/web/terminal subset is a superset here.
+[launch_hermes_agent] cwd=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+Working...
+**Done — oracle-run 339c9e1e** `schemas-ensure: restore on_demand declarations for 6 previously-blocked scenarios (OQ2, operator-authorized)`. No push.
+
+**Files changed (16):**
+- `tests/live_agentic_harness/scenario_obligations.py` (191 +-, declarations + UNPROVEN trim)
+- `tests/test_p4_objectinfo_caches.py` (3 tests updated)
+- `tests/test_scenario_obligation_preflight.py` (1 test updated)
+- `vibecomfy/porting/cache/object_info/index.json` (+598)
+- `vibecomfy/porting/cache/object_info/provenance.json` (+118)
+- 11 on_demand captures (honest tiers, provenance ledger):
+  `audio-separation-nodes-comfyui@on_demand_import-ac33956.json` (on_demand_import)
+  `comfyui_ryanonyheinside@on_demand_import-52daf66.json` (on_demand_import)
+  `ComfyUI-DeepExtract@on_demand_import-40cf9cb.json` (on_demand_import)
+  `ComfyUI-VibeVoice@on_demand_static-99a9803.json` (on_demand_static)
+  `ComfyUI-Inspire-Pack@on_demand_import-d23db9a.json` (on_demand_import)
+  `ComfyUI-Easy-Use@on_demand_import-4de1ab3.json` (on_demand_import)
+  `ComfyUI-Easy-Use@on_demand_import-b5e31ef.json` (on_demand_import)
+  `ComfyUI-llama-cpp@on_demand_import-f2209cc.json` (on_demand_import)
+  `ComfyUI-Advanced-ControlNet@on_demand_static-a0563a3.json` (on_demand_static)
+  `comfyui-advanced-controlnet@on_demand_static-27a67fe.json` (on_demand_static)
+  `ComfyUI-SubjectStyle-CSV@on_demand_static-4766731.json` (on_demand_static)
+
+**Declaration rows added (verbatim, capture-wins — no invented ports, source matches cache `source_kind` exact):**
+```python
+"audio-acestep-audio-generation-and-processing-workfl-1b1360": (
+    {"class_type": "AudioCombine", "pack": "audio-separation-nodes-comfyui", "source": "on_demand_import", "required_inputs": ("audio_1", "audio_2"), "required_outputs": ("AUDIO",)},
+    {"class_type": "AudioSeparation", "pack": "audio-separation-nodes-comfyui", "source": "on_demand_import", "required_inputs": ("audio",), "required_outputs": ("Bass",)},
+    {"class_type": "AudioFilter", "pack": "comfyui_ryanonyheinside", "source": "on_demand_import", "required_inputs": ("audio", "filters"), "required_outputs": ("AUDIO",)},
+    {"class_type": "AudioVolumeNormalization", "pack": "comfyui_ryanonyheinside", "source": "on_demand_import", "required_inputs": ("audio", "target_level"), "required_outputs": ("AUDIO",)},
+    {"class_type": "VocalAndSoundRemoverNode", "pack": "ComfyUI-DeepExtract", "source": "on_demand_import", "required_inputs": ("input_sound",), "required_outputs": ("Vocals",)},
+),
+"audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676": (same 5 as above),
+"audio-audio-processing-with-voice-tts-and-noise-remo-b80848": (
+    {"class_type": "VibeVoiceTTS", "pack": "ComfyUI-VibeVoice", "source": "on_demand_static", "required_inputs": ("text", "model_name"), "required_outputs": ("AUDIO",)},
+),
+"image-generates-a-2x2-seed-variation": (
+    {"class_type": "ImageBatchSplitter //Inspire", "pack": "ComfyUI-Inspire-Pack", "source": "on_demand_import", "required_inputs": ("images", "split_count"), "required_outputs": ("IMAGE",)},
+    {"class_type": "easy forLoopStart", "pack": "ComfyUI-Easy-Use", "source": "on_demand_import", "required_inputs": ("total",), "required_outputs": ("flow", "index")},
+    {"class_type": "easy forLoopEnd", "pack": "ComfyUI-Easy-Use", "source": "on_demand_import", "required_inputs": ("flow",), "required_outputs": ("value1",)},
+    {"class_type": "easy int", "pack": "ComfyUI-Easy-Use", "source": "on_demand_import", "required_inputs": ("value",), "required_outputs": ("int",)},
+),
+"image-llama-cpp-instruct-image-preview-and-save-5b54bf": (
+    {"class_type": "llama_cpp_model_loader", "pack": "ComfyUI-llama-cpp", "source": "on_demand_import", "required_inputs": ("model",), "required_outputs": ("llama_model",)},
+    {"class_type": "llama_cpp_instruct_adv", "pack": "ComfyUI-llama-cpp", "source": "on_demand_import", "required_inputs": ("llama_model", "custom_prompt"), "required_outputs": ("output",)},
+    {"class_type": "llama_cpp_parameters", "pack": "ComfyUI-llama-cpp", "source": "on_demand_import", "required_inputs": ("temperature",), "required_outputs": ("parameters",)},
+),
+"image-sd3-image-generation-with-controlnet-19d221": (
+    {"class_type": "ACN_AdvancedControlNetApply", "pack": "ComfyUI-Advanced-ControlNet", "source": "on_demand_static", "required_inputs": ("control_net", "image", "positive", "negative"), "required_outputs": ("positive",)},
+),
+```
+`UNPROVEN_PROVIDER_CLASSES` trimmed to residual honest gap only: `multi-wan-vace-video-retargeting-driven: (easy forLoopStart, easy forLoopEnd)` — not in final50, stays blocked. Old commented rows had class names only (no ports); capture wins — no diff to record beyond the new ports above. `on_demand_static` declarations point at `on_demand_static` cache files (exact tier, no upgrade).
+
+**Preflight verbatim:**
+```
+$ python -m tests.live_agentic_harness.compare_pipeline_modes --validate-only --manifest tests/live_agentic_harness/threaded_comparison_manifest_final50.json
+{
+  "ok": true,
+  "model_calls": 0,
+  "manifest": "tests/live_agentic_harness/threaded_comparison_manifest_final50.json",
+  "scenario_count": 50,
+  ...
+}
+```
+(`"ok": true` — full 50-entry payload verified)
+
+**Focused tests verbatim:**
+```
+$ pytest tests/test_scenario_obligation_preflight.py tests/test_p4_objectinfo_caches.py tests/test_batch_e_e2e.py -q
+.........................................................                [100%]
+57 passed, 2 warnings in 2.18s
+```
+Updated 4 tests to honest post-OQ2 state while preserving coverage (they now assert final50 passes and the residual multi-wan gap remains the enforcement proof). `test_runtime_only_rejects_matched_ondemand` still passes — `on_demand_runtime` rejected and `runtime_only` strict flag rejects `on_demand_static/import` without `schemas ensure` hint.
+[launch_hermes_agent] done in 676.3s (exit=0)
+0
