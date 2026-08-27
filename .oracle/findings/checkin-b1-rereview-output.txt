@@ -1,0 +1,13 @@
+**VERDICT: PASS** — written to `.oracle/checkins/batch-1-rework.md`.
+
+Evidence, all self-run or independently swept:
+
+1. **RW1/G1** (`pipeline_mode_surface.test.mjs:374–536`): real-gate only — `invokeCommand("VibeComfy.AgentEdit")` drives production deps (real WeakSet closure, `roundtrip:3157`); no fake injection anywhere. Refresh-during-cards asserts overlay + child-node identity and selection survival; countdown expiry → storage unset → gate remounts at mode step, which passes **only** if the sentinel was genuinely cleared. Mode-only completion (:9984) closes without research prompt.
+2. **RW2/G2** (`roundtrip_smoke.test.mjs:8448–8591`): synthetic refresh during research **and** mid-countdown — node identity, button refs, enabled state all preserved; natural expiry completes the close leg; unset re-asks fresh (`notEqual` mount), staged-only continue persists.
+3. **Suites**: focused triple run by me → 333 tests / 331 pass / 0 fail; both skips are pre-existing retired-migration skips, untouched.
+4. **No product drift**: delta strictly additive (+347/−0), tests + `.oracle/` notes only; independent scout sweep re-verified all prior-PASS anchors HOLD at HEAD (single store :410, helper-mediated writes :448, sentinel sites :3211/:9564, phase guard verbatim :3199, copy constant verbatim consumed at :474/:9934, funnel guard pre-serialize :3320, static single-funnel test present, `pipelineChromeEnabled` absent).
+
+Residual, non-blocking, defer to B3: Site A clear (:3211) runs on real paths but isn't discriminated post-real-mark — near-unreachable by design since the gate SKIPs close while flowOpen.
+
+**NS disposition**: ask-once-explain-honest ✓ (re-ask discipline now behaviorally fenced); discoverable+reversible ✓; compose-don't-duplicate ✓; no silent defaults ✓. Batch 1 conforms; proceed to Batch 2 unchanged.
+0

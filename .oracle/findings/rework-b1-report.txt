@@ -1,0 +1,9 @@
+**Files changed:** `tests/browser/pipeline_mode_surface.test.mjs` (+181), `tests/browser/roundtrip_smoke.test.mjs` (+151). Product code: zero diffs.
+
+**New cases**
+- `live flow sentinel survives a status refresh during engine cards (same overlay, selection kept)` — refresh through the real gate skips the remount (element identity + node identities + selection intact).
+- `thank-you countdown teardown clears the sentinel; a later unset re-asks once (real gate remount)` — full research→No→thanks→countdown teardown; control refresh stays silent, storage-unset then provokes a fresh mode-step remount (sentinel-clear proof without injected fakes); reopened flow re-marks and closes via mode-only Continue, no research re-ask.
+- `VibeComfy onboarding research/thanks screens survive status refreshes; unset answer re-asks fresh` — synthetic refreshes during research and mid-countdown leave overlay/box/buttons untouched; countdown still expires naturally; reviewer's open→close→unset→reopen cycle included.
+
+**Counts:** poller+surface suite **74 pass / 0 fail**; smoke **259 total — 257 pass / 0 fail** (2 pre-existing skips). Both focused commands green. Coercion-fallback left-as-is rationale recorded in `batch-1-attempt-1.md`.
+0

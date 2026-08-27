@@ -1,0 +1,6 @@
+**PASS**
+
+Verified against code and `.oracle/`: B1-T2 copy restored verbatim in frozen tasklist (:10) matching agent_goal Objective 1. Both prior fixes present. Seam claims check out: `vibecomfy_agent_pipeline_mode` key (vibecomfy_roundtrip.js:409); Settings select default-to-staged at :3679–3681 correctly slated for unset placeholder; `DEFAULT_PIPELINE_MODE`/`normalizePipelineMode` fallback (agent_submit_flow.js:22,33) resolved by A7's explicit-getter gating; three chrome sites (:832, :1390, :6254 ≈ renderMeta :6248+) match E3 inventory; signature funcs (:661/:676) support B2-T2; `pipeline_mode_surface.test.mjs` exists; `fast` target (Makefile:162) and IR boundary (:182) real. DC1–DC5 mapped, push-only sync intact.
+
+Residual nit (non-blocking): B3-T1 lists commands bare while goal/plan canonical blocks carry `uv run` prefixes — same three targets, same exit codes.
+0

@@ -1,10 +1,16 @@
-# Custody baseline — megado run (schema-capture integration)
+# Custody baseline — onboarding-mode run
 
-- Date: 2026-08-26
-- Source ref: `96a9d81021a6ccee43ccb9afccdf49ff6ae4a5b5` (= origin/fixer/workflow-execution-spine-consolidation = agentbox HEAD, verified equal to box `ls-remote` at campaign close)
-- Worktree: `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle` (branch `oracle-run`, clean at creation)
-- Primary checkout: `/Users/peteromalley/Documents/reigh-workspace/vibecomfy` on `desloppify/worst-offenders` with dirty `tests/browser/agent_edit_lifecycle.test.mjs`, `tests/browser/harness.mjs` — **protected concurrent work, do not touch**
-- Prunable stale worktrees in /private/tmp: left alone
-- Remote: origin (github.com/peteromallet/VibeComfy)
-- Environment: macOS arm64, pyenv 3.11.11 available; agentbox (159.69.51.216, container 8ae259ba345f) hosts the in-flight 44-leg finale run — read-only for this run except its own /tmp outputs
-- Secrets: none in .oracle/; OpenRouter key lives only in box /workspace/.creds/omp.env
+- Date: 2026-08-26 (local)
+- Source ref (immutable): `8a4ff90b356a07d43021e3d6255adae36678b227` = `origin/main` after shipping IR/fast fixes.
+- Base branch at fork: `main` (== origin/main, clean).
+- Worktree: `/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle-onboard`, branch `oracle-onboard-20260826`.
+- Main checkout status at fork: clean (`## main...origin/main`, no dirty entries).
+- Untracked files in main checkout at fork: none relevant (working tree clean per `git status --porcelain | head` empty).
+- Other worktrees (protected, DO NOT TOUCH):
+  - `../vibecomfy-oracle` branch `oracle-run` — prior schema-campaign megado workspace. Untouched; one stray snapshot file copied there this run was removed.
+  - Prunable stale worktrees under `/private/tmp/vc-*` — left alone.
+- Remotes: `origin → https://github.com/peteromallet/VibeComfy.git`.
+- Protected local work that must survive:
+  - `desloppify/worst-offenders` branch + stash `desloppify-keep-final` in the MAIN checkout (51-file refactor WIP). Never mutated from this run.
+- Environment identity: darwin 24.4.0 arm64, Apple M2, node v20.19.4, uv-managed `.venv` Python 3.11.14, repo pyproject `vibecomfy 2.8.0`.
+- North Star custody: prior campaign-scoped northstar snapshotted (see agent_goal.md header) with sha256 d9b4d1d294e11054bb145ab539f1fea28b1cd031234955c4a5393b49aa9928bd before writing this run's northstar.md.

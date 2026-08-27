@@ -1,0 +1,1 @@
+{"phase":"pre-execution-contract-review","pass":3,"model":"openrouter/z-ai/glm-5.3-flash","verdict":"PASS","residual_nit":"non-blocking (cached-snippet artifact)","brief":".oracle/briefs/pre-exec-review-v3-brief.md","result":".oracle/findings/pre-exec-contract-review-v3.txt","exit":0}

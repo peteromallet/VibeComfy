@@ -1,0 +1,17 @@
+**NOT PASS — 4 issues found; contract otherwise verified against repo.**
+
+**Issues (req #2 — every task cites DC + NS principle or "none"):**
+1. **B1-T4** carries no traceability tag at all (no DC, no NS). It verifies DC1–DC2 mechanically; cite `[DC1 DC2 | NS: contract surfaces typed+tested]`.
+2. **B2-T3** carries no traceability tag. Covers DC3; cite `[DC3 | NS: UI never lies]`.
+3. **B3-T1** cites `[DC4]` only — no NS principle nor "none".
+4. **B3-T2** cites `[DC5]` only — same.
+
+Trivial fix (annotations only); no architectural reopening required.
+
+**Verified clean:**
+- **Req #1 consistency:** Goal↔plan↔tasklist agree on validation (`node --test tests/browser/*.mjs`, `make fast`, `check_ir_boundary.py` — target exists at Makefile:162), sync policy (push `oracle-onboard-20260826` only, no merge/deploy — branch confirmed at base 8a4ff90b), worktree-scoped mutations, batch ordering (B2's `pipelineChromeEnabled` correctly depends on B1-T1 explicit getter). DC1→B1-T1/T2/T4, DC2→B1-T3/B2-T2, DC3→B2-T1/T3, DC4→B3-T1, DC5→B3-T2: complete. Cited seams verified live: `panel_thread.js:832` renderExecutorProgressRow, populateAgentBubbleDetail :1332, `vibecomfy_roundtrip.js:6248` renderMeta, rehydrate write 4430–4433 exists as claimed.
+- **Req #3:** Zero `[XHARD]` tags; header justification (file:line-known seams, mechanical acceptance) corroborated by the above — expect-none met.
+- **Req #4:** Exactly ONE preference store confirmed in design *and* code: sole key `vibecomfy_agent_pipeline_mode` (Settings :3679/:3790, submit); E1 proves env default is headless-only dead code for panel sessions, status exposes no mode. "All normal" classification justified.
+
+Fix the four tags, then freeze.
+0

@@ -1,0 +1,1 @@
+{"phase":"pre-execution-contract-review","pass":1,"model":"openrouter/z-ai/glm-5.3-flash","verdict":"NOT_PASS","issues":4,"all_traceability_tags":"mechanical fixes only","brief":".oracle/briefs/pre-exec-review-v1-brief.md","result":".oracle/findings/pre-exec-contract-review-w1.txt","base_sha":"8a4ff90b356a07d43021e3d6255adae36678b227","exit":0}

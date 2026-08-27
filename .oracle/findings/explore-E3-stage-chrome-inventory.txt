@@ -1,0 +1,25 @@
+## E3 report — staged-chrome inventory & render invalidation
+
+**1. Stage strip — `renderExecutorProgressRow` (panel_thread.js:832-911).** Gated on pending messages only (`isPendingAgentMessage`, :834); sources `msg.progress` → falls back to `panel.state.executorProgress` (:837-841). Fixed four steps Decide/Research/Execute/Review (:845-850) with status colors (:862-863). Markers: `vibecomfyPhaseSource="transcript"` (:852), `vibecomfyExecutorStage=decide|research|execute|review` (:872), `vibecomfyExecutorStatus` (:873), `vibecomfyProgressSecondary="1"` (:896). No per-stage spinner glyph; "spinner copy" is the secondary line = pending `msg.text` or `msg.progress_label` (:842-844), text coined upstream in `agentTurnProgressLabel` (agent_turn_feed.js:324-363: "Researching", "Deciding", "Executing (N ops landed)"). Mounted inside bubble text at :1499-1502.
+
+**2. Details — `populateAgentBubbleDetail` (:1332-1450).** Staged "Progress" section renders stage list + headline from `snapshot.progress` keys (:1390-1408). Keep ungated: Changes (:1367), canonical_activity diagnostics (:1414-1416), Candidate (:1420), Feedback (:1432), Failure (:1439), Queue (:1445).
+
+**3. Repaint keys.** `bubbleRenderSignature` (:676-710) includes progress JSON/label/pending (:705-707) but **no mode**; same for `bubbleDetailSignature` (:661-674). `reconcileChatBubbles` rebuilds a bubble only on signature change (:1765-1771); detail populate keyed by detailSignature (:1585-1593). ⇒ Adding mode as a signature part forces correct repaint on switch; without it, cached staged rows survive.
+
+**4. Settings onchange (vibecomfy_roundtrip.js:3790-3798).** Normalizes, `_lsSet("vibecomfy_agent_pipeline_mode")` (:409 key), sets `panel.fields.pipelineMode.value` (:3796). **Nothing dirties any section** — no `scheduleRenderAgentPanel` call today. Select built at :3650-3681 ("Agent mode" label :3650; options "Staged pipeline"/"Threaded agent"); init `_lsGet(PIPELINE_MODE_STORAGE_KEY) || DEFAULT_PIPELINE_MODE` (:3679). Default `"staged"` (agent_submit_flow.js:14).
+
+**5. Classified inventory**
+
+| Site | Shows | Verdict |
+|---|---|---|
+| panel_thread.js:832 strip | 4-stage row + secondary label | **gate** |
+| panel_thread.js:1390 Progress section | stage list in details | **gate** |
+| vibecomfy_roundtrip.js:6254-6256 `renderMeta` "phase" chip | `executorProgressLabel()` e.g. "Research" | **gate** (chrome) |
+| roundtrip :6202-6237 executor-phase handler | state-only updates + META/THREAD render schedule | leave (plumbing) |
+| agent_turn_feed.js:324 `agentTurnProgressLabel` | status/route wording for activity feed | leave (lifecycle vocabulary) |
+| executor_progress.js:455-491 helpers | pure derivation | leave; gate display sites |
+
+**6. Test coverage.** pipeline_mode_surface.test.mjs: normalizer aliases (:22), submit-body mode (:30), select persists+submits (:55), rehydration (:119) — zero staged-chrome claims. active_row_rendering.test.mjs:319-389 asserts stage marker repaint; :462-469 strip/secondary. roundtrip_smoke.test.mjs:1150,16140 also assert stage markers (safe while default=staged; need mode fixtures after gating). agent_status_poller.test.mjs:1203 covers `syncChooseEngineGate`/settings save — the overlay-reuse seam. payload_contracts tests exercise labels only — unaffected.
+
+**Recommended gating boundary:** one helper `pipelineChromeEnabled(panel)` (normalize `panel.fields.pipelineMode?.value` with LS/`DEFAULT_PIPELINE_MODE` fallback, true iff `"staged"`), consulted at exactly three display sites: `renderExecutorProgressRow` head, :1390 condition, `renderMeta` chip. Pair with appending current mode into both signature arrays (:673, :708) so live switching repaints; B2 adds a dirty-render call in the :3790 handler.
+0

@@ -558,6 +558,10 @@ export async function createBrowserHarness({
   withGraphMutation = false,
   enableVibeComfySidebarTab = true,
   workflowId = "123e4567-e89b-12d3-a456-426614174000",
+  // Legacy submits assume an explicit agent-mode choice exists. Tests that
+  // exercise the onboarding mode ask (cleared storage, blocked submit, …)
+  // pass false and manage "vibecomfy_agent_pipeline_mode" themselves.
+  seedPipelineMode = true,
 } = {}) {
   const document = new FakeDocument();
   const requests = [];
@@ -1315,6 +1319,9 @@ export async function createBrowserHarness({
     warn: (...args) => consoleCapture.warn.push(args.map(String).join(" ")),
     error: (...args) => consoleCapture.error.push(args.map(String).join(" ")),
   };
+  if (seedPipelineMode) {
+    globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
+  }
 
   let importedModule = null;
 

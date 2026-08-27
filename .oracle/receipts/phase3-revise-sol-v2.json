@@ -1,0 +1,1 @@
+{"phase":"revise","model":"gpt-5.6-sol","provider":"openai","command":"codex exec --sandbox read-only -c model=gpt-5.6-sol -c model_reasoning_effort=high < /tmp/onboard-rev-brief.md </dev/null","base_sha":"8a4ff90b356a07d43021e3d6255adae36678b227","result_path":"/tmp/onboard-rev-v2.txt","plan_path":".oracle/plan.md","verdict":"MATERIAL_REVISION (v2)","exit":0,"duration_s":151}

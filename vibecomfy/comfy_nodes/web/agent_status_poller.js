@@ -896,29 +896,56 @@ export function syncChooseEngineGate(panel, deps = {}) {
   if (!panel?.shell || typeof document === "undefined") {
     return;
   }
-  const { closeChooseEngineOverlay, openChooseEngineOverlay } = deps;
-  const persisted = getPersistedAgentProvider();
-  if (persisted) {
-    if (typeof closeChooseEngineOverlay === "function") {
-      closeChooseEngineOverlay(panel);
+  const { closeChooseEngineOverlay, openChooseEngineOverlay, isChooseEngineFlowOpen, readPipelineModeChoice } = deps;
+
+  // Adopt a ready provider FIRST (independent of the mode question) so its
+  // side effects and messages keep their existing semantics.
+  const persistedAfterAdopt = (() => {
+    if (getPersistedAgentProvider()) {
+      return true;
+    }
+    const readyProvider = storedReadyProviderFromStatus(panel);
+    if (readyProvider) {
+      setPersistedAgentProvider(readyProvider);
+      populateRouteSelect(panel.fields.route, routeOptionsFromStatus(panel.state.statusSnapshot), {
+        selectedRoute: readyProvider,
+      }, deps);
+      panel.fields.route.value = readyProvider;
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.READY,
+        requestedRoute: readyProvider,
+        model: normalizeModelPreference(panel.fields.model.value),
+      };
+      panel.state.settingsMessage =
+        `${readyProvider} → ${panel.state.statusSnapshot?.route || readyProvider} (provider ready)`;
+      panel.state.settingsMessageKind = "success";
+      return true;
+    }
+    return false;
+  })();
+
+  // The mode ask precedes BOTH provider close paths: auto-adoption must never
+  // bypass the explicit how-should-the-agent-work question. Deps absent means
+  // legacy wiring — treat the mode as satisfied to preserve old behavior.
+  const modeMissing = typeof readPipelineModeChoice === "function"
+    ? !readPipelineModeChoice().present
+    : false;
+  const flowOpen = typeof isChooseEngineFlowOpen === "function" && isChooseEngineFlowOpen(panel) === true;
+
+  if (modeMissing) {
+    if (!flowOpen && routeStatusState(panel).kind !== ROUTE_STATUS_KIND.LOADING) {
+      if (typeof openChooseEngineOverlay === "function") {
+        openChooseEngineOverlay(panel, { onResolved: () => {} });
+      }
     }
     return;
   }
-  const readyProvider = storedReadyProviderFromStatus(panel);
-  if (readyProvider) {
-    setPersistedAgentProvider(readyProvider);
-    populateRouteSelect(panel.fields.route, routeOptionsFromStatus(panel.state.statusSnapshot), {
-      selectedRoute: readyProvider,
-    }, deps);
-    panel.fields.route.value = readyProvider;
-    panel.state.routeStatus = {
-      kind: ROUTE_STATUS_KIND.READY,
-      requestedRoute: readyProvider,
-      model: normalizeModelPreference(panel.fields.model.value),
-    };
-    panel.state.settingsMessage =
-      `${readyProvider} → ${panel.state.statusSnapshot?.route || readyProvider} (provider ready)`;
-    panel.state.settingsMessageKind = "success";
+  if (flowOpen) {
+    // Mode is locked and the user is mid-flow (engine cards / research);
+    // refreshes must not rebuild or dismiss out from under them.
+    return;
+  }
+  if (persistedAfterAdopt) {
     if (typeof closeChooseEngineOverlay === "function") {
       closeChooseEngineOverlay(panel);
     }

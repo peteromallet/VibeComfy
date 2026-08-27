@@ -1,0 +1,13 @@
+**PASS** — written to `.oracle/checkins/batch-2.md` (replaced a corrupt 11k-line codex-log dump that occupied that path).
+
+Evidence summary:
+
+1. **Gates**: all three sites present and fed only by explicit choice — `pipelineChromeEnabled` = `readPipelineModeChoice().mode === "staged"` (roundtrip:464); thread side strict `matchPipelineMode` via `stagedChromeForDeps` (panel_thread:698→884/:1455); meta chip roundtrip:6414. `DEFAULT_PIPELINE_MODE` reaches only backend-payload parse (:5289) and the request boundary — never display.
+2. **Threaded + unset**: tests assert zero stage nodes, zero phase chips, one neutral `Working…`, no staged copy even with details pane opened; legacy staged tests gained explicit localStorage fixtures (A6), staged bytes deep-equal after flip-back.
+3. **Signatures/switching**: mode in both keyed signatures (source-contracted ≥2 occurrences); real Settings `onchange` flips both directions live, reuses the same keyed bubble DOM object, preserves `executorProgress`; repaint via pre-existing `scheduleRenderAgentPanel` (no event bus); execution reads mode per-submit → next-submit semantics by construction.
+4. **Scope**: 5 files, gates + signatures + onchange repaint only; diagnostics/candidate/failure/queue/feed and executor logic untouched.
+5. **Suites self-run**: surface + active_row + roundtrip_smoke → **297 pass / 0 fail / 2 skipped** (pre-existing retired-migration skips), exit 0.
+6. **NS**: "UI never lies about mode" is the operative property of this delta; no half-gated UX found.
+
+Non-blocking notes only (unused `panel` args on gates; unset-details path shares the identical source-contracted gate).
+0

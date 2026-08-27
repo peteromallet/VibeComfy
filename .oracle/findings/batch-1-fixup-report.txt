@@ -1,0 +1,10 @@
+Green. All Batch-1 acceptance cases (B1-T1..T4) pass.
+
+**Root cause:** the mode-flow refactor turned `showEngineCards`/`showModeStep` into lazy screen functions but dropped the overlay-scope state declarations that live across screens and feed `onConfirm`. `syncChooseEngineGate` itself was already clean — everything comes from `deps` (poller.js:895, delegation at roundtrip.js:3158); no gate change needed. A full bare-assignment audit of roundtrip.js found no other undeclared identifiers.
+
+**Changed lines:**
+- `vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js:9583-9592` — restored in `openChooseEngineOverlay`, per pre-refactor revision e5a788b0 plus new-in-refactor `confirmBtnRef`: `let selectedRoute = null;` / `const cardRegistry = [];` / `let openrouterKeyInput = null;` / `let openrouterErrorNode = null;` / `let confirmBtnRef = null;`
+- `tests/browser/roundtrip_smoke.test.mjs:8522` — regex sharpened to `/Contribute agent research\?/`. Old pattern also matched the permanent Settings label ("Contribute agent research", no `?`), which legitimately stays mounted; `\?` isolates the overlay research-screen heading, preserving B1-T2's "mode-only route never shows research prompt" (the mode-completion teardown assertion above it is untouched). Verified this smoke case was pre-broken too — it died with the same ReferenceError before my fix landed.
+
+**Results:** two named suites 72/72 pass (was 5 fail). Full focused set incl. `roundtrip_smoke.test.mjs`: **330 tests — 328 pass, 0 fail, 2 skipped** (pre-existing retired legacy migration coverage, unrelated to B1).
+0

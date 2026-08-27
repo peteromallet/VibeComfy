@@ -248,6 +248,20 @@ function makeDeps(overrides = {}) {
     syncChooseEngineGate: () => {},
     closeChooseEngineOverlay: () => {},
     openChooseEngineOverlay: () => {},
+    // Gate dependency: live view of globalThis.localStorage so tests can seed
+    // or clear the explicit agent-mode preference per case.
+    readPipelineModeChoice: () => {
+      let raw = null;
+      try {
+        raw = globalThis.localStorage?.getItem("vibecomfy_agent_pipeline_mode") ?? null;
+      } catch (_e) {
+        raw = null;
+      }
+      const cleaned = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+      if (cleaned === "staged" || cleaned === "full") return { present: true, mode: "staged" };
+      if (cleaned === "threaded" || cleaned === "two_step") return { present: true, mode: "threaded" };
+      return { present: false, mode: null };
+    },
     refreshAgentStatus: async () => {},
     ...overrides,
   };
@@ -1206,7 +1220,7 @@ test("testAgentSettings — no-op on null panel", async () => {
 test("syncChooseEngineGate — closes overlay when persisted provider exists", () => {
   globalThis.localStorage._clear();
   setPersistedAgentProvider("openrouter");
-
+  globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
   let closeCalled = false;
   let openCalled = false;
   const deps = makeDeps({
@@ -1223,6 +1237,7 @@ test("syncChooseEngineGate — closes overlay when persisted provider exists", (
 
 test("syncChooseEngineGate — closes overlay when ready provider found via status", () => {
   globalThis.localStorage._clear();
+  globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
 
   let closeCalled = false;
   const deps = makeDeps({
@@ -1257,7 +1272,7 @@ test("syncChooseEngineGate — closes overlay when ready provider found via stat
 
 test("syncChooseEngineGate — auto-selects DeepSeek provider when status has DeepSeek credential", () => {
   globalThis.localStorage._clear();
-
+  globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
   let closeCalled = false;
   const panel = makePanel({
     shell: {},
@@ -1310,6 +1325,85 @@ test("syncChooseEngineGate — opens overlay when status not loading and no prov
   syncChooseEngineGate(panel, deps);
 
   assert.equal(openCalled, true);
+});
+
+test("syncChooseEngineGate — persisted provider with unset mode opens at mode step instead of closing", () => {
+  globalThis.localStorage._clear();
+  setPersistedAgentProvider("openrouter");
+
+  let closeCalled = false;
+  let openCount = 0;
+  const deps = makeDeps({
+    closeChooseEngineOverlay: () => { closeCalled = true; },
+    openChooseEngineOverlay: () => { openCount += 1; },
+    isChooseEngineFlowOpen: () => false,
+  });
+  const panel = makePanel({
+    shell: {},
+    state: { routeStatus: { kind: ROUTE_STATUS_KIND.UNAVAILABLE }, statusSnapshot: null },
+  });
+
+  syncChooseEngineGate(panel, deps);
+
+  assert.equal(openCount, 1, "mode ask must open even when provider persisted");
+  assert.equal(closeCalled, false, "persisted-provider path must not close while mode unchosen");
+});
+
+test("syncChooseEngineGate — ready-provider auto-adoption cannot bypass the mode ask", () => {
+  globalThis.localStorage._clear();
+
+  let closeCalled = false;
+  let openCount = 0;
+  const panel = makePanel({
+    shell: {},
+    fields: { route: makeSelectElement("auto") },
+    state: {
+      routeStatus: { kind: ROUTE_STATUS_KIND.READY },
+      statusSnapshot: {
+        ok: true, route: "openrouter", requested_route: "auto",
+        provider_available: true,
+        credential_presence: { openrouter_api_key: true },
+        route_options: { openrouter: { normalized_route: "openrouter" } },
+      },
+    },
+  });
+
+  syncChooseEngineGate(panel, makeDeps({
+    closeChooseEngineOverlay: () => { closeCalled = true; },
+    openChooseEngineOverlay: () => { openCount += 1; },
+    isChooseEngineFlowOpen: () => false,
+  }));
+
+  assert.equal(getPersistedAgentProvider(), "openrouter", "adoption still happens");
+  assert.equal(panel.fields.route.value, "openrouter");
+  assert.equal(openCount, 1, "overlay opens AT the mode step");
+  assert.equal(closeCalled, false);
+
+  // Refresh lands again mid-flow → second-open skip.
+  syncChooseEngineGate(panel, makeDeps({
+    closeChooseEngineOverlay: () => { closeCalled = true; },
+    openChooseEngineOverlay: () => { openCount += 1; },
+    isChooseEngineFlowOpen: () => true,
+  }));
+  assert.equal(openCount, 1, "open flow is never rebuilt by a refresh");
+  assert.equal(closeCalled, false);
+});
+
+test("syncChooseEngineGate — unset mode defers to the status loading state", () => {
+  globalThis.localStorage._clear();
+
+  let openCalled = false;
+  const deps = makeDeps({
+    openChooseEngineOverlay: () => { openCalled = true; },
+    isChooseEngineFlowOpen: () => false,
+  });
+  const panel = makePanel({
+    shell: {},
+    state: { routeStatus: { kind: ROUTE_STATUS_KIND.LOADING }, statusSnapshot: null },
+  });
+
+  syncChooseEngineGate(panel, deps);
+  assert.equal(openCalled, false, "no mode ask until status settles");
 });
 
 test("syncChooseEngineGate — no-op when no shell", () => {

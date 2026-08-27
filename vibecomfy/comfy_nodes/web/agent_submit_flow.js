@@ -21,17 +21,35 @@
 
 export const DEFAULT_PIPELINE_MODE = "staged";
 
-/** Normalize aliases at the browser request/recovery boundary. */
-export function normalizePipelineMode(value) {
+// Single source of truth for the persisted explicit agent-mode choice. Lives
+// here (not roundtrip) so renderer modules can READ the stored choice without
+// importing the composition root.
+export const PIPELINE_MODE_STORAGE_KEY = "vibecomfy_agent_pipeline_mode";
+
+/**
+ * Map a raw value to a canonical mode WITHOUT any default fallback.
+ * Returns null for unset/blank/invalid values — callers that must distinguish
+ * "the user never chose" from a real staged/threaded decision use this;
+ * normalizePipelineMode (below) is the forgiving request-boundary wrapper.
+ */
+export function matchPipelineMode(value) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!normalized || normalized === "staged" || normalized === "full") {
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "staged" || normalized === "full") {
     return "staged";
   }
   if (normalized === "threaded" || normalized === "two_step") {
     return "threaded";
   }
-  return DEFAULT_PIPELINE_MODE;
+  return null;
 }
+
+ /** Normalize aliases at the browser request/recovery boundary. */
+ export function normalizePipelineMode(value) {
+  return matchPipelineMode(value) ?? DEFAULT_PIPELINE_MODE;
+ }
 
 export function createSubmitFlow(deps) {
   const {

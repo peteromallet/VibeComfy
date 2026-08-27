@@ -8382,6 +8382,7 @@ test("VibeComfy onboarding asks for research contribution after engine selection
     "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
   };
   const harness = await createBrowserHarness({
+    seedPipelineMode: false,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/settings": async ({ options }) => {
@@ -8413,6 +8414,13 @@ test("VibeComfy onboarding asks for research contribution after engine selection
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
 
+    // Agent-mode question leads the flow; an explicit choice unlocks the
+    const stagedLabel = harness.document.body.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Staged pipeline",
+    )[0];
+    stagedLabel.parentNode.click();
+    harness.getButton("Continue").click();
+
     const codexLabel = harness.document.body.querySelectorAll((node) => node.textContent === "Codex")[0];
     codexLabel.parentNode.click();
     harness.getButton("Confirm Selection").click();
@@ -8426,6 +8434,157 @@ test("VibeComfy onboarding asks for research contribution after engine selection
     assert.equal(globalThis.localStorage.getItem("vibecomfy_research_contribution_enabled"), "1");
   } finally {
     globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+    globalThis.localStorage?.removeItem("vibecomfy_research_contribution_enabled");
+    await harness.dispose();
+  }
+});
+// ── RW2 [G2]: post-commit screens own their lifetime ────────────────────────
+// A synthetic status refresh landing during the research question or the
+// thank-you countdown must not rebuild the box or reset selection/countdown.
+// Driven through the ONLY public re-entry (the panel command → openAgentPanel
+// → refreshAgentStatus → syncChooseEngineGate with production deps), so the
+// phase guard at closeChooseEngineOverlay (roundtrip :3199) and the live
+// WeakSet sentinel are exercised via REAL decisions — no injected fakes.
+test("VibeComfy onboarding research/thanks screens survive status refreshes; unset answer re-asks fresh", async () => {
+  globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+  globalThis.localStorage?.removeItem("vibecomfy_agent_pipeline_mode");
+  globalThis.localStorage?.removeItem("vibecomfy_research_contribution_enabled");
+
+  const countStatusRequests = () =>
+    harness.requests.filter((entry) => entry.url.startsWith("/vibecomfy/agent/status")).length;
+
+  let triggerCount = 0;
+  const settingsBodies = [];
+  const routeOptions = {
+    auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+    "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+  };
+  const harness = await createBrowserHarness({
+    seedPipelineMode: false,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/settings": async ({ options }) => {
+        if (options?.method === "POST") {
+          const body = JSON.parse(options.body);
+          settingsBodies.push(body);
+          return { status: 200, body: { ok: true, research_contribution_enabled: body.research_contribution_enabled } };
+        }
+        return { status: 200, body: { ok: true, research_contribution_enabled: false } };
+      },
+      "/vibecomfy/agent/research-contribution/run": async () => {
+        triggerCount += 1;
+        return { status: 200, body: { ok: true, triggered: true } };
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: { ok: true, provider_available: false, route: "arnold", requested_route: "auto", route_options: routeOptions },
+      },
+      "/vibecomfy/agent/status?route=openai-codex": {
+        status: 200,
+        body: { ok: true, provider_available: true, route: "arnold", requested_route: "openai-codex", route_options: routeOptions },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+
+    // Storage-borne explicit mode (never written this page load): the flow
+    // boots straight into the engine cards, so the final storage flip below
+    // honestly reaches the gate's mode-missing branch despite the session
+    // mirror semantics.
+    globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
+    await waitFor(() => Boolean(harness.getButton("Confirm Selection")));
+    const overlayRef = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+
+    const codexCard = harness.document.body.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Codex",
+    )[0].parentNode;
+    codexCard.click();
+    harness.getButton("Confirm Selection").click();
+    await waitFor(() => /Contribute agent research\?/.test(harness.textDump()));
+
+    // Snapshot the live research screen: identical node IDENTITY after a
+    // refresh proves no rebuild; button references prove selection state kept.
+    const researchNodesBefore = overlayRef.querySelectorAll(() => true);
+    const yesButton = harness.getButton("Yes");
+    const noButton = harness.getButton("No");
+    assert.ok(yesButton && noButton, "research choice affordances rendered");
+
+    const requestsAtResearchStart = countStatusRequests();
+    await harness.invokeCommand("VibeComfy.AgentEdit"); // refresh DURING research
+    await waitFor(() => countStatusRequests() > requestsAtResearchStart);
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      overlayRef,
+      "research screen was never torn down or remounted by the refresh",
+    );
+    const researchNodesAfter = overlayRef.querySelectorAll(() => true);
+    assert.equal(researchNodesAfter.length, researchNodesBefore.length, "box content not rebuilt");
+    researchNodesAfter.forEach((node, index) => {
+      assert.equal(node, researchNodesBefore[index], `research node ${index} kept its identity`);
+    });
+    assert.equal(harness.getButton("Yes"), yesButton, "selection affordances untouched");
+    assert.equal(yesButton.disabled, false, "buttons stayed enabled");
+
+    yesButton.click();
+    await waitFor(() => settingsBodies.length === 1 && triggerCount === 1);
+    await waitFor(() => /Thank you for making your choice\./.test(harness.textDump()));
+
+    // Countdown is LIVE here; refresh must leave interval + box alone.
+    const thanksNodesBefore = overlayRef.querySelectorAll(() => true);
+    const requestsAtThanksStart = countStatusRequests();
+    await harness.invokeCommand("VibeComfy.AgentEdit"); // refresh DURING thanks
+    await waitFor(() => countStatusRequests() > requestsAtThanksStart);
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      overlayRef,
+      "thank-you screen survived the mid-countdown refresh",
+    );
+    const thanksNodesAfter = overlayRef.querySelectorAll(() => true);
+    assert.equal(thanksNodesAfter.length, thanksNodesBefore.length);
+    thanksNodesAfter.forEach((node, index) => {
+      assert.equal(node, thanksNodesBefore[index], `thanks node ${index} kept its identity`);
+    });
+
+    // If the refresh had cleared/restarted the countdown fatally, the overlay
+    // would never dismiss; natural expiry also completes the CLOSE leg of the
+    // reviewer's open→close→unset→reopen cycle.
+    await waitFor(
+      () => !harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      { attempts: 900 },
+    );
+    assert.equal(globalThis.localStorage.getItem("vibecomfy_agent_provider"), "openai-codex");
+    assert.deepEqual(settingsBodies, [{ research_contribution_enabled: true }]);
+    assert.equal(triggerCount, 1);
+
+    // UNSET leg: clearing the stored answer re-asks through the real gate —
+    // possible at all only because the countdown teardown cleared the sentinel.
+    globalThis.localStorage?.removeItem("vibecomfy_agent_pipeline_mode");
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => Boolean(harness.getButton("Continue")), { attempts: 400 });
+    const reopened = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+    assert.ok(reopened, "unset answer re-asks fresh");
+    assert.notEqual(reopened, overlayRef, "remount is a genuinely fresh mount");
+    assert.equal(harness.getButton("Confirm Selection"), null, "reopen starts at the mode step");
+
+    const stagedTile = harness.document.body.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Staged pipeline",
+    )[0].parentNode;
+    stagedTile.click();
+    harness.getButton("Continue").click();
+    await waitFor(
+      () => !harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
+      { attempts: 200 },
+    );
+    assert.doesNotMatch(harness.textDump(), /Contribute agent research\?/, "mode-only completion skips research");
+    assert.equal(globalThis.localStorage.getItem("vibecomfy_agent_pipeline_mode"), "staged");
+  } finally {
+    globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+    globalThis.localStorage?.removeItem("vibecomfy_agent_pipeline_mode");
     globalThis.localStorage?.removeItem("vibecomfy_research_contribution_enabled");
     await harness.dispose();
   }
@@ -8478,6 +8637,7 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
       },
     },
     withQueuePrompt: false,
+    seedPipelineMode: false,
   });
 
   try {
@@ -8492,11 +8652,25 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
       && harness.document.getElementById("vibecomfy-agent-panel-route")?.value === "deepseek",
     );
 
-    assert.equal(
-      harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
-      null,
-      "ready stored DeepSeek key should not force the choose-engine gate",
+    // Auto-adopted provider must not bypass the agent-mode ask: the overlay
+    // stays up AT the mode step even though DeepSeek was auto-selected.
+    const overlay = harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay");
+    assert.ok(overlay, "auto-adoption cannot skip the mode question");
+    await waitFor(() => harness.getButton("Continue"));
+    assert.ok(harness.getButton("Confirm Selection") === null, "engine cards are NOT the first screen");
+
+    const stagedLabel = harness.document.body.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Staged pipeline",
+    )[0];
+    stagedLabel.parentNode.click();
+    harness.getButton("Continue").click();
+
+    await waitFor(() =>
+      globalThis.localStorage.getItem("vibecomfy_agent_pipeline_mode") === "staged",
     );
+    // Mode completes onboarding cleanly — no engine re-ask, no research prompt.
+    await waitFor(() => !harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
+    assert.doesNotMatch(harness.textDump(), /Contribute agent research\?/);
     assert.equal(harness.getButton("Confirm Selection"), null);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-route").value, "deepseek");
     assert.equal(
@@ -8504,6 +8678,7 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
       false,
       "saved-key path should not POST an empty replacement credential",
     );
+    globalThis.localStorage?.removeItem("vibecomfy_agent_pipeline_mode");
   } finally {
     globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
     await harness.dispose();

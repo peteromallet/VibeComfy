@@ -1,17 +1,16 @@
-# Settled-plan wave synthesis (W1) — 2026-08-26
+# Settled-plan wave W1 — synthesis (snapshot f758b074b43753e7814f2b3417a04c86af134b6c3bac14d6a4edcaca171d5307)
 
-Critics: plan-settled-1-simplicity (ox-alpha), plan-settled-2-reuse (ox-alpha). Same plan snapshot (plan.md @ 3d1e9486+).
+## Accepted
+A1 [contracts+simplify] Submit-guard must sit at the verified single funnel (buildSubmitSnapshot / createSubmitFlow); add a static single-funnel ownership assertion. Evidence: roundtrip ~3213, agent_submit_flow.js:22+, pipeline_mode_surface.test.mjs:110 covers only main button.
+A2 [contracts] B1-T3 needs mapped tests: unset placeholder state, live-field sync through helper writes, exact copy-parity (string-equality) between overlay choice copy and Settings subtext. Replaces non-mechanical "without documentation".
+A3 [simplify g3 + E2] Verify BEFORE implementation that chooseEngineFlowOpen sentinel survives the overlay destroy-and-rebuild mount; if panel.state does not survive, hold sentinel on a surviving holder (existing overlay element presence check).
+A4 [simplify g4 + contracts g3] Trim matrix: rehydrate cases = conflicting + absent; refresh-race cases = mode-selection + research screens. Legacy staged stored value needs no special cohort row (E1/contracts: key written only by Settings onchange + buggy rehydrate).
+A5 [contracts g5] All new onboarding cases start from cleared storage (vacuous-pass guard).
+A6 [contracts g2 + simplify g2] Name the flip: pipeline_mode_surface.test.mjs:23–27 normalizer assertions gain explicit staged fixtures/unset cases rather than silent weakening; _lsSet throw mocked case asserts recoverable explicit-choice flow (no dedicated recovery design).
+A7 [simplify 3] pipelineChromeEnabled() kept; MUST derive from the new explicit-mode getter, never from DEFAULT_PIPELINE_MODE fallback.
 
-| # | Finding | Disposition | Rationale |
-|---|---|---|---|
-| 1 | Defer Batch B (rung 3 embedded) — ship A/C/D/E with r3 fail-closed; land B only when a real class reaches it | **ACCEPT** | Plan's own effort section blesses this; removes the unproven XHARD slice from critical path; North Star tier honesty intact via r1/r2. B becomes conditional follow-on. |
-| 2 | Drop `on_demand_runtime` alias; migrate single stamp (on_demand.py:193) to `on_demand_import` | **ACCEPT** | One constant, no permanent alias surface; fewer masquerade checks in D. |
-| 3 | `--comfy-version`: flag-or-env, fail closed; drop core-cache sniffing | **ACCEPT** (both critics) | Hidden coupling; fail-closed message names the fix. |
-| 4 | Preflight payload dual representation | **ACCEPT — resolve to parallel `resolution_tiers` map** | Critics split (dict vs map); oracle picks map: existing boolean comparisons untouched, zero caller risk, one mechanism. |
-| 5 | Doctor becomes one-line pointer to `schemas validate-coverage --manifest` | **ACCEPT** | Matches goal's "or"; no second reporting surface. |
-| 6 | Fix plan-vs-code line drift (normalize_entry extract.py:110; _provenance_row scenario_obligations.py:745) | **ACCEPT** | Cosmetic; prevents executor anchoring on stale lines. |
-| 7 | Dedup "Effort and huge-run" section in plan.md | **ACCEPT** | Cosmetic. |
+## Rejected
+R1 [simplify 1] Merge B2 into Batch 1: distinct ownership seams (preference/onboarding vs rendering/repaint); marginal handoff saving does not justify weaker checkpoint discipline. Review-count policy unchanged.
 
-Reuse verification (critic 2): all compose-map symbols verified present at HEAD with matching semantics; no parallel mechanisms proposed.
-
-Pre-settled critique slot: skipped — plan already settled (planned from complete exploration evidence).
+## Investigate-during-execution (non-blocking)
+I1 [contracts 7] Possible predicate collapse (modeUnset && !sentinelOpen) — executor discretion.

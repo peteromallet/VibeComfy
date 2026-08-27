@@ -1,0 +1,22 @@
+# VERDICT: **PASS**
+
+Check-in written to `.oracle/checkins/final-overall.md`. Budget honored (no full glob, no make fast; host logs read).
+
+**Runs** (this review, all green): surface+active-row → 0 fail / 3.2s · roundtrip_smoke → 257 pass / 0 fail / 2 pre-existing skips · IR boundary clean.
+
+**DC4 sample-verified**: browser.log:8838–8843 = `1670/1668/0 fail/2 skipped`, fast.log:621 = `571 passed, 9 skipped` — matrix row exact. Sync clause: upstream-less branch confirmed unpushed pre-gate (correct ordering); next authorized step is push `oracle-onboard-20260826` only.
+
+| DC | Verdict |
+|---|---|
+| DC1 ask-once/persist/blocked-submit | PASS |
+| DC2 Settings reflect/explain/live-switch | PASS |
+| DC3 mode-honest chrome gating | PASS |
+| DC4 broad suites (sampled + rerun) | PASS |
+| DC5 evidence matrix + NS disposition | PASS |
+
+Cross-batch: B1+B2 tests co-run in one process, zero fail; smoke spans rework races and gated sites. No drift from frozen goal — single store key/helper, shared copy constant, explicit-only staged gating at all three sites, backend untouched. Residuals documented, non-blocking (unused `panel` args, unset-details via gate-equivalence, dead coercion path).
+
+**NS disposition: Aligned** — ask-once-explain-honest ✓; discoverable+reversible ✓; UI never lies about mode ✓; compose-don't-duplicate ✓; contract surfaces typed+tested ✓. Anti-patterns absent.
+
+Cleared to push the branch to origin (no merge/deploy).
+0
