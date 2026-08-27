@@ -1,5 +1,5 @@
 {
-  "class_count": 1504,
+  "class_count": 2100,
   "packs": {
     "AILab_AudioDuration@runpod-snapshot.json": {
       "classes": 1,
@@ -29,12 +29,56 @@
       "repo": "https://github.com/jeankassio/ComfyUI-AceStep_SFT.git",
       "schema_sha256": "d304b6810476d245794f822c44fc22b17b6033623600c8d5e5fc7a6ce65cafe0"
     },
+    "ComfyUI-Advanced-ControlNet@on_demand_static-a0563a3.json": {
+      "captured_at": "2026-08-26T18:06:03.600+00:00",
+      "extraction_rung": "ast",
+      "locked_commit": "a0563a3fa09b8cb8a4e19aa5880e61005626fe0e",
+      "pack": "ComfyUI-Advanced-ControlNet",
+      "registry_pack_version": null,
+      "repo": "https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
+      "schema_sha256": "0cd7ae2bd05c282fd8a5676bc1d85bb5b42630a05f121ab8b360880a1f14566e",
+      "source": "direct_url",
+      "source_kind": "on_demand_static"
+    },
+    "ComfyUI-DeepExtract@on_demand_import-40cf9cb.json": {
+      "captured_at": "2026-08-26T17:44:14.744+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "40cf9cb3268ac678d63fe9fe8c0ee16b3fe1ce1d",
+      "pack": "ComfyUI-DeepExtract",
+      "registry_pack_version": null,
+      "repo": "https://github.com/abdozmantar/ComfyUI-DeepExtract",
+      "schema_sha256": "f4ee169830914430690bbc270ef9adf2701357c522293ae64794bbfcc7292b76",
+      "source": "direct_url",
+      "source_kind": "on_demand_import"
+    },
     "ComfyUI-DepthAnythingV2@local-5531878.json": {
       "classes": 2,
       "locked_commit": "553187872eeb1d52e50dc53209fa57e569609a72",
       "pack": "ComfyUI-DepthAnythingV2",
       "repo": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git",
       "schema_sha256": "f4e181ab42ca179eda161acba5121e999cb54b1dbee0dc087a22bd42af7241ae"
+    },
+    "ComfyUI-Easy-Use@on_demand_import-4de1ab3.json": {
+      "captured_at": "2026-08-26T17:44:15.433+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "4de1ab3b66e48da916b6f263bacd001df53a2720",
+      "pack": "ComfyUI-Easy-Use",
+      "registry_pack_version": null,
+      "repo": "https://github.com/yolain/ComfyUI-Easy-Use",
+      "schema_sha256": "5f6802f0040eb34ada67d743f2af745d9c262504c19a8a8222817d778df0c14c",
+      "source": "direct_url",
+      "source_kind": "on_demand_import"
+    },
+    "ComfyUI-Easy-Use@on_demand_import-b5e31ef.json": {
+      "captured_at": "2026-08-26T18:06:04.691+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "b5e31ef12ad9d0b187b545c2707735cc7d581c52",
+      "pack": "ComfyUI-Easy-Use",
+      "registry_pack_version": null,
+      "repo": "https://github.com/yolain/ComfyUI-Easy-Use",
+      "schema_sha256": "46aea705bfc54ca6713d1ecd824c4a93fc65a003938ad719f0eef7276f885cce",
+      "source": "direct_url",
+      "source_kind": "on_demand_import"
     },
     "ComfyUI-GGUF@local-6ea2651.json": {
       "classes": 2,
@@ -56,6 +100,17 @@
       "pack": "ComfyUI-IndexTTS",
       "repo": "https://github.com/diodiogod/TTS-Audio-Suite",
       "schema_sha256": "37ad2e70f0062d161f099eff5050b3e38b88bedf1840ca6374b54f9a1534621a"
+    },
+    "ComfyUI-Inspire-Pack@on_demand_import-d23db9a.json": {
+      "captured_at": "2026-08-26T17:44:15.866+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "d23db9aa544de9a6d4c609cb7005fa9e0d42031d",
+      "pack": "ComfyUI-Inspire-Pack",
+      "registry_pack_version": null,
+      "repo": "https://github.com/ltdrdata/ComfyUI-Inspire-Pack",
+      "schema_sha256": "0d166f7fd30666d018f1015efa98d9cd781373af650dda87564e9f003b09a344",
+      "source": "direct_url",
+      "source_kind": "on_demand_import"
     },
     "ComfyUI-KJNodes@runpod-snapshot.json": {
       "classes": 230,
@@ -85,6 +140,26 @@
       "repo": "https://github.com/DarioFT/ComfyUI-Qwen3-TTS.git",
       "schema_sha256": "e1e936d1fb13d4c87f7d49c935b7d9a0c1d5860306c5a5b4233c125d769a0be0"
     },
+    "ComfyUI-SubjectStyle-CSV@on_demand_static-4766731.json": {
+      "captured_at": "2026-08-26T17:00:11.041+00:00",
+      "extraction_rung": "ast",
+      "locked_commit": "47667313d3d489603b98d93b9811d68a63a0d7d1",
+      "pack": "ComfyUI-SubjectStyle-CSV",
+      "registry_pack_version": "",
+      "repo": "https://github.com/maracman/ComfyUI-SubjectStyle-CSV",
+      "schema_sha256": "84f0725df23206b758628b02340c531df0b4e5d4ee6bc7a3b1441a54e1ef10bb",
+      "source_kind": "on_demand_static"
+    },
+    "ComfyUI-VibeVoice@on_demand_static-99a9803.json": {
+      "captured_at": "2026-08-26T17:00:11.479+00:00",
+      "extraction_rung": "ast",
+      "locked_commit": "99a98031d79e07f279a7aa6d01ce89042e8bba26",
+      "pack": "ComfyUI-VibeVoice",
+      "registry_pack_version": "1.5.1",
+      "repo": "https://github.com/wildminder/ComfyUI-VibeVoice",
+      "schema_sha256": "2a54fc0807a0deec4e48eb31b301ecd85393efe106d1e93929c7fe125ce913cf",
+      "source_kind": "on_demand_static"
+    },
     "ComfyUI-VideoHelperSuite@runpod-snapshot.json": {
       "classes": 40,
       "locked_commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
@@ -113,12 +188,33 @@
       "repo": "https://github.com/yuvraj108c/ComfyUI-Whisper.git",
       "schema_sha256": "f3933350d1e63c45f36fe1dac1d56691b388c2faaee37e65ff458a5cd5200029"
     },
+    "ComfyUI-llama-cpp@on_demand_import-f2209cc.json": {
+      "captured_at": "2026-08-26T18:06:05.025+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+      "pack": "ComfyUI-llama-cpp",
+      "registry_pack_version": null,
+      "repo": "https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm",
+      "schema_sha256": "0714eb2fd6823fb8799b38348b1777b79d319ca594431636ae264b8bb37c6363",
+      "source": "direct_url",
+      "source_kind": "on_demand_import"
+    },
     "ComfyUI-segment-anything-2@local-0c35fff.json": {
       "classes": 6,
       "locked_commit": "0c35fff5f382803e2310103357b5e985f5437f32",
       "pack": "ComfyUI-segment-anything-2",
       "repo": "https://github.com/kijai/ComfyUI-segment-anything-2.git",
       "schema_sha256": "e3640990ce145928d9404234721b4f23fd02717c7f07af03b3d0be0f8a150e9c"
+    },
+    "audio-separation-nodes-comfyui@on_demand_import-ac33956.json": {
+      "captured_at": "2026-08-26T17:00:11.756+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+      "pack": "audio-separation-nodes-comfyui",
+      "registry_pack_version": "2.0.0",
+      "repo": "https://github.com/christian-byrne/audio-separation-nodes-comfyui",
+      "schema_sha256": "83f28386933cc067d793e56e9dbd62201e2ddb9809991f51abed936eedf93c73",
+      "source_kind": "on_demand_import"
     },
     "comfy@runpod-snapshot.json": {
       "classes": 65,
@@ -140,6 +236,26 @@
       "pack": "comfy_extras",
       "repo": null,
       "schema_sha256": null
+    },
+    "comfyui-advanced-controlnet@on_demand_static-27a67fe.json": {
+      "captured_at": "2026-08-26T17:00:12.266+00:00",
+      "extraction_rung": "ast",
+      "locked_commit": "27a67fee80cf46c198b10588a5651f23d67d1e95",
+      "pack": "comfyui-advanced-controlnet",
+      "registry_pack_version": "1.6.0",
+      "repo": "https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
+      "schema_sha256": "5bda7ec10a451109e0c15a0c0a678b6752548064358d3ae55ac4aacb106cd234",
+      "source_kind": "on_demand_static"
+    },
+    "comfyui_ryanonyheinside@on_demand_import-52daf66.json": {
+      "captured_at": "2026-08-26T17:00:14.879+00:00",
+      "extraction_rung": "import",
+      "locked_commit": "52daf666925e5c17b21704418ce30a0de3a462a2",
+      "pack": "comfyui_ryanonyheinside",
+      "registry_pack_version": "2.2.4",
+      "repo": "https://github.com/ryanontheinside/ComfyUI_RyanOnTheInside",
+      "schema_sha256": "e7ac1bc8b4f0061c578a0f13d5bafd134fada020ff37ba53f303535b05c95e1a",
+      "source_kind": "on_demand_import"
     },
     "rgthree-comfy@runpod-snapshot.json": {
       "classes": 24,

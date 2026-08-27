@@ -1,0 +1,71 @@
+{
+  "ControlNetLoaderWithLoraAdvanced": {
+    "category": "Adv-ControlNet 🛂🅐🅒🅝/LOOSEControl",
+    "class_schema_sha256": "a4978124a4d9b5f3caa789e1cb9187819f779adaea43ec0564fdef22dc26cef1",
+    "description": "",
+    "display_name": "ControlNetLoaderWithLoraAdvanced",
+    "evidence_identity": "on_demand:ast:27a67fee80cf46c198b10588a5651f23d67d1e95",
+    "function": "load_controlnet",
+    "git_commit": "27a67fee80cf46c198b10588a5651f23d67d1e95",
+    "input_order": {
+      "optional": [
+        "timestep_keyframe"
+      ],
+      "required": [
+        "control_net_name",
+        "cn_lora_name",
+        "cn_lora_strength"
+      ]
+    },
+    "input_order_all": [
+      "control_net_name",
+      "cn_lora_name",
+      "cn_lora_strength",
+      "timestep_keyframe"
+    ],
+    "inputs": {
+      "optional": {
+        "timestep_keyframe": [
+          "TIMESTEP_KEYFRAME"
+        ]
+      },
+      "required": {
+        "cn_lora_name": [
+          []
+        ],
+        "cn_lora_strength": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.001
+          }
+        ],
+        "control_net_name": [
+          []
+        ]
+      }
+    },
+    "name": "ControlNetLoaderWithLoraAdvanced",
+    "object_info_widget_order": [
+      "control_net_name",
+      "cn_lora_name",
+      "cn_lora_strength",
+      "timestep_keyframe"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "CONTROL_NET",
+        "type": "CONTROL_NET"
+      }
+    ],
+    "pack": "comfyui-advanced-controlnet",
+    "pack_slug": "comfyui-advanced-controlnet",
+    "pack_version": "on_demand_static-27a67fe",
+    "python_module": "comfyui-advanced-controlnet.adv_control.nodes_loosecontrol",
+    "schema_hash": "a4978124a4d9b5f3caa789e1cb9187819f779adaea43ec0564fdef22dc26cef1",
+    "source_kind": "on_demand_static"
+  }
+}

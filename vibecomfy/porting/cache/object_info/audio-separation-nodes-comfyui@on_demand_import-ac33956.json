@@ -1,0 +1,450 @@
+{
+  "AudioCombine": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioCombine",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "optional": [
+        "method"
+      ],
+      "required": [
+        "audio_1",
+        "audio_2"
+      ]
+    },
+    "input_order_all": [
+      "audio_1",
+      "audio_2",
+      "method"
+    ],
+    "inputs": {
+      "optional": {
+        "method": [
+          [
+            "add",
+            "mean",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          {
+            "default": "add",
+            "tooltip": "The method used to combine the audio waveforms."
+          }
+        ]
+      },
+      "required": {
+        "audio_1": [
+          "AUDIO"
+        ],
+        "audio_2": [
+          "AUDIO"
+        ]
+      }
+    },
+    "name": "AudioCombine",
+    "object_info_widget_order": [
+      null,
+      null,
+      "method"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.combine",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  },
+  "AudioCrop": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioCrop",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "required": [
+        "audio",
+        "start_time",
+        "end_time"
+      ]
+    },
+    "input_order_all": [
+      "audio",
+      "start_time",
+      "end_time"
+    ],
+    "inputs": {
+      "required": {
+        "audio": [
+          "AUDIO"
+        ],
+        "end_time": [
+          "STRING",
+          {
+            "default": "1:00"
+          }
+        ],
+        "start_time": [
+          "STRING",
+          {
+            "default": "0:00"
+          }
+        ]
+      }
+    },
+    "name": "AudioCrop",
+    "object_info_widget_order": [
+      null,
+      "start_time",
+      "end_time"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.crop",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  },
+  "AudioGetTempo": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioGetTempo",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "required": [
+        "audio"
+      ]
+    },
+    "input_order_all": [
+      "audio"
+    ],
+    "inputs": {
+      "required": {
+        "audio": [
+          "AUDIO"
+        ]
+      }
+    },
+    "name": "AudioGetTempo",
+    "object_info_widget_order": [
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "tempo_string",
+        "type": "STRING"
+      },
+      {
+        "is_list": false,
+        "name": "tempo_float",
+        "type": "FLOAT"
+      },
+      {
+        "is_list": false,
+        "name": "tempo_integer",
+        "type": "INTEGER"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.get_tempo",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  },
+  "AudioSeparation": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioSeparation",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "optional": [
+        "chunk_fade_shape",
+        "chunk_length",
+        "chunk_overlap"
+      ],
+      "required": [
+        "audio"
+      ]
+    },
+    "input_order_all": [
+      "audio",
+      "chunk_fade_shape",
+      "chunk_length",
+      "chunk_overlap"
+    ],
+    "inputs": {
+      "optional": {
+        "chunk_fade_shape": [
+          [
+            "linear",
+            "half_sine",
+            "logarithmic",
+            "exponential"
+          ],
+          {
+            "default": "linear",
+            "tooltip": "Audio is split into segments (chunks) with overlapping areas to ensure smooth transitions. This setting controls the fade effect at these overlaps. Choose Linear for even fading, Half-Sine for a smooth curve, Logarithmic for a quick fade out and slow fade in, or Exponential for a slow fade out and quick fade in."
+          }
+        ],
+        "chunk_length": [
+          "FLOAT",
+          {
+            "default": 10.0,
+            "tooltip": "The length of each segment (chunk) in seconds. Longer chunks may require more memory and MIGHT produce better results."
+          }
+        ],
+        "chunk_overlap": [
+          "FLOAT",
+          {
+            "default": 0.1,
+            "tooltip": "The overlap between each segment (chunk) in seconds. A higher overlap may be necessary if chunks are too short or the audio changes rapidly."
+          }
+        ]
+      },
+      "required": {
+        "audio": [
+          "AUDIO"
+        ]
+      }
+    },
+    "name": "AudioSeparation",
+    "object_info_widget_order": [
+      null,
+      "chunk_fade_shape",
+      "chunk_length",
+      "chunk_overlap"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "Bass",
+        "type": "AUDIO"
+      },
+      {
+        "is_list": false,
+        "name": "Drums",
+        "type": "AUDIO"
+      },
+      {
+        "is_list": false,
+        "name": "Other",
+        "type": "AUDIO"
+      },
+      {
+        "is_list": false,
+        "name": "Vocals",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.separation",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  },
+  "AudioSpeedShift": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioSpeedShift",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "required": [
+        "audio",
+        "rate"
+      ]
+    },
+    "input_order_all": [
+      "audio",
+      "rate"
+    ],
+    "inputs": {
+      "required": {
+        "audio": [
+          "AUDIO"
+        ],
+        "rate": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "max": 10.0,
+            "min": 0.1,
+            "step": 0.1
+          }
+        ]
+      }
+    },
+    "name": "AudioSpeedShift",
+    "object_info_widget_order": [
+      null,
+      "rate"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.time_shift",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  },
+  "AudioTempoMatch": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioTempoMatch",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "required": [
+        "audio_1",
+        "audio_2"
+      ]
+    },
+    "input_order_all": [
+      "audio_1",
+      "audio_2"
+    ],
+    "inputs": {
+      "required": {
+        "audio_1": [
+          "AUDIO"
+        ],
+        "audio_2": [
+          "AUDIO"
+        ]
+      }
+    },
+    "name": "AudioTempoMatch",
+    "object_info_widget_order": [
+      null,
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      },
+      {
+        "is_list": false,
+        "name": "AUDIO",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.tempo_match",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  },
+  "AudioVideoCombine": {
+    "category": "audio",
+    "class_schema_sha256": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "description": "",
+    "display_name": "AudioVideoCombine",
+    "evidence_identity": "on_demand:import:ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "function": "main",
+    "git_commit": "ac339561973f0c1e56db2f9d40f11b0fddda6763",
+    "input_order": {
+      "optional": [
+        "video_start_time",
+        "video_end_time"
+      ],
+      "required": [
+        "audio",
+        "video"
+      ]
+    },
+    "input_order_all": [
+      "audio",
+      "video",
+      "video_start_time",
+      "video_end_time"
+    ],
+    "inputs": {
+      "optional": {
+        "video_end_time": [
+          "STRING",
+          {
+            "default": "",
+            "tooltip": "The video will be trimmed to end at this time. Leave blank to use the full duration."
+          }
+        ],
+        "video_start_time": [
+          "STRING",
+          {
+            "default": "0:00",
+            "tooltip": "The video will be trimmed to start at this time. The format is MM:SS."
+          }
+        ]
+      },
+      "required": {
+        "audio": [
+          "AUDIO"
+        ],
+        "video": [
+          "VIDEO"
+        ]
+      }
+    },
+    "name": "AudioVideoCombine",
+    "object_info_widget_order": [
+      null,
+      null,
+      "video_start_time",
+      "video_end_time"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "video",
+        "type": "VIDEO"
+      }
+    ],
+    "pack": "audio-separation-nodes-comfyui",
+    "pack_slug": "audio-separation-nodes-comfyui",
+    "pack_version": "on_demand_import-ac33956",
+    "python_module": "audio-separation-nodes-comfyui.src.combine_video_with_audio",
+    "schema_hash": "725c6854224ea743324b705c98e56c5842bd0735e3b834469da3cb0da28c10c6",
+    "source_kind": "on_demand_import"
+  }
+}

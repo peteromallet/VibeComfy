@@ -1,0 +1,48 @@
+{
+  "VocalAndSoundRemoverNode": {
+    "category": "DeepExtract",
+    "class_schema_sha256": "5d416357e5ee4376d2944499d1953eb61fcfe1ad4b5f1f025b3fa49c7d9f3f2a",
+    "description": "",
+    "display_name": "VocalAndSoundRemoverNode",
+    "evidence_identity": "on_demand:import:40cf9cb3268ac678d63fe9fe8c0ee16b3fe1ce1d",
+    "function": "execute",
+    "git_commit": "40cf9cb3268ac678d63fe9fe8c0ee16b3fe1ce1d",
+    "input_order": {
+      "required": [
+        "input_sound"
+      ]
+    },
+    "input_order_all": [
+      "input_sound"
+    ],
+    "inputs": {
+      "required": {
+        "input_sound": [
+          "AUDIO"
+        ]
+      }
+    },
+    "name": "VocalAndSoundRemoverNode",
+    "object_info_widget_order": [
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "Vocals",
+        "type": "AUDIO"
+      },
+      {
+        "is_list": false,
+        "name": "Background",
+        "type": "AUDIO"
+      }
+    ],
+    "pack": "ComfyUI-DeepExtract",
+    "pack_slug": "ComfyUI-DeepExtract",
+    "pack_version": "on_demand_import-40cf9cb",
+    "python_module": "ComfyUI-DeepExtract.nodes",
+    "schema_hash": "5d416357e5ee4376d2944499d1953eb61fcfe1ad4b5f1f025b3fa49c7d9f3f2a",
+    "source_kind": "on_demand_import"
+  }
+}

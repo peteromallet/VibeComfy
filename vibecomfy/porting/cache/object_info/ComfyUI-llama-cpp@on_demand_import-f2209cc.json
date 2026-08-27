@@ -1,0 +1,1210 @@
+{
+  "PromptEnhancerPreset": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "PromptEnhancerPreset",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "main",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "preset"
+      ]
+    },
+    "input_order_all": [
+      "preset"
+    ],
+    "inputs": {
+      "required": {
+        "preset": [
+          [
+            "Qwen-Image [EN]",
+            "Qwen-Image [ZH]",
+            "Qwen-Image 2512 [EN]",
+            "Qwen-Image 2512 [ZH]",
+            "Qwen-Image-Edit",
+            "Qwen-Image-Edit 2509",
+            "Qwen-Image-Edit 2511",
+            "Z-Image Turbo",
+            "Flux.2 T2I",
+            "Flux.2 I2I",
+            "Wan T2V [EN]",
+            "Wan T2V [ZH]",
+            "Wan I2V [EN]",
+            "Wan I2V [ZH]",
+            "Wan I2V Full-Auto [EN]",
+            "Wan I2V Full-Auto [ZH]",
+            "Wan FLF2V [EN]",
+            "Wan FLF2V [ZH]"
+          ]
+        ]
+      }
+    },
+    "name": "PromptEnhancerPreset",
+    "object_info_widget_order": [
+      "preset"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "system_prompt",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "bbox_to_mask": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "bbox_to_mask",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "bboxes",
+        "image",
+        "dilation",
+        "feather"
+      ]
+    },
+    "input_order_all": [
+      "bboxes",
+      "image",
+      "dilation",
+      "feather"
+    ],
+    "inputs": {
+      "required": {
+        "bboxes": [
+          "BBOX"
+        ],
+        "dilation": [
+          "INT",
+          {
+            "default": 10,
+            "max": 200,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "feather": [
+          "INT",
+          {
+            "default": 0,
+            "max": 100,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "image": [
+          "IMAGE"
+        ]
+      }
+    },
+    "name": "bbox_to_mask",
+    "object_info_widget_order": [
+      "bboxes",
+      null,
+      "dilation",
+      "feather"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "mask",
+        "type": "MASK"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "bbox_to_segs": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "bbox_to_segs",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "bboxes",
+        "image",
+        "dilation",
+        "feather"
+      ]
+    },
+    "input_order_all": [
+      "bboxes",
+      "image",
+      "dilation",
+      "feather"
+    ],
+    "inputs": {
+      "required": {
+        "bboxes": [
+          "BBOX"
+        ],
+        "dilation": [
+          "INT",
+          {
+            "default": 10,
+            "max": 200,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "feather": [
+          "INT",
+          {
+            "default": 0,
+            "max": 100,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "image": [
+          "IMAGE"
+        ]
+      }
+    },
+    "name": "bbox_to_segs",
+    "object_info_widget_order": [
+      "bboxes",
+      null,
+      "dilation",
+      "feather"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "SEGS",
+        "type": "SEGS"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "bboxes_to_bbox": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "bboxes_to_bbox",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "bboxes",
+        "image_index",
+        "bbox_index"
+      ]
+    },
+    "input_order_all": [
+      "bboxes",
+      "image_index",
+      "bbox_index"
+    ],
+    "inputs": {
+      "required": {
+        "bbox_index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 999,
+            "min": -998,
+            "step": 1,
+            "tooltip": "BBox index in the image. Set to 999 to get all bboxes."
+          }
+        ],
+        "bboxes": [
+          "BBOX"
+        ],
+        "image_index": [
+          "INT",
+          {
+            "default": 0,
+            "max": 1000000,
+            "min": 0,
+            "step": 1
+          }
+        ]
+      }
+    },
+    "name": "bboxes_to_bbox",
+    "object_info_widget_order": [
+      "bboxes",
+      "image_index",
+      "bbox_index"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "bbox",
+        "type": "BBOX"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "json_to_bbox": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "json_to_bbox",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "optional": [
+        "image"
+      ],
+      "required": [
+        "json",
+        "mode",
+        "label"
+      ]
+    },
+    "input_order_all": [
+      "json",
+      "mode",
+      "label",
+      "image"
+    ],
+    "inputs": {
+      "optional": {
+        "image": [
+          "IMAGE"
+        ]
+      },
+      "required": {
+        "json": [
+          "STRING",
+          {
+            "forceInput": true
+          }
+        ],
+        "label": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": false,
+            "tooltip": "Select only the BBoxes with specific labels."
+          }
+        ],
+        "mode": [
+          [
+            "simple",
+            "Qwen3-VL",
+            "Qwen2.5-VL"
+          ],
+          {
+            "default": "simple"
+          }
+        ]
+      }
+    },
+    "name": "json_to_bbox",
+    "object_info_widget_order": [
+      "json",
+      "mode",
+      "label",
+      null
+    ],
+    "outputs": [
+      {
+        "is_list": true,
+        "name": "bboxes",
+        "type": "BBOX"
+      },
+      {
+        "is_list": true,
+        "name": "image_list",
+        "type": "IMAGE"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "llama_cpp_clean_states": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "llama_cpp_clean_states",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "any",
+        "state_uid"
+      ]
+    },
+    "input_order_all": [
+      "any",
+      "state_uid"
+    ],
+    "inputs": {
+      "required": {
+        "any": [
+          "*"
+        ],
+        "state_uid": [
+          "INT",
+          {
+            "default": -1,
+            "max": 999999,
+            "min": -1,
+            "step": 1,
+            "tooltip": "Clear the saved state for a specific ID (-1 = clear all)"
+          }
+        ]
+      }
+    },
+    "name": "llama_cpp_clean_states",
+    "object_info_widget_order": [
+      "any",
+      "state_uid"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "any",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "llama_cpp_instruct_adv": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "llama_cpp_instruct_adv",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "optional": [
+        "parameters",
+        "images",
+        "queue_handler"
+      ],
+      "required": [
+        "llama_model",
+        "preset_prompt",
+        "custom_prompt",
+        "system_prompt",
+        "inference_mode",
+        "max_frames",
+        "max_size",
+        "seed",
+        "force_offload",
+        "save_states"
+      ]
+    },
+    "input_order_all": [
+      "llama_model",
+      "preset_prompt",
+      "custom_prompt",
+      "system_prompt",
+      "inference_mode",
+      "max_frames",
+      "max_size",
+      "seed",
+      "force_offload",
+      "save_states",
+      "parameters",
+      "images",
+      "queue_handler"
+    ],
+    "inputs": {
+      "optional": {
+        "images": [
+          "IMAGE"
+        ],
+        "parameters": [
+          "LLAMACPPARAMS"
+        ],
+        "queue_handler": [
+          "*",
+          {
+            "tooltip": "Used to control the execution order of instruct nodes."
+          }
+        ]
+      },
+      "required": {
+        "custom_prompt": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": true,
+            "placeholder": "user_prompt\n\nFor preset hints marked with an \"*\", this will be used to fill the placeholder (e.g., Object names in BBox detection)\nOtherwise, this will override the preset prompts."
+          }
+        ],
+        "force_offload": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Unload the model after inference."
+          }
+        ],
+        "inference_mode": [
+          [
+            "one by one",
+            "images",
+            "video"
+          ],
+          {
+            "default": "one by one",
+            "tooltip": "one by one: Process each item in the input list one by one (multi-image batch inside an item will be inferred together)\nimages:  \tCombine ALL images across all list items into 1 single prompt\nvideo:  \tTreat each image item in the list as a separate video clip"
+          }
+        ],
+        "llama_model": [
+          "LLAMACPPMODEL"
+        ],
+        "max_frames": [
+          "INT",
+          {
+            "default": 24,
+            "max": 1024,
+            "min": 2,
+            "step": 1,
+            "tooltip": "Number of frames to sample evenly from input video.\n(for \"video\" mode only)"
+          }
+        ],
+        "max_size": [
+          "INT",
+          {
+            "default": 256,
+            "max": 16384,
+            "min": 128,
+            "step": 64,
+            "tooltip": "Max size of input images in \"images\" and \"video\" modes."
+          }
+        ],
+        "preset_prompt": [
+          [
+            "Empty - Nothing",
+            "Normal - Describe",
+            "Prompt Style - Tags",
+            "Prompt Style - Simple",
+            "Prompt Style - Detailed",
+            "Prompt Style - Extreme Detailed",
+            "Prompt Style - Cinematic",
+            "Creative - Detailed Analysis",
+            "Creative - Summarize Video",
+            "Creative - Short Story",
+            "Creative - Refine & Expand Prompt",
+            "Vision - *Bounding Box"
+          ],
+          {
+            "default": "Normal - Describe"
+          }
+        ],
+        "save_states": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Preserve the context of this conversation in RAM."
+          }
+        ],
+        "seed": [
+          "INT",
+          {
+            "default": 0,
+            "max": 18446744073709551615,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "system_prompt": [
+          "STRING",
+          {
+            "default": "",
+            "multiline": true
+          }
+        ]
+      }
+    },
+    "name": "llama_cpp_instruct_adv",
+    "object_info_widget_order": [
+      "llama_model",
+      "preset_prompt",
+      "custom_prompt",
+      "system_prompt",
+      "inference_mode",
+      "max_frames",
+      "max_size",
+      "seed",
+      "force_offload",
+      "save_states",
+      "parameters",
+      null,
+      "queue_handler"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "output",
+        "type": "STRING"
+      },
+      {
+        "is_list": true,
+        "name": "output_list",
+        "type": "STRING"
+      },
+      {
+        "is_list": false,
+        "name": "state_uid",
+        "type": "INT"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "llama_cpp_model_loader": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "llama_cpp_model_loader",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "loadmodel",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "model",
+        "mmproj",
+        "chat_handler",
+        "n_ctx",
+        "vram_limit",
+        "image_min_tokens",
+        "image_max_tokens",
+        "load_mtp"
+      ]
+    },
+    "input_order_all": [
+      "model",
+      "mmproj",
+      "chat_handler",
+      "n_ctx",
+      "vram_limit",
+      "image_min_tokens",
+      "image_max_tokens",
+      "load_mtp"
+    ],
+    "inputs": {
+      "required": {
+        "chat_handler": [
+          [
+            "None",
+            "LLaVA-1.5",
+            "LLaVA-1.6",
+            "Moondream2",
+            "nanoLLaVA",
+            "llama3-Vision-Alpha",
+            "MiniCPM-v2.6",
+            "DeepSeek-OCR",
+            "Gemma3",
+            "Gemma4",
+            "Qwen2.5-VL",
+            "MinerU2.5-Pro",
+            "Qwen3-VL",
+            "Qwen3-VL-Thinking",
+            "Qwen3.5",
+            "Qwen3.5-Thinking",
+            "Qwen3.6",
+            "Qwen3.6-Thinking",
+            "Qwen3.8",
+            "Qwen3.8-Thinking",
+            "GLM-4.6V",
+            "GLM-4.6V-Thinking",
+            "GLM-4.1V-Thinking",
+            "LFM2-VL",
+            "LFM2.5-VL",
+            "Granite-Docling",
+            "MiniCPM-v4.5",
+            "MiniCPM-v4.5-Thinking",
+            "MiniCPM-v4.6",
+            "MiniCPM-v4.6-Thinking",
+            "PaddleOCR-VL-1.5",
+            "Qwen3-ASR",
+            "Step3-VL"
+          ],
+          {
+            "default": "None"
+          }
+        ],
+        "image_max_tokens": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": 0,
+            "step": 32
+          }
+        ],
+        "image_min_tokens": [
+          "INT",
+          {
+            "default": 0,
+            "max": 4096,
+            "min": 0,
+            "step": 32
+          }
+        ],
+        "load_mtp": [
+          "BOOLEAN",
+          {
+            "default": false
+          }
+        ],
+        "mmproj": [
+          [
+            "None"
+          ],
+          {
+            "default": "None"
+          }
+        ],
+        "model": [
+          "COMBO",
+          {
+            "unresolved_choices": true
+          }
+        ],
+        "n_ctx": [
+          "INT",
+          {
+            "default": 8192,
+            "max": 327680,
+            "min": 1024,
+            "step": 128,
+            "tooltip": "Context length limit."
+          }
+        ],
+        "vram_limit": [
+          "INT",
+          {
+            "default": -1,
+            "max": 1024,
+            "min": -1,
+            "step": 1,
+            "tooltip": "VRAM usage limit in GB (-1 = no limit)\nReference range; actual usage may slightly exceed."
+          }
+        ]
+      }
+    },
+    "name": "llama_cpp_model_loader",
+    "object_info_widget_order": [
+      "model",
+      "mmproj",
+      "chat_handler",
+      "n_ctx",
+      "vram_limit",
+      "image_min_tokens",
+      "image_max_tokens",
+      "load_mtp"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "llama_model",
+        "type": "LLAMACPPMODEL"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "llama_cpp_parameters": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "llama_cpp_parameters",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "max_tokens",
+        "top_k",
+        "top_p",
+        "min_p",
+        "typical_p",
+        "temperature",
+        "repeat_penalty",
+        "frequency_penalty",
+        "present_penalty",
+        "mirostat_mode",
+        "mirostat_eta",
+        "mirostat_tau",
+        "state_uid"
+      ]
+    },
+    "input_order_all": [
+      "max_tokens",
+      "top_k",
+      "top_p",
+      "min_p",
+      "typical_p",
+      "temperature",
+      "repeat_penalty",
+      "frequency_penalty",
+      "present_penalty",
+      "mirostat_mode",
+      "mirostat_eta",
+      "mirostat_tau",
+      "state_uid"
+    ],
+    "inputs": {
+      "required": {
+        "frequency_penalty": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "max_tokens": [
+          "INT",
+          {
+            "default": 1024,
+            "max": 4096,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "min_p": [
+          "FLOAT",
+          {
+            "default": 0.05,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "mirostat_eta": [
+          "FLOAT",
+          {
+            "default": 0.1,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "mirostat_mode": [
+          "INT",
+          {
+            "default": 0,
+            "max": 2,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "mirostat_tau": [
+          "FLOAT",
+          {
+            "default": 5.0,
+            "max": 10.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "present_penalty": [
+          "FLOAT",
+          {
+            "default": 0.0,
+            "max": 2.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "repeat_penalty": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "max": 10.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "state_uid": [
+          "INT",
+          {
+            "default": -1,
+            "max": 999999,
+            "min": -1,
+            "step": 1,
+            "tooltip": "Use a specific ID to save the conversation state.\n(-1 = use node's unique_id)"
+          }
+        ],
+        "temperature": [
+          "FLOAT",
+          {
+            "default": 0.8,
+            "max": 2.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "top_k": [
+          "INT",
+          {
+            "default": 30,
+            "max": 1000,
+            "min": 0,
+            "step": 1
+          }
+        ],
+        "top_p": [
+          "FLOAT",
+          {
+            "default": 0.9,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ],
+        "typical_p": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "max": 1.0,
+            "min": 0.0,
+            "step": 0.01
+          }
+        ]
+      }
+    },
+    "name": "llama_cpp_parameters",
+    "object_info_widget_order": [
+      "max_tokens",
+      "top_k",
+      "top_p",
+      "min_p",
+      "typical_p",
+      "temperature",
+      "repeat_penalty",
+      "frequency_penalty",
+      "present_penalty",
+      "mirostat_mode",
+      "mirostat_eta",
+      "mirostat_tau",
+      "state_uid"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "parameters",
+        "type": "LLAMACPPARAMS"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "llama_cpp_text_encoder": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "llama_cpp_text_encoder",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "encode",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "llama_model",
+        "prompt",
+        "type",
+        "force_offload"
+      ]
+    },
+    "input_order_all": [
+      "llama_model",
+      "prompt",
+      "type",
+      "force_offload"
+    ],
+    "inputs": {
+      "required": {
+        "force_offload": [
+          "BOOLEAN",
+          {
+            "default": false,
+            "tooltip": "Unload the model after inference."
+          }
+        ],
+        "llama_model": [
+          "LLAMACPPMODEL"
+        ],
+        "prompt": [
+          "STRING",
+          {
+            "default": "",
+            "dynamicPrompts": true,
+            "multiline": true
+          }
+        ],
+        "type": [
+          [
+            "Boogu-Image",
+            "JoyImage",
+            "Lumina2",
+            "Mage-Flow",
+            "MiniMax-T2V",
+            "Qwen-Image",
+            "Z-Image"
+          ],
+          {
+            "default": "Z-Image"
+          }
+        ]
+      }
+    },
+    "name": "llama_cpp_text_encoder",
+    "object_info_widget_order": [
+      "llama_model",
+      "prompt",
+      "type",
+      "force_offload"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "conditioning",
+        "type": "CONDITIONING"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "llama_cpp_unload_model": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "llama_cpp_unload_model",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "required": [
+        "any"
+      ]
+    },
+    "input_order_all": [
+      "any"
+    ],
+    "inputs": {
+      "required": {
+        "any": [
+          "*"
+        ]
+      }
+    },
+    "name": "llama_cpp_unload_model",
+    "object_info_widget_order": [
+      "any"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "any",
+        "type": "*"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "parse_json_node": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "parse_json_node",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "optional": [
+        "key",
+        "default"
+      ],
+      "required": [
+        "input"
+      ]
+    },
+    "input_order_all": [
+      "input",
+      "key",
+      "default"
+    ],
+    "inputs": {
+      "optional": {
+        "default": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ],
+        "key": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ]
+      },
+      "required": {
+        "input": [
+          "STRING",
+          {
+            "forceInput": true
+          }
+        ]
+      }
+    },
+    "name": "parse_json_node",
+    "object_info_widget_order": [
+      "input",
+      "key",
+      "default"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "any",
+        "type": "*"
+      },
+      {
+        "is_list": false,
+        "name": "string",
+        "type": "STRING"
+      },
+      {
+        "is_list": false,
+        "name": "int",
+        "type": "INT"
+      },
+      {
+        "is_list": false,
+        "name": "float",
+        "type": "FLOAT"
+      },
+      {
+        "is_list": false,
+        "name": "boolean",
+        "type": "BOOLEAN"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  },
+  "remove_code_block": {
+    "category": "llama-cpp-vlm",
+    "class_schema_sha256": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "description": "",
+    "display_name": "remove_code_block",
+    "evidence_identity": "on_demand:import:f2209cccb726647640271bd1cea071a570fc62f5",
+    "function": "process",
+    "git_commit": "f2209cccb726647640271bd1cea071a570fc62f5",
+    "input_order": {
+      "optional": [
+        "label"
+      ],
+      "required": [
+        "input"
+      ]
+    },
+    "input_order_all": [
+      "input",
+      "label"
+    ],
+    "inputs": {
+      "optional": {
+        "label": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ]
+      },
+      "required": {
+        "input": [
+          "STRING",
+          {
+            "forceInput": true
+          }
+        ]
+      }
+    },
+    "name": "remove_code_block",
+    "object_info_widget_order": [
+      "input",
+      "label"
+    ],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "output",
+        "type": "STRING"
+      }
+    ],
+    "pack": "ComfyUI-llama-cpp",
+    "pack_slug": "ComfyUI-llama-cpp",
+    "pack_version": "on_demand_import-f2209cc",
+    "python_module": "ComfyUI-llama-cpp.nodes",
+    "schema_hash": "f6694932a4421a1a171d024cc8bab220b279b35e08b898fe5caa5913592ff9b8",
+    "source_kind": "on_demand_import"
+  }
+}
