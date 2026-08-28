@@ -476,3 +476,49 @@ def test_retry_ownership_vocabulary_is_frozen() -> None:
         runtime._REMOTE_UNCERTAINTY_TIMEOUT_BEFORE_RESPONSE
         == "timeout_before_response"
     )
+
+def test_reply_timeout_attempt_carries_480s_not_safe_to_retry_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reply-phase turns now share the 480s floor; in-loop timeout still does
+    not retry (harness owns the single infra retry under a new identity)."""
+    calls = _stub_once(monkeypatch, [TimeoutError])
+
+    with pytest.raises(TimeoutError) as raised:
+        runtime._run_worker(
+            {"api_key": "k"},
+            "sys",
+            "usr",
+            response_contract="text",
+            agent_id="hermes",
+            model="openrouter:deepseek/deepseek-v4-pro",
+            effort="low",
+            profiling_context={"backend_phase": "reply", "model_turn_id": "t-reply"},
+        )
+
+    ownership = raised.value.retry_ownership  # type: ignore[attr-defined]
+    assert ownership["attempt_deadline_seconds"] == 480.0
+    assert ownership["retry_disposition"] == "not_safe_to_retry_same_identity"
+    assert len(calls) == 1
+
+
+def test_research_timeout_attempt_carries_480s_not_safe_to_retry_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _stub_once(monkeypatch, [TimeoutError])
+
+    with pytest.raises(TimeoutError) as raised:
+        runtime._run_worker(
+            {"api_key": "k"},
+            "sys",
+            "usr",
+            response_contract="json",
+            agent_id="hermes",
+            model="openrouter:deepseek/deepseek-v4-pro",
+            effort="low",
+            profiling_context={"backend_phase": "research_stage", "model_turn_id": "t-research"},
+        )
+
+    ownership = raised.value.retry_ownership  # type: ignore[attr-defined]
+    assert ownership["attempt_deadline_seconds"] == 480.0
+    assert len(calls) == 1

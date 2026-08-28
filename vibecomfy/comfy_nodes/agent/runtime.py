@@ -1163,15 +1163,20 @@ def _turn_timeout_seconds(
     *,
     stage: str | None = None,
 ) -> float:
-    """Per-turn timeout, with an implement/batch floor and payload fallback."""
+    """Per-turn timeout, with an implement/batch/reply/research floor and payload fallback."""
     payload = f"{system_msg or ''}{user_msg or ''}"
     timeout = _TURN_TIMEOUT_SECONDS
     # A caller/test that explicitly overrides the base timeout owns the
     # timeout seam; do not silently replace its value with the production
     # large-graph floor.  The default production timeout retains the floor.
+    # Reply and research turns share the 480s floor: concurrency-10 OpenRouter
+    # latency routinely exceeds the 240s classify ceiling on answer-only legs.
     if (
         _TURN_TIMEOUT_SECONDS == _DEFAULT_TURN_TIMEOUT_SECONDS
-        and (stage in {"implement", "batch"} or len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES)
+        and (
+            stage in {"implement", "batch", "reply", "research", "research_stage"}
+            or len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES
+        )
     ):
         timeout = max(timeout, _LARGE_GRAPH_TURN_TIMEOUT_SECONDS)
     return min(timeout, _TURN_TIMEOUT_HARD_CAP_SECONDS)
