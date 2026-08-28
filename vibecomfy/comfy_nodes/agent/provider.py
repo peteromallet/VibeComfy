@@ -214,6 +214,8 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 # (``parse_reason="merged_batch_fences"`` + ``fence_count``) so the harness
 # can distinguish a merged batch from a single-fence batch.
 _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
+_PYTHON_FENCE_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
+_DONE_CALL_RE = re.compile(r"\bdone\(\s*\)")
 
 
 def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str | None:
@@ -359,6 +361,12 @@ def extract_batch_fence(
     ``parse_reason="merged_batch_fences"`` and ``fence_count`` so the harness
     can distinguish merged from single-fence batches. Zero complete fences
     still fails closed with ``parse_reason="missing_batch_fence"``.
+
+    Adherence (Action 5 / d66a66): a lone python-language fence whose body
+    contains done() is canonicalized to a batch. This is the fence-miss
+    pattern — accept a parseable Python fence as a batch rather than burning
+    the correction slot. Non-batch fences without done(), and Python
+    fences that coexist with a real batch fence, stay prose.
     """
     if not text.strip():
         raise MalformedModelJSON(
@@ -370,6 +378,17 @@ def extract_batch_fence(
     # Extract prose: everything outside the fences, with the fence text removed.
     prose = _BATCH_FENCE_RE.sub("", text).strip()
     if len(matches) == 0:
+        python_matches = _PYTHON_FENCE_RE.findall(text)
+        if (
+            len(python_matches) == 1
+            and _DONE_CALL_RE.search(python_matches[0]) is not None
+        ):
+            batch_code = python_matches[0].strip()
+            prose = _PYTHON_FENCE_RE.sub("", text).strip()
+            if parse_provenance is not None:
+                parse_provenance["parse_reason"] = "canonicalized_python_fence"
+                parse_provenance["fence_count"] = 1
+            return batch_code, prose
         raise MalformedModelJSON(
             "Agent response does not contain a ```batch fenced block. "
             "Include exactly one ```batch code block with your edit statements.",
@@ -1956,6 +1975,71 @@ def run_agent_turn_batch(
         raise wrapped from exc
 
 
+_RESEARCH_DECISION_KEYS = frozenset({"action", "tool", "conclusion", "enough"})
+_RESEARCH_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
+
+
+def _research_decision_qualified(candidate: Mapping[str, Any]) -> bool:
+    keys = {str(key) for key in candidate}
+    if keys & _RESEARCH_DECISION_KEYS:
+        return True
+    action = candidate.get("action")
+    return action in {"call", "finish"}
+
+
+def extract_research_json(text: str) -> dict[str, Any] | None:
+    """Extract a research-decision JSON object from prose or ```json fences.
+
+    Returns None when no qualifying object exists so the research parser can
+    fail closed with its own typed message. Never invents a decision.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    stripped = text.strip()
+    fence = _RESEARCH_FENCE_RE.search(stripped)
+    bodies: list[str] = [stripped]
+    if fence is not None:
+        bodies.insert(0, fence.group(1).strip())
+    for body in bodies:
+        try:
+            direct = json.loads(body)
+        except ValueError:
+            direct = None
+        if isinstance(direct, dict) and _research_decision_qualified(direct):
+            return direct
+        for candidate in _iter_json_object_candidates(
+            body, max_candidates=_CLASSIFY_EXTRACTION_MAX_CANDIDATES
+        ):
+            if _research_decision_qualified(candidate):
+                return candidate
+    return None
+
+
+def _normalize_research_json_response(response: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Extract prose/fence-wrapped research JSON before the parser fail-closes."""
+    content = response.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return response
+    try:
+        direct = json.loads(content.strip())
+    except ValueError:
+        direct = None
+    extracted = extract_research_json(content)
+    if extracted is None:
+        return response
+    if isinstance(direct, dict) and direct == extracted:
+        return response
+    normalized = dict(response)
+    normalized["raw_content"] = content
+    normalized["content"] = json.dumps(extracted)
+    normalized["json"] = extracted
+    provenance = response.get("parse_provenance")
+    provenance = dict(provenance) if isinstance(provenance, Mapping) else {}
+    provenance["parse_reason"] = "extracted_from_prose"
+    normalized["parse_provenance"] = provenance
+    return normalized
+
+
 def _normalize_turn_response(
     response: Any,
     *,
@@ -1986,6 +2070,8 @@ def _normalize_turn_response(
     """
     if not isinstance(response, Mapping):
         raise ProviderError("Generic model turn returned a non-dict response.")
+    if response_contract == "json" and phase in {"research_stage", "research"}:
+        return _normalize_research_json_response(response)
     if response_contract != "json" or phase != "classify":
         return response
     content = response.get("content")

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
@@ -405,6 +406,38 @@ def build_research_brief(*, plan: Any, request: Any | None = None) -> str:
 # ── agent decision parsing (fail-closed) ─────────────────────────────────────
 
 
+_RESEARCH_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
+
+def _extract_research_decision_json(raw: str) -> dict[str, Any]:
+    """Extract a research-decision JSON object from prose or ```json fences.
+
+    Models frequently prefix a valid tool-call object with a sentence or wrap
+    it in a markdown fence. Strict ``json.loads`` of the whole blob classified
+    those as ``malformed_json`` and retried the research turn (the 4→41
+    explosion). Extract the first qualifying object before failing closed.
+    """
+    from .prompts import _extract_json_object, _first_json_object_span
+
+    text = raw.strip()
+    fence = _RESEARCH_FENCE_RE.search(text)
+    if fence is not None:
+        inner = fence.group(1).strip()
+        try:
+            parsed = json.loads(inner)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    try:
+        return _extract_json_object(text)
+    except ValueError:
+        span = _first_json_object_span(text)
+        if span is None:
+            raise json.JSONDecodeError("No JSON object in research decision", text, 0)
+        start, end = span
+        return json.loads(text[start:end])
+
+
 def parse_agent_research_decision(raw: str) -> dict[str, Any]:
     """Parse ONE agent decision: a tool call or a finish, fail-closed.
 
@@ -422,12 +455,8 @@ def parse_agent_research_decision(raw: str) -> dict[str, Any]:
     """
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError("agent research decision: empty response")
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.removeprefix("```json").removeprefix("```")
-        text = text.rsplit("```", 1)[0].strip()
     try:
-        parsed = json.loads(text)
+        parsed = _extract_research_decision_json(raw)
     except json.JSONDecodeError as exc:
         raise ValueError(f"agent research decision: malformed JSON: {exc}") from None
     if not isinstance(parsed, Mapping):
