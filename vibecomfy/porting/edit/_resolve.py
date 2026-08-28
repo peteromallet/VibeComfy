@@ -48,6 +48,7 @@ from vibecomfy.porting.edit._parse import (
     _is_graph_reference_value,
     _resolve_vibecomfy_constructor,
     _unsafe,
+    reserved_kwarg_is_coordinate_hint,
 )
 from vibecomfy.porting.edit.grammar import op_kind_for_assignment
 from vibecomfy.executor.tool_specs import (
@@ -1156,7 +1157,9 @@ class _ResolveMixin:
                 issues.append(_unsafe(keyword.value, "kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed."))
                 continue
             name = keyword.arg
-            if name in _RAW_COORDINATE_HINT_NAMES:
+            if reserved_kwarg_is_coordinate_hint(
+                name, value=keyword.value, schema_inputs=schema_inputs
+            ):
                 issues.append(
                     _unsafe(
                         keyword.value,

@@ -31,6 +31,7 @@ from vibecomfy.porting.edit._parse import (
     _is_graph_reference_value,
     _parse_and_validate_batch,
     _resolve_vibecomfy_constructor,
+    reserved_kwarg_is_coordinate_hint,
 )
 from vibecomfy.porting.edit._session_types import (
     CompactDiagnostic,
@@ -690,7 +691,9 @@ class _InterpretRunner:
                 if isinstance(literal, str):
                     group_title = literal
                 continue
-            if name in _RAW_COORDINATE_KWARGS:
+            if reserved_kwarg_is_coordinate_hint(
+                name, value=keyword.value, schema_inputs=schema_inputs
+            ):
                 issues.append(
                     _diag(
                         "raw_coordinate_kwarg_not_allowed",

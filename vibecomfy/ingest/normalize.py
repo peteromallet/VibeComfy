@@ -551,6 +551,24 @@ def _ui_graph_to_api(
     return _normalize_ui_to_api(raw, schema_provider=schema_provider)
 
 
+def _unique_input_name(used: set[str], name: str) -> str:
+    """Return a dict key that does not collide with an earlier socket.
+
+    Duplicate LiteGraph input names (ImageScale ``width`` x2, CutAndDragOnPath
+    ``coordinates`` x2) must not overwrite each other in the API/IR dict.
+    The first keeps its name; later copies become ``name_1``, ``name_2``, …
+    """
+    if name not in used:
+        used.add(name)
+        return name
+    index = 1
+    while f"{name}_{index}" in used:
+        index += 1
+    unique = f"{name}_{index}"
+    used.add(unique)
+    return unique
+
+
 def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider | None = None) -> dict[str, Any]:
     nodes = {str(node["id"]): node for node in raw.get("nodes", []) if isinstance(node, dict) and "id" in node}
     links = raw.get("links", [])
@@ -567,6 +585,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
         input_provenance: dict[str, str] = {}
         class_type = str(node.get("type") or node.get("class_type") or "Unknown")
         ui_widget_names: list[str] = []
+        used_names: set[str] = set()
         for input_item in node.get("inputs", []) or []:
             if not isinstance(input_item, dict):
                 continue
@@ -580,6 +599,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                     # Reroute / passthrough nodes may have empty-string input
                     # names — use a stable generated key to preserve the edge.
                     name = f"_un{link_id}"
+                name = _unique_input_name(used_names, str(name))
                 inputs[name] = [link_map[link_id][0], link_map[link_id][1]]
                 input_provenance[str(name)] = "edge"
         widgets_present = "widgets_values" in node
@@ -601,6 +621,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                     name = f"widget_{idx}"
                 if name in inputs:
                     continue
+                name = _unique_input_name(used_names, str(name))
                 inputs[name] = value
                 input_provenance[str(name)] = "widget"
         api_node = {
