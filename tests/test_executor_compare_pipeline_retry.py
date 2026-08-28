@@ -267,3 +267,70 @@ def test_bounded_tail_caps_and_tolerates_missing_files(tmp_path: Path) -> None:
     tail = comparator._bounded_tail(big)
     assert tail is not None and len(tail) == comparator.LEG_LOG_TAIL_CHARS
     assert comparator._bounded_tail(tmp_path / "missing.log") is None
+
+def test_zero_token_timeout_error_clean_exit_retries_once_marked_infra_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typed TimeoutError that exits the worker cleanly (timed_out:false,
+    retryable:true, 0 completion tokens) is retried ONCE as infra — never
+    stamped product_fail. Product failures stay unretriable.
+    """
+    launches = {"n": 0}
+
+    def command(spec: Path, out: Path) -> list[str]:
+        launches["n"] += 1
+        payload = {
+            "ok": True,
+            "summary": {
+                "ok": False,
+                "status": "error",
+                "scenario_id": "retry-probe",
+                "failure_kind": "TimeoutError",
+                "model_attempts": [
+                    {
+                        "phase": "reply",
+                        "attempt": 1,
+                        "outcome": "failure",
+                        "failure_type": "timeout",
+                        "token_usage": {
+                            "prompt_tokens": 40,
+                            "completion_tokens": 0,
+                            "total_tokens": 40,
+                        },
+                    }
+                ],
+                "deepseek_usage": {
+                    "prompt_tokens": 40,
+                    "completion_tokens": 0,
+                    "total_tokens": 40,
+                },
+                "guard": {
+                    "live_agentic_success": False,
+                    "score_class": "product_fail",
+                },
+            },
+        }
+        out.write_text(json.dumps(payload), encoding="utf-8")
+        return [sys.executable, "-c", "pass"]
+
+    monkeypatch.setattr(comparator, "_leg_command", command)
+
+    results = comparator._run_legs_in_processes(
+        _one_descriptor(), output_base=tmp_path, tag="lane", transport=None, concurrency=1
+    )
+
+    final = results[0]
+    assert isinstance(final, dict)
+    assert launches["n"] == 2
+    assert final["attempt_count"] == 2
+    assert final["retried_after_timeout"] is True
+    assert final["failure_class"] == "infra_timeout"
+    assert final["score_class"] == "infra_blocked"
+    assert final["guard"]["score_class"] == "infra_blocked"
+    first, second = final["attempts"]
+    assert first["timed_out"] is False
+    assert first["failure_class"] == "infra_timeout"
+    assert first["retry_ownership"]["retry_disposition"] == "retry_new_identity_only"
+    assert second["infra_retry"] is True
+    assert second["attempt_identity"].endswith("/attempt_2")
+    assert first["attempt_identity"] != second["attempt_identity"]

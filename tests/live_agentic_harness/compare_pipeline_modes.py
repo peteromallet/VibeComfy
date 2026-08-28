@@ -1385,7 +1385,18 @@ def _leg_attempt_record(
     paths: Mapping[str, Path],
 ) -> dict[str, Any]:
     """Typed per-attempt record with runner-style retry ownership."""
-    if isinstance(summary, Mapping):
+    retryable_infra = False
+    if isinstance(summary, dict):
+        _classify_leg_retryable_infra(summary)
+        retryable_infra = _leg_is_retryable_infra(summary)
+        ok = summary.get("ok") is True
+        failure_class = str(
+            summary.get("failure_class")
+            or ("infra_timeout" if timed_out else "product_or_assessment_failure")
+        )
+        live = bool((summary.get("guard") or {}).get("live_agentic_success"))
+        cost = summary.get("deepseek_est_cost_usd")
+    elif isinstance(summary, Mapping):
         ok = summary.get("ok") is True
         failure_class = str(
             summary.get("failure_class")
@@ -1403,6 +1414,11 @@ def _leg_attempt_record(
         # relaunch is only ever safe under a FRESH identity (T3.1/D6 freeze).
         retry_disposition = "not_safe_to_retry_same_identity"
         remote_uncertainty = "timeout_before_response"
+    elif retryable_infra and not ok:
+        retry_disposition = "retry_new_identity_only"
+        remote_uncertainty = (
+            "timeout_before_response" if failure_class == "infra_timeout" else None
+        )
     elif ok:
         retry_disposition = "none"
         remote_uncertainty = None
@@ -1422,6 +1438,8 @@ def _leg_attempt_record(
         ),
         "live_agentic_success": live,
         "timed_out": timed_out,
+        "infra_retry": attempt > 1,
+        "retryable_infra": retryable_infra or failure_class in {"infra_timeout", "infra_empty_response"},
         "cost_usd": cost,
         "cost_basis": "summary" if isinstance(summary, Mapping) else "not_available",
         "spec_path": str(paths["spec"]),
@@ -1442,6 +1460,26 @@ def _leg_attempt_record(
             "request_idempotency_key": None,
         },
     }
+
+
+def _classify_leg_retryable_infra(summary: dict[str, Any]) -> dict[str, Any]:
+    """Re-derive retryable-infra from canonical typed evidence on a leg summary.
+
+    A 0-token TimeoutError that exits the worker cleanly (timed_out:false)
+    must classify as infra_timeout so the existing LEG_ATTEMPT_LIMIT=2
+    relaunch fires. Product failures stay terminal.
+    """
+    from .runner import _classify_retryable_infra_summary
+
+    return _classify_retryable_infra_summary(summary)
+
+
+def _leg_is_retryable_infra(summary: Mapping[str, Any] | None) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    from .runner import _is_retryable_infra_summary
+
+    return _is_retryable_infra_summary(summary)
 
 
 def _leg_final_success(summary: Mapping[str, Any]) -> bool:
@@ -1612,6 +1650,8 @@ def _run_legs_in_processes(
                 and isinstance(payload.get("summary"), Mapping)
                 else None
             )
+            if accepted_summary is not None:
+                _classify_leg_retryable_infra(accepted_summary)
             record = _leg_attempt_record(
                 accepted_summary
                 or (payload if isinstance(payload, Mapping) else None),
@@ -1625,6 +1665,17 @@ def _run_legs_in_processes(
             attempts.append(record)
 
             if accepted_summary is not None:
+                retryable_infra = (
+                    not _leg_final_success(accepted_summary)
+                    and _leg_is_retryable_infra(accepted_summary)
+                    and attempt < LEG_ATTEMPT_LIMIT
+                )
+                if retryable_infra:
+                    # Clean-exit 0-token TimeoutError (timed_out:false): retry
+                    # once under a fresh attempt identity, marked infra_retry.
+                    attempt_of[index] = attempt + 1
+                    _launch(index)
+                    continue
                 summary = _attach_leg_attempt_bookkeeping(
                     accepted_summary,
                     attempts,

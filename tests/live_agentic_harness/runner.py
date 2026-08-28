@@ -301,7 +301,7 @@ def _failure_summary(
         ),
         "failure_class": failure_class,
         "score_class": "infra_blocked" if failure_class.startswith("infra_") else "product_fail",
-        "retryable_infra": failure_class == "infra_empty_response",
+        "retryable_infra": failure_class in _RETRYABLE_INFRA_CLASSES,
         "agent_exercised": False,
         "attempt": attempt,
         "elapsed_s": elapsed_s,
@@ -436,6 +436,11 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     attempt = _latest_failed_model_attempt(summary)
     usage = attempt.get("token_usage") if isinstance(attempt, Mapping) else None
     if not isinstance(usage, Mapping):
+        # Doc-contract: the attempt summary also carries ``deepseek_usage``
+        # at the top level. Absence of BOTH records is not evidence.
+        top = summary.get("deepseek_usage")
+        usage = top if isinstance(top, Mapping) else None
+    if not isinstance(usage, Mapping):
         return None
     value = usage.get("completion_tokens")
     if not isinstance(value, (int, float)):
@@ -447,6 +452,19 @@ def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
     """Map only canonical typed attempt evidence; never inspect response prose."""
     attempt = _latest_failed_model_attempt(summary)
     if attempt is None:
+        # Clean-exit TimeoutError: the worker stamped a typed envelope and
+        # the subprocess exited 0, so the comparison lane records
+        # timed_out=false. Classify from the envelope + 0-token evidence.
+        kind = summary.get("failure_kind")
+        if not isinstance(kind, str):
+            guard = summary.get("guard")
+            if isinstance(guard, Mapping):
+                kind = guard.get("failure_kind")
+        if kind == "TimeoutError" and _summary_completion_tokens(summary) == 0:
+            return "infra_timeout"
+        parse_reason = summary.get("parse_reason")
+        if parse_reason == "empty" and _summary_completion_tokens(summary) == 0:
+            return "infra_empty_response"
         return None
     failure_type = attempt.get("failure_type")
     if failure_type == "empty_response" and _summary_completion_tokens(summary) == 0:
