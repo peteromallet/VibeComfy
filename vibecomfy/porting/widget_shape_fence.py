@@ -200,6 +200,29 @@ def decide_widget_shape(
             recovery="observed_dynamic_widgets_regenerate",
         )
 
+    # Pre-existing dict-row / dynamic-widget nodes (VHS_VideoCombine) may
+    # receive a schema-proven field write (format_ → image/webp).  Pin the
+    # raw payload and let emit overlay those named keys; positional widget_N
+    # deltas remain refuse.
+    if (
+        evidence.has_dict_rows
+        and evidence.raw_widget_shape == "dict"
+        and _has_full_raw_ui_payload(raw_ui_node)
+        and has_widget_delta
+        and _dict_row_field_delta_is_pinnable(field_delta)
+        and not (has_link_delta and _link_delta_has_unresolved_endpoints(link_delta))
+    ):
+        return _verdict(
+            evidence,
+            WidgetShapeDecision.PIN_OPAQUE,
+            (*(static_reasons or (WidgetShapeReason.DICT_ROW_DYNAMIC_WIDGETS,)), WidgetShapeReason.WIDGET_DELTA),
+            raw_ui_node=raw_ui_node,
+            layout_entry=layout_entry,
+            field_delta=field_delta,
+            link_delta=link_delta,
+            recovery="pin_dict_row_schema_fields",
+        )
+
     # Canonical semantic differences and resolution issues are both link
     # deltas.  Neither regeneration nor opaque carry-forward can make an
     # UNRESOLVED endpoint safe, so refuse before the schema-backed fast path
@@ -410,6 +433,22 @@ def _has_widget_delta(field_delta: Mapping[str, Any]) -> bool:
         field in _WIDGET_FIELDS or str(field).startswith(_WIDGET_FIELD_PREFIX)
         for field in field_delta
     )
+
+
+def _dict_row_field_delta_is_pinnable(field_delta: Mapping[str, Any]) -> bool:
+    """True when a dict-row delta is a named widgets_values rewrite.
+
+    Positional ``widget_N`` slots cannot be merged into a dict-row payload
+    and stay refused.  A ``widgets_values`` signature (schema-proven field
+    write such as VHS ``format``) is overlayed onto the pinned raw dict.
+    """
+    if not field_delta:
+        return False
+    for field in field_delta:
+        key = str(field)
+        if key.startswith(_WIDGET_FIELD_PREFIX) and key not in _WIDGET_FIELDS:
+            return False
+    return True
 
 
 def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
