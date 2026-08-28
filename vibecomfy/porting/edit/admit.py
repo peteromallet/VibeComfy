@@ -780,13 +780,26 @@ def admit_operation(
 
 
 
+def _is_set_node_field_operation(operation: Any) -> bool:
+    if getattr(operation, "op", None) == "set_node_field":
+        return True
+    if isinstance(operation, Mapping) and operation.get("op") == "set_node_field":
+        return True
+    return False
+
+
 def admit_operations(
     snapshot: Any,
     operations: Sequence[Any],
     *,
     working_workflow: Any = None,
 ) -> AdmissionResult:
-    """Admit a batch atomically. One rejection rejects the whole batch."""
+    """Admit a batch atomically. One rejection rejects the whole batch.
+
+    Already-set ``set_node_field`` ops (same value) are pruned rather than
+    ``no_op``-ing the whole batch. A batch that is *only* already-set writes
+    still fails closed as ``no_op``.
+    """
 
     pair = _freeze_snapshot_pair(snapshot)
     workflow = working_workflow
@@ -796,11 +809,15 @@ def admit_operations(
 
     simulated = _cow_workflow_copy(workflow) if workflow is not None else None
     last_allowed: AdmissionAllowed | None = None
+    kept = 0
     for operation in operations:
         result = admit_operation(pair, operation, working_workflow=simulated)
         if isinstance(result, AdmissionRejected):
+            if result.typed_reason == "no_op" and _is_set_node_field_operation(operation):
+                continue
             return result
         last_allowed = result
+        kept += 1
         mapping = _operation_mapping(operation)
         if simulated is None or mapping.get("op") in LAYOUT_OPERATION_NAMES:
             continue
@@ -814,6 +831,9 @@ def admit_operations(
             # Simulation failure is still a typed rejection of the batch.
             return _reject(pair, mapping, "apply_failed")
     if last_allowed is None:
+        if operations and kept == 0:
+            mapping = _operation_mapping(operations[0])
+            return _reject(pair, mapping, "no_op")
         return AdmissionAllowed()
     return last_allowed
 

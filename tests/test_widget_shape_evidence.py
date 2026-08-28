@@ -178,7 +178,7 @@ def test_primitive_int_control_after_generate_metadata_adds_ui_slot() -> None:
     from vibecomfy.porting.object_info.consume import CACHE_DIR
     from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 
-    assert object_info_widget_order("PrimitiveInt") == ["value", None]
+    assert object_info_widget_order("PrimitiveInt") == ["value", "control_after_generate"]
 
     node = VibeNode(
         "5186",

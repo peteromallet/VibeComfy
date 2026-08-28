@@ -182,15 +182,16 @@ def compact_widget_names_for_node(
     ):
         if not names:
             continue
-        return _align_names(
+        prepared = _name_ui_control_slots(
+            node,
+            class_type,
             _exclude_linked(
                 names,
                 linked,
                 full_input_order=source in _FULL_INPUT_ORDER_SOURCES,
             ),
-            count,
-            source,
         )
+        return _align_names(prepared, count, source)
 
     return _align_names([], count, "unresolved")
 
@@ -333,6 +334,24 @@ def _name_ui_control_slots(
     else:
         indices = _widget_indices(values)
         value_count = max(indices) + 1 if indices else len(values)
+    # Insert BEFORE tail-padding. Padding first made len(out)==len(values)
+    # and hid the missing control slot as a trailing widget_N.
+    if (
+        isinstance(values, list)
+        and "control_after_generate" not in out
+        and len(values) == len(out) + 1
+    ):
+        insert_at = None
+        for index, name in enumerate(out):
+            if name in {"seed", "noise_seed", "value"}:
+                insert_at = index + 1
+                break
+        if insert_at is None and class_type in _PRIMITIVE_CONTROL_WIDGET_CLASSES:
+            insert_at = 1 if out else 0
+        if insert_at is not None and insert_at < len(values):
+            value = values[insert_at]
+            if isinstance(value, str) and value in _CONTROL_AFTER_GENERATE_VALUES:
+                out.insert(insert_at, "control_after_generate")
     if value_count > len(out):
         out.extend([None] * (value_count - len(out)))
     for index, name in enumerate(out):
