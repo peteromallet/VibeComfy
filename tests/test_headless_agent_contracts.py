@@ -43,8 +43,16 @@ def test_headless_request_to_executor_request() -> None:
         "expected_baseline_graph_hash_present",
         "on_demand_schemas",
         "interaction_mode",
+        "expect_graph_changed",
         "max_batches",
+        "pipeline_mode",
+        "scenario_id",
+        "allow_safe_refusal_outcome_kinds",
+        "expected_no_candidate_absent_classes",
+        "expected_no_candidate_absent_features",
     }
+    assert executor_request.allow_safe_refusal_outcome_kinds == ()
+    assert executor_request.expected_no_candidate_absent_classes == ()
 
 
 def test_headless_request_interaction_mode_roundtrip() -> None:

@@ -423,41 +423,39 @@ def test_threaded_research_refusal_is_not_projected_as_tool_execution() -> None:
     assert research["citations"] == []
 
 
-def test_threaded_answer_only_travels_as_context_and_deliberator_owns_route() -> None:
-    """RR1-FIX-REV2 F9: answer_only no longer forces the inspect lane.  The
-    envelope is uniform, the interaction intent travels as context in the
-    plan summary, and run_implement (the typed deliberation surface) runs;
-    any deterministic ``run_inspect_reply`` shortcut must stay unused."""
+def test_threaded_answer_only_declared_contract_uses_inspect_reply_lane() -> None:
+    """Caller-declared answer_only (explain/advice) routes inspect.
+
+    Typed-refusal contracts stay implement-capable; see
+    ``tests/test_lane_exemption.py``.
+    """
     graph = {
         "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
         "2": {"class_type": "KSampler", "inputs": {"model": ["1", 0]}},
     }
     seen: dict[str, Any] = {}
 
-    def run_implement(
+    def run_inspect_reply(
         request: ExecutorRequest,
         spec: AgentSpecShape,
         **kwargs: Any,
-    ) -> ImplementationResult:
+    ) -> str:
         del spec
         seen["request"] = request
         seen["plan"] = kwargs["plan"]
-        return ImplementationResult(
-            message="The checkpoint feeds the sampler.",
-            durable_response={"graph_unchanged": True},
-        )
+        return "The checkpoint feeds the sampler."
 
     kernel = ThreadedKernel(
         resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
-        run_implement=run_implement,
+        run_implement=lambda *a, **k: pytest.fail(
+            "declared non-edit turn must not run the implement conversation"
+        ),
         emit_phase=lambda *args, **kwargs: None,
         enforce_reply_grounding=lambda reply, **kwargs: reply,
         accepted_delta_ops=lambda implementation: (),
         implementation_landed_edit=lambda implementation: False,
         no_candidate_reason=lambda implementation: None,
-        run_inspect_reply=lambda *args, **kwargs: pytest.fail(
-            "deterministic inspect lane must not fire"
-        ),
+        run_inspect_reply=run_inspect_reply,
     )
     result = run_threaded_executor(
         ExecutorRequest(
@@ -472,12 +470,10 @@ def test_threaded_answer_only_travels_as_context_and_deliberator_owns_route() ->
 
     assert result.ok is True
     assert result.reply == "The checkpoint feeds the sampler."
-    assert seen["plan"].effective_route == "adapt"
-    assert "answer_only: respond without editing" in seen["plan"].plan_summary
-
-
-# ── T4.1: shared research evidence contract (cross-mode field parity) ────────
-
+    assert result.graph is None
+    assert seen["plan"].effective_route == "inspect"
+    assert seen["plan"].implement is False
+    assert "answer_only" in seen["plan"].plan_summary
 
 def _staged_research_result(*, status: str = "ok", deadline_reached: bool = False):
     """Build the staged carrier for the canonical one-fetch research scenario."""

@@ -1099,6 +1099,9 @@ class ExecutorRequest:
     # None for non-harness callers; the artifact lineage manifest records it
     # verbatim (empty string when unknown at the source — never fabricated).
     scenario_id: str | None = None
+    allow_safe_refusal_outcome_kinds: tuple[str, ...] = ()
+    expected_no_candidate_absent_classes: tuple[str, ...] = ()
+    expected_no_candidate_absent_features: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
@@ -1123,6 +1126,33 @@ class ExecutorRequest:
                 "pipeline_mode",
                 coerce_orchestration_mode(self.pipeline_mode),
             )
+        object.__setattr__(
+            self,
+            "allow_safe_refusal_outcome_kinds",
+            tuple(
+                str(item).strip()
+                for item in (self.allow_safe_refusal_outcome_kinds or ())
+                if str(item).strip()
+            ),
+        )
+        object.__setattr__(
+            self,
+            "expected_no_candidate_absent_classes",
+            tuple(
+                str(item).strip()
+                for item in (self.expected_no_candidate_absent_classes or ())
+                if str(item).strip()
+            ),
+        )
+        object.__setattr__(
+            self,
+            "expected_no_candidate_absent_features",
+            tuple(
+                str(item).strip()
+                for item in (self.expected_no_candidate_absent_features or ())
+                if str(item).strip()
+            ),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"query": self.query}
@@ -1154,6 +1184,18 @@ class ExecutorRequest:
             payload["max_batches"] = self.max_batches
         if self.pipeline_mode is not None:
             payload["pipeline_mode"] = self.pipeline_mode
+        if self.allow_safe_refusal_outcome_kinds:
+            payload["allow_safe_refusal_outcome_kinds"] = list(
+                self.allow_safe_refusal_outcome_kinds
+            )
+        if self.expected_no_candidate_absent_classes:
+            payload["expected_no_candidate_absent_classes"] = list(
+                self.expected_no_candidate_absent_classes
+            )
+        if self.expected_no_candidate_absent_features:
+            payload["expected_no_candidate_absent_features"] = list(
+                self.expected_no_candidate_absent_features
+            )
         return payload
 
     @classmethod
@@ -1255,6 +1297,21 @@ class ExecutorRequest:
             expect_graph_changed=expect_graph_changed,
             max_batches=max_batches,
             pipeline_mode=pipeline_mode,
+            allow_safe_refusal_outcome_kinds=tuple(
+                str(item).strip()
+                for item in (payload.get("allow_safe_refusal_outcome_kinds") or ())
+                if isinstance(item, str) and item.strip()
+            ) if isinstance(payload.get("allow_safe_refusal_outcome_kinds"), (list, tuple)) else (),
+            expected_no_candidate_absent_classes=tuple(
+                str(item).strip()
+                for item in (payload.get("expected_no_candidate_absent_classes") or ())
+                if isinstance(item, str) and item.strip()
+            ) if isinstance(payload.get("expected_no_candidate_absent_classes"), (list, tuple)) else (),
+            expected_no_candidate_absent_features=tuple(
+                str(item).strip()
+                for item in (payload.get("expected_no_candidate_absent_features") or ())
+                if isinstance(item, str) and item.strip()
+            ) if isinstance(payload.get("expected_no_candidate_absent_features"), (list, tuple)) else (),
         )
 
 

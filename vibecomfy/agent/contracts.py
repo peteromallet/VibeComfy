@@ -115,6 +115,9 @@ class HeadlessAgentRequest:
     # None preserves the executor's staged default without changing legacy
     # request bytes.
     pipeline_mode: str | None = None
+    allow_safe_refusal_outcome_kinds: tuple[str, ...] = ()
+    expected_no_candidate_absent_classes: tuple[str, ...] = ()
+    expected_no_candidate_absent_features: tuple[str, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -178,6 +181,33 @@ class HeadlessAgentRequest:
                 "pipeline_mode",
                 coerce_orchestration_mode(self.pipeline_mode),
             )
+        object.__setattr__(
+            self,
+            "allow_safe_refusal_outcome_kinds",
+            tuple(
+                str(item).strip()
+                for item in (self.allow_safe_refusal_outcome_kinds or ())
+                if str(item).strip()
+            ),
+        )
+        object.__setattr__(
+            self,
+            "expected_no_candidate_absent_classes",
+            tuple(
+                str(item).strip()
+                for item in (self.expected_no_candidate_absent_classes or ())
+                if str(item).strip()
+            ),
+        )
+        object.__setattr__(
+            self,
+            "expected_no_candidate_absent_features",
+            tuple(
+                str(item).strip()
+                for item in (self.expected_no_candidate_absent_features or ())
+                if str(item).strip()
+            ),
+        )
         object.__setattr__(self, "extra", dict(self.extra or {}))
 
     @property
@@ -206,6 +236,9 @@ class HeadlessAgentRequest:
             expect_graph_changed=self.expect_graph_changed,
             max_batches=self.max_batches,
             pipeline_mode=self.pipeline_mode,
+            allow_safe_refusal_outcome_kinds=self.allow_safe_refusal_outcome_kinds,
+            expected_no_candidate_absent_classes=self.expected_no_candidate_absent_classes,
+            expected_no_candidate_absent_features=self.expected_no_candidate_absent_features,
         )
 
     def resolve_provider_readiness_kwargs(self, *, stage: str = "classify") -> dict[str, str | None]:
@@ -250,6 +283,18 @@ class HeadlessAgentRequest:
             payload["max_batches"] = self.max_batches
         if self.pipeline_mode is not None:
             payload["pipeline_mode"] = self.pipeline_mode
+        if self.allow_safe_refusal_outcome_kinds:
+            payload["allow_safe_refusal_outcome_kinds"] = list(
+                self.allow_safe_refusal_outcome_kinds
+            )
+        if self.expected_no_candidate_absent_classes:
+            payload["expected_no_candidate_absent_classes"] = list(
+                self.expected_no_candidate_absent_classes
+            )
+        if self.expected_no_candidate_absent_features:
+            payload["expected_no_candidate_absent_features"] = list(
+                self.expected_no_candidate_absent_features
+            )
         if self.extra:
             payload["extra"] = dict(self.extra)
         return payload
@@ -318,6 +363,21 @@ class HeadlessAgentRequest:
                 field_name="max_batches",
             ),
             pipeline_mode=coerce_orchestration_mode(payload.get("pipeline_mode")),
+            allow_safe_refusal_outcome_kinds=tuple(
+                str(item).strip()
+                for item in (payload.get("allow_safe_refusal_outcome_kinds") or ())
+                if isinstance(item, str) and item.strip()
+            ) if isinstance(payload.get("allow_safe_refusal_outcome_kinds"), (list, tuple)) else (),
+            expected_no_candidate_absent_classes=tuple(
+                str(item).strip()
+                for item in (payload.get("expected_no_candidate_absent_classes") or ())
+                if isinstance(item, str) and item.strip()
+            ) if isinstance(payload.get("expected_no_candidate_absent_classes"), (list, tuple)) else (),
+            expected_no_candidate_absent_features=tuple(
+                str(item).strip()
+                for item in (payload.get("expected_no_candidate_absent_features") or ())
+                if isinstance(item, str) and item.strip()
+            ) if isinstance(payload.get("expected_no_candidate_absent_features"), (list, tuple)) else (),
             extra=_parse_extra(payload.get("extra")),
         )
 

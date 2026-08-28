@@ -208,6 +208,32 @@ def run_headless_scenario(
             )
         expect_graph_changed = value
 
+    assessment_map = assessment if isinstance(assessment, Mapping) else {}
+
+    def _string_tuple(value: object) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)):
+            return ()
+        return tuple(str(item).strip() for item in value if str(item).strip())
+
+    refusal_kinds = _string_tuple(assessment_map.get("allow_safe_refusal_outcome_kinds"))
+    absent_classes = _string_tuple(assessment_map.get("expected_no_candidate_absent_classes"))
+    absent_features = _string_tuple(assessment_map.get("expected_no_candidate_absent_features"))
+    reason = assessment_map.get("expected_no_candidate_reason")
+    typed_refusal = bool(
+        refusal_kinds
+        or absent_classes
+        or absent_features
+        or (isinstance(reason, str) and reason.strip())
+    )
+    interaction_mode = scenario.get("interaction_mode")
+    if (
+        interaction_mode is None
+        and scenario.get("apply") is False
+        and expect_graph_changed is False
+        and not typed_refusal
+    ):
+        interaction_mode = "answer_only"
+
     request = HeadlessAgentRequest(
         query=query,
         graph=graph,
@@ -220,10 +246,13 @@ def run_headless_scenario(
         network=bool(scenario.get("network", True)),
         timeout=scenario.get("timeout"),
         additive=bool(scenario.get("additive", False)),
-        interaction_mode=scenario.get("interaction_mode"),
+        interaction_mode=interaction_mode,
         expect_graph_changed=expect_graph_changed,
         max_batches=scenario.get("max_batches"),
         pipeline_mode=pipeline_mode,
+        allow_safe_refusal_outcome_kinds=refusal_kinds,
+        expected_no_candidate_absent_classes=absent_classes,
+        expected_no_candidate_absent_features=absent_features,
     )
 
     result = run_headless(
