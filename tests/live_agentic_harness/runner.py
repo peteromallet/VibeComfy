@@ -467,8 +467,12 @@ def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
             return "infra_empty_response"
         return None
     failure_type = attempt.get("failure_type")
-    if failure_type == "empty_response" and _summary_completion_tokens(summary) == 0:
-        return "infra_empty_response"
+    if failure_type == "empty_response":
+        if _summary_completion_tokens(summary) == 0:
+            return "infra_empty_response"
+        raw = str(attempt.get("raw_response_preview") or attempt.get("raw_response") or "")
+        if "<think>" in raw.lower() or attempt.get("parse_reason") == "empty":
+            return "infra_empty_response"
     if failure_type == "timeout":
         return "infra_timeout"
     if failure_type == "provider_failure":

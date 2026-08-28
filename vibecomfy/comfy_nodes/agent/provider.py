@@ -216,6 +216,12 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
 _PYTHON_FENCE_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
 _DONE_CALL_RE = re.compile(r"\bdone\(\s*\)")
+# S4 — Adherence Made Easy: additional fence helpers
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_YAML_FENCE_RE = re.compile(r"```yaml\s*\n(.*?)```", re.DOTALL)
+_SEARCH_CALL_RE = re.compile(r"\bsearch\s*\(", re.IGNORECASE)
+_REQUIRES_CUSTOM_NODES_RE = re.compile(r"requires_custom_nodes", re.IGNORECASE)
+_BATCH_LIKE_ASSIGN_RE = re.compile(r"\.widget_|\.inputs\.|=\s*['\"]|search\s*\(", re.IGNORECASE)
 
 
 def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str | None:
@@ -362,11 +368,8 @@ def extract_batch_fence(
     can distinguish merged from single-fence batches. Zero complete fences
     still fails closed with ``parse_reason="missing_batch_fence"``.
 
-    Adherence (Action 5 / d66a66): a lone python-language fence whose body
-    contains done() is canonicalized to a batch. This is the fence-miss
-    pattern — accept a parseable Python fence as a batch rather than burning
-    the correction slot. Non-batch fences without done(), and Python
-    fences that coexist with a real batch fence, stay prose.
+    S4 — Adherence Made Easy additions: search(...) in python/yaml as batch
+    ops; typed requires_custom_nodes from prose; empty-think → empty.
     """
     if not text.strip():
         raise MalformedModelJSON(
@@ -374,27 +377,63 @@ def extract_batch_fence(
             raw_response=text,
             parse_reason="empty",
         )
+    think_stripped = _THINK_BLOCK_RE.sub("", text).strip()
+    if not think_stripped:
+        raise MalformedModelJSON(
+            "Agent batch_repl response was empty. Expected exactly one ```batch fenced block.",
+            raw_response=text,
+            parse_reason="empty",
+        )
     matches = _BATCH_FENCE_RE.findall(text)
-    # Extract prose: everything outside the fences, with the fence text removed.
-    prose = _BATCH_FENCE_RE.sub("", text).strip()
     if len(matches) == 0:
         python_matches = _PYTHON_FENCE_RE.findall(text)
-        if (
-            len(python_matches) == 1
-            and _DONE_CALL_RE.search(python_matches[0]) is not None
-        ):
-            batch_code = python_matches[0].strip()
-            prose = _PYTHON_FENCE_RE.sub("", text).strip()
+        yaml_matches = _YAML_FENCE_RE.findall(text)
+        alt_bodies: list[str] = []
+        for body in python_matches:
+            if _DONE_CALL_RE.search(body) is not None or _SEARCH_CALL_RE.search(body) or _BATCH_LIKE_ASSIGN_RE.search(body):
+                alt_bodies.append(body.strip())
+        for body in yaml_matches:
+            if body.strip() and (_SEARCH_CALL_RE.search(body) or _BATCH_LIKE_ASSIGN_RE.search(body) or "=" in body or "widget" in body.lower() or _DONE_CALL_RE.search(body) is not None):
+                alt_bodies.append(body.strip())
+        if alt_bodies:
+            prose_alt = _PYTHON_FENCE_RE.sub("", text)
+            prose_alt = _YAML_FENCE_RE.sub("", prose_alt)
+            prose_alt = _BATCH_FENCE_RE.sub("", prose_alt)
+            prose_alt = _THINK_BLOCK_RE.sub("", prose_alt).strip()
+            if len(alt_bodies) == 1:
+                if parse_provenance is not None:
+                    if len(python_matches) == 1 and _DONE_CALL_RE.search(alt_bodies[0]) is not None and len(yaml_matches) == 0:
+                        parse_provenance["parse_reason"] = "canonicalized_python_fence"
+                    else:
+                        parse_provenance["parse_reason"] = "python_yaml_batch_fences"
+                    parse_provenance["fence_count"] = 1
+                return alt_bodies[0], prose_alt
+            batch_code = "\n".join(b for b in alt_bodies if b)
             if parse_provenance is not None:
-                parse_provenance["parse_reason"] = "canonicalized_python_fence"
-                parse_provenance["fence_count"] = 1
-            return batch_code, prose
+                parse_provenance["parse_reason"] = "python_yaml_batch_fences"
+                parse_provenance["fence_count"] = len(alt_bodies)
+            return batch_code, prose_alt
+        if _REQUIRES_CUSTOM_NODES_RE.search(text):
+            prose = _BATCH_FENCE_RE.sub("", text).strip()
+            prose_clean = _THINK_BLOCK_RE.sub("", prose).strip() or _THINK_BLOCK_RE.sub("", text).strip()
+            if parse_provenance is not None:
+                parse_provenance["parse_reason"] = "requires_custom_nodes_prose"
+            return "", prose_clean
+        prose = _BATCH_FENCE_RE.sub("", text).strip()
+        no_fence_prose = _BATCH_FENCE_RE.sub("", think_stripped).strip()
+        if not no_fence_prose:
+            raise MalformedModelJSON(
+                "Agent batch_repl response was empty. Expected exactly one ```batch fenced block.",
+                raw_response=text,
+                parse_reason="empty",
+            )
         raise MalformedModelJSON(
             "Agent response does not contain a ```batch fenced block. "
             "Include exactly one ```batch code block with your edit statements.",
             raw_response=text,
             parse_reason="missing_batch_fence",
         )
+    prose = _BATCH_FENCE_RE.sub("", text).strip()
     bodies = [match.strip() for match in matches]
     if len(bodies) == 1:
         return bodies[0], prose
@@ -1740,6 +1779,8 @@ def _batch_failure_type(exc: BaseException) -> str:
     if isinstance(raw, str) and not raw.strip():
         return "empty_response"
     reason = getattr(exc, "parse_reason", None)
+    if reason == "empty":
+        return "empty_response"
     if reason in {"missing_batch_fence"}:
         return "missing_required_fields"
     return "malformed_json"
@@ -1826,12 +1867,15 @@ def _typed_empty_attempt(attempts: tuple[dict[str, Any], ...]) -> bool:
     if not attempts:
         return False
     latest = attempts[-1]
+    if latest.get("failure_type") != "empty_response":
+        return False
     usage = latest.get("token_usage")
-    return (
-        latest.get("failure_type") == "empty_response"
-        and isinstance(usage, Mapping)
-        and usage.get("completion_tokens") == 0
-    )
+    if isinstance(usage, Mapping) and usage.get("completion_tokens") == 0:
+        return True
+    raw = str(latest.get("raw_response_preview") or latest.get("raw_response") or "")
+    if "<think>" in raw.lower() or latest.get("parse_reason") == "empty":
+        return True
+    return False
 
 
 def run_agent_turn_batch(
@@ -1975,71 +2019,6 @@ def run_agent_turn_batch(
         raise wrapped from exc
 
 
-_RESEARCH_DECISION_KEYS = frozenset({"action", "tool", "conclusion", "enough"})
-_RESEARCH_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
-
-
-def _research_decision_qualified(candidate: Mapping[str, Any]) -> bool:
-    keys = {str(key) for key in candidate}
-    if keys & _RESEARCH_DECISION_KEYS:
-        return True
-    action = candidate.get("action")
-    return action in {"call", "finish"}
-
-
-def extract_research_json(text: str) -> dict[str, Any] | None:
-    """Extract a research-decision JSON object from prose or ```json fences.
-
-    Returns None when no qualifying object exists so the research parser can
-    fail closed with its own typed message. Never invents a decision.
-    """
-    if not isinstance(text, str) or not text.strip():
-        return None
-    stripped = text.strip()
-    fence = _RESEARCH_FENCE_RE.search(stripped)
-    bodies: list[str] = [stripped]
-    if fence is not None:
-        bodies.insert(0, fence.group(1).strip())
-    for body in bodies:
-        try:
-            direct = json.loads(body)
-        except ValueError:
-            direct = None
-        if isinstance(direct, dict) and _research_decision_qualified(direct):
-            return direct
-        for candidate in _iter_json_object_candidates(
-            body, max_candidates=_CLASSIFY_EXTRACTION_MAX_CANDIDATES
-        ):
-            if _research_decision_qualified(candidate):
-                return candidate
-    return None
-
-
-def _normalize_research_json_response(response: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Extract prose/fence-wrapped research JSON before the parser fail-closes."""
-    content = response.get("content")
-    if not isinstance(content, str) or not content.strip():
-        return response
-    try:
-        direct = json.loads(content.strip())
-    except ValueError:
-        direct = None
-    extracted = extract_research_json(content)
-    if extracted is None:
-        return response
-    if isinstance(direct, dict) and direct == extracted:
-        return response
-    normalized = dict(response)
-    normalized["raw_content"] = content
-    normalized["content"] = json.dumps(extracted)
-    normalized["json"] = extracted
-    provenance = response.get("parse_provenance")
-    provenance = dict(provenance) if isinstance(provenance, Mapping) else {}
-    provenance["parse_reason"] = "extracted_from_prose"
-    normalized["parse_provenance"] = provenance
-    return normalized
-
-
 def _normalize_turn_response(
     response: Any,
     *,
@@ -2070,8 +2049,6 @@ def _normalize_turn_response(
     """
     if not isinstance(response, Mapping):
         raise ProviderError("Generic model turn returned a non-dict response.")
-    if response_contract == "json" and phase in {"research_stage", "research"}:
-        return _normalize_research_json_response(response)
     if response_contract != "json" or phase != "classify":
         return response
     content = response.get("content")
