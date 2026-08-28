@@ -183,6 +183,81 @@ def _is_provisional_touched_for_admit(
             return False
     return _is_provisional_touched(operation, workflow, catalog)
 
+
+def _is_readonly_source_missing(
+    operation: dict,
+    pair,
+    schema_catalog,
+) -> bool:
+    """True when upsert_link's missing schema is source-only (read-only edge).
+
+    S3 Liberating Structure: a wire that reads from a schema-less source
+    but writes to a schema-known target should not be blocked by
+    missing_touched_schema — the read side is schema-opaque. Only the
+    write target needs validation. This keeps valid add_node work from
+    being wiped by a best-effort emit gap elsewhere.
+    """ 
+    if str(operation.get("op") or "") != "upsert_link":
+        return False
+    try:
+        from vibecomfy.schema.types import _snapshot_node_class_map, _snapshot_known_and_missing
+    except ImportError:
+        return False
+    catalog = schema_catalog
+    if catalog is None:
+        catalog = pair.schema
+    if catalog is None:
+        return False
+    try:
+        known, missing = _snapshot_known_and_missing(catalog)
+    except Exception:
+        return False
+    node_map = _snapshot_node_class_map(catalog)
+    def _uid_from_ref(ref):
+        if isinstance(ref, dict):
+            for k in ("uid", "id", "node_id"):
+                v = ref.get(k)
+                if v is not None and str(v):
+                    return str(v)
+        if isinstance(ref, (list, tuple)) and len(ref) >= 2 and ref[1]:
+            return str(ref[1])
+        if isinstance(ref, (list, tuple)) and len(ref) >= 1 and ref[0]:
+            return str(ref[0])
+        # Also handle LinkSourceRef/LinkTargetRef objects
+        if hasattr(ref, "uid"):
+            try:
+                v = getattr(ref, "uid")
+                if v is not None and str(v):
+                    return str(v)
+            except Exception:
+                pass
+        return None
+    source_ref = operation.get("source") or operation.get("from")
+    target_ref = operation.get("target") or operation.get("to")
+    source_uid = _uid_from_ref(source_ref)
+    target_uid = _uid_from_ref(target_ref)
+    source_class = node_map.get(str(source_uid)) if source_uid else None
+    target_class = node_map.get(str(target_uid)) if target_uid else None
+    if (source_class is None or target_class is None) and pair.workflow is not None:
+        try:
+            wf = pair.workflow.workflow if hasattr(pair.workflow, "workflow") else pair.workflow
+            nodes = getattr(wf, "nodes", {}) or {}
+            for nid, node in nodes.items():
+                uid = str(getattr(node, "uid", "") or "")
+                ctype = str(getattr(node, "class_type", "") or "")
+                if source_uid and uid == str(source_uid) and source_class is None:
+                    source_class = ctype
+                if target_uid and uid == str(target_uid) and target_class is None:
+                    target_class = ctype
+        except Exception:
+            pass
+    if source_class is None or target_class is None:
+        return False
+    source_known = source_class in known and source_class not in missing
+    target_known = target_class in known and target_class not in missing
+    return (not source_known) and target_known
+
+
 LAYOUT_OPERATION_NAMES = frozenset(
     {"set_node_geometry", "add_group", "set_group_geometry", "remove_group"}
 )
@@ -708,7 +783,13 @@ def admit_operation(
             # provisional schemas must already be part of the completed frozen
             # generation pinned on the composite. Only the schema-known
             # unresolved-anchor add behavior remains.
-            if _add_node_provisional_allows(operation, schema_catalog, working_workflow=workflow):
+            # S3: read-only source-missing edges (e.g., SVDSimpleImg2Vid → SaveImage)
+            # are schema-opaque on the read side; do not block a valid target write.
+            if exc.code == "missing_touched_schema" and _is_readonly_source_missing(
+                operation, pair, schema_catalog
+            ):
+                pass
+            elif _add_node_provisional_allows(operation, schema_catalog, working_workflow=workflow):
                 pass
             else:
                 return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)

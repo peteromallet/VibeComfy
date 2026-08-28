@@ -268,6 +268,40 @@ def _interpret_ops(
                 # Already-set write: prune from this batch, keep later ops.
                 continue
             _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
+            is_wire_missing_schema = (
+                code == "missing_touched_schema"
+                and getattr(op, "op", None) == "upsert_link"
+            )
+            has_landed_add = any(
+                getattr(s.op, "op", None) == "add_node" and s.status == "applied" for s in statements
+            )
+            if is_wire_missing_schema and has_landed_add:
+                typed_diag = _diag(
+                    "requires_custom_nodes",
+                    "Custom node pack required for wiring target; valid add_node preserved.",
+                    severity="error",
+                    detail={"missing_touched_schema": True, "preserved_add": True},
+                )
+                failed = StatementOutcome(
+                    statement_index=index,
+                    source=type(op).__name__,
+                    status="rejected",
+                    reason="requires_custom_nodes",
+                    op_kind=getattr(op, "op", type(op).__name__),
+                    diagnostics=(
+                        _diag(code, str(exc), severity="error"),
+                        typed_diag,
+                    ),
+                    op=op,
+                    detail={"requires_custom_nodes": True},
+                )
+                return InterpretationResult(
+                    workflow=post,
+                    statements=tuple(statements) + (failed,),
+                    ok=False,
+                    diagnostics=tuple(diagnostics) + (typed_diag, _diag(code, str(exc), severity="error")),
+                    landed_ops=tuple(landed),
+                )
             failed = StatementOutcome(
                 statement_index=index,
                 source=type(op).__name__,
@@ -524,6 +558,58 @@ class _InterpretRunner:
                 rollback = True
                 saw_failed_edit = True
         if rollback:
+            # S3 Liberating Structure: do not wipe a valid add_node when a
+            # downstream upsert_link fails with missing_touched_schema.
+            # Preserve the landed add(s) and surface a typed requires_custom_nodes
+            # diagnostic instead of batch_transaction_rolled_back on the add.
+            has_valid_add = any(
+                o.status == "applied" and o.op_kind == "node_call" for o in outcomes
+            )
+            rejected_edits: list[StatementOutcome] = [
+                o
+                for o in outcomes
+                if o.status == "rejected"
+                and o.op_kind not in {None, "query", "done", "statement"}
+            ]
+            only_missing_schema_on_wire = (
+                has_valid_add
+                and bool(rejected_edits)
+                and all(
+                    o.reason == "missing_touched_schema" and o.op_kind == "upsert_link"
+                    for o in rejected_edits
+                )
+            )
+            if only_missing_schema_on_wire:
+                typed_diag = _diag(
+                    "requires_custom_nodes",
+                    "Custom node pack required for wiring target; valid add_node preserved.",
+                    severity="error",
+                    detail={"missing_touched_schema": True, "preserved_add": True},
+                )
+                preserved: list[StatementOutcome] = []
+                for o in outcomes:
+                    if o.status == "rejected" and o.reason == "missing_touched_schema":
+                        preserved.append(
+                            StatementOutcome(
+                                statement_index=o.statement_index,
+                                source=o.source,
+                                status="rejected",
+                                reason="requires_custom_nodes",
+                                op_kind=o.op_kind,
+                                diagnostics=o.diagnostics + (typed_diag,),
+                                op=o.op,
+                                detail=dict(o.detail, requires_custom_nodes=True),
+                            )
+                        )
+                    else:
+                        preserved.append(o)
+                return InterpretationResult(
+                    workflow=self.workflow,
+                    statements=tuple(preserved),
+                    ok=False,
+                    diagnostics=tuple(diagnostics) + (typed_diag,),
+                    landed_ops=tuple(landed),
+                )
             rollback_diag = _diag(
                 "batch_transaction_rolled_back",
                 "A later edit statement failed, so all edits from this batch were rolled back.",
