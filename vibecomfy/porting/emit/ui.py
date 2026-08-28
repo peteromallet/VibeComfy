@@ -927,16 +927,107 @@ def _emitted_socket_slot_for_link(
     return None
 
 
+def _parse_ui_link(link: Any) -> tuple[str, int, str, int] | None:
+    """Return ``(from_id, from_slot, to_id, to_slot)`` for a LiteGraph link."""
+    if isinstance(link, (list, tuple)) and len(link) >= 5:
+        try:
+            return str(link[1]), int(link[2]), str(link[3]), int(link[4])
+        except (TypeError, ValueError):
+            return None
+    if isinstance(link, Mapping):
+        try:
+            return (
+                str(link.get("origin_id")),
+                int(link.get("origin_slot", 0)),
+                str(link.get("target_id")),
+                int(link.get("target_slot", 0)),
+            )
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _original_ui_payloads(
+    wf: Any,
+    prior_ui_payload: Mapping[str, Any] | None,
+    guard_original_ui: Mapping[str, Any] | None,
+) -> list[Mapping[str, Any]]:
+    payloads: list[Mapping[str, Any]] = []
+    for candidate in (prior_ui_payload, guard_original_ui):
+        if isinstance(candidate, Mapping) and isinstance(candidate.get("links"), list):
+            payloads.append(candidate)
+    door = (getattr(wf, "metadata", None) or {}).get(_UI_DOOR_KEY)
+    top = _door_top(door)
+    if isinstance(top, Mapping) and isinstance(top.get("links"), list):
+        payloads.append(top)
+    return payloads
+
+
+def _original_link_slots_if_present(
+    wf: Any,
+    edge: Any,
+    *,
+    from_slot: int,
+    to_slot: int,
+    prior_ui_payload: Mapping[str, Any] | None,
+    guard_original_ui: Mapping[str, Any] | None,
+) -> tuple[int, int] | None:
+    """Return original UI slots for a pre-existing edge, else None.
+
+    Full-graph re-emits of corpus fixtures must round-trip links whose
+    reconstructed sockets cannot be uniquely named (schema-less Inspire
+    grids, duplicate ``width`` / ``coordinates``).  Only edges that already
+    exist on the original UI are carried; newly introduced dangling
+    endpoints still refuse.
+    """
+    from_id = str(getattr(edge, "from_node", ""))
+    to_id = str(getattr(edge, "to_node", ""))
+    to_input = str(getattr(edge, "to_input", "") or "")
+    pair_matches: list[tuple[int, int, str | None]] = []
+    for payload in _original_ui_payloads(wf, prior_ui_payload, guard_original_ui):
+        nodes = {
+            str(node.get("id")): node
+            for node in (payload.get("nodes") or [])
+            if isinstance(node, Mapping) and node.get("id") is not None
+        }
+        for link in payload.get("links") or []:
+            parsed = _parse_ui_link(link)
+            if parsed is None:
+                continue
+            o_from, o_from_slot, o_to, o_to_slot = parsed
+            if o_from != from_id or o_to != to_id:
+                continue
+            orig_name: str | None = None
+            target = nodes.get(to_id)
+            if isinstance(target, Mapping):
+                inputs = target.get("inputs")
+                if isinstance(inputs, list) and 0 <= o_to_slot < len(inputs):
+                    socket = inputs[o_to_slot]
+                    if isinstance(socket, Mapping):
+                        name = socket.get("name")
+                        orig_name = str(name) if isinstance(name, str) and name else None
+            if o_from_slot == from_slot and o_to_slot == to_slot:
+                return o_from_slot, o_to_slot
+            if orig_name and to_input and orig_name == to_input:
+                return o_from_slot, o_to_slot
+            pair_matches.append((o_from_slot, o_to_slot, orig_name))
+        if len(pair_matches) == 1:
+            return pair_matches[0][0], pair_matches[0][1]
+        pair_matches.clear()
+    return None
+
+
 def _emitted_input_slot_for_link(
     sockets: list[dict[str, Any]] | None,
     canonical_name: str,
+    requested_slot: int | None = None,
 ) -> int | None:
-    """Resolve an inbound endpoint by its canonical input name only.
+    """Resolve an inbound endpoint by canonical input name.
 
-    Widget materialization may collapse the physical input array.  Old slot
-    numbers and ``slot_index`` furniture are therefore not identity evidence
-    for inbound links.  A unique canonical name is required; ambiguity or a
-    missing name fails closed through the caller's B2 refusal path.
+    A unique name is preferred.  When the emitted node still carries
+    duplicate names (pin-opaque ImageScale ``width`` x2), disambiguate by
+    the requested slot / ``slot_index`` rather than failing closed on a
+    pre-existing corpus ambiguity.
     """
     if not isinstance(sockets, list) or not canonical_name:
         return None
@@ -945,7 +1036,16 @@ def _emitted_input_slot_for_link(
         for index, socket in enumerate(sockets)
         if isinstance(socket, dict) and socket.get("name") == canonical_name
     ]
-    return matches[0] if len(matches) == 1 else None
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1 and isinstance(requested_slot, int):
+        if requested_slot in matches:
+            return requested_slot
+        for index in matches:
+            socket = sockets[index]
+            if isinstance(socket, dict) and socket.get("slot_index") == requested_slot:
+                return index
+    return None
 
 
 def _emitted_socket_array_evidence(
@@ -2260,6 +2360,37 @@ def _normalize_pinned_node_link_refs(
     return node_dict
 
 
+def _dict_row_widget_overlay(node: Any) -> dict[str, Any]:
+    """Named widget/input values from the IR for dict-row pin merge."""
+    overlay: dict[str, Any] = {}
+    widgets = getattr(node, "widgets", None) or {}
+    if isinstance(widgets, Mapping):
+        overlay.update({str(key): value for key, value in widgets.items()})
+    inputs = getattr(node, "inputs", None) or {}
+    if isinstance(inputs, Mapping):
+        for key, value in inputs.items():
+            if isinstance(value, (list, tuple)) and len(value) == 2:
+                continue
+            overlay.setdefault(str(key), value)
+    return overlay
+
+
+def _apply_dict_row_widget_overlay(
+    values: dict[str, Any], overlay: Mapping[str, Any]
+) -> None:
+    for key, value in overlay.items():
+        if key in values:
+            values[key] = deepcopy(value)
+            continue
+        stripped = key[:-1] if key.endswith("_") else key
+        if stripped in values:
+            values[stripped] = deepcopy(value)
+            continue
+        underscored = f"{key}_"
+        if underscored in values:
+            values[underscored] = deepcopy(value)
+
+
 def _raw_ui_payload_for_pin(
     raw_ui_node: Mapping[str, Any],
     *,
@@ -2270,6 +2401,7 @@ def _raw_ui_payload_for_pin(
     order: int,
     incoming_link_ids_by_input: Mapping[str, list[int]],
     outgoing_link_ids_by_slot: Mapping[int, list[int]],
+    widget_overlay: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Stable-UID gate: a pinned raw node is only emitted under an explicit
     # canonical uid from the VibeNode. Never fall back to captured properties,
@@ -2296,6 +2428,10 @@ def _raw_ui_payload_for_pin(
     )
     node_dict["id"] = litegraph_node_id
     node_dict["order"] = order
+    if widget_overlay:
+        raw_values = node_dict.get("widgets_values")
+        if isinstance(raw_values, dict):
+            _apply_dict_row_widget_overlay(raw_values, widget_overlay)
 
     # Properties gate: the copied payload must expose a dict to stamp into.
     properties = node_dict.get("properties")
@@ -2967,6 +3103,7 @@ def emit_ui_json(
                 order=order,
                 incoming_link_ids_by_input=incoming_link_ids_by_input,
                 outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
+                widget_overlay=_dict_row_widget_overlay(node),
             )
             # The pinned raw copy comes from raw UI evidence and may lack mode;
             # stamp the same IR-authoritative mode used by compilation.
@@ -3188,7 +3325,9 @@ def emit_ui_json(
             else:
                 from_slot = remapped
         if emitted_inputs is not None:
-            remapped = _emitted_input_slot_for_link(emitted_inputs, edge.to_input)
+            remapped = _emitted_input_slot_for_link(
+                emitted_inputs, edge.to_input, to_slot
+            )
             if remapped is None:
                 target_socket_missing = True
                 target_endpoint["attempted_remaps"] = _input_remap_attempts_evidence(
@@ -3197,6 +3336,21 @@ def emit_ui_json(
             else:
                 to_slot = remapped
         if source_socket_missing or target_socket_missing:
+            carried = _original_link_slots_if_present(
+                wf,
+                edge,
+                from_slot=from_slot,
+                to_slot=to_slot,
+                prior_ui_payload=prior_ui_payload,
+                guard_original_ui=guard_original_ui,
+            )
+            if carried is not None:
+                from_slot, to_slot = carried
+                lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
+                links.append(
+                    [lid, id_remap[edge.from_node], from_slot, id_remap[edge.to_node], to_slot, socket_type or ""]
+                )
+                continue
             missing = (
                 "source_socket"
                 if target_socket_missing is False
@@ -3725,7 +3879,9 @@ def _remap_preserved_inbound_links(
             if isinstance(candidate_target, Mapping)
             else None
         )
-        remapped = _emitted_input_slot_for_link(candidate_inputs, canonical_name or "")
+        remapped = _emitted_input_slot_for_link(
+            candidate_inputs, canonical_name or "", to_slot if isinstance(to_slot, int) else None
+        )
         if remapped is not None:
             link[4] = remapped
             remapped_links.append(link)
