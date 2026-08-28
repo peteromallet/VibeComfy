@@ -187,32 +187,33 @@ def test_threaded_plan_goals_carry_verbatim_query_only() -> None:
     assert request.query == "Research how VACE preprocessing works first, then explain it"
 
 
-def test_threaded_route_choice_is_never_deterministic_over_request_shape() -> None:
-    """RR1-FIX-REV2 F9: route choice is left to the typed deliberator.  The
-    threaded envelope must NOT be overwritten by request shape — answer_only
-    must not force ``inspect``, a missing graph must not force ``research``.
-    Only the context text may differ."""
+def test_threaded_route_open_envelope_except_declared_non_edit_contract() -> None:
+    """Shape-inferred route coercion stays banned; declared answer_only is
+    transported as the inspect lane. Typed-refusal contracts stay adapt.
+    """
     ordinary = _request(graph={"nodes": {}, "links": []})
     answer_only = _request(
         interaction_mode="answer_only", graph={"nodes": {}, "links": []}
     )
     graphless = _request(interaction_mode=None, graph=None)
 
-    plans = [
-        executor_threaded._threaded_plan(ordinary),
-        executor_threaded._threaded_plan(answer_only),
-        executor_threaded._threaded_plan(graphless),
-    ]
+    ordinary_plan = executor_threaded._threaded_plan(ordinary)
+    graphless_plan = executor_threaded._threaded_plan(graphless)
+    assert ordinary_plan.effective_route == "adapt"
+    assert graphless_plan.effective_route == "adapt"
+    assert ordinary_plan.implement and ordinary_plan.research
+    assert graphless_plan.implement and graphless_plan.research
+    assert ordinary_plan.research_goal == ordinary.query
+    assert ordinary_plan.change_goal == ordinary.query
+    assert "interaction_mode=unspecified" in ordinary_plan.plan_summary
+    assert "No ComfyUI canvas graph is attached" in graphless_plan.plan_summary
+    assert "graph is attached" in ordinary_plan.plan_summary
 
-    assert {plan.effective_route for plan in plans} == {"adapt"}
-    assert all(plan.implement and plan.research for plan in plans)
-    # Interaction intent and graph availability travel ONLY as context.
-    assert all(plan.research_goal == ordinary.query for plan in plans)
-    assert all(plan.change_goal == ordinary.query for plan in plans)
-    assert "interaction_mode=unspecified" in plans[0].plan_summary
-    assert "No ComfyUI canvas graph is attached" in plans[2].plan_summary
-    assert "graph is attached" in plans[0].plan_summary
-
+    plan = executor_threaded._threaded_plan(answer_only)
+    assert plan.effective_route == "inspect"
+    assert plan.implement is False and plan.research is False
+    assert plan.intent != "edit"
+    assert "answer_only" in plan.plan_summary
 
 def test_classify_prompt_carries_interaction_mode_as_context() -> None:
     """RR1-FIX-REV2 F9: interaction_mode travels to the staged classifier as

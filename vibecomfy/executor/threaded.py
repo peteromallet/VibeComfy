@@ -9,7 +9,9 @@ host. There is no threaded session store and no classifier call.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
@@ -96,28 +98,74 @@ class ThreadedKernel:
     run_inspect_reply: Callable[..., str] | None = None
 
 
-def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
-    """Return the ONE judgment-owned envelope for the agent conversation.
+_LOOKUP_UNAVAILABLE = object()
 
-    RR1-FIX-REV2 (F9 / §31a): the former ``deterministic_request_purpose``
-    mapping chose ``research`` / ``inspect`` / ``adapt`` from request shape —
-    deterministic route coercion inside the deliberation path.  It is gone.
-    The envelope below is IDENTICAL for every request shape; interaction mode
-    and graph availability travel only as context in ``plan_summary``, and
-    the typed deliberator (the bounded agent conversation) owns the route.
-    Admission/apply authority is enforced only after deliberation, by the
-    checkpoint gates.
+_GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
+    "audio",
+    "generate",
+    "generation",
+    "image",
+    "images",
+    "input",
+    "inputs",
+    "latent",
+    "load",
+    "loader",
+    "mask",
+    "model",
+    "models",
+    "node",
+    "nodes",
+    "output",
+    "outputs",
+    "preview",
+    "process",
+    "prompt",
+    "prompts",
+    "save",
+    "text",
+    "video",
+    "workflow",
+})
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(str(item).strip() for item in value if str(item).strip())
+
+
+def typed_refusal_contract(request: ExecutorRequest) -> bool:
+    """True when the caller declared a typed no-candidate / custom-node refusal.
+
+    ``answer_only`` is the explain/advice contract. Scenarios that declare
+    ``allow_safe_refusal_outcome_kinds`` or ``expected_no_candidate_absent_*``
+    need an implement-capable lane so the batch path can emit
+    ``requires_custom_nodes``.
     """
+    kinds = _string_tuple(getattr(request, "allow_safe_refusal_outcome_kinds", ()))
+    classes = _string_tuple(getattr(request, "expected_no_candidate_absent_classes", ()))
+    features = _string_tuple(getattr(request, "expected_no_candidate_absent_features", ()))
+    return bool(kinds or classes or features)
+
+
+def _graph_attached_note(request: ExecutorRequest) -> str:
+    if request.graph is not None:
+        return "A ComfyUI canvas graph is attached to this turn."
+    return "No ComfyUI canvas graph is attached to this turn."
+
+
+def _open_adapt_plan(request: ExecutorRequest) -> ClassifyDecision:
     intent_context = (
         f"End-user interaction intent: interaction_mode="
         f"{request.interaction_mode or 'unspecified'}"
-        + (" (answer_only: respond without editing)" if request.interaction_mode == "answer_only" else "")
+        + (
+            " (answer_only: respond without editing)"
+            if request.interaction_mode == "answer_only"
+            and not typed_refusal_contract(request)
+            else ""
+        )
         + "."
-    )
-    graph_context = (
-        "A ComfyUI canvas graph is attached to this turn."
-        if request.graph is not None
-        else "No ComfyUI canvas graph is attached to this turn."
     )
     return ClassifyDecision(
         research=True,
@@ -133,12 +181,223 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
             "inspection, direct answer, concrete graph edits, layout "
             "cleanup — and NONE of them is a required step; choose based on "
             "the verbatim request alone. " + intent_context + " "
-            + graph_context
+            + _graph_attached_note(request)
         ),
         research_goal=request.query,
         change_goal=request.query,
     )
 
+
+def _inspect_answer_plan(request: ExecutorRequest) -> ClassifyDecision:
+    return ClassifyDecision(
+        research=False,
+        implement=False,
+        reply=True,
+        route="inspect",
+        task="inspect_graph",
+        intent="explain_graph",
+        effort="high",
+        plan_summary=(
+            "Declared answer-only interaction (interaction_mode="
+            "answer_only): answer the user without producing a graph "
+            "edit. Inspect the attached graph, cite what is actually "
+            "there, and respond; no implement phase will run. "
+            + _graph_attached_note(request)
+        ),
+        research_goal=request.query,
+        change_goal="",
+    )
+
+
+def coerce_declared_interaction_lane(
+    request: ExecutorRequest,
+    plan: ClassifyDecision | None = None,
+) -> ClassifyDecision:
+    """Honor caller-declared interaction contracts without query-text inference.
+
+    Typed refusal stays implement-capable even under ``answer_only``.
+    Bare ``answer_only`` explain/advice turns take the inspect lane.
+    Staged diagnostics classified as bare ``respond`` under ``answer_only``
+    are lifted to inspect.
+    """
+    if typed_refusal_contract(request):
+        if plan is None or plan.effective_route in {"inspect", "respond"}:
+            return _open_adapt_plan(request)
+        return plan
+    if request.interaction_mode == "answer_only":
+        if plan is None or plan.effective_route == "respond":
+            return _inspect_answer_plan(request)
+        return plan
+    if plan is None:
+        return _open_adapt_plan(request)
+    return plan
+
+
+def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
+    """Return the ONE envelope for the agent conversation.
+
+    RR1-FIX-REV2 (F9 / §31a) removed shape-inferred purpose mapping. That
+    removal stands: nothing here infers intent from query text.
+
+    Caller-DECLARED contracts are transported as data:
+    ``answer_only`` explain/advice turns route inspect (no implement).
+    Typed-refusal contracts stay implement-capable so the batch path can
+    emit ``requires_custom_nodes``. Requests without a declared contract
+    keep the open envelope.
+    """
+    return coerce_declared_interaction_lane(request, plan=None)
+
+
+def _graph_class_types(graph: Any) -> set[str]:
+    classes: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key in ("class_type", "type"):
+                class_type = value.get(key)
+                if isinstance(class_type, str) and class_type.strip():
+                    classes.add(class_type.strip())
+                    break
+            for child in value.values():
+                if isinstance(child, (Mapping, list, tuple)):
+                    walk(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                walk(child)
+
+    walk(graph)
+    return classes
+
+
+def _query_names_class(query: str, class_type: str) -> bool:
+    if not class_type:
+        return False
+    if re.search(
+        rf"(?<![A-Za-z0-9_]){re.escape(class_type)}(?![A-Za-z0-9_])",
+        query,
+        re.IGNORECASE,
+    ):
+        return True
+    folded_class = re.sub(r"[^a-z0-9]", "", class_type.lower())
+    if len(folded_class) < 4:
+        return False
+    request_tokens = tuple(
+        dict.fromkeys(
+            re.sub(r"[^a-z0-9]", "", token.lower())
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query)
+        )
+    )
+    return any(
+        len(token) >= 4
+        and token not in _GENERIC_DOMAIN_TOKENS
+        and folded_class.startswith(token)
+        for token in request_tokens
+    )
+
+
+def _default_schema_lookup(class_type: str) -> Any:
+    """Return the live schema for *class_type*, or None if proven absent.
+
+    Returns ``_LOOKUP_UNAVAILABLE`` when the index cannot be consulted so
+    callers fail closed (never fabricate an absence).
+    """
+    try:
+        from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+        root = Path(__file__).resolve().parents[1] / "porting" / "cache" / "object_info"
+        provider = ObjectInfoIndexSchemaProvider(str(root))
+        return provider.get_schema(class_type)
+    except Exception:
+        return _LOOKUP_UNAVAILABLE
+
+
+def inspect_named_runtime_absences(
+    request: ExecutorRequest,
+    *,
+    schema_lookup: Callable[[str], Any] | None = None,
+) -> tuple[str, ...]:
+    """Return request-named classes proven absent from graph + schema index.
+
+    A name is attached only when the request names it or the caller declared
+    it absent, it is not present on the attached graph, and schema lookup
+    returns None. An unavailable index never becomes evidence.
+    """
+    query = str(request.query or "")
+    declared = _string_tuple(getattr(request, "expected_no_candidate_absent_classes", ()))
+    candidates: list[str] = []
+    for name in declared:
+        if name not in candidates:
+            candidates.append(name)
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
+        if token in candidates:
+            continue
+        folded = re.sub(r"[^a-z0-9]", "", token.lower())
+        if folded in _GENERIC_DOMAIN_TOKENS:
+            continue
+        if token[0].isupper() and any(ch.islower() for ch in token[1:]):
+            candidates.append(token)
+    present = _graph_class_types(request.graph)
+    lookup = schema_lookup or _default_schema_lookup
+    missing: list[str] = []
+    for name in candidates:
+        if name in present:
+            continue
+        if name not in declared and not _query_names_class(query, name):
+            continue
+        try:
+            schema = lookup(name)
+        except Exception:
+            continue
+        if schema is _LOOKUP_UNAVAILABLE:
+            continue
+        if schema is None:
+            missing.append(name)
+    return tuple(missing)
+
+
+def synthesize_inspect_refusal_implementation(
+    request: ExecutorRequest,
+    *,
+    reply: str,
+    schema_lookup: Callable[[str], Any] | None = None,
+) -> ImplementationResult | None:
+    """Attach ``authoring_blocker.missing_runtime_classes`` on inspect.
+
+    ``promote_requires_custom_nodes_outcome`` reads missing classes only
+    from that blocker. Empty proof returns None (fail-closed).
+    """
+    missing = inspect_named_runtime_absences(request, schema_lookup=schema_lookup)
+    if not missing:
+        return None
+    from vibecomfy.comfy_nodes.agent.contracts import (
+        missing_runtime_classes_from_report,
+        promote_requires_custom_nodes_outcome,
+    )
+
+    blocker_report = {
+        "authoring_blocker": {
+            "reason": "named_class_absent_from_schema",
+            "missing_runtime_classes": list(missing),
+        },
+        "graph_unchanged": True,
+    }
+    outcome = promote_requires_custom_nodes_outcome(
+        {"kind": "noop"},
+        missing_classes=missing_runtime_classes_from_report(blocker_report),
+    )
+    return ImplementationResult(
+        message=reply,
+        durable_response={
+            "outcome": outcome,
+            "graph_unchanged": True,
+            "report": blocker_report,
+            "no_candidate_reason": (
+                "requires_custom_nodes"
+                if outcome.get("kind") == "requires_custom_nodes"
+                else "no_changes"
+            ),
+        },
+    )
 
 def _bounded_request(request: ExecutorRequest) -> tuple[ExecutorRequest, ThreadedPurposeBudget]:
     requested = request.max_batches or THREADED_DEFAULT_AGENT_BATCHES
@@ -320,8 +579,12 @@ def run_threaded_executor(
             status="done",
             client_id=client_id,
         )
+        implementation = synthesize_inspect_refusal_implementation(
+            bounded_request,
+            reply=reply,
+        )
         return finish(ExecutorResult.success(
-            report=build_report(),
+            report=build_report(implementation),
             graph=None,
             reply=reply,
         ))
@@ -497,5 +760,9 @@ __all__ = [
     "THREADED_MAX_AGENT_BATCHES",
     "ThreadedKernel",
     "ThreadedPurposeBudget",
+    "coerce_declared_interaction_lane",
+    "inspect_named_runtime_absences",
     "run_threaded_executor",
+    "synthesize_inspect_refusal_implementation",
+    "typed_refusal_contract",
 ]

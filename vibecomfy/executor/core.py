@@ -3118,6 +3118,10 @@ def _run_staged_executor(
                 blocked_route=None,
                 blocked_task=None,
             )
+        else:
+            from vibecomfy.executor.threaded import coerce_declared_interaction_lane
+
+            plan = coerce_declared_interaction_lane(request, plan)
     except _ExecutorPhaseError as exc:
         # The classify phase raised — the report must NOT claim a model
         # decision (respond_only) that never happened. Record
