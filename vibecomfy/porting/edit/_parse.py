@@ -535,7 +535,13 @@ def _validate_call(
                 continue
             issues.append(_unsafe(keyword.value, "invalid_near_hint", "near= must reference a rendered graph name."))
             continue
-        if keyword.arg == "relation" or keyword.arg == "group" or keyword.arg in _RAW_COORDINATE_HINT_NAMES:
+        if keyword.arg == "relation" or keyword.arg == "group":
+            value, diagnostic = _fold_constant(keyword.value, env=env)
+            _ = value
+            if diagnostic is not None:
+                issues.append(diagnostic)
+            continue
+        if reserved_kwarg_is_coordinate_hint(keyword.arg, value=keyword.value):
             value, diagnostic = _fold_constant(keyword.value, env=env)
             _ = value
             if diagnostic is not None:
@@ -658,6 +664,29 @@ def _is_graph_reference_value(node: ast.expr) -> bool:
     if isinstance(node, ast.Attribute):
         return not node.attr.startswith("__") and isinstance(node.value, ast.Name)
     return False
+
+
+def reserved_kwarg_is_coordinate_hint(
+    name: str | None,
+    *,
+    value: ast.expr | None = None,
+    schema_inputs: Mapping[str, Any] | None = None,
+) -> bool:
+    """True when *name* is a placement hint, not a real node input.
+
+    ``pos`` / ``position`` / ``coords`` / ``x`` / ``y`` are reserved as raw
+    coordinate placement kwargs, but some classes (``easy pipeIn``) expose a
+    real input with the same name.  A schema input of that name or a
+    graph-reference value is the real input; only foldable constants stay
+    hints.
+    """
+    if name not in _RAW_COORDINATE_HINT_NAMES:
+        return False
+    if schema_inputs is not None and name in schema_inputs:
+        return False
+    if value is not None and _is_graph_reference_value(value):
+        return False
+    return True
 
 
 def _validate_graph_reference_value(node: ast.expr) -> list[CompactDiagnostic]:
