@@ -1025,12 +1025,41 @@ def _emitted_input_slot_for_link(
     """Resolve an inbound endpoint by canonical input name.
 
     A unique name is preferred.  When the emitted node still carries
-    duplicate names (pin-opaque ImageScale ``width`` x2), disambiguate by
-    the requested slot / ``slot_index`` rather than failing closed on a
-    pre-existing corpus ambiguity.
+    duplicate names (pin-opaque ImageScale ``width`` x2, ``coordinates`` x2),
+    the first match is returned rather than failing closed on pre-existing
+    corpus ambiguity — the linked socket is authoritative (Equip, Trust
+    Judgment).  Reroute ``*`` wildcard synthetic ``_un<N>`` matches any
+    wildcard/empty socket (ff076a, 2x2-seed, 0c2716).
     """
     if not isinstance(sockets, list) or not canonical_name:
         return None
+    matches = [
+        index
+        for index, socket in enumerate(sockets)
+        if isinstance(socket, dict) and socket.get("name") == canonical_name
+    ]
+    if matches:
+        if len(matches) > 1 and isinstance(requested_slot, int):
+            if requested_slot in matches:
+                return requested_slot
+            for index in matches:
+                socket = sockets[index]
+                if isinstance(socket, dict) and socket.get("slot_index") == requested_slot:
+                    return index
+        return matches[0]
+    is_synthetic = canonical_name.startswith("_un")
+    for index, socket in enumerate(sockets):
+        if not isinstance(socket, dict):
+            continue
+        name = socket.get("name")
+        sock_type = socket.get("type")
+        if sock_type == "*" and is_synthetic:
+            return index
+        if name in ("", "*") and is_synthetic:
+            return index
+        if isinstance(name, str) and name.startswith("_un") and canonical_name in ("", "*"):
+            return index
+    return None
     matches = [
         index
         for index, socket in enumerate(sockets)
