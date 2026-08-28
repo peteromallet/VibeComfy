@@ -962,6 +962,58 @@ class _InterpretRunner:
         # If it could not do so, reject rather than sealing a ``widget_N`` op
         # that authoritative replay is required to reject later.
         if is_positional_alias(field_name):
+            # S2: help the agent discover the real field name + valid range.
+            try:
+                from vibecomfy.porting.widgets.compact_resolver import (
+                    compact_widget_names_for_node,
+                )
+
+                try:
+                    idx = int(field_name.split("_")[1])
+                except Exception:
+                    idx = -1
+                if idx >= 0:
+                    res = compact_widget_names_for_node(
+                        node,
+                        schema_provider=self.schema_provider,
+                        name_authority=self.name_authority,
+                    )
+                    if 0 <= idx < len(res.names):
+                        named = res.names[idx]
+                        if isinstance(named, str) and named and not is_positional_alias(named):
+                            schema = schema_for(self.schema_provider, node.class_type)
+                            spec = _input_spec_for_field(
+                                getattr(schema, "inputs", {}) or {}, named
+                            )
+                            hint = ""
+                            if spec is not None:
+                                choices = getattr(spec, "choices", None)
+                                min_v = getattr(spec, "min", None)
+                                max_v = getattr(spec, "max", None)
+                                if choices:
+                                    hint = f" Use '{named}' with one of {list(choices)[:5]}."
+                                elif min_v is not None or max_v is not None:
+                                    if min_v is not None and max_v is not None:
+                                        hint = f" Use '{named}' with valid range {min_v} to {max_v}."
+                                    elif min_v is not None:
+                                        hint = f" Use '{named}' with valid range >= {min_v}."
+                                    else:
+                                        hint = f" Use '{named}' with valid range <= {max_v}."
+                                else:
+                                    hint = f" Use '{named}' instead."
+                            else:
+                                hint = f" Use '{named}' instead."
+                            return self._reject(
+                                item,
+                                "widget_unknown",
+                                "set_node_field",
+                                (
+                                    f"{node.class_type}.{field_name} has no schema-proven "
+                                    f"render-visible field name. Did you mean '{named}'?{hint}"
+                                ),
+                            )
+            except Exception:
+                pass
             return self._reject(
                 item,
                 "widget_unknown",

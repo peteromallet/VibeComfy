@@ -460,26 +460,72 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         node = workflow_nodes[nid]
         var = var_names[nid]
         edge_fields = {str(edge.to_input) for edge in edges_in.get(nid, [])}
+        # S2 named-field emit: resolve positional widget_N to schema-proven
+        # named fields so the agent authors via ``guidance_scale`` not
+        # ``widget_1``.  Frozen widget_N tables are ignored (see
+        # compact_resolver P0-WIDGET-CANON fix) and the live provider /
+        # WIDGET_SCHEMA supplies the real name.  Preview and queue therefore
+        # share one vocabulary.
+        _positional_to_named: dict[str, str] = {}
+        _resolution = None
+        try:
+            from vibecomfy.porting.widgets.compact_resolver import (
+                compact_widget_names_for_node as _compact_for_emit,
+            )
+            from vibecomfy.schema import get_authoring_schema_provider as _get_provider
+
+            _provider = _get_provider()
+            _resolution = _compact_for_emit(
+                node,
+                schema_provider=_provider,
+                name_authority=prepared.get("name_authority"),
+            )
+            for _idx, _name in enumerate(_resolution.names):
+                if isinstance(_name, str) and _name and not _name.startswith("widget_"):
+                    _positional_to_named[f"widget_{_idx}"] = _name
+        except Exception:
+            _positional_to_named = {}
+            _resolution = None
         primitive_aliases: dict[str, str] = {}
         if str(node.class_type) in {"Float", "Int"} or str(node.class_type).startswith("Primitive"):
-            resolution = compact_widget_names_for_node(
-                node, name_authority=prepared.get("name_authority")
-            )
-            for index, name in enumerate(resolution.names):
-                positional = f"widget_{index}"
-                if (
-                    isinstance(name, str)
-                    and not name.startswith("widget_")
-                    and (name in node.inputs or name in node.widgets)
-                ):
-                    primitive_aliases[positional] = name
+            # Reuse the same resolution for primitives so ``value`` aliases
+            # stay consistent with the named-field emit path.
+            if _resolution is not None:
+                for index, name in enumerate(_resolution.names):
+                    positional = f"widget_{index}"
+                    if (
+                        isinstance(name, str)
+                        and not name.startswith("widget_")
+                        and (name in node.inputs or name in node.widgets)
+                    ):
+                        primitive_aliases[positional] = name
+            # Fallback when resolution unavailable (keeps old behavior).
+            if not primitive_aliases:
+                try:
+                    from vibecomfy.porting.widgets.compact_resolver import (
+                        compact_widget_names_for_node as _compact_prim,
+                    )
+
+                    _res = _compact_prim(
+                        node, name_authority=prepared.get("name_authority")
+                    )
+                    for index, name in enumerate(_res.names):
+                        positional = f"widget_{index}"
+                        if (
+                            isinstance(name, str)
+                            and not name.startswith("widget_")
+                            and (name in node.inputs or name in node.widgets)
+                        ):
+                            primitive_aliases[positional] = name
+                except Exception:
+                    primitive_aliases = {}
         raw_fields = [
             str(edge.to_input)
             for edge in edges_in.get(nid, [])
         ]
         raw_fields.extend(str(key) for key in node.inputs if str(key) not in edge_fields)
         raw_fields.extend(
-            str(key)
+            _positional_to_named.get(str(key), str(key))
             for key in node.widgets
             if (
                 str(key) not in edge_fields
@@ -511,16 +557,13 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
 
         widget_channel_names: list[str] = []
         for raw_name, value in sorted(node.widgets.items(), key=lambda item: str(item[0])):
-            raw_key = str(raw_name)
-            if raw_key in edge_fields or raw_key in primitive_aliases:
+            original_key = str(raw_name)
+            if original_key in edge_fields or original_key in primitive_aliases:
                 continue
-            # Emit the IR field name as stored.  Positional widget_N keys are
-            # the actual envelope payload, not aliases — rewriting them to a
-            # compact name (or collapsing them to widget_unknown) would hide
-            # inequality from π_edit.
-            alias = input_aliases.get(raw_key) or to_python_identifier(raw_key)
-            kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
-            widget_channel_names.append(raw_key)
+            named_key = _positional_to_named.get(original_key, original_key)
+            alias = input_aliases.get(named_key) or to_python_identifier(named_key)
+            kwargs.append((alias, _format_value(value, elide_strings_over=None), named_key))
+            widget_channel_names.append(named_key)
         # Named widget-channel fields and any non-identifier input names must
         # survive emit→interpret.  The roster rides a non-identifier **unpack
         # key; a real field with that raw name is identifier-encoded, never

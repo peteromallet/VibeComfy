@@ -77,10 +77,16 @@ def validate_literal_value(
             (min_value is not None and numeric < float(min_value))
             or (max_value is not None and numeric > float(max_value))
         ):
+            if min_value is not None and max_value is not None:
+                range_desc = f"{min_value} to {max_value}"
+            elif min_value is not None:
+                range_desc = f">= {min_value}"
+            else:
+                range_desc = f"<= {max_value}"
             issues.append(
                 _issue(
                     "value_out_of_range",
-                    f"{context} rejected {class_type}.{input_name}: value {value!r} is outside the declared range.",
+                    f"{context} rejected {class_type}.{input_name}: value {value!r} is outside the declared range ({range_desc}). Valid range is {range_desc}.",
                     detail={
                         "class_type": class_type,
                         "input": input_name,
