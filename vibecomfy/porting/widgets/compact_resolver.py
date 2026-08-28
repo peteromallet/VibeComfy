@@ -11,6 +11,11 @@ from vibecomfy._compile._widgets import WIDGET_SCHEMA, WIDGET_SEMANTIC_NAMES
 
 
 from vibecomfy.ingest.normalize import door_get_widgets_values
+
+def _is_positional_widget_name(name: str | None) -> bool:
+    if not isinstance(name, str) or not name:
+        return False
+    return bool(_WIDGET_KEY_RE.fullmatch(name))
 @dataclass(frozen=True, slots=True)
 class WidgetNameResolution:
     names: tuple[str | None, ...]
@@ -170,7 +175,18 @@ def compact_widget_names_for_node(
 
     authority_names = _frozen_authority_names(node, name_authority)
     if authority_names is not None:
-        return _align_names(list(authority_names), count, _FIELD_SNAPSHOT_SOURCE)
+        # S2 named-field emit: a frozen table that is all positional
+        # ``widget_N`` placeholders carries no semantic names.  Treat it as
+        # absent so the live schema provider / WIDGET_SCHEMA can supply
+        # real field names.  A table containing at least one real name
+        # remains authoritative (P0-WIDGET-CANON).
+        has_named = any(
+            isinstance(name, str) and name and not _is_positional_widget_name(name)
+            for name in authority_names
+        )
+        if has_named:
+            return _align_names(list(authority_names), count, _FIELD_SNAPSHOT_SOURCE)
+        # All widget_N / None — fall through to live providers.
 
     linked = _resolved_linked_input_names(node, linked_inputs)
     for source, names in _candidate_name_sources(
