@@ -15,7 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 from .contracts import (
     ClassifyDecision,
@@ -506,7 +507,12 @@ _REPLY_SYSTEM = (
     "paragraphs, bullet lists, emphasis, and inline code.  Do NOT wrap the "
     "reply in a fenced code block.  (For backward compatibility with older "
     "clients you MAY instead return a single JSON object with a \"reply\" "
-    "string key; plain prose is preferred.)\n\n"
+    "string key; plain prose is preferred.)  When the request cannot be "
+    "safely authored from current evidence, emit a typed refusal JSON "
+    "object instead of untyped prose: {\"kind\": \"requires_custom_nodes\", "
+    "\"missing_classes\": [\"ClassName\"], \"reply\": \"...\"}. Ground every "
+    "missing class in the inspection/graph evidence. Do not emit an untyped "
+    "noop for a groundable refusal.\n\n"
     "Rules:\n"
     "- Acknowledge what was done (if anything).\n"
     "- Be concrete: mention node names, template names, or parameter values "
@@ -555,7 +561,7 @@ _REPLY_SYSTEM = (
     "anchor roles bound, the structural validation result, and any portability "
     "warnings; keep the detailed candidate graph in the structured artifact.\n"
     "- If nothing was changed, explain why clearly.\n"
-    "- When a graph inspection is provided (inspect route): describe the "
+    "- When a graph inspection is provided (inspect route): cite what is actually in the graph. Describe the "
     "graph structure, node types, and how they connect. Explain what the workflow "
     "does step-by-step. Use short paragraphs and/or bullet lists, and use inline "
     "code for node names, parameter names, and widget values when it improves "
@@ -647,10 +653,12 @@ def build_reply_messages(
     parts = [f"User request:\n{query}"]
     if graph_inspection:
         parts.append(
-            "\nGraph inspection (the workflow IR below is the authoritative "
-            "source of node ids, widget values, and link ids; describe the "
-            "workflow without suggesting edits, and cite link ids and widget "
-            "keys/values from it exactly as listed):\n"
+            "\nGraph inspection (cite what is actually in the graph — the "
+            "workflow IR below is the authoritative source of node ids, widget "
+            "values, and link ids; describe the workflow without suggesting "
+            "edits, and cite link ids and widget keys/values from it exactly "
+            "as listed; do not invent parameters, codec families, bit depths, "
+            "or connections that are not listed):\n"
             f"{graph_inspection}"
         )
     elif graph_summary:
@@ -1080,13 +1088,82 @@ def _sanitize_reply_prose(text: str) -> str:
     return "\n".join(cleaned).strip()
 
 
-def parse_reply_response(raw: str) -> str:
-    """Parse a reply model response into a user-facing string.
+# Typed refusal kinds the reply lane can emit (Action 5). Untyped ``noop``
+# is not in this set — scoring noop as requires_custom_nodes is rejected.
+_REPLY_TYPED_REFUSAL_KINDS = frozenset({"requires_custom_nodes", "clarify"})
+
+
+@dataclass(frozen=True)
+class ReplyPayload:
+    """Parsed reply-lane payload.
+
+    ``text`` is always the user-facing prose.  ``kind`` is set only when the
+    model emitted a typed refusal envelope, so groundable refusals stay
+    typed kinds rather than untyped prose/noop.
+    """
+
+    text: str
+    kind: str | None = None
+    missing_classes: tuple[str, ...] = ()
+
+    @property
+    def is_typed_refusal(self) -> bool:
+        return self.kind in _REPLY_TYPED_REFUSAL_KINDS
+
+
+def _missing_classes_from_mapping(parsed: Mapping[str, Any]) -> tuple[str, ...]:
+    raw = parsed.get("missing_classes")
+    if raw is None:
+        raw = parsed.get("missing_runtime_classes")
+    if isinstance(raw, str) and raw.strip():
+        return (raw.strip(),)
+    if isinstance(raw, (list, tuple)):
+        return tuple(
+            str(item).strip() for item in raw if str(item).strip()
+        )
+    return ()
+
+
+def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
+    """Return a typed-refusal payload when *parsed* is an emit-able envelope."""
+    kind = parsed.get("kind")
+    if not isinstance(kind, str):
+        return None
+    kind = kind.strip()
+    if kind not in _REPLY_TYPED_REFUSAL_KINDS:
+        return None
+    text = None
+    for key in ("reply", "message", "response", "content", "text"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            break
+    if text is None and kind == "clarify":
+        for key in ("clarification_question", "question"):
+            value = parsed.get(key)
+            if isinstance(value, str) and value.strip():
+                text = value.strip()
+                break
+    classes = _missing_classes_from_mapping(parsed)
+    if text is None:
+        if kind == "requires_custom_nodes" and classes:
+            text = (
+                "This edit cannot be safely authored from current evidence "
+                f"without custom nodes: {', '.join(classes)}."
+            )
+        else:
+            return None
+    return ReplyPayload(text=text, kind=kind, missing_classes=classes)
+
+
+def parse_reply_payload(raw: str) -> ReplyPayload:
+    """Parse a reply model response into a :class:`ReplyPayload`.
 
     First tries the legacy JSON transport (``{"reply": "..."}`` plus the
     ``message`` / ``response`` / ``content`` / ``text`` fallback keys) for
-    backward compatibility.  When the output is not JSON-shaped, sanitized
-    non-empty prose is accepted verbatim.
+    backward compatibility.  A JSON object with ``kind`` in the typed-refusal
+    set is an emit-able typed refusal, not untyped prose.  When the output is
+    not JSON-shaped, sanitized non-empty prose is accepted verbatim.
 
     Empty output, JSON-looking-but-malformed output, and iteration-limit
     sentinels remain retryable errors (raised as :class:`ValueError`).
@@ -1096,14 +1173,17 @@ def parse_reply_response(raw: str) -> str:
     stripped = raw.strip()
     if _looks_json_shaped(stripped):
         parsed = _extract_json_object(stripped)
+        refusal = _typed_refusal_from_json(parsed)
+        if refusal is not None:
+            return refusal
         reply = parsed.get("reply")
         if isinstance(reply, str) and reply.strip():
-            return reply.strip()
+            return ReplyPayload(text=reply.strip())
         # Some models use "message" or "response" as the key; try those.
         for key in ("message", "response", "content", "text"):
             value = parsed.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()
+                return ReplyPayload(text=value.strip())
         raise ValueError(
             f"Reply model response did not contain a string 'reply' (or fallback) key. "
             f"Got keys: {sorted(parsed.keys())}"
@@ -1116,13 +1196,25 @@ def parse_reply_response(raw: str) -> str:
     prose = _sanitize_reply_prose(stripped)
     if not prose:
         raise ValueError("Reply model returned an empty response.")
-    return prose
+    return ReplyPayload(text=prose)
+
+
+def parse_reply_response(raw: str) -> str:
+    """Parse a reply model response into a user-facing string.
+
+    Typed refusals are accepted as JSON envelopes and reduced to their
+    user-facing ``text`` here.  Use :func:`parse_reply_payload` when the
+    caller needs the typed ``kind`` / ``missing_classes``.
+    """
+    return parse_reply_payload(raw).text
 
 
 __all__ = [
     "CLASSIFY_DECISION_STRONG_KEYS",
+    "ReplyPayload",
     "build_classify_messages",
     "build_reply_messages",
     "parse_classify_response",
+    "parse_reply_payload",
     "parse_reply_response",
 ]

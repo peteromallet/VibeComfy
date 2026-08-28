@@ -214,6 +214,8 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 # (``parse_reason="merged_batch_fences"`` + ``fence_count``) so the harness
 # can distinguish a merged batch from a single-fence batch.
 _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
+_PYTHON_FENCE_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
+_DONE_CALL_RE = re.compile(r"\bdone\(\s*\)")
 
 
 def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str | None:
@@ -359,6 +361,12 @@ def extract_batch_fence(
     ``parse_reason="merged_batch_fences"`` and ``fence_count`` so the harness
     can distinguish merged from single-fence batches. Zero complete fences
     still fails closed with ``parse_reason="missing_batch_fence"``.
+
+    Adherence (Action 5 / d66a66): a lone python-language fence whose body
+    contains done() is canonicalized to a batch. This is the fence-miss
+    pattern — accept a parseable Python fence as a batch rather than burning
+    the correction slot. Non-batch fences without done(), and Python
+    fences that coexist with a real batch fence, stay prose.
     """
     if not text.strip():
         raise MalformedModelJSON(
@@ -370,6 +378,17 @@ def extract_batch_fence(
     # Extract prose: everything outside the fences, with the fence text removed.
     prose = _BATCH_FENCE_RE.sub("", text).strip()
     if len(matches) == 0:
+        python_matches = _PYTHON_FENCE_RE.findall(text)
+        if (
+            len(python_matches) == 1
+            and _DONE_CALL_RE.search(python_matches[0]) is not None
+        ):
+            batch_code = python_matches[0].strip()
+            prose = _PYTHON_FENCE_RE.sub("", text).strip()
+            if parse_provenance is not None:
+                parse_provenance["parse_reason"] = "canonicalized_python_fence"
+                parse_provenance["fence_count"] = 1
+            return batch_code, prose
         raise MalformedModelJSON(
             "Agent response does not contain a ```batch fenced block. "
             "Include exactly one ```batch code block with your edit statements.",
