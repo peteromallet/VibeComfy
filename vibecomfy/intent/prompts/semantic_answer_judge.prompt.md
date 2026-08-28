@@ -5,11 +5,22 @@ a grounded, relevant, and technically correct response to the question.
 
 Judge ONLY against the structured evidence in the payload:
 - original_ui / final_ui (the inspected workflow)
-- node_inventory (ids and class types present in that workflow)
+- node_inventory (ids, class types, and authoritative ``inputs`` per node)
 - required_node_evidence (nodes the scenario author identified as relevant)
 - expected_criteria and fail_conditions from the rubric
 - `mode_labels` (authoritative ComfyUI node mode integers: 0=enabled, 2=muted,
   4=bypassed). mode=4 is bypassed, never "Never" or any other folklore label.
+- `schema_context` / `node_inputs` (authoritative per-node ``inputs`` mapping)
+
+Critical: read widget values from ``inputs`` (e.g. ``inputs.steps``,
+``inputs.cfg``), NOT from raw ``widgets_values`` positional indices.  For
+example, ``KSamplerAdvanced`` has 10 widgets
+``[add_noise, noise_seed, control_after_generate, steps, cfg, sampler_name,
+scheduler, start_at_step, end_at_step, return_with_leftover_noise]`` — steps
+is at position 3, cfg at 4, not at 0/2.  A claim that ``steps=6 cfg=1.5`` is
+grounded when ``inputs.steps=6 inputs.cfg=1.5``, even if ``widgets_values[0]``
+is ``"disable"``.  Do not treat ``widgets_values`` positions as authoritative.
+Do not hallucinate a missing ``l`` in filenames that is present in evidence.
 
 Do not treat the answer text as evidence of its own correctness. Do not accept
 an answer because it sounds confident, lists node names without causal content,
