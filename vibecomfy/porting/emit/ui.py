@@ -1242,6 +1242,9 @@ def _widget_key_count(values: Any) -> int:
     return max(indices) + 1 if sorted(indices) == expected else 0
 
 
+_UI_ONLY_OBJECT_INFO_NAMES = frozenset({"control_after_generate"})
+
+
 def _object_info_order_safely_extends_committed(
     committed: list[str | None],
     object_info_order: list[str | None],
@@ -1251,7 +1254,11 @@ def _object_info_order_safely_extends_committed(
     if any(name is None for name in committed):
         return False
     committed_names = [name for name in committed if isinstance(name, str)]
-    object_info_names = [name for name in object_info_order if isinstance(name, str)]
+    object_info_names = [
+        name
+        for name in object_info_order
+        if isinstance(name, str) and name not in _UI_ONLY_OBJECT_INFO_NAMES
+    ]
     return object_info_names == committed_names
 
 

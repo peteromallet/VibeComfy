@@ -202,45 +202,66 @@ def _common_node_rebuild_required(
     return False
 
 
+def _is_link_payload(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 2 and not isinstance(value, (str, bytes))
+
+
+def _named_literals(node: Any) -> dict[str, Any]:
+    """Name-keyed literal map for ``diff`` field ops.
+
+    Slot-0 collision: a leading socket ``None`` in widget_input_order used to
+    zip compact ``widgets_values[0]`` onto ``widget_0``, so an input-channel
+    ``frame_rate`` write vanished from ``diff()``. Named inputs win over
+    positional ``widget_N`` keys.
+    """
+    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
+
+    fields: dict[str, Any] = {}
+    try:
+        names = tuple(compact_widget_names_for_node(node).names)
+    except Exception:  # noqa: BLE001 - name resolution is best-effort for diff
+        names = ()
+    raw = getattr(node, "raw_widgets", None)
+    values = list(getattr(raw, "values", None) or ())
+    for index, name in enumerate(names):
+        if index >= len(values):
+            break
+        if isinstance(name, str) and name:
+            fields[name] = values[index]
+    for name, value in dict(getattr(node, "widgets", {}) or {}).items():
+        key = str(name)
+        if key.startswith("widget_") and key[7:].isdigit():
+            idx = int(key[7:])
+            resolved = names[idx] if idx < len(names) else None
+            if isinstance(resolved, str) and resolved and not resolved.startswith("widget_"):
+                fields[resolved] = value
+                continue
+        fields[key] = value
+    for name, value in dict(getattr(node, "inputs", {}) or {}).items():
+        if _is_link_payload(value):
+            continue
+        fields[str(name)] = value
+    return fields
+
+
 def _node_field_ops(uid: str, pre_node: Any, post_node: Any) -> list[EditOp]:
     """set_node_field ops for a common node over stable channels."""
-    pre_widgets = dict(getattr(pre_node, "widgets", {}) or {})
-    post_widgets = dict(getattr(post_node, "widgets", {}) or {})
-    pre_inputs = dict(getattr(pre_node, "inputs", {}) or {})
-    post_inputs = dict(getattr(post_node, "inputs", {}) or {})
+    pre_fields = _named_literals(pre_node)
+    post_fields = _named_literals(post_node)
     ops: list[EditOp] = []
-    for name in sorted(pre_widgets):
-        if pre_widgets.get(name) != post_widgets.get(name):
+    for name in sorted(set(pre_fields) | set(post_fields)):
+        if name.startswith("widget_") and name[7:].isdigit():
+            # Unresolved positional leftover: named inputs already won above.
+            if name not in pre_fields or name not in post_fields:
+                continue
+        if pre_fields.get(name) != post_fields.get(name):
             ops.append(
                 SetNodeFieldOp(
                     op="set_node_field",
                     target=NodeFieldTarget("", uid, name),
-                    value=post_widgets.get(name),
+                    value=post_fields.get(name),
                 )
             )
-    for name in sorted(pre_inputs):
-        if name in pre_widgets:
-            # Dual-channel name: the input value is unchanged (checked by the
-            # rebuild guard); the widget op above already covers the name.
-            continue
-        if pre_inputs.get(name) != post_inputs.get(name):
-            ops.append(
-                SetNodeFieldOp(
-                    op="set_node_field",
-                    target=NodeFieldTarget("", uid, name),
-                    value=post_inputs.get(name),
-                )
-            )
-    for name in sorted(set(post_inputs) - set(pre_inputs) - set(pre_widgets)):
-        # Brand-new input field: set_node_field lands unknown names in the
-        # input channel, exactly where post keeps it.
-        ops.append(
-            SetNodeFieldOp(
-                op="set_node_field",
-                target=NodeFieldTarget("", uid, name),
-                value=post_inputs.get(name),
-            )
-        )
     return ops
 
 

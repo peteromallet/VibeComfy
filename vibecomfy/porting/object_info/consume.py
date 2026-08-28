@@ -478,15 +478,25 @@ def reconciled_object_info_widget_order(entry: dict[str, Any]) -> list[str | Non
     raw: list[str | None] = [name if isinstance(name, str) else None for name in raw_order]
     input_specs = {name: spec for name, spec in _iter_input_specs(entry)}
     out: list[str | None] = []
+    skip_next_hole = False
     for index, name in enumerate(raw):
+        if skip_next_hole:
+            skip_next_hole = False
+            continue
         out.append(name)
         if not isinstance(name, str) or not name:
             continue
         if not _input_spec_has_control_after_generate(input_specs.get(name)):
             continue
-        next_item_exists = index + 1 < len(raw)
-        if not next_item_exists or raw[index + 1] is not None:
-            out.append(None)
+        next_item = raw[index + 1] if index + 1 < len(raw) else None
+        if next_item == "control_after_generate":
+            continue
+        if next_item is None and index + 1 < len(raw):
+            skip_next_hole = True
+        # LiteGraph serializes this UI-only control as its own widgets_values
+        # slot. Name it in the frozen domain so live emit and replay share
+        # one roster (KSampler family / canary 03fced).
+        out.append("control_after_generate")
     return out
 
 
@@ -508,14 +518,29 @@ def object_info_widget_value_order(class_type: str) -> list[str]:
     """
 
     entry = _resolve_class_type(class_type)
-    order = object_info_widget_order(class_type)
     if entry is None:
-        return [str(name) for name in order if isinstance(name, str) and name]
+        return [
+            str(name)
+            for name in object_info_widget_order(class_type)
+            if isinstance(name, str) and name
+        ]
+    return compact_literal_widget_order(entry)
 
+
+def compact_literal_widget_order(entry: dict[str, Any]) -> list[str]:
+    """Compact ``widgets_values`` order: named literals including UI-only controls.
+
+    Socket placeholders (``None``) are dropped. ``control_after_generate`` is
+    kept even though it is not a formal API input — LiteGraph serializes it
+    as its own slot, and the frozen replay name table must match live emit.
+    """
     input_specs = {name: spec for name, spec in _iter_input_specs(entry)}
     names: list[str] = []
-    for name in order:
+    for name in reconciled_object_info_widget_order(entry):
         if not isinstance(name, str) or not name:
+            continue
+        if name == "control_after_generate":
+            names.append(name)
             continue
         spec = input_specs.get(name)
         if spec is not None and not _input_spec_is_widget_value(spec):

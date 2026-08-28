@@ -262,8 +262,11 @@ def _interpret_ops(
             post = apply_edit_cow(post, op, schema_provider=_apply_provider)
             diagnostics.extend(_apply_diagnostics(before, post, op))
         except Exception as exc:
-            _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
             code = getattr(exc, "code", "apply_failed")
+            if code == "no_op" and isinstance(op, SetNodeFieldOp):
+                # Already-set write: prune from this batch, keep later ops.
+                continue
+            _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
             failed = StatementOutcome(
                 statement_index=index,
                 source=type(op).__name__,
@@ -315,6 +318,19 @@ def _interpret_ops(
             )
         )
         landed.append(op)
+    if ops and not landed:
+        no_op_diag = _diag(
+            "no_op",
+            "every set_node_field in this batch was already set to that value.",
+            severity="error",
+        )
+        return InterpretationResult(
+            workflow=_cow_workflow_copy(pre_workflow),
+            statements=tuple(statements),
+            ok=False,
+            diagnostics=(no_op_diag,),
+            landed_ops=(),
+        )
     return InterpretationResult(
         workflow=post,
         statements=tuple(statements),
