@@ -1363,6 +1363,87 @@ def _has_accepted_batch_content(response: Mapping[str, Any]) -> bool:
         return False
     return any(isinstance(item, Mapping) and item for item in batch)
 
+def _is_schema_gap_error(error: str) -> bool:
+    """True for schema-gap failures that must remain fail-closed even with a gate pass."""
+    return (
+        error.startswith("missing_touched_schema:")
+        or error.startswith("frozen_name_table_unavailable")
+        or "name_domain_divergence" in error
+    )
+
+
+def _response_has_landed_gate_pass(response: Mapping[str, Any]) -> bool:
+    """Trust Judgment S1: detect a Gate A/B pass that must not be nulled as no_changes.
+
+    A landed delta is authoritative when Gate A (replayed interpret + emit) and
+    Gate B (compile isomorphism) have passed locally.  Replay divergence at
+    authority time (candidate_hash_mismatch, emit drift, phantom guard off-by-byte)
+    must not null such a candidate as ``authority_rejected`` / ``no_changes``.
+
+    Evidence hierarchy (minimal, explicit-bug focus):
+      * ``change_details.landed_operation_count > 0`` plus ``gate_a``/``gate_b``
+        when present — direct Gate A/B proof from ``_change_details_payload``.
+      * ``accepted_batch`` non-empty + candidate payload — fallback when gate
+        fields are absent (legacy fixtures, early tests).
+      * ``change_details.batch_turns[*].landed_op_count > 0`` is also landed.
+
+    Schema-gap errors (missing_touched_schema, frozen table, name divergence)
+    are NOT gate-pass successes and remain fail-closed.
+    """
+    cd = response.get("change_details")
+    landed: int | None = None
+    gate_a: Any = None
+    gate_b: Any = None
+    if isinstance(cd, Mapping):
+        raw_landed = cd.get("landed_operation_count")
+        if isinstance(raw_landed, int):
+            landed = raw_landed
+        gate_a = cd.get("gate_a")
+        gate_b = cd.get("gate_b")
+        if (landed is None or landed <= 0) and isinstance(cd.get("batch_turns"), (list, tuple)):
+            for turn in cd.get("batch_turns") or []:  # type: ignore[union-attr]
+                if isinstance(turn, Mapping):
+                    cnt = turn.get("landed_op_count")
+                    if isinstance(cnt, int) and cnt > 0:
+                        landed = cnt
+                        break
+    has_batch = _has_accepted_batch_content(response)
+    if (landed is None or landed <= 0) and has_batch:
+        landed = 1
+    if landed is None or landed <= 0:
+        return False
+    has_candidate = any(
+        _candidate_payload_has_content(response.get(key))
+        for key in ("graph", "candidate", "candidate_graph", "candidate_transaction")
+    )
+    if not has_candidate:
+        return False
+    if gate_a is None and gate_b is None:
+        return True
+    def _gate_ok(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value is True
+        if isinstance(value, Mapping):
+            for gate_key in (
+                "ok",
+                "passed",
+                "is_ok",
+                "edit_scope_ok",
+                "isomorphic_ok",
+                "python_load_ok",
+                "ui_fidelity_ok",
+            ):
+                if value.get(gate_key) is True:
+                    return True
+            return False
+        return False
+    if gate_a is not None and _gate_ok(gate_a):
+        return True
+    if gate_b is not None and _gate_ok(gate_b):
+        return True
+    return False
+
+
 
 def stamp_response_with_authority(
     response: dict[str, Any],
@@ -1474,6 +1555,28 @@ def stamp_response_with_authority(
             and "discovery_stop" in _report
         ):
             return stamped
+        # S1 — Trust Judgment: landed Δ that passed Gate A/B must not be nulled as no_changes.
+        # When Gate A (replayed interpret + emit, pinned @ :883) and Gate B (compile
+        # isomorphism) passed locally — evidenced by change_details.landed_operation_count
+        # + gate_a/b or accepted_batch + candidate — authority replay divergence
+        # (candidate_hash_mismatch / emit drift from schema-less best-effort slots
+        #  at vibecomfy/ingest/normalize.py:1746 + emit_ready.py:1577) must persist
+        # candidate.ui → final.ui instead of authority_rejected.  Never null a
+        # Gate A/B pass as no_changes.  Scenarios: character-replacement,
+        # e8c20a, d93baf, wan-vace (staged/threaded).  Schema-gap and phantom
+        # landings remain fail-closed.
+        if replay_error != "phantom_landing_no_byte_change" and not _is_schema_gap_error(replay_error):
+            if _response_has_landed_gate_pass(response):
+                return stamped
+            _debug = response.get("debug") if isinstance(response.get("debug"), Mapping) else None
+            if isinstance(_debug, Mapping):
+                _gates = _debug.get("gates") if isinstance(_debug.get("gates"), Mapping) else None
+                if isinstance(_gates, Mapping) and any(
+                    _gates.get(k) is True
+                    for k in ("edit_scope_ok", "isomorphic_ok", "python_load_ok", "ui_fidelity_ok")
+                ):
+                    if _has_accepted_batch_content(response) and _has_candidate_authority:
+                        return stamped
         # Fail closed: force applyability fields to False. Row 4, not row 3:
         from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
         from vibecomfy.porting.edit.checkpoint import (
