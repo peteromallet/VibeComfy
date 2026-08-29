@@ -1832,7 +1832,9 @@ def stamp_terminal_state(
         applyable = bool(eligibility_payload.get("applyable"))
         stamped["apply_eligible"] = applyable
         if terminal_state != "applied":
-            stamped["apply_eligible"] = False
+            # S2 unify applyable/apply_eligible: keep apply_eligible = applyable
+            # (e8c20a staged 2 ops applied but apply_eligible false). Only
+            # gate canvas/queue when not applied; apply_eligible mirrors eligibility.
             stamped["canvas_apply_allowed"] = False
             stamped["apply_allowed"] = False
             stamped["queue_allowed"] = False

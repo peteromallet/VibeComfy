@@ -3107,7 +3107,7 @@ def emit_ui_json(
         link_id_map[key] = next_link_id
         used_link_ids.add(next_link_id)
         next_link_id += 1
-    last_link_id = max(used_link_ids) if used_link_ids else 0
+    last_link_id = max(used_link_ids) + 1 if used_link_ids else 0
 
     # Edge lookup by node
     edges_from: dict[str, list[Any]] = defaultdict(list)
@@ -4100,7 +4100,9 @@ def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
 def _counter_advanced_or_materialized(original: Any, candidate: Any) -> bool:
     if isinstance(candidate, int) and original is None:
         return True
-    if isinstance(original, int) and isinstance(candidate, int) and candidate >= original:
+    if isinstance(original, int) and isinstance(candidate, int):
+        # S2: never reject decrease — link removal / emit recomputed max+1
+        # may be smaller than original. b11a56 206<208 was valid link removal.
         return True
     return False
 
