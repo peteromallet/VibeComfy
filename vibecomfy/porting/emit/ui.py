@@ -4097,13 +4097,50 @@ def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
     return all(any(_path_is_at_or_below(diff, allowed) for allowed in allowed_paths) for diff in diffs)
 
 
-def _counter_advanced_or_materialized(original: Any, candidate: Any) -> bool:
+def _recomputed_link_counter(scope: Mapping[str, Any] | None) -> int | None:
+    """Return the emitter's next link id for a candidate scope."""
+    if not isinstance(scope, Mapping):
+        return None
+    links = scope.get("links")
+    if not isinstance(links, list):
+        return None
+    link_ids = [_link_id(link) for link in links]
+    numeric_ids = [link_id for link_id in link_ids if link_id is not None]
+    return max(numeric_ids) + 1 if numeric_ids else 0
+
+
+def _counter_advanced_or_materialized(
+    original: Any,
+    candidate: Any,
+    *,
+    field: str,
+    original_scope: Mapping[str, Any] | None = None,
+    candidate_scope: Mapping[str, Any] | None = None,
+    allow_link_removal: bool = False,
+) -> bool:
     if isinstance(candidate, int) and original is None:
         return True
     if isinstance(original, int) and isinstance(candidate, int):
-        # S2: never reject decrease — link removal / emit recomputed max+1
-        # may be smaller than original. b11a56 206<208 was valid link removal.
-        return True
+        if candidate >= original:
+            return True
+        # Node counters are LiteGraph high-water marks and may never decrease.
+        if field.rsplit(".", 1)[-1] not in {"last_link_id", "lastLinkId"}:
+            return False
+        if not allow_link_removal:
+            return False
+        original_links = {
+            _link_id(link)
+            for link in (original_scope or {}).get("links", [])
+            if _link_id(link) is not None
+        }
+        candidate_links = {
+            _link_id(link)
+            for link in (candidate_scope or {}).get("links", [])
+            if _link_id(link) is not None
+        }
+        if not original_links - candidate_links:
+            return False
+        return candidate == _recomputed_link_counter(candidate_scope)
     return False
 
 
@@ -4124,6 +4161,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     new_nodes: set[tuple[str, str]] = set()
     touched_scopes: set[str] = set()
     link_ops: set[str] = set()
+    link_removal_ops: set[str] = set()
     new_scope_ids: set[str] = set()
     removed_scope_ids: set[str] = set()
     changed_scope_ids: set[str] = set()
@@ -4147,14 +4185,17 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
             allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
             allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
             link_ops.add(op.target.scope_path)
+            link_removal_ops.add(op.target.scope_path)
             continue
         if isinstance(op, RemoveLinkOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
             link_ops.add(op.target.scope_path)
+            link_removal_ops.add(op.target.scope_path)
             continue
         if isinstance(op, RemoveNodeOp):
             removed_nodes.add((op.target.scope_path, op.target.uid))
             link_ops.add(op.target.scope_path)
+            link_removal_ops.add(op.target.scope_path)
             continue
         if isinstance(op, AddNodeOp):
             uid = op.uid or ""
@@ -4191,6 +4232,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "new_nodes": new_nodes,
         "touched_scopes": touched_scopes,
         "link_ops": link_ops,
+        "link_removal_ops": link_removal_ops,
         "new_scope_ids": new_scope_ids,
         "removed_scope_ids": removed_scope_ids,
         "changed_scope_ids": changed_scope_ids,
@@ -4198,10 +4240,26 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     }
 
 
-def _guard_counter(scope_path: str, field: str, original: Any, candidate: Any) -> list[PortIssue]:
+def _guard_counter(
+    scope_path: str,
+    field: str,
+    original: Any,
+    candidate: Any,
+    *,
+    original_scope: Mapping[str, Any] | None = None,
+    candidate_scope: Mapping[str, Any] | None = None,
+    allow_link_removal: bool = False,
+) -> list[PortIssue]:
     if original == candidate:
         return []
-    if _counter_advanced_or_materialized(original, candidate):
+    if _counter_advanced_or_materialized(
+        original,
+        candidate,
+        field=field,
+        original_scope=original_scope,
+        candidate_scope=candidate_scope,
+        allow_link_removal=allow_link_removal,
+    ):
         return []
     return [
         _issue(
@@ -4217,6 +4275,10 @@ def _guard_subgraph_state(
     original: Any,
     candidate: Any,
     allowed_paths: set[str] | None = None,
+    *,
+    original_scope: Mapping[str, Any] | None = None,
+    candidate_scope: Mapping[str, Any] | None = None,
+    allow_link_removal: bool = False,
 ) -> list[PortIssue]:
     if original == candidate:
         return []
@@ -4232,7 +4294,17 @@ def _guard_subgraph_state(
         if any(_path_is_at_or_below(field, allowed) for allowed in allowed_paths):
             continue
         if key in {"lastNodeId", "lastLinkId"}:
-            diagnostics.extend(_guard_counter(scope_path, field, original_state.get(key), candidate_state.get(key)))
+            diagnostics.extend(
+                _guard_counter(
+                    scope_path,
+                    field,
+                    original_state.get(key),
+                    candidate_state.get(key),
+                    original_scope=original_scope,
+                    candidate_scope=candidate_scope,
+                    allow_link_removal=allow_link_removal,
+                )
+            )
             continue
         if original_state.get(key) != candidate_state.get(key):
             diagnostics.append(
@@ -4396,15 +4468,37 @@ def guard_exit_ui(
         ignored = {"nodes", "links", "definitions"}
         keys = (set(original_scope) | set(candidate_scope)) - ignored
         allowed_scope_paths = set(attribution["scope_field_paths"].get(scope_path, set()))
+        scope_has_link_ops = scope_path in attribution["link_ops"]
+        scope_has_link_removal_ops = scope_path in attribution["link_removal_ops"]
         scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
         if scope_id and scope_id in attribution["changed_scope_ids"]:
             allowed_scope_paths.update({"name", "inputs", "outputs", "revision", "state.lastRerouteId"})
         for key in sorted(keys):
             if key == "last_node_id":
-                diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
+                diagnostics.extend(
+                    _guard_counter(
+                        scope_path,
+                        key,
+                        original_scope.get(key),
+                        candidate_scope.get(key),
+                        original_scope=original_scope,
+                        candidate_scope=candidate_scope,
+                        allow_link_removal=scope_has_link_removal_ops,
+                    )
+                )
                 continue
             if key == "last_link_id":
-                diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
+                diagnostics.extend(
+                    _guard_counter(
+                        scope_path,
+                        key,
+                        original_scope.get(key),
+                        candidate_scope.get(key),
+                        original_scope=original_scope,
+                        candidate_scope=candidate_scope,
+                        allow_link_removal=scope_has_link_removal_ops,
+                    )
+                )
                 continue
             if key == "state":
                 diagnostics.extend(
@@ -4413,6 +4507,9 @@ def guard_exit_ui(
                         original_scope.get(key),
                         candidate_scope.get(key),
                         allowed_paths=allowed_scope_paths,
+                        original_scope=original_scope,
+                        candidate_scope=candidate_scope,
+                        allow_link_removal=scope_has_link_removal_ops,
                     )
                 )
                 continue

@@ -96,6 +96,45 @@ _PLACEMENT_KWARGS = frozenset({"near", "relation", "group"})
 _RAW_COORDINATE_KWARGS = frozenset({"pos", "position", "coords", "x", "y"})
 
 
+def _schema_gap_literal_field(
+    node: Any,
+    field_name: str,
+    *,
+    workflow: VibeWorkflow,
+    schema_provider: Any,
+) -> bool:
+    """Prove that a schema-gap fallback can write a retained literal.
+
+    ``VibeNode.inputs`` contains both scalar values and socket carriers.  A
+    membership check therefore is not sufficient: applying a socket-shaped
+    field first removes its edge, then materializes a literal.  The hydrated
+    edit surface is the instance-aware authority and includes connectivity;
+    only its literal channel (or an explicit ``widgets`` carrier) may use the
+    bounded observable-COW escape hatch.
+    """
+    widgets = getattr(node, "widgets", None)
+    if isinstance(widgets, Mapping) and field_name in widgets:
+        return True
+    try:
+        surface = editable_surface_for(
+            node,
+            schema_provider=schema_provider,
+            edges=workflow.edges,
+        )
+    except Exception:
+        return False
+    if field_name in surface.socket_names():
+        return False
+    if field_name in surface.literal_names():
+        return True
+    try:
+        schema = schema_for(schema_provider, str(getattr(node, "class_type", "") or ""))
+        inputs = getattr(schema, "inputs", {}) if schema is not None else {}
+        return isinstance(inputs, Mapping) and input_spec_is_literal_widget(inputs.get(field_name))
+    except Exception:
+        return False
+
+
 @dataclass(frozen=True, slots=True)
 class StatementOutcome:
     """Typed per-statement result of ``interpret``."""
@@ -296,6 +335,15 @@ def _interpret_ops(
                         uid = getattr(tgt, "uid", None) if tgt is not None else None
                         if uid and hasattr(post, "nodes"):
                             node = post.nodes.get(str(uid)) if isinstance(post.nodes, dict) else None
+                            if node is None and isinstance(post.nodes, dict):
+                                node = next(
+                                    (
+                                        candidate
+                                        for candidate in post.nodes.values()
+                                        if str(getattr(candidate, "uid", "") or "") == str(uid)
+                                    ),
+                                    None,
+                                )
                             if node is not None:
                                 ct_for_typed = str(getattr(node, "class_type", "") or "")
                     elif getattr(op, "op", None) == "add_node":
@@ -325,26 +373,27 @@ def _interpret_ops(
                         except Exception:
                             field_name_typed = None
                         if field_name_typed:
-                            observable = False
-                            try:
-                                node_for_field = post.nodes.get(str(uid)) if isinstance(post.nodes, dict) and uid else None
-                                if node_for_field is not None:
-                                    if field_name_typed in getattr(node_for_field, "widgets", {}) or field_name_typed in getattr(node_for_field, "inputs", {}):
-                                        observable = True
-                                    else:
-                                        try:
-                                            from vibecomfy.porting.edit.widget_slots import editable_surface_for
-                                            surface = editable_surface_for(node_for_field, schema_provider=schema_provider, edges=post.edges)
-                                            if surface is not None and field_name_typed in surface.literal_names():
-                                                observable = True
-                                        except Exception:
-                                            pass
-                                    if not observable and live_schema is not None:
-                                        inputs_live = getattr(live_schema, "inputs", {}) or {}
-                                        if field_name_typed in inputs_live:
-                                            observable = True
-                            except Exception:
-                                observable = False
+                            node_for_field = None
+                            if isinstance(post.nodes, dict) and uid:
+                                node_for_field = post.nodes.get(str(uid))
+                                if node_for_field is None:
+                                    node_for_field = next(
+                                        (
+                                            candidate
+                                            for candidate in post.nodes.values()
+                                            if str(getattr(candidate, "uid", "") or "") == str(uid)
+                                        ),
+                                        None,
+                                    )
+                            observable = (
+                                node_for_field is not None
+                                and _schema_gap_literal_field(
+                                    node_for_field,
+                                    field_name_typed,
+                                    workflow=post,
+                                    schema_provider=schema_provider,
+                                )
+                            )
                             if observable:
                                 try:
                                     before_retry = post
@@ -408,7 +457,10 @@ def _interpret_ops(
                             except Exception:
                                 field_name_typed = None
                             inputs_live = getattr(live_schema, "inputs", {}) or {}
-                            if field_name_typed and field_name_typed in inputs_live:
+                            if (
+                                field_name_typed
+                                and input_spec_is_literal_widget(inputs_live.get(field_name_typed))
+                            ):
                                 try:
                                     before_retry = post
                                     post_retry = apply_edit_cow(post, op, schema_provider=schema_provider)
@@ -1881,25 +1933,12 @@ class _InterpretRunner:
                         field = str(getattr(tgt, "field_path", "") or "")
                         node = self._node_by_uid(uid) if uid else None
                         if node is not None and field:
-                            observable = False
-                            if field in getattr(node, "widgets", {}) or field in getattr(node, "inputs", {}):
-                                observable = True
-                            else:
-                                try:
-                                    from vibecomfy.porting.edit.widget_slots import editable_surface_for
-                                    surface = editable_surface_for(node, schema_provider=self.schema_provider, edges=self.workflow.edges)
-                                    if surface is not None and field in surface.literal_names():
-                                        observable = True
-                                except Exception:
-                                    pass
-                                if not observable:
-                                    try:
-                                        from vibecomfy.schema.provider import schema_for as _sf
-                                        schema = _sf(self.schema_provider, str(getattr(node, "class_type", "") or ""))
-                                        if schema is not None and field in (getattr(schema, "inputs", {}) or {}):
-                                            observable = True
-                                    except Exception:
-                                        pass
+                            observable = _schema_gap_literal_field(
+                                node,
+                                field,
+                                workflow=self.workflow,
+                                schema_provider=self.schema_provider,
+                            )
                             if observable:
                                 before = self.workflow
                                 self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
