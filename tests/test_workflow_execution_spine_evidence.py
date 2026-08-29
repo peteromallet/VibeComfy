@@ -355,6 +355,60 @@ def test_nested_receipt_accounting_rejects_claimed_field_or_digest_mismatch(
     assert expected in str(caught.value)
 
 
+def test_nested_receipt_accounting_rejects_manifest_disposition_absent_from_receipt(tmp_path: Path) -> None:
+    manifest, manifest_path, entry = _nested_receipt_fixture(tmp_path)
+    receipt_path = tmp_path / "evidence" / "receipts" / "nested-receipt.json"
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload.pop("disposition")
+    receipt_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+    receipt_path.write_bytes(receipt_bytes)
+    entry["sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    with pytest.raises(validator.EvidenceValidationError, match="entry field disposition untruthful"):
+        validator.check_nested_record_accounting(manifest, manifest_path)
+
+
+def test_nested_receipt_accounting_rejects_task_id_without_receipt_path(tmp_path: Path) -> None:
+    manifest, manifest_path, entry = _nested_receipt_fixture(tmp_path)
+    del entry["receipt_path"]
+    with pytest.raises(validator.EvidenceValidationError, match="lacks receipt_path"):
+        validator.check_nested_record_accounting(manifest, manifest_path)
+
+
+def test_nested_receipt_accounting_rejects_truncated_result_sha256(tmp_path: Path) -> None:
+    manifest, manifest_path, entry = _nested_receipt_fixture(tmp_path)
+    entry["result_sha256"] = "f" * 63
+    with pytest.raises(validator.EvidenceValidationError, match="no valid result_sha256 claim"):
+        validator.check_nested_record_accounting(manifest, manifest_path)
+
+
+def test_nested_receipt_accounting_rejects_receipt_task_id_mismatch(tmp_path: Path) -> None:
+    manifest, manifest_path, entry = _nested_receipt_fixture(tmp_path)
+    receipt_path = tmp_path / "evidence" / "receipts" / "nested-receipt.json"
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["task_id"] = "different-task"
+    receipt_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+    receipt_path.write_bytes(receipt_bytes)
+    entry["sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    with pytest.raises(validator.EvidenceValidationError, match="task_id mismatch"):
+        validator.check_nested_record_accounting(manifest, manifest_path)
+
+
+def test_canonical_receipt_custody_has_only_restored_truthful_set() -> None:
+    receipt_dir = ROOT / "docs/plans/workflow-execution-spine-consolidation-evidence/receipts"
+    restored = {path.name for path in receipt_dir.glob("*.json")} - {"t0-3-bootstrap-receipt.json"}
+    assert len(restored) == 102
+    assert not restored & {
+        "DEEP-AUDIT-RE-RUN-20-receipt.json",
+        "MANIFEST-REGEN-FIX4-receipt.json",
+        "T29A-REDACT-WRITEPATH-receipt.json",
+        "T29A-REVIEW-receipt.json",
+        "T29A-REVISION-receipt.json",
+        "T29A-REREVIEW-receipt.json",
+        "T29A-ADJUDICATION-receipt.json",
+        "T29A-REVISION-2-receipt.json",
+    }
+
+
 def test_dependency_order_rejects_reversed_cards() -> None:
     manifest = _manifest()
     manifest["tasks"] = [manifest["tasks"][1], manifest["tasks"][0], manifest["tasks"][2]]

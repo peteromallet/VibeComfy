@@ -32,8 +32,7 @@
           "task_id": "T0.2-recertification",
           "receipt_path": "receipts/T0.2-recertification-receipt.json",
           "sha256": "83ca1deabbd53715d0efd096f79151f0d4d22ac99603f39ea42d1589dc372397",
-          "result_sha256": "8dcecaaf6ef05eda47a2032e5d92b45b929d3e00fe2d0fb5509ecda84ad8b251",
-          "disposition": "continue"
+          "result_sha256": "8dcecaaf6ef05eda47a2032e5d92b45b929d3e00fe2d0fb5509ecda84ad8b251"
         },
         {
           "sequence": 2,
@@ -41,8 +40,7 @@
           "task_id": "G0-recert-adjudication",
           "receipt_path": "receipts/G0-recert-adjudication-receipt.json",
           "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646",
-          "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38",
-          "disposition": "continue"
+          "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38"
         },
         {
           "sequence": 3,
@@ -50,8 +48,7 @@
           "task_id": "G0-gate-review",
           "receipt_path": "receipts/G0-gate-review-receipt.json",
           "sha256": "f598ed112ba08b5c7b11f2c7164102ac98d75eb55a10da6770dece734770cb49",
-          "result_sha256": "4a9dce6f82d4df3e2302a4c48591099e0eb05300da489a2f2ee39ebdfb535877",
-          "disposition": "findings-opened"
+          "result_sha256": "4a9dce6f82d4df3e2302a4c48591099e0eb05300da489a2f2ee39ebdfb535877"
         },
         {
           "sequence": 4,
@@ -77,10 +74,8 @@
         {
           "sequence": 6,
           "canonical_slot": "T0.3",
-          "task_id": "G0-revision-validator-violation",
           "receipt_path": "receipts/G0-revision-validator-violation.json",
-          "sha256": "6aded1fe342faf22c750b78a61d6d9b7780bb34a6e1ed0c91283cbc8955808a6",
-          "disposition": "allowance-violation"
+          "sha256": "6aded1fe342faf22c750b78a61d6d9b7780bb34a6e1ed0c91283cbc8955808a6"
         },
         {
           "sequence": 7,
@@ -88,8 +83,7 @@
           "task_id": "G0-revision-validator-adjudication",
           "receipt_path": "receipts/G0-revision-validator-adjudication-receipt.json",
           "sha256": "65482c74d1746c624b31b99f9759a3dcbf4b81c03a2d847faed38c9eb7f9cab3",
-          "result_sha256": "df3afa345af8aac6f0326c7850e115c794283199c850e568a4671c11c81015c9",
-          "disposition": "correct"
+          "result_sha256": "df3afa345af8aac6f0326c7850e115c794283199c850e568a4671c11c81015c9"
         },
         {
           "sequence": 8,
@@ -97,8 +91,7 @@
           "task_id": "G0-revision-validator-rereview",
           "receipt_path": "receipts/G0-revision-validator-rereview-receipt.json",
           "sha256": "5ee08c60d9125249fd07b72e979b9a5f4f89cf478085cb26413f149e7a412929",
-          "result_sha256": "5055de55d77fb3d4ec00db1ef538fd11874822e064e96de8441a55821bad984b",
-          "disposition": "closed"
+          "result_sha256": "5055de55d77fb3d4ec00db1ef538fd11874822e064e96de8441a55821bad984b"
         },
         {
           "sequence": 9,
@@ -123,8 +116,7 @@
           "task_id": "G0-revision-wrapper-rereview",
           "receipt_path": "receipts/G0-revision-wrapper-rereview-receipt.json",
           "sha256": "4df9af7a44993a93e396d03b46d4f6d616e5bf79bda6d3f4778a42176bff15c5",
-          "result_sha256": "b0e52a42371546532b760d32263484c055669e457c9148192ed830ab6d7b8f51",
-          "disposition": "closed"
+          "result_sha256": "b0e52a42371546532b760d32263484c055669e457c9148192ed830ab6d7b8f51"
         },
         {
           "sequence": 12,
@@ -149,8 +141,7 @@
           "task_id": "G0-revision-wrapper-revision2-rereview",
           "receipt_path": "receipts/G0-revision-wrapper-revision2-rereview-receipt.json",
           "sha256": "983de5d73129682f9b0917596af747634516d0b15806f2f6a40aa22b95036319",
-          "result_sha256": "26638c3e050c963799308ec285999bdd28f701d9777759bc9d08c91707da9bf5",
-          "disposition": "closed"
+          "result_sha256": "26638c3e050c963799308ec285999bdd28f701d9777759bc9d08c91707da9bf5"
         },
         {
           "sequence": 15,
@@ -175,8 +166,7 @@
           "task_id": "G0-revision-manifest-rereview",
           "receipt_path": "receipts/G0-revision-manifest-rereview-receipt.json",
           "sha256": "6e3895ba6cfb3c3d62463db275dfa41f593b2bfdea270ef2323ce458d54fd089",
-          "result_sha256": "d41046b178429776018c6d797a0a495946ffb3dcebc5668b655eafab7ff6ddbe",
-          "disposition": "closed"
+          "result_sha256": "d41046b178429776018c6d797a0a495946ffb3dcebc5668b655eafab7ff6ddbe"
         },
         {
           "sequence": 18,
@@ -201,8 +191,7 @@
           "task_id": "G0-revision-manifest-revision2-rereview",
           "receipt_path": "receipts/G0-revision-manifest-revision2-rereview-receipt.json",
           "sha256": "dde6a2e688180aed21317c211896a4bcb825da63cf1d1dbe29da84aa7b707fbd",
-          "result_sha256": "76f334a13a02b732081540c0dc9c4f4f15455f3bd1f6396adefcf4845d43f5f8",
-          "disposition": "closed"
+          "result_sha256": "76f334a13a02b732081540c0dc9c4f4f15455f3bd1f6396adefcf4845d43f5f8"
         },
         {
           "sequence": 21,
@@ -218,7 +207,7 @@
           "task_id": "G0-revision-custody",
           "receipt_path": "receipts/G0-revision-custody-receipt.json",
           "sha256": "afc220db9574fe76d94a88371fff47723fd7c43a984e143ba7ef7672303f1738",
-          "result_sha256": "2d885fba20ba473d03212ab99367025864d2b94cb2407722eb61ef03a421583"
+          "result_sha256": "2d885fba20ba473d03212ab99367025864d2b94cb2407722eb61ef03a421583c"
         },
         {
           "sequence": 23,
@@ -226,8 +215,7 @@
           "task_id": "G0-custody-stop-adjudication",
           "receipt_path": "receipts/G0-custody-stop-adjudication-receipt.json",
           "sha256": "f12255a97fab591c2a128c75a998f386b737f15e6dc7f5328851bb8366b0c989",
-          "result_sha256": "221f5ba2528ac2b324f77130ffa3f3807a8e9032fbf28e61615b749c3ccce242",
-          "disposition": "correct"
+          "result_sha256": "221f5ba2528ac2b324f77130ffa3f3807a8e9032fbf28e61615b749c3ccce242"
         },
         {
           "sequence": 24,
@@ -260,8 +248,7 @@
           "task_id": "G0-revision-custody-rerun-rereview",
           "receipt_path": "receipts/G0-revision-custody-rerun-rereview-receipt.json",
           "sha256": "1c14f5cce69e4dc7b3ec352d636a80d03677e58680c67767541eaacd163bb26f",
-          "result_sha256": "90d1c5cd8841a9079fe541c85323d8723fb7e7f436afc1096dbbde4ddbde5e41",
-          "disposition": "closed"
+          "result_sha256": "90d1c5cd8841a9079fe541c85323d8723fb7e7f436afc1096dbbde4ddbde5e41"
         },
         {
           "sequence": 28,
@@ -294,8 +281,7 @@
           "task_id": "G0-revision-custody-rerun-2-rereview",
           "receipt_path": "receipts/G0-revision-custody-rerun-2-rereview-receipt.json",
           "sha256": "e4f9bcdef13234088651dd5acc017f93c6ff8e5be16cef85f086b702b6bcd7a4",
-          "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc",
-          "disposition": "closed"
+          "result_sha256": "5bd75c55a4e1db3dfe5bb8b4a77382210e9308215caef76c0f37d095becdd4bc"
         }
       ],
       "finding_closure": [
@@ -334,8 +320,7 @@
           "task_id": "G1-gate-review",
           "receipt_path": "receipts/G1-gate-review-receipt.json",
           "sha256": "7dfb205fea7c201799560e98c931fd0b7d733ec4615af1a7be8a9fa16a947a85",
-          "result_sha256": "acec07fab0b858d9273ba4bd85c41caf08e157b812615111bff0978591262a36",
-          "disposition": "continue"
+          "result_sha256": "acec07fab0b858d9273ba4bd85c41caf08e157b812615111bff0978591262a36"
         }
       ],
       "finding_closure": [
@@ -457,7 +442,6 @@
           "receipt_path": "receipts/G6-REVIEW-receipt.json",
           "sha256": "10c9b759663a1f6d7073342d04ffc69d354e7fba9cd5d360d8d4017fc974ca96",
           "result_sha256": "908bd912284cd0729417030c8124aab3088b82ae75277803466fca553c1f1d59",
-          "disposition": "not-continue",
           "role": "review",
           "label": "G6 [XHARD-REVIEW] gate review: base-to-head diff, T6.2/T6.3 evidence, 3 JR rulings, paid-validation readiness",
           "model_route": "codex:gpt-5.6-sol",
@@ -496,7 +480,6 @@
           "receipt_path": "receipts/G6-REREVIEW-receipt.json",
           "sha256": "bec938bea07a851cc7cd6ceca2b0cad92ceb4e01150eafd83bc03b632094d329",
           "result_sha256": "033f1ffdecfc35bdbe91ab89633621f5b1e7425c87327a8d0d17d30d9373bf04",
-          "disposition": "not-continue",
           "role": "review",
           "label": "G6-REREVIEW fresh gate re-review: MF-G6-1/MF-G6-2 closed (7004b284 + 791cd724)",
           "model_route": "codex:gpt-5.6-sol",
@@ -509,7 +492,6 @@
           "receipt_path": "receipts/G6-JR-ADJUDICATION-receipt.json",
           "sha256": "5e964794ca36ed75a5b2d78f8f05e8cec82e6df8ec6636750ad78060c57c0e77",
           "result_sha256": "6e2a73c51098479db163471978ed3ebf3244308e008e5f949370db4c8432e53f",
-          "disposition": "adjudicated",
           "role": "review",
           "label": "G6-JR-ADJUDICATION single escalation: binding rulings on S1/S6/ID-5/shims + revision plan",
           "model_route": "codex:gpt-5.6-sol",
@@ -535,7 +517,6 @@
           "receipt_path": "receipts/G6-FINAL-REREVIEW-receipt.json",
           "sha256": "0ca3e7d7acf5ede9f18c85eb9d8668e3c9eca3a11f9f8127f9f533311cbc364a",
           "result_sha256": "387c88991151dfd77bf6615755756827202ad8418f3135e81657983331e47ea9",
-          "disposition": "not-continue",
           "role": "review",
           "label": "G6-FINAL-REREVIEW final gate re-review of the adjudication-driven revision (d8bf0712)",
           "model_route": "codex:gpt-5.6-sol",
@@ -574,7 +555,6 @@
           "receipt_path": "receipts/G6-FINAL-REREVIEW-2-receipt.json",
           "sha256": "cca64fe5aa25f87c842f867c8715c28824b3179fb7ce7c014001da8930594d07",
           "result_sha256": "bf826cf950c687368dbcb7c219108d7a33c0e76f78af8529fb638b3b145b4718",
-          "disposition": "continue",
           "role": "review",
           "label": "G6-FINAL-REREVIEW-2 final gate re-review \u2014 deep revision + batch-record promotion; zero open must findings required for continue (operator 25)",
           "model_route": "codex:gpt-5.6-sol",
@@ -620,8 +600,7 @@
           "role": "review",
           "label": "HARNESS-SPLIT-EXTENSION-REVIEW \u2014 one batch review of C5 split finale (40458ed8); continue required before T7.1",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue"
+          "exit": 0
         },
         {
           "sequence": 3,
@@ -682,8 +661,7 @@
           "role": "review",
           "label": "SMOKE-JR-ADJUDICATION \u2014 binding ruling: multi-video/threaded zero-call leg (product vs infra) + smoke scorecard + finale readiness",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue"
+          "exit": 0
         },
         {
           "sequence": 8,
@@ -695,8 +673,7 @@
           "role": "implementer",
           "label": "T7.2 [HARD] ONE authoritative concurrent 50-leg live run (final50, 25 staged + 25 threaded, concurrency 10) \u2014 the single authoritative finale",
           "model_route": "stealth/ox-alpha",
-          "exit": 0,
-          "disposition": "stop \u2014 JUDGMENT_REQUIRED: J-001-SPLIT-FLAG-MISSING; corpus mount absent 36/50 not genuine \u2014 \u00a79 STOP, no authoritative live_run, escalated to operator"
+          "exit": 0
         },
         {
           "sequence": 9,
@@ -720,8 +697,7 @@
           "role": "review",
           "label": "G7 [XHARD-REVIEW] final review \u2014 verify the authoritative finale (50 legs, 25/25 split), honest assessment, all deterministic gates green, protected state unchanged; return continue/correct/replan/stop + separate merge/default recommendation",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "stop \u2014 done-when unmet (5/50 product passes) \u2014 HOLD, DO NOT MERGE \u2014 escalated to operator; JUDGMENT_REQUIRED: none"
+          "exit": 0
         },
         {
           "sequence": 11,
@@ -733,8 +709,7 @@
           "role": "review",
           "label": "R1 failure analysis - section 27 round 1: deep per-leg understanding of 5 failed/undetermined finale legs (round-robin across modes), understanding only, NO fixes",
           "model_route": "stealth/ox-alpha",
-          "exit": 0,
-          "disposition": "continue - analysis usable, violation reverted (b8c7126f), re-landed as WRAPPER-ROUTE-FIX; JUDGMENT_REQUIRED: none"
+          "exit": 0
         },
         {
           "sequence": 12,
@@ -810,8 +785,7 @@
           "role": "review",
           "label": "R1-BATCH-REVIEW \u2014 \u00a727 round 1 single batch review: R1-FIX-APPLY c4619693 + R1-FIX-REVISION f52c981c",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "findings-opened"
+          "exit": 0
         },
         {
           "sequence": 18,
@@ -836,8 +810,7 @@
           "role": "review",
           "label": "R1-BATCH-REREVIEW \u2014 fresh independent review of complete R1 fix batch (44d022eb..d5f2aeea) after R1BR-001/002 revision",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "closed"
+          "exit": 0
         },
         {
           "sequence": 20,
@@ -849,8 +822,7 @@
           "role": "implementer",
           "label": "R1-RE-RUN-20 \u2014 \u00a727 round 1: NON-authoritative validation window, 20 previously-failed scenarios (10 staged + 10 threaded), validate-only first (zero model calls)",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "non_authoritative"
+          "exit": 0
         },
         {
           "sequence": 21,
@@ -862,8 +834,7 @@
           "role": "review",
           "label": "R2 failure analysis \u2014 \u00a727 round 2: deep per-leg understanding of 5 failed finale legs (f65774, 352066, 90a1d5, d66a66, 8800a9), understanding only, NO fixes",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "degenerate-empty-reverted"
+          "exit": 0
         },
         {
           "sequence": 22,
@@ -912,8 +883,7 @@
           "role": "review",
           "label": "R2-BATCH-REVIEW \u2014 \u00a727 round 2 single batch review: R2-FIX-APPLY d93e8bed (8800a9 scenario data fix)",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "closed"
+          "exit": 0
         },
         {
           "sequence": 26,
@@ -925,8 +895,7 @@
           "role": "implementer",
           "label": "R2-RE-RUN-20 \u2014 \u00a727 round 2: NON-authoritative validation window, same 20 scenarios as R1, validate-only first (zero model calls)",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "non_authoritative"
+          "exit": 0
         },
         {
           "sequence": 27,
@@ -938,8 +907,7 @@
           "role": "review",
           "label": "R3 failure analysis \u2014 \u00a727 round 3: deep per-leg understanding of 5 failed finale legs (converts-image, 0eb676, generates-mesh, b55994, 1b1360), understanding only, NO fixes",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue"
+          "exit": 0
         },
         {
           "sequence": 28,
@@ -976,8 +944,7 @@
           "role": "review",
           "label": "R3-BATCH-REVIEW \u2014 \u00a727 round 3 single batch review: R3-FIX-APPLY 56e0cf7a (linked-widget alias, socket unions, batch-exception diagnostics)",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "closed"
+          "exit": 0
         },
         {
           "sequence": 31,
@@ -989,8 +956,7 @@
           "role": "implementer",
           "label": "R3-RE-RUN-20 \u2014 \u00a727 round 3 (final): NON-authoritative validation window, same 20 scenarios, validate-only first (zero model calls)",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "non_authoritative"
+          "exit": 0
         },
         {
           "sequence": 32,
@@ -1003,8 +969,7 @@
           "role": "implementer",
           "label": "DEEP-AUDIT-FIX-1 \u2014 \u00a728 deep-audit: fix 1 SCHEMA SNAPSHOT COMPLETENESS + fix 2 BATCH PARSER ROBUSTNESS",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "implemented \u2014 reviewed in batch by DEEP-AUDIT-REVIEW-1; JUDGMENT_REQUIRED: none"
+          "exit": 0
         },
         {
           "sequence": 33,
@@ -1016,8 +981,7 @@
           "role": "review",
           "label": "DEEP-AUDIT-REVIEW-1 \u2014 \u00a728 batch review (codex): review DEEP-AUDIT-FIX-1 commit 32287882 (fix 1 schema snapshot completeness + fix 2 batch parser robustness)",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "findings-opened \u2014 Fix 1 FAIL musts 001/002/003; Fix 2 PASS"
+          "exit": 0
         },
         {
           "sequence": 34,
@@ -1030,8 +994,7 @@
           "role": "implementer",
           "label": "DEEP-AUDIT-FIX-1-REVISION \u2014 \u00a728 fix-1 revision: resolve REVIEW-1 musts 001 (frozen snapshot re-resolution) 002 (ingress-bound capture) 003 (absent class fail-closed admission)",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "landed but insufficient at rereview \u2014 ALLOWANCE_VIOLATION (forbidden execution-log working-tree redaction attempt near line 4521) reverted pre-commit; commit d66dea19 clean, 8 files subset of allowance"
+          "exit": 0
         },
         {
           "sequence": 35,
@@ -1043,8 +1006,7 @@
           "role": "review",
           "label": "DEEP-AUDIT-REVIEW-1-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-1 card diff (32287882+d66dea19) after musts 001/002/003",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "findings-opened \u2014 revision insufficient (REREVIEW musts 001/002/003); escalated per single-\u00a713-escalation policy"
+          "exit": 0
         },
         {
           "sequence": 36,
@@ -1056,8 +1018,7 @@
           "role": "adjudication",
           "label": "DEEP-AUDIT-FIX-1-ADJUDICATION \u2014 single \u00a713 escalation (codex): frozen-authority exclusivity + provenance-blind provisional completion ruling",
           "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue \u2014 option (a): frozen snapshot is the sole admission authority; binding directive issued; chain closed"
+          "exit": 0
         },
         {
           "sequence": 37,
@@ -1069,8 +1030,7 @@
           "role": "implementer",
           "label": "DEEP-AUDIT-FIX-1-REVISION-2 \u2014 implement ADJUDICATION directive (frozen snapshot sole admission authority; bounded generation completion; provenance allowlist; honest witness + tests)",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "output-capture gap \u2014 directive implemented in working tree (12 files, within allowance) but exited WITHOUT committing; wrapper recorded commits []; result body lost (degenerate-empty digest); recovered via REVISION-2-CONTINUATION"
+          "exit": 0
         },
         {
           "sequence": 38,
@@ -1083,8 +1043,7 @@
           "role": "implementer",
           "label": "DEEP-AUDIT-FIX-1-REVISION-2-CONTINUATION \u2014 verify uncommitted REVISION-2 edits vs adjudication directive, fix gaps, test, commit one coherent commit",
           "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "card closed \u2014 directive implemented and committed as bbf4f596; no open must findings (\u00a713 single-escalation policy); fix 2 PASS throughout"
+          "exit": 0
         },
         {
           "sequence": 39,
@@ -1097,8 +1056,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-2 \u2014 \u00a728 deep-audit: fix 3 ASSESSOR CORRECTNESS + fix 4 REPLAY/LIVE CANONICALIZATION",
-          "disposition": "implemented \u2014 reviewed in batch by DEEP-AUDIT-REVIEW-2; JUDGMENT_REQUIRED: none"
+          "label": "DEEP-AUDIT-FIX-2 \u2014 \u00a728 deep-audit: fix 3 ASSESSOR CORRECTNESS + fix 4 REPLAY/LIVE CANONICALIZATION"
         },
         {
           "sequence": 40,
@@ -1110,8 +1068,7 @@
           "role": "review",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-REVIEW-2 \u2014 codex review of DEEP-AUDIT-FIX-2 commit 33e4afbd (fix 3 assessor correctness + fix 4 replay/live canonicalization)",
-          "disposition": "findings-opened \u2014 Fix 3 FAIL must 001 (production delta-hash chain byte-fragile); Fix 4 FAIL must 002 (applied-unverified unbound)"
+          "label": "DEEP-AUDIT-REVIEW-2 \u2014 codex review of DEEP-AUDIT-FIX-2 commit 33e4afbd (fix 3 assessor correctness + fix 4 replay/live canonicalization)"
         },
         {
           "sequence": 41,
@@ -1124,8 +1081,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-2-REVISION \u2014 resolve REVIEW-2 musts 001 (production semantic delta-hash chain) + 002 (applied-unverified from validated V2 only)",
-          "disposition": "landed clean (commit \u2286 allowance, no violation) but result body digest is the degenerate-empty artifact repeat (output-capture anomaly); rereview closed 001 and reopened binding as REREVIEW-001"
+          "label": "DEEP-AUDIT-FIX-2-REVISION \u2014 resolve REVIEW-2 musts 001 (production semantic delta-hash chain) + 002 (applied-unverified from validated V2 only)"
         },
         {
           "sequence": 42,
@@ -1137,8 +1093,7 @@
           "role": "review",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-REVIEW-2-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-2 card diff (33e4afbd+8bbd72f2) after musts 001/002",
-          "disposition": "mixed \u2014 finding 001 CLOSED (semantic delta-hash chain end-to-end); REREVIEW-001 FAIL (applied-unverified still unbound); escalated per single-\u00a713-escalation policy"
+          "label": "DEEP-AUDIT-REVIEW-2-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-2 card diff (33e4afbd+8bbd72f2) after musts 001/002"
         },
         {
           "sequence": 43,
@@ -1150,8 +1105,7 @@
           "role": "adjudication",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-2-ADJUDICATION \u2014 single \u00a713 escalation (codex): applied-unverified/replay-verified binding contract ruling + exact directive",
-          "disposition": "continue \u2014 all-six-check binding directive issued for landed_replay_verified; no applied-unverified without persisted receipt+transaction+assessed-graph binding; chain closed"
+          "label": "DEEP-AUDIT-FIX-2-ADJUDICATION \u2014 single \u00a713 escalation (codex): applied-unverified/replay-verified binding contract ruling + exact directive"
         },
         {
           "sequence": 44,
@@ -1164,8 +1118,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-2-REVISION-2 \u2014 implement ADJUDICATION-2 directive (6 mandatory binding checks; single persisted-pair loader; centralized receipt digest + candidate identities; 4 honest tests)",
-          "disposition": "card closed \u2014 directive implemented and committed as ee8cfdd2; no open must findings (\u00a713 single-escalation policy); fixes 3+4 per adjudicated design"
+          "label": "DEEP-AUDIT-FIX-2-REVISION-2 \u2014 implement ADJUDICATION-2 directive (6 mandatory binding checks; single persisted-pair loader; centralized receipt digest + candidate identities; 4 honest tests)"
         },
         {
           "sequence": 45,
@@ -1178,8 +1131,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-3 \u2014 \u00a728 deep-audit: fix 5 NONETYPE INGEST CRASH + fix 6 EVIDENCE CAPTURE ON FAILURE + fix 7 CLASSIFY PARSER + TIMEOUT RETRY",
-          "disposition": "implemented \u2014 reviewed in batch by DEEP-AUDIT-REVIEW-3; JUDGMENT_REQUIRED: none"
+          "label": "DEEP-AUDIT-FIX-3 \u2014 \u00a728 deep-audit: fix 5 NONETYPE INGEST CRASH + fix 6 EVIDENCE CAPTURE ON FAILURE + fix 7 CLASSIFY PARSER + TIMEOUT RETRY"
         },
         {
           "sequence": 46,
@@ -1191,8 +1143,7 @@
           "role": "review",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-REVIEW-3 \u2014 codex review of DEEP-AUDIT-FIX-3 commit 00a17cdf (fix 5 NoneType crash + fix 6 evidence capture + fix 7 classify/retry)",
-          "disposition": "findings-opened \u2014 Fix 5 PASS; Fix 6 FAIL must 001 (failing batch removed before evidence capture); Fix 7 FAIL musts 002 (classify extraction fail-open) 003 (attempt evidence duplicated/misnumbered) 004 (recovered timeout misclassified retryable-infra)"
+          "label": "DEEP-AUDIT-REVIEW-3 \u2014 codex review of DEEP-AUDIT-FIX-3 commit 00a17cdf (fix 5 NoneType crash + fix 6 evidence capture + fix 7 classify/retry)"
         },
         {
           "sequence": 47,
@@ -1205,8 +1156,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-3-REVISION \u2014 resolve REVIEW-3 musts 001 (evidence capture pre-rollback) 002 (classify fail-closed) 003 (attempt evidence single owner) 004 (terminal-attempt infra classification)",
-          "disposition": "landed clean (commit \u2286 allowance, no violation) but rereview closed only 001/003/004 and reopened the classify authority path as REREVIEW-001"
+          "label": "DEEP-AUDIT-FIX-3-REVISION \u2014 resolve REVIEW-3 musts 001 (evidence capture pre-rollback) 002 (classify fail-closed) 003 (attempt evidence single owner) 004 (terminal-attempt infra classification)"
         },
         {
           "sequence": 48,
@@ -1218,8 +1168,7 @@
           "role": "review",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-REVIEW-3-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-3 card diff (00a17cdf+1655c6fc) after musts 001-004",
-          "disposition": "mixed \u2014 findings 001/003/004 CLOSED; REREVIEW-001 FAIL (classify authority path suppresses typed failure via _normalize_turn_response passthrough + MalformedModelJSON suppression); escalated per single-\u00a713-escalation policy"
+          "label": "DEEP-AUDIT-REVIEW-3-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-3 card diff (00a17cdf+1655c6fc) after musts 001-004"
         },
         {
           "sequence": 49,
@@ -1231,8 +1180,7 @@
           "role": "adjudication",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-3-ADJUDICATION \u2014 single \u00a713 escalation (codex): classify authority-path typed-failure propagation ruling + exact directive",
-          "disposition": "continue \u2014 binding directive issued: strong-signature gate for every classify candidate object under response_contract=json phase=classify; MalformedModelJSON propagated typed, never suppressed or downgraded; chain closed"
+          "label": "DEEP-AUDIT-FIX-3-ADJUDICATION \u2014 single \u00a713 escalation (codex): classify authority-path typed-failure propagation ruling + exact directive"
         },
         {
           "sequence": 50,
@@ -1245,8 +1193,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-3-REVISION-2 \u2014 implement ADJUDICATION-3 directive (classify signature gate at _normalize_turn_response; propagate MalformedModelJSON; failure-envelope parse evidence; 4 authority-path tests)",
-          "disposition": "card closed \u2014 directive implemented and committed as 8dc9d039; no open must findings (\u00a713 single-escalation policy); JUDGMENT_REQUIRED: none"
+          "label": "DEEP-AUDIT-FIX-3-REVISION-2 \u2014 implement ADJUDICATION-3 directive (classify signature gate at _normalize_turn_response; propagate MalformedModelJSON; failure-envelope parse evidence; 4 authority-path tests)"
         },
         {
           "sequence": 51,
@@ -1259,8 +1206,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-4 \u2014 \u00a728 deep-audit: fix 8 SCENARIO DATA AUDIT (align queries with graph contents or annotate expected-no-candidate honestly)",
-          "disposition": "implemented \u2014 reviewed in batch by DEEP-AUDIT-REVIEW-4; JUDGMENT_REQUIRED: none"
+          "label": "DEEP-AUDIT-FIX-4 \u2014 \u00a728 deep-audit: fix 8 SCENARIO DATA AUDIT (align queries with graph contents or annotate expected-no-candidate honestly)"
         },
         {
           "sequence": 52,
@@ -1272,8 +1218,7 @@
           "role": "review",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-REVIEW-4 \u2014 codex review of DEEP-AUDIT-FIX-4 commit 5d1fe83d (fix 8 scenario data audit)",
-          "disposition": "findings-opened \u2014 Fix 8 FAIL: musts 001 (expected-no-candidate annotations bypass grounded-refusal assessment) 002 (_tags inconsistent with rewritten descriptors) 003 (false Hotshot cache claim) 004 (full 50-descriptor audit table not supplied)"
+          "label": "DEEP-AUDIT-REVIEW-4 \u2014 codex review of DEEP-AUDIT-FIX-4 commit 5d1fe83d (fix 8 scenario data audit)"
         },
         {
           "sequence": 53,
@@ -1286,8 +1231,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-4-REVISION \u2014 resolve REVIEW-4 musts 001 (grounded no-candidate adjudication) 002 (_tags) 003 (accurate evidence) 004 (full 50-descriptor audit table)",
-          "disposition": "landed clean (commit \u2286 allowance, no violation) but rereview failed musts 001-003 on the grounded no-candidate path, d813fe metadata, and audit-row support"
+          "label": "DEEP-AUDIT-FIX-4-REVISION \u2014 resolve REVIEW-4 musts 001 (grounded no-candidate adjudication) 002 (_tags) 003 (accurate evidence) 004 (full 50-descriptor audit table)"
         },
         {
           "sequence": 54,
@@ -1299,8 +1243,7 @@
           "role": "review",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-REVIEW-4-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-4 card diff (5d1fe83d+f69e5a0a) after musts 001-004",
-          "disposition": "findings-opened \u2014 REREVIEW-001 FAIL (grounded no-candidate adjudication still fail-open) REREVIEW-002 FAIL (d813fe task_type/source metadata) REREVIEW-003 FAIL (unsupported audit rows + abbreviated IDs); escalated per single-\u00a713-escalation policy"
+          "label": "DEEP-AUDIT-REVIEW-4-REREVIEW \u2014 codex re-review of complete DEEP-AUDIT-FIX-4 card diff (5d1fe83d+f69e5a0a) after musts 001-004"
         },
         {
           "sequence": 55,
@@ -1312,8 +1255,7 @@
           "role": "adjudication",
           "model_route": "codex:gpt-5.6-sol",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-4-ADJUDICATION \u2014 single \u00a713 escalation (codex): grounded no-candidate adjudication contract + metadata + audit integrity ruling",
-          "disposition": "continue \u2014 binding directive issued: tri-state grounded no-candidate contract outside the response guard; exact/family-prefix class matching; structural-feature evidence; metadata consistency; replayable 50-row scenario_data_audit.json; chain closed"
+          "label": "DEEP-AUDIT-FIX-4-ADJUDICATION \u2014 single \u00a713 escalation (codex): grounded no-candidate adjudication contract + metadata + audit integrity ruling"
         },
         {
           "sequence": 56,
@@ -1326,256 +1268,7 @@
           "role": "implementer",
           "model_route": "ox-alpha",
           "exit": 0,
-          "label": "DEEP-AUDIT-FIX-4-REVISION-2 \u2014 implement ADJUDICATION-4 directive (tri-state grounded no-candidate adjudication; exact/family-prefix matching; structural-feature evidence; scenario_data_audit.json; 15-test contract)",
-          "disposition": "card closed \u2014 directive implemented and committed as b115b7a2; no open must findings (\u00a713 single-escalation policy); ALL EIGHT \u00a728 deep-audit fixes landed; JUDGMENT_REQUIRED: none"
-        },
-        {
-          "sequence": 57,
-          "canonical_slot": "G7",
-          "task_id": "DEEP-AUDIT-RE-RUN-20",
-          "receipt_path": "receipts/DEEP-AUDIT-RE-RUN-20-receipt.json",
-          "sha256": "d9d1db23417cc2421d112f5c7268beb8d47aa90da7f5f22c78615550345082c4",
-          "result_sha256": "5f2dd09c0bb101a1a1a9dc7255cc84c8e8b44b3b23b7c95da824ed64108a59fd",
-          "role": "implementer",
-          "label": "DEEP-AUDIT-RE-RUN-20 \u2014 \u00a728 post-fix NON-authoritative validation window, same 20 scenarios, validate-only first (zero model calls)",
-          "model_route": "ox-alpha",
-          "exit": 0,
-          "disposition": "non_authoritative"
-        },
-        {
-          "sequence": 58,
-          "canonical_slot": "G7",
-          "task_id": "MANIFEST-REGEN-FIX4",
-          "receipt_path": "receipts/MANIFEST-REGEN-FIX4-receipt.json",
-          "sha256": "72eef577b7fcfa46f073e99bce51cac45f934934e173ada6dd96ec362f3f213f",
-          "result_sha256": "3a44012a31d5b4ca3b26b5d232c98e30845d02b6273f5c29d607cde40726b4a5",
-          "commit": "5d54197935c589d8e7e7b26d9a121c0fbf5b6f5c",
-          "role": "implementer",
-          "label": "MANIFEST-REGEN-FIX4 \u2014 regenerate scenario_manifest.json digests post-FIX-4 descriptor alignment (mechanical, zero model calls)",
-          "model_route": "ox-alpha",
-          "exit": 0
-        },
-        {
-          "sequence": 59,
-          "canonical_slot": "T29A",
-          "task_id": "T29A-REDACT-WRITEPATH",
-          "receipt_path": "receipts/T29A-REDACT-WRITEPATH-receipt.json",
-          "sha256": "80dc955f5454a77efca77a509b42e211a8dbd0ae9c96267187b5f9e65d695fdf",
-          "result_sha256": "d0b29a9181cf75e141ad8b211d132e60beee175211e64b09bf0448f749ee8635",
-          "commit": "c95b1d40f99d47eec05b9301b29ae410ffdbd1d7",
-          "role": "implement",
-          "label": "REDACT-WRITEPATH 29a",
-          "model_route": "ox-alpha",
-          "exit": 0
-        },
-        {
-          "sequence": 60,
-          "canonical_slot": "T29A",
-          "task_id": "T29A-REVIEW",
-          "receipt_path": "receipts/T29A-REVIEW-receipt.json",
-          "sha256": "573a460d633b30fa2bcb808367cd696fc20f299386279214febd49c8b8588c7d",
-          "result_sha256": "1b192304b850c15707ce052571285502c77cd89262f583bc2df26b387b5767b9",
-          "role": "review",
-          "label": "T29A review",
-          "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue"
-        },
-        {
-          "sequence": 61,
-          "canonical_slot": "T29A",
-          "task_id": "T29A-REVISION",
-          "receipt_path": "receipts/T29A-REVISION-receipt.json",
-          "sha256": "675d3500b798628dfca19a568e05cd435dd411d3554071dbd4a4c6ac45f3abc0",
-          "result_sha256": "45b17f1a1920cbbe75ad487800f7ee5715a99647bae8fc02373e8a361d76c0c0",
-          "commit": "845ee9d22e5c8f9dbb76d8ca5dc9f1fd0ab7c329",
-          "role": "implement",
-          "label": "T29A revision",
-          "model_route": "ox-alpha",
-          "exit": 0
-        },
-        {
-          "sequence": 62,
-          "canonical_slot": "T29A",
-          "task_id": "T29A-REREVIEW",
-          "receipt_path": "receipts/T29A-REREVIEW-receipt.json",
-          "sha256": "971fd556aa7bc9b77ca68efba926b21d6ddf46abe15a19d8f76a412f63620ed9",
-          "result_sha256": "dfcf36b33c20dce352fb3f2dc9a24b90ad24d3e4e47496a23678e6cc184d7458",
-          "role": "review",
-          "label": "T29A rereview",
-          "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue"
-        },
-        {
-          "sequence": 63,
-          "canonical_slot": "T29A",
-          "task_id": "T29A-ADJUDICATION",
-          "receipt_path": "receipts/T29A-ADJUDICATION-receipt.json",
-          "sha256": "0952de7948d753dea18c8455c19e10c2d326fe6c55f876fa0623e74eca62102e",
-          "result_sha256": "52b6ed76aedf878d26c844caba212a77f836a05e8339b0d19d9e87bd763510c6",
-          "role": "review",
-          "label": "T29A adjudication",
-          "model_route": "codex:gpt-5.6-sol",
-          "exit": 0,
-          "disposition": "continue"
-        },
-        {
-          "sequence": 64,
-          "canonical_slot": "T29A",
-          "task_id": "T29A-REVISION-2",
-          "receipt_path": "receipts/T29A-REVISION-2-receipt.json",
-          "sha256": "178f9a87e807f466531a9af56d9a6ebc4473dfbb6cadfec1ae2a4cc7b3633e66",
-          "result_sha256": "a08cea96d2cd1a8ad29e0e033fed9cebb42f5879a804623e29b21ba1272d18a5",
-          "commit": "3fcd2601a252fba864d7b4ffb80e5c98ce076fdf",
-          "role": "implement",
-          "label": "T29A revision 2",
-          "model_route": "ox-alpha",
-          "exit": 0
-        },
-        {
-          "sequence": 65,
-          "canonical_slot": "STATUS-ADDENDUM-001",
-          "task_id": "STATUS-ADDENDUM-001",
-          "label": "STATUS-ADDENDUM-001 \u2014 parked pending operator decisions (2026-08-24) \u2014 evidence dispatch (parked-state consolidation)",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 66,
-          "canonical_slot": "EVIDENCE-GROK50-ADVISORY",
-          "task_id": "EVIDENCE-GROK50-ADVISORY",
-          "label": "EVIDENCE-GROK50-ADVISORY \u2014 orphaned grok-4.6 advisory disposition + verified P2 residual + updated decision package (2026-08-24) \u2014 evidence dispatch (non-authoritative)",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 67,
-          "canonical_slot": "EVIDENCE-P2",
-          "task_id": "EVIDENCE-P2",
-          "label": "EVIDENCE-P2 \u2014 record \u00a730 start + P2-KNOWNOUTPUT-GUARD closure (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 68,
-          "canonical_slot": "EVIDENCE-P0",
-          "task_id": "EVIDENCE-P0",
-          "label": "EVIDENCE-P0 \u2014 record WRAPPER-OVERLAP-NARLOW\u2192NARROW implementation + OVERLAP-NARROW-REVIEW must-findings + P0-WIDGET-CANON closure (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 69,
-          "canonical_slot": "EVIDENCE-R2",
-          "task_id": "EVIDENCE-R2",
-          "label": "EVIDENCE-R2 \u2014 record WRAPPER-OVERLAP-NARROW-R2 revision + single re-review closure of the OVERLAP-NARROW chain (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 70,
-          "canonical_slot": "EVIDENCE-P1",
-          "task_id": "EVIDENCE-P1",
-          "label": "EVIDENCE-P1 \u2014 record P1-REPLAY-HASH-DOMAIN implementation + P1-COMMIT continuation closure (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 71,
-          "canonical_slot": "EVIDENCE-P5",
-          "task_id": "EVIDENCE-P5",
-          "label": "EVIDENCE-P5 \u2014 record P5-ACCEPTEDBATCH-TERMINAL closure (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 72,
-          "canonical_slot": "EVIDENCE-P3",
-          "task_id": "EVIDENCE-P3",
-          "label": "EVIDENCE-P3 \u2014 record P3-SIGNATURE-LITERALS closure (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 73,
-          "canonical_slot": "EVIDENCE-BATCH-P4679",
-          "task_id": "EVIDENCE-BATCH-P4679",
-          "label": "EVIDENCE-BATCH-P4679 \u2014 record \u00a730/\u00a736 closing batch (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 74,
-          "canonical_slot": "EVIDENCE-R1-WINDOW20",
-          "task_id": "EVIDENCE-R1-WINDOW20",
-          "label": "EVIDENCE-R1-WINDOW20 \u2014 record \u00a734 round-1 validation window (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 75,
-          "canonical_slot": "EVIDENCE-R2-SPOT",
-          "task_id": "EVIDENCE-R2-SPOT",
-          "label": "EVIDENCE-R2-SPOT \u2014 record P8 fix chain + R2 spot window (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 76,
-          "canonical_slot": "EVIDENCE-R2-CLOSE",
-          "task_id": "EVIDENCE-R2-CLOSE",
-          "label": "EVIDENCE-R2-CLOSE \u2014 record forensic verdict + P8-R3 + R2 spot7b verification (2026-08-24) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 77,
-          "canonical_slot": "EVIDENCE-FINALE",
-          "task_id": "EVIDENCE-FINALE",
-          "label": "EVIDENCE-FINALE \u2014 record authoritative 50-leg run + \u00a735 assessment (2026-08-25) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 78,
-          "canonical_slot": "EVIDENCE-CLOSEOUT",
-          "task_id": "EVIDENCE-CLOSEOUT",
-          "label": "EVIDENCE-CLOSEOUT \u2014 final disposition record (2026-08-25) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 79,
-          "canonical_slot": "EVIDENCE-SCOPEFIX",
-          "task_id": "EVIDENCE-SCOPEFIX",
-          "label": "EVIDENCE-SCOPEFIX \u2014 record operator directive \u00a737 hivemind scope-fix chain (2026-08-25) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 80,
-          "canonical_slot": "RR1-ROUND1-EVIDENCE",
-          "task_id": "RR1-ROUND1-EVIDENCE",
-          "label": "RR1-ROUND1-EVIDENCE \u2014 record reopened-campaign round-1 incident/fix-chain/window/delta (2026-08-26) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 81,
-          "canonical_slot": "RR3-CLOSEOUT",
-          "task_id": "RR3-CLOSEOUT",
-          "label": "RR3-CLOSEOUT \u2014 record reopened-campaign rounds 2-3 and honest \u00a734 closeout (2026-08-26) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
-        },
-        {
-          "sequence": 82,
-          "canonical_slot": "RR3-ERRATUM",
-          "task_id": "RR3-ERRATUM",
-          "label": "RR3-ERRATUM \u2014 RR3-EVIDENCE allowance_violation receipt discharged as spurious (orchestrator allowance-authoring error: forbidden [\"**\"] overrode mutating allowed-list) \u2014 evidence dispatch",
-          "role": "evidence",
-          "disposition": "recorded"
+          "label": "DEEP-AUDIT-FIX-4-REVISION-2 \u2014 implement ADJUDICATION-4 directive (tri-state grounded no-candidate adjudication; exact/family-prefix matching; structural-feature evidence; scenario_data_audit.json; 15-test contract)"
         }
       ],
       "residual": "S1 6, S3 3, S4 24, S6 17, S7 5, S9 3, T6.3 2 env + 2 adjudicated G6 deltas (fail-closed + typed-kind); smoke-2 CLEAN non_authoritative (both_fail:3 both_pass:1 staged_only:1, 0 blocked, 0 undetermined, 0 crashes; multi-video/threaded 0-call is PRODUCT); finale READY with ONE binding precondition: OPENROUTER_API_KEY must be hydrated from /workspace/.creds/omp.env or ~/.hermes/.env before T7.2; schema cache local-smoke-cache-20260822, not upstream-SHA"
@@ -1592,12 +1285,7 @@
       "base_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
       "bootstrap": true,
       "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json",
-      "artifacts": [
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/g0/t00-receipt.json",
-          "sha256": "4da22c397e92276d230ec0ad33fbefe7d7f11b28268ebca4b85aff78d81534c0"
-        }
-      ],
+      "artifacts": [],
       "changed_files": [],
       "commits": []
     },
@@ -1611,12 +1299,7 @@
       "base_sha": "5fc6be9dbe811df77e43d440ad087440e8bd57b5",
       "bootstrap": true,
       "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/artifacts/t01-receipt.json",
-      "artifacts": [
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/artifacts/t01-receipt.json",
-          "sha256": "9edc6bb3e8fc6087fa1ee560eba24541629d5a0cf0b0e5583be829a76ca45834"
-        }
-      ],
+      "artifacts": [],
       "changed_files": [
         "tests/live_agentic_harness/threaded_comparison_manifest_final5.json",
         "tests/fixtures/workflow_execution_spine_r5"
@@ -1688,26 +1371,12 @@
       "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-receipt.json",
       "artifacts": [
         {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-receipt.json",
-          "sha256": "2c3b4ad3f8d64a072b22190e9468db1d5cf5e3355b4ba9c95178e5c506c47e06"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-recertification-brief-receipt.json",
-          "sha256": "2defe34899e31dcdf2f225f766f3d454e12cfbb318bd64ae92f0fc22aa470eb5",
-          "result_sha256": "dd82f64ae48d300b40d2e10e60de2c70aa633a2f1e17d18aa04fdfddd40c5166"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-recertification-brief2-receipt.json",
-          "sha256": "4149e3cedd4174c78c9f9a79205ce85ded6826a448f804398a3c11951f627fb8",
-          "result_sha256": "c281935e1b1e3887cf455c3dd07daf629da58657dc270a4e1369df7dbc0e0da8"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.2-recertification-receipt.json",
+          "path": "receipts/T0.2-recertification-receipt.json",
           "sha256": "83ca1deabbd53715d0efd096f79151f0d4d22ac99603f39ea42d1589dc372397",
           "result_sha256": "8dcecaaf6ef05eda47a2032e5d92b45b929d3e00fe2d0fb5509ecda84ad8b251"
         },
         {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G0-recert-adjudication-receipt.json",
+          "path": "receipts/G0-recert-adjudication-receipt.json",
           "sha256": "84923733c27fae5e52fd3cb7d7c9a4225c3b351d6c9dc5914ac337e19f55e646",
           "result_sha256": "2601675c5c389e9a25bbd657faf52f401ab9cd21819a08cdfdadfd1a88c31f38"
         }
@@ -1745,33 +1414,7 @@
       "exit": 0,
       "base_sha": "337debc5e92c63e1aa049b8bc04015738b98d01f",
       "receipt_path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-receipt.json",
-      "artifacts": [
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-brief-receipt.json",
-          "sha256": "5f104321dd2f553c381e002a6506a86ac0b3c98cf0393162877aaddb8c308a81",
-          "result_sha256": "1d1c8ac424aa5b78d8cdea9e24ed3c4615e70db9736ee052fd3b0d9d1dc8dc9b"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-review-receipt.json",
-          "sha256": "ea93563e5ee15e08b86822fb426d278d11d9bcf8d945e91baa8d0678a09c58ea",
-          "result_sha256": "d26b080e2e3a46f6127c9908bf71b05bb3f5469b53e463a81ebf639a62b1da91"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-postcommit-review-receipt.json",
-          "sha256": "c69b7c3fe8dfbe3e6d90f8fad2ea3d0b41e9e1732d5b53d4eaf91febdfead64e",
-          "result_sha256": "a658f716f758636642817ee100c885ef4642b23a72b027c343f95b7787c4aa75"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-allowance-adjudication-receipt.json",
-          "sha256": "5f55e8aa670a378b4505756f591affbf5832a59fb678a94a0211d5c7065af920",
-          "result_sha256": "fb21fabb395adbf5e39ae36df3fa472794c7e43ba77ef8f2bbccc1afc277242d"
-        },
-        {
-          "path": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/T0.4-plan-amendment-50-receipt.json",
-          "sha256": "6fa792c2d12ab9f0c86b2488badb7bf9db1c80a6ebeddc5d13305302e69c0bf0",
-          "result_sha256": "1ae4169797dd11f2c8c58c6dec5ae1c581a75c7e72467172cc7b6fc0dd00d883"
-        }
-      ],
+      "artifacts": [],
       "changed_files": [
         "docs/plans/goal-workflow-execution-spine-consolidation-2026-08-20.md",
         "docs/plans/workflow-execution-spine-consolidation-execution-log-2026-08-20.md",
@@ -1815,171 +1458,7 @@
         "changed_file_count": 13,
         "all_changed_files_within_allowance": true
       },
-      "receipts": [
-        {
-          "task_id": "t11-brief",
-          "path": "receipts/t11-brief-receipt.json",
-          "sha256": "31ae7101172a08d488e378ee7cf77ee4b13466442def6ce83dec74cc65ef3391",
-          "brief_sha256": "e5771f1bf2a1ee4f839087baf64c6802e39b6c88e48b48ceedc877da22b3e747",
-          "result_sha256": "81fc7f29667e6734e6cf6c271d074a21e2117156f6887d018c47245035dbc0e1",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 21101,
-          "start_ts": "2026-08-21T02:50:52Z",
-          "end_ts": "2026-08-21T02:56:53Z",
-          "exit": 0
-        },
-        {
-          "task_id": "T1.1-precode-review",
-          "path": "receipts/T1.1-precode-review-receipt.json",
-          "sha256": "d77e790ca2cbde8591bd0af30a2f47a13147c3f21bc4ced996e80439e15f1249",
-          "brief_sha256": "20997a372921847214050cb911de52929ca74ed79738bd8f7b26b7253b566181",
-          "result_sha256": "919649f7fb4f650840c033e083df4fd48882de6e8d5b486a8824fa536cf4ebb9",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 21228,
-          "start_ts": "2026-08-21T02:57:01Z",
-          "end_ts": "2026-08-21T03:13:01Z",
-          "exit": 0,
-          "disposition": "continue"
-        },
-        {
-          "task_id": "T1.1",
-          "path": "receipts/T1.1-receipt.json",
-          "sha256": "1509c48d0db93737bcc25449ac92f419e42556ebed3be1d52f1e04d28fbe2494",
-          "brief_sha256": "b7b2d3d1d300b7ffb2d5d326fec42a5a05c44455f0ebdb7220fd16d1a05c4c13",
-          "result_sha256": "0261cad0b01f802811ca1a7ecf51989e63e15735c6ddc2bb12fec3d74f54f04c",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 21429,
-          "start_ts": "2026-08-21T03:13:06Z",
-          "end_ts": "2026-08-21T03:20:36Z",
-          "exit": 0,
-          "base_sha": "fbdd5596db7638d62f40def7b534012ebb1a7567",
-          "commits": [],
-          "changed_files": []
-        },
-        {
-          "task_id": "t11-rerun-brief",
-          "path": "receipts/t11-rerun-brief-receipt.json",
-          "sha256": "fcb2ba9def6af0977a846993a6f66e30f9b3e063ac3d622bd207636867b20dbf",
-          "brief_sha256": "147a5b6a43b79cc2480a0529f958734fb4952895fe3345e91a857e139151441d",
-          "result_sha256": "48199e43c76f1171be818d9528472e2588dd3c12621f44c7646ffc58f0d2c177",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 21695,
-          "start_ts": "2026-08-21T03:21:28Z",
-          "end_ts": "2026-08-21T03:24:04Z",
-          "exit": 0
-        },
-        {
-          "task_id": "T1.1-rerun-verify-brief-agent",
-          "path": "receipts/T1.1-rerun-verify-brief-agent-receipt.json",
-          "sha256": "8397b7cada39c9ed811d785f97ce7fb63af566cc24c8c7d715ba91817b756549",
-          "brief_sha256": "eec0b02717c83e79fa6466099c82ac921f571d803361cccac250a218662ac662",
-          "result_sha256": "2fcd744f94bc28d51041b2be4aef85bf537de3c6cb657c7a91a97e26d1a16946",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 22869,
-          "start_ts": "2026-08-21T04:48:40Z",
-          "end_ts": "2026-08-21T04:50:54Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"
-        },
-        {
-          "task_id": "T1.1-rerun-verify",
-          "path": "receipts/T1.1-rerun-verify-receipt.json",
-          "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f",
-          "brief_sha256": "24c49c913466203f90cc81a188239458800035f92d874e33796bedcd73f6d8ec",
-          "result_sha256": "3f85202159d17981a2da1ee15e2c6a043bd191aedc26c29db9158ae1da140d5c",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 22970,
-          "start_ts": "2026-08-21T04:51:01Z",
-          "end_ts": "2026-08-21T05:01:31Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
-          "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
-          "commits": [],
-          "changed_files": []
-        },
-        {
-          "task_id": "T1.1-review-brief-agent",
-          "path": "receipts/T1.1-review-brief-agent-receipt.json",
-          "sha256": "b96774553b0abd3698329ebeec8218b974a13312b7bcaa7de17fb4e7ea80286d",
-          "brief_sha256": "2d86ea8840eebd37929039379de8a3c0296a7aea28787143d51abd616498f6c1",
-          "result_sha256": "da2b352c0bb77a291c968c1d091eb31ce375fd017c560527e27b665a58164f7d",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 23191,
-          "start_ts": "2026-08-21T05:02:05Z",
-          "end_ts": "2026-08-21T05:03:53Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"
-        },
-        {
-          "task_id": "T1.1-review",
-          "path": "receipts/T1.1-review-receipt.json",
-          "sha256": "03ea2f8a1e163e6609d4324cd75b8d59c449f60d6bff05feb685d638cc559699",
-          "brief_sha256": "c5a7e8698d24b977d85e587d0244a9736e9b13f3466acde493b0185b5d10b41e",
-          "result_sha256": "5748dde6c69477cf3a57ad80606bf7cbd97730261cddab60a2ea5875609e9788",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 23287,
-          "start_ts": "2026-08-21T05:04:00Z",
-          "end_ts": "2026-08-21T05:22:53Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
-          "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
-          "disposition": "continue"
-        },
-        {
-          "task_id": "T1.1-integration-brief-agent",
-          "path": "receipts/T1.1-integration-brief-agent-receipt.json",
-          "sha256": "241c2a514b5d48f93f12ff8f96b9b5931dcf4595a70c370dd171b5e1278c0f74",
-          "brief_sha256": "f8b8bb35c56ee89653457c30c4620ff64b8bf045328ea2db16f1d1f2cbee4ca0",
-          "result_sha256": "1d1da210258bce284e66dca0316aac3664d63f28483de8c7b774a5c3fb58fef1",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 23607,
-          "start_ts": "2026-08-21T05:23:46Z",
-          "end_ts": "2026-08-21T05:25:49Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"
-        },
-        {
-          "task_id": "T1.1-integration",
-          "path": "receipts/T1.1-integration-receipt.json",
-          "sha256": "e205cfb9d0e57184349426cf2c707256aea71b2b80f9ac2586eec568c9c06459",
-          "brief_sha256": "a93a5ee5b21dafd83df4508cbee525bdca8f2c6df593eb5e996e2e686abb64bc",
-          "result_sha256": "6c08b3b7a5d3c9a45e4d5cca7c1d1ed1cd98637fbabbfdd730c1ed87cc4c4b5f",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 23705,
-          "start_ts": "2026-08-21T05:25:56Z",
-          "end_ts": "2026-08-21T05:32:14Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
-          "target_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d",
-          "integration_commit": "4f38adb8",
-          "commits": [],
-          "changed_files": []
-        },
-        {
-          "task_id": "evidence-log-T1.1-brief-agent",
-          "path": "receipts/evidence-log-T1.1-brief-agent-receipt.json",
-          "sha256": "8c40db5fe2eaa86540475d73f3ad68b2d62d903563b1eaece03a42d119b2105d",
-          "brief_sha256": "980a869e12cf0f40346e1054c02c4d711dab51c08de9dfa12ba700e6b18f10b3",
-          "result_sha256": "2c7a189616ab8cfcaa02ca3639e332b2d23489824382c5fe04485e619e6af2ce",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 24250,
-          "start_ts": "2026-08-21T05:32:43Z",
-          "end_ts": "2026-08-21T05:38:53Z",
-          "exit": 0,
-          "base_sha": "4f38adb816effe9440fe3292193aff14bd7dff3d"
-        }
-      ],
+      "receipts": [],
       "wrapper_death_anomaly": {
         "implementer_receipt": "unavailable",
         "wrapper_pid": "unavailable",
@@ -2106,56 +1585,8 @@
       },
       "evidence_links": [
         {
-          "path": "receipts/T1.1-review-receipt.json",
-          "sha256": "03ea2f8a1e163e6609d4324cd75b8d59c449f60d6bff05feb685d638cc559699"
-        },
-        {
-          "path": "receipts/T1.1-rerun-verify-receipt.json",
-          "sha256": "37546336afbd66e236820801b1b60bcdcabe892b1557bd101b78ab6eca7ca47f"
-        },
-        {
-          "path": "/tmp/t11-integration-fsRm4h/metadata.txt",
-          "sha256": "9e5136ad33157465a7362d0f2bb63175e32b5280566f2b5c4a28767a2d2ba8c2"
-        },
-        {
-          "path": "/tmp/t11-integration-fsRm4h/baseline-classification.txt",
-          "sha256": "b360de4d7e45f2cc517f848954b65a9f4a86d88e238cbb6aafb49885c0d1bc8f"
-        },
-        {
           "path": "test-shards.json",
           "sha256": "f7d6408e771a15b345a118ec9d6129a605972fe1e4791631159c05bfb3c22353"
-        },
-        {
-          "path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json",
-          "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67"
-        },
-        {
-          "path": "receipts/H2-dead-pid-sweep-receipt.json",
-          "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0"
-        },
-        {
-          "path": "receipts/H2-dead-pid-sweep-rerun-receipt.json",
-          "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249"
-        },
-        {
-          "path": "receipts/H2-dead-pid-sweep-review-receipt.json",
-          "sha256": "a73a85af51cd8dc878ccad211e8fc81d9fcfdbc7324e8617f6c1b98f96b9389b"
-        },
-        {
-          "path": "receipts/H2-dead-pid-sweep-integration-receipt.json",
-          "sha256": "04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7"
-        },
-        {
-          "path": "receipts/H3-overlap-narrow-precode-review-receipt.json",
-          "sha256": "d52b395552e3c4cbce20b2bbc492b22a21c62c3823ece4afbafb651bb04bdd9c"
-        },
-        {
-          "path": "receipts/H3-overlap-narrow-precode-adjudication-receipt.json",
-          "sha256": "0032f2f82ad19b77c2a9eb0ab0fb510eb22986e6ccf9f05f7f985ca4de86cee3"
-        },
-        {
-          "path": "receipts/h3-precode-stop-note.json",
-          "sha256": "66ee4a955cf8d5a9fbfa95f9468d8b11e4b7841aa4b09c021bd50f017493bdfc"
         }
       ],
       "controls": {
@@ -2207,496 +1638,7 @@
       "integration_target_sha": "9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e",
       "acceptance_contract": "Freeze runtime/cache/request identity, content digest, precedence, generation, conflicts, timestamp/version, per-class schema, and missing classes at ingress. Precedence is explicit request snapshot, verified connected /object_info, then configured content-addressed cache. Workflow observation is non-authoritative. Replay cannot perform a fresh ambient lookup.\n\nDefine touched_schema_classes(operation, snapshot) for field, add/remove, link/socket, mode, and layout operations. Unknown untouched nodes remain preserved. Any operation whose validity depends on unknown endpoint/node schema fails closed.\n\nAcceptance: isolated worktrees resolve proven TTS/Qwen schemas; LayerMask stays unsupported until exact pack schema is supplied; no positional alias becomes durable authority without a proven name.",
       "g1_review_contract": "one graph, one schema snapshot, lossless sidecar, touched-only blocking, and no ambient replay lookup",
-      "receipts": [
-        {
-          "task_id": "T1.2-brief",
-          "path": "receipts/T1.2-brief-receipt.json",
-          "sha256": "9315a45a0ea58d30990ee100cdceb63052c45af22db9f58b4ba83327d1554f6e",
-          "brief_sha256": "39546eaf473e4f2790d4677aa492024abe5e8ee06562f32acb0815cb5e950fbb",
-          "result_sha256": "b999605a3886ebd86367d050f47ad52ec18099336d1e4a44830f67d3b1f1e0ba",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 25737,
-          "start_ts": "2026-08-21T06:15:32Z",
-          "end_ts": "2026-08-21T06:20:36Z",
-          "exit": 0,
-          "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1"
-        },
-        {
-          "task_id": "T1.2-precode-review",
-          "path": "receipts/T1.2-precode-review-receipt.json",
-          "sha256": "1054f6b9e7cb027833a72b02182073d487c1ee7cb4c665a3726007de1a423844",
-          "brief_sha256": "7c5edf0e237ba7aff6fc9668eaa22e75eebec03d78b91d69f2ea08dd1e800113",
-          "result_sha256": "45eaaa99f4a6e185233192611f7d142d60d6178fa383188581f0afdc8483c223",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 26320,
-          "start_ts": "2026-08-21T06:35:28Z",
-          "end_ts": "2026-08-21T06:45:49Z",
-          "exit": 0,
-          "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1",
-          "disposition": "continue"
-        },
-        {
-          "task_id": "T1.2",
-          "path": "receipts/T1.2-receipt.json",
-          "sha256": "cfa3fc7ec4db632384245bb2a96ee521f3fe299d6c3147dada279da10b37435e",
-          "brief_sha256": "f724436124cad11bb82dabbfa94f8d5450185d040c80235483d89ae66fa3a340",
-          "result_sha256": "8583745400ed26156962d549dfc482aba1be5e44239e419d24d0b43bb3f90a2f",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 26491,
-          "start_ts": "2026-08-21T06:46:01Z",
-          "end_ts": "2026-08-21T07:18:11Z",
-          "exit": 0,
-          "base_sha": "8c67cf3c78059a3356136e3223750d921bb4b7d1",
-          "target_sha": "a109003ff32def89a7cae266e342764ce36562c9",
-          "commits": [
-            "a109003ff32def89a7cae266e342764ce36562c9"
-          ],
-          "changed_files": [
-            "tests/test_schema.py",
-            "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
-            "vibecomfy/porting/edit/ops.py",
-            "vibecomfy/porting/edit/schemas/v2/authority_receipt.schema.json",
-            "vibecomfy/schema/__init__.py",
-            "vibecomfy/schema/cache.py",
-            "vibecomfy/schema/provider.py",
-            "vibecomfy/schema/types.py"
-          ],
-          "wrapper_stop_or_judgment": "### `JUDGMENT_REQUIRED`"
-        },
-        {
-          "task_id": "T1.2-review-brief-agent",
-          "path": "receipts/T1.2-review-brief-agent-receipt.json",
-          "sha256": "ef1417c7ff89d0a7ed6ebf2679bf72e084a550d040d319af6894e8a3254c08c0",
-          "brief_sha256": "4c89b9e4f60124a23cb71ed294e251d55f9fce7c420b1d263b1f548f89186d15",
-          "result_sha256": "af7f2f6daee8d23ae2acbeba2d71330d44e813a05db34c569b3d6c025180d2da",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 26964,
-          "start_ts": "2026-08-21T07:18:55Z",
-          "end_ts": "2026-08-21T07:21:03Z",
-          "exit": 0,
-          "base_sha": "a109003ff32def89a7cae266e342764ce36562c9"
-        },
-        {
-          "task_id": "T1.2-review",
-          "path": "receipts/T1.2-review-receipt.json",
-          "sha256": "24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0",
-          "brief_sha256": "35c2f8648d046194d8f8bf68ce3079cb5de0d0fa5cada89b7a132f887674ad8c",
-          "result_sha256": "51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 27062,
-          "start_ts": "2026-08-21T07:21:12Z",
-          "end_ts": "2026-08-21T07:45:39Z",
-          "exit": 0,
-          "base_sha": "a109003ff32def89a7cae266e342764ce36562c9",
-          "target_sha": "a109003ff32def89a7cae266e342764ce36562c9",
-          "disposition": "must-findings-open"
-        },
-        {
-          "task_id": "T1.2-revision-brief-agent",
-          "path": "receipts/T1.2-revision-brief-agent-receipt.json",
-          "sha256": "ce51e014f33c8b9a1143cd9787722c4e61b7512b848af4f490411adaf2f06496",
-          "brief_sha256": "7603ec4e36f847d72bbeb78877767846db63313bcd2ff3a74f2d7dea8c84cc86",
-          "result_sha256": "5dafcc6fb296255f65faaeb47d725c5bfa7bae8a48d6ee74c8f84cb2fe4752ed",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 27385,
-          "start_ts": "2026-08-21T07:46:12Z",
-          "end_ts": "2026-08-21T07:49:13Z",
-          "exit": 0,
-          "base_sha": "a109003ff32def89a7cae266e342764ce36562c9"
-        },
-        {
-          "task_id": "T1.2-revision",
-          "path": "receipts/T1.2-revision-receipt.json",
-          "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec",
-          "brief_sha256": "2932f844ee0b370c1b92f8dda40ca281d73252ca7e91b00493daa669a15e0a20",
-          "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 27487,
-          "start_ts": "2026-08-21T07:49:21Z",
-          "end_ts": "2026-08-21T08:29:10Z",
-          "exit": 0,
-          "base_sha": "a109003ff32def89a7cae266e342764ce36562c9",
-          "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
-          "commits": [
-            "0a8e55ff8d0a7412e750237e9623ba147bb152f2"
-          ],
-          "changed_files": [
-            "tests/test_schema.py",
-            "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
-            "vibecomfy/porting/edit/ops.py",
-            "vibecomfy/porting/edit/schemas/v2/authority_receipt.schema.json",
-            "vibecomfy/schema/types.py"
-          ],
-          "wrapper_stop_or_judgment": "## 7. Residual risks / `JUDGMENT_REQUIRED`"
-        },
-        {
-          "task_id": "T1.2-rereview-brief-agent",
-          "path": "receipts/T1.2-rereview-brief-agent-receipt.json",
-          "sha256": "10a3c68099ea3d3ad5b79b299df1f6a81e27c8e13d8fa10513afe2f30f5e0c82",
-          "brief_sha256": "17117dfd3d1c75988c65706ba985e649acecd9fc64b441b1132226759f03af33",
-          "result_sha256": "5e8d6838fc0cca1824dfa65968ce9e5936ea83fdc3e5a5890cbc3a9521e9c5c1",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 27927,
-          "start_ts": "2026-08-21T08:29:36Z",
-          "end_ts": "2026-08-21T08:31:58Z",
-          "exit": 0,
-          "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2"
-        },
-        {
-          "task_id": "T1.2-revision-rereview",
-          "path": "receipts/T1.2-revision-rereview-receipt.json",
-          "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef",
-          "brief_sha256": "8d76c6c813773071cee42c5038f98fd4b30d113688d258e73d4bf54d69622131",
-          "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 28408,
-          "start_ts": "2026-08-21T08:45:29Z",
-          "end_ts": "2026-08-21T09:00:24Z",
-          "exit": 0,
-          "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
-          "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
-          "disposition": "continue"
-        },
-        {
-          "task_id": "T1.2-integration-brief-agent",
-          "path": "receipts/T1.2-integration-brief-agent-receipt.json",
-          "sha256": "b1e0dfd2fed25c41a40f74bb4e82eb8d7251c9d55bec0b44db60afca7e47b24a",
-          "brief_sha256": "eea7d6821f9e8529c024823ccc3d86ccdcd8e480ec8806921ac2df9b270eb044",
-          "result_sha256": "bdc32a9392fdf965aeca5e37f23227fd517af0330e34b22bcbc5e316bd9a69e3",
-          "role": "brief",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 28727,
-          "start_ts": "2026-08-21T09:01:39Z",
-          "end_ts": "2026-08-21T09:03:29Z",
-          "exit": 0,
-          "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2"
-        },
-        {
-          "task_id": "T1.2-integration",
-          "path": "receipts/T1.2-integration-receipt.json",
-          "sha256": "a2cfa3e2f595c65f1c24fe925e85b6bcd603bc7c990d53fb0b1d6f92dcbe4fb8",
-          "brief_sha256": "7719384e2473908367bdd3d92d5d0ca33fd8fab42b5909522af5fdb526e6298c",
-          "result_sha256": "f2d32e6b57a0e42d3f2adea3a33e9d90e565bd96b3a263ee9efa6a1949a64139",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 28820,
-          "start_ts": "2026-08-21T09:03:35Z",
-          "end_ts": "2026-08-21T09:06:05Z",
-          "base_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
-          "target_sha": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
-          "integration_commit": "0a8e55ff8d0a7412e750237e9623ba147bb152f2",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "pass"
-        },
-        {
-          "task_id": "T1.2-post-repair-integration",
-          "path": "receipts/T1.2-post-repair-integration-receipt.json",
-          "sha256": "4f2af18973686af46113dc701d4cd5368aee6cd1c0ee450984451931620cbef1",
-          "brief_sha256": "e04e9b4bed31f01de204fa293addda22effa75176e86bc473ef4fda7a3a48b9e",
-          "result_sha256": "36bd962e5f3dccff1d3d1a5c8ea82550c4eba13f013f27116f365e79d039230e",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 31866,
-          "start_ts": "2026-08-21T10:34:44Z",
-          "end_ts": "2026-08-21T10:38:00Z",
-          "base_sha": "9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "recovery stop; genuine JUDGMENT_REQUIRED closed by adjudication"
-        },
-        {
-          "task_id": "T1.2-integration-adjudication",
-          "path": "receipts/T1.2-integration-adjudication-receipt.json",
-          "sha256": "af70776336b1e9be3681af20163d5ab44745af1379da73e1e5b9934fe8c7a666",
-          "brief_sha256": "33e5e62bb3ef7e7fee6e9ca15d81b10c30af743c611565019bb973d31cfde07a",
-          "result_sha256": "4eae20d2b0e9ad7d32c48bed465734f4d0f7abfced3cc3380e62201754e23ba5",
-          "role": "adjudication",
-          "model_route": "grok-4.6",
-          "pid": 32081,
-          "start_ts": "2026-08-21T10:38:52Z",
-          "end_ts": "2026-08-21T10:42:43Z",
-          "base_sha": "9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "SATISFIED; integration complete at 9a64b35b"
-        },
-        {
-          "task_id": "T1.2-post-repair-integration",
-          "path": "receipts/wrapper-death-note-t12-post-repair-integration.json",
-          "sha256": "ed8a62e5437625354d60df57c9b6cdb4a9f427d27749ecd690bc395ad4268799",
-          "role": "infrastructure",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 31443,
-          "start_ts": "2026-08-21T10:28:20Z",
-          "disposition": "F1 wrapper-survival anomaly; receipt absent; not a card failure"
-        },
-        {
-          "task_id": "T1.2-post-repair-integration",
-          "path": "receipts/t12-post-repair-integration-original-child-proof.json",
-          "sha256": "ff9a62101ee141d37571448e49ca7ad76d6e2847fae01010629f874cad3258a2",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "target_sha": "9a64b35bd1e49a9f0dd59009bbdf5e7153ed296e",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "original child completed integration; durable proof pinned"
-        },
-        {
-          "task_id": "T1.2-evidence-digest-repair",
-          "path": "receipts/T1.2-evidence-digest-repair-receipt.json",
-          "sha256": "7a20d0056735f8b3ea6153a9812938c0032cec18ac711b060e43ea34996f301a",
-          "brief_sha256": "7f575ee6a3dd8f60ea3911fb7b5830f47d6e8562ba7000e11130709b2a9a1746",
-          "result_sha256": "2b3968f82d921578b69a9ab7a6896cb4398b49b9ccab84edc62dcfb3bec901cb",
-          "role": "implementer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 32560,
-          "start_ts": "2026-08-21T10:51:05Z",
-          "end_ts": "2026-08-21T10:53:06Z",
-          "exit": 0,
-          "base_sha": "2324a46b574fd26d14dc0e0263c556113bc0dcc5",
-          "commits": [
-            "d1aa492921fc5f3aee2b2ef3efc275aedbbc2226"
-          ],
-          "changed_files": [
-            "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json"
-          ],
-          "disposition": "pass"
-        },
-        {
-          "task_id": "T1.2-evidence-digest-repair-review",
-          "path": "receipts/T1.2-evidence-digest-repair-review-receipt.json",
-          "sha256": "c809190676e552178f2ff20f4a59fe9f2cd5a4dccf1ca76e99a2407ecf2fd167",
-          "brief_sha256": "b6c7f00760a7f2435aef2380076e6a6da59f9ed33abaf34e7d1ee3012c3c7d6b",
-          "result_sha256": "687869a7e879f957df009e7e4db0b1a197058e4b9286d03a872976b7db4ee4b2",
-          "role": "reviewer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 32723,
-          "start_ts": "2026-08-21T10:53:32Z",
-          "end_ts": "2026-08-21T10:56:22Z",
-          "exit": 0,
-          "base_sha": "d1aa492921fc5f3aee2b2ef3efc275aedbbc2226",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "JUDGMENT_REQUIRED: two findings; repair confirmed correct"
-        },
-        {
-          "task_id": "T1.2-evidence-digest-repair-adjudication",
-          "path": "receipts/T1.2-evidence-digest-repair-adjudication-receipt.json",
-          "sha256": "dbd15895e496eafdca530b890675b43f039eb8800eb365d7946e46123ef93861",
-          "brief_sha256": "6ba13e21d451f6d4d469b0d58a44326134402ee59db6eb83ddb85822158710eb",
-          "result_sha256": "08040d3ae232f1d6e7be72b35d3f7a6c7cde3c3d16257e8459daea4aa19411d3",
-          "role": "adjudication",
-          "model_route": "grok-4.6",
-          "pid": 32858,
-          "start_ts": "2026-08-21T10:56:57Z",
-          "end_ts": "2026-08-21T10:59:39Z",
-          "exit": 0,
-          "base_sha": "d1aa492921fc5f3aee2b2ef3efc275aedbbc2226",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "A. CLOSE-AND-TRACK"
-        },
-        {
-          "task_id": "T1.2-evidence-shards-digest-repair",
-          "path": "receipts/T1.2-evidence-shards-digest-repair-receipt.json",
-          "sha256": "8ebc292c02bb75f8db70e00de189107f8782d25fdfee09f952865fd7bc22497e",
-          "brief_sha256": "00f4e0c7089396001bef89fd8c92c1f3a1c2906c9913fe6782c915acb8b6f1dd",
-          "result_sha256": "018a4cfd30ad6eb160a59002035acb6bab0f7e1e07256b31a507105de6328ef8",
-          "role": "implementer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 33414,
-          "start_ts": "2026-08-21T11:10:54Z",
-          "end_ts": "2026-08-21T11:14:27Z",
-          "exit": 0,
-          "base_sha": "27e65c47acf2dddfebf863ba5d17ae94eaef399b",
-          "commits": [
-            "16990debf038379ace30b6b6d18dc91c66a7ba58"
-          ],
-          "changed_files": [
-            "docs/plans/workflow-execution-spine-consolidation-evidence/manifest.json"
-          ],
-          "disposition": "pass; refreshed test-shards digest pins"
-        },
-        {
-          "task_id": "T1.2-evidence-shards-digest-repair-review",
-          "path": "receipts/T1.2-evidence-shards-digest-repair-review-receipt.json",
-          "sha256": "fb58e2a2eac96802851f8d5a908fce67856c678436ee1c6f1488685e9aef2a7c",
-          "brief_sha256": "d38b586b4a6c377ca1dee41f1121d42f6c9bb8c4afae07300062ff9a37c6de24",
-          "result_sha256": "056b66ba5625fa3c4edb1cce7515f4a2685cf84427b72e6fac748756caeba6a9",
-          "role": "reviewer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 33604,
-          "start_ts": "2026-08-21T11:14:50Z",
-          "end_ts": "2026-08-21T11:18:38Z",
-          "exit": 0,
-          "base_sha": "16990debf038379ace30b6b6d18dc91c66a7ba58",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "MUST-001 open pending durable recurrence-rule recording"
-        },
-        {
-          "task_id": "T1.2-evidence-digest-repair-integration",
-          "path": "receipts/T1.2-evidence-digest-repair-integration-receipt.json",
-          "sha256": "fb09914933ee1d122ace7acbed7d6fc67ced799eafe0ae52e3b5f5c28accbe96",
-          "brief_sha256": "55ac29511046dd44635a4841400cef4e9d39439fb9be43859a0a015334fcdcf6",
-          "result_sha256": "fde50d9309e2f0e6b35e3483be590dd8c386550483e8286455857e2fdd5c69a6",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 32962,
-          "start_ts": "2026-08-21T11:00:06Z",
-          "end_ts": "2026-08-21T11:02:52Z",
-          "exit": 0,
-          "base_sha": "d1aa492921fc5f3aee2b2ef3efc275aedbbc2226",
-          "integration_commit": "d1aa492921fc5f3aee2b2ef3efc275aedbbc2226",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "pass; remote == local at d1aa4929"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-precode-review",
-          "path": "receipts/H1-wrapper-survival-stop-marker-precode-review-receipt.json",
-          "sha256": "01371b234de0a0523a1b5c30c8a38d3a93b67ed9172af9f520a02de2124cd780",
-          "brief_sha256": "36faf849c6a4cad7ad2c3a4389694c9a3d6e99cddacc6b2ad438a5221fab7e5c",
-          "result_sha256": "19aa66b82426503cc0f2d818d5b4c2f7308e2c8001a097662e8d8a900a9c7c27",
-          "role": "pre-code-review",
-          "model_route": "grok-4.6",
-          "pid": 34456,
-          "start_ts": "2026-08-21T11:35:30Z",
-          "end_ts": "2026-08-21T12:13:23Z",
-          "exit": 0,
-          "disposition": "no-review; degenerate stub"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-precode-review-2",
-          "path": "receipts/H1-wrapper-survival-stop-marker-precode-review-2-receipt.json",
-          "sha256": "a5118b695940991db2fb1fb0a46dd6755613cc11d43edf881a9e7287b463e4d4",
-          "brief_sha256": "36faf849c6a4cad7ad2c3a4389694c9a3d6e99cddacc6b2ad438a5221fab7e5c",
-          "result_sha256": "4fcf7a1ecce4b40f4967d93b84675f633fccd19a54c5824737b05317af3a431e",
-          "role": "pre-code-review",
-          "model_route": "grok-4.6",
-          "pid": 35060,
-          "start_ts": "2026-08-21T12:14:15Z",
-          "end_ts": "2026-08-21T12:28:11Z",
-          "exit": 0,
-          "disposition": "no-review; degenerate stub"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-precode-adjudication",
-          "path": "receipts/H1-wrapper-survival-stop-marker-precode-adjudication-receipt.json",
-          "sha256": "48d3ab0f71739d1eadfcb5aaaa1d70d9eca6d928840c310fa8dfc8ced2ccc8d0",
-          "brief_sha256": "e4b9afb77c07e21b5b6ae313e6f753894a48d327290d9f450a3655409a84ebb3",
-          "result_sha256": "f9752bcc64dea42db003827e7f960a3a51073622cfa84974750eae97e6c0e2b5",
-          "role": "adjudication",
-          "model_route": "grok-4.6",
-          "pid": 35337,
-          "start_ts": "2026-08-21T12:29:00Z",
-          "end_ts": "2026-08-21T12:45:16Z",
-          "exit": 0,
-          "disposition": "no-review; degenerate stub"
-        },
-        {
-          "task_id": "h1-precode-stub-note",
-          "path": "receipts/h1-precode-stub-note.json",
-          "sha256": "d0c3214a16fb16c6c69ebef657106e536d8bb849c9a9ddb7096134f48962a41e",
-          "role": "orchestrator-note",
-          "disposition": "stub contamination recorded; superseded by v3"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-precode-review-3",
-          "path": "receipts/H1-wrapper-survival-stop-marker-precode-review-3-receipt.json",
-          "sha256": "6083de36cfc3ca41f127130431081445150dd4f392d5b14e5ced70fb8c3e218c",
-          "brief_sha256": "398ca6258f805e0f6e94e5f1e9f823f06ca03f11e7c21f60ce0872dcc08aa5bf",
-          "result_sha256": "890b41e8d94b96214f0ff58be1fd469ed8e7aae08ee8542eeea2b5570d7ce1e2",
-          "role": "pre-code-review",
-          "model_route": "grok-4.6",
-          "pid": 35651,
-          "start_ts": "2026-08-21T12:45:53Z",
-          "end_ts": "2026-08-21T12:57:42Z",
-          "exit": 0,
-          "disposition": "continue"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker",
-          "path": "receipts/H1-wrapper-survival-stop-marker-receipt.json",
-          "sha256": "4d20133abfda3523e1bcf35b502856a2a84c1478dd2b1a2a4bc9b092654ba3fd",
-          "brief_sha256": "868b9178d48ae167d7679fb7ba0573f335c53a693c73729a5cc6176c4503f4cb",
-          "result_sha256": "cee8dcce755bb9a782846798f1f37e77a0835642e3193f7b61966df60a0203b9",
-          "role": "implementer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 35851,
-          "start_ts": "2026-08-21T12:58:18Z",
-          "end_ts": "2026-08-21T12:59:00Z",
-          "exit": 0,
-          "disposition": "immutable-base abort; clean stop"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-rerun",
-          "path": "receipts/H1-wrapper-survival-stop-marker-rerun-receipt.json",
-          "sha256": "dfecc03f3bfdd4fe7a4abd783a3fa7c5a0f234812727434696716124aae99c4d",
-          "brief_sha256": "cd194c4a7b95015647acd19bc1f11e416b740ff6121bd2b70aa2bfe3b9bf7860",
-          "result_sha256": "da48052390d593b9f13a7f3ba9cae6e2e81e7976a90e946218c8f8e623887bf6",
-          "role": "implementer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 35960,
-          "start_ts": "2026-08-21T12:59:25Z",
-          "end_ts": "2026-08-21T13:07:22Z",
-          "exit": 0,
-          "base_sha": "bef05ff5c5240d0bf30fdeff8a2904e653d70f07",
-          "target_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
-          "commits": [
-            "a7b187083694090d661c05d6831ccd0f845b990d"
-          ],
-          "changed_files": [
-            "scripts/run_workflow_execution_spine_agent.py",
-            "tests/test_run_workflow_execution_spine_agent.py"
-          ],
-          "disposition": "pass"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-review",
-          "path": "receipts/H1-wrapper-survival-stop-marker-review-receipt.json",
-          "sha256": "0f13b95f33114a152558daddae98d34d151e388585427f4596bd0561caee1b71",
-          "brief_sha256": "af1dad44dfed02c3eb102e6b4b666ed006a44e81f32bf6904e51373b32825e2b",
-          "result_sha256": "1cd8c999c664443027bc119f37d55d62b7e898d5977b893d49b4f4e677319222",
-          "role": "reviewer",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 36877,
-          "start_ts": "2026-08-21T13:07:45Z",
-          "end_ts": "2026-08-21T13:12:27Z",
-          "exit": 0,
-          "base_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
-          "target_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
-          "disposition": "continue"
-        },
-        {
-          "task_id": "H1-wrapper-survival-stop-marker-integration",
-          "path": "receipts/H1-wrapper-survival-stop-marker-integration-receipt.json",
-          "sha256": "90b94cdf53d6acc19eef0bd5b97480c4330f6bfec1cb200e613b28c9515290ad",
-          "brief_sha256": "018b0f60984e0a5777d11cd184da535602313762410c3d374efb29a0140f1c36",
-          "result_sha256": "ad0aca2ded60e9b3cd17e7f1aa3b063948d1e9c3a219334ad80a9e781b1e13fc",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "pid": 37186,
-          "start_ts": "2026-08-21T13:12:52Z",
-          "end_ts": "2026-08-21T13:16:04Z",
-          "exit": 0,
-          "base_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
-          "target_sha": "a7b187083694090d661c05d6831ccd0f845b990d",
-          "integration_commit": "a7b187083694090d661c05d6831ccd0f845b990d",
-          "changed_files": [],
-          "disposition": "pass; remote == local at a7b18708"
-        }
-      ],
+      "receipts": [],
       "focused_evidence": {
         "shard_id": "T1.2_schema_provenance_authority",
         "command": "python -m pytest -q tests/test_schema.py tests/test_porting_provenance.py tests/security/test_provenance.py tests/test_shared_authority_canonicalization.py",
@@ -2909,93 +1851,7 @@
           "scripts/run_workflow_execution_spine_agent.py",
           "tests/test_run_workflow_execution_spine_agent.py"
         ],
-        "receipts": [
-          {
-            "task_id": "H2-dead-pid-sweep-precode-review",
-            "path": "receipts/H2-dead-pid-sweep-precode-review-receipt.json",
-            "sha256": "5fcd50a84e049760bb651a4e7cb3d2269a8b2a505fbb20f64763a67b50d08b67",
-            "result_sha256": "ed6e7c57e9a36c8526020914586479d4de318b888bcb4b23d839c8a108f253e8",
-            "role": "pre-code-review",
-            "model_route": "grok-4.6",
-            "pid": 37818,
-            "start_ts": "2026-08-21T13:27:34Z",
-            "end_ts": "2026-08-21T13:40:43Z",
-            "exit": 0,
-            "disposition": "continue"
-          },
-          {
-            "task_id": "H2-dead-pid-sweep",
-            "path": "receipts/H2-dead-pid-sweep-receipt.json",
-            "sha256": "bdde7d80f93ad7a0f1bf6deca385e42d7014154eb054e8ce3b83062d6132f8b0",
-            "result_sha256": "9df630c0782cebb962a73a008895280beab41d8ac3542c184cd9514e6369cdff",
-            "role": "implementer",
-            "model_route": "codex:gpt-5.6-luna",
-            "pid": 38082,
-            "start_ts": "2026-08-21T13:41:10Z",
-            "end_ts": "2026-08-21T13:43:19Z",
-            "exit": 0,
-            "base_sha": "28aa48af801d35c48d7ff4668bf9f2e0fe4520ed",
-            "commits": [],
-            "changed_files": [],
-            "disposition": "immutable-gate abort; clean stop; receipt body unavailable"
-          },
-          {
-            "task_id": "H2-dead-pid-sweep-rerun",
-            "path": "receipts/H2-dead-pid-sweep-rerun-receipt.json",
-            "sha256": "3b7c3c68a411bfdb36005256f9f2319748b79b04917a865bca074d6ad9269249",
-            "result_sha256": "e168388fb50d3d67e81efa08f9c4746987bb08e53367650877c1bf284ac86c16",
-            "role": "implementer",
-            "model_route": "codex:gpt-5.6-luna",
-            "pid": 38209,
-            "start_ts": "2026-08-21T13:43:43Z",
-            "end_ts": "2026-08-21T13:52:53Z",
-            "exit": 0,
-            "base_sha": "28aa48af801d35c48d7ff4668bf9f2e0fe4520ed",
-            "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-            "commits": [
-              "da959d56631eb219721a2c06bc8cb66e404f94b5"
-            ],
-            "changed_files": [
-              "scripts/run_workflow_execution_spine_agent.py",
-              "tests/test_run_workflow_execution_spine_agent.py"
-            ],
-            "disposition": "pass"
-          },
-          {
-            "task_id": "H2-dead-pid-sweep-review",
-            "path": "receipts/H2-dead-pid-sweep-review-receipt.json",
-            "sha256": "a73a85af51cd8dc878ccad211e8fc81d9fcfdbc7324e8617f6c1b98f96b9389b",
-            "result_sha256": "1f2d20140feecb642c9ca091ee9f8f5e61249f4c6a8f90226cc1051a246618f6",
-            "role": "reviewer",
-            "model_route": "codex:gpt-5.6-luna",
-            "pid": 39145,
-            "start_ts": "2026-08-21T13:53:26Z",
-            "end_ts": "2026-08-21T13:56:02Z",
-            "exit": 0,
-            "base_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-            "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-            "disposition": "continue",
-            "open_must_findings": 0
-          },
-          {
-            "task_id": "H2-dead-pid-sweep-integration",
-            "path": "receipts/H2-dead-pid-sweep-integration-receipt.json",
-            "sha256": "04ccf0c946b13aa20bb5c3d5c620052190694f5e2c593acef57862db9d7723e7",
-            "result_sha256": "af7ccb133108993aeb0816a3f8b1fecddeb31663f9ae7e00fc1e833e2f833b91",
-            "role": "integration",
-            "model_route": "codex:gpt-5.6-luna",
-            "pid": 39463,
-            "start_ts": "2026-08-21T13:56:19Z",
-            "end_ts": "2026-08-21T13:59:05Z",
-            "exit": 0,
-            "base_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-            "target_sha": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-            "integration_commit": "da959d56631eb219721a2c06bc8cb66e404f94b5",
-            "commits": [],
-            "changed_files": [],
-            "disposition": "pass; remote == local"
-          }
-        ],
+        "receipts": [],
         "review_binding_conditions": [
           "flock and guard-time-only sweep",
           "dead integer PID with age > 60 seconds clears",
@@ -3059,38 +1915,7 @@
         "base_sha": "6eb55a7e98ad8f0c45c69acc0702373b4cc73074",
         "changed_files": [],
         "commits": [],
-        "receipts": [
-          {
-            "task_id": "H3-overlap-narrow-precode-review",
-            "path": "receipts/H3-overlap-narrow-precode-review-receipt.json",
-            "sha256": "d52b395552e3c4cbce20b2bbc492b22a21c62c3823ece4afbafb651bb04bdd9c",
-            "result_sha256": "9e84b047b70ce57fbfc8de55f419e47711c79e648892e8766ef516df1b8d270a",
-            "role": "pre-code-review",
-            "model_route": "grok-4.6",
-            "wrapper_pid": 40141,
-            "start_ts": "2026-08-21T14:09:27Z",
-            "end_ts": "2026-08-21T14:22:57Z",
-            "exit": 0,
-            "disposition": "JUDGMENT_REQUIRED"
-          },
-          {
-            "task_id": "H3-overlap-narrow-precode-adjudication",
-            "path": "receipts/H3-overlap-narrow-precode-adjudication-receipt.json",
-            "sha256": "0032f2f82ad19b77c2a9eb0ab0fb510eb22986e6ccf9f05f7f985ca4de86cee3",
-            "result_sha256": "21fd413af6fe0b6e9600bfd05a12d54bef9f5ba4a2b938280531afd2b380580e",
-            "role": "adjudication",
-            "model_route": "grok-4.6",
-            "wrapper_pid": 40379,
-            "start_ts": "2026-08-21T14:23:38Z",
-            "end_ts": "2026-08-21T14:41:36Z",
-            "exit": 0,
-            "disposition": "JUDGMENT_REQUIRED"
-          }
-        ],
-        "stop_note": {
-          "path": "receipts/h3-precode-stop-note.json",
-          "sha256": "66ee4a955cf8d5a9fbfa95f9468d8b11e4b7841aa4b09c021bd50f017493bdfc"
-        },
+        "receipts": [],
         "coherent_core": "JUDGMENT_REQUIRED on the contradictory overlap predicate (finding 2); findings 1 and 3 are real hazards outside H3's frozen repair.",
         "stub_capture": "Both dispatches exposed only degenerate final-message-only tails (301 bytes and 291 bytes); the substantive review body was not persisted.",
         "stop_rule": "plan \u00a79: an XHARD pre-code review that does not return continue stops the affected card",
@@ -3144,122 +1969,7 @@
           "scripts/run_workflow_execution_spine_agent.py",
           "tests/test_run_workflow_execution_spine_agent.py"
         ],
-        "receipts": [
-          {
-            "task_id": "H4-evidence-brief",
-            "path": "receipts/H4-evidence-brief-receipt.json",
-            "sha256": "0d44b3e23bc9e5fc5cb6212037d91bbb10b8eb7db2febf297896a77ca17947d4",
-            "brief_sha256": "465a6549ecbbe6e4f5c0625b4769a94c3738f1261e74c43cb35ffcb818d3cba2",
-            "result_sha256": "7be9266ad948a7239bd109bd56c7e65c1249946f99fd09cac4a07b01bcb06d2f",
-            "role": "implementer",
-            "model_route": "codex:gpt-5.6-luna",
-            "wrapper_pid": 41424,
-            "pid": 41430,
-            "start_ts": "2026-08-21T15:03:06Z",
-            "end_ts": "2026-08-21T15:12:24Z",
-            "exit": 0,
-            "base_sha": "de75b4187fa442147a494be5411ffd0cbc2eab8d",
-            "commits": [
-              "4cdabf5dda30c53b84462c10279f6107a63afd80"
-            ]
-          },
-          {
-            "task_id": "H4-evidence-brief-review",
-            "path": "receipts/H4-evidence-brief-review-receipt.json",
-            "sha256": "4b9bb4471886a2898bba451ec232762996baf372f2ea03b9b46262e0a6132be8",
-            "brief_sha256": "e255d3de79257d2333f1ef4d594a7b2e29fdcbb7d56c1eefd1b3eef34fa7556c",
-            "result_sha256": "dc3a4902424b7509643ea1a0b4864b0e18bf3b51de48b1e4e358a6dbadc80599",
-            "role": "reviewer",
-            "model_route": "codex:gpt-5.6-luna",
-            "wrapper_pid": 42661,
-            "pid": 42667,
-            "start_ts": "2026-08-21T15:13:31Z",
-            "end_ts": "2026-08-21T15:18:57Z",
-            "exit": 0,
-            "base_sha": "4cdabf5dda30c53b84462c10279f6107a63afd80",
-            "disposition": "correct",
-            "findings": [
-              "H4-MUST-001",
-              "H4-MUST-002"
-            ]
-          },
-          {
-            "task_id": "H4-evidence-brief-revision",
-            "path": "receipts/H4-evidence-brief-revision-receipt.json",
-            "sha256": "224b4d7a61a84ebfbd75a33e8b47b204c5cecf0ff1493e7d86e2afa7d5b6abc7",
-            "brief_sha256": "4415fff3e282ee905f8673a79b891affcbbac101f18010972def0d8c6c44a0a1",
-            "result_sha256": "f04674530370d52607bc425b24d1c4657ca46101dc7f1da04d9d9ead761a8823",
-            "role": "implementer",
-            "model_route": "codex:gpt-5.6-luna",
-            "wrapper_pid": 42849,
-            "pid": 42855,
-            "start_ts": "2026-08-21T15:20:04Z",
-            "end_ts": "2026-08-21T15:25:40Z",
-            "exit": 0,
-            "base_sha": "4cdabf5dda30c53b84462c10279f6107a63afd80",
-            "commits": [
-              "acec7cc1b2c68dcadb33851947202d5adc04f672"
-            ],
-            "changed_files": [
-              "scripts/run_workflow_execution_spine_agent.py",
-              "tests/test_run_workflow_execution_spine_agent.py"
-            ],
-            "disposition": "pass"
-          },
-          {
-            "task_id": "H4-evidence-brief-rereview",
-            "path": "receipts/H4-evidence-brief-rereview-receipt.json",
-            "sha256": "51a55fb0e84ab3855502e2aa5ec8baabef30b17889278f19d62482f8dc04983c",
-            "brief_sha256": "fdf27bace0c5577fe85d7fcd5b782d25d73fad28405584c4333ee85107a11f0e",
-            "result_sha256": "60e4a2a9add256de6fa5c3f9988447fe2a38a409427b3136f20ed6c044a3a03e",
-            "role": "reviewer",
-            "model_route": "codex:gpt-5.6-luna",
-            "wrapper_pid": 44245,
-            "pid": 44251,
-            "start_ts": "2026-08-21T15:26:18Z",
-            "end_ts": "2026-08-21T15:31:20Z",
-            "exit": 0,
-            "base_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
-            "disposition": "continue",
-            "findings": [],
-            "findings_closed": [
-              "H4-MUST-001",
-              "H4-MUST-002"
-            ]
-          },
-          {
-            "task_id": "H4-evidence-brief-integration",
-            "path": "receipts/H4-evidence-brief-integration-receipt.json",
-            "sha256": "46cff743b746c3c22ca901d14338a9c6bbaa2d407650cc9aa79fa5a889d99cc1",
-            "brief_sha256": "768d0d285497a6c11c652ebe992bd1bc5f7f2769df2f845f3ff51bbd11801151",
-            "result_sha256": "1f6ee1b6d8c045a9779f5b5efce1ed12393e2215dc049e9f3acb27e5f5df8644",
-            "role": "integration",
-            "model_route": "codex:gpt-5.6-luna",
-            "wrapper_pid": 44884,
-            "pid": 44890,
-            "start_ts": "2026-08-21T15:32:02Z",
-            "end_ts": "2026-08-21T15:34:04Z",
-            "exit": 0,
-            "base_sha": "acec7cc1b2c68dcadb33851947202d5adc04f672",
-            "integration_commit": "acec7cc1b2c68dcadb33851947202d5adc04f672",
-            "commits": [],
-            "changed_files": [],
-            "disposition": "pass",
-            "focused_evidence": {
-              "shard_id": "H4_evidence_brief_guard",
-              "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py",
-              "summary": "46 passed, 1 warning",
-              "exit": 0,
-              "runs_once": true
-            },
-            "integration_push": {
-              "exit": 0,
-              "fast_forward": "da959d56631eb219721a2c06bc8cb66e404f94b5..acec7cc1b2c68dcadb33851947202d5adc04f672",
-              "remote_after": "acec7cc1b2c68dcadb33851947202d5adc04f672",
-              "performed_by_evidence_agent": false
-            }
-          }
-        ],
+        "receipts": [],
         "focused_evidence": {
           "shard_id": "H4_evidence_brief_guard",
           "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_run_workflow_execution_spine_agent.py",
@@ -3383,167 +2093,7 @@
         "vibecomfy/porting/edit/ops.py",
         "vibecomfy/porting/edit/typed_tools.py"
       ],
-      "receipts": [
-        {
-          "task_id": "T2.1-precode-review",
-          "path": "receipts/T2.1-precode-review-receipt.json",
-          "sha256": "54df416198b3f265257b13fc72f99b12f3d71b7143b293915e981003b28bc088",
-          "brief_sha256": "15c71f842e28f4163cce1cc45020043f4871a7f6efdf2054083fcdc0fb411a9f",
-          "result_sha256": "d5ceed095aade1f78e742fa6b682f9aa3ed4a6d55d15e41e84e50219208b4c5f",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 46420,
-          "start_ts": "2026-08-21T16:02:49Z",
-          "end_ts": "2026-08-21T16:17:42Z",
-          "exit": 0,
-          "base_sha": "fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "stop; T2.1-JR-001 and T2.1-JR-002"
-        },
-        {
-          "task_id": "T2.1-precode-review-2",
-          "path": "receipts/T2.1-precode-review-2-receipt.json",
-          "sha256": "b9a08b2191c31f448f1a1e009216b34f803cf29fc2fd2ee3262461bf165ba753",
-          "brief_sha256": "91a973ebfccb504a7d124323eb787ef3525f559410ed2c8802d2a1e9a1b588df",
-          "result_sha256": "2aacf08a2d24c3bbe1cc1c81ccb262d0e99c58e411927b016f40e842e21e3295",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 46775,
-          "start_ts": "2026-08-21T16:18:54Z",
-          "end_ts": "2026-08-21T16:29:58Z",
-          "exit": 0,
-          "base_sha": "fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "continue"
-        },
-        {
-          "task_id": "T2.1",
-          "path": "receipts/T2.1-receipt.json",
-          "sha256": "2024e881515216a0c6a805e7dac34de3036ac20675e027f6300602418c913ed0",
-          "brief_sha256": "e8e9a19045880f43739e0c51ed6e7fab8e488d001a07772eeffaebb695071001",
-          "result_sha256": "cd1f639efc25cf4559e37ac2250417737ed28665ba003cb001f19e6be8c4364f",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 47099,
-          "start_ts": "2026-08-21T16:30:37Z",
-          "end_ts": "2026-08-21T17:07:36Z",
-          "exit": 0,
-          "base_sha": "fec6cb12fbee5bc6d5d67b9fb013cfa9bbd67ed7",
-          "commits": [
-            "0716a8bcc829b8a18149c1c39cfd8bbb05a39087"
-          ],
-          "changed_files": [
-            "tests/test_porting_edit_kernel.py",
-            "vibecomfy/comfy_nodes/agent/_frag_response_contract.py",
-            "vibecomfy/comfy_nodes/agent/_v2_scoped_validation.py",
-            "vibecomfy/comfy_nodes/agent/authority_receipts.py",
-            "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
-            "vibecomfy/comfy_nodes/agent/edit.py",
-            "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
-            "vibecomfy/comfy_nodes/agent/layout_operation_v1.py",
-            "vibecomfy/comfy_nodes/agent/session.py",
-            "vibecomfy/executor/edit_suggestion_tools.py",
-            "vibecomfy/porting/edit/__init__.py",
-            "vibecomfy/porting/edit/_interpret.py",
-            "vibecomfy/porting/edit/_op_validate.py",
-            "vibecomfy/porting/edit/_parse_execute.py",
-            "vibecomfy/porting/edit/admit.py",
-            "vibecomfy/porting/edit/apply_gate.py",
-            "vibecomfy/porting/edit/lint.py",
-            "vibecomfy/porting/edit/ops.py",
-            "vibecomfy/porting/edit/typed_tools.py"
-          ],
-          "disposition": "commit 0716a8bc"
-        },
-        {
-          "task_id": "T2.1-review",
-          "path": "receipts/T2.1-review-receipt.json",
-          "sha256": "1f4c9267942dd00657c501335b8d7efa31437b9bfb146115917e03a74f12a2de",
-          "brief_sha256": "d65f7c9933ef33c87db69f1c05ab4d0ee3499c0d24d92ccc75bafb4ee92538d4",
-          "result_sha256": "3c003d5a360c0979c08f058bb89529515b64c983c72727d05fbf5e46533e6d3e",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 48033,
-          "start_ts": "2026-08-21T17:08:29Z",
-          "end_ts": "2026-08-21T17:22:23Z",
-          "exit": 0,
-          "base_sha": "0716a8bcc829b8a18149c1c39cfd8bbb05a39087",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "correct; T2.1-MUST-001..005 and T2.1-SHOULD-001"
-        },
-        {
-          "task_id": "T2.1-revision",
-          "path": "receipts/T2.1-revision-receipt.json",
-          "sha256": "b4ab06ce7b8590136b6fa58f0065d42047f2abd02b5dbf1f5dbc4978eb7291f0",
-          "brief_sha256": "437a9bf94d986e6690a77cca6098b694f47d8a60c7a5e1fce0c8b755aa831be1",
-          "result_sha256": "2e639f263f7b91cd4da26c7497a42dfc06e2657af288b74d6c1a974f82b5a618",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 48352,
-          "start_ts": "2026-08-21T17:23:24Z",
-          "end_ts": "2026-08-21T18:20:29Z",
-          "exit": 0,
-          "base_sha": "0716a8bcc829b8a18149c1c39cfd8bbb05a39087",
-          "commits": [
-            "993cadd3cfa7760c4ef4954f9afaa44e48bf8898"
-          ],
-          "changed_files": [
-            "tests/test_porting_edit_kernel.py",
-            "vibecomfy/comfy_nodes/agent/_frag_response_contract.py",
-            "vibecomfy/comfy_nodes/agent/_v2_scoped_validation.py",
-            "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
-            "vibecomfy/comfy_nodes/agent/edit.py",
-            "vibecomfy/comfy_nodes/agent/layout_operation_v1.py",
-            "vibecomfy/comfy_nodes/agent/session.py",
-            "vibecomfy/executor/edit_suggestion_tools.py",
-            "vibecomfy/porting/edit/_interpret.py",
-            "vibecomfy/porting/edit/_parse_execute.py",
-            "vibecomfy/porting/edit/admit.py",
-            "vibecomfy/porting/edit/apply_gate.py",
-            "vibecomfy/porting/edit/lint.py",
-            "vibecomfy/porting/edit/ops.py"
-          ],
-          "disposition": "commit 993cadd3"
-        },
-        {
-          "task_id": "T2.1-revision-rereview",
-          "path": "receipts/T2.1-revision-rereview-receipt.json",
-          "sha256": "b998fed83c9f6a24ea890341dbdf286dff650fbbdb1c02577661b5f5f20fc9cb",
-          "brief_sha256": "c330febc0e5a280904a276815030f6528594a96f3af7ff2435029ddffbd52053",
-          "result_sha256": "506c6a1fd2d65c16df4065a4d9a006ab1a0c79cbdd8eb34262b7815cf0a6a9dd",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 49532,
-          "start_ts": "2026-08-21T18:23:38Z",
-          "end_ts": "2026-08-21T18:40:35Z",
-          "exit": 0,
-          "base_sha": "993cadd3cfa7760c4ef4954f9afaa44e48bf8898",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "continue; findings none; JUDGMENT_REQUIRED none"
-        },
-        {
-          "task_id": "T2.1-integration",
-          "path": "receipts/T2.1-integration-receipt.json",
-          "sha256": "dd99e49257f8e28686dd1a184502ff65b9f6e3d8e131c508e5a69c03daf98059",
-          "brief_sha256": "7533ed37240fcd4db96cd3d3de35b37889d8d0cb6725dff6b1628a571160dd6b",
-          "result_sha256": "63f513dfe33fe16af38336d1cc72a9c9376752315bd0a23420cd69f3f2d369a8",
-          "role": "integration",
-          "model_route": "codex:gpt-5.6-luna",
-          "resolved_model": "openai-codex/gpt-5.6-luna",
-          "pid": 49993,
-          "start_ts": "2026-08-21T18:45:29Z",
-          "end_ts": "2026-08-21T18:48:33Z",
-          "exit": 0,
-          "base_sha": "993cadd3cfa7760c4ef4954f9afaa44e48bf8898",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "pass"
-        }
-      ],
+      "receipts": [],
       "focused_evidence": {
         "shard_id": "T2.1_operation_admission_gateway",
         "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_porting_edit_kernel.py tests/test_porting_edit_apply.py tests/test_porting_edit_ops.py tests/test_porting_edit_delta_contract.py",
@@ -3646,140 +2196,7 @@
         "vibecomfy/porting/edit/apply_gate.py",
         "vibecomfy/porting/edit/checkpoint.py"
       ],
-      "receipts": [
-        {
-          "task_id": "T2.2-precode-review",
-          "path": "receipts/T2.2-precode-review-receipt.json",
-          "sha256": "019b383349515c87930c0693bcaf60b300382ca1097098c13f848074c640a226",
-          "brief_sha256": "24b9ef27f5ed48d3d1b6a68f9dfa8213ab911fbe73a7c68e103adf0cc3f24c29",
-          "result_sha256": "7fc99c4d970efb56dc7126dac59f80e1d9ac9d605ccbf81b2656039e609633cf",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 50543,
-          "start_ts": "2026-08-21T19:00:37Z",
-          "end_ts": "2026-08-21T19:21:52Z",
-          "exit": 0,
-          "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "continue with binding conditions"
-        },
-        {
-          "task_id": "T2.2",
-          "path": "receipts/T2.2-receipt.json",
-          "sha256": "f714fb5f355168b3f690cd713278b8d6b60c6bbf7f5e298748a83df8f6c73286",
-          "brief_sha256": "0860abb6ae3497e4e8a22182fc8440f2cc529c4e9e2e6bb9392aaae832ff5d5f",
-          "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 51098,
-          "start_ts": "2026-08-21T19:27:52Z",
-          "end_ts": "2026-08-21T20:27:52Z",
-          "exit": 124,
-          "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0",
-          "commits": [],
-          "disposition": "interrupted F6 wrapper timeout; recovered by T2.2-rerun"
-        },
-        {
-          "task_id": "T2.2-rerun",
-          "path": "receipts/T2.2-rerun-receipt.json",
-          "sha256": "225a00a969f4c094a0bb89e6e49a13227a366beeb2eee4745383dccf3047c5e4",
-          "brief_sha256": "38d94d227a19931af19cae3904d6ddb4570ee18a097ed195006de81172a151b7",
-          "result_sha256": "8e191d314861519ba811ee83a2a3e8b6214ef09caeaf32b9a6930179971852b7",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 52451,
-          "start_ts": "2026-08-21T20:30:51Z",
-          "end_ts": "2026-08-21T21:12:24Z",
-          "exit": 0,
-          "base_sha": "48f81d64a74885548c5793dffd552eec60d626a0",
-          "commits": [
-            "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d"
-          ],
-          "disposition": "commit 40d1f8e5"
-        },
-        {
-          "task_id": "T2.2-review",
-          "path": "receipts/T2.2-review-receipt.json",
-          "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1",
-          "brief_sha256": "2ea3594bbee555b290bffaa07d794d64e7451e12f32c8ed272494ac673a996f6",
-          "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 53607,
-          "start_ts": "2026-08-21T21:22:17Z",
-          "end_ts": "2026-08-21T21:43:00Z",
-          "exit": 0,
-          "base_sha": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "correct; MUST-001..003 and SHOULD-001..003 open"
-        },
-        {
-          "task_id": "T2.2-revision",
-          "path": "receipts/T2.2-revision-receipt.json",
-          "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8",
-          "brief_sha256": "b40fbd3391ce0bd4df09a4ba6133890d2f3397efdb7603ce2c8a81017302938e",
-          "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740",
-          "role": "implementer",
-          "model_route": "grok-4.6",
-          "pid": 54853,
-          "start_ts": "2026-08-21T21:53:25Z",
-          "end_ts": "2026-08-21T22:37:35Z",
-          "exit": 0,
-          "base_sha": "40d1f8e5d1f322e8de2c66e1b8fd9d292ec6890d",
-          "commits": [
-            "24a42b14e99dea9f4096fc210fba293e8c901f05"
-          ],
-          "disposition": "repaired; MUST-001..003 and SHOULD-001..003"
-        },
-        {
-          "task_id": "T2.2-rereview",
-          "path": "receipts/T2.2-rereview-receipt.json",
-          "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe",
-          "brief_sha256": "cb036697525adba61da536782499a78ae767a7f6ebcde815fac440a290501e59",
-          "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081",
-          "role": "reviewer",
-          "model_route": "grok-4.6",
-          "pid": 57135,
-          "start_ts": "2026-08-21T22:38:07Z",
-          "end_ts": "2026-08-21T23:00:43Z",
-          "exit": 0,
-          "base_sha": "24a42b14e99dea9f4096fc210fba293e8c901f05",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "correct; MUST-001..003 closed; SHOULD-001 addressed; SHOULD-002..003 closed"
-        },
-        {
-          "task_id": "T2.2-integration",
-          "path": "receipts/T2.2-integration-receipt.json",
-          "sha256": "332c21d81d7c33ba1d8f74aec5639768f55f57c21b0760e8e41e303cda6284c8",
-          "brief_sha256": "20a369b6b061161f7c91bfe64dee0940092c3c171e2d8fad3fae384017a0136f",
-          "result_sha256": "33546317d52e8b0c2c6f485a1968a1d5463c750e55e01e3315fa74d61c51dc92",
-          "role": "integration",
-          "model_route": "stealth/ox-alpha",
-          "resolved_model": "stealth/ox-alpha",
-          "pid": 58438,
-          "start_ts": "2026-08-21T23:17:13Z",
-          "end_ts": "2026-08-21T23:28:11Z",
-          "exit": 0,
-          "base_sha": "c83d2e59cae670c056564f297061062b0a880763",
-          "commits": [],
-          "changed_files": [],
-          "disposition": "pass"
-        }
-      ],
-      "wrapper_death_recovery": {
-        "task_id": "T2.2",
-        "path": "receipts/wrapper-death-note-t22-implementer.json",
-        "sha256": "44128fb0812dd72ecef370cf8eae69d46d131ad4feeccd20811d2afbc89305e8",
-        "wrapper_pid": 51092,
-        "launcher_pid": 51098,
-        "exit": 124,
-        "classification": "F6 launcher timeout; same phase rerun under T2.2-rerun after partial-path restoration",
-        "receipt_written": true,
-        "result_persisted": false
-      },
+      "receipts": [],
       "focused_evidence": {
         "shard_id": "T2.2_closed_checkpoint_terminal_projector",
         "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_terminal_checkpoint.py tests/test_porting_edit_kernel.py tests/test_executor_threaded_edits.py tests/test_porting_edit_session.py tests/test_authority_receipts.py tests/test_comfy_nodes_agent_session.py",
@@ -3857,10 +2274,6 @@
         "exit": 0,
         "commits": [],
         "changed_files": [],
-        "receipt": {
-          "path": "receipts/PRE-REVIEW-REMAINING-receipt.json",
-          "sha256": "6b6fc6df129a4503be06411cf93d137f169aa3c27aeb79aa5f515d37b6ac300c"
-        },
         "brief_sha256": "6f698d9c6033aeeb5d839abec33a63860751a7f3d652018a234cf2e0a4258859",
         "result_sha256": "eb8660fe57320faa043cd59d3748e0109ce035801da080e41bfe9362a4d1d7e1",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/PRE-REVIEW-REMAINING-dispatch.log",
@@ -3944,29 +2357,7 @@
         "tests/test_run_workflow_execution_spine_agent.py",
         "tests/test_workflow_execution_spine_evidence.py"
       ],
-      "receipts": [
-        {
-          "task_id": "BATCH1-IMPLEMENTER",
-          "path": "receipts/BATCH1-IMPLEMENTER-receipt.json",
-          "sha256": "c1d766bfefa48708e1e59638eecee5f2ce3f5338f007fe11277d6b91c77c4d8f",
-          "brief_sha256": "6d3b2f8bbe745df9072b6709855fedeeb2f0fbeeeb62b21cfb582eb24b0b2585",
-          "result_sha256": "ae0a59181f2ee315c3f618fe197d3288076ce94a1a7e0fc441ad655bb7a819ba",
-          "role": "implementer",
-          "model_route": "stealth/ox-alpha",
-          "resolved_model": "stealth/ox-alpha",
-          "pid": 60171,
-          "start_ts": "2026-08-22T00:01:13Z",
-          "end_ts": "2026-08-22T01:46:08Z",
-          "exit": 0,
-          "base_sha": "c469e4934d3f4aabc990d7aed3c59794a2ffce08",
-          "commits": [
-            "0f6cd65810a2dcfc7cdd83577d6c7b5e112f0916",
-            "686a8e750e1b8ae67a1e40e8717e591de1b83b4b"
-          ],
-          "changed_file_count": 7,
-          "stop_or_judgment": ""
-        }
-      ],
+      "receipts": [],
       "focused_commands": [
         "python -m pytest -q tests/test_workflow_execution_spine_evidence.py -> 23 passed",
         "python -m pytest -q tests/test_run_workflow_execution_spine_agent.py -> 50 passed",
@@ -4019,10 +2410,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/G2-BATCH1-REVIEW-receipt.json",
-          "sha256": "a386bbcf2be731a58c0ecdf90ac2cdbc4c329443d9458704abd50aeab2f30e02"
-        },
         "brief_sha256": "be59a55d588196944276d9ba2d707ffb31532615c99d7a060ec6b1569a212b5c",
         "result_sha256": "d1d4c8e6a296a077f1b76869e395e89f96b7eb8bffd1b41b472f33ef2e1056d7",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G2-BATCH1-REVIEW-dispatch.log",
@@ -4093,10 +2480,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/T3.1-INVENTORY-receipt.json",
-          "sha256": "b9a74cbcb3d0128f2e98cea8485e860e978cf39b7423d712ecacf02207bb1f4c"
-        },
         "brief_sha256": "4623bffd1fd542d690378e4c1ac326c290fcf974e12fd91ced08f277fa1ef819",
         "result_sha256": "1078fc2553502dad7c913e7f8f40f218d4c700f117a9bc512a3df41b4a7a58d9",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T3.1-INVENTORY-dispatch.log"
@@ -4117,10 +2500,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/T3.2-INVENTORY-receipt.json",
-          "sha256": "d5d7a1e8592ec72fecb7b483d20fc484f971aa0091d7a412492c3a9e2997fc3d"
-        },
         "brief_sha256": "808ce0da1999038b986c840d52d9ae6738d2aec6f9400294e8e0e1b7932230cc",
         "result_sha256": "1e6c8cd4d76bfd34b6b65a2de26319e615d476168b3d503d1b576e0ea19a60ec",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T3.2-INVENTORY-dispatch.log"
@@ -4166,10 +2545,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/BATCH1-INTEGRATION-receipt.json",
-          "sha256": "2d6f78421cc54231da2dfed6ed8b8ddeda3e83d0487bbfe6003f5aad3b191a81"
-        },
         "brief_sha256": "2c3d7d80a138b65aadc7b6ddf91469f2252576e84521e4f8adac4184455560fc",
         "result_sha256": "402f9b980a2dbbb59e9712adc2b8d27001104a00a2c4dbfeeab4ea5beb4268ab",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/BATCH1-INTEGRATION-dispatch.log",
@@ -4230,10 +2605,6 @@
           "tests/test_run_workflow_execution_spine_agent.py"
         ],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/BATCH1-REVISION-receipt.json",
-          "sha256": "35d80d66cacd8f3c2fc7dca56e2ac1ddbaf2e72003fa7d20714e135d989fd09c"
-        },
         "brief_sha256": "a9a5b85190bc1bced2144ae53c5c23f13d550fdbb445faa5c96c056853a834cf",
         "result_sha256": "5578f9d5fb31aecd08f98341f1401f781f02cb899aa36cb654f35e6a122290b2",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/BATCH1-REVISION-dispatch.log",
@@ -4266,10 +2637,6 @@
           "tests/test_authority_replay_sequential.py"
         ],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/R-G2-1-REPAIR-receipt.json",
-          "sha256": "7d369a56181a470a166ae32b21af2436ed800915b4e8e47cc84d0393abca3400"
-        },
         "brief_sha256": "aeb412b8c179933491bbefbb5cf47963f52f34d03c7f51cf05ff051aebf0edd0",
         "result_sha256": "4e149af1301fd215f7ca68c9e44bfd6bf2b593639d41f345a9907f50adad28b1",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/R-G2-1-REPAIR-dispatch.log",
@@ -4315,10 +2682,6 @@
           "vibecomfy/comfy_nodes/agent/runtime.py"
         ],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/B2-IMPLEMENTER-receipt.json",
-          "sha256": "8c48bc4bca34640ace335f3b485242da9763ab0543e2aa309616046932054a10"
-        },
         "brief_sha256": "eeca8c48da5d5f038d2ebcdfa1783b415bfd55d9369bea3ae4e66920b485018a",
         "result_sha256": "d3d47748104d9b1d98ed936db8c97c636b4156271de055a66ee741ed1461c23e",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B2-IMPLEMENTER-dispatch.log",
@@ -4363,10 +2726,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/T4.2-INVENTORY-receipt.json",
-          "sha256": "324a177990f7cbbaedc4269c6f9b88bdb3d2418488dd230ec9cf5f07c164b458"
-        },
         "brief_sha256": "2a286af025422b54cf014bf26a75c114028f1568bfe7677e39d8a3fa04a083e2",
         "result_sha256": "f71456bc06f54d31fe1d9ad1e092e8ecc41b46b01f714e44f6210a5a2b77a074",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T4.2-INVENTORY-dispatch.log",
@@ -4392,10 +2751,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/G3-B2-REVIEW-receipt.json",
-          "sha256": "1eff68938568792561bd7c95e404c0b7d8717365b756c917e041519a661688a9"
-        },
         "brief_sha256": "87972cd5a279c25970447852f69b8b1747a44a825bee22b1bfc8ddbcee92e428",
         "result_sha256": "d3d4823802714f4f8efbc89a1ff2a84a22003306e3429d8f226620927cea543b",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G3-B2-REVIEW-dispatch.log",
@@ -4485,10 +2840,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/T4.3-INVENTORY-receipt.json",
-          "sha256": "778f9d8ae91496abf418f1a6b7ff3fa1ab4c026352cb6f11a3858741936991a5"
-        },
         "brief_sha256": "f74a161703e7ec7f7805417058f6dcd5464fc77460c01c7150189f80cd9e8853",
         "result_sha256": "adf418d1d5cf297fd5707c5237b3940f6d5ee201edf82ba63f402c7d56ec840a",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/T4.3-INVENTORY-dispatch.log",
@@ -4512,10 +2863,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/B2-INTEGRATION-receipt.json",
-          "sha256": "8de10fc04f8362d8a8f1bb9accddf5d01ddcb701a5aae968a82e6336143d31d6"
-        },
         "brief_sha256": "1fe86e5d0a8c0ffb5840f980b3ec27617f41b98ef7bf812a25842f898bfc021c",
         "result_sha256": "0847ce49b73ad7af57f97d78e16aa951b1c6b06954767809d45c21a611fc0a52",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B2-INTEGRATION-dispatch.log",
@@ -4586,10 +2933,6 @@
           "vibecomfy/executor/tool_specs.py"
         ],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/B3-IMPLEMENTER-receipt.json",
-          "sha256": "209db6f99a61663267149c7f5f8d716049f753a95e57bbe3baa03c4cebe39781"
-        },
         "brief_sha256": "476ca65b30c61f464f5ae170ad41ff3b23bb65ea33b090a9be2e20a748d4cfbe",
         "result_sha256": "db1fd034b15c2fc339ade5fe8c8208538b01a11d81389d0b4570fc7ad07447a7",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B3-IMPLEMENTER-dispatch.log",
@@ -4638,10 +2981,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/G4-B3-REVIEW-receipt.json",
-          "sha256": "6ce7647ef9cf1aa5eb2b416297223e02ce74548d8d174bad4565cd04751b4631"
-        },
         "brief_sha256": "933ef231eb138b30359efd1a250f5d0e53882ddff2b821db5fc7f1198e8d4741",
         "result_sha256": "dee7ec0f1a27e6340025661ded4582c81ca8dabaf851b546f499ca6498f52faf",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G4-B3-REVIEW-dispatch.log",
@@ -4712,10 +3051,6 @@
         "commits": [],
         "changed_files": [],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/B3-INTEGRATION-receipt.json",
-          "sha256": "1fc802a3c353024e07ee54447582a6b18cd1c5b4c303fb1c21f718786f02847a"
-        },
         "brief_sha256": "941c07be19edb14c18bd98dade5c9621cbc32042dc524f841320d3c7e1e6da28",
         "result_sha256": "6b8ca99b9dcc65e7ef0eecf28045a0feb8f37f8f7ac18225135145bf4a296b68",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/B3-INTEGRATION-dispatch.log",
@@ -4766,10 +3101,6 @@
           "vibecomfy/comfy_nodes/agent/authority_receipts.py"
         ],
         "stop_or_judgment": "",
-        "receipt": {
-          "path": "receipts/G3-RESIDUAL-RG21-ASYMMETRY-receipt.json",
-          "sha256": "bfa4f32ebe0935558b2168554973f0ecb3814186e8522c5896821c2471e185d6"
-        },
         "brief_sha256": "9d7307c4efa035b20b8f36bd9d2392961043a6378fe8ca24218c5d0c731eff4b",
         "result_sha256": "b790ceff1bc872702663b134555a8191de464af3e155792b96d08c641bb95a3c",
         "dispatch_record": "/workspace/vibecomfy-exec-spine-20260820/g0/G3-RESIDUAL-RG21-ASYMMETRY-dispatch.log",
@@ -6134,146 +4465,6 @@
     }
   ],
   "findings": [
-    {
-      "finding_id": "T1.2-MUST-001",
-      "severity": "must",
-      "classification": "XHARD",
-      "status": "closed",
-      "disposition": "closed",
-      "summary": "UID identities were not resolved to catalog classes for production-shaped identities, and layout identities were omitted from touched-schema closure.",
-      "revision_task_id": "T1.2-revision",
-      "re_review_task_id": "T1.2-revision-rereview",
-      "implementer": "T1.2-revision implementer",
-      "reviewer": "T1.2-review reviewer",
-      "initial_review_receipt": {
-        "path": "receipts/T1.2-review-receipt.json",
-        "sha256": "24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0",
-        "result_sha256": "51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c"
-      },
-      "revision_receipt": {
-        "path": "receipts/T1.2-revision-receipt.json",
-        "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec",
-        "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353"
-      },
-      "rereview_receipt": {
-        "path": "receipts/T1.2-revision-rereview-receipt.json",
-        "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef",
-        "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965"
-      },
-      "closure": "Revision 0a8e55ff uses identity extraction and class-map lookup and fail-closed missing_touched_schema. Complete-diff independent re-review closed the finding."
-    },
-    {
-      "finding_id": "T1.2-MUST-002",
-      "severity": "must",
-      "classification": "XHARD",
-      "status": "closed",
-      "disposition": "closed",
-      "summary": "The witness snapshot was not included in the content hash, and validation/provider authority could prefer an unbound snapshot.",
-      "revision_task_id": "T1.2-revision",
-      "re_review_task_id": "T1.2-revision-rereview",
-      "implementer": "T1.2-revision implementer",
-      "reviewer": "T1.2-review reviewer",
-      "initial_review_receipt": {
-        "path": "receipts/T1.2-review-receipt.json",
-        "sha256": "24a0b867cd1b379154f6343610d138e0fe7b2db4cd3455acec647a4b650696d0",
-        "result_sha256": "51d80ab50d81b27d7715a8d5697a54244ee296b33aba17787b94aa4b796a060c"
-      },
-      "revision_receipt": {
-        "path": "receipts/T1.2-revision-receipt.json",
-        "sha256": "f01ceb906c832287f1d39e045facbf09e01fbb08a23c6b1f6006e23deac5baec",
-        "result_sha256": "7d6251fafb5ae0c3dc3d126c615e1eddd2c0cae0138aab16d8e2b928f598f353"
-      },
-      "rereview_receipt": {
-        "path": "receipts/T1.2-revision-rereview-receipt.json",
-        "sha256": "a7c73b823ebdbbc1d5496bf0b16fe231e0a02c15c61adb668107e04c51ae75ef",
-        "result_sha256": "cc41d00f3c0ae249567699d3c84296bfb743cf74c457dc4305b453bb351b9965"
-      },
-      "closure": "Revision binds schema_snapshot into content_hash, validates mismatch as invalid_schema_snapshot, preserves historic schema_snapshot is None compatibility, and removes the unused receipt-root property. Complete-diff independent re-review closed the finding."
-    },
-    {
-      "finding_id": "T2.2-MUST-001",
-      "severity": "must",
-      "classification": "XHARD",
-      "status": "closed",
-      "disposition": "closed",
-      "summary": "recover_terminal_checkpoint ignored accepted_batch and receipt-backed applied durables recovered as undetermined without operations.",
-      "revision_task_id": "T2.2-revision",
-      "re_review_task_id": "T2.2-rereview",
-      "implementer": "T2.2-revision implementer",
-      "reviewer": "T2.2-review reviewer",
-      "initial_review_receipt": {
-        "path": "receipts/T2.2-review-receipt.json",
-        "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1",
-        "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5"
-      },
-      "revision_receipt": {
-        "path": "receipts/T2.2-revision-receipt.json",
-        "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8",
-        "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740"
-      },
-      "rereview_receipt": {
-        "path": "receipts/T2.2-rereview-receipt.json",
-        "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe",
-        "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081"
-      },
-      "closure": "Revision extracts accepted_batch operations and receipt evidence; independent re-review confirmed applied recovery with operations and Apply eligibility."
-    },
-    {
-      "finding_id": "T2.2-MUST-002",
-      "severity": "must",
-      "classification": "XHARD",
-      "status": "closed",
-      "disposition": "closed",
-      "summary": "Frozen ImplementationResult durable_response nested mappingproxy values caused the mode-neutral projector to raise TypeError and drop applied work.",
-      "revision_task_id": "T2.2-revision",
-      "re_review_task_id": "T2.2-rereview",
-      "implementer": "T2.2-revision implementer",
-      "reviewer": "T2.2-review reviewer",
-      "initial_review_receipt": {
-        "path": "receipts/T2.2-review-receipt.json",
-        "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1",
-        "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5"
-      },
-      "revision_receipt": {
-        "path": "receipts/T2.2-revision-receipt.json",
-        "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8",
-        "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740"
-      },
-      "rereview_receipt": {
-        "path": "receipts/T2.2-rereview-receipt.json",
-        "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe",
-        "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081"
-      },
-      "closure": "Revision thaws JSON-ish values before deepcopy without mutating executor/contracts.py; independent re-review confirmed pickle-safe projection and preserved applied row 6."
-    },
-    {
-      "finding_id": "T2.2-MUST-003",
-      "severity": "must",
-      "classification": "XHARD",
-      "status": "closed",
-      "disposition": "closed",
-      "summary": "Rejected stamps retained candidate, graph, and accepted_batch in the public product instead of audit-only authority.",
-      "revision_task_id": "T2.2-revision",
-      "re_review_task_id": "T2.2-rereview",
-      "implementer": "T2.2-revision implementer",
-      "reviewer": "T2.2-review reviewer",
-      "initial_review_receipt": {
-        "path": "receipts/T2.2-review-receipt.json",
-        "sha256": "c29912880dfecc4ba7f2ad5fc79912d70ba081e50db2ad49bc35d78b43e593f1",
-        "result_sha256": "dfc59c0d53f8d87566f92dec3c01be02c44adb4fe57b4edb1fd0236a77c75ae5"
-      },
-      "revision_receipt": {
-        "path": "receipts/T2.2-revision-receipt.json",
-        "sha256": "c102accaa25cc112f0a2e79b0d94fac4aaa03f930defb55a14cd1773b1e6f8a8",
-        "result_sha256": "827de00e6e9044ce164c313d86f039c75844d03605acaa53406cc8df096cd740"
-      },
-      "rereview_receipt": {
-        "path": "receipts/T2.2-rereview-receipt.json",
-        "sha256": "c1a4e2a50af110dc746922c6d238dfc501b27c975a05a42cf05847de14538cfe",
-        "result_sha256": "f44e06ad74629d34879d26a05e82d992ccd2e25daf941ea652e2be8c090e9081"
-      },
-      "closure": "Revision moves rejected candidate data to audit.rejected_candidate and removes public candidate/graph/accepted_batch/candidate_graph/candidate_transaction; independent re-review closed the finding."
-    },
     {
       "finding_id": "T2.2-SHOULD-001",
       "severity": "should",
