@@ -11306,6 +11306,111 @@ def _make_state(**overrides: Any) -> AgentEditState:
     return AgentEditState(**defaults)
 
 
+def test_public_candidate_gate_matches_semantic_projection_for_node_changes() -> None:
+    from vibecomfy.comfy_nodes.agent._frag_response_contract import (
+        _response_contract_candidate_present,
+    )
+
+    original = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler"},
+                "pos": [0, 0],
+                "size": [315, 262],
+            }
+        ],
+        "links": [],
+    }
+    cases = (
+        ({"pos": [100, 200]}, False),
+        ({"size": [320, 180]}, False),
+        ({"properties": {"vibecomfy_uid": "sampler", "backend_mode": "accurate"}}, True),
+    )
+    for changes, expected in cases:
+        candidate = json.loads(json.dumps(original))
+        candidate["nodes"][0].update(changes)
+        state = _make_state(graph=original, ui_payload=candidate, route="revise")
+        assert _response_contract_candidate_present(state) is expected
+
+    root_metadata_candidate = json.loads(json.dumps(original))
+    root_metadata_candidate["metadata"] = {"layout_tool": True}
+    root_metadata_candidate["groups"] = [{"title": "Visual grouping"}]
+    root_metadata_candidate["extra"] = {"viewport": {"scale": 1.25}}
+    state = _make_state(
+        graph=original,
+        ui_payload=root_metadata_candidate,
+        route="revise",
+    )
+    assert _response_contract_candidate_present(state) is False
+
+
+def test_no_candidate_response_withholds_landed_net_noop_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+
+    graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    state = _make_state(
+        graph=graph,
+        ui_payload=json.loads(json.dumps(graph)),
+        route="revise",
+        batch_exit_mode="noop",
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "statement_index": 0,
+                        "ok": True,
+                        "landed": True,
+                        "op": {"op": "add_node", "node": {"id": 2}},
+                    },
+                    {
+                        "statement_index": 1,
+                        "ok": True,
+                        "landed": True,
+                        "op": {"op": "remove_node", "target": ["", "2"]},
+                    },
+                ]
+            }
+        ],
+        revision_evidence=RevisionEvidence(
+            scoped_diff=ScopedDiff(
+                candidate_eligible=False,
+                eligibility_blockers=("no_diff",),
+            ),
+            candidate_eligible=False,
+            no_candidate_reason="no_changes",
+        ),
+        artifacts={},
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_validate_delta_evidence_for_apply",
+        lambda *_args, **_kwargs: (
+            True,
+            {"delta_evidence_valid": True},
+            {"schema_version": "2.0.0", "ops": []},
+        ),
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_narrate_final_message",
+        lambda *_args, **_kwargs: "Nothing changed.",
+    )
+
+    response = _build_batch_repl_response(
+        state,
+        TurnContext(session_id="semantic-noop", turn_id="0001"),
+    )
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert response["batch_turns"]
+    assert "agent_edit_protocol" not in response
+
+
 def test_synthesize_message_empty_prose_with_valid_batch_fence() -> None:
     """Empty user_message with no outcome still produces a non-empty sentence."""
     state = _make_state(user_message="")

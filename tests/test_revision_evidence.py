@@ -28,6 +28,7 @@ from vibecomfy.executor.revision_evidence import collect_graph_facts
 from vibecomfy.executor.revision_evidence import (
     collect_topology_evidence,
     compute_scoped_diff,
+    semantic_graph_hash,
 )
 
 
@@ -217,6 +218,79 @@ def test_revision_finalizer_preserves_true_semantic_field_candidate(
     assert scoped.changed_nodes == ("1",)
     assert scoped.candidate_eligible is True
     assert evidence.no_candidate_reason is None
+
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pos", [100, 200]),
+        ("size", [320, 180]),
+        ("flags", {"collapsed": True}),
+        ("order", 9),
+        ("title", "Moved visually"),
+        ("color", "#fff"),
+    ],
+)
+def test_scoped_diff_excludes_layout_only_node_facts(
+    field: str,
+    value: Any,
+) -> None:
+    original = _make_simple_graph(
+        nodes=[
+            {
+                "id": 1,
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler"},
+                "pos": [0, 0],
+                "size": [315, 262],
+            }
+        ]
+    )
+    candidate = copy.deepcopy(original)
+    candidate["nodes"][0][field] = value
+
+    scoped = compute_scoped_diff(
+        original,
+        candidate,
+        topology=TopologyFindings(schema_available=True),
+        readiness=ReadinessReport(),
+        candidate_topology=TopologyFindings(schema_available=True),
+        candidate_readiness=ReadinessReport(),
+    )
+
+    assert semantic_graph_hash(original) == semantic_graph_hash(candidate)
+    assert scoped.has_diff is False
+    assert scoped.candidate_eligible is False
+    assert "no_diff" in scoped.eligibility_blockers
+
+
+def test_scoped_diff_and_public_projection_preserve_semantic_node_properties() -> None:
+    original = _make_simple_graph(
+        nodes=[
+            {
+                "id": 1,
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler", "backend_mode": "fast"},
+            }
+        ]
+    )
+    candidate = copy.deepcopy(original)
+    candidate["nodes"][0]["properties"]["backend_mode"] = "accurate"
+
+    scoped = compute_scoped_diff(
+        original,
+        candidate,
+        topology=TopologyFindings(schema_available=True),
+        readiness=ReadinessReport(),
+        candidate_topology=TopologyFindings(schema_available=True),
+        candidate_readiness=ReadinessReport(),
+    )
+
+    assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
+    assert scoped.changed_nodes == ("1",)
+    assert scoped.diff_paths == ("nodes.1.properties.backend_mode",)
+    assert scoped.candidate_eligible is True
 
 
 def _graph_with_terminal_node() -> dict[str, Any]:

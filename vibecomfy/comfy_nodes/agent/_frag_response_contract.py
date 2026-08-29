@@ -1612,11 +1612,14 @@ def _build_batch_repl_response(
     )
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
+    accepted_batch = (
+        _effective_accepted_batch_statements(state) if has_candidate else ()
+    )
     candidate_plan_fields = _v2_candidate_mutation_plan_fields(
         compatibility_fields=compatibility_fields,
         accepted_ops=[
             dict(item["op"])
-            for item in _effective_accepted_batch_statements(state)
+            for item in accepted_batch
             if isinstance(item.get("op"), Mapping)
         ]
         if has_candidate
@@ -1836,10 +1839,12 @@ def _build_batch_repl_response(
     # durable Δ; apply/plan_hash derive a transient envelope from it.
     # Lint-proven no-op statements are excluded: they changed no bytes, so
     # carrying them minted authority a fail-closed replay must reject.
-    response["accepted_batch"] = _json_safe(list(_effective_accepted_batch_statements(state)))
+    response["accepted_batch"] = _json_safe(list(accepted_batch))
     # accepted_batch is the sole durable Δ.  Apply/plan_hash derive ops from
     # accepted_batch[*].op at the call site.
-    if response["accepted_batch"] or delta_evidence_envelope is not None:
+    if has_candidate and (
+        response["accepted_batch"] or delta_evidence_envelope is not None
+    ):
         response["agent_edit_protocol"] = "v2_delta"
     # ── "claims ⊆ Δ" enforcement on the product path ──────────────────────
     # The reply may only claim changes the accepted Δ actually landed.  Any

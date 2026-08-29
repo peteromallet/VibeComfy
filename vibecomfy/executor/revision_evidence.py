@@ -14,6 +14,7 @@ and testable without network or model dependencies.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 import logging
 from typing import Any
 
@@ -923,8 +924,8 @@ def compute_scoped_diff(
         diff_paths.append(f"nodes.removed.{nid}")
     for nid in changed_ids:
         # Compute which fields changed within the node.
-        orig_node = orig_node_map[nid]
-        cand_node = cand_node_map[nid]
+        orig_node = semantic_node_projection(orig_node_map[nid])
+        cand_node = semantic_node_projection(cand_node_map[nid])
         diff_paths.extend(
             f"nodes.{nid}.{path}"
             for path in _diff_value_paths(orig_node, cand_node)
@@ -961,10 +962,8 @@ def compute_scoped_diff(
     if has_schema_unavailable:
         eligibility_blockers.append("schema_unavailable")
 
-    # Check for no diff at all.
-    has_any_diff = bool(
-        changed_ids or added_ids or removed_ids
-        or changed_link_ids or added_link_ids or removed_link_ids
+    has_any_diff = (
+        semantic_graph_hash(original_graph) != semantic_graph_hash(candidate_graph)
     )
     if not has_any_diff:
         eligibility_blockers.append("no_diff")
@@ -1078,7 +1077,7 @@ def _node_content_hash(node: dict) -> str:
     import hashlib
     import json
 
-    node = _node_for_scoped_diff(node)
+    node = semantic_node_projection(node)
     try:
         serialized = json.dumps(node, sort_keys=True, default=str)
     except (TypeError, ValueError):
@@ -1091,7 +1090,7 @@ def _node_material_content_hash(node: dict) -> str:
     import hashlib
     import json
 
-    cleaned = _node_for_scoped_diff(node)
+    cleaned = semantic_node_projection(node)
     outputs = cleaned.get("outputs")
     if isinstance(outputs, list):
         stripped_outputs = []
@@ -1110,12 +1109,17 @@ def _node_material_content_hash(node: dict) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _node_for_scoped_diff(node: dict) -> dict:
-    """Return node content with edit-engine identity stamps removed.
+_SEMANTIC_LAYOUT_NODE_FIELDS = frozenset(
+    {"pos", "size", "flags", "order", "title", "color", "bgcolor", "boxcolor", "shape"}
+)
 
-    The batch editor may stamp ``properties.vibecomfy_uid`` onto otherwise
-    untouched nodes so later guards can address them. That identity metadata is
-    not a user-visible graph revision and must not broaden a scoped diff.
+
+def semantic_node_projection(node: dict) -> dict:
+    """Return the node facts that participate in semantic candidate changes.
+
+    LiteGraph geometry and visual decoration are layout-only.  Everything else
+    remains in the projection, including opaque ``properties`` extensions,
+    because those fields can carry real node behavior for custom nodes.
     """
     import copy
 
@@ -1125,7 +1129,14 @@ def _node_for_scoped_diff(node: dict) -> dict:
         properties.pop("vibecomfy_uid", None)
         if not properties:
             cleaned.pop("properties", None)
+    for key in _SEMANTIC_LAYOUT_NODE_FIELDS:
+        cleaned.pop(key, None)
     return cleaned
+
+
+def _node_for_scoped_diff(node: dict) -> dict:
+    """Compatibility alias for the shared semantic node projection."""
+    return semantic_node_projection(node)
 
 
 def _link_content_hash(link: dict | list) -> str:
@@ -1231,6 +1242,44 @@ def _link_id_sort_key(link_id: str) -> tuple[int, str]:
         except (ValueError, TypeError):
             pass
     return (1, link_id)
+
+
+def semantic_graph_projection(graph: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the shared graph projection used for semantic candidate gates."""
+    import copy
+
+    nodes_raw = door_get_nodes(graph) if isinstance(graph, dict) else None
+    nodes = [
+        semantic_node_projection(node)
+        for node in nodes_raw
+        if isinstance(node, dict)
+    ] if isinstance(nodes_raw, list) else []
+    nodes.sort(
+        key=lambda node: (
+            _node_id_sort_key(str(node.get("id", ""))),
+            json.dumps(node, sort_keys=True, default=str),
+        )
+    )
+
+    links_raw = door_get_links(graph) if isinstance(graph, dict) else None
+    links = [
+        copy.deepcopy(link)
+        for link in links_raw
+        if isinstance(link, (dict, list))
+    ] if isinstance(links_raw, list) else []
+    links.sort(
+        key=lambda link: (
+            _link_id_sort_key(_link_identity(link)),
+            json.dumps(link, sort_keys=True, default=str),
+        )
+    )
+    return {"nodes": nodes, "links": links}
+
+
+def semantic_graph_hash(graph: dict[str, Any] | None) -> str:
+    """Hash the shared semantic graph projection."""
+    return _hash_graph(semantic_graph_projection(graph))
+
 
 
 def collect_graph_facts(
@@ -1429,4 +1478,6 @@ __all__ = [
     "collect_topology_evidence",
     "compute_scoped_diff",
     "schema_backed_unknown_class_types",
+    "semantic_graph_hash",
+    "semantic_graph_projection",
 ]

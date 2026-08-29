@@ -1830,7 +1830,12 @@ def stamp_terminal_state(
         eligibility_payload = dict(eligibility)
         stamped["eligibility"] = eligibility_payload
         if terminal_state == "applied":
-            stamped["apply_eligible"] = bool(eligibility_payload.get("applyable"))
+            applyable = bool(eligibility_payload.get("applyable"))
+            stamped["apply_eligible"] = applyable
+            if not applyable:
+                stamped["canvas_apply_allowed"] = False
+                stamped["apply_allowed"] = False
+                stamped["queue_allowed"] = False
     if terminal_state != "applied":
         # ``eligibility.applyable`` may retain a diagnostic fact supplied by
         # the authority path, but the terminal row owns the actionable wire

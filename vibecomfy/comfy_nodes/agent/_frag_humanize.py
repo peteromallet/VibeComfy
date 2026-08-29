@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.audit import write_json_artifact
 from vibecomfy.comfy_nodes.agent.contracts import ApplyEligibility, FailureEnvelope, FailureKind, StageResult, TurnContext, TurnOutcome, _ABSENT_FIELD_OLD, _MISSING_FIELD_CHANGE_OLD, _iter_ui_graph_nodes, _ui_node_uid, _ui_node_uid_aliases, _ui_widget_value_for_field
 from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON, MissingRequiredField, ProviderError, ensure_sentence_message
-from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
+from vibecomfy.executor.revision_evidence import semantic_graph_hash
 from vibecomfy.porting.edit.types import FieldChange
 from ._frag_chat import _json_safe
 from ._frag_state import (
@@ -95,12 +95,9 @@ def _noop_field_changes(
 
 
 def _batch_candidate_graph_changed(state: AgentEditState) -> bool:
-    if not isinstance(state.ui_payload, Mapping):
+    if not isinstance(state.ui_payload, Mapping) or not isinstance(state.graph, Mapping):
         return False
-    if _real_field_changes(tuple(state.batch_field_changes or ())):
-        return True
-    return structural_graph_hash(state.ui_payload) != structural_graph_hash(state.graph)
-
+    return semantic_graph_hash(state.ui_payload) != semantic_graph_hash(state.graph)
 
 def _landed_edit_lead(state: AgentEditState) -> str:
     count = _total_landed_edit_count(state)

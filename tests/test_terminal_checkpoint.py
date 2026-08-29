@@ -119,10 +119,14 @@ def test_stamp_terminal_state_clamps_actionable_eligibility(
     # Preserve the supplied eligibility fact for diagnostics; the terminal
     # state still owns the actionable top-level wire bit and apply gates.
     assert stamped["eligibility"]["applyable"] is eligibility_applyable
-    if terminal_state != TERMINAL_STATE_APPLIED:
+    if terminal_state != TERMINAL_STATE_APPLIED or not eligibility_applyable:
         assert stamped["canvas_apply_allowed"] is False
         assert stamped["apply_allowed"] is False
         assert stamped["queue_allowed"] is False
+    else:
+        assert stamped["canvas_apply_allowed"] is True
+        assert stamped["apply_allowed"] is True
+        assert stamped["queue_allowed"] is True
 
 
 def test_stamp_terminal_state_clamps_existing_applyable_claim_without_eligibility() -> None:
