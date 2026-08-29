@@ -197,6 +197,72 @@ def test_resolve_openrouter_key_uses_last_duplicate_generic_value(
     assert runtime._resolve_openrouter_key() == "last-generic-key"
 
 
+@pytest.mark.parametrize("empty_value", ["", '""', "''"])
+def test_deepseek_later_empty_duplicate_clears_prior_file_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    empty_value: str,
+) -> None:
+    for key in ("DEEPSEEK_API_KEY",):
+        monkeypatch.delenv(key, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DEEPSEEK_API_KEY=stale-key\nDEEPSEEK_API_KEY={empty_value}\n",
+        encoding="utf-8",
+    )
+    entries = runtime._read_env_file_entries(env_file)
+    monkeypatch.setattr(runtime, "_read_env_file_entries", lambda: entries)
+    assert runtime._resolve_deepseek_key() is None
+
+
+def test_native_readiness_requires_deepseek_key_and_reports_native_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "native")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-wrong-transport")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: [
+            ("OPENROUTER_API_KEY", "sk-or-file"),
+        ],
+    )
+
+    status = runtime.readiness(route="openrouter", model="agent-edit")
+
+    assert status["ready"] is False
+    assert status["transport"] == "native"
+    assert status["base_url"] == "https://api.deepseek.com/v1"
+    assert status["deepseek_key_present"] is False
+    assert status["openrouter_key_present"] is False
+    assert status["model"] == "deepseek-v4-flash"
+
+
+def test_native_readiness_accepts_file_only_deepseek_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "native")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: [
+            ("DEEPSEEK_API_KEY", "deepseek-file-key"),
+        ],
+    )
+
+    status = runtime.readiness(route="openrouter", model="agent-edit")
+
+    assert status["ready"] is True
+    assert status["transport"] == "native"
+    assert status["base_url"] == "https://api.deepseek.com/v1"
+    assert status["deepseek_key_present"] is True
+    assert status["openrouter_key_present"] is False
+    assert status["model"] == "deepseek-v4-flash"
+
+
 def test_credential_file_resolution_leaves_global_env_and_unrelated_child_clean(
     tmp_path: Path,
 ) -> None:
@@ -328,6 +394,46 @@ def test_file_credential_is_scoped_to_hermes_worker(
     assert "OPENROUTER_API_KEY" not in captured_envs[1]
     assert "OPENAI_API_KEY" not in captured_envs[1]
     assert "HERMES_API_KEY" not in captured_envs[1]
+
+
+def test_alternate_worker_path_receives_no_hermes_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(runtime, "_WORKER_PATH", str(tmp_path / "alternate.py"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ambient-openrouter")
+    monkeypatch.setenv("OPENAI_API_KEY", "ambient-openai")
+    monkeypatch.setenv("HERMES_API_KEY", "ambient-hermes")
+    captured: dict[str, Any] = {}
+
+    def fake_subprocess(command, **kwargs):
+        with open(command[2], encoding="utf-8") as fh:
+            captured["request"] = json.load(fh)
+        captured["env"] = dict(kwargs["env"])
+        with open(command[3], "w", encoding="utf-8") as fh:
+            json.dump({"content": "hello"}, fh)
+        return (0, "", "")
+
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
+    result = runtime._run_worker(
+        {"api_key": "resolved-secret", "model": "deepseek-v4-flash"},
+        "system",
+        "user",
+        response_contract="text",
+        agent_id="hermes",
+    )
+
+    assert result["content"] == "hello"
+    assert "api_key" not in captured["request"]["agent_kwargs"]
+    assert all(
+        name not in captured["env"]
+        for name in (
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "HERMES_API_KEY",
+            "DEEPSEEK_API_KEY",
+        )
+    )
 
 
 def test_explicit_worker_credentials_take_precedence_over_file_fallback(
@@ -601,6 +707,51 @@ def test_run_worker_preserves_stdout_stderr_tail_on_error(
 
     assert result["worker_stdout_tail"] == "Error code: 402 - This request requires more credits"
     assert result["worker_stderr_tail"] == "HTTP/1.1 402 Payment Required"
+
+
+def test_worker_redacts_provider_secret_from_result_and_profiler_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.executor import profiler
+
+    secret = "synthetic-provider-secret"
+    request_path = tmp_path / "request.json"
+    result_path = tmp_path / "result.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "agent_id": "hermes",
+                "agent_kwargs": {"api_key": secret},
+                "user_message": "hello",
+                "system_message": None,
+                "response_contract": "text",
+            }
+        ),
+        encoding="utf-8",
+    )
+    log_path = tmp_path / "profiler.log"
+    monkeypatch.setattr(profiler, "_PROFILER_LOG_PATH", log_path)
+    monkeypatch.setattr(
+        worker,
+        "_dispatch_turn",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError(f"provider diagnostics echoed {secret}")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["worker.py", str(request_path), str(result_path)],
+    )
+
+    assert worker.main() == 0
+    result_text = result_path.read_text(encoding="utf-8")
+    log_text = log_path.read_text(encoding="utf-8")
+    assert secret not in result_text
+    assert secret not in log_text
+    assert "<REDACTED>" in result_text
+    assert "<REDACTED>" in log_text
 
 
 def _pid_alive(pid: int, *, timeout_s: float = 3.0) -> bool:
@@ -968,7 +1119,11 @@ def _canonical_success_attempt() -> dict:
 def test_three_runtime_success_paths_preserve_worker_attempt_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(runtime, "_hermes_credential_for", lambda route, model: "key")
+    monkeypatch.setattr(
+        runtime,
+        "_hermes_credential_for",
+        lambda route, model, **kwargs: "key",
+    )
     attempt = _canonical_success_attempt()
 
     def fake_worker(*args, response_contract, **kwargs):  # noqa: ANN001, ANN202, ARG001

@@ -58,6 +58,7 @@ from vibecomfy.executor.profiler import (
     new_profile_id,
     profiler_log,
     profiler_span,
+    redact_secrets,
     short_text,
 )
 
@@ -77,7 +78,22 @@ _TURN_TIMEOUT_HARD_CAP_SECONDS = float(
 # SIGKILLed. Short by design: a hung grandchild (the cluster-A pipe hang) must
 # not extend the turn timeout meaningfully.
 _TURN_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_KILL_GRACE", "3"))
-_WORKER_PATH = str(Path(__file__).with_name("worker.py"))
+_CANONICAL_WORKER_PATH = str(Path(__file__).with_name("worker.py").resolve())
+_WORKER_PATH = _CANONICAL_WORKER_PATH
+_HERMES_CREDENTIAL_ENV_KEYS = frozenset(
+    {
+        "API_KEY",
+        "ARNOLD_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "DEEPSEEK_API_KEY",
+        "HERMES_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "VIBECOMFY_HERMES_API_KEY",
+    }
+)
 
 # S4: chunked emit + research checkpoint + 480s infra. 506ebd shows a 400+
 # node graph blows the 240s budget in emit_ui_json before the agent can
@@ -372,14 +388,15 @@ def _read_env_file_entries(path: Path = _HERMES_ENV_PATH) -> list[tuple[str, str
 
 
 def _resolve_deepseek_key() -> str | None:
-    """Resolve an explicit DeepSeek key before the credential-file fallback."""
+    """Resolve DeepSeek credentials with later dotenv assignments winning."""
     explicit = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if explicit:
         return explicit
-    for key, value in reversed(_read_env_file_entries()):
-        if key == "DEEPSEEK_API_KEY" and value.strip():
-            return value.strip()
-    return None
+    last_value: str | None = None
+    for key, value in _read_env_file_entries():
+        if key == "DEEPSEEK_API_KEY":
+            last_value = value.strip()
+    return last_value or None
 
 
 def _resolve_openrouter_key() -> str | None:
@@ -579,58 +596,68 @@ def _normalize_native_deepseek_model(model: str) -> str:
 
 
 def _explicit_transport() -> str | None:
-    """Return the explicit ``VIBECOMFY_TRANSPORT`` pin, or ``None``.
-
-    Only an explicit pin (set by the live-agentic harness selector or by an
-    operator) is honored.  Ambience — inherited base URLs, stored credentials,
-    credential presence — never selects transport.
-    """
+    """Return the explicit ``VIBECOMFY_TRANSPORT`` pin, or ``None``."""
     value = os.getenv("VIBECOMFY_TRANSPORT", "").strip().lower()
     if value in {"openrouter", "native"}:
         return value
     return None
 
 
-def _base_url_for_route(route: str | None) -> str:
-    """Resolve the hermes endpoint from the explicit transport pin first.
+def _effective_transport(route: str | None) -> str:
+    """Resolve the transport once; explicit pins outrank route defaults."""
+    explicit = _explicit_transport()
+    if explicit:
+        return explicit
+    if "deepseek.com" in (_OPENROUTER_BASE_URL or "").lower() and (
+        (route or "").strip().lower() != "openrouter"
+    ):
+        return "native"
+    return "openrouter"
 
-    An explicit ``VIBECOMFY_TRANSPORT`` pin is AUTHORITATIVE: when set, every
-    profile phase resolves to the pinned transport's endpoint.  The route-level
-    OpenRouter default applies only when no pin is set, so a route contract can
-    never displace an explicit selection (and ambient credentials/base URLs can
-    never silently switch an operator's pinned transport).
-    """
-    transport = _explicit_transport()
-    if transport == "native":
+
+def _base_url_for_route(
+    route: str | None,
+    *,
+    transport: str | None = None,
+) -> str:
+    """Resolve the Hermes endpoint from one effective transport decision."""
+    selected = transport or _effective_transport(route)
+    if selected == "native":
         return _NATIVE_DEEPSEEK_BASE_URL
-    if transport == "openrouter":
-        return _CANONICAL_OPENROUTER_BASE_URL
-    if (route or "").strip().lower() == "openrouter":
+    if _explicit_transport() == "openrouter" or (route or "").strip().lower() == "openrouter":
         return _CANONICAL_OPENROUTER_BASE_URL
     return _OPENROUTER_BASE_URL
 
 
-def _is_native_deepseek_endpoint(base_url: str | None = None) -> bool:
+def _is_native_deepseek_endpoint(
+    base_url: str | None = None,
+    *,
+    transport: str | None = None,
+) -> bool:
+    if transport is not None:
+        return transport == "native"
     if _explicit_transport() == "native":
         return True
     return "deepseek.com" in (base_url or _OPENROUTER_BASE_URL or "").lower()
 
 
-def _hermes_credential_for(route: str | None, model: str | None) -> str | None:
-    # A pinned native transport is authoritative over the route-level OpenRouter
-    # default. No OpenRouter key may fall through to a native endpoint.
-    deepseek_key = _resolve_deepseek_key()
-    if _explicit_transport() == "native":
-        return deepseek_key
+def _hermes_credential_for(
+    route: str | None,
+    model: str | None,
+    *,
+    transport: str | None = None,
+) -> str | None:
+    """Resolve the credential for one already-selected Hermes transport."""
+    selected = transport or _effective_transport(route)
+    if selected == "native":
+        return _resolve_deepseek_key()
     if (route or "").strip().lower() == "openrouter":
         return _resolve_openrouter_key()
-    # Explicit per-process override (e.g. pointing the hermes backend at a
-    # non-OpenRouter OpenAI-compatible endpoint such as Fireworks).
     explicit_key = os.getenv("VIBECOMFY_HERMES_API_KEY")
     if explicit_key:
         return explicit_key
-    if _is_native_deepseek_endpoint() and deepseek_key:
-        return deepseek_key
+    if _is_native_deepseek_endpoint(transport=selected):
+        return _resolve_deepseek_key()
     return _resolve_openrouter_key()
 
 
@@ -677,38 +704,34 @@ def _split_messages(messages: Sequence[Mapping[str, Any]] | None) -> tuple[str |
 def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | None = None) -> dict[str, Any]:
     """AIAgent constructor kwargs for a single, tool-free completion.
 
-    Keyed off the resolved *dispatch agent id* (not the panel route). ``hermes``
-    is always configured for OpenRouter, including the legacy ``deepseek`` route
-    alias. For ``codex`` / ``claude`` the worker dispatches through the default
-    dispatcher and ignores ``agent_kwargs``, so we pass only the tool-free
-    single-shot flags.
+    ``hermes`` receives the endpoint, normalized model, and one credential
+    selected by the effective transport. Other dispatch IDs receive only the
+    tool-free flags; their adapters resolve their own authentication.
     """
     common: dict[str, Any] = dict(
         max_iterations=_AGENT_MAX_ITERATIONS,
-        enabled_toolsets=[],          # no tools: one-shot completion
-        save_trajectories=False,      # no trajectory files on disk
-        skip_context_files=True,      # don't load SOUL.md / AGENTS.md
-        skip_memory=True,             # don't load/write the memory store
+        enabled_toolsets=[],
+        save_trajectories=False,
+        skip_context_files=True,
+        skip_memory=True,
         quiet_mode=True,
     )
     if agent_id == "hermes":
-        base_url = _base_url_for_route(route)
+        transport = _effective_transport(route)
+        base_url = _base_url_for_route(route, transport=transport)
         resolved_model = _runtime_model_for_route(route, model) or _OPENROUTER_MODEL
-        if _is_native_deepseek_endpoint(base_url):
-            # Native api.deepseek.com rejects OpenRouter-style ``deepseek/`` slugs
-            # with HTTP 400; normalize to the bare model name it accepts.
+        if _is_native_deepseek_endpoint(base_url, transport=transport):
             resolved_model = _normalize_native_deepseek_model(resolved_model)
         else:
             resolved_model = _strip_provider_prefix(resolved_model, "openrouter")
         return dict(
             model=resolved_model,
-            api_key=_hermes_credential_for(route, model),
+            api_key=_hermes_credential_for(route, model, transport=transport),
             base_url=base_url,
             provider="openrouter",
             max_tokens=_OPENROUTER_MAX_TOKENS,
             **common,
         )
-    # codex / claude -> default dispatcher resolves everything; kwargs unused.
     return dict(**common)
 
 
@@ -1212,6 +1235,18 @@ def _turn_timeout_seconds(
     return min(timeout, _TURN_TIMEOUT_HARD_CAP_SECONDS)
 
 
+def _is_canonical_worker_path() -> bool:
+    try:
+        return Path(_WORKER_PATH).resolve() == Path(_CANONICAL_WORKER_PATH).resolve()
+    except OSError:
+        return False
+
+
+def _credential_kwarg(key: object) -> bool:
+    lowered = str(key).lower()
+    return any(
+        part in lowered for part in ("api_key", "apikey", "token", "secret", "credential")
+    )
 def _run_worker_once(
     agent_kwargs: dict[str, Any],
     system_msg: str | None,
@@ -1225,17 +1260,23 @@ def _run_worker_once(
     profiling_context: Mapping[str, Any] | None = None,
     deadline: float | None = None,
 ) -> dict[str, Any]:
-    """Run one AIAgent turn in an isolated subprocess; return its result dict.
-
-    Single attempt — no retry. See :func:`_run_worker` for the retry wrapper.
-
-    Isolation avoids the top-level module-name collision between megaplan's
-    agent (bare ``import utils`` / ``model_tools``) and ComfyUI's own ``utils``
-    package, and keeps the agent's asyncio/HTTP state out of ComfyUI's loop.
-    """
+    """Run one AIAgent turn in an isolated subprocess; return its result dict."""
+    secret_values = tuple(
+        value
+        for key, value in agent_kwargs.items()
+        if _credential_kwarg(key) and isinstance(value, str) and value
+    )
     with tempfile.TemporaryDirectory(prefix="vibecomfy-agent-") as tmp:
         req_path = os.path.join(tmp, "request.json")
         res_path = os.path.join(tmp, "result.json")
+        canonical_hermes_worker = agent_id == "hermes" and _is_canonical_worker_path()
+        request_agent_kwargs = dict(agent_kwargs)
+        if not canonical_hermes_worker:
+            request_agent_kwargs = {
+                key: value
+                for key, value in request_agent_kwargs.items()
+                if not _credential_kwarg(key)
+            }
         with open(req_path, "w", encoding="utf-8") as fh:
             json.dump(
                 {
@@ -1243,7 +1284,7 @@ def _run_worker_once(
                     "model": model,
                     "requested_model": requested_model,
                     "effort": effort,
-                    "agent_kwargs": agent_kwargs,
+                    "agent_kwargs": request_agent_kwargs,
                     "system_message": system_msg,
                     "user_message": user_msg,
                     "response_contract": response_contract,
@@ -1252,16 +1293,29 @@ def _run_worker_once(
                 fh,
             )
         env = dict(os.environ)
-        # Scope credential-file fallback values to the Hermes worker that
-        # consumes them. Explicit caller values remain authoritative.
-        if agent_id == "hermes":
-            hermes_key = agent_kwargs.get("api_key") or _resolve_openrouter_key()
+        # Arnold's import-time dotenv loader must see a private, empty Hermes
+        # home. Otherwise it rehydrates and overrides the scoped aliases.
+        env["HERMES_HOME"] = os.path.join(tmp, "hermes-home")
+        os.makedirs(env["HERMES_HOME"], exist_ok=True)
+        if canonical_hermes_worker:
+            native_endpoint = _is_native_deepseek_endpoint(
+                request_agent_kwargs.get("base_url")
+            )
+            hermes_key = request_agent_kwargs.get("api_key") or (
+                _resolve_deepseek_key() if native_endpoint else _resolve_openrouter_key()
+            )
             if isinstance(hermes_key, str) and hermes_key:
                 aliases = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "HERMES_API_KEY"]
-                if _is_native_deepseek_endpoint(agent_kwargs.get("base_url")):
+                if native_endpoint:
                     aliases.append("DEEPSEEK_API_KEY")
                 for key in aliases:
                     env.setdefault(key, hermes_key)
+        else:
+            for key in tuple(env):
+                if key in _HERMES_CREDENTIAL_ENV_KEYS or key.startswith(
+                    "OPENROUTER_API_KEY_"
+                ):
+                    env.pop(key, None)
         # Don't leak ComfyUI's cwd/path into the child (it is what causes the
         # `utils` collision); run from a neutral directory.
         stdout_path = os.path.join(tmp, "worker.stdout.log")
@@ -1296,6 +1350,7 @@ def _run_worker_once(
             with profiler_span(
                 LOGGER,
                 "runtime.worker_subprocess",
+                secret_values=secret_values,
                 agent_id=agent_id,
                 response_contract=response_contract,
                 worker_path=_WORKER_PATH,
@@ -1325,6 +1380,7 @@ def _run_worker_once(
                 profiler_log(
                     LOGGER,
                     "runtime.worker_result",
+                    secret_values=secret_values,
                     agent_id=agent_id,
                     response_contract=response_contract,
                     profiling_context=dict(profiling_context or {}),
@@ -1336,10 +1392,11 @@ def _run_worker_once(
                         result.setdefault("worker_stdout_tail", stdout_text[-4000:])
                     if stderr_text.strip():
                         result.setdefault("worker_stderr_tail", stderr_text[-4000:])
+                result = redact_secrets(result, secret_values)
                 _record_captured_deepseek_usage(result)
                 return result
         except (FileNotFoundError, json.JSONDecodeError) as exc:
-            tail = (stderr_text or stdout_text or "")[-800:]
+            tail = redact_secrets((stderr_text or stdout_text or "")[-800:], secret_values)
             raise RuntimeError(
                 f"Agent worker produced no result (exit {returncode}). {exc}. "
                 f"Worker output tail:\n{tail}"
@@ -1585,21 +1642,30 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
     backend = "arnold.pipelines.megaplan.agent.run_agent.AIAgent"
     requested = _requested_route(route)
 
-    if requested == "openrouter" or (
-        requested in {"", "auto"} and _resolve_openrouter_key()
-    ):
-        key = _resolve_openrouter_key()
+    transport = _effective_transport(route)
+    if requested in {"openrouter", "", "auto"}:
+        key = _hermes_credential_for(route, model, transport=transport)
+        resolved_model = _runtime_model_for_route("openrouter", model) or _OPENROUTER_MODEL
+        base_url = _base_url_for_route(route, transport=transport)
+        if transport == "native":
+            resolved_model = _normalize_native_deepseek_model(resolved_model)
+        else:
+            resolved_model = _strip_provider_prefix(resolved_model, "openrouter")
+        credential_name = "DEEPSEEK_API_KEY" if transport == "native" else "OPENROUTER_API_KEY"
         return {
             "ready": bool(key),
             "backend": backend,
             "route": "openrouter",
-            "model": _default_model_for_route("openrouter", model),
-            "base_url": _CANONICAL_OPENROUTER_BASE_URL,
-            "openrouter_key_present": bool(key),
+            "transport": transport,
+            "model": resolved_model,
+            "base_url": base_url,
+            "credential_present": bool(key),
+            "openrouter_key_present": transport == "openrouter" and bool(key),
+            "deepseek_key_present": transport == "native" and bool(key),
             "reason": (
-                "OpenRouter key resolved; ready to run agent-edit turns."
+                f"{credential_name} resolved; ready to run agent-edit turns."
                 if key
-                else "No OPENROUTER_API_KEY in environment or ~/.hermes/.env."
+                else f"No {credential_name} in environment or ~/.hermes/.env."
             ),
         }
 
@@ -1697,16 +1763,30 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
     # ``auto`` with no OpenRouter key, that is whatever else is wired; today only
     # hermes is guaranteed, so report not-ready honestly.
     if requested in {"", "auto", "arnold"}:
-        if _adapter_registered("hermes") and _resolve_openrouter_key():
-            key = _resolve_openrouter_key()
+        transport = _effective_transport(route)
+        key = (
+            _resolve_deepseek_key()
+            if transport == "native"
+            else _resolve_openrouter_key()
+        )
+        if _adapter_registered("hermes") and key:
+            resolved_model = _runtime_model_for_route("openrouter", model) or _OPENROUTER_MODEL
+            base_url = _base_url_for_route(route, transport=transport)
+            if transport == "native":
+                resolved_model = _normalize_native_deepseek_model(resolved_model)
+            else:
+                resolved_model = _strip_provider_prefix(resolved_model, "openrouter")
             return {
                 "ready": True,
                 "backend": backend,
                 "route": "openrouter",
-                "model": _default_model_for_route("openrouter", model),
-                "base_url": _OPENROUTER_BASE_URL,
-                "openrouter_key_present": bool(key),
-                "reason": "OpenRouter key resolved; ready to run agent-edit turns.",
+                "transport": transport,
+                "model": resolved_model,
+                "base_url": base_url,
+                "credential_present": True,
+                "openrouter_key_present": transport == "openrouter",
+                "deepseek_key_present": transport == "native",
+                "reason": "Agent transport credential resolved; ready to run agent-edit turns.",
             }
     return {
         "ready": False,

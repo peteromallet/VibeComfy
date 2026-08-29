@@ -70,9 +70,46 @@ from vibecomfy.executor.contracts import (
     normalize_model_endpoint,
     redact_model_preview,
 )
-from vibecomfy.executor.profiler import profiler_log, profiler_span, short_text, utc_now_iso
+from vibecomfy.executor.profiler import (
+    profiler_log,
+    profiler_span,
+    redact_secrets,
+    short_text,
+    utc_now_iso,
+)
 
 LOGGER = logging.getLogger(__name__)
+
+_CREDENTIAL_ENV_NAMES = frozenset(
+    {
+        "ARNOLD_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "DEEPSEEK_API_KEY",
+        "HERMES_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "VIBECOMFY_HERMES_API_KEY",
+    }
+)
+
+
+def _request_secret_values(request: dict[str, Any]) -> tuple[str, ...]:
+    values: set[str] = set()
+    agent_kwargs = request.get("agent_kwargs")
+    if isinstance(agent_kwargs, dict):
+        for key, value in agent_kwargs.items():
+            if isinstance(value, str) and any(
+                part in str(key).lower()
+                for part in ("api_key", "apikey", "token", "secret", "credential")
+            ):
+                values.add(value)
+    for key, value in os.environ.items():
+        if key in _CREDENTIAL_ENV_NAMES or key.startswith("OPENROUTER_API_KEY_"):
+            if value:
+                values.add(value)
+    return tuple(values)
 
 
 class EmptyModelResponseError(ValueError):
@@ -527,9 +564,11 @@ def main() -> int:
         if isinstance(request.get("profiling_context"), dict)
         else {}
     )
+    secret_values = _request_secret_values(request)
     profiler_log(
         LOGGER,
         "worker.request",
+        secret_values=secret_values,
         profiling_context=profiling_context,
         agent_id=request.get("agent_id") or "hermes",
         response_contract=request.get("response_contract") or "python",
@@ -546,6 +585,7 @@ def main() -> int:
         with profiler_span(
             LOGGER,
             "worker.run_turn",
+            secret_values=secret_values,
             profiling_context=profiling_context,
             agent_id=agent_id,
             response_contract=response_contract,
@@ -622,7 +662,10 @@ def main() -> int:
                 )
             ]
     except Exception as exc:  # noqa: BLE001 - report all failures to parent
-        out = {"error": str(exc), "error_type": type(exc).__name__}
+        out = {
+            "error": redact_secrets(str(exc), secret_values),
+            "error_type": type(exc).__name__,
+        }
         # A LookupError means no adapter is registered for the requested agent id
         # (e.g. codex/claude not wired into the default dispatcher yet); an
         # ImportError means the backend's heavy deps are missing. Both are setup
@@ -661,6 +704,7 @@ def main() -> int:
         "ended_at": utc_now_iso(),
         "elapsed_ms": max(0, int((time.monotonic() - worker_started_monotonic) * 1000)),
     }
+    out = redact_secrets(out, secret_values)
 
     with open(result_path, "w", encoding="utf-8") as fh:
         json.dump(out, fh)
