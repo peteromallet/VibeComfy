@@ -48,11 +48,13 @@ from .failure_analysis import (
 )
 from .scenario_manifest import discover_manifest_scenarios
 from .adapter import _HARNESS_DEFAULT_TRANSPORT, _TRANSPORT_SELECTING_ENV_KEYS
+from .scenario_obligations import scenario_expects_graph_changed
 
 DEFAULT_MAX_WORKERS = 6
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
+MAX_INFRA_RETRIES = 1
 _RETRYABLE_INFRA_CLASSES = frozenset({"infra_empty_response", "infra_timeout"})
 # T3.1/D5+D6 freeze: the harness is the SOLE timeout-retry owner (cap 1, fresh
 # attempt identity); the vocabulary matches the 480s fixture and runtime stamps.
@@ -237,10 +239,30 @@ def _timeout_tail(exc: subprocess.TimeoutExpired, attr: str) -> str:
 
 
 def _scenario_expect_graph_changed(scenario: dict[str, Any] | None) -> bool:
-    assessment = scenario.get("assessment") if isinstance(scenario, dict) else None
-    if isinstance(assessment, dict) and "expect_graph_changed" in assessment:
-        return bool(assessment["expect_graph_changed"])
-    return False
+    return scenario_expects_graph_changed(scenario or {})
+
+
+def _score_class_from_summary(summary: Mapping[str, Any]) -> str:
+    """Derive a score class without collapsing an undetermined assessment.
+
+    Persisted summaries from older harness versions may lack the explicit
+    ``score_class`` field.  In that case the assessment verdict remains the
+    authoritative tri-state source; only a genuinely absent/unknown verdict
+    falls back to the historical success/product-failure distinction.
+    """
+    guard = summary.get("guard")
+    guard = guard if isinstance(guard, Mapping) else {}
+    verdict = guard.get("verdict")
+    if verdict == "undetermined":
+        return "undetermined"
+    if guard.get("score_class") == "undetermined":
+        return "undetermined"
+    explicit = summary.get("score_class") or guard.get("score_class")
+    if explicit:
+        return str(explicit)
+    if guard.get("live_agentic_success") is True:
+        return "pass"
+    return "product_fail"
 
 
 def _synthetic_guard(
@@ -376,7 +398,7 @@ def _attempt_record(
         "output_dir": summary.get("output_dir"),
         "error": summary.get("error"),
         "failure_class": failure_class,
-        "score_class": summary.get("score_class") or (summary.get("guard") or {}).get("score_class"),
+        "score_class": _score_class_from_summary(summary),
         "retryable_infra": bool(summary.get("retryable_infra")),
         "agent_exercised": summary.get("agent_exercised"),
         "elapsed_s": summary.get("elapsed_s"),
@@ -677,11 +699,7 @@ def _build_run_summary(
     )
     score_classes: dict[str, int] = {}
     for summary in summaries:
-        score_class = (
-            summary.get("score_class")
-            or summary["guard"].get("score_class")
-            or ("pass" if summary["guard"].get("live_agentic_success") is True else "product_fail")
-        )
+        score_class = _score_class_from_summary(summary)
         score_classes[str(score_class)] = score_classes.get(str(score_class), 0) + 1
     deepseek_usage = add_deepseek_usage(
         *[coerce_deepseek_usage(summary.get("deepseek_usage")) for summary in summaries]
@@ -922,7 +940,10 @@ def run_tag(
             expect_graph_changed = _scenario_expect_graph_changed(scenario_for_synthetic)
             attempts: list[dict[str, Any]] = []
             with sem:
-                max_attempts = 1 + max(0, infra_retries)
+                # A timeout/empty-response retry is deliberately bounded to
+                # one fresh attempt.  Callers may disable it with zero, but
+                # cannot turn a flaky provider into an unbounded retry loop.
+                max_attempts = 1 + min(MAX_INFRA_RETRIES, max(0, infra_retries))
                 final_summary: dict[str, Any] | None = None
                 for attempt in range(1, max_attempts + 1):
                     attempt_run_tag = _attempt_tag(tag, sid, attempt)
@@ -1125,6 +1146,15 @@ def run_tag(
                         else "product_fail"
                     ),
                 )
+                # Normalize recovered/legacy summaries at the persistence
+                # boundary too; a stale explicit product score must not mask
+                # the guard's undetermined verdict in durable truth.
+                final_summary["score_class"] = _score_class_from_summary(final_summary)
+                if (
+                    isinstance(final_summary.get("guard"), dict)
+                    and final_summary["guard"].get("verdict") == "undetermined"
+                ):
+                    final_summary["guard"]["score_class"] = "undetermined"
                 record_result(idx, final_summary)
                 _persist_canonical_scenario_summary(
                     final_summary,
@@ -1217,7 +1247,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_INFRA_RETRIES,
         help=(
             "retry subprocess-level infrastructure failures this many times "
-            f"(default {DEFAULT_INFRA_RETRIES}; semantic guard failures are not retried)"
+            f"(default {DEFAULT_INFRA_RETRIES}, capped at {MAX_INFRA_RETRIES}; "
+            "semantic guard failures are not retried)"
         ),
     )
     parser.add_argument(

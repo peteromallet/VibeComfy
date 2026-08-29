@@ -9,7 +9,11 @@ a product failure, as does the phrase with no usage evidence at all.
 
 from __future__ import annotations
 
+from scripts.b09_reducer import _score_class as b09_score_class
+from scripts.b09_reducer import _verdict as b09_verdict
+
 from tests.live_agentic_harness.runner import (
+    _build_run_summary,
     _classify_retryable_infra_summary,
     _is_retryable_infra_summary,
 )
@@ -20,7 +24,9 @@ _PARSE_DETAIL = (
 )
 
 
-def _parse_failure_summary(*, completion_tokens: int, parse_reason: str = "empty") -> dict:
+def _parse_failure_summary(
+    *, completion_tokens: int, parse_reason: str = "empty"
+) -> dict:
     return {
         "scenario_id": "parse-failure",
         "status": "error",
@@ -43,7 +49,11 @@ def _parse_failure_summary(*, completion_tokens: int, parse_reason: str = "empty
             "assessment": {
                 "passed": False,
                 "issues": [
-                    {"check": "response_ok", "severity": "error", "detail": _PARSE_DETAIL},
+                    {
+                        "check": "response_ok",
+                        "severity": "error",
+                        "detail": _PARSE_DETAIL,
+                    },
                 ],
             },
         },
@@ -146,3 +156,47 @@ def test_malformed_json_is_not_retryable_infra() -> None:
     }
     assert _is_retryable_infra_summary(summary) is False
     assert summary.get("retryable_infra") is not True
+
+
+def test_undetermined_guard_class_survives_runner_and_b09_reducer() -> None:
+    scenario_summary = {
+        "scenario_id": "blocked-missing-response",
+        "guard": {
+            "live_agentic_success": False,
+            "verdict": "undetermined",
+            "score_class": "undetermined",
+        },
+    }
+
+    run_summary = _build_run_summary(
+        "truth-contract",
+        [scenario_summary],
+        total_scenarios=1,
+        complete=True,
+    )
+
+    assert run_summary["score_classes"] == {"undetermined": 1}
+    assert b09_verdict(scenario_summary) == "undetermined"
+    assert b09_score_class(scenario_summary) == "undetermined"
+
+
+def test_undetermined_guard_verdict_overrides_stale_product_score_class() -> None:
+    scenario_summary = {
+        "scenario_id": "blocked-stale-score",
+        "score_class": "product_fail",
+        "guard": {
+            "live_agentic_success": False,
+            "verdict": "undetermined",
+            "score_class": "product_fail",
+        },
+    }
+
+    run_summary = _build_run_summary(
+        "truth-contract-stale",
+        [scenario_summary],
+        total_scenarios=1,
+        complete=True,
+    )
+
+    assert run_summary["score_classes"] == {"undetermined": 1}
+    assert b09_score_class(scenario_summary) == "undetermined"

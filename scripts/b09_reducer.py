@@ -106,11 +106,17 @@ def _verdict(summary: dict[str, Any]) -> str:
 
 def _score_class(summary: dict[str, Any]) -> str:
     guard = summary.get("guard") or {}
-    return (
-        summary.get("score_class")
-        or guard.get("score_class")
-        or ("pass" if guard.get("live_agentic_success") is True else "product_fail")
-    )
+    if guard.get("verdict") == "undetermined":
+        return "undetermined"
+    if guard.get("score_class") == "undetermined":
+        return "undetermined"
+    explicit = summary.get("score_class") or guard.get("score_class")
+    if explicit:
+        return str(explicit)
+    # Older summaries may not persist score_class. Preserve the assessor's
+    # tri-state verdict instead of turning unavailable evidence into a product
+    # failure merely because live_agentic_success is false.
+    return "pass" if guard.get("live_agentic_success") is True else "product_fail"
 
 
 def _failure_class(summary: dict[str, Any]) -> str:

@@ -18,11 +18,29 @@ from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.provider import run_model_turn
 from vibecomfy.porting.edit.constants import MODE_LABELS
 
-_PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "text_judge.prompt.md"
-_REFUSAL_PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "refusal_judge.prompt.md"
-_SEMANTIC_PROMPT_PATH = (
-    Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "semantic_answer_judge.prompt.md"
+_PROMPT_PATH = (
+    Path(__file__).parents[2]
+    / "vibecomfy"
+    / "intent"
+    / "prompts"
+    / "text_judge.prompt.md"
 )
+_REFUSAL_PROMPT_PATH = (
+    Path(__file__).parents[2]
+    / "vibecomfy"
+    / "intent"
+    / "prompts"
+    / "refusal_judge.prompt.md"
+)
+_SEMANTIC_PROMPT_PATH = (
+    Path(__file__).parents[2]
+    / "vibecomfy"
+    / "intent"
+    / "prompts"
+    / "semantic_answer_judge.prompt.md"
+)
+
+_RESPONSE_FROM_DISK = object()
 
 # ── Law 4 (batch 12): stage/judge lens symmetry ──────────────────────────────
 #
@@ -236,7 +254,9 @@ def _parse_refusal_verdict(raw: str) -> dict[str, Any]:
     #4 359848).  An explicitly returned ``False`` still fails.
     """
     parsed = json.loads(_strip_code_fences(raw))
-    return _derive_verdict(parsed, _REFUSAL_CRITERION_KEYS, missing_policy="undetermined")
+    return _derive_verdict(
+        parsed, _REFUSAL_CRITERION_KEYS, missing_policy="undetermined"
+    )
 
 
 def _parse_single_json_object(raw: str) -> Any:
@@ -274,6 +294,16 @@ def _load_json_mapping(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _resolve_response_snapshot(
+    output_dir: Path,
+    response_snapshot: Mapping[str, Any] | None | object,
+) -> Mapping[str, Any] | None:
+    """Use injected evidence verbatim; only the sentinel permits a disk read."""
+    if response_snapshot is _RESPONSE_FROM_DISK:
+        return _load_json_mapping(output_dir / "response.json")
+    return response_snapshot if isinstance(response_snapshot, Mapping) else None
 
 
 def _load_ui_pair(
@@ -354,7 +384,9 @@ def _load_implementation_payload(output_dir: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _schema_context_from_payload(payload: Mapping[str, Any] | None) -> dict[str, Any] | None:
+def _schema_context_from_payload(
+    payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
     if not isinstance(payload, Mapping):
         return None
     graph = payload.get("graph")
@@ -438,15 +470,13 @@ def _resolve_durable_turn_dir(
 
     candidates: list[Path] = [Path(output_dir)]
     if isinstance(response, Mapping):
-        detail = (
-            response.get("detail_json_path")
-            or response.get("detail_json_path_resolved")
+        detail = response.get("detail_json_path") or response.get(
+            "detail_json_path_resolved"
         )
         if isinstance(detail, str) and detail:
             candidates.append(Path(detail).parent)
-        session_path = (
-            response.get("session_path")
-            or response.get("session_path_resolved")
+        session_path = response.get("session_path") or response.get(
+            "session_path_resolved"
         )
         turn_id = response.get("turn_id")
         if (
@@ -485,34 +515,42 @@ def _path_identities_agree(
     if not path_turn_id or not path_session_id:
         return False
     if isinstance(response, Mapping):
-        for key, derived in (("session_id", path_session_id), ("turn_id", path_turn_id)):
+        for key, derived in (
+            ("session_id", path_session_id),
+            ("turn_id", path_turn_id),
+        ):
             claimed = response.get(key)
             if isinstance(claimed, str) and claimed and claimed != derived:
                 return False
     if isinstance(lineage, Mapping):
-        for key, derived in (("session_id", path_session_id), ("turn_id", path_turn_id)):
+        for key, derived in (
+            ("session_id", path_session_id),
+            ("turn_id", path_turn_id),
+        ):
             claimed = lineage.get(key)
             if claimed and claimed != derived:
                 return False
     return True
 
 
-def _durable_plan_hash(turn_dir: Path) -> str | None:
-    """Read the mint-time plan hash from the durable turn response."""
-    try:
-        payload = json.loads(
-            (turn_dir / "response.json").read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError):
-        return None
+def _durable_plan_hash(
+    turn_dir: Path,
+    response_snapshot: Mapping[str, Any] | object = _RESPONSE_FROM_DISK,
+) -> str | None:
+    """Resolve the mint-time plan hash without reopening injected evidence."""
+    if response_snapshot is _RESPONSE_FROM_DISK:
+        try:
+            payload = json.loads(
+                (turn_dir / "response.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            return None
+    else:
+        payload = response_snapshot
     if not isinstance(payload, Mapping):
         return None
     candidate = payload.get("candidate")
-    plan_hash = (
-        candidate.get("plan_hash")
-        if isinstance(candidate, Mapping)
-        else None
-    )
+    plan_hash = candidate.get("plan_hash") if isinstance(candidate, Mapping) else None
     if not isinstance(plan_hash, str) or not plan_hash:
         plan_hash = payload.get("plan_hash")
     return plan_hash if isinstance(plan_hash, str) and plan_hash else None
@@ -520,6 +558,7 @@ def _durable_plan_hash(turn_dir: Path) -> str | None:
 
 def _load_persisted_pair_evidence(
     turn_dir: Path,
+    response_snapshot: Mapping[str, Any] | object = _RESPONSE_FROM_DISK,
 ) -> tuple[Any | None, str | None]:
     """Call the single production persisted-pair loader for *turn_dir*.
 
@@ -531,7 +570,7 @@ def _load_persisted_pair_evidence(
         load_bound_candidate_replay_evidence,
     )
 
-    plan_hash = _durable_plan_hash(turn_dir)
+    plan_hash = _durable_plan_hash(turn_dir, response_snapshot)
     if plan_hash is None:
         return None, "missing_plan_hash"
     return load_bound_candidate_replay_evidence(
@@ -596,11 +635,9 @@ def _landed_replay_verified(
             )
         except Exception:  # noqa: BLE001
             return False
-        if (
-            not isinstance(structural_witness, Mapping)
-            or structural_witness.get("postcondition_digest")
-            != recomputed_structural.get("digest")
-        ):
+        if not isinstance(structural_witness, Mapping) or structural_witness.get(
+            "postcondition_digest"
+        ) != recomputed_structural.get("digest"):
             return False
     if isinstance(lineage, Mapping):
         for key in ("session_id", "turn_id"):
@@ -611,7 +648,9 @@ def _landed_replay_verified(
     return True
 
 
-def _ui_node_value_fields(node: Mapping[str, Any], *, schema_provider: Any = None) -> dict[str, Any]:
+def _ui_node_value_fields(
+    node: Mapping[str, Any], *, schema_provider: Any = None
+) -> dict[str, Any]:
     """Field/value view of a UI node via the EditableSurface (batch 6).
 
     The surface hydrates the INSTANCE — named ``inputs``, named ``widgets[]``
@@ -624,9 +663,7 @@ def _ui_node_value_fields(node: Mapping[str, Any], *, schema_provider: Any = Non
 
         surface = editable_surface_for(node, schema_provider=schema_provider)
         return {
-            str(field.name): field.value
-            for field in surface.literals
-            if field.name
+            str(field.name): field.value for field in surface.literals if field.name
         }
     except Exception:
         return {}
@@ -812,9 +849,7 @@ def _apply_parameter_identity_pregrade(
     criteria = dict(verdict.get("criteria") or {})
     criteria["correct_parameter_changed"] = True
     verdict["criteria"] = criteria
-    verdict["pass_"] = all(
-        criteria.get(key) is True for key in _EDIT_CRITERION_KEYS
-    )
+    verdict["pass_"] = all(criteria.get(key) is True for key in _EDIT_CRITERION_KEYS)
     metadata = dict(verdict.get("metadata") or {})
     metadata["pregrade"] = dict(pregrade)
     verdict["metadata"] = metadata
@@ -887,7 +922,8 @@ def _verify_delta_replay(
     if not result.ok:
         codes = [diag.code for diag in result.diagnostics]
         mismatches.append(
-            "interpret(pre, Δ) failed to apply: " + ", ".join(codes[:4] or ["apply_failed"])
+            "interpret(pre, Δ) failed to apply: "
+            + ", ".join(codes[:4] or ["apply_failed"])
         )
     else:
         leftover = tuple(
@@ -910,8 +946,7 @@ def _verify_delta_replay(
             for op in expected
         }
         _claimed = {
-            _op_fingerprint(_canonicalize_op_field_paths(op, _canon_ctx))
-            for op in ops
+            _op_fingerprint(_canonicalize_op_field_paths(op, _canon_ctx)) for op in ops
         }
         if _claimed - _actual:
             mismatches.append(
@@ -1011,7 +1046,6 @@ def _spelling_equivalent_leftover(op: Any, workflow: Any) -> bool:
             return False
         return _canonical_edit_value(current) == _canonical_edit_value(op.value)
     return False
-
 
 
 def _field_canon_context(
@@ -1130,7 +1164,9 @@ def _resolve_field_slot(
                 mapping.update(ui)
                 mapping["type"] = class_type
                 mapping["class_type"] = class_type
-        alias = _canonical_ui_only_widget_field(mapping, raw, schema_provider=schema_provider)
+        alias = _canonical_ui_only_widget_field(
+            mapping, raw, schema_provider=schema_provider
+        )
         if alias is not None:
             return ("named", str(alias[0]))
     except Exception:
@@ -1147,14 +1183,19 @@ def _resolve_field_slot(
         return None
     try:
         index = widget_index_for_field(
-            node, raw, schema_provider=schema_provider, name_authority=ctx["name_authority"]
+            node,
+            raw,
+            schema_provider=schema_provider,
+            name_authority=ctx["name_authority"],
         )
     except Exception:
         index = None
     if index is not None:
         return ("slot", node_uid, index)
     try:
-        schema_inputs = getattr(schema_for(schema_provider, class_type), "inputs", {}) or {}
+        schema_inputs = (
+            getattr(schema_for(schema_provider, class_type), "inputs", {}) or {}
+        )
         decoded = _surface_field_name(
             schema_inputs, class_type, raw, schema_provider=schema_provider
         )
@@ -1259,7 +1300,11 @@ def _nodes_by_uid(ir: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
         for node in nodes:
             if not isinstance(node, Mapping):
                 continue
-            uid = node.get("properties", {}).get("vibecomfy_uid") if isinstance(node.get("properties"), Mapping) else None
+            uid = (
+                node.get("properties", {}).get("vibecomfy_uid")
+                if isinstance(node.get("properties"), Mapping)
+                else None
+            )
             if uid is None:
                 uid = node.get("id")
             if uid is not None:
@@ -1349,6 +1394,7 @@ def judge_edit_intent(
     output_dir: Path | str,
     scenario: Mapping[str, Any],
     *,
+    response_snapshot: Mapping[str, Any] | None | object = _RESPONSE_FROM_DISK,
     route: str = "deepseek",
     model: str = "deepseek-v4-pro",
 ) -> dict[str, Any]:
@@ -1366,26 +1412,22 @@ def judge_edit_intent(
     ``judge_graph_pair`` may see ``landed_replay_verified=True``.
     """
     output_dir = Path(output_dir)
+    response = _resolve_response_snapshot(output_dir, response_snapshot)
     query = str(scenario.get("query", "")).strip()
     if not query:
         return {"pass_": None, "error": "scenario has no query"}
 
-    # The durable turn writes UI artifacts under out/editor_sessions; the response
-    # JSON carries the exact paths in its artifacts block.
-    response_path = output_dir / "response.json"
+    # UI paths come from the assessor-injected response snapshot. Standalone
+    # calls retain historical disk loading only through _RESPONSE_FROM_DISK.
     original_ui_path: Path | None = None
     candidate_ui_path: Path | None = None
-    response: Mapping[str, Any] | None = None
-    if response_path.is_file():
-        try:
-            response = json.loads(response_path.read_text(encoding="utf-8"))
-            artifacts = response.get("artifacts", {}) or {}
+    if isinstance(response, Mapping):
+        artifacts = response.get("artifacts")
+        if isinstance(artifacts, Mapping):
             if isinstance(artifacts.get("original_ui"), str):
                 original_ui_path = Path(artifacts["original_ui"])
             if isinstance(artifacts.get("candidate_ui"), str):
                 candidate_ui_path = Path(artifacts["candidate_ui"])
-        except (OSError, json.JSONDecodeError):
-            pass
 
     # Fallback to common in-directory locations if response artifacts are absent.
     if original_ui_path is None:
@@ -1408,7 +1450,9 @@ def judge_edit_intent(
         return {"pass_": None, "error": f"failed to load UI artifacts: {exc}"}
 
     accepted_batch, delta_envelope = _load_accepted_batch(response)
-    delta_ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
+    delta_ops = (
+        delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
+    )
     from vibecomfy.schema import get_schema_provider  # late import: judge stays light
 
     schema_provider = get_schema_provider("auto")
@@ -1461,7 +1505,12 @@ def judge_edit_intent(
         if turn_dir is not None and _path_identities_agree(
             turn_dir, response, pair_lineage
         ):
-            bound_evidence, _binding_reason = _load_persisted_pair_evidence(turn_dir)
+            bound_evidence, _binding_reason = _load_persisted_pair_evidence(
+                turn_dir,
+                response
+                if response_snapshot is not _RESPONSE_FROM_DISK
+                else _RESPONSE_FROM_DISK,
+            )
         landed_verified = _landed_replay_verified(
             bound_evidence,
             assessed_post_graph=post_ir,
@@ -1473,12 +1522,17 @@ def judge_edit_intent(
             pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
             post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
         except Exception as exc:
-            return {"pass_": None, "error": f"failed to canonicalize UI through ingest: {exc}"}
+            return {
+                "pass_": None,
+                "error": f"failed to canonicalize UI through ingest: {exc}",
+            }
 
     queue_gate_failed = False
     if isinstance(response, Mapping):
         gates = response.get("gates")
-        queue_gate_failed = isinstance(gates, Mapping) and gates.get("queue_validate_ok") is False
+        queue_gate_failed = (
+            isinstance(gates, Mapping) and gates.get("queue_validate_ok") is False
+        )
 
     if not delta_ops or queue_gate_failed:
         if canonical_mode:
@@ -1527,8 +1581,7 @@ def judge_edit_intent(
                 return {
                     "pass_": None,
                     "error": (
-                        "undetermined: applied_unverified "
-                        f"({pair_verdict.reason})"
+                        f"undetermined: applied_unverified ({pair_verdict.reason})"
                     ),
                     "metadata": {
                         "verdict": "applied_unverified",
@@ -1626,7 +1679,8 @@ def judge_edit_intent(
                 "value_semantically_matches_intent": False,
                 "no_orphaned_wiring": False,
             },
-            "rationale": "delta replay mismatch: " + "; ".join(delta_replay.get("mismatches") or []),
+            "rationale": "delta replay mismatch: "
+            + "; ".join(delta_replay.get("mismatches") or []),
             "metadata": {"delta_replay": delta_replay},
         }
     outcome_fields = _outcome_field_targets(response)
@@ -1660,8 +1714,7 @@ def judge_edit_intent(
     schema_context = _schema_context_from_payload(implementation_payload) or {}
     if schema_context:
         system_prompt = (
-            system_prompt.rstrip()
-            + "\n\n## Schema and widget evidence\n"
+            system_prompt.rstrip() + "\n\n## Schema and widget evidence\n"
             "When schema_context is provided, use it to map opaque widget_N fields "
             "to semantic input names. Treat literal widget values as static node "
             "configuration, and linked inputs/edges as dynamic dataflow. Do not guess a "
@@ -1672,8 +1725,7 @@ def judge_edit_intent(
         )
     if pregrade:
         system_prompt = (
-            system_prompt.rstrip()
-            + "\n\n## Deterministic field-identity pre-grade\n"
+            system_prompt.rstrip() + "\n\n## Deterministic field-identity pre-grade\n"
             "correct_parameter_changed is already true: the canonical Δ field "
             "name is a literal match against the intent and the executor schema "
             f"({', '.join(pregrade.get('matched_fields') or ())}). Do not fail "
@@ -1684,8 +1736,7 @@ def judge_edit_intent(
     # what actually changed, so claims outside it are invalid.
     if accepted_batch or isinstance(delta_envelope, Mapping):
         system_prompt = (
-            system_prompt.rstrip()
-            + "\n\n## Accepted Δ (the canonical change)\n"
+            system_prompt.rstrip() + "\n\n## Accepted Δ (the canonical change)\n"
             "The accepted_batch statements below are the ONLY changes that actually "
             "landed (the canonical Δ). Grade the edit against them directly: the Δ is "
             "what actually changed between pre_ir and post_ir, verified by "
@@ -1723,9 +1774,7 @@ def judge_edit_intent(
     if isinstance(delta_envelope, Mapping):
         payload["delta"] = delta_envelope
     payload["delta_replay"] = delta_replay
-    payload["renderer_lenses"] = _render_judge_lens_payload(
-        pre_ir, post_ir, delta_ops
-    )
+    payload["renderer_lenses"] = _render_judge_lens_payload(pre_ir, post_ir, delta_ops)
     if desired:
         payload["desired_outcome"] = desired
     if schema_context:
@@ -1738,7 +1787,7 @@ def judge_edit_intent(
     user_content = json.dumps(payload, indent=2)
 
     try:
-        response = run_model_turn(
+        model_response = run_model_turn(
             "evaluate workflow edit against intent",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -1751,7 +1800,7 @@ def judge_edit_intent(
     except Exception as exc:  # noqa: BLE001
         return {"pass_": None, "error": f"model call failed: {exc}"}
 
-    raw = response.get("content") or ""
+    raw = model_response.get("content") or ""
     if not raw:
         return {"pass_": None, "error": "model returned empty content"}
 
@@ -1767,7 +1816,7 @@ def judge_edit_intent(
     verdict["metadata"] = {
         "route": route,
         "model": model,
-        "elapsed_ms": response.get("_profiling", {}).get("elapsed_ms"),
+        "elapsed_ms": model_response.get("_profiling", {}).get("elapsed_ms"),
     }
     return _apply_parameter_identity_pregrade(verdict, pregrade)
 
@@ -1776,6 +1825,7 @@ def judge_grounded_refusal(
     output_dir: Path | str,
     scenario: Mapping[str, Any],
     *,
+    response_snapshot: Mapping[str, Any] | None | object = _RESPONSE_FROM_DISK,
     route: str = "deepseek",
     model: str = "deepseek-v4-pro",
 ) -> dict[str, Any]:
@@ -1791,43 +1841,39 @@ def judge_grounded_refusal(
     and ``error`` describes why — callers MUST fail closed on that outcome.
     """
     output_dir = Path(output_dir)
+    response = _resolve_response_snapshot(output_dir, response_snapshot)
     query = str(scenario.get("query", "")).strip()
     if not query:
         return {"pass_": None, "error": "scenario has no query"}
 
-    # The refusal envelope is read from the run's response.json: outcome kind,
-    # message, gates, route, evidence.  Only the structured envelope is scored;
-    # prose never gates.
-    response_path = output_dir / "response.json"
+    # Only the injected structured envelope is scored during an assessment.
     refusal: dict[str, Any] = {}
-    if response_path.is_file():
-        try:
-            response = json.loads(response_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            response = None
-        if isinstance(response, Mapping):
-            refusal = {
-                "outcome": response.get("outcome"),
-                "message": response.get("message"),
-                "no_candidate_reason": response.get("no_candidate_reason"),
-                "route": response.get("route"),
-                "gates": response.get("gates"),
-                "evidence": response.get("evidence"),
-                "graph_unchanged": response.get("graph_unchanged"),
-            }
+    if isinstance(response, Mapping):
+        refusal = {
+            "outcome": response.get("outcome"),
+            "message": response.get("message"),
+            "no_candidate_reason": response.get("no_candidate_reason"),
+            "route": response.get("route"),
+            "gates": response.get("gates"),
+            "evidence": response.get("evidence"),
+            "graph_unchanged": response.get("graph_unchanged"),
+        }
     if not isinstance(refusal.get("outcome"), Mapping):
         return {"pass_": None, "error": "response.json is missing a refusal outcome"}
 
-    original_ui, final_ui = _load_ui_pair(output_dir, response if isinstance(response, Mapping) else None)
-    node_inventory = _ui_node_inventory(original_ui if original_ui is not None else final_ui)
+    original_ui, final_ui = _load_ui_pair(
+        output_dir, response if isinstance(response, Mapping) else None
+    )
+    node_inventory = _ui_node_inventory(
+        original_ui if original_ui is not None else final_ui
+    )
 
     system_prompt = _load_refusal_prompt()
     implementation_payload = _load_implementation_payload(output_dir)
     schema_context = _schema_context_from_payload(implementation_payload) or {}
     if schema_context or node_inventory:
         system_prompt = (
-            system_prompt.rstrip()
-            + "\n\n## Schema and graph evidence\n"
+            system_prompt.rstrip() + "\n\n## Schema and graph evidence\n"
             "When schema_context or node_inventory is provided, use it to verify "
             "whether a cited blocker is real. A 'requires_custom_nodes' refusal is "
             "fabricated if the needed node class actually exists in compiled_api "
@@ -1911,6 +1957,7 @@ def judge_semantic_answer(
     output_dir: Path | str,
     scenario: Mapping[str, Any],
     *,
+    response_snapshot: Mapping[str, Any] | None | object = _RESPONSE_FROM_DISK,
     route: str = "deepseek",
     model: str = "deepseek-v4-pro",
 ) -> dict[str, Any]:
@@ -1928,9 +1975,10 @@ def judge_semantic_answer(
     query = str(scenario.get("query", "")).strip()
     if not query:
         return {"pass_": None, "error": "scenario has no query"}
+    response = _resolve_response_snapshot(output_dir, response_snapshot)
+    if response is None:
+        return {"pass_": None, "error": "response evidence is unavailable"}
 
-    response_path = output_dir / "response.json"
-    response = _load_json_mapping(response_path)
     answer = _structured_answer_text(response)
     if not answer.strip():
         return {

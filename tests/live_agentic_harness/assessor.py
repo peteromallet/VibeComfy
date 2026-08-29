@@ -26,7 +26,9 @@ undetermined; only ``pass`` satisfies a scenario.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -42,6 +44,7 @@ from .lineage_check import assess_artifact_lineage
 from .scenario_obligations import (
     descriptor_is_bare_untyped_non_edit,
     expected_no_candidate_contract,
+    scenario_expects_graph_changed,
 )
 
 
@@ -66,20 +69,217 @@ _SOFT_WARNING_PATTERNS: list[re.Pattern[str]] = [
 # from the landed-count guard is decided from the envelope's canonical route,
 # never from the agent's self-declared outcome/reason labels.
 _EDIT_ROUTES = frozenset({"revise", "adapt", "reorganise"})
-_NON_EDIT_ROUTES = frozenset({
-    "clarify",
-    "respond",
-    "inspect",
-    "research",
-    "requires_custom_nodes",
-})
+_NON_EDIT_ROUTES = frozenset(
+    {
+        "clarify",
+        "respond",
+        "inspect",
+        "research",
+        "requires_custom_nodes",
+    }
+)
 
 
 #: Frozen authoritative object_info cache root (class → pack-cache index).
 _OBJECT_INFO_ROOT = (
     Path(__file__).resolve().parents[2]
-    / "vibecomfy" / "porting" / "cache" / "object_info"
+    / "vibecomfy"
+    / "porting"
+    / "cache"
+    / "object_info"
 )
+
+
+class AssessmentPublicationError(OSError):
+    """Raised when a completed assessment cannot replace its canonical artifact."""
+
+
+class _FrozenDict(dict):
+    """JSON-compatible dict whose content cannot be mutated."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("response snapshot is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+
+class _FrozenList(list):
+    """JSON-compatible list whose content cannot be mutated."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("response snapshot is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    __iadd__ = _immutable
+    __imul__ = _immutable
+    append = _immutable
+    clear = _immutable
+    extend = _immutable
+    insert = _immutable
+    pop = _immutable
+    remove = _immutable
+    reverse = _immutable
+    sort = _immutable
+
+
+def _freeze_json(value: Any) -> Any:
+    """Recursively freeze JSON containers while retaining dict/list compatibility."""
+    if isinstance(value, dict):
+        return _FrozenDict({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return _FrozenList(_freeze_json(item) for item in value)
+    return value
+
+
+def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
+    """Validate every response shape dereferenced by the assessor or its judges."""
+    # ``ok`` is the response envelope's required status bit.  A failure
+    # response may omit graph state because execution never reached a graph
+    # decision; a successful response must carry the graph state used by the
+    # edit/non-edit obligations.  Treat omission/type errors as malformed
+    # evidence instead of allowing the assessor's defaults to manufacture a
+    # pass.
+    has_ok = "ok" in response
+    if has_ok and not isinstance(response["ok"], bool):
+        return False
+    if "graph_unchanged" in response and not isinstance(response["graph_unchanged"], bool):
+        return False
+    if not has_ok and "graph_unchanged" not in response:
+        return False
+    if has_ok and response["ok"] is True and "graph_unchanged" not in response:
+        # Older semantic/research artifacts legitimately omit graph state, but
+        # a bare ``{"ok": true}`` has no product evidence at all.  Retain the
+        # former compatibility surface while rejecting an empty success shell.
+        meaningful_fields = {
+            "route",
+            "reply",
+            "message",
+            "outcome",
+            "report",
+            "evidence",
+            "gates",
+            "accepted_batch",
+            "candidate",
+            "candidate_graph",
+            "error",
+            "failure_kind",
+            "readiness",
+        }
+        if not meaningful_fields.intersection(response):
+            return False
+    if "route" in response and not isinstance(response["route"], str):
+        return False
+
+    mapping_fields = (
+        "outcome",
+        "readiness",
+        "gates",
+        "artifacts",
+        "report",
+        "change_details",
+        "artifact_lineage",
+        "evidence",
+        "debug",
+        "candidate",
+        "candidate_graph",
+        "narrative_context",
+        "apply_eligibility",
+        "eligibility",
+    )
+    for field in mapping_fields:
+        if field not in response:
+            continue
+        if field == "candidate" and response[field] is None:
+            continue
+        if not isinstance(response[field], dict):
+            return False
+
+    outcome = response.get("outcome")
+    if isinstance(outcome, dict):
+        if "kind" in outcome and not isinstance(outcome["kind"], str):
+            return False
+        for field in ("changes", "missing_classes"):
+            if field in outcome and not isinstance(outcome[field], list):
+                return False
+
+    readiness = response.get("readiness")
+    if (
+        isinstance(readiness, dict)
+        and "ready" in readiness
+        and not isinstance(readiness["ready"], bool)
+    ):
+        return False
+
+    gates = response.get("gates")
+    if isinstance(gates, dict) and any(
+        not isinstance(value, bool) for value in gates.values()
+    ):
+        return False
+
+    artifacts = response.get("artifacts")
+    if isinstance(artifacts, dict):
+        for field in ("original_ui", "candidate_ui", "final_ui"):
+            if field in artifacts and not isinstance(artifacts[field], str):
+                return False
+
+    report = response.get("report")
+    if isinstance(report, dict):
+        if "executor" in report and not isinstance(report["executor"], dict):
+            return False
+        executor = report.get("executor")
+        if isinstance(executor, dict):
+            if "plan" in executor and not isinstance(executor["plan"], dict):
+                return False
+            plan = executor.get("plan")
+            if isinstance(plan, dict):
+                if "implement" in plan and not isinstance(plan["implement"], bool):
+                    return False
+                if "route" in plan and not isinstance(plan["route"], str):
+                    return False
+
+    for field in (
+        "reply",
+        "message",
+        "error",
+        "failure_kind",
+        "failure_stage",
+        "failure_message",
+        "no_candidate_reason",
+        "session_id",
+        "turn_id",
+        "detail_json_path",
+        "detail_json_path_resolved",
+        "session_path",
+        "session_path_resolved",
+        "plan_hash",
+    ):
+        if field in response and response[field] is not None and not isinstance(
+            response[field], str
+        ):
+            return False
+    for field in ("apply_eligible",):
+        if field in response and not isinstance(response[field], bool):
+            return False
+
+    return True
+
+
+def _accepted_batch_is_well_formed(response: Mapping[str, Any]) -> bool:
+    """Return whether an explicitly present accepted Δ has its JSON shape."""
+    if "accepted_batch" not in response:
+        return True
+    accepted_batch = response.get("accepted_batch")
+    return isinstance(accepted_batch, list) and all(
+        isinstance(item, Mapping) for item in accepted_batch
+    )
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -87,24 +287,25 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _load_response_json(path: Path) -> tuple[dict[str, Any] | None, str]:
-    """Load the response envelope and preserve why evidence is unavailable."""
+    """Parse, validate, and deeply freeze the response evidence exactly once."""
     if not path.is_file():
         return None, "missing"
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
-    except OSError:
+    except (OSError, UnicodeError, TypeError):
         return None, "unavailable"
     except json.JSONDecodeError:
         return None, "malformed"
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed, dict) or not _response_envelope_is_valid(parsed):
         return None, "malformed"
-    return parsed, "valid"
+    return _freeze_json(parsed), "valid"
 
 
 def _walk(obj: Any) -> Any:
@@ -131,7 +332,9 @@ def _has_successful_candidate(response: Mapping[str, Any]) -> bool:
     )
 
 
-def _queue_validate_skipped_for_successful_candidate(response: Mapping[str, Any]) -> bool:
+def _queue_validate_skipped_for_successful_candidate(
+    response: Mapping[str, Any],
+) -> bool:
     """Return true when queue validation is absent, not failed.
 
     ``queue_validate_ok`` is fail-closed in the agent-edit gate map.  Some live
@@ -166,7 +369,9 @@ def _queue_validate_skipped_for_successful_candidate(response: Mapping[str, Any]
         return False
 
     report = response.get("report")
-    if isinstance(report, Mapping) and _has_queue_blockers(report.get("queue_blockers")):
+    if isinstance(report, Mapping) and _has_queue_blockers(
+        report.get("queue_blockers")
+    ):
         return False
     if _has_queue_blockers(debug.get("queue_blockers")):
         return False
@@ -177,9 +382,14 @@ def _batch_turn_failed(turn: Mapping[str, Any]) -> bool:
     """Return true for exploratory batch turns that did not contribute edits."""
     if turn.get("batch_ok") is False:
         return True
-    if (turn.get("landed_op_count") or 0) == 0 and (turn.get("raw_landed_op_count") or 0) == 0:
+    if (turn.get("landed_op_count") or 0) == 0 and (
+        turn.get("raw_landed_op_count") or 0
+    ) == 0:
         for diagnostic in turn.get("diagnostics") or []:
-            if isinstance(diagnostic, Mapping) and diagnostic.get("severity") in _ERROR_SEVERITIES:
+            if (
+                isinstance(diagnostic, Mapping)
+                and diagnostic.get("severity") in _ERROR_SEVERITIES
+            ):
                 return True
     return False
 
@@ -243,7 +453,11 @@ def _collect_hard_diagnostics(
         message = node.get("message")
         if not isinstance(message, str):
             detail = node.get("detail")
-            message = json.dumps(detail, sort_keys=True) if isinstance(detail, dict) else str(node)
+            message = (
+                json.dumps(detail, sort_keys=True)
+                if isinstance(detail, dict)
+                else str(node)
+            )
         message = message.strip()
         if message and message not in issues:
             issues.append(message)
@@ -285,7 +499,9 @@ def _canonical_route(response: Mapping[str, Any]) -> str:
     evidence = response.get("evidence")
     if isinstance(evidence, Mapping):
         classification = evidence.get("classification")
-        if isinstance(classification, Mapping) and isinstance(classification.get("route"), str):
+        if isinstance(classification, Mapping) and isinstance(
+            classification.get("route"), str
+        ):
             return classification["route"]
     report = response.get("report")
     if isinstance(report, Mapping):
@@ -321,30 +537,6 @@ def _landed_operation_count(response: Mapping[str, Any]) -> Any:
     return None
 
 
-def _expects_graph_changed(
-    scenario: Mapping[str, Any] | None,
-    response: Mapping[str, Any] | None,
-) -> bool:
-    """Decide whether this scenario should have produced a graph change.
-
-    Explicit scenario configuration wins, then we fall back to reading the
-    agent's own classification/plan from the response.
-    """
-    if scenario is not None:
-        assessment = scenario.get("assessment")
-        if isinstance(assessment, dict) and "expect_graph_changed" in assessment:
-            return bool(assessment["expect_graph_changed"])
-
-    if response is None:
-        return False
-
-    plan = response.get("report", {}).get("executor", {}).get("plan") or {}
-    if plan.get("implement") is True and plan.get("route") in {"adapt", "revise"}:
-        return True
-
-    return False
-
-
 def _expected_outcome_kinds(scenario: Mapping[str, Any] | None) -> set[str]:
     """Return explicitly accepted public outcome kinds for this scenario."""
     if scenario is None:
@@ -370,6 +562,7 @@ def _scenario_requires_custom_nodes(scenario: Mapping[str, Any] | None) -> bool:
         return False
     tags = scenario.get("_tags")
     return isinstance(tags, Mapping) and tags.get("requires_custom_nodes") is True
+
 
 def _cited_class_matches_declared(cited: str, declared: str) -> bool:
     """One-way exact/family-prefix class match (ADJUDICATION-4 ruling 1.1b).
@@ -405,7 +598,6 @@ def _response_proves_class_absence(response: Mapping[str, Any] | None) -> bool:
             if isinstance(missing, (list, tuple)) and any(missing):
                 return True
     return False
-
 
 
 #: Terminal-state ``no_candidate_reason`` labels (renamed per ADJUDICATION-4
@@ -513,9 +705,7 @@ def _named_class_absence_evidence(
       deliberately never consulted.
     """
     report = response.get("report")
-    blocker = (
-        report.get("authoring_blocker") if isinstance(report, Mapping) else None
-    )
+    blocker = report.get("authoring_blocker") if isinstance(report, Mapping) else None
     authoritative: tuple[str, ...] = ()
     malformed_authoritative = False
     wrong_reason = None
@@ -524,8 +714,7 @@ def _named_class_absence_evidence(
         raw = blocker.get("missing_runtime_classes")
         if isinstance(raw, (list, tuple)):
             authoritative = tuple(
-                item.strip() for item in raw
-                if isinstance(item, str) and item.strip()
+                item.strip() for item in raw if isinstance(item, str) and item.strip()
             )
             if authoritative and reason != "named_class_absent_from_schema":
                 wrong_reason = reason
@@ -548,8 +737,7 @@ def _named_class_absence_evidence(
         raw = outcome.get("missing_classes")
         if isinstance(raw, (list, tuple)):
             projected = tuple(
-                item.strip() for item in raw
-                if isinstance(item, str) and item.strip()
+                item.strip() for item in raw if isinstance(item, str) and item.strip()
             )
     engine = _engine_captured_search_misses(response)
 
@@ -643,7 +831,9 @@ def _authoritative_schema_entry(class_type: str) -> Mapping[str, Any] | None:
     return entry if isinstance(entry, Mapping) else None
 
 
-def _schema_surface_members(entry: Mapping[str, Any], member_kind: str) -> tuple[str, ...]:
+def _schema_surface_members(
+    entry: Mapping[str, Any], member_kind: str
+) -> tuple[str, ...]:
     """Return the schema member names for one surface of a class entry."""
     if member_kind == "output":
         outputs = entry.get("outputs")
@@ -761,13 +951,10 @@ def _structural_feature_evidence(
     an explicit contradiction and fails.
     """
     report = response.get("report")
-    blocker = (
-        report.get("authoring_blocker") if isinstance(report, Mapping) else None
-    )
+    blocker = report.get("authoring_blocker") if isinstance(report, Mapping) else None
     if not isinstance(blocker, Mapping):
         return "undetermined", (
-            "no authoritative structural carrier: report.authoring_blocker "
-            "is absent"
+            "no authoritative structural carrier: report.authoring_blocker is absent"
         )
     if blocker.get("reason") != "structural_feature_absent":
         return "undetermined", (
@@ -820,7 +1007,8 @@ def _structural_feature_evidence(
             check["class_type"],
             check["member_kind"],
             check["member"],
-        ) not in reported
+        )
+        not in reported
     ]
     if missing_checks:
         return "undetermined", (
@@ -1050,10 +1238,13 @@ def _assess_expected_no_candidate(
             output_dir, scenario, response, contract
         )
     else:
-        evidence_tri, evidence_detail = "undetermined", (
-            "contract declares no coherent typed evidence mode "
-            f"(evidence_mode={mode!r}); exactly one of named-class tokens or "
-            "typed structural checks is required"
+        evidence_tri, evidence_detail = (
+            "undetermined",
+            (
+                "contract declares no coherent typed evidence mode "
+                f"(evidence_mode={mode!r}); exactly one of named-class tokens or "
+                "typed structural checks is required"
+            ),
         )
     if evidence_tri == "fail":
         _add(
@@ -1188,9 +1379,7 @@ def _assess_executed_research(
     n_calls = usage.get("n_calls") if isinstance(usage, Mapping) else None
     attempts = executor.get("model_attempts") if isinstance(executor, Mapping) else None
     has_model_call = (
-        isinstance(n_calls, int)
-        and not isinstance(n_calls, bool)
-        and n_calls > 0
+        isinstance(n_calls, int) and not isinstance(n_calls, bool) and n_calls > 0
     ) or (isinstance(attempts, list) and len(attempts) > 0)
 
     payloads = _research_payloads(output_dir, response)
@@ -1220,26 +1409,32 @@ def _assess_executed_research(
 
     issues: list[dict[str, Any]] = []
     if not has_model_call:
-        issues.append({
-            "check": "research_model_call",
-            "severity": "error",
-            "detail": "Research-purpose scenario executed no model call (n_calls=0).",
-        })
+        issues.append(
+            {
+                "check": "research_model_call",
+                "severity": "error",
+                "detail": "Research-purpose scenario executed no model call (n_calls=0).",
+            }
+        )
     if tool_calls <= 0:
-        issues.append({
-            "check": "research_tool_execution",
-            "severity": "error",
-            "detail": "Research-purpose scenario executed no research tool call.",
-        })
+        issues.append(
+            {
+                "check": "research_tool_execution",
+                "severity": "error",
+                "detail": "Research-purpose scenario executed no research tool call.",
+            }
+        )
     if not payloads or attempts_seen <= {"", "never"} or not has_evidence:
-        issues.append({
-            "check": "research_evidence_present",
-            "severity": "error",
-            "detail": (
-                "Research-purpose scenario captured no executed research evidence "
-                "(missing/never attempt or empty evidence ledger)."
-            ),
-        })
+        issues.append(
+            {
+                "check": "research_evidence_present",
+                "severity": "error",
+                "detail": (
+                    "Research-purpose scenario captured no executed research evidence "
+                    "(missing/never attempt or empty evidence ledger)."
+                ),
+            }
+        )
     return issues
 
 
@@ -1263,14 +1458,16 @@ def _assess_graph_census_consistency(
         and isinstance(reply, str)
         and _reply_claims_empty_graph(reply)
     ):
-        return [{
-            "check": "graph_census_consistency",
-            "severity": "error",
-            "detail": (
-                f"Reply claimed an empty/zero graph, but deterministic inspection "
-                f"found {evidence.node_count} nodes and {len(evidence.edges)} edges."
-            ),
-        }]
+        return [
+            {
+                "check": "graph_census_consistency",
+                "severity": "error",
+                "detail": (
+                    f"Reply claimed an empty/zero graph, but deterministic inspection "
+                    f"found {evidence.node_count} nodes and {len(evidence.edges)} edges."
+                ),
+            }
+        ]
     return []
 
 
@@ -1345,7 +1542,9 @@ def _record_judge_result(
     return tri
 
 
-def _effective_edit_targets(scenario: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
+def _effective_edit_targets(
+    scenario: Mapping[str, Any] | None,
+) -> list[Mapping[str, Any]]:
     """Return explicit effective-value targets required by the scenario."""
     assessment = _assessment_config(scenario)
     raw = assessment.get("effective_edit_targets")
@@ -1388,12 +1587,18 @@ def _graph_field_target(target: Mapping[str, Any]) -> GraphFieldTarget | None:
     widget_index = target.get("widget_index")
     if isinstance(widget_index, bool) or not isinstance(widget_index, int):
         widget_index = None
-    field_name = target.get("field_name") or target.get("input_name") or target.get("widget_name")
+    field_name = (
+        target.get("field_name")
+        or target.get("input_name")
+        or target.get("widget_name")
+    )
     if not isinstance(field_name, str) or not field_name:
         field_name = None
     if field_name is None and widget_index is None:
         return None
-    return GraphFieldTarget(node_id=node_id, field_name=field_name, widget_index=widget_index)
+    return GraphFieldTarget(
+        node_id=node_id, field_name=field_name, widget_index=widget_index
+    )
 
 
 def _assess_effective_edit_targets(
@@ -1406,8 +1611,12 @@ def _assess_effective_edit_targets(
     if not targets:
         return []
 
-    original_ui = _load_ui_artifact(output_dir, response, "original_ui", "original.ui.json")
-    candidate_ui = _load_ui_artifact(output_dir, response, "candidate_ui", "candidate.ui.json")
+    original_ui = _load_ui_artifact(
+        output_dir, response, "original_ui", "original.ui.json"
+    )
+    candidate_ui = _load_ui_artifact(
+        output_dir, response, "candidate_ui", "candidate.ui.json"
+    )
     if original_ui is None or candidate_ui is None:
         return [
             {
@@ -1562,7 +1771,7 @@ def assess_live_output_dir(
         details = {
             "missing": "response.json is missing; live execution evidence is incomplete.",
             "unavailable": "response.json could not be read; live execution evidence is unavailable.",
-            "malformed": "response.json is not a valid JSON object; live execution evidence is malformed.",
+            "malformed": "response.json is not a valid response object; live execution evidence is malformed.",
         }
         issues.append(
             {
@@ -1571,7 +1780,7 @@ def assess_live_output_dir(
                 "detail": details[response_state],
             }
         )
-    expect_graph_changed = _expects_graph_changed(scenario, response)
+    expect_graph_changed = scenario_expects_graph_changed(scenario or {})
     expected_outcome_kinds = _expected_outcome_kinds(scenario)
     allowed_safe_refusal_outcome_kinds = _allowed_safe_refusal_outcome_kinds(
         scenario, response=response
@@ -1580,6 +1789,21 @@ def assess_live_output_dir(
     skip_intent_judge = bool(assessment_cfg.get("skip_intent_judge"))
     skip_semantic_judge = bool(assessment_cfg.get("skip_semantic_judge"))
     no_candidate_contract = expected_no_candidate_contract(scenario or {})
+    if (
+        response is not None
+        and no_candidate_contract is None
+        and not _accepted_batch_is_well_formed(response)
+    ):
+        issues.append(
+            {
+                "check": "response_accepted_batch_malformed",
+                "severity": "undetermined",
+                "detail": (
+                    "response.accepted_batch is present but is not a list of "
+                    "statement objects; accepted Δ evidence is unavailable."
+                ),
+            }
+        )
     safe_refusal_accepted = False
     refusal_outage = False
     expected_no_candidate_accepted = False
@@ -1665,7 +1889,9 @@ def assess_live_output_dir(
         # Universal grounded-refusal adjudication: an allowlisted label is
         # only a candidate. The judge decides pass/fail/undetermined.
         if refusal_candidate:
-            refusal_verdict = judge_grounded_refusal(output_dir, scenario or {})
+            refusal_verdict = judge_grounded_refusal(
+                output_dir, scenario or {}, response_snapshot=response
+            )
             refusal_tri = _record_judge_result(
                 issues=issues,
                 judge_results=judge_results,
@@ -1677,7 +1903,6 @@ def assess_live_output_dir(
                 safe_refusal_accepted = True
             elif refusal_tri == "undetermined":
                 refusal_outage = True
-
 
         # Top-level response health.
         if response.get("ok") is False:
@@ -1828,9 +2053,13 @@ def assess_live_output_dir(
 
             gates = response.get("gates") or {}
             false_gates = [name for name, value in gates.items() if value is False]
-            queue_validate_skipped = _queue_validate_skipped_for_successful_candidate(response)
+            queue_validate_skipped = _queue_validate_skipped_for_successful_candidate(
+                response
+            )
             if queue_validate_skipped and "queue_validate_ok" in false_gates:
-                false_gates = [name for name in false_gates if name != "queue_validate_ok"]
+                false_gates = [
+                    name for name in false_gates if name != "queue_validate_ok"
+                ]
                 issues.append(
                     {
                         "check": "queue_validate_skipped",
@@ -1852,7 +2081,9 @@ def assess_live_output_dir(
                 )
 
             if not safe_refusal_accepted and not refusal_outage:
-                issues.extend(_assess_effective_edit_targets(output_dir, response, scenario))
+                issues.extend(
+                    _assess_effective_edit_targets(output_dir, response, scenario)
+                )
         elif expected_outcome_kinds:
             outcome = response.get("outcome") or {}
             outcome_kind = outcome.get("kind")
@@ -1874,17 +2105,15 @@ def assess_live_output_dir(
         # parsed verdicts fail. graph_unchanged=false plus a refusal label is
         # never a safe refusal, so it still hits structural guards and the
         # edit-intent judge.
-        if (
-            expect_graph_changed
-            and not skip_intent_judge
-            and not refusal_candidate
-        ):
+        if expect_graph_changed and not skip_intent_judge and not refusal_candidate:
             _record_judge_result(
                 issues=issues,
                 judge_results=judge_results,
                 check="intent_judge",
                 judge_name="edit_intent",
-                verdict=judge_edit_intent(output_dir, scenario or {}),
+                verdict=judge_edit_intent(
+                    output_dir, scenario or {}, response_snapshot=response
+                ),
             )
 
         # Any hard diagnostic anywhere in the response envelope.
@@ -1955,12 +2184,10 @@ def assess_live_output_dir(
         # an expected edit do not carry edit authority and are exempt from
         # the lineage-presence gate; fallback-impersonation and binding
         # errors remain hard failures regardless.
-        lineage_assessment = assess_artifact_lineage(
-            output_dir, response, scenario
-        )
+        lineage_assessment = assess_artifact_lineage(output_dir, response, scenario)
         lineage_issues = lineage_assessment["issues"]
         kind = _scenario_kind(scenario)
-        expect_edit = bool(_assessment_config(scenario).get("expect_graph_changed"))
+        expect_edit = expect_graph_changed
         if (
             kind in ("health_control", "semantic_product") and not expect_edit
         ) or answered_without_edit:
@@ -1972,7 +2199,10 @@ def assess_live_output_dir(
                 iss
                 for iss in lineage_issues
                 if iss.get("check")
-                not in ("artifact_lineage_absent", "artifact_lineage_sidecar_unverified")
+                not in (
+                    "artifact_lineage_absent",
+                    "artifact_lineage_sidecar_unverified",
+                )
             ]
 
     # Semantic-answer judge runs for every D13 rubric scenario regardless
@@ -1988,7 +2218,9 @@ def assess_live_output_dir(
             judge_results=judge_results,
             check="semantic_answer",
             judge_name="semantic_answer",
-            verdict=judge_semantic_answer(output_dir, scenario or {}),
+            verdict=judge_semantic_answer(
+                output_dir, scenario or {}, response_snapshot=response
+            ),
         )
 
     if impl_result is not None:
@@ -2080,11 +2312,31 @@ def assess_live_output_dir(
             "final": final_ui_path.is_file(),
         },
     }
+    assessment_path = output_dir / "assessment.json"
+    temp_path: Path | None = None
     try:
-        (output_dir / "assessment.json").write_text(
-            json.dumps(assessment, indent=2, sort_keys=True, default=str) + "\n",
+        with tempfile.NamedTemporaryFile(
+            mode="w",
             encoding="utf-8",
-        )
-    except OSError:
-        pass
+            dir=output_dir,
+            prefix=".assessment.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(
+                json.dumps(assessment, indent=2, sort_keys=True, default=str) + "\n"
+            )
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, assessment_path)
+    except OSError as exc:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise AssessmentPublicationError(
+            f"failed to publish assessment atomically at {assessment_path}"
+        ) from exc
     return assessment
