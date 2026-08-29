@@ -131,6 +131,7 @@ _CHUNKED_EMIT_NODE_THRESHOLD = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD",
 _CHUNKED_EMIT_CHUNK_SIZE = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_CHUNK_SIZE", "128"))
 _CHUNKED_EMIT_WARN_EVERY = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_WARN_EVERY", "50"))
 
+
 def _door_ui_passthrough_applicable(
     wf: Any,
     door: Any,
@@ -3135,6 +3136,7 @@ def emit_ui_json(
                     yield _base + _off, _nid
 
     for order, node_id in _chunked_order():
+        node = wf.nodes[node_id]
         key = _node_key(node_id)
         verdict = widget_shape_verdicts[node_id]
         if verdict.pin_opaque and _exec_io_for_node(node) is None:

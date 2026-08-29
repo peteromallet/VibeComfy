@@ -1305,6 +1305,7 @@ def _run_agent_owned_research(
             question=question,
             research_brief=brief,
             spec=spec,
+            session_id=request.session_id,
             **research_kwargs,
         )
     except TypeError as exc:
