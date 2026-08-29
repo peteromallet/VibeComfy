@@ -1234,12 +1234,11 @@ def lower_workflow(
             diagnostics=tuple(all_diagnostics),
             lowered_count=0,
         )
-
-    lowered_workflow = workflow.clone()
-
-    evidence: list[LoweringEvidence] = []
+    original_boundaries: dict[str, LoopBodyBoundary] = {}
+    target_fields_by_loop: dict[str, tuple[LoopTargetField, ...]] = {}
+    iteration_values_by_loop: dict[str, tuple[Any, ...]] = {}
     for plan in plans:
-        target_fields, target_field_diagnostics = _collect_loop_target_fields(lowered_workflow, plan)
+        target_fields, target_field_diagnostics = _collect_loop_target_fields(workflow, plan)
         all_diagnostics.extend(target_field_diagnostics)
         if target_fields is None:
             return LoweringResult(
@@ -1250,7 +1249,7 @@ def lower_workflow(
                 lowered_count=0,
             )
         iteration_values, iteration_value_diagnostics = _coerce_iteration_values(
-            lowered_workflow, plan, target_fields
+            workflow, plan, target_fields
         )
         all_diagnostics.extend(iteration_value_diagnostics)
         if iteration_values is None:
@@ -1261,7 +1260,7 @@ def lower_workflow(
                 diagnostics=tuple(all_diagnostics),
                 lowered_count=0,
             )
-        boundary, boundary_diagnostics = discover_body_boundary(lowered_workflow, plan)
+        boundary, boundary_diagnostics = discover_body_boundary(workflow, plan)
         all_diagnostics.extend(boundary_diagnostics)
         if boundary is None:
             return LoweringResult(
@@ -1271,6 +1270,60 @@ def lower_workflow(
                 diagnostics=tuple(all_diagnostics),
                 lowered_count=0,
             )
+        target_fields_by_loop[plan.loop_node_id] = target_fields
+        iteration_values_by_loop[plan.loop_node_id] = iteration_values
+        original_boundaries[plan.loop_node_id] = boundary
+
+    owned_node_ids = {
+        loop_node_id: frozenset(boundary.body_node_ids).union(
+            output.consumer_node_id for output in boundary.boundary_outputs
+        )
+        for loop_node_id, boundary in original_boundaries.items()
+    }
+    ordered_loop_node_ids = sorted(owned_node_ids, key=_node_sort_key)
+    for index, first_loop_node_id in enumerate(ordered_loop_node_ids):
+        for second_loop_node_id in ordered_loop_node_ids[index + 1 :]:
+            overlapping_node_ids = sorted(
+                owned_node_ids[first_loop_node_id] & owned_node_ids[second_loop_node_id],
+                key=_node_sort_key,
+            )
+            if not overlapping_node_ids:
+                continue
+            first_loop = workflow.nodes[first_loop_node_id]
+            second_loop = workflow.nodes[second_loop_node_id]
+            all_diagnostics.append(
+                LoweringDiagnostic(
+                    code="overlapping_loop_ownership_unsupported",
+                    message=(
+                        f"Loops {first_loop_node_id!r} and {second_loop_node_id!r} "
+                        "claim overlapping body or duplicated-sink nodes "
+                        f"{overlapping_node_ids!r}; unique lowering ownership could "
+                        "not be proved before graph mutation."
+                    ),
+                    loop_node_id=first_loop_node_id,
+                    loop_uid=first_loop.uid or None,
+                    detail={
+                        "other_loop_node_id": second_loop_node_id,
+                        "other_loop_uid": second_loop.uid or None,
+                        "overlapping_node_ids": overlapping_node_ids,
+                    },
+                )
+            )
+            return LoweringResult(
+                ok=False,
+                workflow=None,
+                evidence=(),
+                diagnostics=tuple(all_diagnostics),
+                lowered_count=0,
+            )
+
+    lowered_workflow = workflow.clone()
+
+    evidence: list[LoweringEvidence] = []
+    for plan in plans:
+        target_fields = target_fields_by_loop[plan.loop_node_id]
+        iteration_values = iteration_values_by_loop[plan.loop_node_id]
+        boundary = original_boundaries[plan.loop_node_id]
         original_intent_hash = _hash_json(plan_payloads[plan.loop_node_id].get("intent"))
         loop_evidence, lowering_diagnostics = _lower_single_iteration(
             lowered_workflow,

@@ -853,6 +853,76 @@ def test_lower_workflow_rejects_nested_loops_before_mutating_caller() -> None:
     assert set(wf.nodes) == {"10", "20", "30", "40", "50"}
 
 
+def test_lower_workflow_rejects_converging_loop_ownership_before_clone(
+    monkeypatch: Any,
+) -> None:
+    """Overlapping original bodies fail before cloning can create stale evidence."""
+    wf = _make_workflow("shared-body")
+    wf.nodes["10"] = _make_loop_node("10", uid="seed-loop", var="seed", count=2)
+    wf.nodes["20"] = _make_loop_node("20", uid="prompt-loop", var="prompt", count=2)
+    wf.nodes["25"] = _make_clip_text_node("25", text="hello")
+    wf.nodes["30"] = _make_ksample_node("30")
+    wf.nodes["40"] = _make_save_image_node("40")
+    wf.connect("10.0", "30.seed")
+    wf.connect("20.0", "25.text")
+    wf.connect("25.0", "30.positive")
+    wf.connect("30.0", "40.images")
+    original_api = wf.compile("api")
+
+    def reject_clone(_workflow: VibeWorkflow) -> VibeWorkflow:
+        raise AssertionError("ownership rejection must happen before clone")
+
+    monkeypatch.setattr(VibeWorkflow, "clone", reject_clone)
+
+    result = lower_workflow(wf)
+
+    assert result.ok is False
+    assert result.workflow is None
+    assert result.evidence == ()
+    assert result.lowered_count == 0
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "overlapping_loop_ownership_unsupported"
+    ]
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.loop_node_id == "10"
+    assert diagnostic.message == (
+        "Loops '10' and '20' claim overlapping body or duplicated-sink nodes "
+        "['30', '40']; unique lowering ownership could not be proved before graph mutation."
+    )
+    assert diagnostic.detail == {
+        "other_loop_node_id": "20",
+        "other_loop_uid": "prompt-loop",
+        "overlapping_node_ids": ["30", "40"],
+    }
+    assert wf.compile("api") == original_api
+    assert set(wf.nodes) == {"10", "20", "25", "30", "40"}
+
+
+def test_lower_workflow_rejects_shared_duplicated_sink_ownership() -> None:
+    """Distinct bodies are not disjoint when they would duplicate the same sink."""
+    wf = _make_workflow("shared-sink")
+    wf.nodes["10"] = _make_loop_node("10", uid="loop-10", var="seed", count=2)
+    wf.nodes["20"] = _make_ksample_node("20")
+    wf.nodes["30"] = _make_loop_node("30", uid="loop-30", var="seed", count=2)
+    wf.nodes["40"] = _make_ksample_node("40")
+    wf.nodes["50"] = _make_save_image_node("50")
+    wf.connect("10.0", "20.seed")
+    wf.connect("20.0", "50.images")
+    wf.connect("30.0", "40.seed")
+    wf.connect("40.0", "50.images")
+
+    result = lower_workflow(wf)
+
+    assert result.ok is False
+    assert result.workflow is None
+    assert result.evidence == ()
+    assert result.lowered_count == 0
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "overlapping_loop_ownership_unsupported"
+    ]
+    assert result.diagnostics[0].detail["overlapping_node_ids"] == ["50"]
+
+
 def test_lower_workflow_rejects_unrecognized_residual_loop_intent() -> None:
     """A loop node outside discovery cannot pass through as a successful no-op."""
     wf = _make_workflow()
