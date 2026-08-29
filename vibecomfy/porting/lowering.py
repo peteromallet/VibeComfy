@@ -1076,6 +1076,53 @@ def extract_loop_plan(
     ), diagnostics
 
 
+def _loop_intent_nodes(workflow: "VibeWorkflow") -> list[tuple[str, "VibeNode"]]:
+    return sorted(
+        (
+            (node_id, node)
+            for node_id, node in workflow.nodes.items()
+            if node.class_type == "vibecomfy.loop"
+        ),
+        key=lambda item: _node_sort_key(item[0]),
+    )
+
+
+def _find_nested_loop_intent(
+    workflow: "VibeWorkflow",
+    loop_node_ids: frozenset[str],
+) -> tuple[str, str] | None:
+    """Return the first loop-to-loop downstream path in deterministic order."""
+    adjacency: dict[str, set[str]] = {}
+    for edge in workflow.edges:
+        adjacency.setdefault(edge.from_node, set()).add(edge.to_node)
+
+    for outer_node_id in sorted(loop_node_ids, key=_node_sort_key):
+        visited = {outer_node_id}
+        pending = list(
+            reversed(sorted(adjacency.get(outer_node_id, ()), key=_node_sort_key))
+        )
+        while pending:
+            node_id = pending.pop()
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+            if node_id in loop_node_ids:
+                return outer_node_id, node_id
+            pending.extend(
+                reversed(
+                    sorted(
+                        (
+                            downstream_id
+                            for downstream_id in adjacency.get(node_id, ())
+                            if downstream_id not in visited
+                        ),
+                        key=_node_sort_key,
+                    )
+                )
+            )
+    return None
+
+
 def lower_workflow(
     workflow: "VibeWorkflow",
     *,
@@ -1097,7 +1144,35 @@ def lower_workflow(
     can materialize per-iteration visual groups.  Default (``False``) keeps
     flat native emission unchanged.
     """
+    loop_intent_nodes = _loop_intent_nodes(workflow)
     loop_nodes = discover_loop_nodes(workflow)
+    discovered_loop_node_ids = {node_id for node_id, _node, _payload in loop_nodes}
+    unrecognized_loop_nodes = [
+        (node_id, node)
+        for node_id, node in loop_intent_nodes
+        if node_id not in discovered_loop_node_ids
+    ]
+
+    if unrecognized_loop_nodes:
+        return LoweringResult(
+            ok=False,
+            workflow=None,
+            evidence=(),
+            diagnostics=tuple(
+                LoweringDiagnostic(
+                    code="unlowerable_loop_intent",
+                    message=(
+                        f"Loop intent node {node_id!r} has no valid executable loop payload; "
+                        "lowering cannot claim success while it remains."
+                    ),
+                    loop_node_id=node_id,
+                    loop_uid=node.uid or None,
+                    detail={"class_type": node.class_type},
+                )
+                for node_id, node in unrecognized_loop_nodes
+            ),
+            lowered_count=0,
+        )
 
     if not loop_nodes:
         return LoweringResult(
@@ -1127,6 +1202,38 @@ def lower_workflow(
                 diagnostics=tuple(all_diagnostics),
                 lowered_count=0,
             )
+
+    nested_loop = _find_nested_loop_intent(
+        workflow,
+        frozenset(node_id for node_id, _node in loop_intent_nodes),
+    )
+    if nested_loop is not None:
+        outer_node_id, inner_node_id = nested_loop
+        outer_node = workflow.nodes[outer_node_id]
+        inner_node = workflow.nodes[inner_node_id]
+        all_diagnostics.append(
+            LoweringDiagnostic(
+                code="nested_loop_intent_unsupported",
+                message=(
+                    f"Loop {outer_node_id!r} contains executable loop intent node "
+                    f"{inner_node_id!r}; nested loop lowering is not owned by this "
+                    "lowerer and was rejected before graph mutation."
+                ),
+                loop_node_id=outer_node_id,
+                loop_uid=outer_node.uid or None,
+                detail={
+                    "inner_loop_node_id": inner_node_id,
+                    "inner_loop_uid": inner_node.uid or None,
+                },
+            )
+        )
+        return LoweringResult(
+            ok=False,
+            workflow=None,
+            evidence=(),
+            diagnostics=tuple(all_diagnostics),
+            lowered_count=0,
+        )
 
     lowered_workflow = workflow.clone()
 
@@ -1184,6 +1291,29 @@ def lower_workflow(
                 lowered_count=0,
             )
         evidence.append(loop_evidence)
+
+    residual_loop_nodes = _loop_intent_nodes(lowered_workflow)
+    if residual_loop_nodes:
+        all_diagnostics.extend(
+            LoweringDiagnostic(
+                code="residual_executable_loop_intent",
+                message=(
+                    f"Loop intent node {node_id!r} remains after lowering; "
+                    "the lowered workflow is not executable."
+                ),
+                loop_node_id=node_id,
+                loop_uid=node.uid or None,
+                detail={"class_type": node.class_type},
+            )
+            for node_id, node in residual_loop_nodes
+        )
+        return LoweringResult(
+            ok=False,
+            workflow=None,
+            evidence=(),
+            diagnostics=tuple(all_diagnostics),
+            lowered_count=0,
+        )
 
     validation_result, validation_diagnostics = _validate_lowered_workflow(
         lowered_workflow,

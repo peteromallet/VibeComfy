@@ -13,6 +13,7 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+import vibecomfy.porting.lowering as lowering_module
 from vibecomfy.contracts.intent_nodes import (
     INTENT_LOOP_MAX_ITERATIONS,
     intent_node_properties,
@@ -818,6 +819,126 @@ def test_lower_workflow_atomic_failure_on_missing_bound() -> None:
     result = lower_workflow(wf)
     assert result.ok is False
     assert result.workflow is None
+
+
+def test_lower_workflow_rejects_nested_loops_before_mutating_caller() -> None:
+    """Nested executable intent fails closed before any plan mutates the graph."""
+    wf = _make_workflow()
+    wf.nodes["10"] = _make_loop_node("10", uid="outer-loop", var="prompt", count=2)
+    wf.nodes["20"] = _make_clip_text_node("20", text="hello")
+    wf.nodes["30"] = _make_loop_node("30", uid="inner-loop", var="seed", count=2)
+    wf.nodes["40"] = _make_ksample_node("40")
+    wf.nodes["50"] = _make_save_image_node("50")
+    wf.connect("10.0", "20.text")
+    wf.connect("20.0", "30.image")
+    wf.connect("30.0", "40.seed")
+    wf.connect("40.0", "50.images")
+    original_api = wf.compile("api")
+
+    result = lower_workflow(wf)
+
+    assert result.ok is False
+    assert result.workflow is None
+    assert result.lowered_count == 0
+    assert result.evidence == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "nested_loop_intent_unsupported"
+    ]
+    assert result.diagnostics[0].loop_node_id == "10"
+    assert result.diagnostics[0].detail == {
+        "inner_loop_node_id": "30",
+        "inner_loop_uid": "inner-loop",
+    }
+    assert wf.compile("api") == original_api
+    assert set(wf.nodes) == {"10", "20", "30", "40", "50"}
+
+
+def test_lower_workflow_rejects_unrecognized_residual_loop_intent() -> None:
+    """A loop node outside discovery cannot pass through as a successful no-op."""
+    wf = _make_workflow()
+    wf.nodes["10"] = VibeNode(
+        id="10",
+        class_type="vibecomfy.loop",
+        uid="malformed-loop",
+    )
+
+    result = lower_workflow(wf)
+
+    assert result.ok is False
+    assert result.workflow is None
+    assert result.lowered_count == 0
+    assert result.evidence == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "unlowerable_loop_intent"
+    ]
+
+
+def test_lower_workflow_rejects_false_primitive_success_with_residual_intent(
+    monkeypatch: Any,
+) -> None:
+    """The public postcondition rejects a primitive that claims work without removing intent."""
+    wf = _make_workflow()
+    wf.nodes["10"] = _make_loop_node("10", uid="loop-10", var="seed", count=2)
+    wf.nodes["20"] = _make_ksample_node("20")
+    wf.nodes["30"] = _make_save_image_node("30")
+    wf.connect("10.0", "20.seed")
+    wf.connect("20.0", "30.images")
+
+    def leave_loop_behind(
+        _workflow: VibeWorkflow,
+        plan: LoopLoweringPlan,
+        _boundary: LoopBodyBoundary,
+        *,
+        iteration_values: Any,
+        original_intent_hash: str,
+        **_kwargs: Any,
+    ) -> tuple[LoweringEvidence, list[LoweringDiagnostic]]:
+        return (
+            LoweringEvidence(
+                loop_uid=plan.loop_uid or plan.loop_node_id,
+                loop_node_id=plan.loop_node_id,
+                original_intent_hash=original_intent_hash,
+                variable=plan.variable,
+                iterations=plan.iterations,
+                iteration_values=tuple(iteration_values),
+            ),
+            [],
+        )
+
+    monkeypatch.setattr(lowering_module, "_lower_single_iteration", leave_loop_behind)
+
+    result = lower_workflow(wf)
+
+    assert result.ok is False
+    assert result.workflow is None
+    assert result.lowered_count == 0
+    assert result.evidence == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "residual_executable_loop_intent"
+    ]
+
+
+def test_lower_workflow_preserves_two_independent_flat_loops() -> None:
+    """Independent flat loops remain supported and leave no executable intent."""
+    wf = _make_workflow()
+    wf.nodes["10"] = _make_loop_node("10", uid="loop-10", var="seed", count=2)
+    wf.nodes["20"] = _make_ksample_node("20")
+    wf.nodes["30"] = _make_save_image_node("30")
+    wf.nodes["40"] = _make_loop_node("40", uid="loop-40", var="seed", count=2)
+    wf.nodes["50"] = _make_ksample_node("50")
+    wf.nodes["60"] = _make_save_image_node("60")
+    wf.connect("10.0", "20.seed")
+    wf.connect("20.0", "30.images")
+    wf.connect("40.0", "50.seed")
+    wf.connect("50.0", "60.images")
+
+    result = lower_workflow(wf)
+
+    assert result.ok is True
+    assert result.workflow is not None
+    assert result.lowered_count == 2
+    assert [item.loop_node_id for item in result.evidence] == ["10", "40"]
+    assert all(node.class_type != "vibecomfy.loop" for node in result.workflow.nodes.values())
 
 
 def test_lower_workflow_multiple_valid_loops_succeed() -> None:
