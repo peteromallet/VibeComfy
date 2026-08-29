@@ -8,7 +8,6 @@ run-control-file readers, baseline-diff detection, and the codex brief
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from scripts import live_agentic_watchdog as w
 
@@ -205,3 +204,11 @@ def test_brief_round_1_has_no_prev_summary():
     brief = w.build_codex_brief(
         1, "run-x", "DIGEST", False, "", None, ["s1"], "f", "sw")
     assert "PREVIOUS CODEX'S SUMMARY" not in brief
+
+
+def test_watchdog_skips_when_optional_megaplan_package_is_missing(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(w, "MEGAPLAN_WATCHDOG_AVAILABLE", False)
+    assert w.main(["--smoke", "--dry-codex"]) == 0
+    assert "SKIPPED" in capsys.readouterr().err

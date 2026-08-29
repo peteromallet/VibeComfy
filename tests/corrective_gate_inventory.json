@@ -27,7 +27,7 @@
   "quarantine_sha256": {
     "tests/quarantine/agent_cli_surface.txt": "9d60887ae3097f846a8cdbeb2fc68cb63c99be8a29f597288313e083e1552623",
     "tests/quarantine/characterization_surface.txt": "3b4a543468dac6c2bb5c00ad2d051e1e5cc677d5b2a7dc711bcfe49cf6a1c431",
-    "tests/quarantine/comfy_nodes_agent_surface.txt": "48866fa7cc6f5f66d186ba55c0cb78ae310de03fb9ab968d93ce8d0aa1f51341",
+    "tests/quarantine/comfy_nodes_agent_surface.txt": "7ac8bac285fdc5c62a7c93004be9c8c17360c255e695f17b8b8a56731a7e901f",
     "tests/quarantine/comfy_nodes_hivemind_surface.txt": "1eab0a7cb3c0f3bf670bdfb8d0818dcd7f04b9cdca3319c67aabb7d91e5c312e",
     "tests/quarantine/comfy_roundtrip_surface.txt": "9e13885792c45e6785f0145a12ea8ba0c163633082950ba51ee503c2f15ce708",
     "tests/quarantine/core_api_surface.txt": "5ecf855725fa061d939fd4bfbbc0b74aedbea02a25c1765ec8ab9e2e9cdf4bd7",

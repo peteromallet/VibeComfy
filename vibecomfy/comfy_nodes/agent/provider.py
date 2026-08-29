@@ -580,6 +580,63 @@ def extract_classify_json(text: str) -> dict[str, Any]:
         parse_reason="missing_classify_json",
     )
 
+_RESEARCH_DECISION_KEYS = frozenset({"action", "tool", "conclusion", "enough"})
+_RESEARCH_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
+
+
+def _research_decision_qualified(candidate: Mapping[str, Any]) -> bool:
+    return bool(_RESEARCH_DECISION_KEYS.intersection(candidate))
+
+
+def extract_research_json(text: str) -> dict[str, Any] | None:
+    """Extract a qualifying research-decision object from model output.
+
+    This compatibility seam is intentionally bounded and fail-closed: prose
+    or unrelated JSON returns no decision instead of inventing one.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    stripped = text.strip()
+    bodies = [stripped]
+    fence = _RESEARCH_FENCE_RE.search(stripped)
+    if fence is not None:
+        bodies.insert(0, fence.group(1).strip())
+    for body in bodies:
+        try:
+            direct = json.loads(body)
+        except ValueError:
+            direct = None
+        if isinstance(direct, dict) and _research_decision_qualified(direct):
+            return direct
+        for candidate in _iter_json_object_candidates(
+            body, max_candidates=_CLASSIFY_EXTRACTION_MAX_CANDIDATES
+        ):
+            if _research_decision_qualified(candidate):
+                return candidate
+    return None
+
+
+def _normalize_research_json_response(response: Mapping[str, Any]) -> Mapping[str, Any]:
+    content = response.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return response
+    try:
+        direct = json.loads(content.strip())
+    except ValueError:
+        direct = None
+    extracted = extract_research_json(content)
+    if extracted is None or (isinstance(direct, dict) and direct == extracted):
+        return response
+    normalized = dict(response)
+    normalized["raw_content"] = content
+    normalized["content"] = json.dumps(extracted)
+    normalized["json"] = extracted
+    provenance = response.get("parse_provenance")
+    provenance = dict(provenance) if isinstance(provenance, Mapping) else {}
+    provenance["parse_reason"] = "extracted_from_prose"
+    normalized["parse_provenance"] = provenance
+    return normalized
+
 
 def _compact_batch_system_prompt(
     *,
@@ -2060,6 +2117,8 @@ def _normalize_turn_response(
     """
     if not isinstance(response, Mapping):
         raise ProviderError("Generic model turn returned a non-dict response.")
+    if response_contract == "json" and phase in {"research_stage", "research"}:
+        return _normalize_research_json_response(response)
     if response_contract != "json" or phase != "classify":
         return response
     content = response.get("content")

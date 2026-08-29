@@ -59,6 +59,7 @@ if __name__ == "__main__":
 
 import argparse
 import json
+import logging
 import shutil
 import subprocess
 import sys
@@ -71,12 +72,43 @@ from typing import Any
 # local Arnold checkout (its arnold_pipelines/ would shadow this package).
 from arnold.agent.adapters.codex import CodexAdapter
 from arnold.agent.contracts import AgentRequest
-from arnold.pipelines.megaplan.watchdog.log import log_event, setup_logging
-from arnold.pipelines.megaplan.watchdog.retry import (
-    RetryCapExceeded,
-    RetryLoop,
-    RetryOutcome,
-)
+
+try:
+    from arnold.pipelines.megaplan.watchdog.log import log_event, setup_logging
+    from arnold.pipelines.megaplan.watchdog.retry import (
+        RetryCapExceeded,
+        RetryLoop,
+        RetryOutcome,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name != "arnold.pipelines.megaplan":
+        raise
+
+    MEGAPLAN_WATCHDOG_AVAILABLE = False
+    _MEGAPLAN_WATCHDOG_IMPORT_ERROR = exc
+
+    class RetryCapExceeded(RuntimeError):
+        """Compatibility type for the unavailable optional watchdog package."""
+
+    class RetryOutcome:
+        RESOLVED = "resolved"
+        UNRESOLVED = "unresolved"
+
+    class RetryLoop:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(
+                "live agentic watchdog requires arnold.pipelines.megaplan"
+            ) from _MEGAPLAN_WATCHDOG_IMPORT_ERROR
+
+    def log_event(logger: Any, event: str, **fields: Any) -> None:
+        logger.info("%s %s", event, fields)
+
+    def setup_logging(*, log_path: Path) -> Any:
+        logging.basicConfig(level=logging.INFO)
+        return logging.getLogger("live_agentic_watchdog")
+else:
+    MEGAPLAN_WATCHDOG_AVAILABLE = True
+    _MEGAPLAN_WATCHDOG_IMPORT_ERROR = None
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIOS_DIR = "tests/live_agentic_harness/scenarios"
@@ -995,6 +1027,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if not MEGAPLAN_WATCHDOG_AVAILABLE:
+        print(
+            "SKIPPED: live agentic watchdog requires optional "
+            "arnold.pipelines.megaplan",
+            file=sys.stderr,
+        )
+        return 0
 
     # --from-summary reuses one saved summary (turn 1 only); clamp to 1 turn.
     if args.from_summary and args.iterations > 1:

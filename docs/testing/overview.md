@@ -7,7 +7,7 @@ The VibeComfy test suite has three layers: fast unit tests that run on every pus
 - Runs on every push and pull request via `.github/workflows/ci.yml`.
 - Target wall time: under 60 seconds on a fresh GitHub-hosted runner.
 - Local equivalent: `make PYTHON=.venv/bin/python fast` (or `uv run make PYTHON=python fast` with a uv-managed environment).
-- The fast selector fails on unquarantined test failures and errors. Pytest owns xpass semantics: an explicitly strict xfail that passes is a failure; ordinary xpasses remain informational. The quarantine hook owns only scoped failed-nodeid tolerance and never turns test errors into success.
+- The fast selector fails on unquarantined test failures and errors. Pytest owns xpass semantics: an explicitly strict xfail that passes is a failure; ordinary xpasses remain informational. The B03a quarantine hook owns only scoped failed-nodeid tolerance. B03b (`127af1fe`) separately owns the H1 error-preservation change that ensures test errors never become success.
 - No GPU markers run on this path. `-m 'not gpu'` is the default in `pyproject.toml::[tool.pytest.ini_options]`.
 
 ## Test-suite scope and the real coverage gap
@@ -15,7 +15,7 @@ The VibeComfy test suite has three layers: fast unit tests that run on every pus
 The repository contains hundreds of `test_*.py` files. The `make check` gate selects the **17 feature files** listed in `FAST_PYTEST`, plus explicitly selected coverage-policy and tmp-path canonical-parity tests. This is the real gap: the fast path is a bounded smoke tier, not the repository-wide denominator; use the explicit broad target when full Python discovery or execution is required. The quarantined full-corpus parity tests remain outside the fast selector.
 
 - **`make broad-pytest`** — the repository-wide Python tier. Runs every test under `tests` (GPU tests excluded via the default `-m 'not gpu'` addopts) parallelized across **8 pytest-xdist workers**. Its `BROAD_COVERAGE_FAIL_UNDER` default is **70%**, a floor attached to this broad denominator. `make full-pytest` remains a compatibility alias.
-- **Quarantine behavior** — failures whose nodeids are listed in `tests/quarantine/*.txt` (plus the legacy known-failures file) are tolerated baseline failures. The plugin prints `TOLERATED QUARANTINED FAILURES` for them and resets the exit status to 0 when every failure is a known-baseline failure and no test errors occurred. **New failures and test errors always gate**: any failed nodeid absent from the quarantine index, or any test error, forces a non-zero exit. The quarantine index is a scoped, owned record — not a skip mechanism — and the full suite is expected to exit 0 modulo that recorded baseline.
+- **Quarantine behavior** — failures whose nodeids are listed in `tests/quarantine/*.txt` are tolerated baseline failures. The B03a hook prints `TOLERATED QUARANTINED FAILURES` for them and resets the exit status to 0 when every failure is a known-baseline failure. B03b (`127af1fe`) separately owns the H1 contract that preserves a non-zero exit for test errors. **New failures always gate**: any failed nodeid absent from the quarantine index forces a non-zero exit. The quarantine index is a scoped, owned record — not a skip mechanism — and the full suite is expected to exit 0 modulo that recorded baseline.
 
 ## Coverage floor
 
