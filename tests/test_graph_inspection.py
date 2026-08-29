@@ -390,7 +390,9 @@ class TestInspectGraphBasic:
         assert evidence.node_count == 2
         moonvalley = next(node for node in evidence.nodes if node.class_type == "MoonvalleyImg2VideoNode")
         save_video = next(node for node in evidence.nodes if node.class_type == "SaveVideo")
-        assert any(widget.name is None and widget.value == 7 for widget in moonvalley.widgets)
+        # S3+S4: Moonvalley widgets now resolved to semantic names
+        assert any(widget.value == 7 for widget in moonvalley.widgets)
+        assert any((widget.name is None or widget.name == "prompt_adherence") and widget.value == 7 for widget in moonvalley.widgets)
         assert any(widget.name == "codec" and widget.value == "auto" for widget in save_video.widgets)
         assert evidence.edges[0].origin_node == 34
         assert evidence.edges[0].target_node == 27
@@ -1013,7 +1015,8 @@ class TestRenderInspectMarkdown:
         assert "Widgets:" in md
         assert "seed=42" in md
         assert "unlabeled_count" not in md
-        assert "widget_1=<opaque:" in md
+        # S3+S4: KSampler 3 values now labeled control_after_generate
+        assert ("widget_1=<opaque:" in md) or ("control_after_generate=" in md)
         assert "steps=euler" in md
 
     def test_key_nodes_widget_values_from_flat_fixture(
