@@ -217,6 +217,7 @@ class VibeInput:
     range: Any = None
     aliases: tuple[str, ...] = field(default_factory=tuple)
     media_semantics: str | None = None
+    allow_missing_target: bool = False
 
     @property
     def media(self) -> str | None:
@@ -461,6 +462,7 @@ class VibeWorkflow:
         aliases: list[str] | tuple[str, ...] | None = None,
         media_semantics: str | None = None,
         media: str | None = None,
+        allow_missing_target: bool = False,
     ) -> "VibeWorkflow":
         if media_semantics is not None and media is not None and media_semantics != media:
             raise ValueError(
@@ -470,7 +472,7 @@ class VibeWorkflow:
         resolved_media_semantics = media_semantics if media_semantics is not None else media
         alias_tuple = _normalize_input_aliases(aliases)
         self._validate_input_aliases(name, alias_tuple)
-        self._validate_input_target(name, node_id, field)
+        self._validate_input_target(name, node_id, field, allow_missing=allow_missing_target)
         self.inputs[name] = VibeInput(
             name=name,
             node_id=str(node_id),
@@ -482,6 +484,7 @@ class VibeWorkflow:
             range=range,
             aliases=alias_tuple,
             media_semantics=resolved_media_semantics,
+            allow_missing_target=allow_missing_target,
         )
         self._manual_input_names.add(name)
         return self
@@ -502,6 +505,8 @@ class VibeWorkflow:
             node.inputs[target.field] = value
         elif target.field in node.widgets:
             node.widgets[target.field] = value
+        elif target.allow_missing_target:
+            node.inputs[target.field] = value
         else:
             available = _format_available_names([*node.inputs.keys(), *node.widgets.keys()])
             raise ValueError(
@@ -572,7 +577,7 @@ class VibeWorkflow:
             conflict = sorted(alias_conflicts)[0]
             raise ValueError(f"register_input({name!r}): alias {conflict!r} conflicts with an existing alias")
 
-    def _validate_input_target(self, name: str, node_id: str, field: str) -> None:
+    def _validate_input_target(self, name: str, node_id: str, field: str, *, allow_missing: bool = False) -> None:
         node_key = str(node_id)
         if node_key not in self.nodes:
             raise ValueError(
@@ -580,7 +585,7 @@ class VibeWorkflow:
                 f"in workflow {self.id!r}"
             )
         node = self.nodes[node_key]
-        if field not in node.inputs and field not in node.widgets:
+        if not allow_missing and field not in node.inputs and field not in node.widgets:
             raise ValueError(
                 f"register_input({name!r}): field {field!r} not found in "
                 f"node {node_key!r} ({node.class_type}) inputs or widgets"
@@ -588,7 +593,9 @@ class VibeWorkflow:
 
     def _input_target_exists(self, vibe_input: VibeInput) -> bool:
         node = self.nodes.get(vibe_input.node_id)
-        return node is not None and (vibe_input.field in node.inputs or vibe_input.field in node.widgets)
+        return vibe_input.allow_missing_target or (
+            node is not None and (vibe_input.field in node.inputs or vibe_input.field in node.widgets)
+        )
 
     def _mint_uid(self, seed: str | None = None) -> str:
         """Mint a never-reused uid using the monotonic counter.

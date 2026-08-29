@@ -21,7 +21,7 @@ VAE_NAME = 'wan_2.1_vae.safetensors'
 PUBLIC_INPUT_METADATA = {
     'seed': InputSpec(node='3', field='seed', default=DEFAULT_SEED, type='INT'),
     'width': InputSpec(node='40', field='width', default=832, type='INT'),
-    'height': InputSpec(node='40', field='height', default=480, type='INT'),
+    'height': InputSpec(node='40', field='height', default=480, type='INT', omit_if_schema_default=True),
     'frames': InputSpec(node='40', field='length', default=DEFAULT_FRAMES, type='INT'),
     'fps': InputSpec(node='49', field='fps', default=DEFAULT_FPS, type='FLOAT'),
     'prompt': InputSpec(node='6', field='text', default=DEFAULT_PROMPT_2, type='STRING', required=True, media_semantics='text'),
@@ -48,7 +48,6 @@ def build() -> VibeWorkflow:
     emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
         _id='40',
         width=832,
-        height=480,
         length=DEFAULT_FRAMES,
     )
 

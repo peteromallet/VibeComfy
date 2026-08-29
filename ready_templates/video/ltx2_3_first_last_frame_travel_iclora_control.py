@@ -68,7 +68,6 @@ READY_METADATA = ReadyMetadata.build(
     discord_signal='Combines recurring LTX first/last travel and full-length control-guide workflows.',
     ltx_best_practices=['Use first/last anchors for travel endpoints.', 'Use a full-length guide video with IC-LoRA union-control conditioning.', 'Patch smoke runs to fp8/fp4 model assets, tiny frame counts, and low-VRAM loader settings.'],
     comfy_configuration={'reserve_vram': 12, 'cache_none': True, 'fp8_e4m3fn_text_enc': True},
-    provenance={'source_workflow': 'manual'},
 )
 
 def build() -> VibeWorkflow:

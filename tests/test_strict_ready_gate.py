@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ast
+import importlib.util
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import tools.check_strict_ready_templates as gate
@@ -358,3 +361,78 @@ def build():
     assert "ReadyMetadata.build emits derivable field 'source_workflow'." in messages
     assert "ReadyMetadata.build emits derivable field 'provenance'." in messages
     assert all(item["severity"] == "error" and item["enforced"] is True for item in diagnostics)
+
+
+def _load_ready_template(relative_path: str):
+    path = Path(__file__).parents[1] / relative_path
+    spec = importlib.util.spec_from_file_location(f"test_ready_{path.stem}", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_core_get_image_size_is_not_attributed_to_kjnodes() -> None:
+    from vibecomfy.node_packs import clear_known_node_packs_cache, get_known_node_packs, read_lockfile
+
+    clear_known_node_packs_cache()
+    try:
+        kj_entry = next(entry for entry in read_lockfile(Path(__file__).parents[1] / "custom_nodes.lock") if entry.name == "ComfyUI-KJNodes")
+        assert "GetImageSize" not in kj_entry.class_set
+        kj_pack = next(pack for pack in get_known_node_packs() if pack.name == "ComfyUI-KJNodes")
+        assert "GetImageSize" not in kj_pack.classes
+    finally:
+        clear_known_node_packs_cache()
+
+
+def test_repaired_templates_omit_schema_defaults_but_keep_editable_inputs() -> None:
+    cases = (
+        (
+            "ready_templates/video/ltx2_3_lightricks_iclora_hdr.py",
+            "fps",
+            "5108",
+            30,
+        ),
+        ("ready_templates/video/wan_t2v.py", "height", "40", 480),
+    )
+    for relative_path, input_name, node_id, default in cases:
+        module = _load_ready_template(relative_path)
+        workflow = module.build()
+        api = workflow.compile("api")
+        assert input_name not in api[node_id]["inputs"]
+        assert module.PUBLIC_INPUT_METADATA[input_name].default == default
+        diagnostics = gate._v26_shape_diagnostics(
+            ready_id=relative_path,
+            path=Path(__file__).parents[1] / relative_path,
+            relative_path=relative_path,
+            enforced=True,
+        )
+        assert not any(
+            item["code"] == "v26_schema_default_kwarg" for item in diagnostics
+        )
+
+        workflow.set_input(input_name, default)
+        explicit_default_api = workflow.compile("api")
+        expected_inputs = dict(api[node_id]["inputs"])
+        expected_inputs[input_name] = default
+        assert explicit_default_api[node_id]["inputs"] == expected_inputs
+
+        workflow.set_input(input_name, default + 1)
+        assert workflow.compile("api")[node_id]["inputs"][input_name] == default + 1
+
+
+def test_first_last_template_does_not_add_manual_provenance() -> None:
+    relative_path = "ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py"
+    source = (Path(__file__).parents[1] / relative_path).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    metadata_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "build"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "ReadyMetadata"
+    ]
+    assert len(metadata_calls) == 1
+    assert not any(keyword.arg == "provenance" for keyword in metadata_calls[0].keywords)

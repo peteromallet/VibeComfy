@@ -320,6 +320,16 @@ def _node_id_from_binding(value: Any) -> str | None:
     return None
 
 
+def _is_schema_default_input(class_type: str, field: str, value: Any) -> bool:
+    try:
+        from vibecomfy.porting.object_info import class_defaults
+
+        defaults = class_defaults(class_type)
+    except Exception:
+        return False
+    return field in defaults and value == defaults[field]
+
+
 @dataclass(frozen=True)
 class InputSpec:
     node: str | SymbolicNodeRef | Any
@@ -330,6 +340,7 @@ class InputSpec:
     aliases: tuple[str, ...] = ()
     description: str | None = None
     media_semantics: str | None = None
+    omit_if_schema_default: bool = False
 
     def register(self, wf: VibeWorkflow, name: str, namespace: Mapping[str, Any] | None = None) -> None:
         node_id = self.resolve_node_id(wf, namespace=namespace)
@@ -339,10 +350,19 @@ class InputSpec:
                 f"InputSpec.register({name!r}): target node {node_id!r} does not exist "
                 f"in workflow {wf.id!r}"
             )
+        allow_missing_target = False
         if self.field in node.inputs:
             value = node.inputs[self.field]
         elif self.field in node.widgets:
             value = node.widgets[self.field]
+        elif self.omit_if_schema_default:
+            if not _is_schema_default_input(node.class_type, self.field, self.default):
+                raise ValueError(
+                    f"InputSpec.register({name!r}): {node.class_type}.{self.field} "
+                    f"default {self.default!r} is not the schema default"
+                )
+            value = self.default
+            allow_missing_target = True
         else:
             raise ValueError(
                 f"InputSpec.register({name!r}): field {self.field!r} not found in "
@@ -359,6 +379,7 @@ class InputSpec:
             required=self.required,
             aliases=self.aliases,
             media_semantics=self.media_semantics,
+            allow_missing_target=allow_missing_target,
         )
         for alias in self.aliases:
             if alias in wf.inputs:
@@ -373,6 +394,7 @@ class InputSpec:
                 required=self.required,
                 aliases=(),
                 media_semantics=self.media_semantics,
+                allow_missing_target=allow_missing_target,
             )
 
     def resolve_node_id(self, wf: VibeWorkflow, namespace: Mapping[str, Any] | None = None) -> str:

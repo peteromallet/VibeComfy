@@ -151,7 +151,6 @@ _STATIC_NODE_PACKS: tuple[CustomNodePack, ...] = (
                 "ImageResizeKJv2",
                 "PreviewAnimation",
                 "GetImageRangeFromBatch",
-                "GetImageSize",
                 "GetImageSizeAndCount",
                 "INTConstant",
                 "LTXVAddGuide",
