@@ -13,8 +13,9 @@ name: Schema Freshness
 #   3. Compare per-pack hashes.  Booted-registry-wins: if the pinned hash
 #      differs from the booted hash for a pack, FAIL — the pinned cache is
 #      stale.
-#   4. When ComfyUI is NOT available, SKIP the hash-comparison step (non-comfy
-#      runners are a no-op).
+#   4. When ComfyUI is NOT available, publish an explicit availability=false
+#      output and SKIP the hash-comparison step (non-comfy runners are a
+#      successful no-op).
 #   5. Custom packs that exist only in the pinned cache (un-importable by the
 #      booted ComfyUI) are "cache-only" — advisory, never trigger failure.
 #   6. Static-AST only: NEVER auto-install untrusted packs.  This job only
@@ -55,21 +56,25 @@ jobs:
       # ------------------------------------------------------------------
       # Guard: check ComfyUI availability.
       #
-      # Exits 0 when ensure_nodes() returns True → proceed to hash check.
-      # Exits 1 when comfy is absent → skip the hash-check step.
+      # The probe step succeeds for both expected states.  Its explicit output
+      # controls the dependent hash step; probe exceptions still fail here.
       # ------------------------------------------------------------------
       - name: Check ComfyUI availability (env-gate)
         id: comfy-gate
         run: |
+          set -euo pipefail
           python -c "
           from vibecomfy.comfy_backend import ensure_nodes
-          import sys
+          import os
+          from pathlib import Path
           if ensure_nodes():
               print('ComfyUI booted — will run per-pack hash check.')
-              sys.exit(0)
+              available = 'true'
           else:
               print('ComfyUI NOT available — skipping per-pack hash check.')
-              sys.exit(1)
+              available = 'false'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
+              output.write(f'available={available}\\n')
           "
 
       # ------------------------------------------------------------------
@@ -87,7 +92,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Per-pack hash vs booted registry
         id: hash-check
-        if: steps.comfy-gate.outcome == 'success'
+        if: steps.comfy-gate.outputs.available == 'true'
         run: |
           python -c "
           import hashlib, json, sys

@@ -93,9 +93,54 @@ jobs:
       - name: Tag dated release
         if: steps.diff.outputs.changed == 'true'
         run: |
+          set -euo pipefail
           TAG="schemas-$(date -u +%Y%m%d)"
-          git tag "$TAG"
-          git push origin "$TAG" || echo "tag $TAG already exists"
+          TARGET="$(git rev-parse HEAD)"
+
+          # A rerun may encounter a tag that was created before the job was
+          # interrupted.  It is safe to treat that as success only when both
+          # local and remote resolution prove that the tag names this commit.
+          local_tag_exists=false
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            local_tag_exists=true
+            local_target="$(git rev-parse "$TAG^{commit}")"
+            if [ "$local_target" != "$TARGET" ]; then
+              echo "ERROR: local tag $TAG points to $local_target, expected $TARGET" >&2
+              exit 1
+            fi
+          fi
+
+          # Query both the tag ref and its peeled commit so lightweight and
+          # annotated tags are compared by the object they resolve to.  A
+          # failed lookup is a real transport/authentication error, not an
+          # indication that the tag is already present.
+          remote_ref="$(git ls-remote origin "refs/tags/$TAG")" || {
+            echo "ERROR: unable to inspect remote tag $TAG" >&2
+            exit 1
+          }
+          remote_peeled_ref="$(git ls-remote origin "refs/tags/$TAG^{}")" || {
+            echo "ERROR: unable to inspect peeled remote tag $TAG" >&2
+            exit 1
+          }
+          remote_target="$(printf '%s\n' "$remote_peeled_ref" | awk 'NR == 1 { print $1 }')"
+          if [ -z "$remote_target" ]; then
+            remote_target="$(printf '%s\n' "$remote_ref" | awk 'NR == 1 { print $1 }')"
+          fi
+          if [ -n "$remote_target" ]; then
+            if [ "$remote_target" != "$TARGET" ]; then
+              echo "ERROR: remote tag $TAG resolves to $remote_target, expected $TARGET" >&2
+              exit 1
+            fi
+            echo "Tag $TAG already resolves to $TARGET; release is idempotent."
+            exit 0
+          fi
+
+          if [ "$local_tag_exists" = false ]; then
+            git tag "$TAG" "$TARGET"
+          fi
+          # Do not mask push failures: conflict, auth, and transport errors
+          # must make the workflow fail.
+          git push origin "refs/tags/$TAG"
 
       - name: Upload coverage report
         if: always()
