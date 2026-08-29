@@ -22,6 +22,67 @@ def test_strict_ready_gate_report_is_repo_only_and_deterministic() -> None:
     )
 
 
+def test_strict_ready_gate_aggregates_every_diagnostic_category_into_truth(monkeypatch, capsys) -> None:
+    """An enforced error from any target category must fail the report gate."""
+    categories = (
+        "static_contract_drift",
+        "strict_ready",
+        "generated_template_style",
+        "pack_validation",
+        "pack_provenance",
+        "legacy_vocabulary",
+        "v26_shape",
+    )
+    target = {
+        "ready_id": "image/example",
+        "static_drift": [],
+        "strict_ready_diagnostics": [],
+        "style_diagnostics": [],
+        "pack_validation_diagnostics": [],
+        "pack_provenance_diagnostics": [],
+        "legacy_vocabulary_diagnostics": [],
+        "v26_shape_diagnostics": [],
+    }
+    for category in categories:
+        diagnostic = gate._diagnostic(
+            code=f"{category}_error",
+            message="enforced failure",
+            ready_id="image/example",
+            target="ready_templates/image/example.py:1",
+            severity="error",
+            category=category,
+            enforced=True,
+        )
+        field = {
+            "static_contract_drift": "static_drift",
+            "strict_ready": "strict_ready_diagnostics",
+            "generated_template_style": "style_diagnostics",
+            "pack_validation": "pack_validation_diagnostics",
+            "pack_provenance": "pack_provenance_diagnostics",
+            "legacy_vocabulary": "legacy_vocabulary_diagnostics",
+            "v26_shape": "v26_shape_diagnostics",
+        }[category]
+        target[field] = [diagnostic]
+
+        monkeypatch.setattr(gate, "build_template_index", lambda: {"templates": [{
+            "id": "image/example",
+            "path": "ready_templates/image/example.py",
+            "source_scope": "repo",
+            "indexed": True,
+        }]})
+        monkeypatch.setattr(gate, "build_readability_inventory", lambda: SimpleNamespace(entries=[]))
+        monkeypatch.setattr(gate, "_check_template", lambda *_args, **_kwargs: target)
+        report = gate.build_strict_ready_report()
+
+        assert report["ok"] is False
+        assert report["summary"]["enforced_errors"] == 1
+        assert [item["category"] for item in report["diagnostics"]] == [category]
+        assert gate.main(["--json"]) == 1
+        assert json.loads(capsys.readouterr().out)["ok"] is False
+
+        target[field] = []
+
+
 def test_static_drift_diagnostics_report_public_contract_mismatch(monkeypatch) -> None:
     class _Contract:
         def to_dict(self) -> dict[str, object]:
@@ -102,6 +163,31 @@ def build():
 
     assert any(item["code"] == "v26_legacy_ready_template_call" for item in diagnostics)
     assert all(item["severity"] == "warning" and item["enforced"] is False for item in diagnostics)
+
+
+def test_v26_shape_accepts_canonical_flat_new_workflow_assignment(tmp_path: Path) -> None:
+    template = tmp_path / "flat.py"
+    template.write_text(
+        """
+from vibecomfy.templates import ReadyMetadata, new_workflow
+
+READY_METADATA = ReadyMetadata.build(capability='image')
+
+def build():
+    wf = new_workflow(READY_METADATA, source_path=__file__)
+    return wf.finalize({})
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    diagnostics = gate._v26_shape_diagnostics(
+        ready_id="image/flat",
+        path=template,
+        relative_path="ready_templates/image/flat.py",
+        enforced=True,
+    )
+
+    assert not any(item["code"] == "v26_new_workflow_context_count" for item in diagnostics)
 
 
 def test_legacy_vocabulary_diagnostic_flips_per_target_ok_false(monkeypatch) -> None:
@@ -272,6 +358,3 @@ def build():
     assert "ReadyMetadata.build emits derivable field 'source_workflow'." in messages
     assert "ReadyMetadata.build emits derivable field 'provenance'." in messages
     assert all(item["severity"] == "error" and item["enforced"] is True for item in diagnostics)
-
-
-

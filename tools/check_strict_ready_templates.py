@@ -442,22 +442,41 @@ def _v26_shape_diagnostics(
         if isinstance(stmt, ast.With)
         and any(_is_new_workflow_context(item) for item in stmt.items)
     ]
-    if len(with_blocks) != 1:
+    flat_assignments = [
+        stmt
+        for stmt in build.body
+        if isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+        and stmt.targets[0].id == "wf"
+        and isinstance(stmt.value, ast.Call)
+        and _call_name(stmt.value) == "new_workflow"
+    ]
+    if len(with_blocks) + len(flat_assignments) != 1:
         diagnostics.append(
             _diagnostic(
                 code="v26_new_workflow_context_count",
-                message="build() must contain exactly one top-level `with new_workflow(...) as wf:` block.",
+                message=(
+                    "build() must contain exactly one top-level `with new_workflow(...) as wf:` "
+                    "block or `wf = new_workflow(...)` assignment."
+                ),
                 ready_id=ready_id,
                 target=f"{relative_path}:{build.lineno}",
                 severity="error",
                 category=V26_SHAPE_CATEGORY,
                 enforced=enforced,
-                detail={"count": len(with_blocks)},
+                detail={"with_blocks": len(with_blocks), "flat_assignments": len(flat_assignments)},
             )
         )
         with_range = None
-    else:
+    elif with_blocks:
         with_range = (with_blocks[0].lineno, getattr(with_blocks[0], "end_lineno", with_blocks[0].lineno))
+    else:
+        # ``new_workflow()`` eagerly binds the active workflow and the canonical
+        # generated-template emitter uses this flat form.  There is no lexical
+        # range to validate for wrapper calls in this shape; ``finalize()``
+        # releases the binding at the end of build().
+        with_range = None
 
     var_classes: dict[str, str] = {}
     for node in ast.walk(build):
@@ -858,6 +877,7 @@ def _flatten_diagnostics(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         diagnostics.extend(target.get("pack_validation_diagnostics", []))
         diagnostics.extend(target.get("pack_provenance_diagnostics", []))
         diagnostics.extend(target.get("legacy_vocabulary_diagnostics", []))
+        diagnostics.extend(target.get("v26_shape_diagnostics", []))
     return sorted(diagnostics, key=lambda item: (item["ready_id"], item["category"], item["code"], item["target"]))
 
 
