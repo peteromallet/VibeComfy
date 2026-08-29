@@ -3610,6 +3610,21 @@ def run_executor(
     altering its events or serialized result. ``threaded`` is imported lazily
     to keep the shared kernel free of mode branches below this seam.
     """
+    # Every configured provider route is remote or may delegate to a
+    # subprocess whose network behavior is not locally attested. Refuse the
+    # whole turn before host-port construction, mode resolution, research
+    # tools, registry/schema lookup, or any model/provider dispatch. A partial
+    # "offline research" mode would silently leave provider traffic enabled.
+    if not request.network:
+        return ExecutorResult.failure(
+            kind="NetworkCapabilityRefused",
+            stage="configuration",
+            message=(
+                "Request refused because `network=false`; no configured "
+                "provider backend is attested as local and offline."
+            ),
+        )
+
     ports = host_ports or _legacy_host_ports()
     try:
         mode = resolve_orchestration_mode(request)

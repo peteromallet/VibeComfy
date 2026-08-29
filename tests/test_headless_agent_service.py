@@ -95,6 +95,35 @@ def test_run_headless_blocked_when_not_ready(
     assert (output_dir / "flow_metadata.json").is_file()
 
 
+def test_run_headless_network_denial_skips_readiness_and_fails_truthfully(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    svc = _import_service()
+
+    from vibecomfy.agent.contracts import HeadlessAgentRequest
+
+    def _unexpected_readiness(request: HeadlessAgentRequest) -> dict[str, Any]:
+        raise AssertionError("network-disabled request probed provider readiness")
+
+    monkeypatch.setattr(svc, "_check_live_readiness", _unexpected_readiness)
+    request = HeadlessAgentRequest(
+        query="research this graph",
+        network=False,
+        dry_run=True,
+        output_dir=tmp_path / "out",
+    )
+
+    result = svc.run_headless(request, entrypoint="test")
+
+    assert result.status == "executor_failure"
+    assert result.ok is False
+    assert result.response["failure_kind"] == "NetworkCapabilityRefused"
+    assert result.readiness["ready"] is False
+    assert "network=false" in (result.error or "")
+
+
 def test_run_headless_dry_run_status(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

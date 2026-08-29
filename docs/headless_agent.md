@@ -79,7 +79,7 @@ Important flags:
 | `--dry-run` | Classify-only executor mode after readiness passes; skips research, implementation, and reply phases. |
 | `--research auto|required|disabled` | Harness metadata describing the expected research policy. |
 | `--apply` | Signal intent to apply a produced candidate graph. |
-| `--network`, `--no-network` | Allow or disallow network use by phases that support it. |
+| `--network`, `--no-network` | `--network` permits the provider-backed turn. `--no-network` refuses before provider readiness and executor dispatch because configured provider/subprocess backends are not locally attested as offline; it does not claim partial offline execution. |
 | `--timeout SECONDS` | Best-effort per-turn timeout metadata/control. |
 | `--json` | Print the full result envelope for tools and subprocess callers. |
 

@@ -27,6 +27,7 @@ def test_headless_request_to_executor_request() -> None:
     assert executor_request.session_id == "session-1"
     assert executor_request.profile == "default"
     assert executor_request.idempotency_key == "idem-1"
+    assert executor_request.network is True
     assert executor_request.interaction_mode == "answer_only"
     assert executor_request.max_batches is None
     assert {field.name for field in fields(executor_request)} == {
@@ -37,6 +38,7 @@ def test_headless_request_to_executor_request() -> None:
         "profile",
         "idempotency_key",
         "client_graph_hash",
+        "network",
         "client_structural_graph_hash",
         "client_live_canvas_token",
         "expected_baseline_graph_hash",
@@ -186,6 +188,7 @@ def test_headless_request_from_payload_round_trip() -> None:
     assert headless.network is False
     assert headless.timeout == 120.0
     assert headless.extra == {"key": "value"}
+    assert headless.to_executor_request().network is False
     assert headless.additive is False
     assert "additive" in headless.to_dict()
     assert headless.to_dict()["additive"] is False

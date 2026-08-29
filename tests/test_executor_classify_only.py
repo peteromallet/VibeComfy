@@ -111,3 +111,58 @@ def test_full_run_does_not_skip_phases_when_classify_only_false(
     assert result.ok is True
     assert result.reply == "reply text"
     assert len(reply_calls) == 1
+
+
+def test_network_disabled_refuses_before_host_or_pipeline_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.executor import core as executor_core
+
+    def _unexpected(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("network-disabled request reached executor dispatch")
+
+    monkeypatch.setattr(executor_core, "_legacy_host_ports", _unexpected)
+    monkeypatch.setattr(executor_core, "resolve_orchestration_mode", _unexpected)
+    monkeypatch.setattr(executor_core, "_run_staged_executor", _unexpected)
+
+    result = run_executor(
+        ExecutorRequest(query="research and edit this graph", network=False),
+        classify_only=True,
+    )
+
+    assert result.ok is False
+    assert result.failure_kind == "NetworkCapabilityRefused"
+    assert result.failure_stage == "configuration"
+    assert "network=false" in (result.failure_message or "")
+    assert "local and offline" in (result.failure_message or "")
+
+
+def test_network_enabled_preserves_normal_executor_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.executor import core as executor_core
+    from vibecomfy.executor.contracts import ExecutorResult
+
+    ports = object()
+    sentinel = ExecutorResult.success(reply="dispatched")
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(executor_core, "_legacy_host_ports", lambda: ports)
+    monkeypatch.setattr(
+        executor_core,
+        "resolve_orchestration_mode",
+        lambda request: "staged",
+    )
+
+    def _run_staged(request: ExecutorRequest, **kwargs: Any) -> ExecutorResult:
+        seen["request"] = request
+        seen["host_ports"] = kwargs["host_ports"]
+        return sentinel
+
+    monkeypatch.setattr(executor_core, "_run_staged_executor", _run_staged)
+
+    result = run_executor(ExecutorRequest(query="continue", network=True))
+
+    assert result is sentinel
+    assert seen["request"].network is True
+    assert seen["host_ports"] is ports

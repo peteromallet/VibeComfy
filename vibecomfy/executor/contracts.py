@@ -1072,6 +1072,10 @@ class ExecutorRequest:
     session_id: str | None = None
     profile: str | None = None
     idempotency_key: str | None = None
+    # Request-scoped outbound capability. False is a hard fail-closed policy:
+    # every configured model/provider path may use network or a subprocess
+    # whose network behavior cannot be attested locally.
+    network: bool = True
     client_graph_hash: str | None = None
     client_structural_graph_hash: str | None = None
     client_live_canvas_token: str | None = None
@@ -1117,6 +1121,8 @@ class ExecutorRequest:
                 "max_batches",
                 coerce_max_batches(self.max_batches, field_name="max_batches"),
             )
+        if not isinstance(self.network, bool):
+            raise ValueError("ExecutorRequest `network` must be a boolean.")
         if self.expect_graph_changed is not None and not isinstance(
             self.expect_graph_changed, bool
         ):
@@ -1169,6 +1175,8 @@ class ExecutorRequest:
             payload["profile"] = self.profile
         if self.idempotency_key is not None:
             payload["idempotency_key"] = self.idempotency_key
+        if not self.network:
+            payload["network"] = False
         if self.client_graph_hash is not None:
             payload["client_graph_hash"] = self.client_graph_hash
         if self.client_structural_graph_hash is not None:
@@ -1247,6 +1255,9 @@ class ExecutorRequest:
         idempotency_key = payload.get("idempotency_key")
         if idempotency_key is not None and not isinstance(idempotency_key, str):
             raise ValueError("ExecutorRequest `idempotency_key` must be a string or null.")
+        network = payload.get("network", True)
+        if not isinstance(network, bool):
+            raise ValueError("ExecutorRequest `network` must be a boolean.")
         client_graph_hash = payload.get("client_graph_hash")
         if client_graph_hash is not None and not isinstance(client_graph_hash, str):
             raise ValueError("ExecutorRequest `client_graph_hash` must be a string or null.")
@@ -1290,6 +1301,7 @@ class ExecutorRequest:
             session_id=session_id,
             profile=profile,
             idempotency_key=idempotency_key,
+            network=network,
             client_graph_hash=client_graph_hash,
             client_structural_graph_hash=client_structural_graph_hash,
             client_live_canvas_token=client_live_canvas_token,

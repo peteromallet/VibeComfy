@@ -215,36 +215,44 @@ def run_headless(
     if scenario_id:
         executor_request = replace(executor_request, scenario_id=str(scenario_id))
 
-    try:
-        readiness = _check_live_readiness(request)
-    except Exception as exc:
-        LOGGER.warning("headless could not resolve profile for readiness: %s", exc, exc_info=True)
+    if executor_request.network:
+        try:
+            readiness = _check_live_readiness(request)
+        except Exception as exc:
+            LOGGER.warning("headless could not resolve profile for readiness: %s", exc, exc_info=True)
+            readiness = {
+                "ready": False,
+                "reason": f"Could not resolve profile: {exc}",
+            }
+
+        if not readiness.get("ready"):
+            error = readiness.get("reason") or "Provider is not ready."
+            response = {"ok": False, "error": error}
+            artifacts = _synthesize_artifacts(
+                request=request,
+                result=None,
+                response=response,
+                output_dir=output_dir,
+                status="blocked_prerequisite",
+                readiness=readiness,
+                entrypoint=entrypoint,
+            )
+            return HeadlessAgentResult(
+                status="blocked_prerequisite",
+                ok=False,
+                response=response,
+                artifacts=artifacts,
+                readiness=readiness,
+                error=error,
+                request=request,
+            )
+    else:
+        # Do not probe a provider that this request is forbidden to use.
+        # run_executor owns the typed fail-closed refusal returned below.
         readiness = {
             "ready": False,
-            "reason": f"Could not resolve profile: {exc}",
+            "reason": "Provider readiness skipped because `network=false`.",
         }
-
-    if not readiness.get("ready"):
-        error = readiness.get("reason") or "Provider is not ready."
-        response = {"ok": False, "error": error}
-        artifacts = _synthesize_artifacts(
-            request=request,
-            result=None,
-            response=response,
-            output_dir=output_dir,
-            status="blocked_prerequisite",
-            readiness=readiness,
-            entrypoint=entrypoint,
-        )
-        return HeadlessAgentResult(
-            status="blocked_prerequisite",
-            ok=False,
-            response=response,
-            artifacts=artifacts,
-            readiness=readiness,
-            error=error,
-            request=request,
-        )
     from vibecomfy.comfy_nodes.agent.executor_durable import (  # noqa: PLC0415
         maybe_write_executor_only_durable_turn,
     )
@@ -284,7 +292,11 @@ def run_headless(
         request=request,
     )
 
-    status = "dry_run" if request.dry_run else ("success" if result.ok else "executor_failure")
+    status = (
+        "dry_run"
+        if request.dry_run and result.ok
+        else ("success" if result.ok else "executor_failure")
+    )
     artifacts = _synthesize_artifacts(
         request=request,
         result=result,
@@ -317,11 +329,11 @@ def run_headless(
 
     return HeadlessAgentResult(
         status=status,
-        ok=result.ok if not request.dry_run else True,
+        ok=result.ok,
         response=response,
         artifacts=artifacts,
         readiness=readiness,
-        error=response.get("error") if not result.ok and not request.dry_run else None,
+        error=response.get("error") if not result.ok else None,
         request=request,
         needs_input=(
             typed_ambiguity

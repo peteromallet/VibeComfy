@@ -74,7 +74,8 @@ class HeadlessAgentRequest:
       by a model call unless the profile/classifier short-circuits.
     * ``apply=True`` marks the caller's intent to apply an edited graph when
       the executor produces a candidate.  It does not bypass eligibility gates.
-    * ``network=True`` permits research phases to call external services.
+    * ``network=False`` refuses the provider-backed turn before readiness or
+      executor dispatch; no configured backend is attested as local/offline.
     * ``timeout`` overrides the default per-turn timeout when supported.
     * ``additive=True`` marks the request as an additive restore (the caller
       intentionally removed a feature and now asks to re-add it).  This is an
@@ -232,6 +233,7 @@ class HeadlessAgentRequest:
             session_id=session_id,
             profile=self.profile,
             idempotency_key=self.idempotency_key,
+            network=self.network,
             interaction_mode=self.interaction_mode,
             expect_graph_changed=self.expect_graph_changed,
             max_batches=self.max_batches,

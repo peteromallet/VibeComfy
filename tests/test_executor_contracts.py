@@ -179,6 +179,7 @@ class TestExecutorRequest:
         assert req.client_live_canvas_token is None
         assert req.expected_baseline_graph_hash is None
         assert req.expected_baseline_graph_hash_present is False
+        assert req.network is True
 
     def test_full_request(self) -> None:
         graph = {"nodes": []}
@@ -218,6 +219,33 @@ class TestExecutorRequest:
         # Non-bool junk -> None, never raises.
         junk = ExecutorRequest.from_payload({"query": "x", "on_demand_schemas": "yes"})
         assert junk.on_demand_schemas is None
+
+    def test_network_capability_serializes_denial_and_round_trips(self) -> None:
+        denied = ExecutorRequest(query="x", network=False)
+        payload = denied.to_dict()
+
+        assert payload["network"] is False
+        assert ExecutorRequest.from_payload(payload).network is False
+
+        enabled = ExecutorRequest.from_payload({"query": "x", "network": True})
+        assert enabled.network is True
+        assert "network" not in enabled.to_dict()
+
+    def test_network_capability_rejects_non_boolean_values(self) -> None:
+        with pytest.raises(ValueError, match="network"):
+            ExecutorRequest(query="x", network="false")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="network"):
+            ExecutorRequest.from_payload({"query": "x", "network": "false"})
+
+    def test_unknown_payload_field_does_not_override_network_denial(self) -> None:
+        request = ExecutorRequest.from_payload({
+            "query": "x",
+            "network": False,
+            "future_network_policy": {"network": True},
+        })
+
+        assert request.network is False
+        assert request.to_dict() == {"query": "x", "network": False}
 
     def test_to_dict_minimal(self) -> None:
         req = ExecutorRequest(query="hello")

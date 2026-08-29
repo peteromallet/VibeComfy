@@ -108,13 +108,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--network",
         default=True,
         action="store_true",
-        help="Allow research phases to use the network (default).",
+        help="Allow provider-backed agent execution (default).",
     )
     parser.add_argument(
         "--no-network",
         dest="network",
         action="store_false",
-        help="Disallow research phases from using the network.",
+        help="Refuse before provider readiness or executor dispatch.",
     )
     parser.add_argument(
         "--timeout",
