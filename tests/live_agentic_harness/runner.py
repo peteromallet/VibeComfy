@@ -47,6 +47,7 @@ from .failure_analysis import (
     recommendations_for_run,
 )
 from .scenario_manifest import discover_manifest_scenarios
+from .output_paths import authorized_output_dir
 from .adapter import _HARNESS_DEFAULT_TRANSPORT, _TRANSPORT_SELECTING_ENV_KEYS
 from .scenario_obligations import scenario_expects_graph_changed
 
@@ -104,13 +105,11 @@ def _load_scenario(path: Path) -> dict[str, Any]:
 
 
 def _output_dir_for(output_base: Any, tag: str, scenario_id: str) -> Path:
-    base = Path(output_base) if output_base else Path("out/agentic")
-    return Path(base) / tag / scenario_id
+    return authorized_output_dir(output_base, tag, scenario_id)
 
 
 def _run_dir_for(output_base: Any, tag: str) -> Path:
-    base = Path(output_base) if output_base else Path("out/agentic")
-    return Path(base) / tag
+    return authorized_output_dir(output_base, tag)
 
 
 def _trim(s: str) -> str:
@@ -345,17 +344,10 @@ def _persist_scenario_summary(summary: dict[str, Any], output_base: Any, tag: st
     scenario_id = str(summary.get("scenario_id") or "")
     if not scenario_id:
         return
-    output_dir = Path(summary.get("output_dir") or _output_dir_for(output_base, tag, scenario_id))
+    output_dir = _output_dir_for(output_base, tag, scenario_id)
     _write_json_atomic(output_dir / "agentic_summary.json", summary)
 
 
-def _persist_canonical_scenario_summary(
-    summary: dict[str, Any],
-    output_base: Any,
-    tag: str,
-    scenario_id: str,
-) -> None:
-    _write_json_atomic(_output_dir_for(output_base, tag, scenario_id) / "agentic_summary.json", summary)
 
 
 def _attempt_tag(tag: str, scenario_id: str, attempt: int) -> str:
@@ -1156,12 +1148,6 @@ def run_tag(
                 ):
                     final_summary["guard"]["score_class"] = "undetermined"
                 record_result(idx, final_summary)
-                _persist_canonical_scenario_summary(
-                    final_summary,
-                    output_base,
-                    tag,
-                    sid,
-                )
 
         threads = [
             threading.Thread(target=worker, args=(i, p), daemon=True)

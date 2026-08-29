@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any, Mapping
 
-import threading
+from .output_paths import authorized_output_dir
 
 _ENV_PIN_LOCK = threading.Lock()
 
@@ -185,9 +186,8 @@ def run_headless_scenario(
     if not query:
         raise ValueError("Scenario must contain a non-empty 'query'.")
 
-    base = Path(output_base) if output_base is not None else Path("out") / "agentic"
     scenario_id = str(scenario.get("id", "scenario"))
-    output_dir = base / tag / scenario_id
+    output_dir = authorized_output_dir(output_base, tag, scenario_id)
 
     graph = scenario.get("graph")
     if graph is not None and not isinstance(graph, dict):
