@@ -189,6 +189,8 @@ def compact_widget_names_for_node(
         # All widget_N / None — fall through to live providers.
 
     linked = _resolved_linked_input_names(node, linked_inputs)
+    best: WidgetNameResolution | None = None
+    best_score: tuple[int, int, int] | None = None
     for source, names in _candidate_name_sources(
         node,
         class_type,
@@ -207,7 +209,33 @@ def compact_widget_names_for_node(
                 full_input_order=source in _FULL_INPUT_ORDER_SOURCES,
             ),
         )
-        return _align_names(prepared, count, source)
+        candidate = _align_names(prepared, count, source)
+        # S3: pick the best candidate, not just the first
+        warning_count = len(candidate.warnings)
+        has_widget = any(isinstance(n, str) and n.startswith("widget_") for n in candidate.names)
+        # Prefer candidates where named fields align with non-None values
+        # (StyleModelApply: strength should be at index 2 where value is 1.0, not 0 where value is None)
+        values = _compact_values(node)
+        mismatch = 0
+        if isinstance(values, list):
+            for idx, name in enumerate(candidate.names):
+                if idx < len(values):
+                    val = values[idx]
+                    is_named = isinstance(name, str) and not name.startswith("widget_")
+                    if is_named and val is None:
+                        mismatch += 1
+                    if not is_named and val is not None and isinstance(val, (int, float, str)) and val not in (None,):
+                        # widget_N mapped to a real value is also suspicious if alternative exists
+                        # but less penalized than named->None
+                        pass
+        score = (mismatch, warning_count, 1 if has_widget else 0, 0 if candidate.complete else 1)
+        if best is None or score < best_score:  # type: ignore[operator]
+            best = candidate
+            best_score = score
+            if candidate.complete and warning_count == 0 and not has_widget and mismatch == 0:
+                break
+    if best is not None:
+        return best
 
     return _align_names([], count, "unresolved")
 
