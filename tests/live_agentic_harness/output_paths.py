@@ -42,6 +42,11 @@ def authorized_output_dir(
     fragments = [_validate_fragment("tag", tag)]
     if scenario_id is not None:
         fragments.append(_validate_fragment("scenario_id", scenario_id))
+
+    # Bind relative bases to the caller's current directory. The returned
+    # capability must keep referring to this directory if the caller later
+    # changes CWD (the child runner does exactly that).
+    base = base.absolute()
     candidate = base.joinpath(*fragments)
 
     try:

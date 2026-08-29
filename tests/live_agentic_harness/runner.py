@@ -340,12 +340,43 @@ def _failure_summary(
     return summary
 
 
-def _persist_scenario_summary(summary: dict[str, Any], output_base: Any, tag: str) -> None:
+def _canonicalize_summary_output(
+    summary: dict[str, Any],
+    *,
+    output_base: Any,
+    tag: str,
+    scenario_id: str,
+) -> Path:
+    """Bind child-reported identity and output location to runner authority."""
+    output_dir = _output_dir_for(output_base, tag, scenario_id)
+    summary["scenario_id"] = scenario_id
+    summary["output_dir"] = str(output_dir)
+    guard = summary.get("guard")
+    if isinstance(guard, dict) and "output_dir" in guard:
+        guard["output_dir"] = str(output_dir)
+    return output_dir
+
+
+def _persist_scenario_summary(
+    summary: dict[str, Any],
+    output_base: Any,
+    tag: str,
+    *,
+    summary_path_dir: Path | None = None,
+    canonical_tag: str | None = None,
+) -> None:
     scenario_id = str(summary.get("scenario_id") or "")
     if not scenario_id:
         return
-    output_dir = _output_dir_for(output_base, tag, scenario_id)
-    _write_json_atomic(output_dir / "agentic_summary.json", summary)
+    output_dir = _canonicalize_summary_output(
+        summary,
+        output_base=output_base,
+        tag=canonical_tag or tag,
+        scenario_id=scenario_id,
+    )
+    destination_dir = summary_path_dir or output_dir
+    _write_json_atomic(destination_dir / "agentic_summary.json", summary)
+
 
 
 
@@ -834,13 +865,22 @@ def run_single(
     (``_HARNESS_DEFAULT_TRANSPORT``), never to an ambient credential.
     """
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
+    if output_base is not None:
+        output_base = Path(output_base).absolute()
     from .adapter import run_headless_scenario
-
     path = Path(scenario_path)
     scenario = _load_scenario(path)
     scenario.setdefault("id", path.stem)
+    scenario_id = str(scenario.get("id") or path.stem)
+    scenario["id"] = scenario_id
     summary = run_headless_scenario(
         scenario, output_base=output_base, tag=tag, transport=transport
+    )
+    _canonicalize_summary_output(
+        summary,
+        output_base=output_base,
+        tag=tag,
+        scenario_id=scenario_id,
     )
     summary.setdefault("transport", transport)
     summary["guard"] = _guard_scenario_output(
@@ -879,6 +919,9 @@ def run_tag(
     to the canonical OpenRouter product route (``_HARNESS_DEFAULT_TRANSPORT``)
     — the no-flag default is pinned to OpenRouter, never an ambient/native pin.
     """
+    # Anchor the parent-selected base before child execution changes CWD.
+    if output_base is not None:
+        output_base = Path(output_base).absolute()
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
     if scenarios_dir is None:
         scenarios_dir = Path(__file__).with_name("scenarios")
@@ -900,10 +943,23 @@ def run_tag(
     tmpdir = Path(tempfile.mkdtemp(prefix="vibecomfy-runner-"))
     try:
         def record_result(idx: int, summary: dict[str, Any]) -> None:
+            sid = paths[idx].stem
+            attempt = int(summary.get("attempt") or 1)
+            _canonicalize_summary_output(
+                summary,
+                output_base=output_base,
+                tag=_attempt_tag(tag, sid, attempt),
+                scenario_id=sid,
+            )
             results[idx] = summary
-            results[idx].setdefault("scenario_id", paths[idx].stem)
             results[idx].setdefault("transport", transport)
-            _persist_scenario_summary(results[idx], output_base, tag)
+            _persist_scenario_summary(
+                results[idx],
+                output_base,
+                tag,
+                summary_path_dir=_output_dir_for(output_base, tag, sid),
+                canonical_tag=_attempt_tag(tag, sid, attempt),
+            )
             with lock:
                 completed = sum(1 for r in results if r)
                 run_summary = _persist_run_summary(
@@ -1085,6 +1141,12 @@ def run_tag(
                             elapsed_s=elapsed_s,
                         )
 
+                    _canonicalize_summary_output(
+                        final_summary,
+                        output_base=output_base,
+                        tag=attempt_run_tag,
+                        scenario_id=sid,
+                    )
                     retryable_infra = _is_retryable_infra_summary(final_summary)
                     attempts.append(_attempt_record(
                         final_summary,
