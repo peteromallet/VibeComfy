@@ -38,7 +38,7 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
 
     if json_mode:
         print(json.dumps(result.to_json(), indent=2, sort_keys=True))
-        return 0
+        return 1 if result.parity_broken else 0
 
     print(f"\nCorpus simulation: {rule_spec}")
     print(f"  templates affected: {result.templates_affected}")
@@ -61,4 +61,4 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
         print(f"\nSample diff ({affected[0]['template_id'] if affected else 'N/A'}):")
         print(result.sample_diff[:2000])
 
-    return 0
+    return 1 if result.parity_broken else 0

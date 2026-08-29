@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,41 +20,70 @@ if TYPE_CHECKING:
     from vibecomfy.schema import SchemaProvider  # noqa: F401
 
 
+def _module_import_context(path: Path) -> tuple[str, Path]:
+    """Return an importable module name and temporary sys.path root."""
+    package_parts: list[str] = []
+    package_dir = path.parent
+    while (package_dir / "__init__.py").is_file():
+        package_parts.append(package_dir.name)
+        package_dir = package_dir.parent
+    if package_parts:
+        module_name = ".".join((*reversed(package_parts), path.stem))
+        return module_name, package_dir
+    digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:16]
+    return f"vibecomfy_scratchpad_{path.stem}_{digest}", path.parent
+
+
 def load_scratchpad(
     path: str | Path,
     *,
     provenance_override: Provenance | None = None,
 ) -> VibeWorkflow:
-    path = Path(path)
+    path = Path(path).resolve()
     if provenance_override == "agent_generated":
         raise ValueError(
             "agent_generated provenance is reserved for "
             "vibecomfy.security.agent_generated_loader.load_agent_generated_scratchpad()"
         )
     provenance = provenance_override or _provenance_for_path(path)
-    spec = importlib.util.spec_from_file_location(f"vibecomfy_scratchpad_{path.stem}", path)
+    module_name, import_root = _module_import_context(path)
+    spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ValueError(f"Could not import scratchpad {path}")
     module = importlib.util.module_from_spec(spec)
-    require_confirmation(
-        operation="scratchpad_exec",
-        class_type=None,  # type: ignore[arg-type]
-        provenance=provenance,
-        capabilities=frozenset({"code_exec"}),
-        details={"path": str(path)},
-        ctx=current_gate_context(),
-    )
-    spec.loader.exec_module(module)
-    build = getattr(module, "build", None)
-    if build is None:
-        raise ValueError(f"Scratchpad {path} must define build()")
-    workflow = build()
-    if not isinstance(workflow, VibeWorkflow):
-        raise WorkflowBuildError(
-            f"Scratchpad build() must return VibeWorkflow, got {type(workflow).__name__}",
-            next_action="Update build() so it returns a VibeWorkflow instance, then run the scratchpad again.",
+    prior_module = sys.modules.get(module_name)
+    sys.modules[module_name] = module
+    import_root_str = str(import_root)
+    inserted_path = import_root_str not in sys.path
+    if inserted_path:
+        sys.path.insert(0, import_root_str)
+    try:
+        require_confirmation(
+            operation="scratchpad_exec",
+            class_type=None,  # type: ignore[arg-type]
+            provenance=provenance,
+            capabilities=frozenset({"code_exec"}),
+            details={"path": str(path)},
+            ctx=current_gate_context(),
         )
-    return workflow
+        spec.loader.exec_module(module)
+        build = getattr(module, "build", None)
+        if build is None:
+            raise ValueError(f"Scratchpad {path} must define build()")
+        workflow = build()
+        if not isinstance(workflow, VibeWorkflow):
+            raise WorkflowBuildError(
+                f"Scratchpad build() must return VibeWorkflow, got {type(workflow).__name__}",
+                next_action="Update build() so it returns a VibeWorkflow instance, then run the scratchpad again.",
+            )
+        return workflow
+    finally:
+        if inserted_path:
+            sys.path.remove(import_root_str)
+        if prior_module is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = prior_module
 
 
 def render_scratchpad(source: str, *, source_is_path: bool = False, schema_provider: SchemaProvider | None = None) -> str:

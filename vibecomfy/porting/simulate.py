@@ -1,14 +1,21 @@
-"""In-memory rule simulation for codemod experiments.
+"""Isolated rule simulation for codemod experiments.
 
 Provides :func:`simulate_rule` which applies text transforms to ready-template
 sources in memory, validates canonical parity via ``port_convert_workflow()``,
-and computes LOC deltas without modifying any files or ``emitter.py``.
+and computes LOC deltas without modifying any caller files or ``emitter.py``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import difflib
+import io
+import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,10 +103,168 @@ def _apply_rule(source: str, rule_name: str, rule_value: str) -> str:
     transform = _TRANSFORMS.get(rule_name)
     if transform is None:
         return source
-    # For boolean rules, apply only when value is truthy
-    if rule_value.lower() in ("true", "1", "yes", "on"):
+    normalized = rule_value.lower()
+    if normalized not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+        raise ValueError(
+            f"Invalid boolean value for {rule_name!r}: {rule_value!r}; "
+            "expected true/false, 1/0, yes/no, or on/off"
+        )
+    if normalized in {"true", "1", "yes", "on"}:
         return transform(source)
     return source
+
+
+class _ArtifactExecutionError(RuntimeError):
+    """A transformed artifact failed in the isolated worker."""
+
+    def __init__(self, stage: str, detail: str) -> None:
+        super().__init__(detail)
+        self.stage = stage
+
+
+def _artifact_source_root(path: Path) -> Path:
+    """Return the smallest tree that preserves the source package context."""
+    root = path.parent
+    if not (root / "__init__.py").is_file():
+        return root
+    while (root.parent / "__init__.py").is_file():
+        root = root.parent
+    return root
+
+
+def _materialize_transformed_source(
+    source_path: Path,
+    transformed: str,
+    destination: Path,
+) -> Path:
+    """Copy source context into *destination* and replace only the target file."""
+    source_path = source_path.resolve()
+    source_root = _artifact_source_root(source_path)
+    copied_root = destination / source_root.name
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        source_root,
+        copied_root,
+        ignore=shutil.ignore_patterns("__pycache__", ".git"),
+    )
+    transformed_path = copied_root / source_path.relative_to(source_root)
+    transformed_path.write_text(transformed, encoding="utf-8")
+    return transformed_path
+
+
+def _worker_environment() -> dict[str, str]:
+    env = dict(os.environ)
+    repo_root = str(_REPO_ROOT)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = repo_root if not existing else repo_root + os.pathsep + existing
+    env["PYTHONHASHSEED"] = "0"
+    return env
+
+
+def _run_artifact_worker(
+    path: Path,
+    *,
+    schema_mode: str,
+    convert: bool,
+) -> dict[str, Any]:
+    command = [
+        sys.executable,
+        "-m",
+        "vibecomfy.porting.simulate",
+        "--_artifact-worker",
+        str(path),
+        "--schema-mode",
+        schema_mode,
+    ]
+    if convert:
+        command.append("--convert")
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=_artifact_source_root(path).parent,
+            env=_worker_environment(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise _ArtifactExecutionError(
+            "isolated artifact worker",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise _ArtifactExecutionError(
+            "isolated artifact worker",
+            f"worker exited {completed.returncode}: {detail}",
+        )
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise _ArtifactExecutionError(
+            "isolated artifact worker",
+            f"invalid worker response: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise _ArtifactExecutionError(
+            "isolated artifact worker",
+            "invalid worker response: expected object",
+        )
+    if payload.get("ok") is not True:
+        raise _ArtifactExecutionError(
+            str(payload.get("stage") or "artifact execution"),
+            str(payload.get("error") or "worker reported failure"),
+        )
+    return payload
+
+
+def _artifact_worker_main(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--_artifact-worker", required=True)
+    parser.add_argument("--schema-mode", choices=("auto", "none"), default="none")
+    parser.add_argument("--convert", action="store_true")
+    args = parser.parse_args(argv)
+    path = Path(args._artifact_worker).resolve()
+    stage = "schema provider"
+    try:
+        schema_provider = (
+            get_schema_provider("auto") if args.schema_mode == "auto" else None
+        )
+        stage = "artifact load"
+        with contextlib.redirect_stdout(io.StringIO()):
+            loaded = load_port_source(str(path), schema_provider=schema_provider)
+            stage = "artifact compile"
+            api = loaded.workflow.compile("api")
+            payload: dict[str, Any] = {"ok": True, "api": api}
+            if args.convert:
+                stage = "transformed conversion"
+                conversion = port_convert_workflow(
+                    loaded.workflow,
+                    source_path=str(path),
+                    source_hash=loaded.source_hash,
+                    schema_provider=schema_provider,
+                    validate=True,
+                )
+                validation = conversion.validation
+                payload["validation"] = validation.to_json() if validation else None
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 0
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "stage": stage,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
 
 
 def simulate_rule(
@@ -137,6 +302,19 @@ def simulate_rule(
             parity_broken=0,
             error=f"Unknown rule: {rule_name!r}. Available: {sorted(_TRANSFORMS.keys())}",
         )
+    try:
+        _apply_rule("", rule_name, rule_value)
+    except ValueError as exc:
+        return SimulationResult(
+            rule_spec=rule_spec,
+            templates_total=0,
+            templates_affected=0,
+            loc_delta_total=0,
+            parity_preserved=0,
+            parity_broken=0,
+            error=str(exc),
+        )
+
 
     if schema_provider is None:
         schema_provider = get_schema_provider("auto")
@@ -232,53 +410,56 @@ def simulate_rule(
             sample_diff = "".join(diff_lines)
 
         entry["semantic_parity_ok"] = None
-        stage = "transformed source load"
+        schema_mode = "auto" if schema_provider is not None else "none"
+        artifact_paths: list[Path] = []
         try:
-            with tempfile.TemporaryDirectory(prefix="vibecomfy-port-simulate-") as tmp:
-                transformed_path = Path(tmp) / tpl_path.name
-                transformed_path.write_text(transformed, encoding="utf-8")
-                transformed_loaded = load_port_source(
-                    str(transformed_path),
-                    schema_provider=schema_provider,
+            with tempfile.TemporaryDirectory(
+                prefix="vibecomfy-port-simulate-"
+            ) as tmp:
+                temp_root = Path(tmp)
+                transformed_path = _materialize_transformed_source(
+                    tpl_path,
+                    transformed,
+                    temp_root / "transformed",
                 )
+                original_path = _materialize_transformed_source(
+                    tpl_path,
+                    original_source,
+                    temp_root / "original",
+                )
+                artifact_paths.extend((transformed_path, original_path))
+                transformed_payload = _run_artifact_worker(
+                    transformed_path,
+                    schema_mode=schema_mode,
+                    convert=True,
+                )
+                transformed_api = transformed_payload["api"]
+                original_payload = _run_artifact_worker(
+                    original_path,
+                    schema_mode=schema_mode,
+                    convert=False,
+                )
+                original_api = original_payload["api"]
 
-            stage = "transformed source compile"
-            transformed_api = transformed_loaded.workflow.compile("api")
-
-            stage = "transformed conversion"
-            conv_result = port_convert_workflow(
-                transformed_loaded.workflow,
-                source_path=str(tpl_path),
-                source_hash=transformed_loaded.source_hash,
-                schema_provider=schema_provider,
-                validate=True,
-            )
-            validation = conv_result.validation
-            conversion_parity_ok = bool(
-                validation is not None
-                and validation.ok
-                and validation.parity_ok is True
-                and validation.parity_error is None
-            )
-            entry["conversion_parity_ok"] = conversion_parity_ok
-
-            stage = "original baseline load"
-            original_loaded = load_port_source(
-                str(tpl_path),
-                schema_provider=schema_provider,
-            )
-            stage = "original baseline compile"
-            original_api = original_loaded.workflow.compile("api")
             semantic_parity_ok, semantic_diffs = compile_equivalent(
                 original_api,
                 transformed_api,
             )
             entry["semantic_parity_ok"] = semantic_parity_ok
+            validation = transformed_payload.get("validation")
+            conversion_parity_ok = bool(
+                isinstance(validation, dict)
+                and validation.get("ok") is True
+                and validation.get("parity_ok") is True
+                and validation.get("parity_error") is None
+            )
+            entry["conversion_parity_ok"] = conversion_parity_ok
 
             parity_diffs = list(semantic_diffs)
-            if validation is not None:
+            if isinstance(validation, dict):
                 parity_diffs.extend(
-                    f"conversion: {diff}" for diff in validation.parity_diffs
+                    f"conversion: {diff}"
+                    for diff in validation.get("parity_diffs", [])
                 )
             if parity_diffs:
                 entry["parity_diffs"] = parity_diffs
@@ -289,18 +470,20 @@ def simulate_rule(
                 errors.append("transformed workflow diverged from original")
             if not conversion_parity_ok:
                 detail = None
-                if validation is not None:
-                    detail = validation.parity_error or validation.error
+                if isinstance(validation, dict):
+                    detail = validation.get("parity_error") or validation.get("error")
                 errors.append(
                     "transformed conversion parity failed"
                     + (f": {detail}" if detail else "")
                 )
             if errors:
                 entry["error"] = "; ".join(errors)
-        except Exception as exc:
+        except _ArtifactExecutionError as exc:
+            detail = str(exc)
+            for artifact_path in artifact_paths:
+                detail = detail.replace(str(artifact_path), "<artifact>")
             entry["parity_ok"] = False
-            entry["error"] = f"{stage} failed: {type(exc).__name__}: {exc}"
-
+            entry["error"] = f"{exc.stage} failed: {detail}"
         per_template.append(entry)
 
     result.per_template = per_template
@@ -318,6 +501,10 @@ def simulate_rule(
     result.parity_broken = result.templates_total - result.parity_preserved
     return result
 
+
+if __name__ == "__main__":
+    if "--_artifact-worker" in sys.argv:
+        raise SystemExit(_artifact_worker_main(sys.argv[1:]))
 
 __all__ = [
     "SimulationPerTemplate",

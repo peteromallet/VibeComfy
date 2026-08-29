@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -142,3 +143,79 @@ def test_simulate_reports_missing_requested_template_consistently(
     assert result.per_template[0]["error"] == (
         "template not found in corpus: image/missing"
     )
+
+
+def test_simulate_runs_copied_artifacts_with_sibling_imports_and_isolated_side_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = tmp_path / "fixture_package"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    state = package / "state.txt"
+    state.write_text("0", encoding="utf-8")
+    (package / "sibling.py").write_text(
+        """from pathlib import Path
+
+state_path = Path(__file__).with_name("state.txt")
+value = int(state_path.read_text()) + 1
+state_path.write_text(str(value))
+""",
+        encoding="utf-8",
+    )
+    template_path = package / "template.py"
+    template_path.write_text(
+        """# vibecomfy: generated
+from .sibling import value
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+
+def build():
+    wf = VibeWorkflow(id="isolated", source=WorkflowSource(id="isolated"))
+    wf.nodes["1"] = VibeNode(
+        id="1", class_type="SaveImage", inputs={"filename_prefix": str(value)}
+    )
+    # _set_id_map( is removed only from the copied artifact
+    return wf
+""",
+        encoding="utf-8",
+    )
+    template_id = "image/isolated"
+    snapshot = SimpleNamespace(
+        templates_list=[
+            {"id": template_id, "path": str(template_path), "marker": "generated"}
+        ]
+    )
+    monkeypatch.setattr(simulate, "build_corpus_snapshot", lambda _root: snapshot)
+    result = simulate.simulate_rule(
+        "drop_set_id_map=true",
+        template_ids=[template_id],
+        schema_provider=None,
+    )
+
+    assert result.parity_broken == 0
+    assert result.per_template[0]["parity_ok"] is True
+    assert result.per_template[0]["changed"] is True
+    assert state.read_text(encoding="utf-8") == "0"
+    repeat = simulate.simulate_rule(
+        "drop_set_id_map=true",
+        template_ids=[template_id],
+        schema_provider=None,
+    )
+    assert json.dumps(repeat.to_json(), sort_keys=True) == json.dumps(
+        result.to_json(), sort_keys=True
+    )
+
+
+def test_simulate_rejects_malformed_boolean_without_running_corpus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_discovered(_root: Path) -> object:
+        raise AssertionError("corpus discovery must not run for malformed booleans")
+
+    monkeypatch.setattr(simulate, "build_corpus_snapshot", fail_if_discovered)
+    result = simulate.simulate_rule("drop_set_id_map=maybe")
+
+    assert result.parity_broken == 0
+    assert result.error is not None
+    assert "Invalid boolean value" in result.error

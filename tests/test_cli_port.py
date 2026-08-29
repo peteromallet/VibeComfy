@@ -10,8 +10,10 @@ import pytest
 
 import vibecomfy.commands.port as port_commands
 import vibecomfy.commands.port._export as port_export_cmd
+import vibecomfy.commands.port._simulate as port_simulate_cmd
 from vibecomfy.cli import build_parser
 from vibecomfy.commands.port import _cmd_port_check, _cmd_port_convert, _cmd_port_doctor_all, _cmd_port_export, _cmd_port_lint, _cmd_port_rules, _cmd_port_simulate, _cmd_port_validate_call, _cmd_port_widgets
+from vibecomfy.porting import simulate
 
 from tests._cli_helpers import (
     _load_emitted_provenance,
@@ -854,6 +856,32 @@ def test_port_simulate_unknown_rule_returns_nonzero(capsys: pytest.CaptureFixtur
     assert code == 1
     # Should have some error output
     assert captured.err or captured.out
+
+
+def test_port_simulate_parity_broken_returns_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        port_simulate_cmd,
+        "simulate_rule",
+        lambda *args, **kwargs: simulate.SimulationResult(
+            rule_spec="drop_set_id_map=true",
+            templates_total=1,
+            templates_affected=1,
+            loc_delta_total=-1,
+            parity_preserved=0,
+            parity_broken=1,
+            per_template=[],
+        ),
+    )
+
+    code = _cmd_port_simulate(
+        argparse.Namespace(rule="drop_set_id_map=true", all=False, json=True)
+    )
+
+    assert code == 1
+    assert json.loads(capsys.readouterr().out)["parity_broken"] == 1
 
 
 # ── port convert dry-run diff ───────────────────────────────────────────
