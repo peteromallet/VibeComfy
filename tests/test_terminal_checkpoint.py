@@ -21,6 +21,7 @@ from vibecomfy.porting.edit.checkpoint import (
     TERMINAL_STATE_NO_CANDIDATE,
     TERMINAL_STATE_NO_OP,
     TERMINAL_STATE_UNDETERMINED,
+    TERMINAL_STATES,
     CheckpointLineage,
     LineageError,
     TerminalCloseError,
@@ -30,6 +31,7 @@ from vibecomfy.porting.edit.checkpoint import (
     recover_terminal_checkpoint,
 )
 from vibecomfy.porting.edit import EditSession, apply_edit_tool_call
+from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
 
 
 _FLAT = Path(__file__).parent / "fixtures" / "agent_edit" / "flat.json"
@@ -89,6 +91,48 @@ def test_seven_row_table_is_verbatim_and_clarify_is_not_replay_failure() -> None
     )
     assert clarify.replay_verified is False
     assert "rejected_candidate" not in clarify.audit
+
+@pytest.mark.parametrize("terminal_state", sorted(TERMINAL_STATES))
+@pytest.mark.parametrize("eligibility_applyable", [False, True])
+def test_stamp_terminal_state_clamps_actionable_eligibility(
+    terminal_state: str,
+    eligibility_applyable: bool,
+) -> None:
+    """Only the applied terminal row may expose an actionable candidate."""
+    stamped = stamp_terminal_state(
+        {
+            "apply_eligible": True,
+            "canvas_apply_allowed": True,
+            "apply_allowed": True,
+            "queue_allowed": True,
+        },
+        terminal_state=terminal_state,
+        eligibility={
+            "applyable": eligibility_applyable,
+            "diagnostic_applyable": eligibility_applyable,
+        },
+    )
+
+    assert stamped["apply_eligible"] is (
+        terminal_state == TERMINAL_STATE_APPLIED and eligibility_applyable
+    )
+    # Preserve the supplied eligibility fact for diagnostics; the terminal
+    # state still owns the actionable top-level wire bit and apply gates.
+    assert stamped["eligibility"]["applyable"] is eligibility_applyable
+    if terminal_state != TERMINAL_STATE_APPLIED:
+        assert stamped["canvas_apply_allowed"] is False
+        assert stamped["apply_allowed"] is False
+        assert stamped["queue_allowed"] is False
+
+
+def test_stamp_terminal_state_clamps_existing_applyable_claim_without_eligibility() -> None:
+    stamped = stamp_terminal_state(
+        {"apply_eligible": True, "canvas_apply_allowed": True},
+        terminal_state=TERMINAL_STATE_NO_OP,
+    )
+
+    assert stamped["apply_eligible"] is False
+    assert stamped["canvas_apply_allowed"] is False
 
 
 def test_close_without_verified_replay_fails_closed() -> None:

@@ -1829,15 +1829,16 @@ def stamp_terminal_state(
     if eligibility is not None:
         eligibility_payload = dict(eligibility)
         stamped["eligibility"] = eligibility_payload
-        applyable = bool(eligibility_payload.get("applyable"))
-        stamped["apply_eligible"] = applyable
-        if terminal_state != "applied":
-            # S2 unify applyable/apply_eligible: keep apply_eligible = applyable
-            # (e8c20a staged 2 ops applied but apply_eligible false). Only
-            # gate canvas/queue when not applied; apply_eligible mirrors eligibility.
-            stamped["canvas_apply_allowed"] = False
-            stamped["apply_allowed"] = False
-            stamped["queue_allowed"] = False
+        if terminal_state == "applied":
+            stamped["apply_eligible"] = bool(eligibility_payload.get("applyable"))
+    if terminal_state != "applied":
+        # ``eligibility.applyable`` may retain a diagnostic fact supplied by
+        # the authority path, but the terminal row owns the actionable wire
+        # bit.  Only the applied row may expose apply_eligible=true.
+        stamped["apply_eligible"] = False
+        stamped["canvas_apply_allowed"] = False
+        stamped["apply_allowed"] = False
+        stamped["queue_allowed"] = False
     outcome = stamped.get("outcome")
     if isinstance(outcome, Mapping):
         outcome = dict(outcome)

@@ -10,9 +10,10 @@ Prove that adapt-route prompts include:
 - readiness notes derived from existing readiness data
 """
 
-from __future__ import annotations
-
+import copy
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ import pytest
 from vibecomfy.executor.contracts import (
     GraphFacts,
     ReadinessReport,
+    RevisionEvidence,
     TopologyFindings,
 )
 from vibecomfy.executor.revision_evidence import collect_graph_facts
@@ -41,6 +43,180 @@ def _make_simple_graph(*, nodes: list[dict] | None = None,
         "nodes": nodes or [],
         "links": links or [],
     }
+
+
+def _finalize_scoped_diff(
+    original: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    batch_turns: list[dict[str, Any]] | None = None,
+) -> RevisionEvidence:
+    """Run the terminal revision evidence finalizer with deterministic collectors."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+
+    state = SimpleNamespace(
+        task="test revision",
+        graph=original,
+        ui_payload=candidate,
+        request_payload={},
+        schema_provider=object(),
+        revision_evidence=RevisionEvidence(
+            topology=TopologyFindings(schema_available=True),
+            readiness=ReadinessReport(),
+        ),
+        report={},
+        artifacts=None,
+        revision_evidence_payload=None,
+        route="revise",
+        batch_turns=batch_turns or [],
+        batch_field_changes=(),
+        batch_noop_field_changes=(),
+        batch_exit_mode="",
+        batch_done_summary="",
+        batch_final_summary="",
+        user_message="",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        revision_evidence_path=tmp_path / "revision_evidence.json",
+    )
+
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_schema_provider_available",
+        lambda _provider: True,
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "collect_topology_evidence",
+        lambda *_args, **_kwargs: TopologyFindings(schema_available=True),
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "collect_readiness_evidence",
+        lambda *_args, **_kwargs: ReadinessReport(),
+    )
+    monkeypatch.setattr(agent_edit_module, "_extract_ready_metadata", lambda *_args: None)
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_extract_readiness_diagnostics",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_runtime_execution_requested",
+        lambda *_args: False,
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_request_no_gpu_detected",
+        lambda *_args: False,
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_localized_additive_scoped_evidence",
+        lambda current_state, **kwargs: (
+            current_state.revision_evidence.topology,
+            current_state.revision_evidence.readiness,
+            kwargs["candidate_topology"],
+            kwargs["candidate_readiness"],
+        ),
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_write_revision_evidence_artifact",
+        lambda *_args, **_kwargs: None,
+    )
+
+    agent_edit_module._finalize_revision_evidence_with_candidate(
+        state,
+        route="revise",
+        conversation_messages=None,
+    )
+    return state.revision_evidence
+
+
+def test_revision_finalizer_keeps_metadata_and_layout_only_hashes_no_diff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = _make_simple_graph(nodes=[{"id": 1, "class_type": "KSampler"}])
+    candidate = copy.deepcopy(original)
+    candidate["metadata"] = {"created_by": "layout-tool"}
+    candidate["groups"] = [{"title": "Layout", "bounding": [0, 0, 100, 100]}]
+    candidate["extra"] = {"ds": {"scale": 1.25}}
+
+    evidence = _finalize_scoped_diff(
+        original,
+        candidate,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    scoped = evidence.scoped_diff
+    assert scoped is not None
+    assert scoped.before_hash != scoped.after_hash
+    assert scoped.has_diff is False
+    assert scoped.candidate_eligible is False
+    assert "no_diff" in scoped.eligibility_blockers
+    assert evidence.no_candidate_reason == "no_changes"
+
+
+def test_revision_finalizer_does_not_promote_noop_landed_operation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = _make_simple_graph(nodes=[{"id": 1, "class_type": "KSampler"}])
+    batch_turns = [
+        {
+            "statements": [
+                {
+                    "statement_index": 0,
+                    "source": "add_node(...)",
+                    "ok": True,
+                    "landed": True,
+                    "op": {"op": "add_node", "node": {"id": 1}},
+                }
+            ]
+        }
+    ]
+
+    evidence = _finalize_scoped_diff(
+        original,
+        copy.deepcopy(original),
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        batch_turns=batch_turns,
+    )
+    scoped = evidence.scoped_diff
+    assert scoped is not None
+    assert scoped.has_diff is False
+    assert scoped.candidate_eligible is False
+    assert "no_diff" in scoped.eligibility_blockers
+    assert evidence.no_candidate_reason == "no_changes"
+
+
+def test_revision_finalizer_preserves_true_semantic_field_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = _make_simple_graph(
+        nodes=[{"id": 1, "class_type": "KSampler", "widgets_values": [20]}]
+    )
+    candidate = copy.deepcopy(original)
+    candidate["nodes"][0]["widgets_values"] = [25]
+
+    evidence = _finalize_scoped_diff(
+        original,
+        candidate,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    scoped = evidence.scoped_diff
+    assert scoped is not None
+    assert scoped.has_diff is True
+    assert scoped.changed_nodes == ("1",)
+    assert scoped.candidate_eligible is True
+    assert evidence.no_candidate_reason is None
 
 
 def _graph_with_terminal_node() -> dict[str, Any]:
