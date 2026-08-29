@@ -153,7 +153,7 @@ class _ParseExecuteMixin:
                         self._statement_result_from_outcome(outcome)
                         for outcome in interpreted.statements
                     ]
-                    if not gate.ok:
+                    if not gate.ok or not gate.apply_eligible:
                         rejected = tuple(
                             StatementResult(
                                 statement_index=item.statement_index,

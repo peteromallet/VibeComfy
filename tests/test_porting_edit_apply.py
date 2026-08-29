@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -765,6 +766,85 @@ def test_apply_batch_empty_delta_gate_is_atomic(monkeypatch) -> None:
             ok=True,
             apply_eligible=False,
             reason="empty_delta",
+        ),
+    )
+
+    result = session.apply_batch("ksampler.steps = 42\n")
+
+    assert result.ok is False
+    assert result.apply_eligible is False
+    assert result.landed_ops == ()
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+    assert session.working_ui == before_ui
+
+def test_apply_batch_failed_interpretation_ineligible_gate_is_atomic(monkeypatch) -> None:
+    """A failed interpretation cannot commit an ineligible candidate."""
+    from vibecomfy.porting.edit import _interpret, apply_gate
+    from vibecomfy.porting.edit.apply_gate import ApplyGateResult
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    before_ui = copy.deepcopy(session.working_ui)
+    original_interpret = _interpret.interpret
+
+    def failed_interpret(*args, **kwargs):
+        interpreted = original_interpret(*args, **kwargs)
+        assert interpreted.ok is True
+        return replace(interpreted, ok=False)
+
+    monkeypatch.setattr(_interpret, "interpret", failed_interpret)
+    monkeypatch.setattr(
+        apply_gate,
+        "verify_apply",
+        lambda *args, **kwargs: ApplyGateResult(
+            ok=True,
+            apply_eligible=False,
+            reason="empty_delta",
+        ),
+    )
+
+    result = session.apply_batch("ksampler.steps = 42\n")
+
+    assert result.ok is False
+    assert result.apply_eligible is False
+    assert result.landed_ops == ()
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+    assert session.working_ui == before_ui
+
+
+def test_apply_batch_failed_interpretation_rejected_gate_is_atomic(monkeypatch) -> None:
+    """A failed interpretation still rejects a corrupt candidate atomically."""
+    from vibecomfy.porting.edit import _interpret, apply_gate
+    from vibecomfy.porting.edit.apply_gate import ApplyGateResult
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    before_ui = copy.deepcopy(session.working_ui)
+    original_interpret = _interpret.interpret
+
+    def failed_interpret(*args, **kwargs):
+        interpreted = original_interpret(*args, **kwargs)
+        assert interpreted.ok is True
+        return replace(interpreted, ok=False)
+
+    monkeypatch.setattr(_interpret, "interpret", failed_interpret)
+    monkeypatch.setattr(
+        apply_gate,
+        "verify_apply",
+        lambda *args, **kwargs: ApplyGateResult(
+            ok=False,
+            apply_eligible=False,
+            reason="replay_mismatch",
         ),
     )
 
