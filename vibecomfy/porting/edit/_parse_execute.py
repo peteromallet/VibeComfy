@@ -6,7 +6,6 @@ from typing import Any
 from vibecomfy.porting.edit.ops import EditOp
 from vibecomfy.porting.edit._session_types import (
     BatchResult,
-    CompactDiagnostic,
     StatementResult,
     _ExpandedStatement,
     _diag,
@@ -243,7 +242,7 @@ class _ParseExecuteMixin:
                     name_hints=self._transient_name_index,
                 )
                 apply_gate_eligible = gate.apply_eligible
-                if not gate.ok:
+                if not gate.ok or not gate.apply_eligible:
                     rejected = tuple(
                         StatementResult(
                             statement_index=item.statement_index,

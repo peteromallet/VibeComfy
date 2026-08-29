@@ -747,6 +747,96 @@ def test_apply_ops_replay_rejection_is_atomic(
     assert session.working_ui == before_ui
 
 
+def test_apply_batch_empty_delta_gate_is_atomic(monkeypatch) -> None:
+    """An ok gate with no eligible delta cannot cross the batch commit boundary."""
+    from vibecomfy.porting.edit import apply_gate
+    from vibecomfy.porting.edit.apply_gate import ApplyGateResult
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    before_ui = copy.deepcopy(session.working_ui)
+
+    monkeypatch.setattr(
+        apply_gate,
+        "verify_apply",
+        lambda *args, **kwargs: ApplyGateResult(
+            ok=True,
+            apply_eligible=False,
+            reason="empty_delta",
+        ),
+    )
+
+    result = session.apply_batch("ksampler.steps = 42\n")
+
+    assert result.ok is False
+    assert result.apply_eligible is False
+    assert result.landed_ops == ()
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+    assert session.working_ui == before_ui
+
+
+def test_apply_ops_empty_delta_gate_is_atomic(monkeypatch) -> None:
+    """Typed apply rejects an ineligible empty delta before committing."""
+    from vibecomfy.porting.edit import apply_gate
+    from vibecomfy.porting.edit.apply_gate import ApplyGateResult
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    before_ui = copy.deepcopy(session.working_ui)
+    ops = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+
+    monkeypatch.setattr(
+        apply_gate,
+        "verify_apply",
+        lambda *args, **kwargs: ApplyGateResult(
+            ok=True,
+            apply_eligible=False,
+            reason="empty_delta",
+        ),
+    )
+
+    result = session.apply_ops(ops, expected_revision=0)
+
+    assert result.ok is False
+    assert result.reason == "verification_failed"
+    assert result.landed_ops == ()
+    assert result.revision == 0
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+    assert session.working_ui == before_ui
+
+
+def test_done_empty_delta_is_observational() -> None:
+    """done() verifies an empty session without creating commit state."""
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    before_ui = copy.deepcopy(session.working_ui)
+
+    result = session.done()
+
+    assert result.ok is True
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+    assert session.working_ui == before_ui
+
+
+
 def test_done_rejection_does_not_advance_commit_state() -> None:
     """A post-apply replay failure is terminal without a second commit."""
     from vibecomfy.porting.edit.session import EditSession
