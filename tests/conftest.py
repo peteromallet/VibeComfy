@@ -362,13 +362,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus: int, config: pytest.Config) -> None:
-    """Exit non-zero only when there are NEW failures not in scoped quarantine files.
+    """Exit non-zero for new failures or test errors.
 
-    Tests that are already in the by-design-red baseline are silently accepted.
-    A rising set (test IDs not in the baseline) is the real regression signal.
-
-    When ``--known-failures-audit`` is passed, also report STALE entries in
-    ``tests/quarantine/*.txt`` that no longer map to any collected test ID.
+    Tests that are already in the by-design-red baseline are accepted, but
+    errors are never quarantine-tolerated. When ``--known-failures-audit`` is
+    passed, also report STALE entries in ``tests/quarantine/*.txt`` that no
+    longer map to any collected test ID.
     """
     try:
         quarantine = _load_quarantine_index()
@@ -409,8 +408,19 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                     green=True,
                 )
 
-    # --- New-failures gate ---
     stats = terminalreporter.stats
+
+    # --- Test-error gate ---
+    # A quarantined failure must not cause the summary hook to clear an
+    # otherwise non-zero status caused by a collection/setup/test error.
+    error_items = [*stats.get("error", []), *stats.get("errors", [])]
+    if error_items:
+        terminalreporter.write_sep("=", "TEST ERRORS (not quarantined)", red=True)
+        for rep in error_items:
+            terminalreporter.write_line(f"  TEST ERROR: {rep.nodeid}", red=True)
+        terminalreporter._session.exitstatus = 1  # type: ignore[attr-defined]
+        return
+
     failed_items = stats.get("failed", [])
     if not failed_items:
         return

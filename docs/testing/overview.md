@@ -6,27 +6,24 @@ The VibeComfy test suite has three layers: fast unit tests that run on every pus
 
 - Runs on every push and pull request via `.github/workflows/ci.yml`.
 - Target wall time: under 60 seconds on a fresh GitHub-hosted runner.
-- Local equivalent: `uv run pytest -q --tb=no`.
-- The CI job fails the merge if any test fails, errors, or unexpectedly passes (`xpassed`).
+- Local equivalent: `make PYTHON=.venv/bin/python fast` (or `uv run make PYTHON=python fast` with a uv-managed environment).
+- The fast selector fails on unquarantined test failures and errors. Pytest owns xpass semantics: an explicitly strict xfail that passes is a failure; ordinary xpasses remain informational. The quarantine hook owns only scoped failed-nodeid tolerance and never turns test errors into success.
 - No GPU markers run on this path. `-m 'not gpu'` is the default in `pyproject.toml::[tool.pytest.ini_options]`.
 
 ## Test-suite scope and the real coverage gap
 
-The repository contains hundreds of `test_*.py` files. The `make check` gate selects the **17 files** listed in `FAST_PYTEST`, plus one explicitly named oracle test. This is the real gap: the fast path is a bounded smoke tier, not the repository-wide denominator; use the explicit broad target when full Python discovery or execution is required.
+The repository contains hundreds of `test_*.py` files. The `make check` gate selects the **17 feature files** listed in `FAST_PYTEST`, plus explicitly selected coverage-policy and tmp-path canonical-parity tests. This is the real gap: the fast path is a bounded smoke tier, not the repository-wide denominator; use the explicit broad target when full Python discovery or execution is required. The quarantined full-corpus parity tests remain outside the fast selector.
 
-- **`make broad-pytest`** — the repository-wide Python tier. Runs every test under `tests` (GPU tests excluded via the default `-m 'not gpu'` addopts) parallelized across **8 pytest-xdist workers**. `make full-pytest` remains a compatibility alias.
-- **Quarantine behavior** — failures whose nodeids are listed in `tests/quarantine/*.txt` (plus the legacy known-failures file) are tolerated baseline failures. The plugin prints `TOLERATED QUARANTINED FAILURES` for them and resets the exit status to 0 when **every** failure is a known-baseline failure. **New failures always gate**: any failed nodeid absent from the quarantine index forces a non-zero exit. The quarantine index is a scoped, owned record — not a skip mechanism — and the full suite is expected to exit 0 modulo that recorded baseline.
+- **`make broad-pytest`** — the repository-wide Python tier. Runs every test under `tests` (GPU tests excluded via the default `-m 'not gpu'` addopts) parallelized across **8 pytest-xdist workers**. Its `BROAD_COVERAGE_FAIL_UNDER` default is **70%**, a floor attached to this broad denominator. `make full-pytest` remains a compatibility alias.
+- **Quarantine behavior** — failures whose nodeids are listed in `tests/quarantine/*.txt` (plus the legacy known-failures file) are tolerated baseline failures. The plugin prints `TOLERATED QUARANTINED FAILURES` for them and resets the exit status to 0 when every failure is a known-baseline failure and no test errors occurred. **New failures and test errors always gate**: any failed nodeid absent from the quarantine index, or any test error, forces a non-zero exit. The quarantine index is a scoped, owned record — not a skip mechanism — and the full suite is expected to exit 0 modulo that recorded baseline.
 
 ## Coverage floor
 
-- Coverage is measured by `pytest-cov` and pinned in `pyproject.toml::[tool.coverage.report] fail_under`.
-- Coverage reports are generated from the selected command; do not treat a
-  historical percentage from a different selector as the current gate baseline.
-- **Current floor:** **70%**, enforced by the fast target's default `COVERAGE_FAIL_UNDER` value. A fast run below this floor is intentionally red; lower it only as an explicit, reviewed policy change while the suite is brought back above the declared floor.
+- Coverage is measured by `pytest-cov`.
+- The fast target always emits terminal-missing output and `coverage.xml` for visibility, but has **no pass threshold**. Its small selector must not be presented as a whole-package coverage denominator.
+- **Current broad floor:** **70%**, enforced only by `make broad-pytest` through `BROAD_COVERAGE_FAIL_UNDER`. Lower it only as an explicit, reviewed policy change while the broad suite is brought back above the declared floor.
 - **Lift policy:** visibility, not gaming. Raise the floor deliberately when the team is ready to defend the new number; don't fabricate tests to chase a percentage point.
-- The gate triggers **only when `--cov` is passed.** `uv run pytest -q` does not enforce coverage; `uv run pytest --cov=vibecomfy -q` does.
-- CI runs the fast suite with coverage enabled; the same command enforces the
-  declared floor and writes `coverage.xml`.
+- The gate triggers only when `--cov` is passed. `uv run pytest -q` does not measure coverage; the fast and broad Make targets do.
 
 ## Snapshot regeneration
 

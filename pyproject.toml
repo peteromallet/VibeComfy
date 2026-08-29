@@ -128,7 +128,6 @@ branch = false
 [tool.coverage.report]
 skip_empty = true
 show_missing = true
-fail_under = 70
 exclude_lines = ["pragma: no cover", "raise NotImplementedError", "if TYPE_CHECKING:"]
 
 [project.entry-points.pytest11]

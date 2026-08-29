@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -56,6 +57,40 @@ def test_quarantine_summary_policy_includes_file_and_owner() -> None:
 
     assert "TOLERATED FAIL: {nodeid} [{entry.display_path}; owner={entry.owner}]" in source
 
+
+def test_quarantine_summary_never_masks_test_errors(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    known_nodeid = "tests/test_known.py::test_known"
+    entry = test_conftest.QuarantineEntry(
+        nodeid=known_nodeid,
+        path=tmp_path / "known.txt",
+        owner="quarantine-policy",
+        reason="test",
+        metadata={"owner": "quarantine-policy", "reason": "test"},
+    )
+    monkeypatch.setattr(test_conftest, "_load_quarantine_index", lambda: {known_nodeid: entry})
+
+    class Reporter:
+        stats = {
+            "failed": [SimpleNamespace(nodeid=known_nodeid)],
+            "error": [SimpleNamespace(nodeid="tests/test_error.py::test_error")],
+        }
+        _session = SimpleNamespace(exitstatus=1)
+        messages: list[str] = []
+
+        def write_sep(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def write_line(self, message: str, **_kwargs: object) -> None:
+            self.messages.append(message)
+
+    reporter = Reporter()
+    config = SimpleNamespace(getoption=lambda *_args, **_kwargs: False)
+
+    test_conftest.pytest_terminal_summary(reporter, exitstatus=0, config=config)
+
+    assert any("TEST ERROR: tests/test_error.py::test_error" in message for message in reporter.messages)
 
 def test_quarantine_retirement_workflow_is_documented() -> None:
     readme = (pathlib.Path(__file__).parent / "README.md").read_text(encoding="utf-8")

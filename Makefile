@@ -3,7 +3,7 @@ PIP ?= $(PYTHON) -m pip
 PYTEST ?= $(PYTHON) -m pytest
 NODE ?= node
 COMFY_INDEX_URL ?= https://nodes.appmana.com/simple/
-COVERAGE_FAIL_UNDER ?= 70
+BROAD_COVERAGE_FAIL_UNDER ?= 70
 
 FAST_PYTEST := \
 	tests/test_cli_loader.py \
@@ -23,6 +23,15 @@ FAST_PYTEST := \
 	tests/test_porting_edit_ops.py \
 	tests/test_porting_edit_corpus.py \
 	tests/test_porting_ui_materialize.py
+
+FAST_POLICY_TESTS := \
+	tests/test_coverage_policy.py \
+	tests/test_v26_canonical_parity.py::test_canonical_parity_reports_hash_mismatch \
+	tests/test_v26_canonical_parity.py::test_canonical_parity_reports_missing_and_extra_templates \
+	tests/test_v26_canonical_parity.py::test_canonical_parity_rejects_new_unbuildable_template \
+	tests/test_v26_canonical_parity.py::test_canonical_parity_update_rewrites_baseline \
+	tests/test_v26_canonical_parity.py::test_canonical_parity_update_refuses_unbuildable_template \
+	tests/test_v26_canonical_parity.py::test_canonical_parity_excludes_manual_templates
 
 STRICT_READY_PYTEST := \
 	tests/test_strict_ready.py \
@@ -161,20 +170,24 @@ strict-ready: template-index
 	$(PYTHON) -m tools.check_strict_ready_templates --json
 
 fast:
-	@echo "FAST Python gate: bounded maintained selector ($(words $(FAST_PYTEST)) files); not the repository-wide denominator."
-	$(PYTEST) -q --tb=short $(FAST_PYTEST) \
+	@echo "FAST Python gate: bounded maintained selector ($(words $(FAST_PYTEST)) feature files + $(words $(FAST_POLICY_TESTS)) policy selectors); coverage is visibility-only."
+	$(PYTEST) -q --tb=short $(FAST_PYTEST) $(FAST_POLICY_TESTS) \
 		--cov=vibecomfy \
 		--cov-report=term-missing \
-		--cov-report=xml \
-		--cov-fail-under=$(COVERAGE_FAIL_UNDER)
+		--cov-report=xml
 
 # Broad Python gate: every test under tests (GPU excluded by pyproject's
 # default addopts), parallelized across 8 xdist workers. It is deliberately a
 # separate target so callers cannot mistake the bounded fast selector for the
-# repository-wide denominator.
+# repository-wide denominator. The 70% floor belongs here, where the
+# denominator is the full Python test suite.
 broad-pytest:
-	@echo "BROAD Python gate: all tests under tests; this is the repository-wide denominator."
-	PYTHONHASHSEED=0 $(PYTEST) -n 8 -q -p no:cacheprovider tests
+	@echo "BROAD Python gate: all tests under tests; repository-wide coverage floor is $(BROAD_COVERAGE_FAIL_UNDER)%."
+	PYTHONHASHSEED=0 $(PYTEST) -n 8 -q -p no:cacheprovider tests \
+		--cov=vibecomfy \
+		--cov-report=term-missing \
+		--cov-report=xml \
+		--cov-fail-under=$(BROAD_COVERAGE_FAIL_UNDER)
 
 # Collection-only broad check for diagnosing selection/import drift without
 # executing the suite. Kept explicit because the current broad suite includes
