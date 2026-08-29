@@ -283,6 +283,88 @@ def _interpret_ops(
             has_landed_add = any(
                 getattr(s.op, "op", None) == "add_node" and s.status == "applied" for s in statements
             )
+            # S1 typed requires_custom_nodes if pack truly absent (field-scoped).
+            if code == "missing_touched_schema":
+                ct_for_typed = None
+                try:
+                    if getattr(op, "op", None) == "set_node_field":
+                        tgt = getattr(op, "target", None)
+                        uid = getattr(tgt, "uid", None) if tgt is not None else None
+                        if uid and hasattr(post, "nodes"):
+                            node = post.nodes.get(str(uid)) if isinstance(post.nodes, dict) else None
+                            if node is not None:
+                                ct_for_typed = str(getattr(node, "class_type", "") or "")
+                    elif getattr(op, "op", None) == "add_node":
+                        ct_for_typed = str(getattr(op, "class_type", "") or "")
+                except Exception:
+                    ct_for_typed = None
+                if ct_for_typed:
+                    try:
+                        from vibecomfy.schema.provider import schema_for as _s1_sf
+                        live_schema = _s1_sf(schema_provider, ct_for_typed)
+                    except Exception:
+                        live_schema = None
+                    if live_schema is None:
+                        typed_diag_absent = _diag(
+                            "requires_custom_nodes",
+                            f"Custom node pack required for {ct_for_typed!r}; not in live object_info.",
+                            severity="error",
+                            detail={"missing_touched_schema": True, "class_type": ct_for_typed, "truly_absent": True},
+                        )
+                        failed_absent = StatementOutcome(
+                            statement_index=index,
+                            source=type(op).__name__,
+                            status="rejected",
+                            reason="requires_custom_nodes",
+                            op_kind=getattr(op, "op", type(op).__name__),
+                            diagnostics=(_diag(code, str(exc), severity="error"), typed_diag_absent),
+                            op=op,
+                            detail={"requires_custom_nodes": True, "class_type": ct_for_typed},
+                        )
+                        if has_landed_valid:
+                            return InterpretationResult(
+                                workflow=post,
+                                statements=tuple(statements) + (failed_absent,),
+                                ok=False,
+                                diagnostics=tuple(diagnostics) + (typed_diag_absent, _diag(code, str(exc), severity="error")),
+                                landed_ops=tuple(landed),
+                            )
+                        return InterpretationResult(
+                            workflow=_cow_workflow_copy(pre_workflow),
+                            statements=tuple(statements) + (failed_absent,),
+                            ok=False,
+                            diagnostics=(typed_diag_absent, _diag(code, str(exc), severity="error")),
+                            landed_ops=tuple(landed),
+                        )
+                    else:
+                        field_name_typed = None
+                        if getattr(op, "op", None) == "set_node_field":
+                            try:
+                                tgt2 = getattr(op, "target", None)
+                                field_name_typed = str(getattr(tgt2, "field_path", "") or getattr(tgt2, "field", "") or "")
+                            except Exception:
+                                field_name_typed = None
+                            inputs_live = getattr(live_schema, "inputs", {}) or {}
+                            if field_name_typed and field_name_typed in inputs_live:
+                                try:
+                                    before_retry = post
+                                    post_retry = apply_edit_cow(post, op, schema_provider=schema_provider)
+                                    diag_retry = _apply_diagnostics(before_retry, post_retry, op)
+                                    statements.append(
+                                        StatementOutcome(
+                                            statement_index=index,
+                                            source=type(op).__name__,
+                                            status="applied",
+                                            op_kind=getattr(op, "op", type(op).__name__),
+                                            op=op,
+                                        )
+                                    )
+                                    landed.append(op)
+                                    diagnostics.extend(diag_retry)
+                                    post = post_retry
+                                    continue
+                                except Exception:
+                                    pass
             if is_wire_missing_schema and has_landed_add:
                 typed_diag = _diag(
                     "requires_custom_nodes",
@@ -694,6 +776,46 @@ class _InterpretRunner:
             call_name = _call_id(statement.value)
             if call_name == "subgraph_interface":
                 return self._subgraph_interface(item, statement.value)
+            if call_name in ("search", "node_schema"):
+                try:
+                    from vibecomfy.schema.provider import schema_for as _s1_schema_for
+                    if call_name == "search":
+                        focus = None
+                        for kw in statement.value.keywords:
+                            if kw.arg == "focus_types":
+                                try:
+                                    val, _ = _fold_constant(kw.value, env=item.env)
+                                    if isinstance(val, (list, tuple)):
+                                        focus = [str(v) for v in val if isinstance(v, str) and v]
+                                except Exception:
+                                    pass
+                        if focus:
+                            for ct in focus:
+                                try:
+                                    _s1_schema_for(self.schema_provider, ct)
+                                except Exception:
+                                    pass
+                    else:
+                        arg_val = None
+                        if statement.value.args:
+                            try:
+                                arg_val, _ = _fold_constant(statement.value.args[0], env=item.env)
+                            except Exception:
+                                pass
+                        else:
+                            for kw in statement.value.keywords:
+                                if kw.arg in ("node_class", "class_type", "type"):
+                                    try:
+                                        arg_val, _ = _fold_constant(kw.value, env=item.env)
+                                    except Exception:
+                                        pass
+                        if isinstance(arg_val, str) and arg_val:
+                            try:
+                                _s1_schema_for(self.schema_provider, arg_val)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
             return StatementOutcome(
                 statement_index=item.statement_index,
                 source=item.source,

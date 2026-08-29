@@ -330,7 +330,28 @@ def _finalize_revision_evidence_with_candidate(
     # contract (see tests/live_agentic_harness TERMINAL_NO_CANDIDATE_REASONS).
     # It must stay scenario-agnostic: never specialized from scenario
     # expectations, never treated by the assessor as absence evidence.
+    # S2: never no_changes when final!=original or accepted_batch>0.
+    # e8c20a staged 2 ops applied but no_changes; character-replacement same.
+    from vibecomfy.comfy_nodes.agent._frag_state import _total_landed_edit_count as _s2_landed
+    _s2_has_landed = False
+    try:
+        _s2_has_landed = _s2_landed(state) > 0
+    except Exception:
+        _s2_has_landed = False
+    _s2_hashes_differ = bool(scoped_diff.before_hash and scoped_diff.after_hash and scoped_diff.before_hash != scoped_diff.after_hash)
+    if _s2_has_landed or _s2_hashes_differ:
+        if "no_diff" in scoped_diff.eligibility_blockers:
+            _filtered = tuple(b for b in scoped_diff.eligibility_blockers if b != "no_diff")
+            scoped_diff = dataclasses.replace(
+                scoped_diff,
+                eligibility_blockers=_filtered,
+                candidate_eligible=len(_filtered) == 0 and scoped_diff.before_hash != "" and scoped_diff.after_hash != "",
+                summary=scoped_diff.summary.replace("no_diff", "").replace("ineligible: ;", "").strip() if _filtered else scoped_diff.summary,
+            )
     no_candidate_reason = None if scoped_diff.candidate_eligible else "no_changes"
+    if no_candidate_reason == "no_changes" and (_s2_has_landed or _s2_hashes_differ):
+        no_candidate_reason = None
+        scoped_diff = dataclasses.replace(scoped_diff, candidate_eligible=True)
     state.revision_evidence = dataclasses.replace(
         state.revision_evidence,
         scoped_diff=scoped_diff,

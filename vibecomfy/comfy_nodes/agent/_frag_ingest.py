@@ -120,6 +120,13 @@ def _ensure_ingest_workflow(state: AgentEditState) -> Any:
                                     getter = getattr(provider, "get_schema", None) or getattr(provider, "get", None)
                                     if callable(getter):
                                         getter(ct)
+                                        try:
+                                            from vibecomfy.porting.edit._ir_utils import _resolve_class_type_from_alias
+                                            resolved = _resolve_class_type_from_alias(ct, provider)
+                                            if resolved and resolved != ct:
+                                                getter(resolved)
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
             except Exception:
