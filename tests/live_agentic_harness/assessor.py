@@ -92,6 +92,21 @@ def _load_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _load_response_json(path: Path) -> tuple[dict[str, Any] | None, str]:
+    """Load the response envelope and preserve why evidence is unavailable."""
+    if not path.is_file():
+        return None, "missing"
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None, "unavailable"
+    except json.JSONDecodeError:
+        return None, "malformed"
+    if not isinstance(parsed, dict):
+        return None, "malformed"
+    return parsed, "valid"
+
+
 def _walk(obj: Any) -> Any:
     """Recursively yield every dict/string node in a JSON-like structure."""
     if isinstance(obj, dict):
@@ -1538,11 +1553,24 @@ def assess_live_output_dir(
     * ``judge_results`` — one entry per judge that ran.
     """
     output_dir = Path(output_dir)
-    response = _load_json(output_dir / "response.json")
+    response, response_state = _load_response_json(output_dir / "response.json")
     impl_result = _load_json(output_dir / "implementation_result.json")
 
     issues: list[dict[str, Any]] = []
     judge_results: list[dict[str, Any]] = []
+    if response_state != "valid":
+        details = {
+            "missing": "response.json is missing; live execution evidence is incomplete.",
+            "unavailable": "response.json could not be read; live execution evidence is unavailable.",
+            "malformed": "response.json is not a valid JSON object; live execution evidence is malformed.",
+        }
+        issues.append(
+            {
+                "check": f"response_{response_state}",
+                "severity": "undetermined",
+                "detail": details[response_state],
+            }
+        )
     expect_graph_changed = _expects_graph_changed(scenario, response)
     expected_outcome_kinds = _expected_outcome_kinds(scenario)
     allowed_safe_refusal_outcome_kinds = _allowed_safe_refusal_outcome_kinds(
@@ -2030,6 +2058,7 @@ def assess_live_output_dir(
         "passed": verdict == "pass",
         "verdict": verdict,
         "outcome_class": outcome_class,
+        "expect_graph_changed": expect_graph_changed,
         "expected_outcome_kinds": sorted(expected_outcome_kinds),
         "allow_safe_refusal_outcome_kinds": sorted(allowed_safe_refusal_outcome_kinds),
         "issue_count": len(deduped),

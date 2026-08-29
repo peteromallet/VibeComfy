@@ -258,6 +258,101 @@ def test_agentic_guard_allows_blocked_real_agentic_artifacts(tmp_path: Path) -> 
     assert verdict["model_behavior"] == MODEL_BEHAVIOR_AGENTIC
 
 
+
+def test_agentic_guard_missing_response_is_undetermined(tmp_path: Path) -> None:
+    output_dir = tmp_path / "missing-response"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    scenario = {
+        "id": "missing-response",
+        "assessment": {"expect_graph_changed": False},
+    }
+
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["metadata_success"] is True
+    assert verdict["live_agentic_success"] is False
+    assert verdict["verdict"] == "undetermined"
+    assert verdict["score_class"] == "undetermined"
+    assert verdict["assessment"]["expect_graph_changed"] is False
+    assert {
+        (issue["check"], issue["severity"])
+        for issue in verdict["assessment"]["issues"]
+    } == {("response_missing", "undetermined")}
+
+
+def test_agentic_guard_malformed_response_is_undetermined(tmp_path: Path) -> None:
+    output_dir = tmp_path / "malformed-response"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text("{not-json", encoding="utf-8")
+
+    verdict = guard_output_dir(output_dir)
+
+    assert verdict["metadata_success"] is True
+    assert verdict["live_agentic_success"] is False
+    assert verdict["verdict"] == "undetermined"
+    assert verdict["score_class"] == "undetermined"
+    assert verdict["assessment"]["expect_graph_changed"] is False
+    assert {
+        (issue["check"], issue["severity"])
+        for issue in verdict["assessment"]["issues"]
+    } == {("response_malformed", "undetermined")}
+
+
+def test_agentic_guard_valid_safe_response_can_pass(tmp_path: Path) -> None:
+    output_dir = tmp_path / "valid-safe-response"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": True,
+                "route": "respond",
+                "outcome": {"kind": "respond"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    verdict = guard_output_dir(output_dir)
+
+    assert verdict["metadata_success"] is True
+    assert verdict["live_agentic_success"] is True
+    assert verdict["verdict"] == "pass"
+    assert verdict["score_class"] == "pass"
+    assert verdict["assessment"]["expect_graph_changed"] is False
+
+
+def test_agentic_guard_response_contradicting_success_metadata_fails(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "contradictory-response"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "error": "executor failed",
+                "graph_unchanged": True,
+                "route": "respond",
+                "outcome": {"kind": "failure"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    verdict = guard_output_dir(output_dir)
+
+    assert verdict["metadata_success"] is True
+    assert verdict["live_agentic_success"] is False
+    assert verdict["verdict"] == "fail"
+    assert verdict["score_class"] == "product_fail"
+    assert verdict["assessment"]["expect_graph_changed"] is False
+    assert {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    } == {"response_ok"}
+
 def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(tmp_path: Path) -> None:
     """Deep assessment fails a run that reports success but produced no edit."""
     output_dir = tmp_path / "hotshot-failure"
