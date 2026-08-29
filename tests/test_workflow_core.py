@@ -112,6 +112,84 @@ def test_edge_only_connectivity_compiles_without_mutating_ir_and_round_trips() -
     assert restored.compile("api") == expected
 
 
+def test_to_envelope_rejects_edge_with_missing_source_node() -> None:
+    workflow = VibeWorkflow("missing-source", WorkflowSource("missing-source"))
+    workflow.nodes["2"] = VibeNode("2", "CustomSink", uid="uid-2")
+    workflow.edges.append(VibeEdge("1", "0", "2", "image"))
+
+    with pytest.raises(
+        ValueError,
+        match=r"edge 0: endpoint node ids '1'/'2' must exist in nodes",
+    ):
+        workflow.to_envelope()
+
+
+def test_to_envelope_rejects_edge_with_missing_destination_node() -> None:
+    workflow = VibeWorkflow("missing-destination", WorkflowSource("missing-destination"))
+    workflow.nodes["1"] = VibeNode("1", "CustomSource", uid="uid-1")
+    workflow.edges.append(VibeEdge("1", "0", "2", "image"))
+
+    with pytest.raises(
+        ValueError,
+        match=r"edge 0: endpoint node ids '1'/'2' must exist in nodes",
+    ):
+        workflow.to_envelope()
+
+
+def test_to_envelope_valid_edge_round_trips_custom_node_payloads() -> None:
+    workflow = VibeWorkflow("valid-edge", WorkflowSource("valid-edge"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "VendorSource",
+        pack="vendor-pack",
+        inputs={"opaque_config": {"levels": [1, {"mode": "custom"}]}},
+        widgets={"vendor_widget": ["alpha", {"beta": True}]},
+        metadata={"vendor_metadata": {"nested": ["preserve", 7]}},
+        uid="uid-1",
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2",
+        "VendorSink",
+        inputs={"literal": {"custom": ["payload", 3]}},
+        uid="uid-2",
+    )
+    workflow.edges.append(VibeEdge("1", "output", "2", "image"))
+
+    envelope = workflow.to_envelope()
+
+    assert envelope["nodes"]["1"]["inputs"] == workflow.nodes["1"].inputs
+    assert envelope["nodes"]["1"]["widgets"] == workflow.nodes["1"].widgets
+    assert envelope["nodes"]["1"]["metadata"] == workflow.nodes["1"].metadata
+    assert from_envelope(envelope).to_envelope() == envelope
+
+
+def test_to_envelope_empty_graph_round_trips() -> None:
+    workflow = VibeWorkflow("empty", WorkflowSource("empty"))
+
+    envelope = workflow.to_envelope()
+
+    assert envelope["nodes"] == {}
+    assert envelope["edges"] == []
+    assert from_envelope(envelope).to_envelope() == envelope
+
+
+def test_to_envelope_dangling_edge_rejection_does_not_mutate_workflow() -> None:
+    workflow = VibeWorkflow("unchanged", WorkflowSource("unchanged"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "VendorSource",
+        inputs={"opaque": {"nested": [1, 2, 3]}},
+        uid="uid-1",
+    )
+    workflow.edges.append(VibeEdge("1", "0", "missing", "image"))
+    before = deepcopy(workflow)
+
+    with pytest.raises(ValueError, match="must exist in nodes"):
+        workflow.to_envelope()
+
+    assert workflow == before
+
+
 def test_from_api_preserves_noncanonical_two_item_literal_lists() -> None:
     literals = {
         "dimensions": [640, 480],

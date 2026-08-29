@@ -364,6 +364,12 @@ class VibeWorkflow:
         fingerprint comparison and raw-byte restore to the ingest door and
         only renders the IR (plus the format stamp) for edited graphs.
         """
+        for index, edge in enumerate(self.edges):
+            if edge.from_node not in self.nodes or edge.to_node not in self.nodes:
+                raise ValueError(
+                    f"edge {index}: endpoint node ids {edge.from_node!r}/{edge.to_node!r} "
+                    "must exist in nodes"
+                )
         _raise_embedded_api_links(self, surface="envelope serialization")
         invalid_geometry = _invalid_geometry_details(self)
         if invalid_geometry:
