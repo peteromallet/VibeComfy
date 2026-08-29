@@ -392,16 +392,68 @@ def persist_universal_ui_evidence(
     if original is None:
         original = dict(_EMPTY_UI)
 
+    # S2 (final-wave): persist accepted batch — candidate.ui → final.ui when
+    # batch_ok, never emit no_changes when final≠original. Scenarios: e8c20a
+    # staged (accepted_batch 2 ops, final≠original but no_changes), vace-retarget
+    # 4 leftover ops, 2a31ec threaded replay mismatch, IP-Adapter empty replay.
+    def _batch_ok() -> bool:
+        ab = response.get("accepted_batch")
+        if isinstance(ab, (list, tuple)) and len(ab) > 0:
+            return True
+        if isinstance(ab, Mapping) and len(ab) > 0:
+            return True
+        for key in ("candidate", "candidate_graph", "graph"):
+            val = response.get(key)
+            if isinstance(val, Mapping) and len(val) > 0:
+                return True
+            if isinstance(val, (list, tuple)) and len(val) > 0:
+                return True
+        if _load_ui_mapping(candidate_path) is not None:
+            return True
+        if isinstance(getattr(result, "graph", None), Mapping) and len(getattr(result, "graph")) > 0:  # type: ignore[union-attr]
+            return True
+        cd = response.get("change_details")
+        if isinstance(cd, Mapping):
+            if isinstance(cd.get("landed_operation_count"), int) and cd.get("landed_operation_count") > 0:  # type: ignore[union-attr]
+                return True
+            for turn in cd.get("batch_turns") or []:  # type: ignore[union-attr]
+                if isinstance(turn, Mapping) and isinstance(turn.get("landed_op_count"), int) and turn.get("landed_op_count") > 0:  # type: ignore[union-attr]
+                    return True
+        return False
+
+    batch_ok = _batch_ok()
     # RRSYN2-2: on a failed leg the copied turn candidate is AUDIT-ONLY — it
     # was refused by the gate and must never be projected as the product UI.
-    # Original stays authoritative.
+    # Original stays authoritative. S2 override: when batch_ok but gate later
+    # diverged (candidate_hash_mismatch, emit drift at vibecomfy/porting/emit/ui.py:emit_ui_json), persist candidate→final.
     failed_leg = (
         response.get("ok") is False or getattr(result, "ok", True) is False
     )
     if _route_projects_final_from_original(response):
         final = original
-    elif failed_leg:
+    elif failed_leg and not batch_ok:
         final = original
+    elif failed_leg and batch_ok:
+        final = _load_ui_mapping(candidate_path)
+        if final is None:
+            final = _load_ui_mapping(final_path)
+        if final is None:
+            artifacts_tmp = response.get("artifacts")
+            if isinstance(artifacts_tmp, Mapping):
+                for key in ("candidate_ui", "final_ui"):
+                    artifact_path = artifacts_tmp.get(key)
+                    if isinstance(artifact_path, str) and artifact_path:
+                        final = _load_ui_mapping(Path(artifact_path))
+                        if final is not None:
+                            break
+        if final is None:
+            final = _as_graph_mapping(
+                response.get("candidate_graph") or response.get("candidate") or response.get("graph")
+            )
+        if final is None:
+            final = _result_graph(result)
+        if final is None:
+            final = original
     else:
         final = _load_ui_mapping(final_path)
         if final is None:

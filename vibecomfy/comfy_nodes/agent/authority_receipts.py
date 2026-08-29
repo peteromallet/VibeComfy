@@ -946,12 +946,16 @@ def verify_replay(
 
     recomputed_hash = structural_graph_hash(recomputed)
     matches = persisted_hash is not None and recomputed_hash == persisted_hash
+    # S2: hash mismatch names emit path. vace-retarget, IP-Adapter, e8c20a
+    # showed candidate_hash_mismatch due to emit drift (schema-less slots at
+    # ingest/normalize.py:1746 + emit_ready.py:1577, ui.py emit). Include path.
+    error_value: str | None = None if matches else "candidate_hash_mismatch: vibecomfy/porting/emit/ui.py:emit_ui_json"
     return ReplayReceipt(
         replay_ok=True,
         candidate_matches=matches,
         recomputed_candidate_hash=recomputed_hash,
         persisted_candidate_hash=persisted_hash,
-        error=None if matches else "candidate_hash_mismatch",
+        error=error_value,
         op_count=op_count,
         verification_kind="delta_replay",
     )
