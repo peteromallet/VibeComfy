@@ -53,6 +53,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.update:
         payload = build_baseline(args.ready_root)
+        if payload["skipped"]:
+            report = {
+                "ok": False,
+                "updated": False,
+                "baseline": str(args.baseline),
+                "errors": [
+                    f"eligible template does not compile: {item['id']}: {item['error']}"
+                    for item in payload["skipped"]
+                ],
+                "skipped": payload["skipped"],
+            }
+            _print_report(report, json_output=args.json)
+            return 1
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
         report = {
@@ -118,10 +131,13 @@ def check_baseline(baseline: Path = DEFAULT_BASELINE, *, ready_root: Path = READ
     errors: list[str] = []
     errors.extend(f"missing eligible template: {template_id}" for template_id in missing)
     errors.extend(f"new eligible template missing from baseline: {template_id}" for template_id in extra)
+    # A compile failure is a failed eligible template, regardless of whether
+    # its ID was present in the previous baseline.  Treating only baseline
+    # IDs as errors lets a newly-added broken ready template disappear into
+    # ``skipped`` while the parity command exits green.
     errors.extend(
-        f"baseline template no longer compiles: {item['id']}: {item['error']}"
+        f"eligible template does not compile: {item['id']}: {item['error']}"
         for item in skipped
-        if item["id"] in expected
     )
     errors.extend(
         f"canonical hash changed for {item['id']}: {item['expected_sha256']} -> {item['actual_sha256']}"

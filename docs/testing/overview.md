@@ -12,19 +12,21 @@ The VibeComfy test suite has three layers: fast unit tests that run on every pus
 
 ## Test-suite scope and the real coverage gap
 
-The repository contains **347** `test_*.py` files (`find tests -name 'test_*.py' | wc -l`). The `make check` gate selects only **20 distinct files** — the 19 files listed in `FAST_PYTEST` plus one oracle node in `tests/test_porting_ui_emitter.py` (`test_layer3_corpus_wide_convert_ui_to_api_gate`) — roughly **5.8%** of the suite. This is the real gap: the fast path is a smoke floor, not full coverage, and the remaining ~94% of test files only run on demand.
+The repository contains hundreds of `test_*.py` files. The `make check` gate selects the **17 files** listed in `FAST_PYTEST`, plus one explicitly named oracle test. This is the real gap: the fast path is a bounded smoke tier, not the repository-wide denominator; use the explicit broad target when full Python discovery or execution is required.
 
-- **`make full-pytest`** — the full-suite gate outside `make check`. Runs every collected test (GPU tests excluded via the default `-m 'not gpu'` addopts) parallelized across **8 pytest-xdist workers** (`-n 8 -q -p no:cacheprovider`).
+- **`make broad-pytest`** — the repository-wide Python tier. Runs every test under `tests` (GPU tests excluded via the default `-m 'not gpu'` addopts) parallelized across **8 pytest-xdist workers**. `make full-pytest` remains a compatibility alias.
 - **Quarantine behavior** — failures whose nodeids are listed in `tests/quarantine/*.txt` (plus the legacy known-failures file) are tolerated baseline failures. The plugin prints `TOLERATED QUARANTINED FAILURES` for them and resets the exit status to 0 when **every** failure is a known-baseline failure. **New failures always gate**: any failed nodeid absent from the quarantine index forces a non-zero exit. The quarantine index is a scoped, owned record — not a skip mechanism — and the full suite is expected to exit 0 modulo that recorded baseline.
 
 ## Coverage floor
 
 - Coverage is measured by `pytest-cov` and pinned in `pyproject.toml::[tool.coverage.report] fail_under`.
-- **Baseline at the time of this sprint:** 80.21% (`uv run pytest --cov=vibecomfy --cov-report=term -q` reports `TOTAL  10842 stmts / 2146 missed`).
-- **Current floor:** **70%** — pinned via `min(70, floor(baseline - 1))`. Because the baseline is already above 70, the floor is capped at the brief's upper bound of 70 rather than tracking `floor(baseline - 1) = 79`.
+- Coverage reports are generated from the selected command; do not treat a
+  historical percentage from a different selector as the current gate baseline.
+- **Current floor:** **70%**, enforced by the fast target's default `COVERAGE_FAIL_UNDER` value. A fast run below this floor is intentionally red; lower it only as an explicit, reviewed policy change while the suite is brought back above the declared floor.
 - **Lift policy:** visibility, not gaming. Raise the floor deliberately when the team is ready to defend the new number; don't fabricate tests to chase a percentage point.
 - The gate triggers **only when `--cov` is passed.** `uv run pytest -q` does not enforce coverage; `uv run pytest --cov=vibecomfy -q` does.
-- CI runs both: the fast suite for speed, the coverage variant for the gate.
+- CI runs the fast suite with coverage enabled; the same command enforces the
+  declared floor and writes `coverage.xml`.
 
 ## Snapshot regeneration
 

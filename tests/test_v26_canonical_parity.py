@@ -39,6 +39,30 @@ def test_canonical_parity_reports_missing_and_extra_templates(tmp_path: Path) ->
     assert report["extra"] == ["image/new_example"]
 
 
+def test_canonical_parity_rejects_new_unbuildable_template(tmp_path: Path) -> None:
+    ready_root = _write_ready_template(tmp_path, literal=1)
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(parity.build_baseline(ready_root)), encoding="utf-8")
+
+    broken = ready_root / "image" / "new_broken.py"
+    broken.write_text(
+        "# vibecomfy: generated\n"
+        "def build():\n"
+        "    raise RuntimeError('broken ready template')\n",
+        encoding="utf-8",
+    )
+
+    report = parity.check_baseline(baseline, ready_root=ready_root)
+
+    assert not report["ok"]
+    assert report["extra"] == []
+    assert report["skipped"][0]["id"] == "image/new_broken"
+    assert any(
+        error.startswith("eligible template does not compile: image/new_broken")
+        for error in report["errors"]
+    )
+
+
 def test_canonical_parity_update_rewrites_baseline(tmp_path: Path) -> None:
     ready_root = _write_ready_template(tmp_path, literal=1)
     baseline = tmp_path / "baseline.json"
@@ -48,6 +72,20 @@ def test_canonical_parity_update_rewrites_baseline(tmp_path: Path) -> None:
     payload = json.loads(baseline.read_text(encoding="utf-8"))
     assert payload["template_count"] == 1
     assert payload["templates"][0]["id"] == "image/example"
+
+
+def test_canonical_parity_update_refuses_unbuildable_template(tmp_path: Path) -> None:
+    ready_root = _write_ready_template(tmp_path, literal=1)
+    (ready_root / "image" / "broken.py").write_text(
+        "# vibecomfy: generated\n"
+        "def build():\n"
+        "    raise RuntimeError('broken ready template')\n",
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.json"
+
+    assert parity.main(["--ready-root", str(ready_root), "--baseline", str(baseline), "--update"]) == 1
+    assert not baseline.exists()
 
 
 def test_canonical_parity_excludes_manual_templates(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ PIP ?= $(PYTHON) -m pip
 PYTEST ?= $(PYTHON) -m pytest
 NODE ?= node
 COMFY_INDEX_URL ?= https://nodes.appmana.com/simple/
+COVERAGE_FAIL_UNDER ?= 70
 
 FAST_PYTEST := \
 	tests/test_cli_loader.py \
@@ -105,7 +106,7 @@ ROOT_BANNED := \
 
 B02_MINI_CORPUS := tests/fixtures/b02_corpus_mini
 
-.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast full-pytest snapshots oracle b02-corpus-mini b02-corpus-full browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate ir-boundary clean clean-artifacts
+.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast broad-pytest broad-pytest-collect full-pytest snapshots oracle b02-corpus-mini b02-corpus-full browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate ir-boundary clean clean-artifacts
 
 all: check
 
@@ -160,16 +161,30 @@ strict-ready: template-index
 	$(PYTHON) -m tools.check_strict_ready_templates --json
 
 fast:
+	@echo "FAST Python gate: bounded maintained selector ($(words $(FAST_PYTEST)) files); not the repository-wide denominator."
 	$(PYTEST) -q --tb=short $(FAST_PYTEST) \
 		--cov=vibecomfy \
 		--cov-report=term-missing \
 		--cov-report=xml \
-		--cov-fail-under=0
+		--cov-fail-under=$(COVERAGE_FAIL_UNDER)
 
-# Full-suite gate outside `make check`: every collected test (gpu excluded via
-# pyproject [tool.pytest.ini_options] addopts) parallelized across 8 xdist workers.
-full-pytest:
-	PYTHONHASHSEED=0 $(PYTEST) -n 8 -q -p no:cacheprovider
+# Broad Python gate: every test under tests (GPU excluded by pyproject's
+# default addopts), parallelized across 8 xdist workers. It is deliberately a
+# separate target so callers cannot mistake the bounded fast selector for the
+# repository-wide denominator.
+broad-pytest:
+	@echo "BROAD Python gate: all tests under tests; this is the repository-wide denominator."
+	PYTHONHASHSEED=0 $(PYTEST) -n 8 -q -p no:cacheprovider tests
+
+# Collection-only broad check for diagnosing selection/import drift without
+# executing the suite. Kept explicit because the current broad suite includes
+# environment-dependent modules that are not part of the fast gate.
+broad-pytest-collect:
+	@echo "BROAD Python collection: all tests under tests."
+	PYTHONHASHSEED=0 $(PYTEST) --collect-only -q -p no:cacheprovider tests
+
+# Backwards-compatible spelling retained for existing local callers.
+full-pytest: broad-pytest
 
 snapshots:
 	$(PYTHON) -m tools.regenerate_snapshots --check

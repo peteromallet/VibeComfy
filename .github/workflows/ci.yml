@@ -8,8 +8,9 @@
 #   3. Install the package plus the pinned AppMana ComfyUI optional dependency
 #      used by the oracle converter.
 #   4. Run `make ci`, the shared local/GitHub contract for root hygiene, the
-#      maintained Python suite, browser smoke, snapshot freshness, and the Comfy
-#      oracle gate.
+#      bounded fast Python tier, browser smoke, snapshot freshness, and the
+#      Comfy oracle gate. The repository-wide Python tier is explicit and
+#      separate (`make broad-pytest`).
 #   5. Upload coverage.xml as a workflow artifact.
 #
 # Branch protection on `main` requires repo-admin action and is tracked as a
@@ -44,10 +45,10 @@ jobs:
       - name: Enforce IR boundary
         run: PYTHONPATH=. .venv/bin/python scripts/check_ir_boundary.py
 
-      - name: Run maintained repo gate
-        # Makefile is the local/GitHub contract for repo hygiene, Python tests,
-        # browser smoke, snapshot freshness, the Comfy oracle, and the IR
-        # boundary checker (also invoked via `make ir-boundary` from `make ci`).
+      - name: Run maintained fast repo gate
+        # Makefile is the local/GitHub contract for repo hygiene, the bounded
+        # fast Python tier, browser smoke, snapshot freshness, the Comfy
+        # oracle, and the IR boundary checker.
         run: make PYTHON=.venv/bin/python ci
 
       - name: Upload coverage artifact
