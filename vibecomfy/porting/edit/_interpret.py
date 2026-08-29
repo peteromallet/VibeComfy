@@ -268,9 +268,17 @@ def _interpret_ops(
                 # Already-set write: prune from this batch, keep later ops.
                 continue
             _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
+            # S1: scope missing_touched_schema to touched fields; do not atomic-rollback
+            # valid add_node/set_node_field because a downstream custom node is
+            # schema-less. Preserve landed ops and surface typed requires_custom_nodes.
+            is_schema_gap = code in ("missing_touched_schema", "requires_custom_nodes")
             is_wire_missing_schema = (
                 code == "missing_touched_schema"
                 and getattr(op, "op", None) == "upsert_link"
+            )
+            has_landed_valid = any(
+                getattr(s.op, "op", None) in ("add_node", "set_node_field") and s.status == "applied"
+                for s in statements
             )
             has_landed_add = any(
                 getattr(s.op, "op", None) == "add_node" and s.status == "applied" for s in statements
@@ -279,6 +287,33 @@ def _interpret_ops(
                 typed_diag = _diag(
                     "requires_custom_nodes",
                     "Custom node pack required for wiring target; valid add_node preserved.",
+                    severity="error",
+                    detail={"missing_touched_schema": True, "preserved_add": True},
+                )
+                failed = StatementOutcome(
+                    statement_index=index,
+                    source=type(op).__name__,
+                    status="rejected",
+                    reason="requires_custom_nodes",
+                    op_kind=getattr(op, "op", type(op).__name__),
+                    diagnostics=(
+                        _diag(code, str(exc), severity="error"),
+                        typed_diag,
+                    ),
+                    op=op,
+                    detail={"requires_custom_nodes": True},
+                )
+                return InterpretationResult(
+                    workflow=post,
+                    statements=tuple(statements) + (failed,),
+                    ok=False,
+                    diagnostics=tuple(diagnostics) + (typed_diag, _diag(code, str(exc), severity="error")),
+                    landed_ops=tuple(landed),
+                )
+            if is_schema_gap and has_landed_valid:
+                typed_diag = _diag(
+                    "requires_custom_nodes",
+                    "Custom node pack required; valid prior edits preserved.",
                     severity="error",
                     detail={"missing_touched_schema": True, "preserved_add": True},
                 )
