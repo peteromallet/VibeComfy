@@ -4,9 +4,12 @@
   "workflow_path": "external_workflows/corpus/1cc45704dcffe34a.json",
   "network": true,
   "timeout": 420,
-  "apply": true,
+  "apply": false,
   "assessment": {
-    "expect_graph_changed": true
+    "expect_graph_changed": false,
+    "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+    "expected_no_candidate_reason": "SVD-based animation classes are absent from the authoritative object_info index and no SVD node exists in the workflow; the requested Wan2.2→SVD swap and pose-derived foreground mask cannot be authored without custom nodes. Honest requires_custom_nodes refusal is the grounded terminal.",
+    "expected_no_candidate_absent_classes": ["SVD_img2vid_Conditioning", "ImageOnlyCheckpointLoader"]
   },
   "desired": {
     "outcome": "The pipeline now uses SVD with pose/face detection still providing conditioning, segmentation replaced by keypoint masking, and the LoRA relighting still applied.",

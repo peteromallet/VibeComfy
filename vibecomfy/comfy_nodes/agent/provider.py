@@ -413,13 +413,24 @@ def extract_batch_fence(
                 parse_provenance["parse_reason"] = "python_yaml_batch_fences"
                 parse_provenance["fence_count"] = len(alt_bodies)
             return batch_code, prose_alt
+        # S5: bare search(...) outside any fence is a tool call, not a batch error.
+        if _SEARCH_CALL_RE.search(text):
+            bare_searches = re.findall(r"search\s*\([^)]*\)", text)
+            if bare_searches:
+                batch_code = "\n".join(s.strip() for s in bare_searches)
+                prose = _BATCH_FENCE_RE.sub("", text).strip()
+                prose = re.sub(r"search\s*\([^)]*\)", "", prose).strip()
+                prose = _THINK_BLOCK_RE.sub("", prose).strip() or prose
+                if parse_provenance is not None:
+                    parse_provenance["parse_reason"] = "bare_search_tool"
+                    parse_provenance["fence_count"] = len(bare_searches)
+                return batch_code, prose
         if _REQUIRES_CUSTOM_NODES_RE.search(text):
             prose = _BATCH_FENCE_RE.sub("", text).strip()
             prose_clean = _THINK_BLOCK_RE.sub("", prose).strip() or _THINK_BLOCK_RE.sub("", text).strip()
             if parse_provenance is not None:
                 parse_provenance["parse_reason"] = "requires_custom_nodes_prose"
             return "", prose_clean
-        prose = _BATCH_FENCE_RE.sub("", text).strip()
         no_fence_prose = _BATCH_FENCE_RE.sub("", think_stripped).strip()
         if not no_fence_prose:
             raise MalformedModelJSON(
