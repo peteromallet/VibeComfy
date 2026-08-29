@@ -79,6 +79,70 @@ _TURN_TIMEOUT_HARD_CAP_SECONDS = float(
 _TURN_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_KILL_GRACE", "3"))
 _WORKER_PATH = str(Path(__file__).with_name("worker.py"))
 
+# S4: chunked emit + research checkpoint + 480s infra. 506ebd shows a 400+
+# node graph blows the 240s budget in emit_ui_json before the agent can
+# reply; c24aa2 shows deliberation exhaustion on a heavy graph with 15 calls
+# / ~59k tokens. 5b31ce shows a 480s timeout retried as product instead of
+# infra. Fixes:
+#  - Large-graph floor (480s) is honest infra vs product (not determinized).
+#  - Research ledger checkpoints so attempt-2 resumes instead of redoing work.
+#  - Same-cause second timeout stays infra_timeout, never product.
+_CHUNKED_EMIT_NODE_THRESHOLD_RT = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD", "400"))
+_RESEARCH_CHECKPOINT_ENV = "VIBECOMFY_RESEARCH_CHECKPOINT_DIR"
+_RESEARCH_CHECKPOINT_TTL_SECONDS = float(os.getenv("VIBECOMFY_RESEARCH_CHECKPOINT_TTL", "3600"))
+_LARGE_GRAPH_NODE_THRESHOLD = int(os.getenv("VIBECOMFY_LARGE_GRAPH_NODE_THRESHOLD", "350"))
+
+def _research_checkpoint_dir() -> Path | None:
+    raw = os.getenv(_RESEARCH_CHECKPOINT_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        p = Path(raw)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    except Exception:
+        return None
+
+def _research_checkpoint_path(session_id: str | None) -> Path | None:
+    base = _research_checkpoint_dir()
+    if base is None or not session_id:
+        return None
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(session_id))
+    return base / f"research_ckpt_{safe}.json"
+
+def _is_large_graph_payload(payload: str | None) -> bool:
+    if not payload:
+        return False
+    try:
+        if len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES:
+            return True
+    except Exception:
+        pass
+    try:
+        lowered = payload.lower()
+        count = lowered.count("class_type")
+        if count > _LARGE_GRAPH_NODE_THRESHOLD:
+            return True
+    except Exception:
+        pass
+    return False
+
+def _ensure_infra_timeout_stays_infra(current: dict[str, Any], prior_attempts: list[dict[str, Any]] | None) -> dict[str, Any]:
+    if not prior_attempts:
+        return current
+    prior_is_infra_timeout = any(isinstance(a, dict) and a.get("failure_type") == "timeout" and a.get("retry_owner") in {"harness_infrastructure", "runtime_worker_transport"} and a.get("remote_uncertainty") in {"timeout_before_response", "timeout", None} for a in prior_attempts)
+    if not prior_is_infra_timeout:
+        prior_is_infra_timeout = any(isinstance(a, dict) and a.get("failure_class") == "infra_timeout" for a in prior_attempts)
+    if prior_is_infra_timeout and current.get("failure_type") == "timeout":
+        current = dict(current)
+        current["failure_class"] = "infra_timeout"
+        current["score_class"] = "infra_blocked"
+        current["retry_owner"] = _RETRY_OWNER_HARNESS_INFRASTRUCTURE
+        current["remote_uncertainty"] = _REMOTE_UNCERTAINTY_TIMEOUT_BEFORE_RESPONSE
+        current.setdefault("failure_type", "timeout")
+    return current
+
+
 # Per-turn agentic iteration budget for the Arnold AIAgent loop. The worker is
 # a single tool-free completion, but deepseek-v4-flash exhausted a
 # one-iteration, 2048-token turn (cluster B) and emitted prose instead of the
@@ -1163,9 +1227,21 @@ def _turn_timeout_seconds(
     *,
     stage: str | None = None,
 ) -> float:
-    """Per-turn timeout, with an implement/batch/reply/research floor and payload fallback."""
+    """Per-turn timeout, with an implement/batch/reply/research floor and payload fallback.
+
+    S4: large 400+ node graphs (506ebd, c24aa2) are detected via payload byte
+    size OR node-count hint and receive the honest 480s floor. The floor is
+    infra, not product — the harness retries it exactly once under a new
+    identity and attempt-2 stays infra_timeout via the checkpoint/ownership
+    logic. Chunked emit (ui.py) keeps the wall-time linear, but the timeout
+    floor ensures the budget is honest even before chunking lands.
+    """
     payload = f"{system_msg or ''}{user_msg or ''}"
     timeout = _TURN_TIMEOUT_SECONDS
+    is_large = (
+        len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES
+        or _is_large_graph_payload(payload)
+    )
     # A caller/test that explicitly overrides the base timeout owns the
     # timeout seam; do not silently replace its value with the production
     # large-graph floor.  The default production timeout retains the floor.
@@ -1175,7 +1251,7 @@ def _turn_timeout_seconds(
         _TURN_TIMEOUT_SECONDS == _DEFAULT_TURN_TIMEOUT_SECONDS
         and (
             stage in {"implement", "batch", "reply", "research", "research_stage"}
-            or len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES
+            or is_large
         )
     ):
         timeout = max(timeout, _LARGE_GRAPH_TURN_TIMEOUT_SECONDS)
