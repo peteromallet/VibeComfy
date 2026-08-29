@@ -253,6 +253,54 @@ class ValidationReport:
     issues: list[ValidationIssue] = field(default_factory=list)
 
 
+def _graph_integrity_issues(
+    nodes: dict[str, VibeNode],
+    edges: list[VibeEdge],
+) -> list[ValidationIssue]:
+    """Return canonical node-identity and edge-endpoint defects."""
+    issues: list[ValidationIssue] = []
+    node_ids = {str(node_id) for node_id in nodes}
+    for mapping_key, node in nodes.items():
+        key = str(mapping_key)
+        if key != node.id:
+            issues.append(
+                ValidationIssue(
+                    "node_identity_mismatch",
+                    f"node mapping key {key!r} must equal node.id {node.id!r}",
+                    detail={"mapping_key": key, "node_id": node.id},
+                )
+            )
+    for index, edge in enumerate(edges):
+        source_id = str(edge.from_node)
+        target_id = str(edge.to_node)
+        missing_source = source_id not in node_ids
+        missing_target = target_id not in node_ids
+        if not missing_source and not missing_target:
+            continue
+        code = (
+            "missing_edge_endpoints"
+            if missing_source and missing_target
+            else "missing_edge_source"
+            if missing_source
+            else "missing_edge_target"
+        )
+        issues.append(
+            ValidationIssue(
+                code,
+                f"edge {index}: endpoint node ids {source_id!r}/{target_id!r} "
+                "must exist in nodes",
+                detail={
+                    "edge_index": index,
+                    "source_node_id": source_id,
+                    "target_node_id": target_id,
+                    "missing_source": missing_source,
+                    "missing_target": missing_target,
+                },
+            )
+        )
+    return issues
+
+
 class WorkflowCompileError(VibeComfyError):
     """Compile-time graph assembly failure with a stable machine-readable code."""
 
@@ -364,12 +412,9 @@ class VibeWorkflow:
         fingerprint comparison and raw-byte restore to the ingest door and
         only renders the IR (plus the format stamp) for edited graphs.
         """
-        for index, edge in enumerate(self.edges):
-            if edge.from_node not in self.nodes or edge.to_node not in self.nodes:
-                raise ValueError(
-                    f"edge {index}: endpoint node ids {edge.from_node!r}/{edge.to_node!r} "
-                    "must exist in nodes"
-                )
+        integrity_issues = _graph_integrity_issues(self.nodes, self.edges)
+        if integrity_issues:
+            raise ValueError(integrity_issues[0].message)
         _raise_embedded_api_links(self, surface="envelope serialization")
         invalid_geometry = _invalid_geometry_details(self)
         if invalid_geometry:
@@ -880,11 +925,7 @@ class VibeWorkflow:
                     detail=spec.detail,
                 )
             )
-        for edge in self.edges:
-            if edge.from_node not in self.nodes:
-                issues.append(ValidationIssue("missing_edge_source", f"Missing source node {edge.from_node}."))
-            if edge.to_node not in self.nodes:
-                issues.append(ValidationIssue("missing_edge_target", f"Missing target node {edge.to_node}."))
+        issues.extend(_graph_integrity_issues(self.nodes, self.edges))
         for detail in _invalid_geometry_details(self):
             issues.append(
                 ValidationIssue(

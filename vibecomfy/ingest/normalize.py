@@ -104,6 +104,7 @@ from vibecomfy.workflow import (
     WorkflowSource,
     _embedded_api_link_details,
     _embedded_api_link_message,
+    _graph_integrity_issues,
     litegraph_to_mode,
     mode_to_litegraph,
 )
@@ -265,10 +266,8 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
         )
     )
     edges = tuple(
-        sorted(
-            (str(e.from_node), str(e.from_output), str(e.to_node), str(e.to_input))
-            for e in workflow.edges
-        )
+        (str(e.from_node), str(e.from_output), str(e.to_node), str(e.to_input))
+        for e in workflow.edges
     )
     public_inputs = tuple(
         sorted(
@@ -1010,8 +1009,6 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         node_id = entry.get("id")
         if not isinstance(node_id, str) or not node_id.strip():
             raise ValueError(f"node {key!r}: id must be a nonblank string")
-        if str(key) != node_id:
-            raise ValueError(f"node mapping key {key!r} must equal node.id {node_id!r}")
         class_type = entry.get("class_type")
         if not isinstance(class_type, str) or not class_type.strip():
             raise ValueError(f"node {node_id!r}: class_type must be a nonblank string")
@@ -1080,7 +1077,7 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         )
         node_pos = _decode_envelope_geometry(entry, node_metadata, "pos", node_id)
         node_size = _decode_envelope_geometry(entry, node_metadata, "size", node_id)
-        workflow.nodes[node_id] = VibeNode(
+        workflow.nodes[str(key)] = VibeNode(
             id=node_id,
             class_type=class_type,
             pack=pack,
@@ -1093,6 +1090,10 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             pos=node_pos,
             size=node_size,
         )
+
+    integrity_issues = _graph_integrity_issues(workflow.nodes, [])
+    if integrity_issues:
+        raise ValueError(integrity_issues[0].message)
 
     # ── edges ──────────────────────────────────────────────────────────────
     edges_raw = raw.get("edges")
@@ -1107,11 +1108,6 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             value = edge.get(field_name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"edge {index}: {field_name} must be a nonblank string")
-        if edge["from_node"] not in workflow.nodes or edge["to_node"] not in workflow.nodes:
-            raise ValueError(
-                f"edge {index}: endpoint node ids {edge['from_node']!r}/{edge['to_node']!r} "
-                "must exist in nodes"
-            )
         workflow.edges.append(
             VibeEdge(
                 from_node=edge["from_node"],
@@ -1120,6 +1116,10 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
                 to_input=edge["to_input"],
             )
         )
+
+    integrity_issues = _graph_integrity_issues(workflow.nodes, workflow.edges)
+    if integrity_issues:
+        raise ValueError(integrity_issues[0].message)
 
     # ── top-level inputs / outputs ─────────────────────────────────────────
     embedded_links = _embedded_api_link_details(workflow)

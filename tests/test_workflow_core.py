@@ -117,6 +117,17 @@ def test_to_envelope_rejects_edge_with_missing_source_node() -> None:
     workflow.nodes["2"] = VibeNode("2", "CustomSink", uid="uid-2")
     workflow.edges.append(VibeEdge("1", "0", "2", "image"))
 
+    report = workflow.validate()
+    issue = next(issue for issue in report.issues if issue.code == "missing_edge_source")
+    assert issue.message == "edge 0: endpoint node ids '1'/'2' must exist in nodes"
+    assert issue.detail == {
+        "edge_index": 0,
+        "source_node_id": "1",
+        "target_node_id": "2",
+        "missing_source": True,
+        "missing_target": False,
+    }
+
     with pytest.raises(
         ValueError,
         match=r"edge 0: endpoint node ids '1'/'2' must exist in nodes",
@@ -188,6 +199,109 @@ def test_to_envelope_dangling_edge_rejection_does_not_mutate_workflow() -> None:
         workflow.to_envelope()
 
     assert workflow == before
+
+
+@pytest.mark.parametrize("edge_source", ["map-key", "internal-id"])
+def test_to_envelope_reports_node_identity_mismatch_before_edge_membership(
+    edge_source: str,
+) -> None:
+    workflow = VibeWorkflow("key-wins", WorkflowSource("key-wins"))
+    workflow.nodes["map-key"] = VibeNode("internal-id", "Source", uid="u1")
+    workflow.nodes["2"] = VibeNode("2", "Sink", uid="u2")
+    workflow.edges.append(VibeEdge(edge_source, "0", "2", "image"))
+    before = deepcopy(workflow)
+
+    report = workflow.validate()
+    identity_issue = next(
+        issue for issue in report.issues if issue.code == "node_identity_mismatch"
+    )
+    assert identity_issue.message == (
+        "node mapping key 'map-key' must equal node.id 'internal-id'"
+    )
+    assert identity_issue.detail == {
+        "mapping_key": "map-key",
+        "node_id": "internal-id",
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"node mapping key 'map-key' must equal node\.id 'internal-id'",
+    ):
+        workflow.to_envelope()
+
+    assert workflow == before
+
+
+def test_from_envelope_reports_node_identity_mismatch_before_edge_membership() -> None:
+    workflow = VibeWorkflow("key-wins", WorkflowSource("key-wins"))
+    workflow.nodes["internal-id"] = VibeNode("internal-id", "Source", uid="u1")
+    workflow.nodes["2"] = VibeNode("2", "Sink", uid="u2")
+    workflow.edges.append(VibeEdge("internal-id", "0", "2", "image"))
+    envelope = workflow.to_envelope()
+    envelope["nodes"]["map-key"] = envelope["nodes"].pop("internal-id")
+    envelope["edges"][0]["from_node"] = "map-key"
+
+    with pytest.raises(
+        ValueError,
+        match=r"node mapping key 'map-key' must equal node\.id 'internal-id'",
+    ):
+        from_envelope(envelope)
+
+
+def test_duplicate_edge_reorder_changes_fingerprint_and_survives_round_trip() -> None:
+    from vibecomfy.ingest.normalize import _door_node_fingerprint
+
+    workflow = VibeWorkflow("dupe-order", WorkflowSource("dupe-order"))
+    workflow.nodes["1"] = VibeNode("1", "SourceA", uid="u1")
+    workflow.nodes["2"] = VibeNode("2", "SourceB", uid="u2")
+    workflow.nodes["3"] = VibeNode("3", "Sink", uid="u3")
+    workflow.edges = [
+        VibeEdge("1", "0", "3", "image"),
+        VibeEdge("2", "0", "3", "image"),
+    ]
+    decoded = from_envelope(workflow.to_envelope())
+    before_fingerprint = _door_node_fingerprint(decoded)
+    before_api = decoded.compile("api")["3"]["inputs"]["image"]
+
+    decoded.edges.reverse()
+    after_fingerprint = _door_node_fingerprint(decoded)
+    after_api = decoded.compile("api")["3"]["inputs"]["image"]
+    before_emit = deepcopy(decoded)
+    emitted = decoded.to_envelope()
+
+    assert before_api == ["2", 0]
+    assert after_api == ["1", 0]
+    assert after_fingerprint != before_fingerprint
+    assert [edge.from_node for edge in decoded.edges] == ["2", "1"]
+    assert [edge["from_node"] for edge in emitted["edges"]] == ["2", "1"]
+    assert len(emitted["edges"]) == 2
+    assert from_envelope(emitted).compile("api")["3"]["inputs"]["image"] == after_api
+    assert decoded == before_emit
+
+
+def test_untouched_opaque_fields_and_subgraph_payload_are_detached_and_lossless() -> None:
+    workflow = VibeWorkflow("opaque", WorkflowSource("opaque"))
+    workflow.nodes["1"] = VibeNode("1", "VendorNode", uid="u1")
+    envelope = workflow.to_envelope()
+    envelope["opaque_top"] = {"nested": ["preserve", 7]}
+    envelope["nodes"]["1"]["opaque_node"] = {"vendor": [1, 2, 3]}
+    envelope["definitions"] = {
+        "subgraphs": [
+            {
+                "id": "opaque-subgraph",
+                "nodes": {"inner-key": {"id": "different-inner-id"}},
+                "links": [["missing", "still", "opaque"]],
+            }
+        ]
+    }
+    decoded = from_envelope(envelope)
+
+    emitted = decoded.to_envelope()
+
+    assert emitted == envelope
+    emitted["opaque_top"]["nested"].append("mutated-return")
+    emitted["definitions"]["subgraphs"][0]["links"].append(["mutated"])
+    assert decoded.to_envelope() == envelope
 
 
 def test_from_api_preserves_noncanonical_two_item_literal_lists() -> None:
