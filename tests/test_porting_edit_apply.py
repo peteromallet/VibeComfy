@@ -11,6 +11,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.emit.ui import guard_exit_ui
@@ -86,6 +88,29 @@ def _node_by_uid(workflow, uid: str):
         if str(getattr(node, "uid", "") or "") == uid:
             return node
     return None
+
+
+def _append_uidless_node_and_edge(
+    workflow,
+    *,
+    to_node: str = "7",
+    to_input: str = "images",
+):
+    node = copy.deepcopy(workflow.nodes["6"])
+    node.id = "999"
+    node.uid = ""
+    workflow.nodes["999"] = node
+    edge = copy.deepcopy(workflow.edges[-1])
+    edge.from_node = "999"
+    edge.from_output = "IMAGE"
+    edge.to_node = to_node
+    edge.to_input = to_input
+    workflow.edges.append(edge)
+    return edge
+
+
+def _append_duplicate_edge(workflow) -> None:
+    workflow.edges.append(copy.deepcopy(workflow.edges[0]))
 
 
 def test_interpret_rejects_unknown_target_without_mutating_original() -> None:
@@ -505,6 +530,275 @@ def test_apply_gate_rejects_unclaimed_semantic_edge_mismatches() -> None:
         ), kind
 
 
+def test_apply_gate_fails_closed_on_unverifiable_identity_and_edge_multiplicity() -> None:
+    """Every node/endpoint must resolve uniquely and edge counts must replay."""
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+
+    provider = _SchemaProvider()
+    pre = from_ui(
+        _fixture(),
+        schema_provider=provider,
+        use_comfy_converter=False,
+    )
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    assert interpreted.landed_ops
+
+    uidless_add = copy.deepcopy(interpreted.workflow)
+    _append_uidless_node_and_edge(uidless_add)
+
+    uidless_pre = copy.deepcopy(pre)
+    _append_uidless_node_and_edge(uidless_pre)
+    uidless_retarget = copy.deepcopy(interpreted.workflow)
+    _append_uidless_node_and_edge(
+        uidless_retarget,
+        to_node="6",
+        to_input="samples",
+    )
+
+    duplicate_uid = copy.deepcopy(interpreted.workflow)
+    duplicate_uid_node = copy.deepcopy(duplicate_uid.nodes["7"])
+    duplicate_uid_node.id = "999"
+    duplicate_uid.nodes["999"] = duplicate_uid_node
+
+    unresolved_endpoint = copy.deepcopy(interpreted.workflow)
+    dangling_edge = copy.deepcopy(unresolved_endpoint.edges[-1])
+    dangling_edge.from_node = "999"
+    unresolved_endpoint.edges.append(dangling_edge)
+
+    duplicate_add = copy.deepcopy(interpreted.workflow)
+    _append_duplicate_edge(duplicate_add)
+
+    duplicate_pre = copy.deepcopy(pre)
+    _append_duplicate_edge(duplicate_pre)
+    duplicate_remove = copy.deepcopy(interpreted.workflow)
+
+    identity_cases = (
+        ("uidless_node_edge_addition", pre, uidless_add),
+        ("uidless_endpoint_retarget", uidless_pre, uidless_retarget),
+        ("duplicate_node_uid", pre, duplicate_uid),
+        ("unresolvable_edge_endpoint", pre, unresolved_endpoint),
+    )
+    for kind, case_pre, case_post in identity_cases:
+        gate = verify_apply(
+            case_pre,
+            case_post,
+            delta=delta,
+            landed_ops=interpreted.landed_ops,
+            schema_provider=provider,
+        )
+        assert gate.ok is False, kind
+        assert gate.apply_eligible is False, kind
+        assert gate.reason == "unverifiable_identity", kind
+        assert any(
+            item.code == "apply_gate_unverifiable_identity"
+            for item in gate.diagnostics
+        ), kind
+
+    multiplicity_cases = (
+        ("duplicate_edge_addition", pre, duplicate_add, "only_in_post"),
+        (
+            "duplicate_edge_removal",
+            duplicate_pre,
+            duplicate_remove,
+            "only_in_replay",
+        ),
+    )
+    for kind, case_pre, case_post, delta_side in multiplicity_cases:
+        gate = verify_apply(
+            case_pre,
+            case_post,
+            delta=delta,
+            landed_ops=interpreted.landed_ops,
+            schema_provider=provider,
+        )
+        assert gate.ok is False, kind
+        assert gate.apply_eligible is False, kind
+        assert gate.reason == "replay_mismatch", kind
+        mismatch = next(
+            item
+            for item in gate.diagnostics
+            if item.code == "apply_gate_replay_mismatch"
+        )
+        assert len(mismatch.detail["edge_delta"][delta_side]) == 1, kind
+
+
+@pytest.mark.parametrize(
+    ("mutation", "diagnostic_code"),
+    (
+        ("uidless_node_edge_addition", "apply_gate_unverifiable_identity"),
+        ("uidless_endpoint_retarget", "apply_gate_unverifiable_identity"),
+        ("duplicate_edge_addition", "apply_gate_replay_mismatch"),
+        ("duplicate_edge_removal", "apply_gate_replay_mismatch"),
+    ),
+)
+def test_apply_batch_replay_rejection_is_atomic(
+    monkeypatch,
+    mutation: str,
+    diagnostic_code: str,
+) -> None:
+    """Replay-ineligible candidates cannot cross the Python commit boundary."""
+    from vibecomfy.porting.edit import _interpret
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    if mutation == "uidless_endpoint_retarget":
+        _append_uidless_node_and_edge(session.workflow)
+    elif mutation == "duplicate_edge_removal":
+        _append_duplicate_edge(session.workflow)
+    before = copy.deepcopy(session.workflow)
+    original_interpret = _interpret.interpret
+    call_count = 0
+
+    def injected_candidate(*args, **kwargs):
+        nonlocal call_count
+        result = original_interpret(*args, **kwargs)
+        call_count += 1
+        if call_count != 1 or not result.ok:
+            return result
+        if mutation == "uidless_node_edge_addition":
+            _append_uidless_node_and_edge(result.workflow)
+        elif mutation == "uidless_endpoint_retarget":
+            uidless_edge = next(
+                edge
+                for edge in result.workflow.edges
+                if str(edge.from_node) == "999"
+            )
+            uidless_edge.to_node = "6"
+            uidless_edge.to_input = "samples"
+        elif mutation == "duplicate_edge_addition":
+            _append_duplicate_edge(result.workflow)
+        elif mutation == "duplicate_edge_removal":
+            first = result.workflow.edges[0]
+            duplicate_index = next(
+                index
+                for index, edge in enumerate(result.workflow.edges[1:], start=1)
+                if edge == first
+            )
+            result.workflow.edges.pop(duplicate_index)
+        else:  # pragma: no cover - closed parametrization
+            raise AssertionError(mutation)
+        return result
+
+    monkeypatch.setattr(_interpret, "interpret", injected_candidate)
+    batch = session.apply_batch("ksampler.steps = 42\n")
+
+    assert batch.ok is False
+    assert batch.apply_eligible is False
+    assert batch.landed_ops == ()
+    assert any(item.code == diagnostic_code for item in batch.diagnostics)
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+
+
+@pytest.mark.parametrize(
+    ("mutation", "diagnostic_code"),
+    (
+        ("uidless_node_edge_addition", "apply_gate_unverifiable_identity"),
+        ("duplicate_edge_addition", "apply_gate_replay_mismatch"),
+    ),
+)
+def test_apply_ops_replay_rejection_is_atomic(
+    monkeypatch,
+    mutation: str,
+    diagnostic_code: str,
+) -> None:
+    """Typed apply_ops rejects an unverifiable candidate before any commit."""
+    from vibecomfy.porting.edit import _op_validate
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    before_ui = copy.deepcopy(session.working_ui)
+    original_validate = _op_validate.validate_typed_ops
+
+    def injected_candidate(*args, **kwargs):
+        post = original_validate(*args, **kwargs)
+        if mutation == "uidless_node_edge_addition":
+            _append_uidless_node_and_edge(post)
+        elif mutation == "duplicate_edge_addition":
+            _append_duplicate_edge(post)
+        else:  # pragma: no cover - closed parametrization
+            raise AssertionError(mutation)
+        return post
+
+    monkeypatch.setattr(_op_validate, "validate_typed_ops", injected_candidate)
+    ops = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    result = session.apply_ops(ops, expected_revision=0)
+
+    assert result.ok is False
+    assert result.reason == "verification_failed"
+    assert result.revision == 0
+    assert result.landed_ops == ()
+    assert any(item.code == diagnostic_code for item in result.diagnostics)
+    assert session.revision == 0
+    assert session.history == []
+    assert session.landed_ops == []
+    assert session.workflow == before
+    assert session.working_ui == before_ui
+
+
+def test_done_rejection_does_not_advance_commit_state() -> None:
+    """A post-apply replay failure is terminal without a second commit."""
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    accepted = session.apply_batch("ksampler.steps = 42\n")
+    assert accepted.ok is True
+    revision = session.revision
+    history = copy.deepcopy(session.history)
+    _append_duplicate_edge(session.workflow)
+
+    done = session.done()
+
+    assert done.ok is False
+    assert session.revision == revision
+    assert session.history == history
+
+
+def test_apply_batch_accepts_edge_order_and_layout_furniture(monkeypatch) -> None:
+    """Edge order and node geometry remain outside replay equivalence."""
+    from vibecomfy.porting.edit import _interpret
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _SchemaProvider()
+    session = EditSession(_fixture(), schema_provider=provider)
+    before = copy.deepcopy(session.workflow)
+    original_interpret = _interpret.interpret
+    call_count = 0
+
+    def furniture_candidate(*args, **kwargs):
+        nonlocal call_count
+        result = original_interpret(*args, **kwargs)
+        call_count += 1
+        if call_count == 1 and result.ok:
+            result.workflow.edges.reverse()
+            result.workflow.nodes["5"].pos = [999.0, 1001.0]
+            result.workflow.nodes["5"].size = [333.0, 444.0]
+        return result
+
+    monkeypatch.setattr(_interpret, "interpret", furniture_candidate)
+    batch = session.apply_batch("ksampler.steps = 42\n")
+
+    assert batch.ok is True
+    assert batch.apply_eligible is True
+    assert session.revision == 1
+    assert len(session.history) == 1
+    assert session.workflow.edges == list(reversed(before.edges))
+    assert session.workflow.nodes["5"].pos == [999.0, 1001.0]
+    assert session.workflow.nodes["5"].size == [333.0, 444.0]
+
+
 def test_apply_gate_allows_runtime_link_id_renumbering() -> None:
     """Raw link IDs/counters are furniture when canonical endpoints match."""
     from vibecomfy.porting.edit.apply_gate import editable_signature, verify_apply
@@ -552,6 +846,82 @@ def test_apply_gate_allows_runtime_link_id_renumbering() -> None:
     assert gate.ok is True
     assert gate.apply_eligible is True
 
+
+def test_apply_gate_accepts_emitted_link_removal_and_renumbering() -> None:
+    """Semantic link removal is valid; its emitted ID is only furniture."""
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "remove_link", "to": ["", "5", "latent_image"]}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    emitted = emit_ui_json(
+        interpreted.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=original,
+    )
+    assert len(emitted["links"]) == len(original["links"]) - 1
+    emitted["last_link_id"] = 0
+    post = from_ui(
+        emitted,
+        schema_provider=provider,
+        use_comfy_converter=False,
+    )
+    gate = verify_apply(
+        pre,
+        post,
+        delta=delta,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is True
+    assert gate.apply_eligible is True
+
+
+def test_apply_gate_does_not_waive_semantic_mismatch_for_counter_decrease() -> None:
+    """Emitter counters cannot authorize a changed canonical edge."""
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    emitted = emit_ui_json(
+        interpreted.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=original,
+    )
+    emitted["last_link_id"] = 0
+    # Keep the link shape valid while changing its semantic source endpoint.
+    emitted["links"][0][1] = 3
+    post = from_ui(
+        emitted,
+        schema_provider=provider,
+        use_comfy_converter=False,
+    )
+    gate = verify_apply(
+        pre,
+        post,
+        delta=delta,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert gate.reason == "replay_mismatch"
+    assert any(
+        item.code == "apply_gate_replay_mismatch" for item in gate.diagnostics
+    )
 
 def test_apply_gate_empty_replay_is_not_eligible() -> None:
     from vibecomfy.porting.edit.apply_gate import verify_apply

@@ -119,52 +119,6 @@ class _ParseExecuteMixin:
                         landed_ops=(),
                         apply_eligible=False,
                     )
-            # S3 Liberating Structure: preserve valid add_node when downstream
-            # wire fails with missing_touched_schema (typed requires_custom_nodes).
-            # Do not treat as full atomic rollback; commit the landed add(s).
-            if not interpreted.ok and interpreted.landed_ops:
-                diag_codes = {getattr(d, "code", None) for d in interpreted.diagnostics}
-                reasons = {getattr(o, "reason", None) for o in interpreted.statements}
-                has_add = any(getattr(op, "op", None) == "add_node" for op in interpreted.landed_ops)
-                if has_add and "requires_custom_nodes" in diag_codes and "requires_custom_nodes" in reasons:
-                    statement_results = [
-                        self._statement_result_from_outcome(outcome)
-                        for outcome in interpreted.statements
-                    ]
-                    statement_results = self._overlay_query_results(
-                        parsed.expanded, statement_results
-                    )
-                    self.workflow = interpreted.workflow
-                    if getattr(self, "history", None) is None:
-                        self.history = []
-                    self.history.append((pre_ir, code, tuple(interpreted.landed_ops)))
-                    self.landed_ops.extend(interpreted.landed_ops)
-                    self._revision += 1
-                    self.resolved_ops = []
-                    for op in interpreted.landed_ops:
-                        touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
-                        self.touched_uids.update(touched_uids)
-                        self.touched_node_ids.update(touched_node_ids)
-                    for outcome in interpreted.statements:
-                        if outcome.status == "applied" and outcome.op_kind == "node_call":
-                            name = outcome.detail.get("target_name")
-                            uid = outcome.detail.get("minted_uid")
-                            if isinstance(name, str) and isinstance(uid, str):
-                                self._register_transient_name(name, uid)
-                    statement_results = self._enrich_statement_results(statement_results)
-                    field_changes, statement_results = self._build_field_changes(
-                        interpreted.landed_ops,
-                        tuple(statement_results),
-                    )
-                    diagnostics = interpreted.diagnostics
-                    return BatchResult(
-                        ok=False,
-                        statements=tuple(statement_results),
-                        diagnostics=diagnostics,
-                        landed_ops=interpreted.landed_ops,
-                        field_changes=field_changes,
-                        apply_eligible=False,
-                    )
             if not interpreted.ok:
                 rejected_ops = tuple(
                     outcome.op

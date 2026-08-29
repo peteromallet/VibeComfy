@@ -44,154 +44,115 @@ class ApplyGateResult:
     reason: str | None = None
 
 
-def verify_apply(
-    pre: VibeWorkflow,
-    post: VibeWorkflow,
-    *,
-    delta: str | Sequence[EditOp] | None = None,
-    landed_ops: Sequence[EditOp] = (),
-    schema_provider: Any | None = None,
-    name_hints: Mapping[str, str] | None = None,
-) -> ApplyGateResult:
-    """Replay-verify ``post`` against ``pre`` + Δ and reject corrupt topology.
+class _EditableIdentityError(ValueError):
+    """The editable quotient cannot identify every node and edge exactly."""
 
-    ``landed_ops`` is the accepted batch (preferred Δ).  ``delta`` is used
-    as the interpret source when ``landed_ops`` is empty but a batch
-    source is still available.
-    """
-    if not isinstance(pre, VibeWorkflow) or not isinstance(post, VibeWorkflow):
-        raise TypeError("verify_apply requires VibeWorkflow pre and post")
+    def __init__(self, reason: str, **detail: Any) -> None:
+        self.reason = reason
+        self.detail = detail
+        super().__init__(reason)
 
-    claimed_ops = tuple(landed_ops)
-    diagnostics: list[CompactDiagnostic] = []
-    admission_reason: str | None = None
-    if claimed_ops:
-        from vibecomfy.porting.edit.admit import (
-            AdmissionRejected,
-            admission_snapshot_for,
-            admit_operations,
-            rejected_ops_are_invisible,
+
+def _identity_text(value: Any, *, field: str, detail: Mapping[str, Any]) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise _EditableIdentityError(
+            f"missing_{field}",
+            **detail,
         )
-
-        admitted = admit_operations(
-            admission_snapshot_for(pre, schema_provider),
-            claimed_ops,
-            working_workflow=pre,
-        )
-        if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
-            admission_reason = admitted.typed_reason
-            # RR1-FIX(2): distinguish a zero-net-change named-absence rollback
-            # (every op bounced on schema absence; the graph is untouched) from
-            # corruption. Downstream projection treats this shape as an honest
-            # no-candidate terminal instead of an authority error.
-            zero_net_change = editable_signature(pre) == editable_signature(post)
-            diagnostics.append(
-                CompactDiagnostic(
-                    code=admitted.typed_reason,
-                    message=admitted.typed_reason,
-                    severity="error",
-                    detail={
-                        "evidence_refs": list(admitted.evidence_refs),
-                        "zero_net_change": zero_net_change,
-                    },
-                )
-            )
+    return value
 
 
-    self_loop_diag = _new_self_loop_diagnostic(pre, post)
-    if self_loop_diag is not None:
-        diagnostics.append(self_loop_diag)
-        return _reject("new_self_loop", diagnostics)
-
-    orphan_diag = _orphaned_output_diagnostic(pre, post, claimed_ops)
-    if orphan_diag is not None:
-        diagnostics.append(orphan_diag)
-        return _reject("orphaned_output", diagnostics)
-
-    # A Python batch's source is the authoritative replay value. Its AddNodeOp
-    # intentionally carries no schema-derived widget-channel classification
-    # for unknown-schema nodes, so replaying only the typed op can re-channel
-    # literals even though replaying the accepted source is faithful to the
-    # post-IR. Typed-tool callers do not supply a source string and continue
-    # to replay their canonical ops.
-    replay_source: str | Sequence[EditOp] | None = (
-        delta if isinstance(delta, str) else (claimed_ops or delta)
+def _edge_identity(edge: Any, *, edge_index: int) -> tuple[str, str, str, str]:
+    try:
+        source_node = edge.from_node
+        source_slot = edge.from_output
+        destination_node = edge.to_node
+        destination_slot = edge.to_input
+    except AttributeError as exc:
+        raise _EditableIdentityError(
+            "malformed_edge",
+            edge_index=edge_index,
+            missing_field=str(exc).split("'")[-2] if "'" in str(exc) else "",
+        ) from exc
+    return (
+        _identity_text(
+            str(source_node) if isinstance(source_node, (int, str)) else source_node,
+            field="edge_source_node_id",
+            detail={"edge_index": edge_index},
+        ),
+        _identity_text(
+            source_slot,
+            field="edge_source_slot",
+            detail={"edge_index": edge_index},
+        ),
+        _identity_text(
+            str(destination_node)
+            if isinstance(destination_node, (int, str))
+            else destination_node,
+            field="edge_destination_node_id",
+            detail={"edge_index": edge_index},
+        ),
+        _identity_text(
+            destination_slot,
+            field="edge_destination_slot",
+            detail={"edge_index": edge_index},
+        ),
     )
-    claimed_edit = bool(claimed_ops) or bool(delta)
-
-    if not claimed_edit or editable_signature(pre) == editable_signature(post):
-        if admission_reason is not None:
-            return _reject(admission_reason, diagnostics)
-        return ApplyGateResult(ok=True, apply_eligible=False, reason="empty_delta")
 
 
-    from vibecomfy.porting.edit._diff import diff
-
-    replay_delta = diff(pre, post, schema_provider=schema_provider)
-    if not replay_delta:
-        diagnostics.append(
-            _diag(
-                "apply_gate_empty_replay",
-                "Apply gate refused success: interpret claimed an edit but "
-                "diff(pre, post) is empty, so the product cannot be replayed.",
-                severity="error",
-                detail={"landed_op_count": len(claimed_ops)},
-            )
-        )
-        return _reject("empty_replay", diagnostics)
-
-    if replay_source is None:
-        replay_source = replay_delta
-
-    reconstruct_diag = _replay_reconstruct_diagnostic(
-        pre,
-        post,
-        replay_source,
-        schema_provider=schema_provider,
-        name_hints=name_hints,
-    )
-    if reconstruct_diag is not None:
-        diagnostics.append(reconstruct_diag)
-        return _reject("replay_mismatch", diagnostics)
-
-    if admission_reason is not None:
-        return _reject(admission_reason, diagnostics)
-    return ApplyGateResult(ok=True, apply_eligible=True)
+def _node_items(workflow: VibeWorkflow) -> tuple[tuple[Any, Any], ...]:
+    nodes = getattr(workflow, "nodes", None)
+    if not isinstance(nodes, Mapping):
+        raise _EditableIdentityError("malformed_nodes", actual_type=type(nodes).__name__)
+    return tuple(nodes.items())
 
 
-def apply_eligible_for(result: ApplyGateResult) -> bool:
-    """True only when the gate accepted a replay-verified, non-empty Δ."""
-    return bool(result.ok and result.apply_eligible)
-
-
-def apply_eligible_from_projection(projection: Any) -> bool:
-    """Apply eligibility is a projection of gateway-verified accepted delta + replay.
-
-    Consumes the one T2.2 ``TerminalProjection``. Audit/prose never authorize Apply.
-    """
-    if projection is None:
-        return False
-    eligibility = getattr(projection, "eligibility", None)
-    if isinstance(eligibility, Mapping):
-        return bool(eligibility.get("applyable")) and getattr(projection, "terminal_state", None) == "applied"
-    return False
-
-
-def _reject(reason: str, diagnostics: Sequence[CompactDiagnostic]) -> ApplyGateResult:
-    return ApplyGateResult(
-        ok=False,
-        apply_eligible=False,
-        diagnostics=tuple(diagnostics),
-        reason=reason,
-    )
+def _edge_items(workflow: VibeWorkflow) -> tuple[Any, ...]:
+    edges = getattr(workflow, "edges", None)
+    if not isinstance(edges, (list, tuple)):
+        raise _EditableIdentityError("malformed_edges", actual_type=type(edges).__name__)
+    return tuple(edges)
 
 
 def _uid_by_node_id(workflow: VibeWorkflow) -> dict[str, str]:
     mapping: dict[str, str] = {}
-    for node_id, node in workflow.nodes.items():
+    node_id_by_uid: dict[str, str] = {}
+    for raw_node_id, node in _node_items(workflow):
+        if not isinstance(raw_node_id, (int, str)) or (
+            isinstance(raw_node_id, str) and not raw_node_id.strip()
+        ):
+            raise _EditableIdentityError(
+                "missing_node_id",
+                node_id=raw_node_id,
+            )
+        node_id = str(raw_node_id)
+        declared_node_id = getattr(node, "id", None)
+        if not isinstance(declared_node_id, (int, str)) or str(declared_node_id) != node_id:
+            raise _EditableIdentityError(
+                "node_id_mismatch",
+                node_id=node_id,
+                declared_node_id=declared_node_id,
+            )
+        if node_id in mapping:
+            raise _EditableIdentityError(
+                "ambiguous_node_id",
+                node_id=node_id,
+            )
         uid = getattr(node, "uid", None)
-        if isinstance(uid, str) and uid:
-            mapping[str(node_id)] = uid
+        if not isinstance(uid, str) or not uid.strip():
+            raise _EditableIdentityError(
+                "missing_node_uid",
+                node_id=node_id,
+            )
+        prior_node_id = node_id_by_uid.get(uid)
+        if prior_node_id is not None:
+            raise _EditableIdentityError(
+                "duplicate_node_uid",
+                uid=uid,
+                node_ids=(prior_node_id, node_id),
+            )
+        mapping[node_id] = uid
+        node_id_by_uid[uid] = node_id
     return mapping
 
 
@@ -199,22 +160,41 @@ def _node_id_by_uid(workflow: VibeWorkflow) -> dict[str, str]:
     return {uid: node_id for node_id, uid in _uid_by_node_id(workflow).items()}
 
 
-def _edge_uid_records(workflow: VibeWorkflow) -> set[tuple[str, str, str, str]]:
+def _edge_uid_records(
+    workflow: VibeWorkflow,
+) -> tuple[tuple[str, str, str, str], ...]:
     uid_by_id = _uid_by_node_id(workflow)
-    records: set[tuple[str, str, str, str]] = set()
-    for edge in workflow.edges:
-        src = uid_by_id.get(str(edge.from_node))
-        dst = uid_by_id.get(str(edge.to_node))
-        if not src or not dst:
-            continue
-        records.add((src, str(edge.from_output), dst, str(edge.to_input)))
-    return records
+    records: list[tuple[str, str, str, str]] = []
+    for edge_index, edge in enumerate(_edge_items(workflow)):
+        source_id, source_slot, destination_id, destination_slot = _edge_identity(
+            edge,
+            edge_index=edge_index,
+        )
+        source_uid = uid_by_id.get(source_id)
+        destination_uid = uid_by_id.get(destination_id)
+        if source_uid is None or destination_uid is None:
+            raise _EditableIdentityError(
+                "unresolvable_edge_endpoint",
+                edge_index=edge_index,
+                source_node_id=source_id,
+                destination_node_id=destination_id,
+                unresolved=tuple(
+                    endpoint
+                    for endpoint, uid in (
+                        ("source", source_uid),
+                        ("destination", destination_uid),
+                    )
+                    if uid is None
+                ),
+            )
+        records.append((source_uid, source_slot, destination_uid, destination_slot))
+    return tuple(sorted(records))
 
 
 def _self_loop_uids(workflow: VibeWorkflow) -> set[str]:
     loops: set[str] = set()
     uid_by_id = _uid_by_node_id(workflow)
-    for edge in workflow.edges:
+    for edge in _edge_items(workflow):
         src_id = str(edge.from_node)
         dst_id = str(edge.to_node)
         if src_id != dst_id:
@@ -367,29 +347,185 @@ def _node_field_signature(node: Any) -> tuple[Any, ...]:
 
 def editable_signature(
     workflow: VibeWorkflow,
-) -> tuple[dict[str, tuple[Any, ...]], frozenset[tuple[str, str, str, str]]]:
-    """uid → (class, fields, mode) plus the uid-addressed edge set."""
-    nodes: dict[str, tuple[Any, ...]] = {}
-    for node in workflow.nodes.values():
-        uid = getattr(node, "uid", None)
-        if not isinstance(uid, str) or not uid:
-            continue
-        nodes[uid] = _node_field_signature(node)
-    return nodes, frozenset(_edge_uid_records(workflow))
+) -> tuple[
+    dict[str, tuple[Any, ...]],
+    tuple[tuple[str, str, str, str], ...],
+]:
+    """Return UID-addressed nodes and a canonical edge multiset.
 
-
-def _is_leftover_link_mismatch(
-    expected_edges: set[tuple[str, str, str, str]],
-    actual_edges: set[tuple[str, str, str, str]],
-) -> bool:
-    """True only when a raw-link mismatch is canonical-edge neutral.
-
-    Runtime link IDs and ``last_link_id`` are deliberately absent from these
-    uid-addressed records.  Equal sets therefore already tolerate that
-    furniture; any unequal endpoint/slot record is a semantic mismatch and
-    must fail closed.
+    Runtime link IDs, layout, and other emit furniture are deliberately absent.
+    Every node and every edge endpoint must be identifiable; otherwise callers
+    must fail closed rather than compare a partial quotient.
     """
-    return expected_edges == actual_edges
+    uid_by_id = _uid_by_node_id(workflow)
+    nodes = {
+        uid_by_id[str(node_id)]: _node_field_signature(node)
+        for node_id, node in _node_items(workflow)
+    }
+    return nodes, _edge_uid_records(workflow)
+
+
+def verify_apply(
+    pre: VibeWorkflow,
+    post: VibeWorkflow,
+    *,
+    delta: str | Sequence[EditOp] | None = None,
+    landed_ops: Sequence[EditOp] = (),
+    schema_provider: Any | None = None,
+    name_hints: Mapping[str, str] | None = None,
+) -> ApplyGateResult:
+    """Replay-verify ``post`` against ``pre`` + Δ and reject corrupt topology.
+
+    ``landed_ops`` is the accepted batch (preferred Δ).  ``delta`` is used
+    as the interpret source when ``landed_ops`` is empty but a batch
+    source is still available.
+    """
+    if not isinstance(pre, VibeWorkflow) or not isinstance(post, VibeWorkflow):
+        raise TypeError("verify_apply requires VibeWorkflow pre and post")
+
+    try:
+        pre_signature = editable_signature(pre)
+    except _EditableIdentityError as exc:
+        return _reject(
+            "unverifiable_identity",
+            (_editable_identity_diagnostic("pre", exc),),
+        )
+    try:
+        post_signature = editable_signature(post)
+    except _EditableIdentityError as exc:
+        return _reject(
+            "unverifiable_identity",
+            (_editable_identity_diagnostic("post", exc),),
+        )
+
+    claimed_ops = tuple(landed_ops)
+    diagnostics: list[CompactDiagnostic] = []
+    admission_reason: str | None = None
+    if claimed_ops:
+        from vibecomfy.porting.edit.admit import (
+            AdmissionRejected,
+            admission_snapshot_for,
+            admit_operations,
+        )
+
+        admitted = admit_operations(
+            admission_snapshot_for(pre, schema_provider),
+            claimed_ops,
+            working_workflow=pre,
+        )
+        if isinstance(admitted, AdmissionRejected):
+            admission_reason = admitted.typed_reason
+            diagnostics.append(
+                CompactDiagnostic(
+                    code=admitted.typed_reason,
+                    message=admitted.typed_reason,
+                    severity="error",
+                    detail={"evidence_refs": list(admitted.evidence_refs)},
+                )
+            )
+
+
+    self_loop_diag = _new_self_loop_diagnostic(pre, post)
+    if self_loop_diag is not None:
+        diagnostics.append(self_loop_diag)
+        return _reject("new_self_loop", diagnostics)
+
+    orphan_diag = _orphaned_output_diagnostic(pre, post, claimed_ops)
+    if orphan_diag is not None:
+        diagnostics.append(orphan_diag)
+        return _reject("orphaned_output", diagnostics)
+
+    # A Python batch's source is the authoritative replay value. Its AddNodeOp
+    # intentionally carries no schema-derived widget-channel classification
+    # for unknown-schema nodes, so replaying only the typed op can re-channel
+    # literals even though replaying the accepted source is faithful to the
+    # post-IR. Typed-tool callers do not supply a source string and continue
+    # to replay their canonical ops.
+    replay_source: str | Sequence[EditOp] | None = (
+        delta if isinstance(delta, str) else (claimed_ops or delta)
+    )
+    claimed_edit = bool(claimed_ops) or bool(delta)
+
+    if not claimed_edit or pre_signature == post_signature:
+        if admission_reason is not None:
+            return _reject(admission_reason, diagnostics)
+        return ApplyGateResult(ok=True, apply_eligible=False, reason="empty_delta")
+
+
+    from vibecomfy.porting.edit._diff import diff
+
+    replay_delta = diff(pre, post, schema_provider=schema_provider)
+    if not replay_delta:
+        diagnostics.append(
+            _diag(
+                "apply_gate_empty_replay",
+                "Apply gate refused success: interpret claimed an edit but "
+                "diff(pre, post) is empty, so the product cannot be replayed.",
+                severity="error",
+                detail={"landed_op_count": len(claimed_ops)},
+            )
+        )
+        return _reject("empty_replay", diagnostics)
+
+    if replay_source is None:
+        replay_source = replay_delta
+
+    reconstruct_diag = _replay_reconstruct_diagnostic(
+        pre,
+        post,
+        replay_source,
+        schema_provider=schema_provider,
+        name_hints=name_hints,
+    )
+    if reconstruct_diag is not None:
+        diagnostics.append(reconstruct_diag)
+        return _reject("replay_mismatch", diagnostics)
+
+    if admission_reason is not None:
+        return _reject(admission_reason, diagnostics)
+    return ApplyGateResult(ok=True, apply_eligible=True)
+
+
+def apply_eligible_for(result: ApplyGateResult) -> bool:
+    """True only when the gate accepted a replay-verified, non-empty Δ."""
+    return bool(result.ok and result.apply_eligible)
+
+
+def apply_eligible_from_projection(projection: Any) -> bool:
+    """Apply eligibility is a projection of gateway-verified accepted delta + replay.
+
+    Consumes the one T2.2 ``TerminalProjection``. Audit/prose never authorize Apply.
+    """
+    if projection is None:
+        return False
+    eligibility = getattr(projection, "eligibility", None)
+    if isinstance(eligibility, Mapping):
+        return bool(eligibility.get("applyable")) and getattr(projection, "terminal_state", None) == "applied"
+    return False
+
+
+def _reject(reason: str, diagnostics: Sequence[CompactDiagnostic]) -> ApplyGateResult:
+    return ApplyGateResult(
+        ok=False,
+        apply_eligible=False,
+        diagnostics=tuple(diagnostics),
+        reason=reason,
+    )
+def _editable_identity_diagnostic(
+    graph: str,
+    error: _EditableIdentityError,
+) -> CompactDiagnostic:
+    return _diag(
+        "apply_gate_unverifiable_identity",
+        "Apply gate refused success: the editable graph identity is missing, "
+        "non-unique, or has an unresolvable edge endpoint.",
+        severity="error",
+        detail={
+            "graph": graph,
+            "identity_reason": error.reason,
+            **error.detail,
+        },
+    )
 
 
 def _replay_reconstruct_diagnostic(
@@ -422,18 +558,19 @@ def _replay_reconstruct_diagnostic(
             },
         )
     expected = editable_signature(post)
-    actual = editable_signature(replayed.workflow)
+    try:
+        actual = editable_signature(replayed.workflow)
+    except _EditableIdentityError as exc:
+        return _editable_identity_diagnostic("replay", exc)
     if expected == actual:
         return None
+
+    from collections import Counter
+
     expected_nodes, expected_edges = expected
     actual_nodes, actual_edges = actual
-    # Runtime link IDs and last_link_id are absent from the canonical edge
-    # records, so equality still tolerates that furniture.  Any unequal edge
-    # set changes an endpoint/slot or adds/removes an edge and must reject.
-    if expected_nodes == actual_nodes and _is_leftover_link_mismatch(
-        set(expected_edges), set(actual_edges)
-    ):
-        return None
+    expected_edge_counts = Counter(expected_edges)
+    actual_edge_counts = Counter(actual_edges)
     return _diag(
         "apply_gate_replay_mismatch",
         "Apply gate refused success: interpret(pre, Δ) did not reconstruct post.",
@@ -444,8 +581,12 @@ def _replay_reconstruct_diagnostic(
                 "only_in_replay": tuple(sorted(set(actual_nodes) - set(expected_nodes))),
             },
             "edge_delta": {
-                "only_in_post": tuple(sorted(expected_edges - actual_edges)),
-                "only_in_replay": tuple(sorted(actual_edges - expected_edges)),
+                "only_in_post": tuple(
+                    sorted((expected_edge_counts - actual_edge_counts).elements())
+                ),
+                "only_in_replay": tuple(
+                    sorted((actual_edge_counts - expected_edge_counts).elements())
+                ),
             },
             "emit_path": "vibecomfy/porting/emit/ui.py:emit_ui_json",
         },
