@@ -320,11 +320,11 @@ def check_finding_chains(manifest: dict[str, Any]) -> None:
 def check_nested_record_accounting(manifest: dict[str, Any], manifest_path: str | Path | None = None) -> None:
     """Operator directives 22/25.3: every gates[].evidence_sequence[] entry must be accounted for.
 
-    For each nested entry with a receipt_path, verify that the flattened record's
-    role/model_route/exit/disposition (where present in the receipt) matches the
-    receipt truthfully. Where a receipt lacks a field the check leaves it absent.
-    Also verify that the flattened promotion does not invent fields and that each
-    nested record is validated for model routing / independence via the flattened set.
+    Every nested entry that references a receipt must point at an existing,
+    readable JSON object. Its receipt-file digest, task identity, and any
+    metadata/digests claimed by the manifest must agree with the receipt. The
+    flattened record is then checked against receipt fields as before so
+    promotion cannot hide a mismatch.
     """
     if manifest_path is not None:
         mpath = Path(manifest_path)
@@ -340,29 +340,61 @@ def check_nested_record_accounting(manifest: dict[str, Any], manifest_path: str 
             if flat is None:
                 _fail("NESTED_RECORD_ACCOUNTING", f"nested record {tid} not promoted into validator accounting")
             receipt_path = entry.get("receipt_path")
-            if isinstance(receipt_path, str):
-                p = _path_from_record(receipt_path, mpath)
-                if p.is_file():
-                    try:
-                        payload = json.loads(p.read_text(encoding="utf-8"))
-                    except (OSError, json.JSONDecodeError):
-                        payload = None
-                    if isinstance(payload, dict):
-                        for key in ("role", "model_route", "exit", "disposition"):
-                            if key in payload and payload[key] is not None:
-                                # Verify flattened accounting truthful
-                                if flat.get(key) != payload[key]:
-                                    _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} field {key} mismatch: manifest {flat.get(key)!r} != receipt {payload[key]!r}")
-                                # Verify manifest entry itself truthful where it claims a value (do not hide lies via enrichment)
-                                if key in entry and entry.get(key) != payload[key]:
-                                    _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} entry field {key} untruthful: entry {entry.get(key)!r} != receipt {payload[key]!r}")
-                        if "label" in payload and payload["label"] is not None:
-                            if flat.get("label") != payload["label"]:
-                                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} label mismatch")
-                            if "label" in entry and entry.get("label") != payload["label"]:
-                                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} entry label untruthful")
-            # Ensure at least task_id is present; role/model_route may be absent only if receipt also lacks it
-            # (do not fabricate)
+            if not isinstance(receipt_path, str) or not receipt_path:
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested record {tid} lacks receipt_path")
+            p = _path_from_record(receipt_path, mpath)
+            if not p.is_file():
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} receipt is missing: {receipt_path}")
+            try:
+                receipt_bytes = p.read_bytes()
+            except OSError as exc:
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} receipt is unreadable: {receipt_path} ({exc})")
+            try:
+                payload = json.loads(receipt_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} receipt is malformed JSON: {receipt_path} ({exc})")
+            if not isinstance(payload, dict):
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} receipt must be a JSON object: {receipt_path}")
+
+            digest = entry.get("sha256")
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} has no valid receipt sha256 claim")
+            actual_digest = hashlib.sha256(receipt_bytes).hexdigest()
+            if actual_digest != digest.lower():
+                _fail(
+                    "NESTED_RECORD_ACCOUNTING",
+                    f"nested {tid} receipt digest mismatch: {actual_digest} != {digest}",
+                )
+
+            if "result_sha256" in entry:
+                claimed_result = entry.get("result_sha256")
+                receipt_result = payload.get("result_sha256")
+                if not isinstance(claimed_result, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", claimed_result):
+                    _fail("NESTED_RECORD_ACCOUNTING", f"nested {tid} has no valid result_sha256 claim")
+                if receipt_result != claimed_result:
+                    _fail(
+                        "NESTED_RECORD_ACCOUNTING",
+                        f"nested {tid} result_sha256 mismatch: manifest {claimed_result!r} != receipt {receipt_result!r}",
+                    )
+
+            if payload.get("task_id") != tid:
+                _fail(
+                    "NESTED_RECORD_ACCOUNTING",
+                    f"nested {tid} task_id mismatch: receipt {payload.get('task_id')!r}",
+                )
+            for key in ("role", "model_route", "exit", "disposition", "label"):
+                if key in entry and entry.get(key) != payload.get(key):
+                    _fail(
+                        "NESTED_RECORD_ACCOUNTING",
+                        f"nested {tid} entry field {key} untruthful: entry {entry.get(key)!r} != receipt {payload.get(key)!r}",
+                    )
+                if key in payload and payload[key] is not None:
+                    # Verify flattened accounting truthful.
+                    if flat.get(key) != payload[key]:
+                        _fail(
+                            "NESTED_RECORD_ACCOUNTING",
+                            f"nested {tid} field {key} mismatch: manifest {flat.get(key)!r} != receipt {payload[key]!r}",
+                        )
 
 
 def _iter_digest_refs(value: Any, prefix: str = "manifest") -> Iterable[tuple[str, str, str]]:
@@ -582,9 +614,13 @@ def validate_manifest(manifest: dict[str, Any], manifest_path: str | Path = "man
         _fail("MANIFEST_SHAPE", "manifest must be a JSON object")
     check_uniqueness(manifest)
     check_dependency_order(manifest)
+    # Receipt paths are the source of truth for promoted nested records. Check
+    # them before derived routing/reviewer projections so any receipt defect
+    # is reported as NESTED_RECORD_ACCOUNTING rather than masked by a later
+    # projection check.
+    check_nested_record_accounting(manifest, path)
     check_model_routing(manifest, path)
     check_reviewer_independence(manifest, path)
-    check_nested_record_accounting(manifest, path)
     check_finding_chains(manifest)
     check_artifact_digests(manifest, path)
     check_test_singletons(manifest)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -256,6 +257,102 @@ def _error(manifest: dict, check: str) -> str:
         validator.validate_manifest(manifest, ROOT / "manifest.json")
     assert caught.value.error_type == check
     return str(caught.value)
+
+
+def _nested_receipt_fixture(tmp_path: Path) -> tuple[dict, Path, dict]:
+    """Build one nested evidence record and its truthful local receipt."""
+    evidence = tmp_path / "evidence"
+    receipts = evidence / "receipts"
+    receipts.mkdir(parents=True)
+    receipt_path = receipts / "nested-receipt.json"
+    payload = {
+        "task_id": "nested-task",
+        "role": "reviewer",
+        "label": "nested review",
+        "model_route": "grok-4.6",
+        "exit": 0,
+        "disposition": "continue",
+        "result_sha256": "b" * 64,
+    }
+    receipt_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+    receipt_path.write_bytes(receipt_bytes)
+    entry = {
+        "task_id": "nested-task",
+        "receipt_path": "receipts/nested-receipt.json",
+        "sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+        "result_sha256": payload["result_sha256"],
+        "role": payload["role"],
+        "label": payload["label"],
+        "model_route": payload["model_route"],
+        "exit": payload["exit"],
+        "disposition": payload["disposition"],
+    }
+    manifest = {
+        "tasks": [],
+        "gates": [{"gate_id": "G0", "evidence_sequence": [entry]}],
+    }
+    return manifest, evidence / "manifest.json", entry
+
+
+def test_nested_receipt_accounting_accepts_truthful_receipt(tmp_path: Path) -> None:
+    manifest, manifest_path, _entry = _nested_receipt_fixture(tmp_path)
+    validator.check_nested_record_accounting(manifest, manifest_path)
+
+
+@pytest.mark.parametrize(
+    ("case", "contents", "expected"),
+    [
+        ("missing", None, "receipt is missing"),
+        ("malformed", b"{not-json", "receipt is malformed JSON"),
+        ("non-object", b"[]", "receipt must be a JSON object"),
+    ],
+)
+def test_nested_receipt_accounting_rejects_missing_malformed_and_non_object(
+    tmp_path: Path, case: str, contents: bytes | None, expected: str
+) -> None:
+    manifest, manifest_path, entry = _nested_receipt_fixture(tmp_path)
+    receipt_path = tmp_path / "evidence" / "receipts" / "nested-receipt.json"
+    if contents is None:
+        receipt_path.unlink()
+    else:
+        receipt_path.write_bytes(contents)
+        entry["sha256"] = hashlib.sha256(contents).hexdigest()
+    with pytest.raises(validator.EvidenceValidationError, match="^NESTED_RECORD_ACCOUNTING:") as caught:
+        validator.check_nested_record_accounting(manifest, manifest_path)
+    assert expected in str(caught.value), case
+
+
+def test_nested_receipt_accounting_rejects_unreadable_receipt(tmp_path: Path, monkeypatch) -> None:
+    manifest, manifest_path, _entry = _nested_receipt_fixture(tmp_path)
+    receipt_path = tmp_path / "evidence" / "receipts" / "nested-receipt.json"
+    real_read_bytes = Path.read_bytes
+
+    def unreadable(path: Path) -> bytes:
+        if path == receipt_path:
+            raise OSError("simulated unreadable receipt")
+        return real_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", unreadable)
+    with pytest.raises(validator.EvidenceValidationError, match="receipt is unreadable"):
+        validator.check_nested_record_accounting(manifest, manifest_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("sha256", "f" * 64, "receipt digest mismatch"),
+        ("result_sha256", "f" * 64, "result_sha256 mismatch"),
+        ("role", "implementer", "entry field role untruthful"),
+    ],
+)
+def test_nested_receipt_accounting_rejects_claimed_field_or_digest_mismatch(
+    tmp_path: Path, field: str, value: str, expected: str
+) -> None:
+    manifest, manifest_path, entry = _nested_receipt_fixture(tmp_path)
+    entry[field] = value
+    with pytest.raises(validator.EvidenceValidationError, match="^NESTED_RECORD_ACCOUNTING:") as caught:
+        validator.check_nested_record_accounting(manifest, manifest_path)
+    assert expected in str(caught.value)
 
 
 def test_dependency_order_rejects_reversed_cards() -> None:
