@@ -485,12 +485,16 @@ class Watchdog:
         st = self._state
         now = _now()
 
+        if st.stop_reason == "errored":
+            return "errored", "authoritative terminal history reported an execution error"
+
+        if st.stop_reason == "timeout":
+            return "timeout", "authoritative terminal history did not resolve before the deadline"
+
         # errored: an execution_error message arrived.
         if st.last_error is not None:
             err_msg = st.last_error.get("exception_message") or st.last_error.get("exception_type") or "unknown"
             return "errored", f"execution_error captured: {err_msg}"
-
-        # completed: server signalled end-of-prompt with executing:null.
         if st.prompt_completed and st.current_node_id is None:
             return (
                 "completed",

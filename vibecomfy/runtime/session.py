@@ -392,7 +392,7 @@ class EmbeddedSession:
         client_id = uuid.uuid4().hex
         ws_url = _embedded_observation_url(self.config)
         watchdog = await _start_watchdog(server_url=ws_url, client_id=client_id, api_dict=api_dict)
-        stop_reason = "completed"
+        stop_reason: str | None = None
         phase_start = time.monotonic()
         try:
             try:
@@ -411,22 +411,34 @@ class EmbeddedSession:
                     _workflow_queue_failure_message(workflow, exc),
                     next_action="vibecomfy runtime doctor",
                 ) from exc
-        finally:
-            await _finalize_watchdog(watchdog, run_dir=run_dir, reason=stop_reason)
-        timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-        self.last_fingerprint = fp
 
-        phase_start = time.monotonic()
-        comfy_outputs = _decode_terminal_result(
-            queued,
-            prompt_id=normalize_prompt_id(queued),
-            status_required=False,
-        )
-        outputs = _collect_output_paths(
-            comfy_outputs,
-            output_directory=_configured_output_directory(self.config),
-        )
-        timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
+            prompt_id = normalize_prompt_id(queued)
+            _set_watchdog_prompt_id(watchdog, prompt_id)
+            timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
+            phase_start = time.monotonic()
+            comfy_outputs = _decode_terminal_result(
+                queued,
+                prompt_id=prompt_id,
+                status_required=False,
+            )
+            outputs = _collect_output_paths(
+                comfy_outputs,
+                output_directory=_configured_output_directory(self.config),
+            )
+            timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
+            stop_reason = "completed"
+        except asyncio.TimeoutError:
+            stop_reason = "timeout"
+            raise
+        except RuntimeNodeError:
+            stop_reason = "errored"
+            raise
+        except Exception:
+            if stop_reason is None:
+                stop_reason = "exception"
+            raise
+        finally:
+            await _finalize_watchdog(watchdog, run_dir=run_dir, reason=stop_reason or "exception")
         timings["total_inside_vibecomfy_sec"] = round(time.monotonic() - total_start, 3)
         metadata = _run_metadata(
             run_id=run_id,
@@ -446,7 +458,7 @@ class EmbeddedSession:
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
         return RunResult(
             run_id=run_id,
-            prompt_id=normalize_prompt_id(queued),
+            prompt_id=prompt_id,
             outputs=outputs,
             metadata_path=str(metadata_path),
             log_path=str(log_path),
@@ -610,7 +622,7 @@ class ServerSession:
 
         client_id = uuid.uuid4().hex
         watchdog = await _start_watchdog(server_url=self.url, client_id=client_id, api_dict=api_dict)
-        stop_reason = "completed"
+        stop_reason: str | None = None
         phase_start = time.monotonic()
         try:
             try:
@@ -629,20 +641,39 @@ class ServerSession:
                     _workflow_queue_failure_message(workflow, exc),
                     next_action="vibecomfy runtime doctor",
                 ) from exc
-        finally:
-            await _finalize_watchdog(watchdog, run_dir=run_dir, reason=stop_reason)
-        timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-        self.last_fingerprint = fp
 
-        phase_start = time.monotonic()
-        prompt_id = normalize_prompt_id(queued)
-        history = await _wait_for_server_history(self.url, prompt_id, config=self.config)
-        comfy_outputs = _outputs_from_server_history(history, prompt_id)
-        outputs = _collect_output_paths(
-            comfy_outputs,
-            output_directory=_configured_output_directory(self.config),
-        )
-        timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
+            prompt_id = normalize_prompt_id(queued)
+            if not prompt_id:
+                raise QueueError(
+                    "Comfy queue response did not include a prompt_id; cannot retrieve terminal result",
+                    next_action="vibecomfy runtime doctor",
+                )
+            _set_watchdog_prompt_id(watchdog, prompt_id)
+            timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
+            self.last_fingerprint = fp
+
+            phase_start = time.monotonic()
+            history = await _wait_for_server_history(self.url, prompt_id, config=self.config)
+            comfy_outputs = _outputs_from_server_history(history, prompt_id)
+            outputs = _collect_output_paths(
+                comfy_outputs,
+                output_directory=_configured_output_directory(self.config),
+            )
+            timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
+            stop_reason = "completed"
+        except asyncio.TimeoutError:
+            stop_reason = "timeout"
+            raise
+        except RuntimeNodeError:
+            stop_reason = "errored"
+            raise
+        except Exception:
+            if stop_reason is None:
+                stop_reason = "exception"
+            raise
+        finally:
+            await _finalize_watchdog(watchdog, run_dir=run_dir, reason=stop_reason or "exception")
+
         timings["total_inside_vibecomfy_sec"] = round(time.monotonic() - total_start, 3)
         metadata = _run_metadata(
             run_id=run_id,
@@ -1189,6 +1220,7 @@ def _run_metadata(
         "comfy_commit": shared.get("comfy_commit"),
         "drift": shared.get("drift"),
         "queued": queued,
+        "prompt_id": normalize_prompt_id(queued),
         "comfy_outputs": comfy_outputs,
         "artifact_manifest": artifact_manifest,
         "artifact_paths": outputs,
@@ -1298,9 +1330,9 @@ def _terminal_field(value: Any, name: str) -> Any:
 
 
 def _malformed_terminal_result(prompt_id: str | None, reason: str) -> QueueError:
-    label = prompt_id or "<unknown>"
+    label = _bounded_terminal_value(prompt_id if prompt_id else "<unknown>")
     return QueueError(
-        f"Malformed Comfy terminal result for prompt {label}: {reason}",
+        f"Malformed Comfy terminal result for prompt {label}: {_bounded_terminal_value(reason)}",
         next_action="vibecomfy runtime doctor",
     )
 
@@ -1316,7 +1348,9 @@ def _bounded_terminal_value(value: Any) -> str:
         return f"<{type(value).__name__}>"
     if len(rendered) <= _TERMINAL_FIELD_LIMIT:
         return rendered
-    return rendered[: _TERMINAL_FIELD_LIMIT - 3] + "..."
+    head = (_TERMINAL_FIELD_LIMIT - 31) // 2
+    tail = _TERMINAL_FIELD_LIMIT - 31 - head
+    return rendered[:head] + "...<truncated>..." + rendered[-tail:]
 
 
 def _bounded_error_details(value: Any) -> Any:
@@ -1349,6 +1383,18 @@ def _bounded_status_message(messages: Any) -> Any:
     return _bounded_terminal_value(selected)
 
 
+def _status_has_execution_error(status: Any) -> bool:
+    messages = _terminal_field(status, "messages")
+    if not isinstance(messages, (list, tuple)):
+        return False
+    return any(
+        isinstance(message, (list, tuple))
+        and bool(message)
+        and message[0] == "execution_error"
+        for message in messages
+    )
+
+
 def _bounded_terminal_evidence(status: Any) -> str:
     evidence: dict[str, Any] = {}
     error_details = _terminal_field(status, "error_details")
@@ -1365,7 +1411,26 @@ def _bounded_terminal_evidence(status: Any) -> str:
     rendered = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
     if len(rendered) <= _TERMINAL_EVIDENCE_LIMIT:
         return rendered
-    return rendered[: _TERMINAL_EVIDENCE_LIMIT - 3] + "..."
+    head = (_TERMINAL_EVIDENCE_LIMIT - 31) // 2
+    tail = _TERMINAL_EVIDENCE_LIMIT - 31 - head
+    return rendered[:head] + "...<truncated>..." + rendered[-tail:]
+
+
+def _bounded_diagnostic(text: str) -> str:
+    if len(text) <= _TERMINAL_EVIDENCE_LIMIT:
+        return text
+    head = (_TERMINAL_EVIDENCE_LIMIT - 31) // 2
+    tail = _TERMINAL_EVIDENCE_LIMIT - 31 - head
+    return text[:head] + "...<truncated>..." + text[-tail:]
+
+
+def _raise_terminal_execution_error(status: Any, prompt_id: str | None) -> None:
+    label = _bounded_terminal_value(prompt_id if prompt_id else "<unknown>")
+    message = f"Comfy prompt {label} failed: {_bounded_terminal_evidence(status)}"
+    raise RuntimeNodeError(
+        _bounded_diagnostic(message),
+        next_action="vibecomfy runtime doctor",
+    )
 
 
 def _decode_terminal_result(
@@ -1380,6 +1445,12 @@ def _decode_terminal_result(
             raise _malformed_terminal_result(prompt_id, "missing status")
         outputs = _terminal_field(result, "outputs")
         if outputs is _MISSING_TERMINAL_FIELD:
+            if isinstance(result, Mapping):
+                wrapper_fields = {"prompt_id", "number", "node_errors"}
+                if not any(field in result for field in wrapper_fields):
+                    return result
+            elif isinstance(result, list):
+                return result
             raise _malformed_terminal_result(prompt_id, "embedded result is missing outputs")
         if not isinstance(outputs, (Mapping, list)):
             raise _malformed_terminal_result(
@@ -1388,24 +1459,30 @@ def _decode_terminal_result(
             )
         return outputs
 
+    if _status_has_execution_error(status):
+        _raise_terminal_execution_error(status, prompt_id)
     status_str = _terminal_field(status, "status_str")
     completed = _terminal_field(status, "completed")
     if status_str is _MISSING_TERMINAL_FIELD:
         raise _malformed_terminal_result(prompt_id, "missing status_str")
     if status_str == "error":
-        label = prompt_id or "<unknown>"
-        raise RuntimeNodeError(
-            f"Comfy prompt {label} failed: {_bounded_terminal_evidence(status)}",
-            next_action="vibecomfy runtime doctor",
+        _raise_terminal_execution_error(status, prompt_id)
+    if isinstance(status_str, str) and status_str in {"pending", "queued", "running"}:
+        raise _malformed_terminal_result(
+            prompt_id,
+            f"nonterminal status {_bounded_terminal_value(status_str)}",
         )
     if status_str != "success":
-        raise _malformed_terminal_result(prompt_id, f"unknown status_str {status_str!r}")
+        raise _malformed_terminal_result(
+            prompt_id,
+            f"unknown status_str {_bounded_terminal_value(status_str)}",
+        )
     if completed is _MISSING_TERMINAL_FIELD:
         raise _malformed_terminal_result(prompt_id, "success status is missing completed")
     if completed is not True:
         raise _malformed_terminal_result(
             prompt_id,
-            f"success status requires completed=true, got {completed!r}",
+            f"success status requires completed=true, got {_bounded_terminal_value(completed)}",
         )
 
     outputs = _terminal_field(result, "outputs")
@@ -1430,16 +1507,33 @@ async def _wait_for_server_history(
             "Comfy queue response did not include a prompt_id; cannot retrieve terminal result",
             next_action="vibecomfy runtime doctor",
         )
-    timeout_sec = float(
-        (config.extra.get("prompt_timeout_sec") if config is not None else None)
-        or os.environ.get("VIBECOMFY_PROMPT_TIMEOUT_SEC")
-        or 3600
+    raw_timeout = (
+        config.extra.get("prompt_timeout_sec")
+        if config is not None and "prompt_timeout_sec" in config.extra
+        else os.environ.get("VIBECOMFY_PROMPT_TIMEOUT_SEC")
     )
-    poll_interval_sec = float(os.environ.get("VIBECOMFY_HISTORY_POLL_INTERVAL_SEC") or 1)
+    timeout_sec = float(raw_timeout if raw_timeout not in (None, "") else 3600)
+    if not timeout_sec > 0:
+        timeout_sec = 0.0
+    raw_poll_interval = os.environ.get("VIBECOMFY_HISTORY_POLL_INTERVAL_SEC")
+    poll_interval_sec = float(raw_poll_interval if raw_poll_interval not in (None, "") else 1)
+    if not poll_interval_sec > 0:
+        poll_interval_sec = 0.0
     deadline = time.monotonic() + timeout_sec
     client = ComfyClient(server_url)
-    while time.monotonic() < deadline:
-        history = await client.history(prompt_id)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            # The client has its own transport timeout, but the execution
+            # deadline must also bound an already-in-flight HTTP request.
+            history = await asyncio.wait_for(client.history(prompt_id), timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"Comfy prompt {_bounded_terminal_value(prompt_id)} did not complete "
+                f"within {timeout_sec:.3g}s"
+            ) from exc
         if not isinstance(history, dict):
             raise _malformed_terminal_result(
                 prompt_id,
@@ -1451,15 +1545,30 @@ async def _wait_for_server_history(
                     prompt_id,
                     "non-empty history response omitted the requested prompt",
                 )
-            await asyncio.sleep(poll_interval_sec)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(poll_interval_sec, remaining))
             continue
-        _decode_terminal_result(
-            history[prompt_id],
-            prompt_id=prompt_id,
-            status_required=True,
-        )
+
+        entry = history[prompt_id]
+        status = _terminal_field(entry, "status")
+        if status is _MISSING_TERMINAL_FIELD:
+            _decode_terminal_result(entry, prompt_id=prompt_id, status_required=True)
+        if _status_has_execution_error(status):
+            _decode_terminal_result(entry, prompt_id=prompt_id, status_required=True)
+        status_str = _terminal_field(status, "status_str")
+        if isinstance(status_str, str) and status_str in {"pending", "queued", "running"}:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(poll_interval_sec, remaining))
+            continue
+        _decode_terminal_result(entry, prompt_id=prompt_id, status_required=True)
         return history
-    raise TimeoutError(f"Comfy prompt {prompt_id} did not complete within {timeout_sec:.0f}s")
+    raise TimeoutError(
+        f"Comfy prompt {_bounded_terminal_value(prompt_id)} did not complete within {timeout_sec:.3g}s"
+    )
 
 
 def _history_entry(history: Any, prompt_id: str | None) -> dict[str, Any] | None:
@@ -1746,6 +1855,17 @@ async def _start_watchdog(
         logger.exception("watchdog: start scheduling failed; continuing without it")
         return None
     return wd
+
+
+def _set_watchdog_prompt_id(watchdog: Watchdog | None, prompt_id: str | None) -> None:
+    if watchdog is None or prompt_id is None:
+        return
+    try:
+        watchdog.state.prompt_id = prompt_id
+    except Exception:
+        # Observation must never affect execution, including test/in-process
+        # watchdog adapters that do not expose Watchdog.state.
+        logger.debug("watchdog: could not attach prompt_id", exc_info=True)
 
 
 async def _finalize_watchdog(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import signal
 from pathlib import Path
 
@@ -10,10 +11,10 @@ from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import ServerSession, SessionConfig
-
 from tests._runtime_session_helpers import (
     FakeAsyncClient,
     FakeProcess,
+    FakeResponse,
     _workflow,
     fake_server,  # noqa: F401 -- pytest fixture imported for use in tests
 )
@@ -115,7 +116,117 @@ def test_server_session_waits_for_history_and_records_outputs(
 
     assert result.outputs == [str(output_dir / "server-output.png")]
     assert metadata["outputs"] == result.outputs
+    assert metadata["prompt_id"] == "prompt-1"
+
+
     assert any(url.endswith("/history/prompt-1") for url in FakeAsyncClient.gets)
+
+
+def test_server_history_active_states_continue_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompt_id = "prompt-active"
+
+    class SequenceClient:
+        calls = 0
+
+        def __init__(self, _url: str) -> None:
+            pass
+
+        async def history(self, requested_id: str) -> dict:
+            assert requested_id == prompt_id
+            SequenceClient.calls += 1
+            status = ("pending", "queued", "running")[SequenceClient.calls - 1] if SequenceClient.calls <= 3 else "success"
+            return {
+                prompt_id: {
+                    "outputs": {},
+                    "status": {
+                        "status_str": status,
+                        "completed": status == "success",
+                        "messages": [],
+                    },
+                }
+            }
+
+    monkeypatch.setattr(session_module, "ComfyClient", SequenceClient)
+    monkeypatch.setenv("VIBECOMFY_HISTORY_POLL_INTERVAL_SEC", "0")
+
+    history = asyncio.run(
+        session_module._wait_for_server_history(
+            "http://runtime.test",
+            prompt_id,
+            config=SessionConfig(extra={"prompt_timeout_sec": 1}),
+        )
+    )
+
+    assert SequenceClient.calls == 4
+    assert session_module._outputs_from_server_history(history, prompt_id) == {}
+
+
+def test_message_only_execution_error_preserves_bounded_causal_tail() -> None:
+    prompt_id = "p" * 10_000
+    cause = "wrapper-" * 100 + "ROOT_CAUSE_AT_END"
+    with pytest.raises(RuntimeNodeError) as exc_info:
+        session_module._decode_terminal_result(
+            {
+                "outputs": {},
+                "status": {
+                    "completed": False,
+                    "messages": [["execution_error", {"exception_message": cause}]],
+                },
+            },
+            prompt_id=prompt_id,
+            status_required=True,
+        )
+
+    message = str(exc_info.value)
+    assert "ROOT_CAUSE_AT_END" in message
+    assert len(message) < 2200
+    assert "p" * 1000 not in message
+
+
+def test_contradictory_success_and_execution_error_fails() -> None:
+    with pytest.raises(RuntimeNodeError, match="contradiction-cause"):
+        session_module._decode_terminal_result(
+            {
+                "outputs": {},
+                "status": {
+                    "status_str": "success",
+                    "completed": True,
+                    "messages": [["execution_error", {"exception_message": "contradiction-cause"}]],
+                },
+            },
+            prompt_id="prompt-contradiction",
+            status_required=True,
+        )
+
+
+def test_history_request_timeout_bounds_in_flight_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = False
+
+    class HangingClient:
+        def __init__(self, _url: str) -> None:
+            pass
+
+        async def history(self, _prompt_id: str) -> dict:
+            nonlocal cancelled
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+            return {}
+
+    monkeypatch.setattr(session_module, "ComfyClient", HangingClient)
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            session_module._wait_for_server_history(
+                "http://runtime.test",
+                "prompt-timeout",
+                config=SessionConfig(extra={"prompt_timeout_sec": 0.02}),
+            )
+        )
+    assert cancelled
+    assert time.monotonic() - started < 0.5
 
 
 @pytest.mark.parametrize("completed", [False, True])
@@ -156,6 +267,63 @@ def test_server_session_terminal_error_fails_before_metadata(
 
     asyncio.run(run_case())
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+
+
+def test_server_session_does_not_finalize_watchdog_completed_before_history(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    FakeAsyncClient.history_outputs = {}
+    FakeAsyncClient.history_status = {
+        "status_str": "success",
+        "completed": True,
+        "messages": [["execution_error", {"exception_message": "history-error"}]],
+    }
+    reasons: list[str] = []
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(RuntimeNodeError, match="history-error"):
+                await session.run(_workflow())
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    assert reasons == ["errored"]
+
+
+def test_server_queue_http_200_without_prompt_id_fails_without_history_retry(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    async def post(self, url: str, json: dict | None = None):
+        if url.endswith("/prompt"):
+            return FakeResponse(200, {})
+        return FakeResponse(200, {})
+
+    monkeypatch.setattr(FakeAsyncClient, "post", post)
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(QueueError, match="did not include a prompt_id"):
+                await session.run(_workflow())
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    assert not any("/history/" in url for url in FakeAsyncClient.gets)
 
 
 def test_terminal_error_evidence_is_bounded() -> None:
