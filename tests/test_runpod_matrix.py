@@ -126,18 +126,109 @@ def test_runpod_matrix_main_propagates_failed_row_status(tmp_path: Path, monkeyp
         id="template-0", path="ready_templates/image/template-0.py", media="image", task="text_to_image"
     )
 
-    async def fake_run_real(*_args, **_kwargs) -> int:
+    async def fake_run_real(*_args, **_kwargs) -> tuple[int, Path]:
+        return 0, tmp_path / "artifact"
+
+    monkeypatch.setenv("RUNPOD_API_KEY", "offline-test-key")
+    monkeypatch.setattr(runpod_e2e_matrix, "build_regeneratable_matrix", lambda *_args, **_kwargs: (row,))
+    monkeypatch.setattr(runpod_e2e_matrix, "_build_remote_script", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(runpod_e2e_matrix, "_run_real", fake_run_real)
+    monkeypatch.setattr(runpod_e2e_matrix, "_post_process_results", lambda *_args: 1)
+    monkeypatch.setattr(sys, "argv", ["runpod_e2e_matrix.py", "--output-root", str(tmp_path / "published")])
+
+    assert runpod_e2e_matrix.main() == 1
+
+
+def test_runpod_matrix_post_process_diagnoses_unusable_results(tmp_path: Path, capsys) -> None:
+    cases = {
+        "missing": None,
+        "malformed": "not-json",
+        "empty": [],
+        "object": {"results": []},
+        "wrong-row": [{"template_id": "ok", "status": "ok"}, "bad-row"],
+    }
+
+    for name, payload in cases.items():
+        artifact_root = tmp_path / name
+        results_path = artifact_root / "out" / "e2e" / "results.json"
+        if payload is not None:
+            results_path.parent.mkdir(parents=True)
+            text = payload if isinstance(payload, str) else json.dumps(payload)
+            results_path.write_text(text, encoding="utf-8")
+
+        output_root = tmp_path / f"published-{name}"
+        assert runpod_e2e_matrix._post_process_results(artifact_root, output_root) == 1
+        published = json.loads((output_root / "results.json").read_text(encoding="utf-8"))
+        assert published[0]["status"] == "results_invalid"
+        assert published[0]["aggregate"]["status"] == "invalid"
+        assert published[0]["diagnostic"]["kind"] == "aggregate"
+
+    assert "results_invalid" not in capsys.readouterr().err
+
+
+def test_runpod_matrix_main_uses_returned_artifact_root_not_global_scan(tmp_path: Path, monkeypatch) -> None:
+    row = runpod_e2e_matrix.MatrixRow(
+        id="template-0", path="ready_templates/image/template-0.py", media="image", task="text_to_image"
+    )
+    selected_artifact = tmp_path / "selected-artifact"
+    observed: list[Path] = []
+
+    async def fake_run_real(*_args, **_kwargs) -> tuple[int, Path]:
+        return 0, selected_artifact
+
+    def fake_post_process(artifact_root: Path, _output_root: Path) -> int:
+        observed.append(artifact_root)
         return 0
 
     monkeypatch.setenv("RUNPOD_API_KEY", "offline-test-key")
     monkeypatch.setattr(runpod_e2e_matrix, "build_regeneratable_matrix", lambda *_args, **_kwargs: (row,))
     monkeypatch.setattr(runpod_e2e_matrix, "_build_remote_script", lambda *_args, **_kwargs: "")
     monkeypatch.setattr(runpod_e2e_matrix, "_run_real", fake_run_real)
-    monkeypatch.setattr(runpod_e2e_matrix, "_find_latest_artifact_dir", lambda: tmp_path / "artifact")
-    monkeypatch.setattr(runpod_e2e_matrix, "_post_process_results", lambda *_args: 1)
+    monkeypatch.setattr(runpod_e2e_matrix, "_post_process_results", fake_post_process)
+    monkeypatch.setattr(
+        runpod_e2e_matrix,
+        "_find_latest_artifact_dir",
+        lambda: (_ for _ in ()).throw(AssertionError("stale scan used")),
+        raising=False,
+    )
+    monkeypatch.setattr(sys, "argv", ["runpod_e2e_matrix.py", "--output-root", str(tmp_path / "published")])
+
+    assert runpod_e2e_matrix.main() == 0
+    assert observed == [selected_artifact]
+
+
+def test_runpod_matrix_main_fails_when_run_returns_no_artifact_root(tmp_path: Path, monkeypatch) -> None:
+    row = runpod_e2e_matrix.MatrixRow(
+        id="template-0", path="ready_templates/image/template-0.py", media="image", task="text_to_image"
+    )
+
+    async def fake_run_real(*_args, **_kwargs) -> tuple[int, None]:
+        return 0, None
+
+    monkeypatch.setenv("RUNPOD_API_KEY", "offline-test-key")
+    monkeypatch.setattr(runpod_e2e_matrix, "build_regeneratable_matrix", lambda *_args, **_kwargs: (row,))
+    monkeypatch.setattr(runpod_e2e_matrix, "_build_remote_script", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(runpod_e2e_matrix, "_run_real", fake_run_real)
+    monkeypatch.setattr(
+        runpod_e2e_matrix,
+        "_post_process_results",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("post-processed without an artifact")),
+    )
     monkeypatch.setattr(sys, "argv", ["runpod_e2e_matrix.py", "--output-root", str(tmp_path / "published")])
 
     assert runpod_e2e_matrix.main() == 1
+    published = json.loads((tmp_path / "published" / "results.json").read_text(encoding="utf-8"))
+    assert published[0]["status"] == "results_invalid"
+
+
+def test_runpod_matrix_remote_tail_fails_on_failed_rows() -> None:
+    row = runpod_e2e_matrix.MatrixRow(
+        id="template-0", path="ready_templates/image/template-0.py", media="image", task="text_to_image"
+    )
+    script = runpod_e2e_matrix._build_remote_script((row,))
+
+    assert 'r.get("status") not in {"ok", "skipped"}' in script
+    assert "raise SystemExit(1 if not valid or fail else 0)" in script
 
 
 def test_corpus_matrix_plan_splits_required_workflows(tmp_path: Path) -> None:

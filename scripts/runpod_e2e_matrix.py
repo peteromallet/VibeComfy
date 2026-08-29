@@ -358,7 +358,7 @@ print(f"results written to {{RESULTS_PATH}}")
 PY
 
 echo "=== E2E COMPLETE ==="
-"$PY" -c 'import json; d=json.load(open("out/e2e/results.json")); ok=sum(1 for r in d if r["status"]=="ok"); print("ok=" + str(ok) + " fail=" + str(len(d)-ok))'
+"$PY" -c 'import json, sys; d=json.load(open("out/e2e/results.json")); rows=d if isinstance(d, list) else []; valid=isinstance(d, list) and bool(d); ok=sum(1 for r in rows if isinstance(r, dict) and r.get("status")=="ok"); fail=sum(1 for r in rows if not isinstance(r, dict) or r.get("status") not in {{"ok", "skipped"}}); print("ok=" + str(ok) + " fail=" + str(fail)); raise SystemExit(1 if not valid or fail else 0)'
 """
 
 
@@ -422,7 +422,7 @@ async def _run_real(
     rows: tuple[MatrixRow, ...],
     output_root: Path,
     attention_profile: str,
-) -> int:
+) -> tuple[int, Path | None]:
     """Ship and execute the e2e matrix on a RunPod pod (real mode).
 
     Imports ``scripts.runpod_runner`` lazily so dry-run never needs
@@ -431,14 +431,17 @@ async def _run_real(
     from scripts.runpod_runner import run_pod_detached  # noqa: E402
 
     remote_script = _build_remote_script(rows, attention_profile=attention_profile)
-    return await run_pod_detached(
+    artifact_roots: list[Path | None] = []
+    return_code = await run_pod_detached(
         remote_script,
         name_prefix="vibecomfy-e2e",
         exclude=DEFAULT_UPLOAD_EXCLUDES,
         upload_mode="tarball",
         timeout=28800,
         poll_interval=int(os.getenv("VIBECOMFY_RUNPOD_POLL_INTERVAL_SECONDS", "60")),
+        artifact_root_out=artifact_roots,
     )
+    return return_code, (artifact_roots[-1] if artifact_roots else None)
 
 
 def main() -> int:
@@ -520,30 +523,20 @@ def main() -> int:
     print(f"Output root: {output_root}", flush=True)
     print(f"Estimated cost: ${_estimate_cost(len(rows)):.2f}", flush=True)
 
-    return_code = asyncio.run(_run_real(rows, output_root, args.attention_profile))
+    return_code, artifact_dir = asyncio.run(_run_real(rows, output_root, args.attention_profile))
 
-    # After pod execution, parse downloaded results
-    # runpod_runner downloads to out/runpod_artifacts/<timestamp>/
-    # Find the most recent artifact directory
-    artifact_dir = _find_latest_artifact_dir()
-    if artifact_dir:
-        post_process_code = _post_process_results(artifact_dir, output_root)
-        if post_process_code != 0:
-            return post_process_code
+    # Post-process only the artifact root returned by this run. Never infer a
+    # run from a global directory scan, which can select stale artifacts.
+    if artifact_dir is None:
+        return _write_diagnostic_aggregate(
+            output_root,
+            "RunPod completed without returning a downloaded artifact root",
+        )
+    post_process_code = _post_process_results(artifact_dir, output_root)
+    if post_process_code != 0:
+        return post_process_code
 
     return return_code
-
-
-def _find_latest_artifact_dir() -> Path | None:
-    """Find the most recent RunPod artifact download directory."""
-    artifacts_root = ROOT / "out" / "runpod_artifacts"
-    if not artifacts_root.exists():
-        return None
-    dirs = sorted(artifacts_root.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for d in dirs:
-        if d.is_dir():
-            return d
-    return None
 
 
 def _parse_peak_vram_from_watchdogs(artifact_root: Path) -> dict[str, int | None]:
@@ -618,12 +611,36 @@ def _post_process_results(artifact_root: Path, output_root: Path) -> int:
     """
     # Try to load remote results
     remote_results_path = artifact_root / "out" / "e2e" / "results.json"
-    results: list[dict[str, Any]] = []
-    if remote_results_path.exists():
-        try:
-            results = json.loads(remote_results_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass
+    try:
+        decoded = json.loads(remote_results_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return _write_diagnostic_aggregate(
+            output_root,
+            f"could not read remote results at {remote_results_path}: {exc}",
+        )
+    except json.JSONDecodeError as exc:
+        return _write_diagnostic_aggregate(
+            output_root,
+            f"remote results at {remote_results_path} are not valid JSON: {exc.msg}",
+        )
+
+    if not isinstance(decoded, list):
+        return _write_diagnostic_aggregate(
+            output_root,
+            f"remote results at {remote_results_path} must be a JSON list, got {type(decoded).__name__}",
+        )
+    if not decoded:
+        return _write_diagnostic_aggregate(
+            output_root,
+            f"remote results at {remote_results_path} are empty",
+        )
+    for index, entry in enumerate(decoded):
+        if not isinstance(entry, dict):
+            return _write_diagnostic_aggregate(
+                output_root,
+                f"remote results row {index} at {remote_results_path} must be an object, got {type(entry).__name__}",
+            )
+    results: list[dict[str, Any]] = decoded
 
     # Enrich with peak VRAM from watchdogs
     peak_vram_map = _parse_peak_vram_from_watchdogs(artifact_root)
@@ -693,6 +710,28 @@ def _post_process_results(artifact_root: Path, output_root: Path) -> int:
         changed_ids = sorted(sha_changes.keys())
         print(f"Sha changes detected (flags, not failures): {', '.join(changed_ids)}", flush=True)
     return 1 if failed_rows else 0
+
+
+def _write_diagnostic_aggregate(output_root: Path, reason: str) -> int:
+    """Publish a schema-compatible failure row when results are unusable."""
+    diagnostic = [
+        {
+            "template_id": "<matrix>",
+            "status": "results_invalid",
+            "failure": reason,
+            "output_sha256s": [],
+            "aggregate": {"status": "invalid", "reason": reason},
+            "diagnostic": {"kind": "aggregate", "reason": reason},
+        }
+    ]
+    output_results_path = output_root / "results.json"
+    output_results_path.parent.mkdir(parents=True, exist_ok=True)
+    output_results_path.write_text(json.dumps(diagnostic, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"Results written to {output_results_path}", flush=True)
+    print("E2E summary: 0/1 ok", flush=True)
+    print("E2E failures: 1 row(s)", flush=True)
+    print(f"  FAILED: <matrix> [results_invalid] {reason}", flush=True)
+    return 1
 
 
 if __name__ == "__main__":

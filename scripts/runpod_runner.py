@@ -214,6 +214,7 @@ async def run_pod_detached(
     upload_mode: Literal["sftp_walk", "tarball"] = "sftp_walk",
     timeout: int,
     poll_interval: int = 60,
+    artifact_root_out: list[Path | None] | None = None,
 ) -> int:
     """Launch a pod, ship vibecomfy, run *remote_script* detached, poll,
     download artifacts, and finalise.
@@ -221,6 +222,10 @@ async def run_pod_detached(
     Thin wrapper around
     :func:`runpod_lifecycle.runner.ship_and_run_detached` with
     vibecomfy-specific polling targets and artifact paths.
+
+    When supplied, ``artifact_root_out`` receives the exact local artifact
+    root returned by this invocation, so callers can bind post-processing to
+    their own run without guessing from shared artifact directories.
     """
     install_signal_handlers(asyncio.get_running_loop())
 
@@ -274,5 +279,7 @@ async def run_pod_detached(
         terminated=result.terminated,
         artifact_root=result.artifact_root,
     )
+    if artifact_root_out is not None:
+        artifact_root_out.append(result.artifact_root)
 
     return result.returncode
