@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 import textwrap
 import time
 from typing import Any
@@ -163,8 +164,9 @@ def test_provider_status_preserves_runtime_model_over_contract_label(
 def test_resolve_openrouter_key_prefers_openrouter_shaped_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY_2", raising=False)
+    for key in tuple(os.environ):
+        if key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
+            monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(
         runtime,
         "_read_env_file_entries",
@@ -175,6 +177,231 @@ def test_resolve_openrouter_key_prefers_openrouter_shaped_key(
     )
 
     assert runtime._resolve_openrouter_key() == "sk-or-v1-valid-openrouter-key"
+
+
+def test_resolve_openrouter_key_uses_last_duplicate_generic_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in tuple(os.environ):
+        if key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: [
+            ("OPENROUTER_API_KEY", "first-generic-key"),
+            ("OPENROUTER_API_KEY", "last-generic-key"),
+        ],
+    )
+
+    assert runtime._resolve_openrouter_key() == "last-generic-key"
+
+
+def test_credential_file_resolution_leaves_global_env_and_unrelated_child_clean(
+    tmp_path: Path,
+) -> None:
+    hermes_dir = tmp_path / ".hermes"
+    hermes_dir.mkdir()
+    (hermes_dir / ".env").write_text(
+        "OPENROUTER_API_KEY=sk-or-v1-file-only\n"
+        "S0_UNRELATED_CREDENTIAL=must-not-hydrate\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["HOME"] = str(tmp_path)
+    for key in tuple(env):
+        if key in {
+            "OPENAI_API_KEY",
+            "HERMES_API_KEY",
+            "S0_UNRELATED_CREDENTIAL",
+        } or key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
+            env.pop(key, None)
+    script = textwrap.dedent(
+        """
+        import json
+        import os
+        import subprocess
+        import sys
+
+        from vibecomfy.comfy_nodes.agent import runtime
+
+        resolved = runtime._resolve_openrouter_key()
+        names = ("OPENROUTER_API_KEY", "S0_UNRELATED_CREDENTIAL")
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import json, os; "
+                "print(json.dumps({name: os.environ.get(name) for name in "
+                "('OPENROUTER_API_KEY', 'S0_UNRELATED_CREDENTIAL')}))",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(json.dumps({
+            "resolved": resolved,
+            "parent": {name: os.environ.get(name) for name in names},
+            "child": json.loads(child.stdout),
+        }))
+        """
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    observed = json.loads(completed.stdout)
+
+    assert observed["resolved"] == "sk-or-v1-file-only"
+    assert observed["parent"] == {
+        "OPENROUTER_API_KEY": None,
+        "S0_UNRELATED_CREDENTIAL": None,
+    }
+    assert observed["child"] == observed["parent"]
+
+
+def test_file_credential_is_scoped_to_hermes_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in tuple(os.environ):
+        if key in {
+            "OPENAI_API_KEY",
+            "HERMES_API_KEY",
+            "S0_UNRELATED_CREDENTIAL",
+        } or key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "openrouter")
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: [
+            ("OPENROUTER_API_KEY", "sk-or-v1-file-only"),
+            ("S0_UNRELATED_CREDENTIAL", "must-not-reach-worker"),
+            ("VIBECOMFY_TRANSPORT", "native"),
+        ],
+    )
+    captured_envs: list[dict[str, str]] = []
+
+    def fake_subprocess(command, **kwargs):
+        captured_envs.append(dict(kwargs["env"]))
+        with open(command[3], "w", encoding="utf-8") as fh:
+            json.dump({"content": "hello"}, fh)
+        return (0, "", "")
+
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
+    agent_kwargs = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="agent-edit",
+    )
+
+    result = runtime._run_worker(
+        agent_kwargs,
+        "system",
+        "user",
+        response_contract="batch_repl",
+        agent_id="hermes",
+    )
+
+    assert result["content"] == "hello"
+    captured_env = captured_envs[0]
+    assert agent_kwargs["api_key"] == "sk-or-v1-file-only"
+    assert captured_env["OPENROUTER_API_KEY"] == "sk-or-v1-file-only"
+    assert captured_env["OPENAI_API_KEY"] == "sk-or-v1-file-only"
+    assert captured_env["HERMES_API_KEY"] == "sk-or-v1-file-only"
+    assert captured_env["VIBECOMFY_TRANSPORT"] == "openrouter"
+    assert "S0_UNRELATED_CREDENTIAL" not in captured_env
+    assert "OPENROUTER_API_KEY" not in os.environ
+    assert "S0_UNRELATED_CREDENTIAL" not in os.environ
+    runtime._run_worker(
+        {},
+        "system",
+        "user",
+        response_contract="text",
+        agent_id="codex",
+    )
+    assert "OPENROUTER_API_KEY" not in captured_envs[1]
+    assert "OPENAI_API_KEY" not in captured_envs[1]
+    assert "HERMES_API_KEY" not in captured_envs[1]
+
+
+def test_explicit_worker_credentials_take_precedence_over_file_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "explicit-openrouter")
+    monkeypatch.setenv("OPENAI_API_KEY", "explicit-openai")
+    monkeypatch.setenv("HERMES_API_KEY", "explicit-hermes")
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: [
+            ("OPENROUTER_API_KEY", "sk-or-v1-file-fallback"),
+        ],
+    )
+    captured_env: dict[str, str] = {}
+
+    def fake_subprocess(command, **kwargs):
+        captured_env.update(kwargs["env"])
+        with open(command[3], "w", encoding="utf-8") as fh:
+            json.dump({"content": "hello"}, fh)
+        return (0, "", "")
+
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
+    agent_kwargs = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="agent-edit",
+    )
+    runtime._run_worker(
+        agent_kwargs,
+        "system",
+        "user",
+        response_contract="batch_repl",
+        agent_id="hermes",
+    )
+
+    assert agent_kwargs["api_key"] == "explicit-openrouter"
+    assert captured_env["OPENROUTER_API_KEY"] == "explicit-openrouter"
+    assert captured_env["OPENAI_API_KEY"] == "explicit-openai"
+    assert captured_env["HERMES_API_KEY"] == "explicit-hermes"
+
+
+def test_native_transport_fails_closed_with_only_openrouter_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "native")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-wrong-provider")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: [
+            ("OPENROUTER_API_KEY", "sk-or-v1-file-fallback"),
+        ],
+    )
+
+    agent_kwargs = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="agent-edit",
+    )
+    assert agent_kwargs["base_url"] == "https://api.deepseek.com/v1"
+    assert agent_kwargs["api_key"] is None
+
+    with pytest.raises(
+        PermissionError,
+        match="Native DeepSeek transport selected but no DEEPSEEK_API_KEY",
+    ):
+        runtime.run_agent_turn(
+            task="must fail before dispatch",
+            python_source="",
+            route="openrouter",
+        )
 
 
 def test_run_worker_mirrors_openrouter_key_into_backend_env_aliases(
@@ -208,6 +435,7 @@ def test_run_worker_mirrors_openrouter_key_into_backend_env_aliases(
 def test_run_worker_mirrors_parent_resolved_native_deepseek_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-v1-stale-key")
     captured_env: dict[str, str] = {}
 
@@ -235,6 +463,7 @@ def test_run_worker_mirrors_parent_resolved_native_deepseek_key(
     assert captured_env["OPENROUTER_API_KEY"] == "sk-native-deepseek-key"
     assert captured_env["OPENAI_API_KEY"] == "sk-native-deepseek-key"
     assert captured_env["HERMES_API_KEY"] == "sk-native-deepseek-key"
+    assert captured_env["DEEPSEEK_API_KEY"] == "sk-native-deepseek-key"
 
 
 def test_codex_request_preserves_selected_model_and_reasoning_effort() -> None:
@@ -1001,7 +1230,6 @@ def test_transport_openrouter_pin_overrides_ambient_native_credentials(
     monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
     # Isolate from the real ~/.hermes/.env: the ambient file must not clobber.
     monkeypatch.setattr(runtime, "_read_env_file_entries", lambda *a, **k: [])
-    monkeypatch.setattr(runtime, "_read_env_file", lambda *a, **k: {})
 
     resolved = adapter._ensure_transport_env("openrouter")
     assert resolved == "openrouter"
@@ -1084,7 +1312,6 @@ def test_transport_native_pin_wins_over_ambient_openrouter_key_on_all_phases(
     monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
     # Isolate from the real ~/.hermes/.env: the ambient file must not clobber.
     monkeypatch.setattr(runtime, "_read_env_file_entries", lambda *a, **k: [])
-    monkeypatch.setattr(runtime, "_read_env_file", lambda *a, **k: {})
 
     resolved = adapter._ensure_transport_env("native")  # --transport native
     assert resolved == "native"
@@ -1116,31 +1343,41 @@ def test_transport_native_pin_wins_over_ambient_openrouter_key_on_all_phases(
         ), phase
 
 
-def test_runtime_never_hydrates_transport_selecting_keys_from_hermes_env(
+def test_runtime_resolves_hermes_credentials_without_hydrating_process_env(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: pytest.TempPathFactory,
+    tmp_path: Path,
 ) -> None:
-    """~/.hermes/.env provides credentials only: transport-selecting keys stored
-    there are ignored, so the ambient file cannot silently switch transports."""
     env_file = tmp_path / ".env"
     env_file.write_text(
         "OPENROUTER_API_KEY=sk-or-file\n"
         "DEEPSEEK_API_KEY=sk-native-file\n"
+        "S0_UNRELATED_CREDENTIAL=must-not-hydrate\n"
         "VIBECOMFY_TRANSPORT=openrouter\n"
         "VIBECOMFY_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1\n"
         "VIBECOMFY_FORCE_MODEL=openrouter:deepseek/deepseek-v4-flash\n",
         encoding="utf-8",
     )
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
-    monkeypatch.delenv("VIBECOMFY_OPENROUTER_BASE_URL", raising=False)
-    monkeypatch.delenv("VIBECOMFY_FORCE_MODEL", raising=False)
+    for key in (
+        "OPENROUTER_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "S0_UNRELATED_CREDENTIAL",
+        "VIBECOMFY_TRANSPORT",
+        "VIBECOMFY_OPENROUTER_BASE_URL",
+        "VIBECOMFY_FORCE_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    entries = runtime._read_env_file_entries(env_file)
+    monkeypatch.setattr(
+        runtime,
+        "_read_env_file_entries",
+        lambda path=runtime._HERMES_ENV_PATH: entries,
+    )
 
-    runtime._load_env_file_into_environ(env_file)
-
-    assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-file"
-    assert os.environ.get("DEEPSEEK_API_KEY") == "sk-native-file"
+    assert runtime._resolve_openrouter_key() == "sk-or-file"
+    assert runtime._resolve_deepseek_key() == "sk-native-file"
+    assert "OPENROUTER_API_KEY" not in os.environ
+    assert "DEEPSEEK_API_KEY" not in os.environ
+    assert "S0_UNRELATED_CREDENTIAL" not in os.environ
     assert "VIBECOMFY_TRANSPORT" not in os.environ
     assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
     assert "VIBECOMFY_FORCE_MODEL" not in os.environ
@@ -1150,11 +1387,11 @@ def test_adapter_credential_env_file_skips_transport_selecting_keys(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """Rework 2 (oracle issue 3 — env-skip mirror): the adapter's credential
-    file hydrate mirrors ``runtime._load_env_file_into_environ`` — it supplies
-    keys only, and transport-selecting keys stored in an ambient .env never
-    hydrate, so the file cannot set ``VIBECOMFY_TRANSPORT`` when the explicit
-    flag is absent and the default is OpenRouter."""
+    """The live harness has its own credential-file loader for its process.
+
+    That loader supplies keys only; transport-selecting values stored in its
+    ambient file never select a transport when the explicit flag is absent.
+    """
     from tests.live_agentic_harness import adapter
 
     env_file = tmp_path / ".env"

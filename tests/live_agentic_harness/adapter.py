@@ -31,10 +31,9 @@ def _load_credential_env_file(path: Path | str | None = None) -> None:
 
     The live agentic harness runs the canonical OpenRouter product route by
     default.  This file exists so a local run still finds its API keys when
-    they are not in the environment.  Credentials hydrate; transport-selecting
-    keys never do — mirroring ``runtime._load_env_file_into_environ`` — so an
-    ambient .env can never set ``VIBECOMFY_TRANSPORT`` (or any endpoint/model
-    pin) and silently switch the transport when no explicit flag is given.
+    they are not in the environment. This harness-local loader mutates only the
+    harness process and skips transport selectors. The product runtime uses a
+    separate, non-mutating resolver for ``~/.hermes/.env``.
     """
     if os.environ.get("DEEPSEEK_API_KEY"):
         return

@@ -42,7 +42,7 @@ import tempfile
 import time
 import logging
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from vibecomfy.agent.deepseek_usage import (
     add_deepseek_usage,
@@ -258,23 +258,6 @@ _JSON_RETRY_NUDGE = (
     "comments, reasoning text, or trailing prose."
 )
 
-# Environment keys that select transport/endpoint/model routing.  These may be
-# pinned explicitly by an operator or the live-agentic harness, but they must
-# never be hydrated from the ambient ~/.hermes/.env credential file: a stored
-# key is a credential, not a transport selector.  OPENROUTER_API_KEY /
-# DEEPSEEK_API_KEY are deliberately NOT listed.
-_TRANSPORT_SELECTING_ENV_KEYS = frozenset(
-    {
-        "VIBECOMFY_OPENROUTER_BASE_URL",
-        "VIBECOMFY_TRANSPORT",
-        "VIBECOMFY_OPENROUTER_MODEL",
-        "VIBECOMFY_FORCE_MODEL",
-        "VIBECOMFY_AGENT_MODEL",
-        "VIBECOMFY_HERMES_API_KEY",
-        "VIBECOMFY_ARNOLD_MODEL",
-        "VIBECOMFY_ARNOLD_BASE_URL",
-    }
-)
 
 # Arnold/Hermes (Claude etc.) default model when a non-browser-key route is used.
 _ARNOLD_MODEL = os.getenv("VIBECOMFY_ARNOLD_MODEL", "anthropic/claude-opus-4.6")
@@ -388,75 +371,39 @@ def _read_env_file_entries(path: Path = _HERMES_ENV_PATH) -> list[tuple[str, str
     return entries
 
 
-def _read_env_file(path: Path = _HERMES_ENV_PATH) -> dict[str, str]:
-    """Read dotenv-style key/value pairs, with later duplicate entries winning."""
-    values: dict[str, str] = {}
-    for key, value in _read_env_file_entries(path):
-        values[key] = value
-    return values
-
-
-def _load_env_file_into_environ(path: Path = _HERMES_ENV_PATH) -> None:
-    """Best-effort: hydrate os.environ from ~/.hermes/.env without overwriting.
-
-    The browser credential route writes ``OPENROUTER_API_KEY=*** here, so a
-    ComfyUI process started without the key in its environment still picks it up.
-
-    Credentials hydrate; transport-selecting keys never do.  A value stored in
-    the credential file is a key, not a transport decision — the explicit
-    ``VIBECOMFY_TRANSPORT`` / base-URL pin (or the canonical default) is the
-    only authority, so an ambient file cannot silently switch transports.
-    """
-    for key, value in _read_env_file(path).items():
-        if key and key not in os.environ and key not in _TRANSPORT_SELECTING_ENV_KEYS:
-            os.environ[key] = value
-
-
-# Hydrate on import so credential presence + provider calls see the stored key.
-_load_env_file_into_environ()
+def _resolve_deepseek_key() -> str | None:
+    """Resolve an explicit DeepSeek key before the credential-file fallback."""
+    explicit = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    if explicit:
+        return explicit
+    for key, value in reversed(_read_env_file_entries()):
+        if key == "DEEPSEEK_API_KEY" and value.strip():
+            return value.strip()
+    return None
 
 
 def _resolve_openrouter_key() -> str | None:
-    # Re-read the env file each call so a freshly browser-submitted key is seen
-    # without restarting the server. Duplicate OPENROUTER_API_KEY lines can
-    # exist; prefer the OpenRouter-shaped key over stale generic sk-* entries.
-    file_values = _read_env_file()
-    for key, value in file_values.items():
-        if (
-            key
-            and value
-            and key not in os.environ
-            and key not in _TRANSPORT_SELECTING_ENV_KEYS
-        ):
-            os.environ[key] = value
-    file_keys = [
-        value.strip()
-        for key, value in _read_env_file_entries()
-        if key == "OPENROUTER_API_KEY" and value.strip()
-    ]
-    for file_key in file_keys:
-        if file_key.startswith("sk-or-"):
-            os.environ["OPENROUTER_API_KEY"] = file_key
-            return file_key
-    if file_keys:
-        os.environ["OPENROUTER_API_KEY"] = file_keys[-1]
-    _load_env_file_into_environ()
-    candidates: list[tuple[str, str]] = []
-    for key, value in file_values.items():
-        if key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
-            value = value.strip()
-            if value:
-                candidates.append((key, value))
-    for key, value in os.environ.items():
-        if key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
-            value = value.strip()
-            if value:
-                candidates.append((key, value))
-    candidates.sort(key=lambda item: (item[0] != "OPENROUTER_API_KEY", item[0]))
-    for _, value in candidates:
-        if value.startswith("sk-or-"):
-            return value
-    return candidates[0][1] if candidates else None
+    """Resolve an OpenRouter key without hydrating the parent environment."""
+
+    def select(entries: Iterable[tuple[str, str]]) -> str | None:
+        candidates = [
+            (key, value.strip())
+            for key, value in entries
+            if (key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"))
+            and value.strip()
+        ]
+        candidates.sort(key=lambda item: (item[0] != "OPENROUTER_API_KEY", item[0]))
+        for _, value in candidates:
+            if value.startswith("sk-or-"):
+                return value
+        fallback_by_name: dict[str, str] = {}
+        for key, value in candidates:
+            fallback_by_name[key] = value
+        return next(iter(fallback_by_name.values()), None)
+
+    # Values supplied by the caller are authoritative. The file is a fallback
+    # for browser-stored credentials and is never copied into ``os.environ``.
+    return select(os.environ.items()) or select(_read_env_file_entries())
 
 
 def _is_runtime_unavailable(result: Mapping[str, Any]) -> bool:
@@ -671,26 +618,33 @@ def _is_native_deepseek_endpoint(base_url: str | None = None) -> bool:
 
 def _hermes_credential_for(route: str | None, model: str | None) -> str | None:
     # A pinned native transport is authoritative over the route-level OpenRouter
-    # default: prefer DEEPSEEK_API_KEY directly so a stale OpenRouter ``sk-or-*``
-    # pool key can't win — _resolve_openrouter_key() force-prefers any sk-or-*
-    # entry it finds in ~/.hermes/.env.
-    if _explicit_transport() == "native" and os.getenv("DEEPSEEK_API_KEY"):
-        return os.getenv("DEEPSEEK_API_KEY")
+    # default. No OpenRouter key may fall through to a native endpoint.
+    deepseek_key = _resolve_deepseek_key()
+    if _explicit_transport() == "native":
+        return deepseek_key
     if (route or "").strip().lower() == "openrouter":
         return _resolve_openrouter_key()
     # Explicit per-process override (e.g. pointing the hermes backend at a
-    # non-OpenRouter OpenAI-compatible endpoint such as Fireworks). Bypasses
-    # _resolve_openrouter_key(), which force-clobbers OPENROUTER_API_KEY from
-    # ~/.hermes/.env and would ignore a freshly-exported key. No-op when unset.
+    # non-OpenRouter OpenAI-compatible endpoint such as Fireworks).
     explicit_key = os.getenv("VIBECOMFY_HERMES_API_KEY")
     if explicit_key:
         return explicit_key
-    # When pointed at DeepSeek's native API, prefer DEEPSEEK_API_KEY directly so a
-    # stale OpenRouter ``sk-or-*`` pool key in ~/.hermes/.env can't win —
-    # _resolve_openrouter_key() force-prefers any sk-or-* entry it finds there.
-    if _is_native_deepseek_endpoint() and os.getenv("DEEPSEEK_API_KEY"):
-        return os.getenv("DEEPSEEK_API_KEY")
+    if _is_native_deepseek_endpoint() and deepseek_key:
+        return deepseek_key
     return _resolve_openrouter_key()
+
+
+def _missing_hermes_credential_message() -> str:
+    if _explicit_transport() == "native":
+        return (
+            "Native DeepSeek transport selected but no DEEPSEEK_API_KEY is available "
+            "(checked environment and ~/.hermes/.env). Export DEEPSEEK_API_KEY."
+        )
+    return (
+        "OpenRouter route selected but no OPENROUTER_API_KEY is available "
+        "(checked environment and ~/.hermes/.env). Submit a key via the "
+        "VibeComfy panel or export OPENROUTER_API_KEY."
+    )
 
 
 def _has_arnold_credential() -> bool:
@@ -1298,14 +1252,16 @@ def _run_worker_once(
                 fh,
             )
         env = dict(os.environ)
-        # Ensure the child sees the same credential the parent resolved for the
-        # Hermes adapter.  For native DeepSeek endpoints this must be the
-        # DeepSeek key, not a stale browser/OpenRouter key from ~/.hermes/.env.
-        hermes_key = agent_kwargs.get("api_key") or _resolve_openrouter_key()
-        if isinstance(hermes_key, str) and hermes_key:
-            env["OPENROUTER_API_KEY"] = hermes_key
-            env["OPENAI_API_KEY"] = hermes_key
-            env["HERMES_API_KEY"] = hermes_key
+        # Scope credential-file fallback values to the Hermes worker that
+        # consumes them. Explicit caller values remain authoritative.
+        if agent_id == "hermes":
+            hermes_key = agent_kwargs.get("api_key") or _resolve_openrouter_key()
+            if isinstance(hermes_key, str) and hermes_key:
+                aliases = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "HERMES_API_KEY"]
+                if _is_native_deepseek_endpoint(agent_kwargs.get("base_url")):
+                    aliases.append("DEEPSEEK_API_KEY")
+                for key in aliases:
+                    env.setdefault(key, hermes_key)
         # Don't leak ComfyUI's cwd/path into the child (it is what causes the
         # `utils` collision); run from a neutral directory.
         stdout_path = os.path.join(tmp, "worker.stdout.log")
@@ -1413,11 +1369,7 @@ def run_agent_turn(
         )
 
     if agent_id == "hermes" and not _hermes_credential_for(route, model):
-        raise PermissionError(
-            "OpenRouter route selected but no OPENROUTER_API_KEY is available "
-            "(checked environment and ~/.hermes/.env). Submit a key via the "
-            "VibeComfy panel or export OPENROUTER_API_KEY."
-        )
+        raise PermissionError(_missing_hermes_credential_message())
 
     agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
     turn_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
@@ -1459,11 +1411,7 @@ def run_agent_turn_delta(
         )
 
     if agent_id == "hermes" and not _hermes_credential_for(route, model):
-        raise PermissionError(
-            "OpenRouter route selected but no OPENROUTER_API_KEY is available "
-            "(checked environment and ~/.hermes/.env). Submit a key via the "
-            "VibeComfy panel or export OPENROUTER_API_KEY."
-        )
+        raise PermissionError(_missing_hermes_credential_message())
 
     agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
     turn_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
@@ -1499,11 +1447,7 @@ def run_agent_turn_batch(
         user_msg = f"User request:\n{task}"
 
     if agent_id == "hermes" and not _hermes_credential_for(route, model):
-        raise PermissionError(
-            "OpenRouter route selected but no OPENROUTER_API_KEY is available "
-            "(checked environment and ~/.hermes/.env). Submit a key via the "
-            "VibeComfy panel or export OPENROUTER_API_KEY."
-        )
+        raise PermissionError(_missing_hermes_credential_message())
 
     agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
     turn_deadline = time.monotonic() + _TURN_TOTAL_BUDGET_SECONDS
@@ -1847,11 +1791,7 @@ def run_model_turn(
         task_preview=short_text(task),
     ) as span:
         if agent_id == "hermes" and not _hermes_credential_for(route, model):
-            raise PermissionError(
-                "OpenRouter route selected but no OPENROUTER_API_KEY is available "
-                "(checked environment and ~/.hermes/.env). Submit a key via the "
-                "VibeComfy panel or export OPENROUTER_API_KEY."
-            )
+            raise PermissionError(_missing_hermes_credential_message())
 
         agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
         # T3.1: ONE composed deadline spans every JSON-nudge attempt of this

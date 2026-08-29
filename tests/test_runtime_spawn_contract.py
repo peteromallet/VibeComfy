@@ -15,9 +15,11 @@ Decided contract (ORACLE-8, R:S7) — ONE owner, ONE timeout, ONE exception shap
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
+from vibecomfy.comfy_nodes.agent import runtime as agent_runtime
 from vibecomfy.errors import RuntimeStartupError
 import vibecomfy.runtime.server_process as server_process_module
 import vibecomfy.runtime.session as session_module
@@ -210,3 +212,45 @@ def test_server_process_delegates_argv_to_session_owner() -> None:
     assert server_process_module._comfy_server_argv is _comfy_server_argv
     # Identical argv for identical inputs, including the richer sage-attention + io-dir args.
     assert server_process_module._comfy_server_argv(config) == _comfy_server_argv(config)
+
+
+def test_managed_comfy_child_does_not_receive_agent_file_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in tuple(os.environ):
+        if key in {
+            "OPENAI_API_KEY",
+            "HERMES_API_KEY",
+            "S0_UNRELATED_CREDENTIAL",
+        } or key == "OPENROUTER_API_KEY" or key.startswith("OPENROUTER_API_KEY_"):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(
+        agent_runtime,
+        "_read_env_file_entries",
+        lambda path=agent_runtime._HERMES_ENV_PATH: [
+            ("OPENROUTER_API_KEY", "sk-or-v1-file-only"),
+            ("S0_UNRELATED_CREDENTIAL", "must-not-reach-comfy"),
+        ],
+    )
+    captured_env: dict[str, str] = {}
+
+    class _ReadyClient:
+        async def ready(self) -> bool:
+            return True
+
+    async def fake_create_subprocess_exec(*_argv: str, **kwargs: object) -> FakeProcess:
+        captured_env.update(kwargs["env"])  # type: ignore[arg-type]
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        session_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(session_module, "ComfyClient", lambda _url: _ReadyClient())
+
+    assert agent_runtime._resolve_openrouter_key() == "sk-or-v1-file-only"
+    asyncio.run(_spawn_comfy_server(SessionConfig(port=8200)))
+
+    assert "OPENROUTER_API_KEY" not in captured_env
+    assert "S0_UNRELATED_CREDENTIAL" not in captured_env
