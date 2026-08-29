@@ -1319,6 +1319,37 @@ def lint_delta(
             )
         else:
             normalized, issue, disposition = linter(op, i, dependency_index)
+        # S2 orphan add_node lint (r12 e8c20a): bare add_node with no wiring
+        # when graph already has same class is a widget-edit hallucination.
+        # Only flag when fields carry intent (non-empty) and no wiring exists.
+        if isinstance(op, AddNodeOp) and disposition == "passed" and normalized is not None and op.fields:
+            class_type = op.class_type.strip()
+            has_existing = any(m.class_type == class_type for m in index._node_meta.values())
+            if has_existing:
+                cand_ids = {str(_v) for _v in (op.uid, getattr(normalized, "uid", None)) if _v}
+                cand_ids |= {str(_v) for _v in (op.node_id, getattr(normalized, "node_id", None)) if _v}
+                has_wiring = bool(op.inputs)
+                if not has_wiring and cand_ids:
+                    for _other in delta:
+                        if not isinstance(_other, UpsertLinkOp):
+                            continue
+                        if _other.source.uid in cand_ids or _other.target.uid in cand_ids:
+                            has_wiring = True
+                            break
+                if not has_wiring:
+                    rep = next((m for m in index._node_meta.values() if m.class_type == class_type), None)
+                    rep_id = rep.lg_id if rep and rep.lg_id != -1 else (rep.uid if rep else "unknown")
+                    issue = _make_issue(
+                        "orphan_add_node",
+                        f"Unwired add_node '{class_type}' with no links when graph already has {class_type} id {rep_id}; "
+                        f"use set_node_field on the existing {class_type} (id {rep_id}) rather than adding a new one — new node is unreachable.",
+                        op_index=i,
+                        op_kind="add_node",
+                        scope_path=op.scope_path,
+                        detail={"class_type": class_type, "existing_id": rep_id, "fields": dict(op.fields)},
+                    )
+                    disposition = "rejected"
+                    normalized = None
         if issue is not None:
             issues.append(issue)
         normalizations.append(
