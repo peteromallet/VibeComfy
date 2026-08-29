@@ -20,6 +20,7 @@ from vibecomfy.errors import (
     MODEL_DOCTOR_NEXT_ACTION,
     ModelAssetError,
     QueueError,
+    RuntimeNodeError,
     RuntimeStartupError,
     SchemaValidationError,
     VibeComfyError,
@@ -416,7 +417,11 @@ class EmbeddedSession:
         self.last_fingerprint = fp
 
         phase_start = time.monotonic()
-        comfy_outputs = _raw_comfy_outputs(queued)
+        comfy_outputs = _decode_terminal_result(
+            queued,
+            prompt_id=normalize_prompt_id(queued),
+            status_required=False,
+        )
         outputs = _collect_output_paths(
             comfy_outputs,
             output_directory=_configured_output_directory(self.config),
@@ -1275,6 +1280,144 @@ def _raw_comfy_outputs(queued: Any) -> Any:
         return queued["outputs"]
     return queued
 
+_MISSING_TERMINAL_FIELD = object()
+_TERMINAL_EVIDENCE_LIMIT = 2048
+_TERMINAL_FIELD_LIMIT = 384
+_TERMINAL_ERROR_FIELDS = (
+    "node_id",
+    "node_type",
+    "exception_type",
+    "exception_message",
+)
+
+
+def _terminal_field(value: Any, name: str) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(name, _MISSING_TERMINAL_FIELD)
+    return getattr(value, name, _MISSING_TERMINAL_FIELD)
+
+
+def _malformed_terminal_result(prompt_id: str | None, reason: str) -> QueueError:
+    label = prompt_id or "<unknown>"
+    return QueueError(
+        f"Malformed Comfy terminal result for prompt {label}: {reason}",
+        next_action="vibecomfy runtime doctor",
+    )
+
+
+def _bounded_terminal_value(value: Any) -> str:
+    if value is _MISSING_TERMINAL_FIELD:
+        return "<missing>"
+    if isinstance(value, str):
+        rendered = value
+    elif value is None or isinstance(value, (bool, int, float)):
+        rendered = str(value)
+    else:
+        return f"<{type(value).__name__}>"
+    if len(rendered) <= _TERMINAL_FIELD_LIMIT:
+        return rendered
+    return rendered[: _TERMINAL_FIELD_LIMIT - 3] + "..."
+
+
+def _bounded_error_details(value: Any) -> Any:
+    if not isinstance(value, Mapping):
+        return _bounded_terminal_value(value)
+    return {
+        name: _bounded_terminal_value(value[name])
+        for name in _TERMINAL_ERROR_FIELDS
+        if name in value
+    }
+
+
+def _bounded_status_message(messages: Any) -> Any:
+    if not isinstance(messages, (list, tuple)) or not messages:
+        return _bounded_terminal_value(messages)
+    selected = messages[-1]
+    for message in reversed(messages):
+        if (
+            isinstance(message, (list, tuple))
+            and message
+            and message[0] == "execution_error"
+        ):
+            selected = message
+            break
+    if isinstance(selected, (list, tuple)) and len(selected) >= 2:
+        return [
+            _bounded_terminal_value(selected[0]),
+            _bounded_error_details(selected[1]),
+        ]
+    return _bounded_terminal_value(selected)
+
+
+def _bounded_terminal_evidence(status: Any) -> str:
+    evidence: dict[str, Any] = {}
+    error_details = _terminal_field(status, "error_details")
+    if error_details is not _MISSING_TERMINAL_FIELD:
+        evidence["error_details"] = _bounded_error_details(error_details)
+    messages = _terminal_field(status, "messages")
+    if messages is not _MISSING_TERMINAL_FIELD:
+        evidence["message"] = _bounded_status_message(messages)
+    if not evidence:
+        evidence = {
+            "completed": _bounded_terminal_value(_terminal_field(status, "completed")),
+            "status_str": _bounded_terminal_value(_terminal_field(status, "status_str")),
+        }
+    rendered = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+    if len(rendered) <= _TERMINAL_EVIDENCE_LIMIT:
+        return rendered
+    return rendered[: _TERMINAL_EVIDENCE_LIMIT - 3] + "..."
+
+
+def _decode_terminal_result(
+    result: Any,
+    *,
+    prompt_id: str | None,
+    status_required: bool,
+) -> Any:
+    status = _terminal_field(result, "status")
+    if status is _MISSING_TERMINAL_FIELD:
+        if status_required:
+            raise _malformed_terminal_result(prompt_id, "missing status")
+        outputs = _terminal_field(result, "outputs")
+        if outputs is _MISSING_TERMINAL_FIELD:
+            raise _malformed_terminal_result(prompt_id, "embedded result is missing outputs")
+        if not isinstance(outputs, (Mapping, list)):
+            raise _malformed_terminal_result(
+                prompt_id,
+                f"embedded outputs must be an object or list, got {type(outputs).__name__}",
+            )
+        return outputs
+
+    status_str = _terminal_field(status, "status_str")
+    completed = _terminal_field(status, "completed")
+    if status_str is _MISSING_TERMINAL_FIELD:
+        raise _malformed_terminal_result(prompt_id, "missing status_str")
+    if status_str == "error":
+        label = prompt_id or "<unknown>"
+        raise RuntimeNodeError(
+            f"Comfy prompt {label} failed: {_bounded_terminal_evidence(status)}",
+            next_action="vibecomfy runtime doctor",
+        )
+    if status_str != "success":
+        raise _malformed_terminal_result(prompt_id, f"unknown status_str {status_str!r}")
+    if completed is _MISSING_TERMINAL_FIELD:
+        raise _malformed_terminal_result(prompt_id, "success status is missing completed")
+    if completed is not True:
+        raise _malformed_terminal_result(
+            prompt_id,
+            f"success status requires completed=true, got {completed!r}",
+        )
+
+    outputs = _terminal_field(result, "outputs")
+    if outputs is _MISSING_TERMINAL_FIELD:
+        raise _malformed_terminal_result(prompt_id, "successful result is missing outputs")
+    if not isinstance(outputs, Mapping):
+        raise _malformed_terminal_result(
+            prompt_id,
+            f"outputs must be an object, got {type(outputs).__name__}",
+        )
+    return outputs
+
 
 async def _wait_for_server_history(
     server_url: str,
@@ -1283,7 +1426,10 @@ async def _wait_for_server_history(
     config: SessionConfig | None,
 ) -> dict[str, Any]:
     if not prompt_id:
-        return {}
+        raise QueueError(
+            "Comfy queue response did not include a prompt_id; cannot retrieve terminal result",
+            next_action="vibecomfy runtime doctor",
+        )
     timeout_sec = float(
         (config.extra.get("prompt_timeout_sec") if config is not None else None)
         or os.environ.get("VIBECOMFY_PROMPT_TIMEOUT_SEC")
@@ -1294,10 +1440,25 @@ async def _wait_for_server_history(
     client = ComfyClient(server_url)
     while time.monotonic() < deadline:
         history = await client.history(prompt_id)
-        entry = _history_entry(history, prompt_id)
-        if isinstance(entry, dict):
-            return history
-        await asyncio.sleep(poll_interval_sec)
+        if not isinstance(history, dict):
+            raise _malformed_terminal_result(
+                prompt_id,
+                f"history response must be an object, got {type(history).__name__}",
+            )
+        if prompt_id not in history:
+            if history:
+                raise _malformed_terminal_result(
+                    prompt_id,
+                    "non-empty history response omitted the requested prompt",
+                )
+            await asyncio.sleep(poll_interval_sec)
+            continue
+        _decode_terminal_result(
+            history[prompt_id],
+            prompt_id=prompt_id,
+            status_required=True,
+        )
+        return history
     raise TimeoutError(f"Comfy prompt {prompt_id} did not complete within {timeout_sec:.0f}s")
 
 
@@ -1314,9 +1475,13 @@ def _history_entry(history: Any, prompt_id: str | None) -> dict[str, Any] | None
 
 def _outputs_from_server_history(history: dict[str, Any], prompt_id: str | None) -> Any:
     entry = _history_entry(history, prompt_id)
-    if not isinstance(entry, dict):
-        return {}
-    return entry.get("outputs") or {}
+    if entry is None:
+        raise _malformed_terminal_result(prompt_id, "history entry is missing or is not an object")
+    return _decode_terminal_result(
+        entry,
+        prompt_id=prompt_id,
+        status_required=True,
+    )
 
 
 def _git_sha() -> str | None:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
@@ -36,6 +37,82 @@ def test_embedded_session_reuses_single_comfy_context(
     assert fake_comfy.exit_count == 1
     assert len(fake_comfy.instances) == 1
     assert len(fake_comfy.instances[0].queue_calls) == 2
+
+
+def test_embedded_session_explicit_empty_success_remains_valid(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+
+    async def successful_queue(_self, _api_dict):
+        return {
+            "prompt_id": "embedded-empty",
+            "outputs": {},
+            "status": {
+                "status_str": "success",
+                "completed": True,
+                "messages": [],
+            },
+        }
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", successful_queue)
+
+    result = asyncio.run(EmbeddedSession().run(_workflow()))
+
+    assert result.prompt_id == "embedded-empty"
+    assert result.outputs == []
+    assert Path(result.metadata_path).is_file()
+
+
+def test_embedded_session_terminal_error_fails_before_metadata(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+
+    async def failed_queue(_self, _api_dict):
+        return {
+            "prompt_id": "embedded-error",
+            "outputs": {},
+            "status": {
+                "status_str": "error",
+                "completed": True,
+                "messages": [
+                    [
+                        "execution_error",
+                        {
+                            "node_id": "2",
+                            "exception_message": "embedded sampler failed",
+                        },
+                    ]
+                ],
+            },
+        }
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", failed_queue)
+
+    with pytest.raises(RuntimeNodeError, match="embedded sampler failed"):
+        asyncio.run(EmbeddedSession().run(_workflow()))
+
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+
+
+def test_embedded_session_malformed_result_fails_before_metadata(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+
+    async def malformed_queue(_self, _api_dict):
+        return {"prompt_id": "embedded-malformed"}
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", malformed_queue)
+
+    with pytest.raises(QueueError, match="embedded result is missing outputs"):
+        asyncio.run(EmbeddedSession().run(_workflow()))
+
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
 
 def test_embedded_session_flush_invokes_clear_cache(

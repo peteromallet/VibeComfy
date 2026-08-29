@@ -41,8 +41,17 @@ def test_one_shot_run_validates_against_active_url(tmp_path: Path, monkeypatch: 
     async def fake_prepare(workflow, *, backend, schema_provider, on_unavailable, cache_only=False):
         return workflow.compile(backend=backend)
 
-    async def fake_history(*args, **kwargs):
-        return {}
+    async def fake_history(_url: str, prompt_id: str, **_kwargs):
+        return {
+            prompt_id: {
+                "outputs": {},
+                "status": {
+                    "status_str": "success",
+                    "completed": True,
+                    "messages": [],
+                },
+            }
+        }
 
     class FakeClient:
         def __init__(self, server_url: str) -> None:

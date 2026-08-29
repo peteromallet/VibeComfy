@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from vibecomfy.errors import RuntimeNodeError
 
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
@@ -24,6 +25,19 @@ def _workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("runtime-test", WorkflowSource("runtime-test"))
     workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "test"})
     return workflow
+
+
+def _successful_history(prompt_id: str, outputs: object) -> dict:
+    return {
+        prompt_id: {
+            "outputs": outputs,
+            "status": {
+                "status_str": "success",
+                "completed": True,
+                "messages": [],
+            },
+        }
+    }
 
 
 def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -147,7 +161,7 @@ def test_run_managed_server_uses_workflow_session_config(
             return {"prompt_id": "prompt-managed"}
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {"9": {"filename": "managed.mp4"}}}}
+            return _successful_history(prompt_id, {"9": {"filename": "managed.mp4"}})
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -189,7 +203,7 @@ def test_run_external_server_does_not_apply_workflow_session_config(
             return {"prompt_id": "prompt-external"}
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {"9": {"filename": "external.mp4"}}}}
+            return _successful_history(prompt_id, {"9": {"filename": "external.mp4"}})
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -479,7 +493,7 @@ def test_run_passes_chain_kwargs_into_metadata_writer(monkeypatch: pytest.Monkey
             return {"prompt_id": "prompt-chain"}
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {"9": {"filename": "chain.mp4"}}}}
+            return _successful_history(prompt_id, {"9": {"filename": "chain.mp4"}})
 
     def fake_run_metadata(**kwargs):
         captured.update(kwargs)
@@ -1220,10 +1234,10 @@ def test_one_shot_run_dict_queue_result_sets_run_result_prompt_id(
             return {"prompt_id": "dict-prompt-id"}
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {}}}
+            return _successful_history(prompt_id, {})
 
     async def _fake_history_dict(url: str, pid: str | None, config=None) -> dict:
-        return {pid: {"outputs": {}}} if pid else {}
+        return _successful_history(pid, {}) if pid else {}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -1252,10 +1266,10 @@ def test_one_shot_run_object_queue_result_sets_run_result_prompt_id(
             return _ObjectQueueResult("obj-prompt-id")
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {}}}
+            return _successful_history(prompt_id, {})
 
     async def _fake_history_obj(url: str, pid: str | None, config=None) -> dict:
-        return {pid: {"outputs": {}}} if pid else {}
+        return _successful_history(pid, {}) if pid else {}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -1265,6 +1279,53 @@ def test_one_shot_run_object_queue_result_sets_run_result_prompt_id(
 
     result = asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
     assert result.prompt_id == "obj-prompt-id"
+
+
+def test_one_shot_run_terminal_error_fails_before_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://127.0.0.1:8188"
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def queue_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "one-shot-error"}
+
+    async def fake_history(_url: str, prompt_id: str | None, config=None) -> dict:
+        assert prompt_id == "one-shot-error"
+        return {
+            prompt_id: {
+                "outputs": {},
+                "status": {
+                    "status_str": "error",
+                    "completed": True,
+                    "messages": [
+                        [
+                            "execution_error",
+                            {
+                                "node_id": "1",
+                                "exception_message": "one-shot node failed",
+                            },
+                        ]
+                    ],
+                },
+            }
+        }
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", fake_history)
+
+    with pytest.raises(RuntimeNodeError, match="one-shot node failed"):
+        asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
 
 def test_embedded_session_dict_queue_result_sets_run_result_prompt_id(
@@ -1381,7 +1442,7 @@ def test_server_session_dict_queue_result_sets_run_result_prompt_id(
             return {"prompt_id": "srv-dict-id"}
 
     async def _fake_history(url: str, pid: str | None, *, config=None) -> dict:
-        return {pid: {"outputs": {}}} if pid else {}
+        return _successful_history(pid, {}) if pid else {}
 
     async def _fake_start(self) -> None:
         self.url = "http://fake-srv.test"
@@ -1418,7 +1479,7 @@ def test_server_session_object_queue_result_sets_run_result_prompt_id(
             return _ObjectQueueResult("srv-obj-id")
 
     async def _fake_history(url: str, pid: str | None, *, config=None) -> dict:
-        return {pid: {"outputs": {}}} if pid else {}
+        return _successful_history(pid, {}) if pid else {}
 
     async def _fake_start(self) -> None:
         self.url = "http://fake-srv.test"
@@ -1464,10 +1525,10 @@ def test_prompt_id_consistency_across_run_result_and_metadata(
             return {"prompt_id": "meta-check-id", "extra_field": "ignored"}
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {}}}
+            return _successful_history(prompt_id, {})
 
     async def _fake_history_meta(url: str, pid: str | None, config=None) -> dict:
-        return {pid: {"outputs": {}}} if pid else {}
+        return _successful_history(pid, {}) if pid else {}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -1604,7 +1665,7 @@ def test_run_uses_collision_resistant_directory(
             return {"prompt_id": "prompt-t6-run"}
 
         async def history(self, prompt_id: str) -> dict:
-            return {prompt_id: {"outputs": {}}}
+            return _successful_history(prompt_id, {})
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -1614,7 +1675,7 @@ def test_run_uses_collision_resistant_directory(
     )
     # _wait_for_server_history needs to return something valid
     async def _fake_history(url: str, pid: str | None, config=None) -> dict:
-        return {pid: {"outputs": {}}} if pid else {}
+        return _successful_history(pid, {}) if pid else {}
 
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", _fake_history)
 

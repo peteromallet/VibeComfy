@@ -136,6 +136,11 @@ class FakeAsyncClient:
     history_outputs: dict[str, Any] = {
         "9": {"images": [{"filename": "server-output.png", "subfolder": "", "type": "output"}]}
     }
+    history_status: dict[str, Any] = {
+        "status_str": "success",
+        "completed": True,
+        "messages": [],
+    }
 
     def __init__(self, *args, **kwargs) -> None:
         pass
@@ -150,7 +155,15 @@ class FakeAsyncClient:
         self.gets.append(url)
         if "/history/" in url:
             prompt_id = url.rstrip("/").rsplit("/", 1)[-1]
-            return FakeResponse(200, {prompt_id: {"outputs": self.history_outputs}})
+            return FakeResponse(
+                200,
+                {
+                    prompt_id: {
+                        "outputs": self.history_outputs,
+                        "status": self.history_status,
+                    }
+                },
+            )
         return FakeResponse(200, {"ready": True})
 
     async def post(self, url: str, json: dict[str, Any] | None = None) -> FakeResponse:
@@ -187,6 +200,11 @@ def fake_server(monkeypatch: pytest.MonkeyPatch):
     FakeAsyncClient.gets = []
     FakeAsyncClient.history_outputs = {
         "9": {"images": [{"filename": "server-output.png", "subfolder": "", "type": "output"}]}
+    }
+    FakeAsyncClient.history_status = {
+        "status_str": "success",
+        "completed": True,
+        "messages": [],
     }
     spawned: list[tuple[tuple[str, ...], FakeProcess]] = []
 

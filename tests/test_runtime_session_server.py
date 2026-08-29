@@ -6,6 +6,7 @@ import signal
 from pathlib import Path
 
 import pytest
+from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import ServerSession, SessionConfig
@@ -115,6 +116,179 @@ def test_server_session_waits_for_history_and_records_outputs(
     assert result.outputs == [str(output_dir / "server-output.png")]
     assert metadata["outputs"] == result.outputs
     assert any(url.endswith("/history/prompt-1") for url in FakeAsyncClient.gets)
+
+
+@pytest.mark.parametrize("completed", [False, True])
+def test_server_session_terminal_error_fails_before_metadata(
+    fake_server,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    completed: bool,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    FakeAsyncClient.history_outputs = {}
+    FakeAsyncClient.history_status = {
+        "status_str": "error",
+        "completed": completed,
+        "messages": [
+            [
+                "execution_error",
+                {
+                    "node_id": "7",
+                    "exception_type": "ValueError",
+                    "exception_message": "bad latent shape",
+                },
+            ]
+        ],
+    }
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(RuntimeNodeError) as exc_info:
+                await session.run(_workflow())
+            message = str(exc_info.value)
+            assert "prompt-1" in message
+            assert "execution_error" in message
+            assert "bad latent shape" in message
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+
+
+def test_terminal_error_evidence_is_bounded() -> None:
+    with pytest.raises(RuntimeNodeError) as exc_info:
+        session_module._decode_terminal_result(
+            {
+                "outputs": {},
+                "status": {
+                    "status_str": "error",
+                    "completed": False,
+                    "messages": [["execution_error", {"exception_message": "x" * 10_000}]],
+                },
+            },
+            prompt_id="prompt-large-error",
+            status_required=True,
+        )
+
+    message = str(exc_info.value)
+    assert "prompt-large-error" in message
+    assert "execution_error" in message
+    assert len(message) < 2200
+
+
+def test_server_history_pending_then_explicit_empty_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompt_id = "prompt-pending"
+    empty_outputs: dict[str, object] = {}
+
+    class SequenceClient:
+        calls = 0
+
+        def __init__(self, _url: str) -> None:
+            pass
+
+        async def history(self, requested_id: str) -> dict:
+            assert requested_id == prompt_id
+            SequenceClient.calls += 1
+            if SequenceClient.calls == 1:
+                return {}
+            return {
+                prompt_id: {
+                    "outputs": empty_outputs,
+                    "status": {
+                        "status_str": "success",
+                        "completed": True,
+                        "messages": [],
+                    },
+                }
+            }
+
+    monkeypatch.setattr(session_module, "ComfyClient", SequenceClient)
+    monkeypatch.setenv("VIBECOMFY_HISTORY_POLL_INTERVAL_SEC", "0")
+
+    history = asyncio.run(
+        session_module._wait_for_server_history(
+            "http://runtime.test",
+            prompt_id,
+            config=SessionConfig(extra={"prompt_timeout_sec": 1}),
+        )
+    )
+
+    assert SequenceClient.calls == 2
+    assert session_module._outputs_from_server_history(history, prompt_id) is empty_outputs
+
+
+@pytest.mark.parametrize(
+    ("history", "message"),
+    [
+        (["not", "an", "object"], "history response must be an object"),
+        ({"different-prompt": {}}, "omitted the requested prompt"),
+        ({"prompt-malformed": []}, "missing status"),
+        (
+            {
+                "prompt-malformed": {
+                    "outputs": {},
+                    "status": {
+                        "status_str": "success",
+                        "completed": False,
+                        "messages": [],
+                    },
+                }
+            },
+            "completed=true",
+        ),
+        (
+            {
+                "prompt-malformed": {
+                    "outputs": None,
+                    "status": {
+                        "status_str": "success",
+                        "completed": True,
+                        "messages": [],
+                    },
+                }
+            },
+            "outputs must be an object",
+        ),
+    ],
+)
+def test_server_history_malformed_terminal_data_fails_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+    history: object,
+    message: str,
+) -> None:
+    class MalformedClient:
+        def __init__(self, _url: str) -> None:
+            pass
+
+        async def history(self, _prompt_id: str) -> object:
+            return history
+
+    monkeypatch.setattr(session_module, "ComfyClient", MalformedClient)
+
+    with pytest.raises(QueueError, match=message):
+        asyncio.run(
+            session_module._wait_for_server_history(
+                "http://runtime.test",
+                "prompt-malformed",
+                config=SessionConfig(extra={"prompt_timeout_sec": 1}),
+            )
+        )
+
+
+def test_server_history_requires_queue_prompt_id() -> None:
+    with pytest.raises(QueueError, match="did not include a prompt_id"):
+        asyncio.run(
+            session_module._wait_for_server_history(
+                "http://runtime.test",
+                None,
+                config=SessionConfig(),
+            )
+        )
 
 
 def test_server_session_flush_posts_api_free_payload(fake_server) -> None:
