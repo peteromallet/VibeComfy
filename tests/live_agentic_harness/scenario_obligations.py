@@ -45,7 +45,9 @@ SCHEMA_RESOLUTION_ENV_VAR = "VIBECOMFY_OBLIGATION_SCHEMA_CHECK"
 ON_DEMAND_SOURCE_KINDS = frozenset(
     {"on_demand_static", "on_demand_import", "on_demand_embedded"}
 )
-DECLARED_SCHEMA_SOURCES = frozenset({"authoritative_object_info"}) | ON_DEMAND_SOURCE_KINDS
+DECLARED_SCHEMA_SOURCES = (
+    frozenset({"authoritative_object_info"}) | ON_DEMAND_SOURCE_KINDS
+)
 # Explicit False wins over this env var. Independent of SCHEMA_RESOLUTION_ENV_VAR.
 RUNTIME_ONLY_ENV_VAR = "VIBECOMFY_OBLIGATION_RUNTIME_ONLY"
 
@@ -393,9 +395,7 @@ def _string_tuple(raw: Any) -> tuple[str, ...]:
         return (raw.strip(),) if raw.strip() else ()
     if isinstance(raw, list):
         return tuple(
-            token.strip()
-            for token in raw
-            if isinstance(token, str) and token.strip()
+            token.strip() for token in raw if isinstance(token, str) and token.strip()
         )
     return ()
 
@@ -576,6 +576,22 @@ def descriptor_contract_violations(
     return tuple(violations)
 
 
+def scenario_expects_graph_changed(descriptor: Mapping[str, Any]) -> bool:
+    """Return the scenario-authored edit obligation shared by all assessors.
+
+    An explicit ``apply=true`` is independently authoritative.  A response's
+    self-authored route or implementation plan can neither create nor weaken
+    this obligation.
+    """
+    if descriptor.get("apply") is True:
+        return True
+    assessment = descriptor.get("assessment")
+    return (
+        isinstance(assessment, Mapping)
+        and assessment.get("expect_graph_changed") is True
+    )
+
+
 def explicit_non_edit_lane(descriptor: Mapping[str, Any]) -> str | None:
     """Return the explicitly typed non-edit lane name, or ``None``.
 
@@ -667,11 +683,7 @@ def _workflow_class_types(descriptor: Mapping[str, Any]) -> tuple[str, ...]:
             if isinstance(class_type, str) and class_type:
                 classes.add(class_type)
             node_type = node.get("type")
-            if (
-                isinstance(node_type, str)
-                and node_type
-                and "widgets_values" in node
-            ):
+            if isinstance(node_type, str) and node_type and "widgets_values" in node:
                 classes.add(node_type)
             for value in node.values():
                 walk(value)
@@ -706,14 +718,15 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
         if isinstance(descriptor.get("classification"), Mapping)
         else {}
     )
-    tags = descriptor.get("_tags") if isinstance(descriptor.get("_tags"), Mapping) else {}
+    tags = (
+        descriptor.get("_tags") if isinstance(descriptor.get("_tags"), Mapping) else {}
+    )
     no_candidate = expected_no_candidate_contract(descriptor)
-    expect_change = bool(assessment.get("expect_graph_changed"))
-    apply_requested = bool(descriptor.get("apply"))
+    expect_change = scenario_expects_graph_changed(descriptor)
     research_required = bool(assessment.get("require_executed_research"))
     interaction_mode = str(descriptor.get("interaction_mode") or "")
 
-    if expect_change or apply_requested:
+    if expect_change:
         expected_change = "edit"
     elif research_required:
         expected_change = "research_answer"
@@ -741,9 +754,7 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
     declared_requirements = SCHEMA_EVIDENCE_REQUIREMENTS.get(scenario_id, ())
     # Fail-closed completeness: every gated class present in the workflow must
     # be covered by a declared requirement.
-    declared_classes = {
-        str(req.get("class_type")) for req in declared_requirements
-    }
+    declared_classes = {str(req.get("class_type")) for req in declared_requirements}
     undeclared = tuple(c for c in gated_classes if c not in declared_classes)
 
     invariants = [
@@ -752,7 +763,9 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
         "terminal_state_from_frozen_table_only",
     ]
     desired = (
-        descriptor.get("desired") if isinstance(descriptor.get("desired"), Mapping) else {}
+        descriptor.get("desired")
+        if isinstance(descriptor.get("desired"), Mapping)
+        else {}
     )
     if desired.get("quality"):
         invariants.append("pipeline_function_preserved")
@@ -772,9 +785,8 @@ def load_scenario_obligation(scenario_id: str) -> ScenarioObligation | None:
         ),
         custom_node_classes=classes,
         schema_evidence_requirements=(
-            tuple(dict(req) for req in declared_requirements) + tuple(
-                {"class_type": c, "undeclared": True} for c in undeclared
-            )
+            tuple(dict(req) for req in declared_requirements)
+            + tuple({"class_type": c, "undeclared": True} for c in undeclared)
         ),
         prompt_tool_contract={
             "profile": descriptor.get("profile"),
@@ -899,9 +911,7 @@ def validate_obligation_coverage(
                 {},
             )
             missing = [
-                key
-                for key in ("pack", "source")
-                if not str(req.get(key) or "").strip()
+                key for key in ("pack", "source") if not str(req.get(key) or "").strip()
             ]
             if missing:
                 violations.append(
@@ -942,11 +952,7 @@ def _provenance_row(
         )
     except (OSError, json.JSONDecodeError):
         return False, f"unreadable provenance attestation at {prov_path}"
-    packs = (
-        provenance.get("packs")
-        if isinstance(provenance, Mapping)
-        else None
-    )
+    packs = provenance.get("packs") if isinstance(provenance, Mapping) else None
     entry = packs.get(filename) if isinstance(packs, Mapping) else None
     if not isinstance(entry, Mapping):
         return False, (
@@ -958,7 +964,6 @@ def _provenance_row(
             f"provenance for {filename!r} carries neither repo nor locked_commit"
         )
     return True, ""
-
 
 
 def _pack_entry(
@@ -1082,7 +1087,6 @@ def _resolution_tier(requirement: Mapping[str, Any]) -> dict[str, str]:
     return {}
 
 
-
 def _resolve_schema_locally(
     requirement: Mapping[str, Any],
     *,
@@ -1130,19 +1134,13 @@ def _resolve_schema_locally(
     # RR1-FIX-REV: exact required input/widget/output ports per obligation,
     # each validated against the frozen captured schema before paid calls.
     required_inputs = [
-        str(name)
-        for name in (requirement.get("required_inputs") or ())
-        if str(name)
+        str(name) for name in (requirement.get("required_inputs") or ()) if str(name)
     ]
     required_widgets = [
-        str(name)
-        for name in (requirement.get("required_widgets") or ())
-        if str(name)
+        str(name) for name in (requirement.get("required_widgets") or ()) if str(name)
     ]
     required_outputs = [
-        str(name)
-        for name in (requirement.get("required_outputs") or ())
-        if str(name)
+        str(name) for name in (requirement.get("required_outputs") or ()) if str(name)
     ]
 
     from vibecomfy.schema.ensure_capture import (
@@ -1183,9 +1181,7 @@ def _resolve_schema_locally(
         # Batch D: read the pack FILE directly (never NodeSchema.source_provider).
         filename, entry = _pack_entry(root, class_type)
         prov_row = (
-            _provenance_pack_row(_load_provenance(root), filename)
-            if filename
-            else None
+            _provenance_pack_row(_load_provenance(root), filename) if filename else None
         )
         # Ledger/file agreement: provenance ``source_kind`` must equal the
         # pack-JSON entry stamp whenever both exist; a stamped ledger row over
@@ -1216,7 +1212,8 @@ def _resolve_schema_locally(
             continue
         schema_inputs = getattr(schema, "inputs", None) or {}
         missing_fields = [
-            field_name for field_name in required_fields
+            field_name
+            for field_name in required_fields
             if field_name not in schema_inputs
         ]
         if missing_fields:
@@ -1265,13 +1262,10 @@ def _port_evidence_failures(
             )
         elif not input_spec_is_literal_widget(spec):
             failures.append(
-                f"required widget {name!r} resolves to a socket, not a "
-                "literal widget"
+                f"required widget {name!r} resolves to a socket, not a literal widget"
             )
     outputs = [
-        item
-        for item in (getattr(schema, "outputs", None) or ())
-        if item is not None
+        item for item in (getattr(schema, "outputs", None) or ()) if item is not None
     ]
     output_names = {
         str(getattr(item, "name", "") or "") or str(getattr(item, "type", "") or "")
@@ -1318,10 +1312,13 @@ def preflight_scenario_obligations(
     violations, warnings = validate_obligation_coverage(manifest_path)
     resolution_results: dict[str, dict[str, bool]] = {}
     resolution_tiers: dict[str, dict[str, dict[str, str]]] = {}
-    path = manifest_path or __import__(
-        "tests.live_agentic_harness.compare_pipeline_modes",
-        fromlist=["DEFAULT_COMPARISON_MANIFEST"],
-    ).DEFAULT_COMPARISON_MANIFEST
+    path = (
+        manifest_path
+        or __import__(
+            "tests.live_agentic_harness.compare_pipeline_modes",
+            fromlist=["DEFAULT_COMPARISON_MANIFEST"],
+        ).DEFAULT_COMPARISON_MANIFEST
+    )
     manifest = _load_json(Path(path)) or {}
     for item in manifest.get("entries", []) or []:
         scenario_id = str(item.get("id") or "")
@@ -1337,9 +1334,7 @@ def preflight_scenario_obligations(
         }
         for req in obligation.schema_evidence_requirements:
             class_type = str(req.get("class_type") or "")
-            if not class_type or class_type.startswith("<") or req.get(
-                "undeclared"
-            ):
+            if not class_type or class_type.startswith("<") or req.get("undeclared"):
                 continue
             resolved, resolution_failures = _resolve_schema_locally(
                 req, runtime_only=bool(runtime_only)
@@ -1353,9 +1348,8 @@ def preflight_scenario_obligations(
             detail = "; ".join(resolution_failures)
             declared_source = str(req.get("source") or "").strip()
             hint = ""
-            if (
-                declared_source in ON_DEMAND_SOURCE_KINDS
-                and not (runtime_only and _runtime_only_violation(declared_source))
+            if declared_source in ON_DEMAND_SOURCE_KINDS and not (
+                runtime_only and _runtime_only_violation(declared_source)
             ):
                 try:
                     from vibecomfy.schema.ensure_capture import format_schema_gap
@@ -1429,4 +1423,5 @@ __all__ = [
     "validate_obligation_coverage",
     "descriptor_contract_violations",
     "expected_no_candidate_contract",
+    "scenario_expects_graph_changed",
 ]

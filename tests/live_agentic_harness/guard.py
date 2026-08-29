@@ -80,15 +80,15 @@ def guard_output_dir(
     if assessment_verdict not in {"pass", "fail", "undetermined"}:
         assessment_verdict = "pass" if assessment.get("passed") else "fail"
 
-    if not metadata_success:
+    if assessment_verdict == "undetermined":
+        live_agentic_success = False
+        score_class = "undetermined"
+    elif not metadata_success:
         live_agentic_success = False
         score_class = "product_fail"
     elif assessment_verdict == "pass":
         live_agentic_success = True
         score_class = "pass"
-    elif assessment_verdict == "undetermined":
-        live_agentic_success = False
-        score_class = "undetermined"
     else:
         live_agentic_success = False
         score_class = "product_fail"

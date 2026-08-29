@@ -1352,6 +1352,28 @@ def _leg_attempt_identity(tag: str, scenario_id: str, mode: str, attempt: int) -
     return f"{tag}/attempts/{scenario_id}/{mode}/attempt_{attempt}"
 
 
+def _score_class_from_summary(
+    summary: Mapping[str, Any] | None,
+    *,
+    failure_class: str | None = None,
+    live_agentic_success: bool = False,
+) -> str:
+    """Preserve an assessor ``undetermined`` verdict in leg summaries."""
+    summary = summary if isinstance(summary, Mapping) else {}
+    guard = summary.get("guard")
+    guard = guard if isinstance(guard, Mapping) else {}
+    if guard.get("verdict") == "undetermined":
+        return "undetermined"
+    if guard.get("score_class") == "undetermined":
+        return "undetermined"
+    explicit = summary.get("score_class") or guard.get("score_class")
+    if explicit:
+        return str(explicit)
+    if isinstance(failure_class, str) and failure_class.startswith("infra_"):
+        return "infra_blocked"
+    return "pass" if live_agentic_success else "product_fail"
+
+
 def _leg_attempt_paths(
     specs_dir: Path, index: int, scenario_id: str, mode: str, attempt: int
 ) -> dict[str, Path]:
@@ -1431,10 +1453,10 @@ def _leg_attempt_record(
         "attempt_identity": attempt_identity,
         "ok": ok,
         "failure_class": failure_class,
-        "score_class": (
-            "infra_blocked"
-            if failure_class.startswith("infra_")
-            else ("pass" if live else "product_fail")
+        "score_class": _score_class_from_summary(
+            summary,
+            failure_class=failure_class,
+            live_agentic_success=live,
         ),
         "live_agentic_success": live,
         "timed_out": timed_out,

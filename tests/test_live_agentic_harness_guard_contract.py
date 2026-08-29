@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
+from tests.live_agentic_harness import guard as guard_module
 
 from tests.live_agentic_harness.guard import guard_output_dir
 from tests.harness_common import (
@@ -35,7 +37,9 @@ def _write_flow_metadata(output_dir: Path, **overrides: object) -> None:
     }
     metadata.update(overrides)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "flow_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (output_dir / "flow_metadata.json").write_text(
+        json.dumps(metadata), encoding="utf-8"
+    )
 
 
 def _write_successful_candidate(output_dir: Path, **overrides: object) -> None:
@@ -63,7 +67,9 @@ def _write_successful_candidate(output_dir: Path, **overrides: object) -> None:
 
 def _write_ui_pair(output_dir: Path, original: dict, candidate: dict) -> None:
     (output_dir / "original.ui.json").write_text(json.dumps(original), encoding="utf-8")
-    (output_dir / "candidate.ui.json").write_text(json.dumps(candidate), encoding="utf-8")
+    (output_dir / "candidate.ui.json").write_text(
+        json.dumps(candidate), encoding="utf-8"
+    )
 
 
 _LINEAGE_SHA = "b" * 64
@@ -88,7 +94,11 @@ def _seed_lineage(output_dir: Path, scenario_id: str | None = None) -> None:
     # not pass an explicit id — many guard tests name the leg directory after
     # the scenario under test (e.g. tmp_path / "landed-count-positive").
     if scenario_id is None:
-        scenario_id = output_dir.name if output_dir.name and "tmp" not in output_dir.name else "s1"
+        scenario_id = (
+            output_dir.name
+            if output_dir.name and "tmp" not in output_dir.name
+            else "s1"
+        )
 
     manifest = build_artifact_lineage(
         lineage={"scenario_id": scenario_id},
@@ -136,7 +146,9 @@ def _write_safe_refusal_response(
     (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
 
 
-def _desired_edit_scenario(scenario_id: str, kind: str = "requires_custom_nodes") -> dict:
+def _desired_edit_scenario(
+    scenario_id: str, kind: str = "requires_custom_nodes"
+) -> dict:
     return {
         "id": scenario_id,
         "query": "set seed to 42",
@@ -201,7 +213,9 @@ def _frame_count_graph(
     nodes = []
     links = []
     if linked:
-        nodes.append({"id": 1, "type": "PrimitiveInt", "widgets_values": [source_value]})
+        nodes.append(
+            {"id": 1, "type": "PrimitiveInt", "widgets_values": [source_value]}
+        )
         links.append([10, 1, 0, 2, 0, "INT"])
     nodes.append(
         {
@@ -227,7 +241,9 @@ def _frame_count_graph(
 
 
 @pytest.mark.parametrize("dispatcher", [DISPATCHER_FAKE, DISPATCHER_FAKING])
-def test_agentic_guard_rejects_fake_dispatchers(tmp_path: Path, dispatcher: str) -> None:
+def test_agentic_guard_rejects_fake_dispatchers(
+    tmp_path: Path, dispatcher: str
+) -> None:
     output_dir = tmp_path / dispatcher
     _write_flow_metadata(output_dir, dispatcher=dispatcher)
 
@@ -235,7 +251,9 @@ def test_agentic_guard_rejects_fake_dispatchers(tmp_path: Path, dispatcher: str)
         guard_output_dir(output_dir)
 
 
-@pytest.mark.parametrize("model_behavior", [MODEL_BEHAVIOR_DETERMINISTIC, MODEL_BEHAVIOR_SCRIPTED, None])
+@pytest.mark.parametrize(
+    "model_behavior", [MODEL_BEHAVIOR_DETERMINISTIC, MODEL_BEHAVIOR_SCRIPTED, None]
+)
 def test_agentic_guard_rejects_non_agentic_model_behavior(
     tmp_path: Path,
     model_behavior: str | None,
@@ -258,7 +276,6 @@ def test_agentic_guard_allows_blocked_real_agentic_artifacts(tmp_path: Path) -> 
     assert verdict["model_behavior"] == MODEL_BEHAVIOR_AGENTIC
 
 
-
 def test_agentic_guard_missing_response_is_undetermined(tmp_path: Path) -> None:
     output_dir = tmp_path / "missing-response"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
@@ -275,9 +292,49 @@ def test_agentic_guard_missing_response_is_undetermined(tmp_path: Path) -> None:
     assert verdict["score_class"] == "undetermined"
     assert verdict["assessment"]["expect_graph_changed"] is False
     assert {
-        (issue["check"], issue["severity"])
-        for issue in verdict["assessment"]["issues"]
+        (issue["check"], issue["severity"]) for issue in verdict["assessment"]["issues"]
     } == {("response_missing", "undetermined")}
+
+
+@pytest.mark.parametrize(
+    ("metadata_success", "assessment_verdict", "score_class", "success"),
+    [
+        (True, "pass", "pass", True),
+        (True, "fail", "product_fail", False),
+        (True, "undetermined", "undetermined", False),
+        (False, "pass", "product_fail", False),
+        (False, "fail", "product_fail", False),
+        (False, "undetermined", "undetermined", False),
+    ],
+)
+def test_guard_score_matrix_preserves_assessment_undetermined(
+    tmp_path: Path,
+    monkeypatch,
+    metadata_success: bool,
+    assessment_verdict: str,
+    score_class: str,
+    success: bool,
+) -> None:  # noqa: ANN001
+    _write_flow_metadata(
+        tmp_path,
+        status=STATUS_SUCCESS if metadata_success else STATUS_BLOCKED_PREREQUISITE,
+        live=True,
+    )
+    monkeypatch.setattr(
+        guard_module,
+        "assess_live_output_dir",
+        lambda *args, **kwargs: {
+            "verdict": assessment_verdict,
+            "passed": assessment_verdict == "pass",
+        },
+    )
+
+    verdict = guard_output_dir(tmp_path)
+
+    assert verdict["metadata_success"] is metadata_success
+    assert verdict["verdict"] == assessment_verdict
+    assert verdict["score_class"] == score_class
+    assert verdict["live_agentic_success"] is success
 
 
 def test_agentic_guard_malformed_response_is_undetermined(tmp_path: Path) -> None:
@@ -293,8 +350,7 @@ def test_agentic_guard_malformed_response_is_undetermined(tmp_path: Path) -> Non
     assert verdict["score_class"] == "undetermined"
     assert verdict["assessment"]["expect_graph_changed"] is False
     assert {
-        (issue["check"], issue["severity"])
-        for issue in verdict["assessment"]["issues"]
+        (issue["check"], issue["severity"]) for issue in verdict["assessment"]["issues"]
     } == {("response_malformed", "undetermined")}
 
 
@@ -353,7 +409,10 @@ def test_agentic_guard_response_contradicting_success_metadata_fails(
         if issue["severity"] == "error"
     } == {"response_ok"}
 
-def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(tmp_path: Path) -> None:
+
+def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(
+    tmp_path: Path,
+) -> None:
     """Deep assessment fails a run that reports success but produced no edit."""
     output_dir = tmp_path / "hotshot-failure"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
@@ -381,7 +440,9 @@ def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(tmp_path: Pat
                 },
             },
         },
-        "warnings": ["hivemind: Hivemind HTTP error: HTTP Error 500: Internal Server Error"],
+        "warnings": [
+            "hivemind: Hivemind HTTP error: HTTP Error 500: Internal Server Error"
+        ],
     }
     (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
     (output_dir / "implementation_result.json").write_text(
@@ -397,7 +458,9 @@ def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(tmp_path: Pat
     assessment = verdict["assessment"]
     assert assessment["passed"] is False
     assert assessment["expect_graph_changed"] is True
-    checks = {issue["check"] for issue in assessment["issues"] if issue["severity"] == "error"}
+    checks = {
+        issue["check"] for issue in assessment["issues"] if issue["severity"] == "error"
+    }
     assert "graph_changed" in checks
     assert "outcome_kind" in checks
     assert "upstream_failure" in checks
@@ -454,7 +517,9 @@ def test_agentic_guard_allows_explicit_safe_refusal_scenarios(tmp_path: Path) ->
     assert assessment["expected_outcome_kinds"] == ["clarify", "requires_custom_nodes"]
 
 
-def test_agentic_guard_rejects_unexpected_noop_for_safe_refusal_scenarios(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_unexpected_noop_for_safe_refusal_scenarios(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "wrong-refusal"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(
@@ -541,7 +606,10 @@ def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(
     assert assessment["passed"] is False
     assert assessment["verdict"] == "undetermined"
     assert assessment["expect_graph_changed"] is True
-    assert assessment["allow_safe_refusal_outcome_kinds"] == ["clarify", "requires_custom_nodes"]
+    assert assessment["allow_safe_refusal_outcome_kinds"] == [
+        "clarify",
+        "requires_custom_nodes",
+    ]
     checks = {(issue["check"], issue["severity"]) for issue in assessment["issues"]}
     assert {"safe_refusal", "grounded_refusal", "safe_refusal_edit_obligation"} <= {
         check for check, _ in checks
@@ -701,8 +769,7 @@ def test_grounded_safe_refusal_ignores_rolled_back_attempt_diagnostics(
     assert verdict["live_agentic_success"] is False
     assert verdict["score_class"] == "undetermined"
     assert not any(
-        issue["check"] == "hard_diagnostic"
-        for issue in verdict["assessment"]["issues"]
+        issue["check"] == "hard_diagnostic" for issue in verdict["assessment"]["issues"]
     )
     assert any(
         issue["check"] == "safe_refusal_edit_obligation"
@@ -804,7 +871,9 @@ def test_desired_edit_refusal_label_with_graph_change_fails_closed_without_verdi
     )
 
 
-def test_agentic_guard_rejects_unallowed_noop_when_edit_or_refuse_expected(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_unallowed_noop_when_edit_or_refuse_expected(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "edit-or-refuse-noop"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(
@@ -830,7 +899,11 @@ def test_agentic_guard_rejects_unallowed_noop_when_edit_or_refuse_expected(tmp_p
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is False
-    checks = {issue["check"] for issue in verdict["assessment"]["issues"] if issue["severity"] == "error"}
+    checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
     assert "graph_changed" in checks
     assert "no_candidate_reason" in checks
 
@@ -1041,7 +1114,9 @@ def test_agentic_guard_ignores_oversized_model_request(tmp_path: Path) -> None:
     ]
 
 
-def test_agentic_guard_ignores_forbidden_model_request_substrings(tmp_path: Path) -> None:
+def test_agentic_guard_ignores_forbidden_model_request_substrings(
+    tmp_path: Path,
+) -> None:
     """B12/B13: ``assessment.forbid_model_request_substrings`` is deleted
     scoring prejudice — prompt content never gates a run, even when a scenario
     still declares forbidden substrings."""
@@ -1069,7 +1144,7 @@ def test_agentic_guard_ignores_forbidden_model_request_substrings(tmp_path: Path
         "assessment": {
             "expect_graph_changed": True,
             "skip_intent_judge": True,
-            "forbid_model_request_substrings": ["\"workflow_schema\""],
+            "forbid_model_request_substrings": ['"workflow_schema"'],
         },
     }
     _seed_lineage(output_dir)
@@ -1084,7 +1159,9 @@ def test_agentic_guard_ignores_forbidden_model_request_substrings(tmp_path: Path
     ]
 
 
-def test_agentic_guard_rejects_static_widget_edit_overridden_by_link(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_static_widget_edit_overridden_by_link(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "inert-linked-widget"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(output_dir)
@@ -1105,7 +1182,9 @@ def test_agentic_guard_rejects_static_widget_edit_overridden_by_link(tmp_path: P
     assert checks == {"inert_effective_edit"}
 
 
-def test_agentic_guard_rejects_no_effective_value_change_for_claimed_target(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_no_effective_value_change_for_claimed_target(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "no-effective-target-change"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(output_dir)
@@ -1126,7 +1205,9 @@ def test_agentic_guard_rejects_no_effective_value_change_for_claimed_target(tmp_
     assert checks == {"effective_edit"}
 
 
-def test_agentic_guard_accepts_linked_source_edit_that_changes_effective_value(tmp_path: Path) -> None:
+def test_agentic_guard_accepts_linked_source_edit_that_changes_effective_value(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "linked-source-effective-change"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(output_dir)
@@ -1640,7 +1721,10 @@ def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
             "query": "add the missing custom node",
             "assessment": {
                 "expect_graph_changed": True,
-                "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+                "allow_safe_refusal_outcome_kinds": [
+                    "clarify",
+                    "requires_custom_nodes",
+                ],
             },
         },
     )
@@ -1661,7 +1745,9 @@ def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
     ]
 
 
-def test_agentic_guard_rejects_edit_route_self_relabeled_as_clarify(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_edit_route_self_relabeled_as_clarify(
+    tmp_path: Path,
+) -> None:
     """G0R negative control: an edit-route envelope (route=revise) with
     graph_unchanged=false, no landed count, self-labeling outcome.kind=clarify
     must fail closed — self-declared outcome labels cannot buy an exemption
@@ -1698,7 +1784,9 @@ def test_agentic_guard_rejects_edit_route_self_relabeled_as_clarify(tmp_path: Pa
     assert "landed_operation_count" in error_checks, verdict["assessment"]["issues"]
 
 
-def test_agentic_guard_rejects_route_not_applyable_without_landed_count(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_route_not_applyable_without_landed_count(
+    tmp_path: Path,
+) -> None:
     """G0R negative control: graph_unchanged=false with
     no_candidate_reason=route_not_applyable and no landed count must fail
     closed — a self-declared no-candidate reason cannot bypass the guard when
@@ -1734,7 +1822,9 @@ def test_agentic_guard_rejects_route_not_applyable_without_landed_count(tmp_path
     assert "landed_operation_count" in error_checks, verdict["assessment"]["issues"]
 
 
-def test_agentic_guard_rejects_failure_outcome_without_landed_count(tmp_path: Path) -> None:
+def test_agentic_guard_rejects_failure_outcome_without_landed_count(
+    tmp_path: Path,
+) -> None:
     """G0R negative control: failure outcomes cannot bypass all structured
     checks — an edit-route envelope with outcome.kind=failure,
     graph_unchanged=false and no landed count still fails the
@@ -1817,7 +1907,9 @@ def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(
     assert verdict["live_agentic_success"] is False
     assert verdict["assessment"]["verdict"] == "undetermined"
     assert verdict["assessment"]["passed"] is False
-    checks = {(issue["check"], issue["severity"]) for issue in verdict["assessment"]["issues"]}
+    checks = {
+        (issue["check"], issue["severity"]) for issue in verdict["assessment"]["issues"]
+    }
     assert ("safe_refusal", "info") in checks
     assert ("grounded_refusal", "info") in checks
     assert ("safe_refusal_edit_obligation", "undetermined") in checks
@@ -1867,7 +1959,9 @@ def test_agentic_guard_non_edit_route_still_scored_by_own_structured_checks(
     assert "landed_operation_count" not in error_checks
 
 
-def test_agentic_guard_allows_shared_linked_source_edit_by_default(tmp_path: Path) -> None:
+def test_agentic_guard_allows_shared_linked_source_edit_by_default(
+    tmp_path: Path,
+) -> None:
     """B12/B13: a change landing through a shared linked source is a valid
     edit by default — effects determine edit correctness, and an agent may
     intentionally edit one source feeding several consumers.  The former
@@ -1878,8 +1972,12 @@ def test_agentic_guard_allows_shared_linked_source_edit_by_default(tmp_path: Pat
     _write_successful_candidate(output_dir)
     _write_ui_pair(
         output_dir,
-        _frame_count_graph(source_value=8, target_value=8, linked=True, shared_source=True),
-        _frame_count_graph(source_value=16, target_value=8, linked=True, shared_source=True),
+        _frame_count_graph(
+            source_value=8, target_value=8, linked=True, shared_source=True
+        ),
+        _frame_count_graph(
+            source_value=16, target_value=8, linked=True, shared_source=True
+        ),
     )
     _seed_lineage(output_dir, scenario_id="effective-edit")
     verdict = guard_output_dir(output_dir, scenario=_effective_target_scenario())
@@ -1903,8 +2001,12 @@ def test_agentic_guard_rejects_shared_linked_source_edit_when_isolation_opted_in
     _write_successful_candidate(output_dir)
     _write_ui_pair(
         output_dir,
-        _frame_count_graph(source_value=8, target_value=8, linked=True, shared_source=True),
-        _frame_count_graph(source_value=16, target_value=8, linked=True, shared_source=True),
+        _frame_count_graph(
+            source_value=8, target_value=8, linked=True, shared_source=True
+        ),
+        _frame_count_graph(
+            source_value=16, target_value=8, linked=True, shared_source=True
+        ),
     )
     scenario = _effective_target_scenario()
     scenario["assessment"]["isolate_shared_effective_sources"] = True
@@ -1920,7 +2022,9 @@ def test_agentic_guard_rejects_shared_linked_source_edit_when_isolation_opted_in
     assert checks == {"shared_effective_source_edit"}
 
 
-def test_agentic_guard_treats_skipped_queue_validation_as_warning(tmp_path: Path) -> None:
+def test_agentic_guard_treats_skipped_queue_validation_as_warning(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "queue-skipped"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(
@@ -1946,7 +2050,9 @@ def test_agentic_guard_treats_skipped_queue_validation_as_warning(tmp_path: Path
     _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
-        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+        scenario={
+            "assessment": {"expect_graph_changed": True, "skip_intent_judge": True}
+        },
     )
 
     assert verdict["live_agentic_success"] is True
@@ -1958,7 +2064,9 @@ def test_agentic_guard_treats_skipped_queue_validation_as_warning(tmp_path: Path
     assert verdict["assessment"]["issues"][0]["severity"] == "warning"
 
 
-def test_agentic_guard_product_fails_real_queue_validation_failure(tmp_path: Path) -> None:
+def test_agentic_guard_product_fails_real_queue_validation_failure(
+    tmp_path: Path,
+) -> None:
     output_dir = tmp_path / "queue-failed"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(
@@ -1987,7 +2095,9 @@ def test_agentic_guard_product_fails_real_queue_validation_failure(tmp_path: Pat
     _seed_lineage(output_dir)
     verdict = guard_output_dir(
         output_dir,
-        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+        scenario={
+            "assessment": {"expect_graph_changed": True, "skip_intent_judge": True}
+        },
     )
 
     assert verdict["live_agentic_success"] is False
@@ -2025,7 +2135,9 @@ def _semantic_product_scenario(**overrides: object) -> dict:
     return scenario
 
 
-def _semantic_verdict(*, grounded: bool = True, relevant: bool = True, correct: bool = True) -> dict:
+def _semantic_verdict(
+    *, grounded: bool = True, relevant: bool = True, correct: bool = True
+) -> dict:
     return {
         "pass_": grounded and relevant and correct,
         "criteria": {
@@ -2037,7 +2149,9 @@ def _semantic_verdict(*, grounded: bool = True, relevant: bool = True, correct: 
     }
 
 
-def _write_non_edit_response(output_dir: Path, *, reply: str = "SaveVideo uses a low bitrate.") -> None:
+def _write_non_edit_response(
+    output_dir: Path, *, reply: str = "SaveVideo uses a low bitrate."
+) -> None:
     (output_dir / "response.json").write_text(
         json.dumps(
             {
@@ -2061,7 +2175,12 @@ def test_refusal_fixtures_produce_pass_fail_fail_undetermined(
     undetermined / fail / fail / undetermined (G5-B4-MUST-007: a grounded
     refusal cannot SATISFY a desired-edit scenario, it records undetermined)."""
     cases = (
-        ("grounded", _grounded_refusal_verdict(grounded=True), "undetermined", "undetermined"),
+        (
+            "grounded",
+            _grounded_refusal_verdict(grounded=True),
+            "undetermined",
+            "undetermined",
+        ),
         (
             "unsupported",
             {
@@ -2077,7 +2196,12 @@ def test_refusal_fixtures_produce_pass_fail_fail_undetermined(
             "fail",
             "product_fail",
         ),
-        ("fabricated", _grounded_refusal_verdict(grounded=False), "fail", "product_fail"),
+        (
+            "fabricated",
+            _grounded_refusal_verdict(grounded=False),
+            "fail",
+            "product_fail",
+        ),
         (
             "outage",
             {"pass_": None, "error": "judge unavailable"},
@@ -2124,7 +2248,10 @@ def test_allowlisted_refusal_without_desired_still_requires_grounded_judge(
             "query": "set seed to 42",
             "assessment": {
                 "expect_graph_changed": True,
-                "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+                "allow_safe_refusal_outcome_kinds": [
+                    "clarify",
+                    "requires_custom_nodes",
+                ],
             },
         },
     )
@@ -2176,7 +2303,9 @@ def test_identical_refusal_prose_fails_when_schema_contradicts(
         compiled = schema.get("compiled_api") or {}
         inventory = payload.get("node_inventory") or []
         types = {item.get("type") for item in inventory if isinstance(item, dict)}
-        has_loader = "CheckpointLoaderSimple" in compiled or "CheckpointLoaderSimple" in types
+        has_loader = (
+            "CheckpointLoaderSimple" in compiled or "CheckpointLoaderSimple" in types
+        )
         criteria = {
             "supported_blocker": not has_loader,
             "no_representable_edit": not has_loader,
@@ -2188,7 +2317,9 @@ def test_identical_refusal_prose_fails_when_schema_contradicts(
                 {
                     "pass_": all(criteria.values()),
                     "criteria": criteria,
-                    "rationale": "schema contains the cited class" if has_loader else "ok",
+                    "rationale": "schema contains the cited class"
+                    if has_loader
+                    else "ok",
                 }
             )
         }
@@ -2203,10 +2334,16 @@ def test_identical_refusal_prose_fails_when_schema_contradicts(
         scenario=_desired_edit_scenario("contradictory-schema-refusal"),
     )
 
-    assert "schema_context" in captured["payload"] or "node_inventory" in captured["payload"]
+    assert (
+        "schema_context" in captured["payload"]
+        or "node_inventory" in captured["payload"]
+    )
     assert verdict["live_agentic_success"] is False
     assert verdict["assessment"]["verdict"] == "fail"
-    assert any(issue["check"] == "grounded_refusal" for issue in verdict["assessment"]["issues"])
+    assert any(
+        issue["check"] == "grounded_refusal"
+        for issue in verdict["assessment"]["issues"]
+    )
 
 
 def test_healthy_but_false_explanation_fails(
@@ -2236,7 +2373,9 @@ def test_healthy_but_false_explanation_fails(
 
     assert verdict["live_agentic_success"] is False
     assert verdict["assessment"]["verdict"] == "fail"
-    assert any(issue["check"] == "semantic_answer" for issue in verdict["assessment"]["issues"])
+    assert any(
+        issue["check"] == "semantic_answer" for issue in verdict["assessment"]["issues"]
+    )
     assert any(
         result["judge"] == "semantic_answer" and result["verdict"] == "fail"
         for result in verdict["assessment"]["judge_results"]
@@ -2250,8 +2389,12 @@ def test_semantic_judge_outage_never_passes(
     output_dir = tmp_path / "semantic-outage"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_non_edit_response(output_dir)
-    (output_dir / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
-    (output_dir / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (output_dir / "original.ui.json").write_text(
+        json.dumps({"nodes": []}), encoding="utf-8"
+    )
+    (output_dir / "final.ui.json").write_text(
+        json.dumps({"nodes": []}), encoding="utf-8"
+    )
     monkeypatch.setattr(
         "tests.live_agentic_harness.assessor.judge_semantic_answer",
         lambda *args, **kwargs: {"pass_": None, "error": "judge unavailable"},
@@ -2310,11 +2453,17 @@ def test_every_semantic_non_edit_has_rubric_and_judge_result(
         output_dir = tmp_path / scenario["id"]
         _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
         _write_non_edit_response(output_dir)
-        (output_dir / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
-        (output_dir / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+        (output_dir / "original.ui.json").write_text(
+            json.dumps({"nodes": []}), encoding="utf-8"
+        )
+        (output_dir / "final.ui.json").write_text(
+            json.dumps({"nodes": []}), encoding="utf-8"
+        )
         verdict = guard_output_dir(output_dir, scenario=scenario)
         results = verdict["assessment"]["judge_results"]
-        assert any(result["judge"] == "semantic_answer" for result in results), scenario["id"]
+        assert any(result["judge"] == "semantic_answer" for result in results), (
+            scenario["id"]
+        )
         assert verdict["assessment"]["scenario_kind"] == "semantic_product"
         assert verdict["assessment"]["excluded_from_semantic_product_rates"] is False
 
@@ -2326,7 +2475,8 @@ def test_health_controls_are_structurally_scored_not_semantically_judged(
     called = {"semantic": False}
     monkeypatch.setattr(
         "tests.live_agentic_harness.assessor.judge_semantic_answer",
-        lambda *args, **kwargs: called.__setitem__("semantic", True) or _semantic_verdict(),
+        lambda *args, **kwargs: called.__setitem__("semantic", True)
+        or _semantic_verdict(),
     )
     for scenario_id in ("live-graph-explanation-smoke", "speed-distillation-research"):
         output_dir = tmp_path / scenario_id
@@ -2334,34 +2484,39 @@ def test_health_controls_are_structurally_scored_not_semantically_judged(
         _write_non_edit_response(output_dir, reply="ok")
         if scenario_id == "speed-distillation-research":
             (output_dir / "response.json").write_text(
-                json.dumps({
-                    "ok": True,
-                    "route": "research",
-                    "graph_unchanged": True,
-                    "reply": "Grounded faster-workflow precedent.",
-                    "message": "Grounded faster-workflow precedent.",
-                    "outcome": {"kind": "noop"},
-                    "evidence": {
-                        "research": {
-                            "research_attempt": "grounded",
-                            "tool_calls_executed": 1,
-                            "evidence_artifacts": 1,
-                            "citations": ["hivemind:1"],
-                        }
-                    },
-                    "report": {
-                        "executor": {
-                            "deepseek_usage": {"n_calls": 1},
-                            "model_attempts": [
-                                {"phase": "research", "outcome": "success"}
-                            ],
-                        }
-                    },
-                }),
+                json.dumps(
+                    {
+                        "ok": True,
+                        "route": "research",
+                        "graph_unchanged": True,
+                        "reply": "Grounded faster-workflow precedent.",
+                        "message": "Grounded faster-workflow precedent.",
+                        "outcome": {"kind": "noop"},
+                        "evidence": {
+                            "research": {
+                                "research_attempt": "grounded",
+                                "tool_calls_executed": 1,
+                                "evidence_artifacts": 1,
+                                "citations": ["hivemind:1"],
+                            }
+                        },
+                        "report": {
+                            "executor": {
+                                "deepseek_usage": {"n_calls": 1},
+                                "model_attempts": [
+                                    {"phase": "research", "outcome": "success"}
+                                ],
+                            }
+                        },
+                    }
+                ),
                 encoding="utf-8",
             )
         scenario_path = (
-            Path(__file__).parent / "live_agentic_harness" / "scenarios" / f"{scenario_id}.json"
+            Path(__file__).parent
+            / "live_agentic_harness"
+            / "scenarios"
+            / f"{scenario_id}.json"
         )
         scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
         _seed_lineage(output_dir)
@@ -2417,7 +2572,8 @@ def test_corrected_d13_edits_use_edit_intent_judge(
         )
         verdict = guard_output_dir(output_dir, scenario=scenario)
         assert any(
-            result["judge"] == "edit_intent" for result in verdict["assessment"]["judge_results"]
+            result["judge"] == "edit_intent"
+            for result in verdict["assessment"]["judge_results"]
         ), scenario_id
         assert not any(
             result["judge"] == "semantic_answer"
@@ -2436,8 +2592,12 @@ def test_only_pass_satisfies_a_semantic_scenario(
     output_dir = tmp_path / "semantic-pass-only"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_non_edit_response(output_dir)
-    (output_dir / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
-    (output_dir / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (output_dir / "original.ui.json").write_text(
+        json.dumps({"nodes": []}), encoding="utf-8"
+    )
+    (output_dir / "final.ui.json").write_text(
+        json.dumps({"nodes": []}), encoding="utf-8"
+    )
     monkeypatch.setattr(
         "tests.live_agentic_harness.assessor.judge_semantic_answer",
         lambda *args, **kwargs: _semantic_verdict(),
@@ -2455,6 +2615,7 @@ def test_only_pass_satisfies_a_semantic_scenario(
     assert undetermined["live_agentic_success"] is False
     assert undetermined["assessment"]["verdict"] == "undetermined"
 
+
 # ---------------------------------------------------------------------------
 # RRSYN2-1: grounded refusals are graded by evidence/terminal substance, not
 # by the classifier route label.  Positive controls close clarify /
@@ -2468,8 +2629,7 @@ def test_only_pass_satisfies_a_semantic_scenario(
 _HOTSHOT_CONTRACT = {
     "expect_graph_changed": False,
     "expected_no_candidate_reason": (
-        "Hotshot frame-interpolation classes are absent from the runtime "
-        "schema"
+        "Hotshot frame-interpolation classes are absent from the runtime schema"
     ),
     "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
     "expected_no_candidate_absent_classes": ["Hotshot"],
@@ -2496,9 +2656,7 @@ def _write_groundable_refusal(
 ) -> None:
     change_details: dict = {"landed_operation_count": landed_operation_count}
     if with_engine_misses:
-        change_details["batch_turns"] = [
-            {"statements": [dict(_SEARCH_MISS_STATEMENT)]}
-        ]
+        change_details["batch_turns"] = [{"statements": [dict(_SEARCH_MISS_STATEMENT)]}]
     outcome: dict = {"kind": kind}
     if projected_missing is not None:
         outcome["missing_classes"] = projected_missing
@@ -2527,9 +2685,7 @@ def _write_groundable_refusal(
         response["report"] = {"authoring_blocker": blocker}
     if accepted_batch is not None:
         response["accepted_batch"] = accepted_batch
-    (output_dir / "response.json").write_text(
-        json.dumps(response), encoding="utf-8"
-    )
+    (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
 
 
 def _grounded_refusal_scenario(scenario_id: str) -> dict:
@@ -2574,9 +2730,7 @@ def test_rrsyn2_1_grounded_refusal_passes_on_adapt_route_with_tool_proof(
 def test_rrsyn2_1_prose_only_proof_is_never_grounded(tmp_path: Path) -> None:
     output_dir = tmp_path / "rrsyn2-1-prose-only"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
-    _write_groundable_refusal(
-        output_dir, kind="clarify", with_engine_misses=False
-    )
+    _write_groundable_refusal(output_dir, kind="clarify", with_engine_misses=False)
     _seed_lineage(output_dir)
 
     verdict = guard_output_dir(
@@ -2623,9 +2777,7 @@ def test_rrsyn2_1_accepted_delta_contradicts_refusal_contract(
 ) -> None:
     output_dir = tmp_path / "rrsyn2-1-accepted-delta"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
-    _write_groundable_refusal(
-        output_dir, kind="clarify", landed_operation_count=2
-    )
+    _write_groundable_refusal(output_dir, kind="clarify", landed_operation_count=2)
     _seed_lineage(output_dir)
 
     verdict = guard_output_dir(

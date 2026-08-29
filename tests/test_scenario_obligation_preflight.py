@@ -15,10 +15,12 @@ from tests.live_agentic_harness.compare_pipeline_modes import (
 )
 
 FINAL50 = (
-    Path(__file__).parent / "live_agentic_harness/threaded_comparison_manifest_final50.json"
+    Path(__file__).parent
+    / "live_agentic_harness/threaded_comparison_manifest_final50.json"
 )
 FINAL5 = (
-    Path(__file__).parent / "live_agentic_harness/threaded_comparison_manifest_final5.json"
+    Path(__file__).parent
+    / "live_agentic_harness/threaded_comparison_manifest_final5.json"
 )
 
 
@@ -38,7 +40,10 @@ def test_every_final50_scenario_has_complete_obligations() -> None:
         }
         assert "accepted_batch_is_sole_mutation_authority" in obligation.invariants
         assert obligation.prompt_tool_contract["modes"] == ["staged", "threaded"]
-        assert obligation.admissible_infra_failures == ("infra_timeout", "infra_empty_response")
+        assert obligation.admissible_infra_failures == (
+            "infra_timeout",
+            "infra_empty_response",
+        )
 
 
 def test_final5_core_is_subset_with_identical_obligations() -> None:
@@ -62,8 +67,12 @@ def test_audio_and_multivideo_declare_exact_schema_evidence() -> None:
         if r["class_type"] == "IndexTTSEmotionOptionsNode"
     )
     assert emotion_req["pack"] == "ComfyUI-IndexTTS"
-    assert {"Sad", "Disgusted", "Calm"} <= set(emotion_req.get("required_field_evidence", ()))
-    video_classes = {req["class_type"] for req in multivideo.schema_evidence_requirements}
+    assert {"Sad", "Disgusted", "Calm"} <= set(
+        emotion_req.get("required_field_evidence", ())
+    )
+    video_classes = {
+        req["class_type"] for req in multivideo.schema_evidence_requirements
+    }
     assert {
         "LayerMask: LoadSegmentAnythingModels",
         "LayerMask: SegmentAnythingUltra V3",
@@ -105,11 +114,13 @@ def test_preflight_schema_resolution_succeeds_with_pinned_snapshot() -> None:
 
 
 def test_undeclared_gated_class_is_a_coverage_violation(monkeypatch) -> None:
-    monkeypatch.setitem(so.SCHEMA_EVIDENCE_REQUIREMENTS, "audio-tts-narration-using-indextts-2", ())
+    monkeypatch.setitem(
+        so.SCHEMA_EVIDENCE_REQUIREMENTS, "audio-tts-narration-using-indextts-2", ()
+    )
     violations, _warnings = so.validate_obligation_coverage(FINAL5)
-    assert any(
-        "IndexTTSEngineNode" in v and "no exact" in v for v in violations
-    ), violations
+    assert any("IndexTTSEngineNode" in v and "no exact" in v for v in violations), (
+        violations
+    )
     with pytest.raises(so.ScenarioObligationError, match="IndexTTSEngineNode"):
         so.preflight_scenario_obligations(FINAL5)
 
@@ -121,9 +132,9 @@ def test_incomplete_requirement_missing_pack_is_violation(monkeypatch) -> None:
         ({"class_type": "IndexTTSEngineNode", "source": "authoritative_object_info"},),
     )
     violations, _warnings = so.validate_obligation_coverage(FINAL5)
-    assert any(
-        "IndexTTSEngineNode" in v and "pack" in v for v in violations
-    ), violations
+    assert any("IndexTTSEngineNode" in v and "pack" in v for v in violations), (
+        violations
+    )
 
 
 def test_safe_refusal_cannot_satisfy_edit_scenarios() -> None:
@@ -140,20 +151,21 @@ def test_descriptor_granting_safe_refusal_on_edit_scenario_fails_closed(
 
     def forged_load(path):
         value = real_load(path)
-        if isinstance(value, dict) and value.get("id") == "audio-tts-narration-using-indextts-2":
+        if (
+            isinstance(value, dict)
+            and value.get("id") == "audio-tts-narration-using-indextts-2"
+        ):
             forged = json.loads(json.dumps(value))
-            forged.setdefault("assessment", {})[
-                "allow_safe_refusal_outcome_kinds"
-            ] = ["clarify"]
+            forged.setdefault("assessment", {})["allow_safe_refusal_outcome_kinds"] = [
+                "clarify"
+            ]
             return forged
         return value
 
     monkeypatch.setattr(so, "_load_json", forged_load)
     violations, warnings = so.validate_obligation_coverage(FINAL5)
     assert not any("allow_safe_refusal_outcome_kinds" in v for v in violations)
-    assert any(
-        "allow_safe_refusal_outcome_kinds" in w for w in warnings
-    ), warnings
+    assert any("allow_safe_refusal_outcome_kinds" in w for w in warnings), warnings
 
 
 def test_preflight_fails_closed_for_unproven_final50_and_passes_final5() -> None:
@@ -161,7 +173,9 @@ def test_preflight_fails_closed_for_unproven_final50_and_passes_final5() -> None
     on_demand captures and declarations, so BOTH final50 and final5 pass
     the preflight (UNPROVEN is
     empty and the enforcement gate remains)."""
-    result50 = so.preflight_scenario_obligations(FINAL50, require_schema_resolution=False)
+    result50 = so.preflight_scenario_obligations(
+        FINAL50, require_schema_resolution=False
+    )
     assert result50["ok"] is True
     assert result50["schema_resolution_enforced"] is True
     assert result50["violations"] == []
@@ -189,9 +203,7 @@ def test_preflight_schema_resolution_fails_closed_without_local_evidence(
     (pinned ComfyUI_LayerStyle_Advance snapshot), so the no-evidence world
     isolates every authoritative root away from it."""
     empty_root = tmp_path / "empty"
-    monkeypatch.setattr(
-        so, "_authoritative_cache_roots", lambda: [empty_root]
-    )
+    monkeypatch.setattr(so, "_authoritative_cache_roots", lambda: [empty_root])
     with pytest.raises(so.ScenarioObligationError) as excinfo:
         so.preflight_scenario_obligations(FINAL5, require_schema_resolution=True)
     message = str(excinfo.value)
@@ -247,6 +259,21 @@ def test_bare_untyped_non_edit_obligation_is_a_coverage_violation() -> None:
     assert so.descriptor_contract_violations(contract_lane) == ()
 
 
+@pytest.mark.parametrize(
+    ("descriptor", "expected"),
+    [
+        ({"apply": True}, True),
+        ({"apply": True, "assessment": {"expect_graph_changed": False}}, True),
+        ({"apply": False, "assessment": {"expect_graph_changed": True}}, True),
+        ({"apply": False, "assessment": {"expect_graph_changed": False}}, False),
+    ],
+)
+def test_scenario_edit_obligation_treats_apply_true_as_authoritative(
+    descriptor: dict, expected: bool
+) -> None:
+    assert so.scenario_expects_graph_changed(descriptor) is expected
+
+
 def test_validate_only_reports_zero_obligation_violations() -> None:
     from tests.live_agentic_harness.compare_pipeline_modes import validate_only
 
@@ -297,7 +324,9 @@ _SHA7 = _COMMIT[:7]
 _AUDIO_SID = "audio-tts-narration-using-indextts-2"
 
 
-def _extract_entry(class_name: str, *, pack: str = "Pack") -> "OrderedDict[str, object]":
+def _extract_entry(
+    class_name: str, *, pack: str = "Pack"
+) -> "OrderedDict[str, object]":
     """A normalize_entry-shaped extract result for one synthetic class."""
     return OrderedDict(
         (
@@ -363,9 +392,7 @@ def _synthetic_obligation(requirement: dict) -> so.ScenarioObligation:
 
 def _tmp_manifest(tmp_path: Path) -> Path:
     path = tmp_path / "manifest.json"
-    path.write_text(
-        json.dumps({"entries": [{"id": _AUDIO_SID}]}), encoding="utf-8"
-    )
+    path.write_text(json.dumps({"entries": [{"id": _AUDIO_SID}]}), encoding="utf-8")
     return path
 
 
@@ -431,13 +458,13 @@ def test_ondemand_capture_cannot_masquerade_as_authoritative(tmp_path, monkeypat
     assert any("not a runtime-family" in f for f in failures)
 
 
-def _seed_cache_file(cache: Path, filename: str, entry: dict, cls: str = "Stubbed") -> None:
+def _seed_cache_file(
+    cache: Path, filename: str, entry: dict, cls: str = "Stubbed"
+) -> None:
     """Hand-write a one-class indexed+attested cache file (any shape)."""
     cache.mkdir(parents=True, exist_ok=True)
     (cache / filename).write_text(json.dumps({cls: entry}), encoding="utf-8")
-    (cache / "index.json").write_text(
-        json.dumps({cls: filename}), encoding="utf-8"
-    )
+    (cache / "index.json").write_text(json.dumps({cls: filename}), encoding="utf-8")
     provenance = {
         "class_count": 1,
         "packs": {
@@ -452,7 +479,9 @@ def _seed_cache_file(cache: Path, filename: str, entry: dict, cls: str = "Stubbe
     (cache / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
 
 
-def test_stub_shaped_captures_fail_even_when_indexed_and_attested(tmp_path, monkeypatch):
+def test_stub_shaped_captures_fail_even_when_indexed_and_attested(
+    tmp_path, monkeypatch
+):
     req = _ondemand_req(source="authoritative_object_info", cls="Stubbed")
 
     # (a) @stub.json suffix: the provider index drops the row outright.
@@ -529,9 +558,7 @@ def test_ondemand_miss_names_ensure_command(tmp_path, monkeypatch):
 
 def test_on_demand_runtime_declaration_is_invalid(tmp_path, monkeypatch):
     # Fails before any cache lookup: even an empty root set rejects it.
-    monkeypatch.setattr(
-        so, "_authoritative_cache_roots", lambda: [tmp_path / "nope"]
-    )
+    monkeypatch.setattr(so, "_authoritative_cache_roots", lambda: [tmp_path / "nope"])
     req = _ondemand_req(source="on_demand_runtime")
     resolved, failures = so._resolve_schema_locally(req)
     assert not resolved
