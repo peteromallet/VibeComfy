@@ -351,14 +351,20 @@ for idx, (tid, tpath) in enumerate(zip(TEMPLATE_IDS, TEMPLATE_PATHS)):
 RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
 RESULTS_PATH.write_text(json.dumps(results, indent=2, sort_keys=True), encoding="utf-8")
 print(f"\\n=== E2E RESULTS: {{len(results)}} templates ===")
-ok_count = sum(1 for r in results if r["status"] == "ok")
-fail_count = len(results) - ok_count
+ok_count = sum(1 for r in results if isinstance(r, dict) and r.get("status") == "ok")
+fail_count = sum(
+    1
+    for r in results
+    if not isinstance(r, dict)
+    or not isinstance(r.get("status"), str)
+    or r.get("status") not in {"ok", "skipped"}
+)
 print(f"ok={{ok_count}} fail={{fail_count}}")
 print(f"results written to {{RESULTS_PATH}}")
 PY
 
 echo "=== E2E COMPLETE ==="
-"$PY" -c 'import json, sys; d=json.load(open("out/e2e/results.json")); rows=d if isinstance(d, list) else []; valid=isinstance(d, list) and bool(d); ok=sum(1 for r in rows if isinstance(r, dict) and r.get("status")=="ok"); fail=sum(1 for r in rows if not isinstance(r, dict) or r.get("status") not in {{"ok", "skipped"}}); print("ok=" + str(ok) + " fail=" + str(fail)); raise SystemExit(1 if not valid or fail else 0)'
+"$PY" -c 'import json, sys; d=json.load(open("out/e2e/results.json")); rows=d if isinstance(d, list) else []; valid=isinstance(d, list) and bool(d); ok=sum(1 for r in rows if isinstance(r, dict) and r.get("status")=="ok"); fail=sum(1 for r in rows if not isinstance(r, dict) or not isinstance(r.get("status"), str) or r.get("status") not in {{"ok", "skipped"}}); print("ok=" + str(ok) + " fail=" + str(fail)); raise SystemExit(1 if not valid or fail else 0)'
 """
 
 
@@ -385,25 +391,41 @@ def _diff_sha_changes(
     """Compare sha256 values between current and previous run.
 
     Returns dict of template_id -> list of changed output paths.
-    sha changes are flags, not automatic failures.
+    sha changes are flags, not automatic failures. Malformed previous-run data
+    is ignored rather than allowing stale bookkeeping to crash this run.
     """
-    if previous is None:
+    if not isinstance(previous, list):
         return {}
 
     prev_by_id: dict[str, dict[str, Any]] = {}
     for entry in previous:
+        if not isinstance(entry, dict):
+            continue
         tid = entry.get("template_id")
         if isinstance(tid, str):
             prev_by_id[tid] = entry
+
+    def sha_map(entry: dict[str, Any]) -> dict[str, str]:
+        raw_shas = entry.get("output_sha256s")
+        if not isinstance(raw_shas, list):
+            return {}
+        mapped: dict[str, str] = {}
+        for sha_entry in raw_shas:
+            if not isinstance(sha_entry, dict):
+                continue
+            path = sha_entry.get("path")
+            digest = sha_entry.get("sha256")
+            if isinstance(path, str) and isinstance(digest, str):
+                mapped[path] = digest
+        return mapped
 
     changes: dict[str, list[str]] = {}
     for entry in current:
         tid = entry.get("template_id")
         if not isinstance(tid, str) or tid not in prev_by_id:
             continue
-        prev_entry = prev_by_id[tid]
-        prev_shas = {s.get("path"): s.get("sha256") for s in prev_entry.get("output_sha256s", [])}
-        curr_shas = {s.get("path"): s.get("sha256") for s in entry.get("output_sha256s", [])}
+        prev_shas = sha_map(prev_by_id[tid])
+        curr_shas = sha_map(entry)
 
         for path, curr_hash in curr_shas.items():
             prev_hash = prev_shas.get(path)
@@ -528,10 +550,13 @@ def main() -> int:
     # Post-process only the artifact root returned by this run. Never infer a
     # run from a global directory scan, which can select stale artifacts.
     if artifact_dir is None:
-        return _write_diagnostic_aggregate(
+        diagnostic_code = _write_diagnostic_aggregate(
             output_root,
             "RunPod completed without returning a downloaded artifact root",
         )
+        # Preserve lifecycle timeout/launch/remote exit evidence while still
+        # publishing the schema-compatible diagnostic aggregate.
+        return return_code if return_code != 0 else diagnostic_code
     post_process_code = _post_process_results(artifact_dir, output_root)
     if post_process_code != 0:
         return post_process_code
@@ -601,7 +626,56 @@ def _extract_peak_vram_from_watchdog_data(data: dict[str, Any]) -> int | None:
     return peak if peak > 0 else None
 
 
-def _post_process_results(artifact_root: Path, output_root: Path) -> int:
+def _validate_result_rows(
+    decoded: list[Any],
+    remote_results_path: Path,
+) -> str | None:
+    """Return a diagnostic reason for malformed nested result fields."""
+    for index, entry in enumerate(decoded):
+        if not isinstance(entry, dict):
+            return (
+                f"remote results row {index} at {remote_results_path} must be "
+                f"an object, got {type(entry).__name__}"
+            )
+
+        if "template_id" in entry and not isinstance(entry["template_id"], str):
+            return (
+                f"remote results row {index} at {remote_results_path} has "
+                f"non-string template_id ({type(entry['template_id']).__name__})"
+            )
+
+        if "status" in entry and not isinstance(entry["status"], str):
+            return (
+                f"remote results row {index} at {remote_results_path} has "
+                f"non-string status ({type(entry['status']).__name__})"
+            )
+
+        if "output_sha256s" not in entry:
+            continue
+        sha_entries = entry["output_sha256s"]
+        if not isinstance(sha_entries, list):
+            return (
+                f"remote results row {index} at {remote_results_path} has "
+                f"non-list output_sha256s ({type(sha_entries).__name__})"
+            )
+        for sha_index, sha_entry in enumerate(sha_entries):
+            if not isinstance(sha_entry, dict):
+                return (
+                    f"remote results row {index} output_sha256s[{sha_index}] at "
+                    f"{remote_results_path} must be an object, got "
+                    f"{type(sha_entry).__name__}"
+                )
+            if not isinstance(sha_entry.get("path"), str) or not isinstance(
+                sha_entry.get("sha256"), str
+            ):
+                return (
+                    f"remote results row {index} output_sha256s[{sha_index}] at "
+                    f"{remote_results_path} requires string path and sha256"
+                )
+    return None
+
+
+def _post_process_results(artifact_root: Path | None, output_root: Path) -> int:
     """After pod execution, parse downloaded artifacts into results.json.
 
     Enriches with:
@@ -609,7 +683,11 @@ def _post_process_results(artifact_root: Path, output_root: Path) -> int:
     - Peak VRAM from watchdog logs (correctness-2)
     - Previous-run sha diff flags
     """
-    # Try to load remote results
+    if artifact_root is None:
+        return _write_diagnostic_aggregate(
+            output_root,
+            "RunPod completed without returning a downloaded artifact root",
+        )
     remote_results_path = artifact_root / "out" / "e2e" / "results.json"
     try:
         decoded = json.loads(remote_results_path.read_text(encoding="utf-8"))
@@ -634,12 +712,9 @@ def _post_process_results(artifact_root: Path, output_root: Path) -> int:
             output_root,
             f"remote results at {remote_results_path} are empty",
         )
-    for index, entry in enumerate(decoded):
-        if not isinstance(entry, dict):
-            return _write_diagnostic_aggregate(
-                output_root,
-                f"remote results row {index} at {remote_results_path} must be an object, got {type(entry).__name__}",
-            )
+    validation_error = _validate_result_rows(decoded, remote_results_path)
+    if validation_error is not None:
+        return _write_diagnostic_aggregate(output_root, validation_error)
     results: list[dict[str, Any]] = decoded
 
     # Enrich with peak VRAM from watchdogs

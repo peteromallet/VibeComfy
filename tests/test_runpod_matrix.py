@@ -166,6 +166,54 @@ def test_runpod_matrix_post_process_diagnoses_unusable_results(tmp_path: Path, c
     assert "results_invalid" not in capsys.readouterr().err
 
 
+def test_runpod_matrix_post_process_rejects_non_string_nested_statuses(
+    tmp_path: Path,
+) -> None:
+    for bad_status in ([], {}):
+        artifact_root = tmp_path / f"status-{type(bad_status).__name__}"
+        results_path = artifact_root / "out" / "e2e" / "results.json"
+        results_path.parent.mkdir(parents=True)
+        results_path.write_text(
+            json.dumps([{"template_id": "bad", "status": bad_status, "output_sha256s": []}]),
+            encoding="utf-8",
+        )
+
+        output_root = tmp_path / f"published-status-{type(bad_status).__name__}"
+        assert runpod_e2e_matrix._post_process_results(artifact_root, output_root) == 1
+        published = json.loads((output_root / "results.json").read_text(encoding="utf-8"))
+        assert published[0]["status"] == "results_invalid"
+        assert "non-string status" in published[0]["failure"]
+
+
+def test_runpod_matrix_post_process_rejects_malformed_nested_sha_entries(
+    tmp_path: Path,
+) -> None:
+    malformed_sha_values = (
+        {"template_id": "bad", "status": "ok", "output_sha256s": {}},
+        {"template_id": "bad", "status": "ok", "output_sha256s": [[]]},
+        {"template_id": "bad", "status": "ok", "output_sha256s": [{"path": [], "sha256": "abc"}]},
+    )
+
+    for index, payload in enumerate(malformed_sha_values):
+        artifact_root = tmp_path / f"sha-{index}"
+        results_path = artifact_root / "out" / "e2e" / "results.json"
+        results_path.parent.mkdir(parents=True)
+        results_path.write_text(json.dumps([payload]), encoding="utf-8")
+
+        output_root = tmp_path / f"published-sha-{index}"
+        assert runpod_e2e_matrix._post_process_results(artifact_root, output_root) == 1
+        published = json.loads((output_root / "results.json").read_text(encoding="utf-8"))
+        assert published[0]["status"] == "results_invalid"
+        assert "output_sha256s" in published[0]["failure"]
+
+
+def test_runpod_matrix_diff_ignores_malformed_previous_nested_sha_entries() -> None:
+    current = [{"template_id": "same", "status": "ok", "output_sha256s": []}]
+    previous = [{"template_id": "same", "status": "ok", "output_sha256s": [[]]}]
+
+    assert runpod_e2e_matrix._diff_sha_changes(current, previous) == {}
+
+
 def test_runpod_matrix_main_uses_returned_artifact_root_not_global_scan(tmp_path: Path, monkeypatch) -> None:
     row = runpod_e2e_matrix.MatrixRow(
         id="template-0", path="ready_templates/image/template-0.py", media="image", task="text_to_image"
@@ -228,6 +276,8 @@ def test_runpod_matrix_remote_tail_fails_on_failed_rows() -> None:
     script = runpod_e2e_matrix._build_remote_script((row,))
 
     assert 'r.get("status") not in {"ok", "skipped"}' in script
+    assert "not isinstance(r.get(\"status\"), str)" in script
+    assert "fail_count = sum(" in script
     assert "raise SystemExit(1 if not valid or fail else 0)" in script
 
 

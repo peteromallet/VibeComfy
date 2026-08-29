@@ -227,3 +227,119 @@ async def test_run_pod_cancellation_returns_130_and_terminates(monkeypatch: pyte
 
     assert code == 130
     assert terminated == [True]
+
+
+async def test_run_pod_detached_binds_fresh_artifacts_and_discards_stale_shared_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    shared_root = root / "artifacts"
+    runs_root = root / "out" / "runpod_artifacts"
+    stale_results = shared_root / "out" / "e2e" / "results.json"
+    stale_results.parent.mkdir(parents=True)
+    stale_results.write_text('[{"status": "stale"}]', encoding="utf-8")
+
+    monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+    monkeypatch.setattr(runpod_runner, "ROOT", root)
+    monkeypatch.setattr(runpod_runner, "SHARED_ARTIFACT_ROOT", shared_root)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", runs_root)
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    finalized: list[Path] = []
+
+    async def fake_ship_and_run_detached(*_args, **_kwargs):
+        assert not stale_results.exists()
+        current_results = shared_root / "out" / "e2e" / "results.json"
+        current_results.parent.mkdir(parents=True)
+        current_results.write_text('[{"status": "current"}]', encoding="utf-8")
+        return runpod_runner.ShipAndRunResult(
+            returncode=0,
+            artifact_root=shared_root,
+            terminated=True,
+        )
+
+    monkeypatch.setattr(runpod_runner, "ship_and_run_detached", fake_ship_and_run_detached)
+    monkeypatch.setattr(
+        runpod_runner,
+        "_finalize_artifacts",
+        lambda artifact_root, **_kwargs: finalized.append(artifact_root),
+    )
+    monkeypatch.setattr(runpod_runner, "_print_detached_summary", lambda **_kwargs: None)
+
+    bound: list[Path | None] = []
+    assert (
+        await runpod_runner.run_pod_detached(
+            "echo run",
+            name_prefix="test",
+            exclude=set(),
+            upload_mode="tarball",
+            timeout=1,
+            artifact_root_out=bound,
+        )
+        == 0
+    )
+
+    assert len(bound) == 1
+    assert bound[0] is not None
+    assert bound[0].parent == runs_root
+    assert bound[0] != shared_root
+    assert json.loads((bound[0] / "out" / "e2e" / "results.json").read_text()) == [
+        {"status": "current"}
+    ]
+    assert not shared_root.exists()
+    assert finalized == bound
+
+
+async def test_run_pod_detached_publishes_none_without_finalizer_type_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+    monkeypatch.setattr(runpod_runner, "ROOT", root)
+    monkeypatch.setattr(runpod_runner, "SHARED_ARTIFACT_ROOT", root / "artifacts")
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", root / "out" / "runpod_artifacts")
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    monkeypatch.setattr(
+        runpod_runner,
+        "ship_and_run_detached",
+        lambda *_args, **_kwargs: _return_result_without_artifacts(),
+    )
+    monkeypatch.setattr(
+        runpod_runner,
+        "_finalize_artifacts",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("finalized None")),
+    )
+    summaries: list[Path | None] = []
+    monkeypatch.setattr(
+        runpod_runner,
+        "_print_detached_summary",
+        lambda **kwargs: summaries.append(kwargs["artifact_root"]),
+    )
+
+    bound: list[Path | None] = []
+    assert (
+        await runpod_runner.run_pod_detached(
+            "echo run",
+            name_prefix="test",
+            exclude=set(),
+            upload_mode="tarball",
+            timeout=1,
+            artifact_root_out=bound,
+        )
+        == 124
+    )
+    assert bound == [None]
+    assert summaries == [None]
+
+
+async def _return_result_without_artifacts() -> runpod_runner.ShipAndRunResult:
+    return runpod_runner.ShipAndRunResult(returncode=124, artifact_root=None)
+
+
+def test_lifecycle_remote_contract_uses_concrete_exit_marker() -> None:
+    contract = runpod_runner._lifecycle_detached_remote_contract()
+
+    assert "{poll_exit_marker}" not in contract
+    assert "/tmp/runpod-lifecycle-exit-code" in contract
+    assert "poll: cat /tmp/runpod-lifecycle-exit-code 2>/dev/null || echo ''" in contract
+    assert 'printf "%s" "$rc"' in contract
+    assert "downloads artifacts after observing it" in contract

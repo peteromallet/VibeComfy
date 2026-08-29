@@ -28,13 +28,21 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_ROOT = "/workspace/vibecomfy"
 MiB = 1024 * 1024
+
+# The lifecycle package currently downloads to ``local_root / "artifacts"``.
+# Keep that staging location empty, then atomically bind the completed download
+# to a run-unique path before exposing it to callers.
+SHARED_ARTIFACT_ROOT = ROOT / "artifacts"
+ARTIFACT_RUNS_ROOT = ROOT / "out" / "runpod_artifacts"
 
 DEFAULT_UPLOAD_EXCLUDES: set[str] = {
     ".git", ".venv", "__pycache__", ".pytest_cache", ".desloppify", ".megaplan",
@@ -46,6 +54,32 @@ VIBECOMFY_RUNPOD_DISK_SIZE_ENV = "VIBECOMFY_RUNPOD_DISK_SIZE_GB"
 VIBECOMFY_RUNPOD_CONTAINER_DISK_ENV = "VIBECOMFY_RUNPOD_CONTAINER_DISK_GB"
 
 
+def _remove_shared_artifact_root() -> None:
+    """Remove lifecycle's reusable download staging directory."""
+    if SHARED_ARTIFACT_ROOT.is_symlink() or SHARED_ARTIFACT_ROOT.is_file():
+        SHARED_ARTIFACT_ROOT.unlink()
+    elif SHARED_ARTIFACT_ROOT.is_dir():
+        shutil.rmtree(SHARED_ARTIFACT_ROOT)
+
+
+def _allocate_artifact_root() -> Path:
+    """Reserve a unique local root for this detached invocation."""
+    ARTIFACT_RUNS_ROOT.mkdir(parents=True, exist_ok=True)
+    return ARTIFACT_RUNS_ROOT / uuid.uuid4().hex
+
+
+def _bind_artifact_root(artifact_root: Path | None, destination: Path) -> Path | None:
+    """Move a completed lifecycle download to its run-unique destination."""
+    if artifact_root is None:
+        return None
+    source = Path(artifact_root)
+    if source == destination:
+        return source if source.is_dir() else None
+    if not source.is_dir():
+        return None
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source.replace(destination)
+    return destination
 def _runpod_config_kwargs() -> dict[str, Any]:
     config_kwargs: dict[str, Any] = {
         "storage_name": os.getenv("VIBECOMFY_RUNPOD_STORAGE", "Peter"),
@@ -80,21 +114,23 @@ def _bootstrap_lifecycle() -> None:
 _bootstrap_lifecycle()
 
 from runpod_lifecycle import PodGuard  # noqa: E402
-from runpod_lifecycle import UploadHeartbeat  # noqa: E402
+from runpod_lifecycle import UploadHeartbeat  # noqa: E402,F401
 from runpod_lifecycle import install_signal_handlers  # noqa: E402
-from runpod_lifecycle import should_skip  # noqa: E402
+from runpod_lifecycle import should_skip  # noqa: E402,F401
 from runpod_lifecycle import RunPodConfig  # noqa: E402
 from runpod_lifecycle.config import _parse_gpu_type_env  # noqa: E402
 from runpod_lifecycle import ship_and_run  # noqa: E402
 from runpod_lifecycle import ship_and_run_detached  # noqa: E402
-from runpod_lifecycle import ShipAndRunResult  # noqa: E402
+from runpod_lifecycle import ShipAndRunResult  # noqa: E402,F401
 from runpod_lifecycle import _build_upload_tarball as _lifecycle_build_upload_tarball  # noqa: E402
 from runpod_lifecycle import _preflight_upload_disk as _lifecycle_preflight_upload_disk  # noqa: E402
 
-from scripts.runpod_artifacts import _parse_tsv  # noqa: E402
-from scripts.runpod_artifacts import _png_info  # noqa: E402
+from runpod_lifecycle.runner import DEFAULT_POLL_COMMAND_TEMPLATE  # noqa: E402
+from runpod_lifecycle.runner import DEFAULT_POLL_EXIT_MARKER  # noqa: E402
+from scripts.runpod_artifacts import _parse_tsv  # noqa: E402,F401
+from scripts.runpod_artifacts import _png_info  # noqa: E402,F401
 from scripts.runpod_artifacts import _finalize_artifacts  # noqa: E402
-from scripts.runpod_artifacts import _build_artifact_manifest  # noqa: E402
+from scripts.runpod_artifacts import _build_artifact_manifest  # noqa: E402,F401
 from scripts.runpod_artifacts import _print_detached_summary  # noqa: E402
 
 _ENV_BRIDGE_MAP: dict[str, str] = {
@@ -103,6 +139,25 @@ _ENV_BRIDGE_MAP: dict[str, str] = {
     "VIBECOMFY_UPLOAD_PROGRESS_SECONDS": "RUNPOD_LIFECYCLE_UPLOAD_PROGRESS_SECONDS",
     "VIBECOMFY_UPLOAD_PROGRESS_FILES": "RUNPOD_LIFECYCLE_UPLOAD_PROGRESS_FILES",
 }
+
+
+def _lifecycle_detached_remote_contract() -> str:
+    """Describe the lifecycle's real detached launch, poll, and RC flow."""
+    poll_command = DEFAULT_POLL_COMMAND_TEMPLATE.format(
+        poll_exit_marker=DEFAULT_POLL_EXIT_MARKER
+    )
+    launch_command = (
+        f"cd {REMOTE_ROOT} && rm -f {DEFAULT_POLL_EXIT_MARKER} && "
+        "nohup bash /tmp/runpod-lifecycle-remote-run.sh "
+        "> /tmp/runpod-lifecycle-remote-live.log 2>&1; "
+        f'rc=$?; printf "%s" "$rc" > {DEFAULT_POLL_EXIT_MARKER}; exit "$rc"'
+    )
+    return (
+        f"launch: {launch_command}; "
+        f"poll: {poll_command}; "
+        "propagation: lifecycle parses the marker as the detached return code "
+        "and downloads artifacts after observing it"
+    )
 
 
 def _bridge_all_envs() -> None:
@@ -216,70 +271,61 @@ async def run_pod_detached(
     poll_interval: int = 60,
     artifact_root_out: list[Path | None] | None = None,
 ) -> int:
-    """Launch a pod, ship vibecomfy, run *remote_script* detached, poll,
-    download artifacts, and finalise.
+    """Launch a pod, ship *remote_script* detached, poll, download artifacts, and finalise.
 
-    Thin wrapper around
-    :func:`runpod_lifecycle.runner.ship_and_run_detached` with
-    vibecomfy-specific polling targets and artifact paths.
+    The lifecycle owns the detached polling and exit-code propagation contract.
+    This wrapper only stages its fixed download location and binds the completed
+    result to a run-unique artifact root.
 
-    When supplied, ``artifact_root_out`` receives the exact local artifact
-    root returned by this invocation, so callers can bind post-processing to
-    their own run without guessing from shared artifact directories.
+    When supplied, ``artifact_root_out`` receives the exact run-unique artifact
+    root returned by this invocation, or ``None`` when no download completed.
     """
     install_signal_handlers(asyncio.get_running_loop())
 
     _bridge_all_envs()
     config = RunPodConfig.from_env(**_runpod_config_kwargs())
+    artifact_root = _allocate_artifact_root()
 
-    poll_command_template = (
-        f"cd {REMOTE_ROOT}\n"
-        'echo "=== POLL $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="\n'
-        "if [ -f out/corpus_matrix/results.tsv ]; then "
-        'echo "--- RESULTS ---"; cat out/corpus_matrix/results.tsv; fi\n'
-        "if [ -f out/corpus_matrix/ready_results.tsv ]; then "
-        'echo "--- READY ---"; cat out/corpus_matrix/ready_results.tsv; fi\n'
-        'echo "--- MEDIA ---"\n'
-        "find out/corpus_matrix output -maxdepth 5 -type f "
-        "\\( -name '*.png' -o -name '*.mp4' -o -name '*.webp' "
-        "-o -name '*.webm' \\) "
-        "-printf '%TY-%Tm-%Td %TH:%TM %s %p\\n' 2>/dev/null | sort | tail -80\n"
-        'echo "--- LOG ---"\n'
-        "tail -80 /tmp/vibecomfy-remote-live.log 2>/dev/null || true\n"
-        "tail -80 out/corpus_matrix/live.log 2>/dev/null || true\n"
-        'echo "--- EXIT ---"\n'
-        "cat {poll_exit_marker} 2>/dev/null || true\n"
-    )
+    # v0.3 of runpod-lifecycle always downloads to ROOT/"artifacts". Remove
+    # prior contents before the lifecycle can create/extract this run's archive.
+    _remove_shared_artifact_root()
+    try:
+        result = await ship_and_run_detached(
+            config,
+            remote_script,
+            local_root=ROOT,
+            remote_root=REMOTE_ROOT,
+            exclude=exclude,
+            upload_mode=upload_mode,
+            timeout=timeout,
+            name_prefix=name_prefix,
+            terminate_after_exec=True,
+            poll_interval=poll_interval,
+        )
+    except BaseException:
+        _remove_shared_artifact_root()
+        raise
 
-    result = await ship_and_run_detached(
-        config,
-        remote_script,
-        local_root=ROOT,
-        remote_root=REMOTE_ROOT,
-        exclude=exclude,
-        upload_mode=upload_mode,
-        timeout=timeout,
-        name_prefix=name_prefix,
-        terminate_after_exec=True,
-        poll_interval=poll_interval,
-    )
-
+    current_artifact_root = _bind_artifact_root(result.artifact_root, artifact_root)
+    # Never leave a partial failed download available for a later invocation.
+    _remove_shared_artifact_root()
     pod_id = getattr(result.pod, "id", None) if result.pod else None
-    _finalize_artifacts(
-        result.artifact_root,
-        pod_id=pod_id,
-        exit_code=result.returncode,
-        terminated=result.terminated,
-        remote_command=poll_command_template,
-        upload=result.upload_info,
-    )
+    if current_artifact_root is not None:
+        _finalize_artifacts(
+            current_artifact_root,
+            pod_id=pod_id,
+            exit_code=result.returncode,
+            terminated=result.terminated,
+            remote_command=_lifecycle_detached_remote_contract(),
+            upload=result.upload_info,
+        )
     _print_detached_summary(
         pod_id=pod_id,
         exit_code=result.returncode,
         terminated=result.terminated,
-        artifact_root=result.artifact_root,
+        artifact_root=current_artifact_root,
     )
     if artifact_root_out is not None:
-        artifact_root_out.append(result.artifact_root)
+        artifact_root_out.append(current_artifact_root)
 
     return result.returncode
