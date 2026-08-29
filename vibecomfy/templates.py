@@ -717,11 +717,25 @@ def finalize_ready(
     requirements: Mapping[str, Any] | None = None,
 ) -> VibeWorkflow:
     """Finalize a hand-authored ready template without exposing legacy helpers."""
+    _release_workflow_context(wf)
     wf.finalize_metadata()
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
         apply_ready_template_policy(wf, metadata, source_path=source_path, requirements=requirements)
     return wf
+
+
+def _release_workflow_context(wf: VibeWorkflow) -> None:
+    """Release the eager ``new_workflow()`` binding before finalization work."""
+    token = wf._workflow_context_token
+    if token is None:
+        return
+    from vibecomfy.workflow_context import reset_workflow
+
+    try:
+        reset_workflow(token)
+    finally:
+        wf._workflow_context_token = None
 
 
 def template_input(wf: VibeWorkflow, name: str, node_id: str, field: str, *args: Any, **kwargs: Any) -> None:

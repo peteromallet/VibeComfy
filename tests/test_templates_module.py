@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import vibecomfy.templates as templates
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, SymbolicNodeRef, _current_workflow_or_raise, _derive_output_kind, finalize, new_workflow, node
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, SymbolicNodeRef, _current_workflow_or_raise, _derive_output_kind, finalize, finalize_ready, new_workflow, node
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -268,6 +268,49 @@ def test_exception_in_workflow_context_unbinds() -> None:
 
         _CURRENT_WORKFLOW.set(None)
         wf._workflow_context_token = None
+
+
+def test_finalize_ready_unbinds_between_repeated_calls() -> None:
+    from vibecomfy.workflow_context import active_workflow
+
+    for suffix in ("one", "two"):
+        template_id = f"image/finalize_ready_{suffix}"
+        wf = new_workflow({"ready_template": template_id}, source_path=f"ready_templates/{template_id}.py")
+        wf.node("SaveImage", filename_prefix="out")
+
+        assert finalize_ready(wf, {"ready_template": template_id}, source_path=f"ready_templates/{template_id}.py") is wf
+        assert active_workflow() is None
+        assert wf._workflow_context_token is None
+
+
+def test_finalize_ready_unbinds_before_exception_and_allows_next_call(monkeypatch) -> None:
+    from vibecomfy.workflow_context import active_workflow
+
+    original_policy = templates.apply_ready_template_policy
+    calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("policy boom")
+        return original_policy(*args, **kwargs)
+
+    monkeypatch.setattr(templates, "apply_ready_template_policy", fail_once)
+    first_id = "image/finalize_ready_exception"
+    first = new_workflow({"ready_template": first_id}, source_path=f"ready_templates/{first_id}.py")
+    first.node("SaveImage", filename_prefix="out")
+
+    with pytest.raises(RuntimeError, match="policy boom"):
+        finalize_ready(first, {"ready_template": first_id}, source_path=f"ready_templates/{first_id}.py")
+    assert active_workflow() is None
+    assert first._workflow_context_token is None
+
+    second_id = "image/finalize_ready_after_exception"
+    second = new_workflow({"ready_template": second_id}, source_path=f"ready_templates/{second_id}.py")
+    second.node("SaveImage", filename_prefix="out")
+    assert finalize_ready(second, {"ready_template": second_id}, source_path=f"ready_templates/{second_id}.py") is second
+    assert active_workflow() is None
 
 
 def test_workflow_context_isolated_across_async_tasks() -> None:
