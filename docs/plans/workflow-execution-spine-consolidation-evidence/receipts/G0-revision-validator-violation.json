@@ -1,0 +1,22 @@
+{
+  "allowed": [
+    "scripts/validate_workflow_execution_spine_evidence.py",
+    "tests/test_workflow_execution_spine_evidence.py"
+  ],
+  "changed_files": [
+    ".pytest_cache/v/cache/nodeids",
+    "scripts/__pycache__/validate_workflow_execution_spine_evidence.cpython-311.pyc",
+    "scripts/validate_workflow_execution_spine_evidence.py",
+    "tests/__pycache__/test_workflow_execution_spine_evidence.cpython-311-pytest-9.1.1.pyc",
+    "tests/test_workflow_execution_spine_evidence.py"
+  ],
+  "forbidden": [],
+  "receipt": "/workspace/vibecomfy-exec-spine-20260820/exec-spine/docs/plans/workflow-execution-spine-consolidation-evidence/receipts/G0-revision-validator-receipt.json",
+  "task_id": "G0-revision-validator",
+  "type": "ALLOWANCE_VIOLATION",
+  "violations": [
+    ".pytest_cache/v/cache/nodeids",
+    "scripts/__pycache__/validate_workflow_execution_spine_evidence.cpython-311.pyc",
+    "tests/__pycache__/test_workflow_execution_spine_evidence.cpython-311-pytest-9.1.1.pyc"
+  ]
+}

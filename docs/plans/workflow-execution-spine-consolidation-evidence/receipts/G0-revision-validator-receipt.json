@@ -1,0 +1,79 @@
+{
+  "allowance": {
+    "allowed": [
+      "scripts/validate_workflow_execution_spine_evidence.py",
+      "tests/test_workflow_execution_spine_evidence.py"
+    ],
+    "file": "/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-validator-allowance.json",
+    "forbidden": []
+  },
+  "base_sha": "337debc5e92c63e1aa049b8bc04015738b98d01f",
+  "brief_path": "/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-validator-brief.md",
+  "brief_sha256": "0ce024c03f071b1d4846c129f25ef25ddc0ba834ec966bd6f799348059885fb7",
+  "changed_files": [
+    ".pytest_cache/v/cache/nodeids",
+    "scripts/__pycache__/validate_workflow_execution_spine_evidence.cpython-311.pyc",
+    "scripts/validate_workflow_execution_spine_evidence.py",
+    "tests/__pycache__/test_workflow_execution_spine_evidence.cpython-311-pytest-9.1.1.pyc",
+    "tests/test_workflow_execution_spine_evidence.py"
+  ],
+  "commits": [
+    "ceba112bee6d45893e8b016412c895be3696d8a1"
+  ],
+  "end_ts": "2026-08-21T00:00:38Z",
+  "evidence": [
+    ".active-allowances.lock",
+    "G0-gate-review-brief-receipt.json",
+    "G0-gate-review-receipt.json",
+    "G0-recert-adjudication-receipt.json",
+    "G0-revision-validator-brief-receipt.json",
+    "G0-revision-validator-receipt.json",
+    "G0-revision-validator-violation.json",
+    "T0.2-allowance-adjudication-receipt.json",
+    "T0.2-brief-receipt.json",
+    "T0.2-brief-violation.json",
+    "T0.2-receipt.json",
+    "T0.2-recertification-brief-receipt.json",
+    "T0.2-recertification-brief2-receipt.json",
+    "T0.2-recertification-receipt.json",
+    "T0.2-violation.json",
+    "T0.3-review-adjudication-receipt.json",
+    "T0.3-revision-brief-receipt.json",
+    "T0.3-revision-receipt.json",
+    "T0.3-revision-rereview-brief-receipt.json",
+    "T0.3-revision-rereview-receipt.json",
+    "T0.3-revision-review-receipt.INVALID-MUTATING-REVIEW.json",
+    "T0.3-revision-violation.json",
+    "T0.3-revision2-brief-receipt.json",
+    "T0.3-revision2-receipt.json",
+    "T0.3-revision2-rereview-brief-receipt.json",
+    "T0.3-revision2-rereview-receipt.json",
+    "T0.4-allowance-adjudication-receipt.json",
+    "T0.4-plan-amendment-50-brief-receipt.json",
+    "T0.4-plan-amendment-50-receipt.json",
+    "T0.4-plan-amendment-50-review-receipt.json",
+    "T0.4-plan-amendment-50-violation.json",
+    "T0.4-postcommit-review-receipt.json",
+    "active-allowances.json",
+    "evidence-t02-t04-receipt.json",
+    "t0-3-bootstrap-receipt.json"
+  ],
+  "exit": 0,
+  "gate": "G0",
+  "label": "G0 [XHARD-REVISION] retarget validator to 50x2/100-leg finale",
+  "launcher_command": [
+    "/root/.codex/skills/subagent-launcher/launch_omp_agent.py",
+    "--model=grok-4.6",
+    "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-validator-brief.md",
+    "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine",
+    "--timeout=3600"
+  ],
+  "model_route": "grok-4.6",
+  "pid": 14046,
+  "resolved_model": "grok-4.6",
+  "result_sha256": "79fe0467b2a802c01377eb6ac26a441d9805c16a1ad450deed68f868506890f8",
+  "role": "implementer",
+  "start_ts": "2026-08-20T23:47:05Z",
+  "stop_or_judgment": "## Residual risks / JUDGMENT_REQUIRED",
+  "task_id": "G0-revision-validator"
+}

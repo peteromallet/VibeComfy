@@ -1,0 +1,82 @@
+{
+  "allowance": {
+    "allowed": [
+      "scripts/run_workflow_execution_spine_agent.py",
+      "tests/test_workflow_execution_spine_evidence.py"
+    ],
+    "file": "/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-wrapper-revision2-allowance.json",
+    "forbidden": []
+  },
+  "base_sha": "f8abb57731162b29619164f919a37d72f53cf2ac",
+  "brief_path": "/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-wrapper-revision2-brief.md",
+  "brief_sha256": "62f96085005723d4650d262b3542530cf150ab41ec7a92fad3c24b45e0bf2855",
+  "changed_files": [
+    "scripts/run_workflow_execution_spine_agent.py",
+    "tests/test_workflow_execution_spine_evidence.py"
+  ],
+  "commits": [
+    "a653d0d2ac8643af85708cd99ca12f12d8a7523e"
+  ],
+  "end_ts": "2026-08-21T00:46:57Z",
+  "evidence": [
+    ".active-allowances.lock",
+    "G0-gate-review-brief-receipt.json",
+    "G0-gate-review-receipt.json",
+    "G0-recert-adjudication-receipt.json",
+    "G0-revision-validator-adjudication-receipt.json",
+    "G0-revision-validator-brief-receipt.json",
+    "G0-revision-validator-receipt.json",
+    "G0-revision-validator-violation.json",
+    "G0-revision-wrapper-brief-receipt.json",
+    "G0-revision-wrapper-receipt.json",
+    "G0-revision-wrapper-rereview-receipt.json",
+    "G0-revision-wrapper-revision2-brief-receipt.json",
+    "G0-revision-wrapper-revision2-receipt.json",
+    "T0.2-allowance-adjudication-receipt.json",
+    "T0.2-brief-receipt.json",
+    "T0.2-brief-violation.json",
+    "T0.2-receipt.json",
+    "T0.2-recertification-brief-receipt.json",
+    "T0.2-recertification-brief2-receipt.json",
+    "T0.2-recertification-receipt.json",
+    "T0.2-violation.json",
+    "T0.3-review-adjudication-receipt.json",
+    "T0.3-revision-brief-receipt.json",
+    "T0.3-revision-receipt.json",
+    "T0.3-revision-rereview-brief-receipt.json",
+    "T0.3-revision-rereview-receipt.json",
+    "T0.3-revision-review-receipt.INVALID-MUTATING-REVIEW.json",
+    "T0.3-revision-violation.json",
+    "T0.3-revision2-brief-receipt.json",
+    "T0.3-revision2-receipt.json",
+    "T0.3-revision2-rereview-brief-receipt.json",
+    "T0.3-revision2-rereview-receipt.json",
+    "T0.4-allowance-adjudication-receipt.json",
+    "T0.4-plan-amendment-50-brief-receipt.json",
+    "T0.4-plan-amendment-50-receipt.json",
+    "T0.4-plan-amendment-50-review-receipt.json",
+    "T0.4-plan-amendment-50-violation.json",
+    "T0.4-postcommit-review-receipt.json",
+    "active-allowances.json",
+    "evidence-t02-t04-receipt.json",
+    "t0-3-bootstrap-receipt.json"
+  ],
+  "exit": 0,
+  "gate": "G0",
+  "label": "G0 [HARD-REVISION] fix wrapper cleanup-finalization registry release",
+  "launcher_command": [
+    "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py",
+    "--model=codex:gpt-5.6-luna",
+    "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-wrapper-revision2-brief.md",
+    "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine",
+    "--timeout=3600"
+  ],
+  "model_route": "codex:gpt-5.6-luna",
+  "pid": 15529,
+  "resolved_model": "openai-codex/gpt-5.6-luna",
+  "result_sha256": "5b0bfc058555e47701f76feb51d1905793cdd1d552bcc990d8cb81f9b3c4e48d",
+  "role": "implementer",
+  "start_ts": "2026-08-21T00:28:08Z",
+  "stop_or_judgment": "Independent post-fix complete-diff review: `correct`, no findings, no `JUDGMENT_REQUIRED`.",
+  "task_id": "G0-revision-wrapper-revision2"
+}

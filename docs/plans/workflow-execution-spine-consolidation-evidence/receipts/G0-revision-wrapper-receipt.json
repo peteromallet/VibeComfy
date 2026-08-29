@@ -1,0 +1,79 @@
+{
+  "allowance": {
+    "allowed": [
+      "scripts/run_workflow_execution_spine_agent.py",
+      "tests/test_workflow_execution_spine_evidence.py"
+    ],
+    "file": "/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-wrapper-allowance.json",
+    "forbidden": []
+  },
+  "base_sha": "ceba112bee6d45893e8b016412c895be3696d8a1",
+  "brief_path": "/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-wrapper-brief.md",
+  "brief_sha256": "a7f908bdfcb1002de1d87a462c95005d821f1198043cca40ea4256b9c4ee8753",
+  "changed_files": [
+    "scripts/run_workflow_execution_spine_agent.py",
+    "tests/test_workflow_execution_spine_evidence.py"
+  ],
+  "commits": [
+    "f8abb57731162b29619164f919a37d72f53cf2ac"
+  ],
+  "end_ts": "2026-08-21T00:19:30Z",
+  "evidence": [
+    ".active-allowances.lock",
+    "G0-gate-review-brief-receipt.json",
+    "G0-gate-review-receipt.json",
+    "G0-recert-adjudication-receipt.json",
+    "G0-revision-validator-adjudication-receipt.json",
+    "G0-revision-validator-brief-receipt.json",
+    "G0-revision-validator-receipt.json",
+    "G0-revision-validator-violation.json",
+    "G0-revision-wrapper-brief-receipt.json",
+    "G0-revision-wrapper-receipt.json",
+    "T0.2-allowance-adjudication-receipt.json",
+    "T0.2-brief-receipt.json",
+    "T0.2-brief-violation.json",
+    "T0.2-receipt.json",
+    "T0.2-recertification-brief-receipt.json",
+    "T0.2-recertification-brief2-receipt.json",
+    "T0.2-recertification-receipt.json",
+    "T0.2-violation.json",
+    "T0.3-review-adjudication-receipt.json",
+    "T0.3-revision-brief-receipt.json",
+    "T0.3-revision-receipt.json",
+    "T0.3-revision-rereview-brief-receipt.json",
+    "T0.3-revision-rereview-receipt.json",
+    "T0.3-revision-review-receipt.INVALID-MUTATING-REVIEW.json",
+    "T0.3-revision-violation.json",
+    "T0.3-revision2-brief-receipt.json",
+    "T0.3-revision2-receipt.json",
+    "T0.3-revision2-rereview-brief-receipt.json",
+    "T0.3-revision2-rereview-receipt.json",
+    "T0.4-allowance-adjudication-receipt.json",
+    "T0.4-plan-amendment-50-brief-receipt.json",
+    "T0.4-plan-amendment-50-receipt.json",
+    "T0.4-plan-amendment-50-review-receipt.json",
+    "T0.4-plan-amendment-50-violation.json",
+    "T0.4-postcommit-review-receipt.json",
+    "active-allowances.json",
+    "evidence-t02-t04-receipt.json",
+    "t0-3-bootstrap-receipt.json"
+  ],
+  "exit": 0,
+  "gate": "G0",
+  "label": "G0 [HARD-REVISION] make wrapper changed-file accounting gitignore-aware",
+  "launcher_command": [
+    "/root/.codex/skills/subagent-launcher/launch_hermes_agent.py",
+    "--model=codex:gpt-5.6-luna",
+    "--query-file=/workspace/vibecomfy-exec-spine-20260820/g0/g0-revision-wrapper-brief.md",
+    "--project-dir=/workspace/vibecomfy-exec-spine-20260820/exec-spine",
+    "--timeout=3600"
+  ],
+  "model_route": "codex:gpt-5.6-luna",
+  "pid": 14757,
+  "resolved_model": "openai-codex/gpt-5.6-luna",
+  "result_sha256": "0083bc9a8adf26244ee41a7dc0dec1ee85604724b8317b6ba6cd9a0c21b61bbc",
+  "role": "implementer",
+  "start_ts": "2026-08-21T00:10:40Z",
+  "stop_or_judgment": "`JUDGMENT_REQUIRED`: none.",
+  "task_id": "G0-revision-wrapper"
+}
