@@ -93,6 +93,76 @@ HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD = 3
 # the same constant, so both carriers agree on VIBECOMFY_RESEARCH_PHASE_DEADLINE.
 TOOL_PHASE_DEADLINE_SECONDS = RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
 
+# S4: research checkpoint across 480s kill (5b31ce). The 480s turn budget can
+# kill the research worker mid-loop after several expensive hivemind_search/
+# hivemind_get calls. Persist the ledger+artifacts after each tool call so
+# attempt-2 resumes instead of redoing work. Nothing deterministic in
+# deliberation — the checkpoint only replays what the agent already fetched;
+# the agent still judges relevance on the next attempt.
+import os as _os
+from pathlib import Path as _Path
+
+_RESEARCH_CHECKPOINT_ENV = "VIBECOMFY_RESEARCH_CHECKPOINT_DIR"
+_RESEARCH_CHECKPOINT_TTL_SECONDS = float(_os.getenv("VIBECOMFY_RESEARCH_CHECKPOINT_TTL", "3600"))
+
+def _research_checkpoint_dir() -> _Path | None:
+    raw = _os.getenv(_RESEARCH_CHECKPOINT_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        p = _Path(raw)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    except Exception:
+        return None
+
+def _research_checkpoint_path(session_id: str | None) -> _Path | None:
+    base = _research_checkpoint_dir()
+    if base is None or not session_id:
+        return None
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(session_id))
+    return base / f"research_ckpt_{safe}.json"
+
+def _save_research_checkpoint(session_id: str | None, *, ledger_entries, artifacts) -> None:
+    path = _research_checkpoint_path(session_id)
+    if path is None:
+        return
+    try:
+        import json, time
+        payload = {"ledger": [e.to_dict() for e in ledger_entries], "artifacts": {k: v.to_dict() for k, v in artifacts.items()}, "timestamp": time.time()}
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        import logging; logging.getLogger(__name__).debug("research checkpoint save failed: %s", exc)
+
+def _load_research_checkpoint(session_id):
+    path = _research_checkpoint_path(session_id)
+    if path is None or not path.exists():
+        return None
+    try:
+        import json, time
+        if time.time() - path.stat().st_mtime > _RESEARCH_CHECKPOINT_TTL_SECONDS:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        from vibecomfy.executor.evidence_pack import EvidenceArtifact, EvidenceLedgerEntry
+        entries = [EvidenceLedgerEntry.from_dict(e) for e in (data.get("ledger") or [])]
+        arts = {k: EvidenceArtifact.from_dict(v) for k, v in (data.get("artifacts") or {}).items()}
+        return entries, arts
+    except Exception as exc:
+        import logging; logging.getLogger(__name__).debug("research checkpoint load failed: %s", exc)
+        return None
+
+def _clear_research_checkpoint(session_id):
+    path = _research_checkpoint_path(session_id)
+    if path is None:
+        return
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
+
 _MAX_TURNS = MAX_RESEARCH_DECISION_TURNS
 # The digest is built before the decision call. Reserve a typical model-turn
 # latency so the model sees an honest amount of time available for tool work.
@@ -1295,6 +1365,7 @@ def run_agent_research_stage(
     hivemind_timeout_threshold: int = HIVEMIND_TIMEOUT_CIRCUIT_THRESHOLD,
     cache_root: Any = None,
     research_brief: str = "",
+    session_id: str | None = None,
 ) -> tuple[AgentResearchTrace, EvidencePack]:
     """Run the C1 agent-owned tool-calling research loop.
 
@@ -1358,6 +1429,22 @@ def run_agent_research_stage(
     consecutive_hivemind_timeouts = 0
     fetched_requested_ids: set[str] = set()
     stop_reason = ""
+    # S4: checkpoint resume
+    _ckpt = _load_research_checkpoint(session_id)
+    if _ckpt is not None:
+        try:
+            _ckpt_entries, _ckpt_arts = _ckpt
+            for _e in _ckpt_entries:
+                ledger_entries.append(_e)
+            for _k, _v in _ckpt_arts.items():
+                if _k not in artifacts:
+                    artifacts[_k] = _v
+            for _e in _ckpt_entries:
+                if _e.decision in _RESEARCH_TOOL_DECISIONS and _entry_is_executed_tool_call(_e):
+                    tool_calls_made += 1
+            warnings.append(f"research checkpoint resumed: {len(_ckpt_entries)} entries, {len(_ckpt_arts)} artifacts")
+        except Exception:
+            pass
 
     final_verdict = "refine"
     final_summary = ""
@@ -1414,6 +1501,7 @@ def run_agent_research_stage(
                 verdict="refine",
             )
         )
+        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
 
     def _refusal_call(tool: str, query: str, message: str) -> None:
         # A refusal is itself an agent-visible decision: it enters the digest
@@ -1446,6 +1534,7 @@ def run_agent_research_stage(
                 verdict="refine",
             )
         )
+        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
 
     def _finish_premature_turn(conclusion: str, message: str) -> None:
         # P1-c: a finish with zero citable evidence AND zero tool calls made is
@@ -1481,6 +1570,7 @@ def run_agent_research_stage(
                 verdict="refine",
             )
         )
+        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
 
     def _record_exhaustion(decision: str, message: str) -> None:
         """Record a typed, compact terminal marker without inventing evidence."""
@@ -1493,6 +1583,7 @@ def run_agent_research_stage(
             )
         )
         warnings.append(message)
+        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
 
     current_question = question
 
@@ -1904,6 +1995,19 @@ def run_agent_research_stage(
         if isinstance(raw_preview, str) and raw_preview.strip():
             error += f" | raw response preview: {_bounded(raw_preview, 500)}"
         LOGGER.warning("agent research stage failed: %s", error)
+        try:
+            _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+        except Exception:
+            pass
+
+    if status == "ok" and final_verdict in {"enough", "refine"}:
+        if final_verdict == "enough":
+            _clear_research_checkpoint(session_id)
+    elif status == "exhausted" and "deadline" in stop_reason:
+        try:
+            _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+        except Exception:
+            pass
 
     trace = AgentResearchTrace(
         route=route,

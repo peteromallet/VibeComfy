@@ -819,7 +819,7 @@ def render_inspect_markdown(
 
     # ── ## Key Nodes ──────────────────────────────────────────────
     sections.append("\n## Key Nodes\n")
-    _render_key_nodes_section(sections, evidence)
+    _render_key_nodes_section(sections, evidence, derivations)
 
     # ── ## Inputs / Outputs ───────────────────────────────────────
     sections.append("\n## Inputs / Outputs\n")
@@ -941,18 +941,36 @@ def _render_model_stack_section(
 def _render_key_nodes_section(
     sections: list[str],
     evidence: GraphEvidence,
+    derivations: GraphDerivations | None = None,
 ) -> None:
     """Render per-node details."""
     if not evidence.nodes:
         sections.append("None detected\n")
         return
 
-    for node in evidence.nodes:
+    # S3: deprioritize 0 in/out-degree nodes (orphans) — LTX 5175
+    # Build orphan set for flagging; orphans have zero in/out-degree and
+    # edits to them have no downstream effect.
+    orphans: set[int | str] = set()
+    if derivations is not None:
+        try:
+            orphans = set(derivations.orphans)
+        except Exception:
+            orphans = set()
+    # Sort nodes: non-orphans first (by class name), orphans last deprioritized
+    sorted_nodes = sorted(
+        evidence.nodes,
+        key=lambda n: (1 if n.node_id in orphans else 0, str(n.class_type), str(n.node_id)),
+    )
+    for node in sorted_nodes:
         nid = node.node_id
         ct = node.class_type
         label = f"[{nid}] {ct}"
         if node.title:
             label += f" ({node.title})"
+        # S3: explicit orphan flag
+        if nid in orphans:
+            label += " [ORPHAN: 0 in/out-degree — edits have no downstream effect, deprioritized]"
         sections.append(f"- **{label}**\n")
         identity = [f"class_type={ct}"]
         if node.type_name and node.type_name != ct:

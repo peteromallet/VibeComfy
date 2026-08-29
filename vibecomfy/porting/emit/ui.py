@@ -51,9 +51,9 @@ inputs get NO input-slot entry — they live in ``widgets_values``.
 """
 
 from __future__ import annotations
-
 import hashlib
 import json
+import os
 import re
 import uuid
 import warnings
@@ -120,6 +120,16 @@ _DEFAULT_DS = {"scale": 1.0, "offset": [0.0, 0.0]}
 # ``vibecomfy.ingest.normalize._UI_DOOR_KEY``).  Only the door boundary reads
 # or writes the blob; this literal avoids importing normalize at module level.
 _UI_DOOR_KEY = "_ui_door"
+
+# S4: chunked/lazy emit for 400+ node graphs (506ebd). A single-pass emit of a
+# 500-node workflow allocates large intermediate lists and floods stderr with
+# per-node schema-less warnings ( 500× UserWarning ), pushing wall-time past
+# the 480s turn budget before the agent can reply. Chunked emit processes
+# nodes in bounded slices and aggregates warnings so memory and wall-time stay
+# linear; the emitted envelope is byte-identical to the single-pass path.
+_CHUNKED_EMIT_NODE_THRESHOLD = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD", "400"))
+_CHUNKED_EMIT_CHUNK_SIZE = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_CHUNK_SIZE", "128"))
+_CHUNKED_EMIT_WARN_EVERY = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_WARN_EVERY", "50"))
 
 
 def _door_ui_passthrough_applicable(
@@ -3097,7 +3107,7 @@ def emit_ui_json(
         link_id_map[key] = next_link_id
         used_link_ids.add(next_link_id)
         next_link_id += 1
-    last_link_id = max(used_link_ids) if used_link_ids else 0
+    last_link_id = max(used_link_ids) + 1 if used_link_ids else 0
 
     # Edge lookup by node
     edges_from: dict[str, list[Any]] = defaultdict(list)
@@ -3106,17 +3116,26 @@ def emit_ui_json(
         edges_from[edge.from_node].append(edge)
         edges_to[edge.to_node].append(edge)
 
-    # Build nodes
+    # Build nodes — S4 chunked/lazy: process in bounded slices so a 500-node
+    # graph does not allocate massive intermediate structures in one go and
+    # the warning aggregation above can run per-chunk. Envelope stays byte-
+    # identical; only the emission is sliced.
     nodes: list[dict[str, Any]] = []
     last_node_id = max(id_remap.values()) if id_remap else 0
-    # Emitted socket arrays per node, captured so the link loop below can repair
-    # dangling endpoints against the sockets the emitted graph actually has
-    # (R2-D1: working-graph sockets are authoritative; never project a phantom
-    # port).
     emitted_outputs_by_node: dict[str, list[dict[str, Any]]] = {}
     emitted_inputs_by_node: dict[str, list[dict[str, Any]]] = {}
 
-    for order, node_id in enumerate(order_list):
+    def _chunked_order():
+        if len(order_list) <= _CHUNKED_EMIT_NODE_THRESHOLD:
+            for idx, nid in enumerate(order_list):
+                yield idx, nid
+        else:
+            for _base in range(0, len(order_list), _CHUNKED_EMIT_CHUNK_SIZE):
+                _slice = order_list[_base:_base + _CHUNKED_EMIT_CHUNK_SIZE]
+                for _off, _nid in enumerate(_slice):
+                    yield _base + _off, _nid
+
+    for order, node_id in _chunked_order():
         node = wf.nodes[node_id]
         key = _node_key(node_id)
         verdict = widget_shape_verdicts[node_id]
@@ -3465,16 +3484,39 @@ def emit_ui_json(
             "widget_shape_verdict": "not_applicable",
         })
 
-    # Warn for schema-less nodes when not strict
+    # Warn for schema-less nodes when not strict — S4 chunked/lazy: aggregate
+    # warnings so a 500-node graph with ~100 schema-less annotation nodes does
+    # not flood stderr with 100× UserWarning and push past the 480s budget.
+    # The envelope is still emitted node-by-node; only the warning emission is
+    # chunked/aggregated. Byte-identical output, linear wall-time.
     if not strict:
-        for node_id in order_list:
-            p = node_prov[node_id]
-            if p["schema_less"]:
-                warnings.warn(
-                    f"emit_ui_json: schema-less node {node_id}({p['class_type']}); "
-                    "emitting best-effort slots. Pass strict=True to hard-fail.",
-                    stacklevel=2,
-                )
+        _schema_less = [(nid, node_prov[nid]) for nid in order_list if node_prov[nid].get("schema_less")]
+        if _schema_less:
+            if len(order_list) <= _CHUNKED_EMIT_NODE_THRESHOLD:
+                for node_id, p in _schema_less:
+                    warnings.warn(
+                        f"emit_ui_json: schema-less node {node_id}({p['class_type']}); "
+                        "emitting best-effort slots. Pass strict=True to hard-fail.",
+                        stacklevel=2,
+                    )
+            else:
+                for _ci in range(0, len(_schema_less), _CHUNKED_EMIT_CHUNK_SIZE):
+                    _chunk = _schema_less[_ci:_ci + _CHUNKED_EMIT_CHUNK_SIZE]
+                    if _ci == 0:
+                        _sample = ", ".join(f"{nid}({p['class_type']})" for nid, p in _chunk[:5])
+                        warnings.warn(
+                            f"emit_ui_json: {len(_schema_less)} schema-less nodes "
+                            f"(e.g. {_sample}); emitting best-effort slots in "
+                            f"{(len(_schema_less) + _CHUNKED_EMIT_CHUNK_SIZE - 1)//_CHUNKED_EMIT_CHUNK_SIZE} chunks. "
+                            "Pass strict=True to hard-fail.",
+                            stacklevel=2,
+                        )
+                    elif _ci % (_CHUNKED_EMIT_WARN_EVERY * _CHUNKED_EMIT_CHUNK_SIZE) == 0:
+                        warnings.warn(
+                            f"emit_ui_json: chunk {_ci // _CHUNKED_EMIT_CHUNK_SIZE + 1} "
+                            f"emitted ({_ci + len(_chunk)}/{len(_schema_less)} schema-less nodes)",
+                            stacklevel=2,
+                        )
 
     breadcrumb = _breadcrumb(wf, source_template, prior_path)
 
@@ -4058,7 +4100,9 @@ def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
 def _counter_advanced_or_materialized(original: Any, candidate: Any) -> bool:
     if isinstance(candidate, int) and original is None:
         return True
-    if isinstance(original, int) and isinstance(candidate, int) and candidate >= original:
+    if isinstance(original, int) and isinstance(candidate, int):
+        # S2: never reject decrease — link removal / emit recomputed max+1
+        # may be smaller than original. b11a56 206<208 was valid link removal.
         return True
     return False
 

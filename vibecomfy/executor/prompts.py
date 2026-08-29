@@ -1111,16 +1111,32 @@ class ReplyPayload:
         return self.kind in _REPLY_TYPED_REFUSAL_KINDS
 
 
+_INVALID_MISSING_TOKENS = frozenset({"what","which","how","why","when","where","who","whom","whose","whether","either","neither","this","that","these","those"})
+
+def _is_registry_class_token(token: str) -> bool:
+    t = token.strip()
+    if not t:
+        return False
+    if t.lower() in _INVALID_MISSING_TOKENS:
+        return False
+    if not re.match(r"^[A-Z][A-Za-z0-9_]+$", t):
+        return False
+    if len(t) < 3:
+        return False
+    return True
+
+def _filter_registry_missing_classes(classes: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(c for c in classes if _is_registry_class_token(c))
+
 def _missing_classes_from_mapping(parsed: Mapping[str, Any]) -> tuple[str, ...]:
     raw = parsed.get("missing_classes")
     if raw is None:
         raw = parsed.get("missing_runtime_classes")
     if isinstance(raw, str) and raw.strip():
-        return (raw.strip(),)
+        return _filter_registry_missing_classes((raw.strip(),))
     if isinstance(raw, (list, tuple)):
-        return tuple(
-            str(item).strip() for item in raw if str(item).strip()
-        )
+        raw_tuple = tuple(str(item).strip() for item in raw if str(item).strip())
+        return _filter_registry_missing_classes(raw_tuple)
     return ()
 
 

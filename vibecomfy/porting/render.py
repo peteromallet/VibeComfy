@@ -476,6 +476,7 @@ def _render_topology_text(workflow: VibeWorkflow) -> str:
     orphans = [str(nid) for nid, _ in nodes if str(nid) not in connected]
     if orphans:
         lines.append("orphans: " + ", ".join(refs.get(nid, nid) for nid in orphans))
+        lines.append("NOTE: Orphan nodes (0 in/out-degree) are deprioritized — edits to these nodes have no downstream effect unless wired (S3 LTX 5175). Prefer nodes with in_degree>0 or out_degree>0 that lie on a path to a terminal output.")
     else:
         lines.append("orphans: <none>")
 

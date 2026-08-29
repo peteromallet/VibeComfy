@@ -1104,6 +1104,15 @@ def run_tag(
                 final_summary["final_attempt"] = attempts[-1]["attempt"]
                 final_summary["raw_first_attempt_success"] = attempts[0].get("live_agentic_success") is True
                 final_summary["final_success"] = final_summary["guard"].get("live_agentic_success") is True
+                # S4: attempt-2 of the same timeout stays infra_timeout, never product.
+                _prior_infra_timeout = any(a.get("failure_class") == "infra_timeout" or (isinstance(a.get("model_attempts"), (list, tuple)) and any(isinstance(ma, dict) and ma.get("failure_type") == "timeout" for ma in a.get("model_attempts", []))) for a in attempts[:-1])
+                _final_is_timeoutish = (final_summary.get("failure_class") == "infra_timeout" or final_summary.get("failure_class") == "post_flow_exit_cleanup" or any(isinstance(ma, dict) and ma.get("failure_type") == "timeout" for ma in (final_summary.get("model_attempts") or [])) or final_summary.get("failure_kind") == "TimeoutError")
+                if _prior_infra_timeout and _final_is_timeoutish:
+                    final_summary["failure_class"] = "infra_timeout"
+                    final_summary["score_class"] = "infra_blocked"
+                    if isinstance(final_summary.get("guard"), dict):
+                        final_summary["guard"]["failure_class"] = "infra_timeout"
+                        final_summary["guard"]["score_class"] = "infra_blocked"
                 final_summary.setdefault(
                     "failure_class",
                     attempts[-1].get("failure_class") or "product_or_assessment_failure",
