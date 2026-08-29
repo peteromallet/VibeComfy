@@ -920,7 +920,9 @@ def run_tag(
     — the no-flag default is pinned to OpenRouter, never an ambient/native pin.
     """
     # Anchor the parent-selected base before child execution changes CWD.
-    if output_base is not None:
+    if output_base is None:
+        output_base = REPO / "out" / "agentic"
+    else:
         output_base = Path(output_base).absolute()
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
     if scenarios_dir is None:

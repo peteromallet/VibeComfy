@@ -288,3 +288,81 @@ def test_parent_rebinds_recovered_child_summary_to_attempt_authority(
     )
     assert persisted["output_dir"] == str(canonical)
     assert not outside.exists()
+
+
+def test_default_output_base_is_bound_to_child_repo_from_neutral_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    (scenarios_dir / "scenario.json").write_text(
+        json.dumps({"id": "scenario", "query": "inspect the graph"}),
+        encoding="utf-8",
+    )
+    write_manifest(scenarios_dir)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    parent_cwd = tmp_path / "parent"
+    parent_cwd.mkdir()
+    monkeypatch.setattr("tests.live_agentic_harness.runner.REPO", repo)
+    monkeypatch.chdir(parent_cwd)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> tuple[int, str, str]:
+        output_base = Path(cmd[cmd.index("--output-base") + 1])
+        assert output_base == repo / "out" / "agentic"
+        assert kwargs["cwd"] == str(repo)
+        attempt_dir = (
+            output_base
+            / "tag"
+            / "attempts"
+            / "scenario"
+            / "attempt_1"
+            / "scenario"
+        )
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        out_file.write_text(
+            json.dumps(
+                {
+                    "scenario_id": "scenario",
+                    "output_dir": str(attempt_dir),
+                    "status": "success",
+                    "ok": True,
+                    "guard": {
+                        "live_agentic_success": True,
+                        "output_dir": str(attempt_dir),
+                    },
+                    "model_attempts": [],
+                    "deepseek_usage": {},
+                    "deepseek_est_cost_usd": 0.0,
+                    "deepseek_cost_basis": "not_available",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return (0, "", "")
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run
+    )
+
+    result = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=None,
+        max_workers=1,
+        infra_retries=0,
+        progress_every=0,
+    )
+
+    output_base = repo / "out" / "agentic"
+    attempt_dir = output_base / "tag" / "attempts" / "scenario" / "attempt_1" / "scenario"
+    scenario = result["scenarios"][0]
+    assert scenario["output_dir"] == str(attempt_dir)
+    assert scenario["attempts"][0]["output_dir"] == str(attempt_dir)
+    persisted = json.loads(
+        (output_base / "tag" / "scenario" / "agentic_summary.json").read_text()
+    )
+    assert persisted["output_dir"] == str(attempt_dir)
+    assert not (parent_cwd / "out").exists()
