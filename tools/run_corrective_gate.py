@@ -114,6 +114,44 @@ def _count_pytest(output: str) -> int:
     )
 
 
+_PYTEST_GATE_COUNT_KEYS = (
+    "passed",
+    "failed",
+    "errors",
+    "skipped",
+    "xfailed",
+    "xpassed",
+    "quarantined_failures",
+    "unexpected_failures",
+    "stale_quarantines",
+)
+
+
+def _pytest_gate_counts(output: str) -> dict[str, int]:
+    """Parse the repository pytest plugin's authoritative status line.
+
+    Pytest's prose summary is intentionally not a machine contract: it varies
+    with plugins and can omit the distinction between baseline and unexpected
+    failures. ``tests.conftest`` emits one stable line after computing the
+    final report, so corrective-gate manifests preserve both the raw status
+    breakdown and quarantine attribution.
+    """
+    marker = "pytest gate counts:"
+    lines = [line.strip() for line in output.splitlines() if marker in line]
+    if not lines:
+        raise GateError("pytest output did not publish a gate-counts record")
+    values: dict[str, int] = {}
+    for token in lines[-1].split(":", 1)[1].split():
+        key, separator, raw_value = token.partition("=")
+        if not separator or key not in _PYTEST_GATE_COUNT_KEYS or not raw_value.isdigit():
+            raise GateError(f"malformed pytest gate-counts record: {lines[-1]!r}")
+        values[key] = int(raw_value)
+    missing = [key for key in _PYTEST_GATE_COUNT_KEYS if key not in values]
+    if missing:
+        raise GateError(f"pytest gate-counts record is missing: {', '.join(missing)}")
+    return values
+
+
 def _count_node(output: str) -> int:
     matches = re.findall(r"^# tests\s+(\d+)\s*$", output, re.M)
     return int(matches[-1]) if matches else 0
@@ -199,8 +237,24 @@ def run_gate(inventory_path: Path, artifact_dir: Path, repo_root: Path = REPO_RO
             result, duration = _run(phase, commands[phase], artifact_dir, repo_root, env=env)
             output = result.stdout
             counts: dict[str, int] | None = None
+            pytest_counts: dict[str, int] | None = None
             if phase == "python":
-                collected = _count_pytest(output)
+                try:
+                    pytest_counts = _pytest_gate_counts(output)
+                except GateError:
+                    # A configuration/import failure can happen before the
+                    # repository conftest is loaded, so no count record may
+                    # exist. Preserve the phase log and its non-zero status;
+                    # only a green process is required to publish the record.
+                    if result.returncode == 0:
+                        raise
+                if pytest_counts is None:
+                    collected = _count_pytest(output)
+                else:
+                    collected = sum(
+                        pytest_counts[key]
+                        for key in ("passed", "failed", "errors", "skipped", "xfailed", "xpassed")
+                    )
             elif phase == "node":
                 collected = _count_node(output)
             else:
@@ -225,6 +279,8 @@ def run_gate(inventory_path: Path, artifact_dir: Path, repo_root: Path = REPO_RO
             }
             if counts is not None:
                 phase_result["playwright"] = counts
+            if pytest_counts is not None:
+                phase_result["pytest"] = pytest_counts
             manifest["phases"][phase] = phase_result
             if result.returncode != 0:
                 raise GateError(f"{phase} exited with status {result.returncode}")

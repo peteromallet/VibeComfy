@@ -11,6 +11,7 @@ from tools.run_corrective_gate import (
     REPO_ROOT,
     _count_node,
     _count_pytest,
+    _pytest_gate_counts,
     _playwright_counts,
     load_inventory,
     validate_inventory,
@@ -51,3 +52,22 @@ def test_runner_count_parsers_fail_closed_on_zero_collection(tmp_path: Path) -> 
     result.write_text("{}")
     with pytest.raises(GateError, match="no stats"):
         _playwright_counts(result)
+
+
+def test_pytest_gate_counts_parse_authoritative_breakdown() -> None:
+    counts = _pytest_gate_counts(
+        "pytest gate counts: passed=3 failed=1 errors=2 skipped=4 "
+        "xfailed=5 xpassed=6 quarantined_failures=1 "
+        "unexpected_failures=0 stale_quarantines=7"
+    )
+    assert counts["passed"] == 3
+    assert counts["errors"] == 2
+    assert counts["quarantined_failures"] == 1
+    assert counts["stale_quarantines"] == 7
+
+
+def test_pytest_gate_counts_reject_missing_or_malformed_record() -> None:
+    with pytest.raises(GateError, match="did not publish"):
+        _pytest_gate_counts("1 passed")
+    with pytest.raises(GateError, match="malformed"):
+        _pytest_gate_counts("pytest gate counts: passed=three")

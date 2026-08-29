@@ -378,19 +378,32 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         terminalreporter._session.exitstatus = 1  # type: ignore[attr-defined]
         return
 
+    stats = terminalreporter.stats
+    failed_items = stats.get("failed", [])
+    error_items = stats.get("error", [])
+    skipped_items = stats.get("skipped", [])
+    xfailed_items = stats.get("xfailed", [])
+    xpassed_items = stats.get("xpassed", [])
+
+    # Compute stale entries for every run so the machine-readable count below
+    # remains truthful. Details remain opt-in to avoid changing the normal
+    # human-facing gate output or making retirement a hard gate here.
+    stale: list[str] = []
+    if quarantine:
+        collected_ids = {item.nodeid for item in terminalreporter.stats.get("passed", [])}
+        collected_ids.update(item.nodeid for item in terminalreporter.stats.get("failed", []))
+        collected_ids.update(item.nodeid for item in terminalreporter.stats.get("skipped", []))
+        collected_ids.update(item.nodeid for item in terminalreporter.stats.get("xfailed", []))
+        collected_ids.update(item.nodeid for item in terminalreporter.stats.get("xpassed", []))
+        # Also try to get the full collected set from the session
+        session = terminalreporter._session  # type: ignore[attr-defined]
+        if hasattr(session, "items"):
+            collected_ids.update(item.nodeid for item in session.items)
+        stale = sorted(set(quarantine) - collected_ids)
+
     # --- Stale-failures audit (independent of exit status) ---
     if config.getoption("--known-failures-audit", default=False):
         if quarantine:
-            collected_ids = {item.nodeid for item in terminalreporter.stats.get("passed", [])}
-            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("failed", []))
-            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("skipped", []))
-            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("xfailed", []))
-            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("xpassed", []))
-            # Also try to get the full collected set from the session
-            session = terminalreporter._session  # type: ignore[attr-defined]
-            if hasattr(session, "items"):
-                collected_ids.update(item.nodeid for item in session.items)
-            stale = sorted(set(quarantine) - collected_ids)
             if stale:
                 terminalreporter.write_sep("=", "STALE FAILURES / QUARANTINES (not collected)", yellow=True)
                 for nodeid in stale:
@@ -409,18 +422,50 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                     green=True,
                 )
 
-    # --- New-failures gate ---
-    stats = terminalreporter.stats
-    failed_items = stats.get("failed", [])
-    if not failed_items:
-        return
-
-    new_failures = [
-        rep.nodeid for rep in failed_items if rep.nodeid not in quarantine
-    ]
+    # Keep this line stable for corrective-gate consumers.  The ordinary pytest
+    # summary is human-oriented and does not distinguish quarantined failures
+    # from new failures or expose setup/collection errors as a count.
     tolerated_failures = [
         rep.nodeid for rep in failed_items if rep.nodeid in quarantine
     ]
+    new_failures = [
+        rep.nodeid for rep in failed_items if rep.nodeid not in quarantine
+    ]
+    terminalreporter.write_line(
+        "pytest gate counts: "
+        f"passed={len(stats.get('passed', []))} "
+        f"failed={len(failed_items)} "
+        f"errors={len(error_items)} "
+        f"skipped={len(skipped_items)} "
+        f"xfailed={len(xfailed_items)} "
+        f"xpassed={len(xpassed_items)} "
+        f"quarantined_failures={len(tolerated_failures)} "
+        f"unexpected_failures={len(new_failures)} "
+        f"stale_quarantines={len(stale)}"
+    )
+
+    # --- New-failures gate ---
+    if not failed_items:
+        if error_items:
+            terminalreporter.write_sep("=", "PYTEST ERRORS (not quarantinable)", red=True)
+            terminalreporter.write_line(
+                f"{len(error_items)} setup/collection/internal error(s) detected.",
+                red=True,
+            )
+            # A quarantined test failure must never erase a pytest error.  Keep
+            # the original non-zero status (or set the ordinary test-failure
+            # status when pytest did not publish one).
+            terminalreporter._session.exitstatus = int(exitstatus or pytest.ExitCode.TESTS_FAILED)  # type: ignore[attr-defined]
+        elif xpassed_items:
+            terminalreporter.write_sep("=", "UNEXPECTED XPASSES", red=True)
+            for rep in sorted(xpassed_items, key=lambda report: report.nodeid):
+                terminalreporter.write_line(f"  XPASS: {rep.nodeid}", red=True)
+            terminalreporter.write_line(
+                f"{len(xpassed_items)} unexpected xpass(es) detected.",
+                red=True,
+            )
+            terminalreporter._session.exitstatus = 1  # type: ignore[attr-defined]
+        return
 
     if tolerated_failures:
         terminalreporter.write_sep("=", "TOLERATED QUARANTINED FAILURES", yellow=True)
@@ -431,21 +476,36 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 yellow=True,
             )
 
-    if new_failures:
-        terminalreporter.write_sep("=", "NEW FAILURES (not quarantined)", red=True)
+    if new_failures or error_items or xpassed_items:
+        title = "NEW FAILURES (not quarantined)" if new_failures else "PYTEST GATE ERRORS"
+        terminalreporter.write_sep("=", title, red=True)
         for nodeid in sorted(new_failures):
             terminalreporter.write_line(f"  NEW FAIL: {nodeid}", red=True)
-        terminalreporter.write_line(
-            f"{len(new_failures)} new failure(s) detected — add a scoped tests/quarantine/*.txt entry only if intentional.",
-            red=True,
-        )
-        # Force a non-zero exit even if pytest would otherwise consider only known failures
+        if new_failures:
+            terminalreporter.write_line(
+                f"{len(new_failures)} new failure(s) detected — add a scoped tests/quarantine/*.txt entry only if intentional.",
+                red=True,
+            )
+        if error_items:
+            terminalreporter.write_line(
+                f"{len(error_items)} setup/collection/internal error(s) detected; these cannot be quarantined.",
+                red=True,
+            )
+        if xpassed_items:
+            terminalreporter.write_line(
+                f"{len(xpassed_items)} unexpected xpass(es) detected.",
+                red=True,
+            )
+        # Force a non-zero exit even if pytest would otherwise consider only
+        # known failures.  Errors and XPASS are never baseline failures.
         terminalreporter._session.exitstatus = 1  # type: ignore[attr-defined]
     else:
-        known_count = len(failed_items)
+        known_count = len(tolerated_failures)
         terminalreporter.write_line(
             f"All {known_count} failure(s) are quarantined baseline failures. No regressions.",
             green=True,
         )
-        # Reset exit status so CI gates pass when failures are all known-baseline.
-        terminalreporter._session.exitstatus = 0  # type: ignore[attr-defined]
+        # Reset only pytest's ordinary test-failure status.  Interrupts,
+        # collection failures, usage errors, and internal errors remain red.
+        if exitstatus == int(pytest.ExitCode.TESTS_FAILED):
+            terminalreporter._session.exitstatus = 0  # type: ignore[attr-defined]
