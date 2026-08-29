@@ -740,7 +740,7 @@ def _snapshot_response_for_lane(lane: str) -> tuple[dict, dict]:
         "ok": True,
         "graph_unchanged": True,
         "route": "respond",
-        "outcome": {"kind": "respond", "changes": []},
+        "outcome": {"kind": "respond"},
         "gates": {},
         "artifacts": {},
         "report": {"executor": {"plan": {"implement": False, "route": "respond"}}},
@@ -760,7 +760,10 @@ def _snapshot_response_for_lane(lane: str) -> tuple[dict, dict]:
         response.update(
             {
                 "route": "revise",
-                "outcome": {"kind": "requires_custom_nodes", "changes": []},
+                "outcome": {
+                    "kind": "requires_custom_nodes",
+                    "candidates": [],
+                },
             }
         )
         scenario.update(
@@ -951,6 +954,103 @@ def test_type_invalid_response_envelopes_are_malformed_and_never_pass(
     assert {(issue["check"], issue["severity"]) for issue in assessment["issues"]} == {
         ("response_malformed", "undetermined")
     }
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"graph_unchanged": True},
+        {"ok": True, "graph_unchanged": True, "outcome": {}},
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "route": "revise",
+            "outcome": {"kind": "edit"},
+            "change_details": {"landed_operation_count": 1},
+            "accepted_batch": [{}],
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop", "changes": [{}]},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "requires_custom_nodes", "missing_classes": [1]},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "route": "revise",
+            "outcome": {
+                "kind": "candidate",
+                "changes": [{"uid": "sampler", "field_path": "steps"}],
+            },
+            "candidate_graph": {"nodes": [], "links": []},
+            "change_details": {"landed_operation_count": 1},
+            "accepted_batch": [
+                {"op": {"op": "set_node_field", "target": ["", "sampler"]}}
+            ],
+        },
+    ],
+)
+def test_semantically_incomplete_response_envelopes_never_pass(
+    tmp_path: Path, response: dict
+) -> None:
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+    assert any(
+        issue["check"] == "response_malformed"
+        and issue["severity"] == "undetermined"
+        for issue in assessment["issues"]
+    )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop", "reason": "Nothing needed."},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "adapt",
+            "outcome": {
+                "kind": "requires_custom_nodes",
+                "candidates": [{"expected_classes": ["MissingNode"]}],
+            },
+        },
+        {
+            "ok": False,
+            "graph_unchanged": True,
+            "error": "Provider failed before graph execution.",
+        },
+        {
+            "ok": False,
+            "outcome": {
+                "kind": "error",
+                "failure_kind": "ProviderError",
+                "stage": "ingest",
+                "retryable": True,
+                "next_action": "retry",
+                "graph_unchanged": True,
+            },
+        },
+    ],
+)
+def test_valid_terminal_response_variants_remain_accepted(response: dict) -> None:
+    assert assessor_module._response_envelope_is_valid(response) is True
 
 
 def test_apply_true_is_authoritative_without_assessment_flag(tmp_path: Path) -> None:
