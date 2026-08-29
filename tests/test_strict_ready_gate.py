@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import tools.check_strict_ready_templates as gate
 
 
@@ -419,6 +421,52 @@ def test_repaired_templates_omit_schema_defaults_but_keep_editable_inputs() -> N
 
         workflow.set_input(input_name, default + 1)
         assert workflow.compile("api")[node_id]["inputs"][input_name] == default + 1
+
+
+def test_schema_default_omission_survives_envelope_round_trip() -> None:
+    module = _load_ready_template("ready_templates/video/wan_t2v.py")
+    workflow = module.build()
+    assert workflow.inputs["height"].allow_missing_target is True
+
+    restored = workflow.from_envelope(workflow.to_envelope())
+
+    assert restored.inputs["height"].allow_missing_target is True
+    restored.set_input("height", 480)
+    assert restored.compile("api")["40"]["inputs"]["height"] == 480
+
+
+def test_allow_missing_target_requires_a_schema_default() -> None:
+    from vibecomfy.porting.strict_ready import validate_strict_ready_workflow
+    from vibecomfy.workflow import VibeInput, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("image/strict", WorkflowSource("image/strict"))
+    workflow.nodes["1"] = VibeNode("1", "KSampler", inputs={"seed": 1})
+    workflow.outputs.append(VibeOutput("1", "IMAGE", name="image"))
+
+    with pytest.raises(ValueError, match="may only be omitted"):
+        workflow.register_input("bogus", "1", "typo", 0, allow_missing_target=True)
+
+    workflow.inputs["bogus"] = VibeInput(
+        name="bogus", node_id="1", field="typo", value=0, allow_missing_target=True
+    )
+    assert any(
+        issue.code == "strict_ready_broken_public_input"
+        for issue in validate_strict_ready_workflow(workflow)
+    )
+    with pytest.raises(ValueError, match="target field 'typo' is missing"):
+        workflow.set_input("bogus", 1)
+
+
+def test_template_index_preserves_manual_source_workflow() -> None:
+    from tools.refresh_template_index import build_template_index
+
+    index = build_template_index(generated_at="2026-01-01T00:00:00+00:00")
+    row = next(
+        item
+        for item in index["templates"]
+        if item["id"] == "video/ltx2_3_first_last_frame_travel_iclora_control"
+    )
+    assert row["source_workflow"] == "manual"
 
 
 def test_first_last_template_does_not_add_manual_provenance() -> None:

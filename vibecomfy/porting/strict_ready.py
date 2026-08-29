@@ -241,11 +241,11 @@ def _public_input_diagnostics(workflow: VibeWorkflow) -> list[PortIssue]:
                 )
             )
             continue
-        if (
-            not public_input.allow_missing_target
-            and public_input.field not in node.inputs
-            and public_input.field not in node.widgets
-        ):
+        target_exists = public_input.field in node.inputs or public_input.field in node.widgets
+        missing_target_is_schema_default = (
+            not target_exists and workflow._is_valid_missing_target(public_input)
+        )
+        if not target_exists and not missing_target_is_schema_default:
             issues.append(
                 PortIssue(
                     code=STRICT_READY_BROKEN_PUBLIC_INPUT,

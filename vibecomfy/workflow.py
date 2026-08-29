@@ -473,6 +473,14 @@ class VibeWorkflow:
         alias_tuple = _normalize_input_aliases(aliases)
         self._validate_input_aliases(name, alias_tuple)
         self._validate_input_target(name, node_id, field, allow_missing=allow_missing_target)
+        if allow_missing_target:
+            node = self.nodes[str(node_id)]
+            if field not in node.inputs and field not in node.widgets:
+                if not self._is_schema_default_target(str(node_id), field, value):
+                    raise ValueError(
+                        f"register_input({name!r}): missing target {node.class_type}.{field} "
+                        "may only be omitted when its value is the schema default"
+                    )
         self.inputs[name] = VibeInput(
             name=name,
             node_id=str(node_id),
@@ -505,7 +513,7 @@ class VibeWorkflow:
             node.inputs[target.field] = value
         elif target.field in node.widgets:
             node.widgets[target.field] = value
-        elif target.allow_missing_target:
+        elif self._is_valid_missing_target(target):
             node.inputs[target.field] = value
         else:
             available = _format_available_names([*node.inputs.keys(), *node.widgets.keys()])
@@ -591,10 +599,33 @@ class VibeWorkflow:
                 f"node {node_key!r} ({node.class_type}) inputs or widgets"
             )
 
+    def _is_schema_default_target(self, node_id: str, field: str, value: Any) -> bool:
+        node = self.nodes.get(str(node_id))
+        if node is None:
+            return False
+        from vibecomfy.porting.parity import _is_schema_default_input
+
+        return _is_schema_default_input(node.class_type, field, value)
+
+    def _is_valid_missing_target(self, vibe_input: VibeInput) -> bool:
+        node = self.nodes.get(vibe_input.node_id)
+        return (
+            node is not None
+            and vibe_input.allow_missing_target
+            and vibe_input.field not in node.inputs
+            and vibe_input.field not in node.widgets
+            and self._is_schema_default_target(vibe_input.node_id, vibe_input.field, vibe_input.value)
+        )
+
     def _input_target_exists(self, vibe_input: VibeInput) -> bool:
         node = self.nodes.get(vibe_input.node_id)
-        return vibe_input.allow_missing_target or (
-            node is not None and (vibe_input.field in node.inputs or vibe_input.field in node.widgets)
+        return (
+            node is not None
+            and (
+                vibe_input.field in node.inputs
+                or vibe_input.field in node.widgets
+                or self._is_valid_missing_target(vibe_input)
+            )
         )
 
     def _mint_uid(self, seed: str | None = None) -> str:

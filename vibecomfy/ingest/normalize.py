@@ -1168,6 +1168,9 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         input_type = entry.get("type")
         if input_type is not None and not isinstance(input_type, str):
             raise ValueError(f"input {name!r}: type must be a string or null")
+        allow_missing_target = entry.get("allow_missing_target", False)
+        if not isinstance(allow_missing_target, bool):
+            raise ValueError(f"input {name!r}: allow_missing_target must be a boolean")
         workflow.inputs[str(input_name)] = VibeInput(
             name=str(input_name),
             node_id=str(node_id),
@@ -1179,6 +1182,7 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             range=deepcopy(entry.get("range")),
             aliases=tuple(aliases),
             media_semantics=media_semantics,
+            allow_missing_target=allow_missing_target,
         )
 
     outputs_raw = raw.get("outputs")
