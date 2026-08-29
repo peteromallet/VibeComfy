@@ -139,43 +139,264 @@ def _freeze_json(value: Any) -> Any:
     return value
 
 
+def _non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+_RESPONSE_OUTCOME_KINDS = frozenset(
+    {
+        # Canonical public outcomes.
+        "candidate",
+        "candidate_transaction",
+        "noop",
+        "clarify",
+        "error",
+        "requires_custom_nodes",
+        # Explicitly supported legacy/internal and answer-only variants.
+        "edit",
+        "edit+clarify",
+        "failure",
+        "budget",
+        "respond",
+    }
+)
+
+
+def _change_entry_is_well_formed(value: Any) -> bool:
+    """Return whether a change/statement has a recognizable typed shape."""
+    if not isinstance(value, Mapping) or not value:
+        return False
+    if (
+        _non_empty_string(value.get("uid"))
+        and _non_empty_string(value.get("field_path"))
+    ):
+        return True
+    if (
+        _non_empty_string(value.get("node_id"))
+        and _non_empty_string(value.get("op"))
+    ):
+        return True
+    return _non_empty_string(value.get("op"))
+
+
+def _accepted_batch_entry_is_well_formed(value: Any) -> bool:
+    """Return whether one accepted-batch entry contains a valid edit op."""
+    if not isinstance(value, Mapping):
+        return False
+    operation = value.get("op")
+    if not isinstance(operation, Mapping):
+        return False
+    try:
+        # Keep this boundary aligned with the canonical edit operation parser;
+        # wrapper metadata is intentionally ignored.
+        from vibecomfy.porting.edit.ops import parse_edit_delta
+
+        parse_edit_delta([dict(operation)])
+    except Exception:
+        return False
+    return True
+
+
+def _accepted_batch_is_well_formed(response: Mapping[str, Any]) -> bool:
+    """Return whether an explicitly present accepted Δ has its JSON shape."""
+    if "accepted_batch" not in response:
+        return True
+    accepted_batch = response.get("accepted_batch")
+    if not isinstance(accepted_batch, list):
+        # The expected-no-candidate assessor owns this legacy carrier error
+        # so it can preserve its existing error classification.
+        return True
+    return all(_accepted_batch_entry_is_well_formed(item) for item in accepted_batch)
+
+
+def _response_has_candidate_evidence(response: Mapping[str, Any]) -> bool:
+    """Return whether a candidate outcome carries product evidence."""
+    for field in ("candidate", "candidate_graph", "candidate_transaction", "graph"):
+        value = response.get(field)
+        if isinstance(value, Mapping) and bool(value):
+            return True
+    outcome = response.get("outcome")
+    if (
+        response.get("graph_unchanged") is False
+        and isinstance(outcome, Mapping)
+        and outcome.get("kind") in {"candidate", "edit", "edit+clarify"}
+    ):
+        return True
+    landed = _landed_operation_count(response)
+    return (
+        response.get("graph_unchanged") is False
+        and isinstance(landed, int)
+        and not isinstance(landed, bool)
+        and landed > 0
+    )
+
+
+def _response_has_answer_evidence(
+    response: Mapping[str, Any], outcome: Mapping[str, Any]
+) -> bool:
+    """Return whether an answer/refusal has a structured terminal fact."""
+    if any(_non_empty_string(response.get(field)) for field in ("message", "reply")):
+        return True
+    for field in ("report", "evidence", "artifacts", "change_details"):
+        value = response.get(field)
+        if isinstance(value, Mapping) and bool(value):
+            return True
+    for field in ("question", "reason"):
+        if _non_empty_string(outcome.get(field)):
+            return True
+    return bool(
+        isinstance(outcome.get("candidates"), list)
+        or isinstance(outcome.get("missing_classes"), list)
+    )
+
+
+def _response_outcome_is_well_formed(
+    response: Mapping[str, Any],
+) -> bool:
+    """Validate outcome discriminants and the facts each kind requires."""
+    outcome = response.get("outcome")
+    if not isinstance(outcome, Mapping):
+        return False
+    kind = outcome.get("kind")
+    if not _non_empty_string(kind) or kind not in _RESPONSE_OUTCOME_KINDS:
+        return False
+
+    if "question" in outcome and not _non_empty_string(outcome["question"]):
+        return False
+    if "reason" in outcome and not _non_empty_string(outcome["reason"]):
+        return False
+    for field in ("failure_kind", "stage", "next_action"):
+        if field in outcome and not _non_empty_string(outcome[field]):
+            return False
+    if "retryable" in outcome and not isinstance(outcome["retryable"], bool):
+        return False
+    if "graph_unchanged" in outcome and not isinstance(
+        outcome["graph_unchanged"], bool
+    ):
+        return False
+    if "changes" in outcome:
+        changes = outcome["changes"]
+        if not isinstance(changes, list) or not all(
+            _change_entry_is_well_formed(item) for item in changes
+        ):
+            return False
+        if kind in {"clarify", "requires_custom_nodes", "respond"}:
+            return False
+    if "missing_classes" in outcome:
+        missing_classes = outcome["missing_classes"]
+        if not isinstance(missing_classes, list) or not all(
+            _non_empty_string(item) for item in missing_classes
+        ):
+            return False
+    if "candidates" in outcome:
+        candidates = outcome["candidates"]
+        if not isinstance(candidates, list) or not all(
+            isinstance(item, Mapping) for item in candidates
+        ):
+            return False
+    if "clarification" in outcome:
+        clarification = outcome["clarification"]
+        if not isinstance(clarification, Mapping):
+            return False
+        if "message" in clarification and not _non_empty_string(
+            clarification["message"]
+        ):
+            return False
+    if kind in {"candidate", "candidate_transaction", "edit", "edit+clarify"}:
+        if not _response_has_candidate_evidence(response):
+            return False
+        if kind == "edit+clarify" and not (
+            _non_empty_string(outcome.get("question"))
+            or _response_has_answer_evidence(response, outcome)
+        ):
+            return False
+    elif kind == "clarify":
+        if not (
+            _non_empty_string(outcome.get("question"))
+            or (
+                isinstance(outcome.get("clarification"), Mapping)
+                and _non_empty_string(outcome["clarification"].get("message"))
+            )
+            or _response_has_answer_evidence(response, outcome)
+        ):
+            return False
+    elif kind == "requires_custom_nodes":
+        if not _response_has_answer_evidence(response, outcome):
+            return False
+    elif kind == "respond":
+        if response.get("route") != "respond" or response.get(
+            "graph_unchanged"
+        ) is not True:
+            return False
+    elif kind in {"error", "failure"}:
+        failure_fields = (
+            "failure_kind",
+            "stage",
+            "retryable",
+            "next_action",
+            "graph_unchanged",
+        )
+        if not any(
+            field in outcome or field in response for field in failure_fields
+        ) and not any(
+            _non_empty_string(response.get(field))
+            for field in ("error", "failure_message", "message")
+        ):
+            return False
+    elif kind == "budget" and not _response_has_answer_evidence(response, outcome):
+        return False
+    return True
+
+
+def _legacy_response_without_outcome_is_valid(response: Mapping[str, Any]) -> bool:
+    """Accept only explicit pre-v2 answer/edit/error envelopes without outcomes."""
+    if response.get("ok") is False:
+        return any(
+            _non_empty_string(response.get(field))
+            for field in ("error", "failure_message", "message", "failure_kind")
+        )
+    if (
+        response.get("graph_unchanged") is False
+        and _response_has_candidate_evidence(response)
+    ):
+        return True
+    route = response.get("route")
+    return (
+        route in {"research", "inspect", "respond"}
+        and response.get("graph_unchanged") is True
+        and _response_has_answer_evidence(response, {})
+    )
+
+
 def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
     """Validate every response shape dereferenced by the assessor or its judges."""
-    # ``ok`` is the response envelope's required status bit.  A failure
-    # response may omit graph state because execution never reached a graph
-    # decision; a successful response must carry the graph state used by the
-    # edit/non-edit obligations.  Treat omission/type errors as malformed
-    # evidence instead of allowing the assessor's defaults to manufacture a
-    # pass.
     has_ok = "ok" in response
     if has_ok and not isinstance(response["ok"], bool):
         return False
-    if "graph_unchanged" in response and not isinstance(response["graph_unchanged"], bool):
+    if "graph_unchanged" in response and not isinstance(
+        response["graph_unchanged"], bool
+    ):
         return False
-    if not has_ok and "graph_unchanged" not in response:
-        return False
-    if has_ok and response["ok"] is True and "graph_unchanged" not in response:
-        # Older semantic/research artifacts legitimately omit graph state, but
-        # a bare ``{"ok": true}`` has no product evidence at all.  Retain the
-        # former compatibility surface while rejecting an empty success shell.
-        meaningful_fields = {
-            "route",
-            "reply",
-            "message",
-            "outcome",
-            "report",
-            "evidence",
-            "gates",
-            "accepted_batch",
-            "candidate",
-            "candidate_graph",
-            "error",
-            "failure_kind",
-            "readiness",
-        }
-        if not meaningful_fields.intersection(response):
-            return False
     if "route" in response and not isinstance(response["route"], str):
+        return False
+    if not has_ok:
+        if "outcome" in response:
+            if not _response_outcome_is_well_formed(response):
+                return False
+        elif not _legacy_response_without_outcome_is_valid(response):
+            return False
+    elif response["ok"] is True:
+        if "outcome" not in response:
+            if not _legacy_response_without_outcome_is_valid(response):
+                return False
+        elif not _response_outcome_is_well_formed(response):
+            return False
+    elif "outcome" not in response:
+        if not _legacy_response_without_outcome_is_valid(response):
+            return False
+    elif not _response_outcome_is_well_formed(response):
+        return False
+    elif response["outcome"].get("kind") not in {"error", "failure"}:
         return False
 
     mapping_fields = (
@@ -190,6 +411,7 @@ def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
         "debug",
         "candidate",
         "candidate_graph",
+        "candidate_transaction",
         "narrative_context",
         "apply_eligibility",
         "eligibility",
@@ -201,14 +423,6 @@ def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
             continue
         if not isinstance(response[field], dict):
             return False
-
-    outcome = response.get("outcome")
-    if isinstance(outcome, dict):
-        if "kind" in outcome and not isinstance(outcome["kind"], str):
-            return False
-        for field in ("changes", "missing_classes"):
-            if field in outcome and not isinstance(outcome[field], list):
-                return False
 
     readiness = response.get("readiness")
     if (
@@ -269,17 +483,9 @@ def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
         if field in response and not isinstance(response[field], bool):
             return False
 
+    if not _accepted_batch_is_well_formed(response):
+        return False
     return True
-
-
-def _accepted_batch_is_well_formed(response: Mapping[str, Any]) -> bool:
-    """Return whether an explicitly present accepted Δ has its JSON shape."""
-    if "accepted_batch" not in response:
-        return True
-    accepted_batch = response.get("accepted_batch")
-    return isinstance(accepted_batch, list) and all(
-        isinstance(item, Mapping) for item in accepted_batch
-    )
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:

@@ -1798,6 +1798,7 @@ def test_agentic_guard_rejects_route_not_applyable_without_landed_count(
             {
                 "ok": True,
                 "graph_unchanged": False,
+                "outcome": {"kind": "candidate"},
                 "no_candidate_reason": "route_not_applyable",
                 "message": "This request is not applicable to the current graph.",
             }
