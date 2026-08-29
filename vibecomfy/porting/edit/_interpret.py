@@ -283,7 +283,11 @@ def _interpret_ops(
             has_landed_add = any(
                 getattr(s.op, "op", None) == "add_node" and s.status == "applied" for s in statements
             )
-            # S1 typed requires_custom_nodes if pack truly absent (field-scoped).
+            # S1 typed requires_custom_nodes if pack truly absent (field-scoped) — r12 refinement.
+            # Field-scoped auto-touch covers all r12 cases (485ff2, 949658, bd3afb, 5b31ce):
+            # - if field observable in graph (widgets/inputs/surface) allow COW even when live_schema missing;
+            # - truly absent only when class not observed in graph AND live missing (MTCNN/RetinaFace);
+            # - present-but-schema-less (INPAINT, BboxDetectorSEGS, SaveImage, VHS_VideoCombine) fallback to observable.
             if code == "missing_touched_schema":
                 ct_for_typed = None
                 try:
@@ -304,7 +308,64 @@ def _interpret_ops(
                         live_schema = _s1_sf(schema_provider, ct_for_typed)
                     except Exception:
                         live_schema = None
-                    if live_schema is None:
+                    observed_in_graph = False
+                    try:
+                        if hasattr(post, "nodes"):
+                            for n in (post.nodes.values() if isinstance(post.nodes, dict) else []):
+                                if str(getattr(n, "class_type", "") or "") == ct_for_typed:
+                                    observed_in_graph = True
+                                    break
+                    except Exception:
+                        observed_in_graph = False
+                    if getattr(op, "op", None) == "set_node_field":
+                        field_name_typed = None
+                        try:
+                            tgt2 = getattr(op, "target", None)
+                            field_name_typed = str(getattr(tgt2, "field_path", "") or getattr(tgt2, "field", "") or "")
+                        except Exception:
+                            field_name_typed = None
+                        if field_name_typed:
+                            observable = False
+                            try:
+                                node_for_field = post.nodes.get(str(uid)) if isinstance(post.nodes, dict) and uid else None
+                                if node_for_field is not None:
+                                    if field_name_typed in getattr(node_for_field, "widgets", {}) or field_name_typed in getattr(node_for_field, "inputs", {}):
+                                        observable = True
+                                    else:
+                                        try:
+                                            from vibecomfy.porting.edit.widget_slots import editable_surface_for
+                                            surface = editable_surface_for(node_for_field, schema_provider=schema_provider, edges=post.edges)
+                                            if surface is not None and field_name_typed in surface.literal_names():
+                                                observable = True
+                                        except Exception:
+                                            pass
+                                    if not observable and live_schema is not None:
+                                        inputs_live = getattr(live_schema, "inputs", {}) or {}
+                                        if field_name_typed in inputs_live:
+                                            observable = True
+                            except Exception:
+                                observable = False
+                            if observable:
+                                try:
+                                    before_retry = post
+                                    post_retry = apply_edit_cow(post, op, schema_provider=schema_provider)
+                                    diag_retry = _apply_diagnostics(before_retry, post_retry, op)
+                                    statements.append(
+                                        StatementOutcome(
+                                            statement_index=index,
+                                            source=type(op).__name__,
+                                            status="applied",
+                                            op_kind=getattr(op, "op", type(op).__name__),
+                                            op=op,
+                                        )
+                                    )
+                                    landed.append(op)
+                                    diagnostics.extend(diag_retry)
+                                    post = post_retry
+                                    continue
+                                except Exception:
+                                    pass
+                    if live_schema is None and not observed_in_graph:
                         typed_diag_absent = _diag(
                             "requires_custom_nodes",
                             f"Custom node pack required for {ct_for_typed!r}; not in live object_info.",
@@ -336,6 +397,8 @@ def _interpret_ops(
                             diagnostics=(typed_diag_absent, _diag(code, str(exc), severity="error")),
                             landed_ops=tuple(landed),
                         )
+                    elif live_schema is None and observed_in_graph:
+                        pass
                     else:
                         field_name_typed = None
                         if getattr(op, "op", None) == "set_node_field":
@@ -778,6 +841,7 @@ class _InterpretRunner:
                 return self._subgraph_interface(item, statement.value)
             if call_name in ("search", "node_schema"):
                 try:
+                    from vibecomfy.porting.edit._ir_utils import _resolve_class_type_from_alias
                     from vibecomfy.schema.provider import schema_for as _s1_schema_for
                     if call_name == "search":
                         focus = None
@@ -793,6 +857,18 @@ class _InterpretRunner:
                             for ct in focus:
                                 try:
                                     _s1_schema_for(self.schema_provider, ct)
+                                    try:
+                                        resolved = _resolve_class_type_from_alias(ct, self.schema_provider)
+                                        if resolved and resolved != ct:
+                                            _s1_schema_for(self.schema_provider, resolved)
+                                        lower = ct.lower()
+                                        if lower != ct:
+                                            _s1_schema_for(self.schema_provider, lower)
+                                            rl = _resolve_class_type_from_alias(lower, self.schema_provider)
+                                            if rl and rl != lower:
+                                                _s1_schema_for(self.schema_provider, rl)
+                                    except Exception:
+                                        pass
                                 except Exception:
                                     pass
                     else:
@@ -812,6 +888,15 @@ class _InterpretRunner:
                         if isinstance(arg_val, str) and arg_val:
                             try:
                                 _s1_schema_for(self.schema_provider, arg_val)
+                                try:
+                                    resolved = _resolve_class_type_from_alias(arg_val, self.schema_provider)
+                                    if resolved and resolved != arg_val:
+                                        _s1_schema_for(self.schema_provider, resolved)
+                                    lower = arg_val.lower()
+                                    if lower != arg_val:
+                                        _s1_schema_for(self.schema_provider, lower)
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                 except Exception:
@@ -1788,6 +1873,40 @@ class _InterpretRunner:
                 working_workflow=self.workflow,
             )
             if isinstance(admitted, AdmissionRejected):
+                # S1 r12 refinement: field-scoped allow for set_node_field where field observable in graph
+                if admitted.typed_reason == "missing_touched_schema" and getattr(op, "op", None) == "set_node_field":
+                    try:
+                        tgt = getattr(op, "target", None)
+                        uid = str(getattr(tgt, "uid", "") or "")
+                        field = str(getattr(tgt, "field_path", "") or "")
+                        node = self._node_by_uid(uid) if uid else None
+                        if node is not None and field:
+                            observable = False
+                            if field in getattr(node, "widgets", {}) or field in getattr(node, "inputs", {}):
+                                observable = True
+                            else:
+                                try:
+                                    from vibecomfy.porting.edit.widget_slots import editable_surface_for
+                                    surface = editable_surface_for(node, schema_provider=self.schema_provider, edges=self.workflow.edges)
+                                    if surface is not None and field in surface.literal_names():
+                                        observable = True
+                                except Exception:
+                                    pass
+                                if not observable:
+                                    try:
+                                        from vibecomfy.schema.provider import schema_for as _sf
+                                        schema = _sf(self.schema_provider, str(getattr(node, "class_type", "") or ""))
+                                        if schema is not None and field in (getattr(schema, "inputs", {}) or {}):
+                                            observable = True
+                                    except Exception:
+                                        pass
+                            if observable:
+                                before = self.workflow
+                                self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
+                                self._pending_apply_diagnostics.extend(_apply_diagnostics(before, self.workflow, op))
+                                return None
+                    except Exception:
+                        pass
                 return StatementOutcome(
                     statement_index=item.statement_index,
                     source=item.source,
