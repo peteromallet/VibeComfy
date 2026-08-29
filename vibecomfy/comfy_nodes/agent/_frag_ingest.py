@@ -125,6 +125,12 @@ def _ensure_ingest_workflow(state: AgentEditState) -> Any:
                                             resolved = _resolve_class_type_from_alias(ct, provider)
                                             if resolved and resolved != ct:
                                                 getter(resolved)
+                                            lower = ct.lower()
+                                            if lower != ct:
+                                                getter(lower)
+                                                rl = _resolve_class_type_from_alias(lower, provider)
+                                                if rl and rl != lower:
+                                                    getter(rl)
                                         except Exception:
                                             pass
                                 except Exception:
