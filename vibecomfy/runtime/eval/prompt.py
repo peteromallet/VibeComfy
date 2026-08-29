@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from vibecomfy.errors import RuntimeNodeError, VibeComfyError
@@ -11,7 +10,12 @@ from vibecomfy.runtime.client import ComfyClient
 from .plan import EvalNodePlan, plan_eval_node
 from vibecomfy.runtime.server import comfy_server
 from vibecomfy.runtime.execution import normalize_prompt_id
-from vibecomfy.runtime.session import SessionConfig, _outputs_from_server_history, _wait_for_server_history
+from vibecomfy.runtime.session import (
+    SessionConfig,
+    _allocate_request_root,
+    _outputs_from_server_history,
+    _wait_for_server_history,
+)
 
 
 @dataclass(frozen=True)
@@ -48,8 +52,8 @@ async def eval_node(
 
     queue_api = queue_api_for_plan(plan)
     started = time.monotonic()
-    log_path = Path("out/runs") / f"eval-node-{int(time.time())}" / "comfy.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    _run_id, run_dir = _allocate_request_root("eval-node")
+    log_path = run_dir / "comfy.log"
     try:
         async with comfy_server(server_url=server_url, log_path=log_path, config=SessionConfig()) as active_url:
             client = ComfyClient(active_url)

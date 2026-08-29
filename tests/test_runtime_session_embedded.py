@@ -66,6 +66,42 @@ def test_embedded_session_explicit_empty_success_remains_valid(
 
 
 
+
+@pytest.mark.parametrize(
+    ("outputs", "expected"),
+    [
+        ([], []),
+        ([{"images": [{"filename": "embedded-list.png"}]}], ["embedded-list.png"]),
+    ],
+)
+def test_embedded_session_status_bearing_list_outputs_remain_valid(
+    fake_comfy,
+    outputs: list[dict[str, Any]],
+    expected: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+
+    async def successful_queue(_self, _api_dict):
+        return {
+            "prompt_id": "embedded-list",
+            "outputs": outputs,
+            "status": {
+                "status_str": "success",
+                "completed": True,
+                "messages": [],
+            },
+        }
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", successful_queue)
+    result = asyncio.run(EmbeddedSession().run(_workflow()))
+
+    assert result.outputs == expected
+    assert Path(result.metadata_path).is_file()
+
+
 def test_embedded_session_preserves_statusless_raw_output_mapping(
     fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

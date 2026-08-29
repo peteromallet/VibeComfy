@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -236,6 +237,13 @@ class VibeSession(Protocol):
         ...
 
 
+def _allocate_request_root(prefix: str) -> tuple[str, Path]:
+    runs_root = Path("out/runs")
+    runs_root.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(tempfile.mkdtemp(prefix=f"{prefix}-", dir=runs_root))
+    return run_dir.name, run_dir
+
+
 class EmbeddedSession:
     def __init__(self, config: SessionConfig | None = None) -> None:
         self.config = config or SessionConfig()
@@ -378,9 +386,7 @@ class EmbeddedSession:
         await _maybe_flush_for_policy(self, fp)
         timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
 
-        run_id = f"run-{int(time.time())}"
-        run_dir = Path("out/runs") / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
+        run_id, run_dir = _allocate_request_root("run")
         log_path = run_dir / "embedded.log"
 
         # Embedded backend: comfy_kitchen does not necessarily expose a server
@@ -420,6 +426,7 @@ class EmbeddedSession:
                 queued,
                 prompt_id=prompt_id,
                 status_required=False,
+                allow_list_outputs=True,
             )
             outputs = _collect_output_paths(
                 comfy_outputs,
@@ -615,9 +622,7 @@ class ServerSession:
         await _maybe_flush_for_policy(self, fp)
         timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
 
-        run_id = f"run-{int(time.time())}"
-        run_dir = Path("out/runs") / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
+        run_id, run_dir = _allocate_request_root("run")
         log_path = run_dir / "comfy.log"
 
         client_id = uuid.uuid4().hex
@@ -1438,6 +1443,7 @@ def _decode_terminal_result(
     *,
     prompt_id: str | None,
     status_required: bool,
+    allow_list_outputs: bool = False,
 ) -> Any:
     status = _terminal_field(result, "status")
     if status is _MISSING_TERMINAL_FIELD:
@@ -1488,7 +1494,7 @@ def _decode_terminal_result(
     outputs = _terminal_field(result, "outputs")
     if outputs is _MISSING_TERMINAL_FIELD:
         raise _malformed_terminal_result(prompt_id, "successful result is missing outputs")
-    if not isinstance(outputs, Mapping):
+    if not isinstance(outputs, Mapping) and not (allow_list_outputs and isinstance(outputs, list)):
         raise _malformed_terminal_result(
             prompt_id,
             f"outputs must be an object, got {type(outputs).__name__}",

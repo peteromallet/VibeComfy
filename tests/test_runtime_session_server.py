@@ -63,6 +63,71 @@ def test_server_session_two_runs_share_one_subprocess(
     assert [post[0] for post in FakeAsyncClient.posts].count("http://127.0.0.1:8200/prompt") == 2
 
 
+
+def test_server_session_concurrent_runs_get_exclusive_roots(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(session_module.time, "time", lambda: 1234567890.0)
+    original_post = FakeAsyncClient.post
+    prompt_count = 0
+    release = asyncio.Event()
+
+    async def synchronized_post(self, url: str, json: dict | None = None):
+        nonlocal prompt_count
+        if url.endswith("/prompt"):
+            prompt_count += 1
+            if prompt_count == 2:
+                release.set()
+            await release.wait()
+        return await original_post(self, url, json)
+
+    monkeypatch.setattr(FakeAsyncClient, "post", synchronized_post)
+
+    async def run_both():
+        sessions = [ServerSession(SessionConfig(port=8200)), ServerSession(SessionConfig(port=8200))]
+        try:
+            return await asyncio.gather(*(session.run(_workflow()) for session in sessions))
+        finally:
+            await asyncio.gather(*(session.stop() for session in sessions))
+
+    results = asyncio.run(run_both())
+
+    assert len({result.run_id for result in results}) == 2
+    assert len({Path(result.metadata_path).parent for result in results}) == 2
+    assert all(Path(result.metadata_path).is_file() for result in results)
+
+
+def test_server_session_success_then_failure_same_second_keeps_roots_isolated(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(session_module.time, "time", lambda: 1234567890.0)
+    session = ServerSession(SessionConfig(port=8200))
+
+    async def run_case():
+        try:
+            first = await session.run(_workflow())
+            FakeAsyncClient.history_status = {
+                "status_str": "error",
+                "completed": True,
+                "messages": [["execution_error", {"exception_message": "second run failed"}]],
+            }
+            with pytest.raises(RuntimeNodeError, match="second run failed"):
+                await session.run(_workflow())
+            return first
+        finally:
+            await session.stop()
+
+    first = asyncio.run(run_case())
+    run_dirs = [path for path in (tmp_path / "out/runs").iterdir() if path.is_dir()]
+    metadata_paths = list((tmp_path / "out/runs").glob("*/metadata.json"))
+
+    assert len(run_dirs) == 2
+    assert Path(first.metadata_path).is_file()
+    assert metadata_paths == [Path(first.metadata_path).resolve()]
+
+
 def test_server_session_queue_failure_includes_id_map(
     fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -388,6 +453,23 @@ def test_server_history_pending_then_explicit_empty_success(
 
     assert SequenceClient.calls == 2
     assert session_module._outputs_from_server_history(history, prompt_id) is empty_outputs
+
+
+def test_server_history_rejects_status_bearing_list_outputs() -> None:
+    with pytest.raises(QueueError, match="outputs must be an object"):
+        session_module._outputs_from_server_history(
+            {
+                "prompt-list": {
+                    "outputs": [],
+                    "status": {
+                        "status_str": "success",
+                        "completed": True,
+                        "messages": [],
+                    },
+                }
+            },
+            "prompt-list",
+        )
 
 
 @pytest.mark.parametrize(
