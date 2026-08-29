@@ -446,6 +446,113 @@ def test_apply_gate_allows_legal_widget_edit() -> None:
     assert value == 42
 
 
+def test_apply_gate_rejects_unclaimed_semantic_edge_mismatches() -> None:
+    """Link-ID furniture must never excuse a different canonical edge."""
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    assert interpreted.landed_ops
+
+    def changed_post(kind: str):
+        post = copy.deepcopy(interpreted.workflow)
+        edge = post.edges[0]
+        if kind == "source_node":
+            edge.from_node = "3"
+        elif kind == "source_slot":
+            edge.from_output = "CLIP"
+        elif kind == "destination_node":
+            edge.to_node = "6"
+        elif kind == "destination_slot":
+            edge.to_input = "positive"
+        elif kind == "add":
+            added = copy.deepcopy(edge)
+            added.to_node = "7"
+            added.to_input = "images"
+            post.edges.append(added)
+        elif kind == "remove":
+            post.edges.pop(0)
+        else:  # pragma: no cover - closed test table
+            raise AssertionError(f"unknown edge mutation {kind}")
+        return post
+
+    for kind in (
+        "source_node",
+        "source_slot",
+        "destination_node",
+        "destination_slot",
+        "add",
+        "remove",
+    ):
+        gate = verify_apply(
+            pre,
+            changed_post(kind),
+            delta=delta,
+            landed_ops=interpreted.landed_ops,
+            schema_provider=provider,
+        )
+        assert gate.ok is False, kind
+        assert gate.apply_eligible is False, kind
+        assert gate.reason == "replay_mismatch", kind
+        assert any(
+            item.code == "apply_gate_replay_mismatch" for item in gate.diagnostics
+        ), kind
+
+
+def test_apply_gate_allows_runtime_link_id_renumbering() -> None:
+    """Raw link IDs/counters are furniture when canonical endpoints match."""
+    from vibecomfy.porting.edit.apply_gate import editable_signature, verify_apply
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    assert interpreted.landed_ops
+
+    renumbered = copy.deepcopy(original)
+    sampler = next(node for node in renumbered["nodes"] if node["id"] == 5)
+    sampler["widgets_values"][2] = 42
+    link_ids = {link[0]: link[0] + 100 for link in renumbered["links"]}
+    for link in renumbered["links"]:
+        link[0] = link_ids[link[0]]
+    for node in renumbered["nodes"]:
+        for input_slot in node.get("inputs", ()):
+            if input_slot.get("link") in link_ids:
+                input_slot["link"] = link_ids[input_slot["link"]]
+        for output_slot in node.get("outputs", ()):
+            output_slot["links"] = [
+                link_ids[link_id] for link_id in output_slot.get("links") or ()
+            ]
+    renumbered["last_link_id"] = max(link_ids.values())
+    post = from_ui(
+        renumbered,
+        schema_provider=provider,
+        use_comfy_converter=False,
+    )
+
+    assert renumbered["links"][0][0] != original["links"][0][0]
+    assert editable_signature(post) == editable_signature(interpreted.workflow)
+    gate = verify_apply(
+        pre,
+        post,
+        delta=delta,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is True
+    assert gate.apply_eligible is True
+
+
 def test_apply_gate_empty_replay_is_not_eligible() -> None:
     from vibecomfy.porting.edit.apply_gate import verify_apply
 

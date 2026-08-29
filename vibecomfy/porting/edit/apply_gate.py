@@ -382,13 +382,14 @@ def _is_leftover_link_mismatch(
     expected_edges: set[tuple[str, str, str, str]],
     actual_edges: set[tuple[str, str, str, str]],
 ) -> bool:
-    """S2: leftover links/last_link_id furniture should be ignored.
+    """True only when a raw-link mismatch is canonical-edge neutral.
 
-    vace-retarget 4 leftover ops, 2a31ec threaded replay mismatch were
-    pure emit link-id drift, not semantic edge changes. When node
-    signatures already match, any edge delta is leftover furniture.
+    Runtime link IDs and ``last_link_id`` are deliberately absent from these
+    uid-addressed records.  Equal sets therefore already tolerate that
+    furniture; any unequal endpoint/slot record is a semantic mismatch and
+    must fail closed.
     """
-    return True
+    return expected_edges == actual_edges
 
 
 def _replay_reconstruct_diagnostic(
@@ -426,11 +427,12 @@ def _replay_reconstruct_diagnostic(
         return None
     expected_nodes, expected_edges = expected
     actual_nodes, actual_edges = actual
-    # S2: interpret(pre,Δ) ignore leftover links/last_link_id. When nodes
-    # match, edge delta is leftover furniture (emit link-id / last_link_id
-    # allocation). vace-retarget, 2a31ec, e8c20a all had valid field edits
-    # but were rejected due to 4 leftover ops that were pure furniture.
-    if expected_nodes == actual_nodes and _is_leftover_link_mismatch(set(expected_edges), set(actual_edges)):
+    # Runtime link IDs and last_link_id are absent from the canonical edge
+    # records, so equality still tolerates that furniture.  Any unequal edge
+    # set changes an endpoint/slot or adds/removes an edge and must reject.
+    if expected_nodes == actual_nodes and _is_leftover_link_mismatch(
+        set(expected_edges), set(actual_edges)
+    ):
         return None
     return _diag(
         "apply_gate_replay_mismatch",
