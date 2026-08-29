@@ -792,11 +792,20 @@ def render_inspect_markdown(
 
     sections: list[str] = []
 
-    # ── ## Overview ───────────────────────────────────────────────
-    sections.append("## Overview\n")
+    # Empty graphs have no widgets — no authority note needed
     if evidence.node_count == 0:
+        sections.append("## Overview\n")
         sections.append("Empty graph (0 nodes).\n")
         return "".join(sections)
+
+    # S4 — authoritative source note (99e2a9, 17dc9b) — only for non-empty
+    sections.append(
+        "> **Authority:** `compiled_api` (VibeWorkflow.compile) is the authoritative widget source; "
+        "`widgets_values[]` is positional — read via labeled names, not indices. "
+        "`widget_0` etc. are unlabeled positions; prefer `transparent_background`, `fps`, `length`, `seed`, `steps`, `cfg` etc.\n\n"
+    )
+
+    sections.append("## Overview\n")
 
     edge_count = len(evidence.edges)
     summary = f"{evidence.node_count} node(s), {edge_count} edge(s)."
@@ -1001,6 +1010,36 @@ def _render_key_nodes_section(
                         f"widget_{w.index}={_format_opaque_value(w.value)}"
                     )
             sections.append(f"  - Widgets: {', '.join(widget_strs)}\n")
+            # S4 semantic lenses (1a7f84 Rembg, 82ffb9 fps vs length, 99e2a9, 17dc9b)
+            if ct == "Image Remove Background Rembg (mtb)":
+                by_name = {w.name: w.value for w in node.widgets if w.name}
+                transparent = by_name.get("transparent_background")
+                if transparent is None:
+                    for w in node.widgets:
+                        if w.index == 0:
+                            transparent = w.value
+                            break
+                bg_color = by_name.get("background_color")
+                sections.append(f"  - Semantics: Rembg transparent_background={transparent} background_color={bg_color} [idx 0 is alpha toggle, idx 5 is color; set transparent_background=true for alpha output]\n")
+            elif ct == "SwarmSaveAnimationWS":
+                fps_val = next((w.value for w in node.widgets if w.name == "fps" or w.index == 0), None)
+                sections.append(f"  - Semantics: SwarmSaveAnimationWS fps={fps_val} [widget_0 is fps, not frame count; length on EmptyHunyuanLatentVideo is frame count]\n")
+            elif ct == "EmptyHunyuanLatentVideo":
+                by_name = {w.name: w.value for w in node.widgets if w.name}
+                length = by_name.get("length")
+                width = by_name.get("width")
+                height = by_name.get("height")
+                batch = by_name.get("batch_size")
+                sections.append(f"  - Semantics: EmptyHunyuanLatentVideo width={width} height={height} length={length} batch_size={batch} [length is frame count; fps is on SwarmSaveAnimationWS]\n")
+            elif ct == "KSampler":
+                by_name = {w.name: w.value for w in node.widgets if w.name}
+                seed = by_name.get("seed")
+                steps = by_name.get("steps")
+                cfg = by_name.get("cfg")
+                sections.append(f"  - Semantics: KSampler seed={seed} steps={steps} cfg={cfg} [control_after_generate at idx 1 enum fixed/randomize/increment/decrement — do not read steps as control]\n")
+            elif ct == "ImageBatch":
+                by_name = {w.name: w.value for w in node.widgets if w.name}
+                sections.append(f"  - Semantics: ImageBatch effective_frames derived from batch_size/overlap — widgets {by_name}\n")
         else:
             sections.append("  - Widgets: none\n")
 

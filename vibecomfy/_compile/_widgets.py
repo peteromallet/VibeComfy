@@ -138,6 +138,20 @@ WIDGET_SEMANTIC_NAMES: dict[str, dict[str, str]] = {
 }
 
 WIDGET_SCHEMA: dict[str, list[str | None]] = {
+    # S4 — Rembg (mtb) custom node: 6 widgets in compact order (1a7f84)
+    "Image Remove Background Rembg (mtb)": [
+        "transparent_background",
+        "threshold",
+        "edge_smoothing",
+        "edge_size",
+        "only_mask",
+        "background_color",
+    ],
+    # S4 — Swarm ecosystem (82ffb9 fps vs length, 17dc9b)
+    "SwarmSaveAnimationWS": ["fps"],
+    "SwarmKSampler": ["seed", None, "steps", "cfg", "sampler_name", "scheduler", "denoise"],
+    "ImageBatch": ["images", "batch_size"],
+    "VHS_VideoCombine": ["frame_rate", "loop_count", "filename_prefix", "format", "pix_fmt", "crf", "save_metadata", "pingpong", "save_output"],
     "ACN_AdvancedControlNetApply": ["strength", "start_percent", "end_percent"],
     "BasicScheduler": ["scheduler", "steps", "denoise"],
     "CFGGuider": ["cfg"],
