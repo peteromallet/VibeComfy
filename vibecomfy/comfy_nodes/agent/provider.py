@@ -221,7 +221,7 @@ _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _YAML_FENCE_RE = re.compile(r"```yaml\s*\n(.*?)```", re.DOTALL)
 _SEARCH_CALL_RE = re.compile(r"\bsearch\s*\(", re.IGNORECASE)
 _REQUIRES_CUSTOM_NODES_RE = re.compile(r"requires_custom_nodes", re.IGNORECASE)
-_BATCH_LIKE_ASSIGN_RE = re.compile(r"\.widget_|\.inputs\.|=\s*['\"]|search\s*\(", re.IGNORECASE)
+_BATCH_LIKE_ASSIGN_RE = re.compile(r"\.widget_|\.inputs\.|\badd_node\b|\bset_node_field\b|\bdone\s*\(|=\s*|search\s*\(", re.IGNORECASE)
 
 
 def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str | None:
