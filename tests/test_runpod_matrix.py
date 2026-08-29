@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
+from scripts import runpod_e2e_matrix
 from scripts.runpod_matrix_plan import build_corpus_matrix_plan, format_ready_rows, format_rows
 from scripts.runpod_matrix_remote import (
     FLUX_VAE,
@@ -73,6 +75,69 @@ def test_wanvideo_wrapper_patch_preserves_sageattn_for_sage_profile() -> None:
     inputs = api["1"]["inputs"]
     assert inputs["attention_mode"] == "sageattn"
     assert inputs["widget_4"] == "sageattn"
+
+
+def _write_matrix_results(root: Path, statuses: list[str]) -> Path:
+    artifact_root = root / "artifact"
+    results_path = artifact_root / "out" / "e2e" / "results.json"
+    results_path.parent.mkdir(parents=True)
+    results_path.write_text(
+        json.dumps(
+            [
+                {"template_id": f"template-{index}", "status": status, "output_sha256s": []}
+                for index, status in enumerate(statuses)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return artifact_root
+
+
+def test_runpod_matrix_post_process_fails_when_any_row_fails(tmp_path: Path, capsys) -> None:
+    artifact_root = _write_matrix_results(tmp_path, ["ok", "run_failed"])
+
+    exit_code = runpod_e2e_matrix._post_process_results(artifact_root, tmp_path / "published")
+
+    assert exit_code == 1
+    published = json.loads((tmp_path / "published" / "results.json").read_text(encoding="utf-8"))
+    assert [entry["status"] for entry in published] == ["ok", "run_failed"]
+    output = capsys.readouterr().out
+    assert "E2E summary: 1/2 ok" in output
+    assert "E2E failures: 1 row(s)" in output
+    assert "FAILED: template-1 [run_failed]" in output
+
+
+def test_runpod_matrix_post_process_accepts_success_and_explicit_skip(
+    tmp_path: Path, capsys
+) -> None:
+    artifact_root = _write_matrix_results(tmp_path, ["ok", "skipped"])
+
+    exit_code = runpod_e2e_matrix._post_process_results(artifact_root, tmp_path / "published")
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "E2E summary: 1/2 ok" in output
+    assert "E2E summary: 1 explicitly skipped" in output
+    assert "E2E failures:" not in output
+
+
+def test_runpod_matrix_main_propagates_failed_row_status(tmp_path: Path, monkeypatch) -> None:
+    row = runpod_e2e_matrix.MatrixRow(
+        id="template-0", path="ready_templates/image/template-0.py", media="image", task="text_to_image"
+    )
+
+    async def fake_run_real(*_args, **_kwargs) -> int:
+        return 0
+
+    monkeypatch.setenv("RUNPOD_API_KEY", "offline-test-key")
+    monkeypatch.setattr(runpod_e2e_matrix, "build_regeneratable_matrix", lambda *_args, **_kwargs: (row,))
+    monkeypatch.setattr(runpod_e2e_matrix, "_build_remote_script", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(runpod_e2e_matrix, "_run_real", fake_run_real)
+    monkeypatch.setattr(runpod_e2e_matrix, "_find_latest_artifact_dir", lambda: tmp_path / "artifact")
+    monkeypatch.setattr(runpod_e2e_matrix, "_post_process_results", lambda *_args: 1)
+    monkeypatch.setattr(sys, "argv", ["runpod_e2e_matrix.py", "--output-root", str(tmp_path / "published")])
+
+    assert runpod_e2e_matrix.main() == 1
 
 
 def test_corpus_matrix_plan_splits_required_workflows(tmp_path: Path) -> None:

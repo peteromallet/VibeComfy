@@ -44,6 +44,7 @@ DEFAULT_UPLOAD_EXCLUDES: set[str] = {
     "out", "output", "vendor", "ready_templates/sources", "custom_nodes", "input",
     "node_modules", ".mypy_cache", ".ruff_cache", ".DS_Store",
 }
+_NON_FAILURE_ROW_STATUSES = frozenset({"ok", "skipped"})
 
 # MatrixRow is a lightweight dataclass from runpod_matrix_plan (no heavy deps).
 # We import it directly; the rest of runpod_matrix_plan is not needed here.
@@ -526,7 +527,9 @@ def main() -> int:
     # Find the most recent artifact directory
     artifact_dir = _find_latest_artifact_dir()
     if artifact_dir:
-        _post_process_results(artifact_dir, output_root)
+        post_process_code = _post_process_results(artifact_dir, output_root)
+        if post_process_code != 0:
+            return post_process_code
 
     return return_code
 
@@ -605,7 +608,7 @@ def _extract_peak_vram_from_watchdog_data(data: dict[str, Any]) -> int | None:
     return peak if peak > 0 else None
 
 
-def _post_process_results(artifact_root: Path, output_root: Path) -> None:
+def _post_process_results(artifact_root: Path, output_root: Path) -> int:
     """After pod execution, parse downloaded artifacts into results.json.
 
     Enriches with:
@@ -672,9 +675,24 @@ def _post_process_results(artifact_root: Path, output_root: Path) -> None:
     ok_count = sum(1 for r in results if r.get("status") == "ok")
     total = len(results)
     print(f"E2E summary: {ok_count}/{total} ok", flush=True)
+    skipped_count = sum(1 for r in results if r.get("status") == "skipped")
+    failed_rows = [
+        r for r in results if r.get("status") not in _NON_FAILURE_ROW_STATUSES
+    ]
+    if skipped_count:
+        print(f"E2E summary: {skipped_count} explicitly skipped", flush=True)
+    if failed_rows:
+        print(f"E2E failures: {len(failed_rows)} row(s)", flush=True)
+        for entry in failed_rows:
+            print(
+                f"  FAILED: {entry.get('template_id', '<missing template id>')} "
+                f"[{entry.get('status', '<missing status>')}]",
+                flush=True,
+            )
     if sha_changes:
         changed_ids = sorted(sha_changes.keys())
         print(f"Sha changes detected (flags, not failures): {', '.join(changed_ids)}", flush=True)
+    return 1 if failed_rows else 0
 
 
 if __name__ == "__main__":
