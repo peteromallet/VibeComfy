@@ -32,7 +32,10 @@ PORT_HELP = """Cheap preflight and Python materialization for ComfyUI workflow p
 Use `port check` before manual template editing or expensive RunPod validation.
 Use `port convert` to turn source workflows into Python scratchpads; pass
 `--ready-id kind/name` only when intentionally producing a ready-template
-candidate. Use `doctor`/`validate` after conversion, `nodes install-plan` for
+candidate.
+Human output is best-effort; per-template failures are printed inline.
+`--json exits nonzero` when any row fails and emits one machine-readable
+envelope. Use `doctor`/`validate` after conversion, `nodes install-plan` for
 custom node install planning, and `fetch` for URL-backed models. Use
 `--head-check-models` only when you want network HEAD checks for model URLs.
 """

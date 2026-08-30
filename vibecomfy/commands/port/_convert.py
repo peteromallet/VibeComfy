@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
-from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from vibecomfy.porting.convert import (
     ManualTemplateRefusal,
     ConversionWriteError,
+    PortConvertResult,
+    PortConvertValidation,
     port_convert_and_write,
     port_convert_workflow,
 )
@@ -24,6 +27,156 @@ from ._shared import (
     _emit_strict_ready_load_failure,
     _inject_schema_source_metadata,
 )
+
+
+_CONVERT_ALL_MAX_DEPTH = 32
+_CONVERT_ALL_MAX_ITEMS = 100_000
+_CONVERT_ALL_MAX_STRING_BYTES = 1 << 20
+_CONVERT_ALL_MAX_NUMBER_BYTES = 4_000
+_CONVERT_ALL_MAX_AGGREGATE_BYTES = 16 << 20
+# Machine-mode aggregate limits: depth, items, per-string bytes, integer bytes,
+# and total scalar/container bytes.
+
+
+class AggregateNormalizationError(ValueError):
+    def __init__(self, path: str, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{reason} at {path}")
+
+
+class _BoundedJsonNormalizer:
+    """Copy only exact builtin JSON values under explicit resource limits."""
+
+    def __init__(self) -> None:
+        self.item_count = 0
+        self.aggregate_bytes = 0
+        self._active: set[int] = set()
+
+    def normalize(self, value: object, *, path: str = "$", depth: int = 0) -> object:
+        if depth > _CONVERT_ALL_MAX_DEPTH:
+            self._fail(path, "maximum nesting depth exceeded")
+
+        value_type = type(value)
+        if value is None:
+            self._charge(4, path)
+            return None
+        if value_type is bool:
+            self._charge(5 if value else 4, path)
+            return value
+        if value_type is int:
+            estimated_bytes = max(1, (int.bit_length(value) + 2) // 3)
+            if estimated_bytes > _CONVERT_ALL_MAX_NUMBER_BYTES:
+                self._fail(path, "integer exceeds maximum scalar bytes")
+            self._charge(estimated_bytes, path)
+            return value
+        if value_type is float:
+            if not math.isfinite(value):
+                self._fail(path, "non-finite float is not JSON-native")
+            self._charge(24, path)
+            return value
+        if value_type is str:
+            byte_count = self._string_bytes(value, path)
+            self._charge(byte_count, path)
+            return value
+
+        if value_type is dict:
+            return self._normalize_dict(value, path, depth)
+        if value_type is list:
+            return self._normalize_list(value, path, depth)
+        if value_type is tuple:
+            return self._normalize_tuple(value, path, depth)
+
+        self._fail(path, "value must use an exact builtin JSON type")
+
+    @staticmethod
+    def _string_bytes(value: str, path: str) -> int:
+        if len(value) > _CONVERT_ALL_MAX_STRING_BYTES:
+            raise AggregateNormalizationError(path, "string exceeds maximum bytes")
+        if str.isascii(value):
+            byte_count = len(value)
+        else:
+            byte_count = len(str.encode(value, "utf-8"))
+        if byte_count > _CONVERT_ALL_MAX_STRING_BYTES:
+            raise AggregateNormalizationError(path, "string exceeds maximum bytes")
+        return byte_count
+
+    def _normalize_dict(self, value: dict[object, object], path: str, depth: int) -> dict[str, object]:
+        value_id = id(value)
+        active = self._active
+        if value_id in active:
+            self._fail(path, "cyclic value")
+        active.add(value_id)
+        try:
+            result: dict[str, object] = {}
+            self._charge(2, path)
+            for index, (key, item) in enumerate(dict.items(value)):
+                self._count_item(f"{path}.<key:{index}>")
+                if type(key) is not str:
+                    self._fail(f"{path}.<key:{index}>", "object key must be exact builtin str")
+                self._charge(self._string_bytes(key, path), path)
+                result[key] = self.normalize(item, path=f"{path}.{key}", depth=depth + 1)
+            return result
+        finally:
+            active.remove(value_id)
+
+    def _normalize_list(self, value: list[object], path: str, depth: int) -> list[object]:
+        value_id = id(value)
+        active = self._active
+        if value_id in active:
+            self._fail(path, "cyclic value")
+        active.add(value_id)
+        try:
+            result: list[object] = []
+            self._charge(2, path)
+            for index, item in enumerate(list.__iter__(value)):
+                self._count_item(f"{path}[{index}]")
+                result.append(self.normalize(item, path=f"{path}[{index}]", depth=depth + 1))
+            return result
+        finally:
+            active.remove(value_id)
+
+    def _normalize_tuple(self, value: tuple[object, ...], path: str, depth: int) -> list[object]:
+        value_id = id(value)
+        active = self._active
+        if value_id in active:
+            self._fail(path, "cyclic value")
+        active.add(value_id)
+        try:
+            result: list[object] = []
+            self._charge(2, path)
+            for index, item in enumerate(tuple.__iter__(value)):
+                self._count_item(f"{path}[{index}]")
+                result.append(self.normalize(item, path=f"{path}[{index}]", depth=depth + 1))
+            return result
+        finally:
+            active.remove(value_id)
+
+    def _count_item(self, path: str) -> None:
+        self.item_count += 1
+        if self.item_count > _CONVERT_ALL_MAX_ITEMS:
+            self._fail(path, "maximum item count exceeded")
+
+    def _charge(self, amount: int, path: str) -> None:
+        self.aggregate_bytes += amount
+        if self.aggregate_bytes > _CONVERT_ALL_MAX_AGGREGATE_BYTES:
+            self._fail(path, "maximum aggregate bytes exceeded")
+
+    @staticmethod
+    def _fail(path: str, reason: str) -> None:
+        raise AggregateNormalizationError(path, reason)
+
+
+def _safe_error_message(exc: BaseException, fallback: str = "conversion failed") -> str:
+    try:
+        args = BaseException.__getattribute__(exc, "args")
+    except Exception:
+        return fallback
+    if type(args) is tuple:
+        for arg in tuple.__iter__(args):
+            if type(arg) is str:
+                return arg
+    return fallback
 
 
 def _cmd_port_convert(args: argparse.Namespace) -> int:
@@ -186,84 +339,56 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
 
 
 def _run_convert_all(args: argparse.Namespace) -> int:
-    """Run dry-run conversion across all ready templates.
-
-    Text output intentionally follows the historical line-oriented format.
-    JSON output is a single aggregate envelope so callers never have to parse
-    mixed per-template lines, and conversion failures are reflected in both
-    the envelope status and the process exit code.
-    """
-    from vibecomfy.analysis.corpus import build_corpus_snapshot
+    """Run bounded conversion across all ready templates."""
+    from vibecomfy.analysis.corpus import CorpusSnapshot, build_corpus_snapshot
     from vibecomfy.commands import port as _port
+    from vibecomfy.porting.workbench import LoadedPortSource
 
-    snapshot = build_corpus_snapshot()
     diff_mode = getattr(args, "diff", False) is True
     json_output = getattr(args, "json", False) is True
     template_results: list[dict[str, Any]] = []
+    missing = object()
 
-    def _safe_text(value: object, fallback: str | None) -> str | None:
-        if value is None:
-            return fallback
-        try:
-            # ``str(value)`` may preserve a hostile ``str`` subclass when its
-            # ``__str__`` returns itself.  Call the builtin slot explicitly so
-            # envelope strings are exact builtin strings.
-            text = str.__str__(value) if isinstance(value, str) else str(value)
-            if type(text) is not str:
-                text = str.__str__(text)
-            return text if type(text) is str else fallback
-        except Exception:
-            return fallback
-
-    def _strict_changed(result_text: object, original: str) -> bool:
-        try:
-            comparison = result_text != original
-        except Exception as exc:
-            raise TypeError("conversion result text comparison failed") from exc
-        if type(comparison) is not bool:
-            raise TypeError("conversion result text comparison must return bool")
-        return comparison
-
-    def _json_native(value: object) -> object:
-        """Normalize the aggregate boundary without trusting result objects."""
+    def _field(value: object, name: str, default: object = missing) -> object:
         value_type = type(value)
-        if value is None or value_type in (bool, int, float, str):
-            return value
-        if isinstance(value, bool):
-            return bool(value)
-        if isinstance(value, int):
-            return int(value)
-        if isinstance(value, float):
-            return float(value)
-        if isinstance(value, str):
-            return _safe_text(value, "<unserializable>")
-        if isinstance(value, Mapping):
+        if value_type is dict:
+            return dict.get(value, name, default)
+        if value_type is SimpleNamespace:
+            fields = object.__getattribute__(value, "__dict__")
+            if type(fields) is not dict:
+                raise TypeError("object fields must use an exact builtin dict")
+            return dict.get(fields, name, default)
+        if value_type in (
+            CorpusSnapshot,
+            LoadedPortSource,
+            PortConvertResult,
+            PortConvertValidation,
+        ):
             try:
-                items = value.items()
-                return {
-                    _safe_text(key, "<invalid-key>") or "<invalid-key>":
-                    _json_native(item)
-                    for key, item in items
-                }
-            except Exception:
-                return "<unserializable>"
-        if isinstance(value, (list, tuple)):
-            try:
-                return [_json_native(item) for item in value]
-            except Exception:
-                return ["<unserializable>"]
-        return _safe_text(value, "<unserializable>")
+                return object.__getattribute__(value, name)
+            except AttributeError:
+                return default
+        raise TypeError("aggregate object has an unsupported result type")
 
-    def failure_result(
+    def _exact_text(value: object, *, field_name: str) -> str:
+        if type(value) is not str:
+            raise TypeError(f"{field_name} must be exact builtin str")
+        return value
+
+    def _display_text(value: object, fallback: str | None) -> str | None:
+        return value if type(value) is str else fallback
+
+    def _failure_result(
         template_id: object,
         tpl_path: object,
         exc: BaseException,
         *,
         fallback_id: str,
     ) -> dict[str, Any]:
+        exc_type = type(exc).__name__
         return {
-            "id": _safe_text(template_id, fallback_id),
-            "path": _safe_text(tpl_path, None),
+            "id": _display_text(template_id, fallback_id),
+            "path": _display_text(tpl_path, None),
             "status": "error",
             "parity": None,
             "original_loc": None,
@@ -271,154 +396,259 @@ def _run_convert_all(args: argparse.Namespace) -> int:
             "line_count_delta": None,
             "changed": None,
             "error": {
-                "type": _safe_text(type(exc).__name__, "Exception"),
-                "message": _safe_text(exc, "conversion failed"),
+                "type": _display_text(exc_type, "Exception"),
+                "message": _safe_error_message(exc),
             },
         }
 
-    for row_index, tpl in enumerate(snapshot.templates_list):
+    def _normalize_row(
+        row: dict[str, object],
+        *,
+        template_id: object,
+        tpl_path: object,
+        fallback_id: str,
+    ) -> dict[str, Any]:
+        try:
+            normalized = _BoundedJsonNormalizer().normalize(row)
+            if type(normalized) is not dict:
+                raise TypeError("normalized row must be exact builtin dict")
+            return normalized
+        except BaseException as exc:
+            return _failure_result(
+                template_id,
+                tpl_path,
+                exc,
+                fallback_id=fallback_id,
+            )
+
+    def _machine_error(exc: BaseException, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        safe_rows = rows[: min(len(rows), 1_000)]
+        error_row = _failure_result("<aggregate>", None, exc, fallback_id="<aggregate>")
+        safe_rows.append(error_row)
+        error_count = sum(
+            1
+            for item in safe_rows
+            if dict.get(item, "status") == "error"
+        )
+        return {
+            "status": "error",
+            "mode": "convert_all",
+            "dry_run": True,
+            "templates": safe_rows,
+            "summary": {
+                "template_count": len(safe_rows),
+                "ok_count": len(safe_rows) - error_count,
+                "error_count": error_count,
+                "changed_count": sum(
+                    1
+                    for item in safe_rows
+                    if dict.get(item, "status") == "ok"
+                    and dict.get(item, "changed") is True
+                ),
+            },
+            "error": {
+                "type": "AggregateNormalizationError",
+                "message": _safe_error_message(exc, "aggregate serialization failed"),
+            },
+        }
+
+    try:
+        snapshot = build_corpus_snapshot()
+        templates = _field(snapshot, "templates_list")
+        if type(templates) is not list:
+            raise TypeError("templates_list must be an exact builtin list")
+        template_limit = min(len(templates), _CONVERT_ALL_MAX_ITEMS)
+    except BaseException as exc:
+        if not json_output:
+            print(f"<aggregate>: error: {_display_text(type(exc).__name__, 'Exception')}: {_safe_error_message(exc)}")
+            return 0
+        payload = _machine_error(exc, template_results)
+        print(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False))
+        return 1
+
+    for row_index in range(template_limit):
         fallback_id = f"<row-{row_index}>"
         template_id: object = fallback_id
         tpl_path: object = None
         try:
-            if not isinstance(tpl, Mapping):
-                raise TypeError("template row must be an object")
-            raw_id = tpl.get("id")
-            if raw_id is None:
+            tpl = list.__getitem__(templates, row_index)
+            if type(tpl) is not dict:
+                raise TypeError("template row must be an exact builtin dict")
+            raw_id = dict.get(tpl, "id", missing)
+            if raw_id is missing:
                 raise KeyError("id")
-            template_id = raw_id
-            raw_path = tpl.get("path")
-            if raw_path is None:
+            template_id = _exact_text(raw_id, field_name="template id")
+            raw_path = dict.get(tpl, "path", missing)
+            if raw_path is missing:
                 raise KeyError("path")
-            tpl_path = raw_path
-            source_path = Path(raw_path)
+            tpl_path = _exact_text(raw_path, field_name="template path")
+            source_path = Path(tpl_path)
             if not source_path.is_file():
-                raise FileNotFoundError(
-                    f"template source does not exist: {source_path}"
-                )
+                raise FileNotFoundError(f"template source does not exist: {tpl_path}")
             original = source_path.read_text(encoding="utf-8")
+            original = _exact_text(original, field_name="source text")
             schema_provider = _port._build_conversion_provider(args)
-            loaded = load_port_source(
-                str(source_path),
-                schema_provider=schema_provider,
-            )
+            loaded = load_port_source(tpl_path, schema_provider=schema_provider)
+            workflow = _field(loaded, "workflow")
+            raw_workflow = _field(loaded, "raw_workflow", None)
             result = port_convert_workflow(
-                loaded.workflow,
-                source_path=str(source_path),
+                workflow,
+                source_path=tpl_path,
                 schema_provider=schema_provider,
-                raw_workflow=loaded.raw_workflow,
+                raw_workflow=raw_workflow,
             )
 
-            validation = result.validation
+            result_text = _field(result, "text")
+            result_text = _exact_text(result_text, field_name="conversion result text")
+            validation = _field(result, "validation", None)
             if validation is None:
                 parity = "no-validation"
-            elif validation.parity_ok is True:
-                parity = "ok"
-            elif validation.parity_ok is False:
-                parity = "failed"
+                validation_failed = True
+                validation_error: object = "conversion produced no validation result"
             else:
-                parity = "unknown"
-            validation_failed = validation is None or (
-                getattr(validation, "ok", True) is False
-                or getattr(validation, "parity_ok", None) is False
-            )
-            original_loc = len([line for line in original.splitlines() if line.strip()])
-            emitted_loc = len([line for line in result.text.splitlines() if line.strip()])
-            delta = emitted_loc - original_loc
-            changed = _strict_changed(result.text, original)
-            template_status = "error" if validation_failed else "ok"
-            if validation is None:
-                validation_error = "conversion produced no validation result"
-            else:
-                validation_error = (
-                    getattr(validation, "error", None)
-                    or getattr(validation, "parity_error", None)
-                    or "conversion validation failed"
-                )
+                parity_ok = _field(validation, "parity_ok", None)
+                if parity_ok is not None and type(parity_ok) is not bool:
+                    raise TypeError("validation parity_ok must be exact builtin bool or None")
+                if parity_ok is True:
+                    parity = "ok"
+                elif parity_ok is False:
+                    parity = "failed"
+                else:
+                    parity = "unknown"
+                validation_ok = _field(validation, "ok", True)
+                if type(validation_ok) is not bool:
+                    raise TypeError("validation ok must be exact builtin bool")
+                validation_failed = validation_ok is False or parity_ok is False
+                validation_error = _field(validation, "error", None)
+                if validation_error is None:
+                    validation_error = _field(validation, "parity_error", None)
+                if validation_error is None:
+                    validation_error = "conversion validation failed"
 
-            if json_output:
-                template_results.append(
+            original_lines = str.splitlines(original)
+            emitted_lines = str.splitlines(result_text)
+            original_loc = sum(1 for line in original_lines if str.strip(line))
+            emitted_loc = sum(1 for line in emitted_lines if str.strip(line))
+            changed = result_text != original
+            row: dict[str, object] = {
+                "id": template_id,
+                "path": tpl_path,
+                "status": "error" if validation_failed else "ok",
+                "parity": parity,
+                "original_loc": original_loc,
+                "emitted_loc": emitted_loc,
+                "line_count_delta": emitted_loc - original_loc,
+                "changed": changed,
+                "error": (
                     {
-                        "id": _safe_text(template_id, fallback_id),
-                        "path": _safe_text(tpl_path, None),
-                        "status": template_status,
-                        "parity": parity,
-                        "original_loc": original_loc,
-                        "emitted_loc": emitted_loc,
-                        "line_count_delta": delta,
-                        "changed": changed,
-                        "error": (
-                            {
-                                "type": "ValidationError",
-                                "message": _safe_text(
-                                    validation_error,
-                                    "conversion validation failed",
-                                ),
-                            }
-                            if validation_failed
-                            else None
-                        ),
+                        "type": "ValidationError",
+                        "message": validation_error,
                     }
-                )
-            else:
-                display_id = _safe_text(template_id, fallback_id) or fallback_id
-                print(
-                    f"{display_id}: parity={parity} LOC "
-                    f"{original_loc}→{emitted_loc} "
-                    f"({'+' if delta >= 0 else ''}{delta})"
-                )
-
-                if diff_mode and changed:
-                    import difflib
-
-                    diff_lines = difflib.unified_diff(
-                        original.splitlines(keepends=True),
-                        result.text.splitlines(keepends=True),
-                        fromfile=str(source_path),
-                        tofile=f"{source_path} (emitted)",
-                    )
-                    diff_text = "".join(diff_lines)
-                    if diff_text:
-                        print(diff_text[:2000])  # Truncate per-template diff
-        except Exception as exc:
+                    if validation_failed
+                    else None
+                ),
+            }
             if json_output:
                 template_results.append(
-                    failure_result(
-                        template_id,
-                        tpl_path,
-                        exc,
+                    _normalize_row(
+                        row,
+                        template_id=template_id,
+                        tpl_path=tpl_path,
                         fallback_id=fallback_id,
                     )
                 )
             else:
-                display_id = _safe_text(template_id, fallback_id) or fallback_id
+                delta = emitted_loc - original_loc
                 print(
-                    f"{display_id}: error: {type(exc).__name__}: "
-                    f"{_safe_text(exc, 'conversion failed')}"
+                    f"{template_id}: parity={parity} LOC "
+                    f"{original_loc}→{emitted_loc} "
+                    f"({'+' if delta >= 0 else ''}{delta})"
+                )
+                if diff_mode and changed:
+                    import difflib
+
+                    diff_lines = difflib.unified_diff(
+                        str.splitlines(original, keepends=True),
+                        str.splitlines(result_text, keepends=True),
+                        fromfile=tpl_path,
+                        tofile=f"{tpl_path} (emitted)",
+                    )
+                    diff_text = "".join(diff_lines)
+                    if diff_text:
+                        print(diff_text[:2000])
+        except BaseException as exc:
+            if json_output:
+                template_results.append(
+                    _normalize_row(
+                        _failure_result(
+                            template_id,
+                            tpl_path,
+                            exc,
+                            fallback_id=fallback_id,
+                        ),
+                        template_id=template_id,
+                        tpl_path=tpl_path,
+                        fallback_id=fallback_id,
+                    )
+                )
+            else:
+                print(
+                    f"{_display_text(template_id, fallback_id)}: error: "
+                    f"{_display_text(type(exc).__name__, 'Exception')}: "
+                    f"{_safe_error_message(exc)}"
                 )
 
+    if template_limit < len(templates):
+        overflow = AggregateNormalizationError(
+            "$.templates",
+            "maximum template row count exceeded",
+        )
+        if json_output:
+            template_results.append(
+                _normalize_row(
+                    _failure_result(
+                        f"<row-{template_limit}>",
+                        None,
+                        overflow,
+                        fallback_id=f"<row-{template_limit}>",
+                    ),
+                    template_id=f"<row-{template_limit}>",
+                    tpl_path=None,
+                    fallback_id=f"<row-{template_limit}>",
+                )
+            )
+        else:
+            print("<aggregate>: error: maximum template row count exceeded")
+
     if not json_output:
-        # Preserve the historical human-mode exit policy: all-mode was a
-        # best-effort report even when one template could not be converted.
         return 0
 
-    error_count = sum(1 for item in template_results if item["status"] == "error")
-    template_count = len(template_results)
+    error_count = sum(
+        1
+        for item in template_results
+        if dict.get(item, "status") == "error"
+    )
     payload = {
         "status": "error" if error_count else "ok",
         "mode": "convert_all",
         "dry_run": True,
         "templates": template_results,
         "summary": {
-            "template_count": template_count,
-            "ok_count": template_count - error_count,
+            "template_count": len(template_results),
+            "ok_count": len(template_results) - error_count,
             "error_count": error_count,
             "changed_count": sum(
                 1
                 for item in template_results
-                if item["status"] == "ok" and item["changed"] is True
+                if dict.get(item, "status") == "ok"
+                and dict.get(item, "changed") is True
             ),
         },
     }
-    print(json.dumps(_json_native(payload), indent=2, sort_keys=True))
+    try:
+        normalized_payload = _BoundedJsonNormalizer().normalize(payload)
+        print(json.dumps(normalized_payload, indent=2, sort_keys=True, allow_nan=False))
+    except BaseException as exc:
+        print(json.dumps(_machine_error(exc, template_results), indent=2, sort_keys=True, allow_nan=False))
+        return 1
     return 1 if error_count else 0

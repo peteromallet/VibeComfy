@@ -4,12 +4,15 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import vibecomfy.commands.port as port_commands
+import vibecomfy.commands.port._convert as port_convert_module
+
 import vibecomfy.commands.port._export as port_export_cmd
 from vibecomfy.cli import build_parser
 from vibecomfy.commands.port import _cmd_port_check, _cmd_port_convert, _cmd_port_doctor_all, _cmd_port_export, _cmd_port_lint, _cmd_port_rules, _cmd_port_simulate, _cmd_port_validate_call, _cmd_port_widgets
@@ -1206,7 +1209,7 @@ def test_port_convert_all_json_rejects_malformed_result_comparison(
     assert templates["template/before"]["status"] == "ok"
     assert templates["template/after"]["status"] == "ok"
     assert templates["template/malformed"]["error"]["type"] == "TypeError"
-    assert "comparison must return bool" in templates["template/malformed"]["error"]["message"]
+    assert "exact builtin str" in templates["template/malformed"]["error"]["message"]
 
 
 def test_port_convert_all_json_preserves_good_rows_with_malformed_sources(
@@ -1245,6 +1248,200 @@ def test_port_convert_all_json_preserves_good_rows_with_malformed_sources(
     assert templates["template/missing-path"]["error"]["type"] == "KeyError"
     assert templates["<row-3>"]["error"]["type"] == "KeyError"
     assert templates["<row-4>"]["error"]["type"] == "TypeError"
+
+
+def _run_convert_all_with_adversarial_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    validation_error: object = None,
+    result_text: object = None,
+) -> tuple[int, dict[str, object], float]:
+    good_path = tmp_path / "good.py"
+    bad_path = tmp_path / "bad.py"
+    good_path.write_text("GOOD = True\n", encoding="utf-8")
+    bad_path.write_text("BAD = True\n", encoding="utf-8")
+    snapshot = SimpleNamespace(
+        templates_list=[
+            {"id": "template/good", "path": str(good_path)},
+            {"id": "template/bad", "path": str(bad_path)},
+        ]
+    )
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._convert.load_port_source",
+        lambda path, *, schema_provider: SimpleNamespace(
+            workflow=path,
+            raw_workflow={},
+        ),
+    )
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        if workflow == str(bad_path):
+            return SimpleNamespace(
+                text=bad_path.read_text(encoding="utf-8") if result_text is None else result_text,
+                validation=SimpleNamespace(
+                    ok=False,
+                    parity_ok=True,
+                    error=validation_error,
+                ),
+            )
+        return SimpleNamespace(
+            text=good_path.read_text(encoding="utf-8"),
+            validation=SimpleNamespace(ok=True, parity_ok=True),
+        )
+
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._convert.port_convert_workflow",
+        fake_convert,
+    )
+    started = time.monotonic()
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    elapsed = time.monotonic() - started
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert captured.err == ""
+    return code, payload, elapsed
+
+
+def _cyclic_list() -> list[object]:
+    value: list[object] = []
+    value.append(value)
+    return value
+
+
+def _deep_list() -> list[object]:
+    value: list[object] = []
+    for _ in range(port_convert_module._CONVERT_ALL_MAX_DEPTH + 5):
+        value = [value]
+    return value
+
+
+def _recursive_dict() -> dict[str, object]:
+    value: dict[str, object] = {}
+    value["self"] = value
+    return value
+
+
+def _oversized_string() -> str:
+    return "x" * (port_convert_module._CONVERT_ALL_MAX_STRING_BYTES + 1)
+
+
+
+
+
+class _InfiniteIterable:
+    def __iter__(self):
+        while True:
+            yield 1
+
+
+class _InfiniteList(list):
+    def __iter__(self):
+        while True:
+            yield 1
+
+
+
+class _InfiniteMapping(dict):
+    def items(self):
+        while True:
+            yield "never", 1
+
+
+def _oversized_nonascii_string() -> str:
+    return "é" * (port_convert_module._CONVERT_ALL_MAX_STRING_BYTES // 2 + 1)
+
+
+def _oversized_aggregate() -> list[str]:
+    return ["x" * 1024] * 17_000
+
+
+@pytest.mark.parametrize(
+    ("case", "value_factory"),
+    [
+        ("cyclic", _cyclic_list),
+        ("recursive", _recursive_dict),
+        ("oversized-string", _oversized_string),
+        ("oversized-nonascii-string", _oversized_nonascii_string),
+        ("deep", _deep_list),
+        (
+            "oversized",
+            lambda: list(range(port_convert_module._CONVERT_ALL_MAX_ITEMS + 1)),
+        ),
+        ("custom-infinite-iterable", _InfiniteIterable),
+        ("custom-infinite-mapping", _InfiniteMapping),
+        ("oversized-aggregate", _oversized_aggregate),
+        ("custom-infinite-list", _InfiniteList),
+    ],
+)
+def test_port_convert_all_json_bounds_adversarial_nested_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+    value_factory,
+) -> None:
+    del case
+    code, payload, elapsed_text = _run_convert_all_with_adversarial_value(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        validation_error=value_factory(),
+    )
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert float(elapsed_text) < 1.0
+    assert code == 1
+    assert payload["status"] == "error"
+    assert payload["summary"] == {
+        "template_count": 2,
+        "ok_count": 1,
+        "error_count": 1,
+        "changed_count": 0,
+    }
+    assert templates["template/good"]["status"] == "ok"
+    assert templates["template/bad"]["status"] == "error"
+    assert templates["template/bad"]["error"]["type"] == "AggregateNormalizationError"
+    assert type(templates["template/bad"]["error"]["message"]) is str
+
+
+class _HostileResultText(str):
+    def splitlines(self, *args: object, **kwargs: object):
+        raise AssertionError("hostile splitlines was invoked")
+
+    def __ne__(self, _other: object):
+        raise AssertionError("hostile comparison was invoked")
+
+
+def test_port_convert_all_json_rejects_hostile_result_text_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    started = time.monotonic()
+    code, payload, elapsed_text = _run_convert_all_with_adversarial_value(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        result_text=_HostileResultText("BAD = True\n"),
+    )
+    elapsed = time.monotonic() - started
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert float(elapsed_text) < 1.0
+    assert elapsed < 1.0
+    assert code == 1
+    assert payload["status"] == "error"
+    assert templates["template/good"]["status"] == "ok"
+    assert templates["template/bad"]["status"] == "error"
+    assert templates["template/bad"]["error"]["type"] == "TypeError"
+    assert "exact builtin str" in templates["template/bad"]["error"]["message"]
 
 
 def test_port_convert_all_json_rejects_missing_validation(

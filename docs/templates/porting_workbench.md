@@ -106,6 +106,17 @@ python -m vibecomfy.cli port convert ready_templates/sources/community/example.j
   --diff --json
 ```
 
+### Bounded `port convert --all --json`
+
+Machine-mode aggregate output is one JSON envelope. Normalization accepts only exact
+builtin `None`, `bool`, `int`, `float`, `str`, `dict`, `list`, and `tuple` values;
+custom mapping, iterable, and container subclasses are rejected without iteration.
+Each row and the final envelope are bounded to 32 nesting levels, 100,000 items,
+1 MiB per string, 4,000 estimated bytes per integer, and 16 MiB aggregate
+scalar/container bytes. Cycles, non-finite floats, oversized values, and malformed
+or an aggregate error envelope; already processed rows remain in the envelope and
+machine mode exits 1. Ordinary repository corpus conversion stays below these caps.
+
 ### Manual Template Refusal
 
 Templates whose first line contains `# vibecomfy: manual` will not be overwritten.
