@@ -400,14 +400,13 @@ def test_agentic_guard_response_contradicting_success_metadata_fails(
 
     assert verdict["metadata_success"] is True
     assert verdict["live_agentic_success"] is False
-    assert verdict["verdict"] == "fail"
-    assert verdict["score_class"] == "product_fail"
+    assert verdict["verdict"] == "undetermined"
+    assert verdict["score_class"] == "undetermined"
     assert verdict["assessment"]["expect_graph_changed"] is False
     assert {
-        issue["check"]
+        (issue["check"], issue["severity"])
         for issue in verdict["assessment"]["issues"]
-        if issue["severity"] == "error"
-    } == {"response_ok"}
+    } == {("response_malformed", "undetermined")}
 
 
 def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(
@@ -1854,12 +1853,11 @@ def test_agentic_guard_rejects_failure_outcome_without_landed_count(
     )
 
     assert verdict["live_agentic_success"] is False
-    error_checks = {
-        issue["check"]
+    assert verdict["assessment"]["verdict"] == "undetermined"
+    assert {
+        (issue["check"], issue["severity"])
         for issue in verdict["assessment"]["issues"]
-        if issue["severity"] == "error"
-    }
-    assert "landed_operation_count" in error_checks, verdict["assessment"]["issues"]
+    } == {("response_malformed", "undetermined")}
 
 
 def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(

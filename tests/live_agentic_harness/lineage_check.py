@@ -43,6 +43,10 @@ _LANDED_EDIT_ROW_KINDS = ("accepted_delta", "candidate", "replay_proof")
 _DIGEST_MISMATCH_ERROR = "manifest_digest does not match manifest content"
 
 
+class ArtifactLineageAccessError(RuntimeError):
+    """Raised internally when the lineage sidecar cannot be inspected."""
+
+
 def _envelope_manifest(response: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     """Extract the response-envelope copy of the artifact lineage manifest."""
     if not isinstance(response, Mapping):
@@ -59,12 +63,16 @@ def _envelope_manifest(response: Mapping[str, Any] | None) -> Mapping[str, Any] 
 
 def _read_sidecar(output_dir: Path | str) -> Mapping[str, Any] | None:
     sidecar_path = Path(output_dir) / _LINEAGE_SIDECAR_NAME
-    if not sidecar_path.is_file():
-        return None
     try:
+        if not sidecar_path.is_file():
+            return None
         loaded = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    except Exception as exc:
+        # A present but inaccessible sidecar is unavailable evidence, not an
+        # absent sidecar that may be exempted by a no-edit lane.
+        raise ArtifactLineageAccessError(
+            f"could not inspect artifact lineage sidecar {sidecar_path}"
+        ) from exc
     return loaded if isinstance(loaded, Mapping) else None
 
 
@@ -101,7 +109,10 @@ def load_artifact_lineage(
     to correlate against is returned as ``"sidecar_unverified"`` so the
     assessor can grade the leg ``undetermined`` instead of failing open.
     """
-    sidecar = _read_sidecar(output_dir)
+    try:
+        sidecar = _read_sidecar(output_dir)
+    except ArtifactLineageAccessError:
+        return None, "unavailable"
     envelope = _envelope_manifest(response)
     if sidecar is not None and envelope is not None:
         if _manifest_fingerprint(sidecar) == _manifest_fingerprint(envelope):
@@ -155,7 +166,11 @@ def assess_artifact_lineage(
         "binding": {},
         "provenance": provenance,
     }
-    if manifest is None or provenance in ("sidecar_digest_mismatch", "sidecar_unverified"):
+    if manifest is None or provenance in (
+        "sidecar_digest_mismatch",
+        "sidecar_unverified",
+        "unavailable",
+    ):
         # Fail closed (G5-B4-MUST-003): absent or uncorrelatable lineage is
         # surfaced honestly — it can never be a silent green.
         if provenance == "sidecar_digest_mismatch":
@@ -179,6 +194,17 @@ def assess_artifact_lineage(
                         "artifact_lineage.json sidecar could not be correlated "
                         "against the current response envelope; its binding "
                         "cannot prove this run produced it"
+                    ),
+                }
+            )
+        elif provenance == "unavailable":
+            issues.append(
+                {
+                    "check": "artifact_lineage_unavailable",
+                    "severity": "undetermined",
+                    "detail": (
+                        "artifact_lineage.json could not be inspected; "
+                        "lineage evidence is unavailable"
                     ),
                 }
             )

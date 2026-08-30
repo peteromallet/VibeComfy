@@ -1035,6 +1035,26 @@ def test_assessor_rejects_nested_malformed_candidate_carriers(
     assert assessment["verdict"] == "undetermined"
 
 
+@pytest.mark.parametrize("carrier", ["candidate", "candidate_graph", "graph"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_assessor_rejects_explicit_null_candidate_aliases(
+    tmp_path: Path, carrier: str, nested: bool
+) -> None:
+    response = _candidate_assessment_response()
+    owner = response["outcome"] if nested else response
+    owner[carrier] = None
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+    assert any(issue["check"] == "response_malformed" for issue in assessment["issues"])
+
+
 def test_assessor_rejects_unsupported_nested_candidate_transaction_contract(
     tmp_path: Path,
 ) -> None:
@@ -1340,6 +1360,129 @@ def test_semantically_incomplete_response_envelopes_never_pass(
 )
 def test_valid_terminal_response_variants_remain_accepted(response: dict) -> None:
     assert assessor_module._response_envelope_is_valid(response) is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "error"},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "failure", "failure_kind": "ProviderError"},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "error", "graph_unchanged": True},
+        },
+        {
+            "ok": False,
+            "graph_unchanged": True,
+            "outcome": {
+                "kind": "error",
+                "failure_kind": "ProviderError",
+                "stage": "ingest",
+                "next_action": "retry",
+            },
+        },
+    ],
+)
+def test_sparse_or_contradictory_failure_outcomes_never_validate(
+    tmp_path: Path, response: dict
+) -> None:
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"skip_intent_judge": True}},
+    )
+
+    assert assessor_module._response_envelope_is_valid(response) is False
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+    assert any(issue["check"] == "response_malformed" for issue in assessment["issues"])
+
+
+def test_ancillary_invalid_utf8_is_undetermined_and_published(tmp_path: Path) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+        "message": "The graph is already configured.",
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    (tmp_path / "implementation_result.json").write_bytes(b"\xff\xfe")
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+    assert (tmp_path / "assessment.json").is_file()
+    assert any(
+        issue["check"] == "ancillary_artifact_unavailable"
+        for issue in assessment["issues"]
+    )
+
+
+def test_ancillary_permission_read_error_is_undetermined_and_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+        "message": "The graph is already configured.",
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    (tmp_path / "implementation_result.json").write_text("{}", encoding="utf-8")
+    real_read_text = Path.read_text
+
+    def denied_read(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path.name == "implementation_result.json":
+            raise PermissionError("denied")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", denied_read)
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+    assert (tmp_path / "assessment.json").is_file()
+
+
+def test_ancillary_presence_error_is_undetermined_and_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+        "message": "The graph is already configured.",
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    real_is_file = Path.is_file
+
+    def denied_presence(path: Path) -> bool:
+        if path.name == "final.ui.json":
+            raise PermissionError("presence denied")
+        return real_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", denied_presence)
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+    assert (tmp_path / "assessment.json").is_file()
 
 
 def test_apply_true_is_authoritative_without_assessment_flag(tmp_path: Path) -> None:

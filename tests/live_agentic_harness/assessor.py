@@ -103,6 +103,10 @@ class AssessmentPublicationError(OSError):
     """Raised when a completed assessment cannot replace its canonical artifact."""
 
 
+class AssessmentArtifactError(RuntimeError):
+    """Raised when an ancillary assessment artifact cannot be inspected."""
+
+
 class _FrozenDict(dict):
     """JSON-compatible dict whose content cannot be mutated."""
 
@@ -424,9 +428,11 @@ def _candidate_carriers_are_well_formed(response: Mapping[str, Any]) -> bool:
     for field, value in _iter_candidate_carriers(response):
         carrier = field.rsplit(".", 1)[-1]
         if value is None:
-            if carrier == "candidate_transaction":
-                return False
-            continue
+            # Presence is authoritative: an explicitly named null carrier is
+            # malformed evidence, not an omitted legacy carrier.  Otherwise a
+            # response can smuggle a null product alongside graph_unchanged=
+            # false and fall through to the legacy landed-count path.
+            return False
         if not _candidate_payload_is_well_formed(value, carrier=carrier):
             return False
     return True
@@ -740,18 +746,25 @@ def _response_outcome_is_well_formed(
         ):
             return False
     elif kind in {"error", "failure"}:
-        failure_fields = (
-            "failure_kind",
-            "stage",
-            "retryable",
-            "next_action",
-            "graph_unchanged",
+        # Product failures are terminal executor outcomes.  They must carry
+        # the failed envelope bit and a non-sparse canonical failure record;
+        # an ``ok=true`` label or a lone graph_unchanged/failure_kind field is
+        # not enough to establish a real failure.
+        if response.get("ok") is not False:
+            return False
+        failure_kind = outcome.get("failure_kind") or response.get("failure_kind")
+        stage = outcome.get("stage") or response.get("failure_stage")
+        retryable = outcome.get("retryable")
+        next_action = outcome.get("next_action")
+        graph_unchanged = outcome.get(
+            "graph_unchanged", response.get("graph_unchanged")
         )
-        if not any(
-            field in outcome or field in response for field in failure_fields
-        ) and not any(
-            _non_empty_string(response.get(field))
-            for field in ("error", "failure_message", "message")
+        if not (
+            _non_empty_string(failure_kind)
+            and _non_empty_string(stage)
+            and isinstance(retryable, bool)
+            and _non_empty_string(next_action)
+            and isinstance(graph_unchanged, bool)
         ):
             return False
     elif kind == "budget" and not _response_has_answer_evidence(response, outcome):
@@ -959,13 +972,18 @@ def _response_file_is_bounded(path: Path) -> bool:
 
 def _load_json(path: Path) -> dict[str, Any] | None:
     """Load a JSON artifact if it exists and is valid."""
-    if not path.is_file():
-        return None
     try:
+        if not path.is_file():
+            return None
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    except Exception as exc:
+        # Secondary artifacts are still untrusted inputs.  Do not turn a
+        # permission/read/decode failure into an absent-artifact fallback;
+        # the public assessor converts this into an undetermined publication.
+        raise AssessmentArtifactError(f"could not read JSON artifact {path}") from exc
+    if not isinstance(payload, dict):
+        raise AssessmentArtifactError(f"JSON artifact {path} is not an object")
+    return payload
 
 
 def _load_response_json(
@@ -2430,7 +2448,7 @@ def _assess_effective_edit_targets(
     return issues
 
 
-def assess_live_output_dir(
+def _assess_live_output_dir(
     output_dir: Path | str,
     scenario: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -3009,6 +3027,12 @@ def assess_live_output_dir(
             "final": final_ui_path.is_file(),
         },
     }
+    return _publish_assessment(output_dir, assessment)
+
+
+def _publish_assessment(output_dir: Path | str, assessment: dict[str, Any]) -> dict[str, Any]:
+    """Publish one assessment atomically, preserving the stale-on-error rule."""
+    output_dir = Path(output_dir)
     assessment_path = output_dir / "assessment.json"
     temp_path: Path | None = None
     try:
@@ -3037,3 +3061,61 @@ def assess_live_output_dir(
             f"failed to publish assessment atomically at {assessment_path}"
         ) from exc
     return assessment
+
+
+def _publish_undetermined_artifact_assessment(
+    output_dir: Path | str,
+    scenario: Mapping[str, Any] | None,
+    error: Exception,
+) -> dict[str, Any]:
+    """Publish an honest result when an ancillary artifact is unavailable."""
+    try:
+        expect_graph_changed = scenario_expects_graph_changed(scenario or {})
+    except Exception:
+        expect_graph_changed = False
+    assessment = {
+        "passed": False,
+        "verdict": "undetermined",
+        "outcome_class": None,
+        "expect_graph_changed": expect_graph_changed,
+        "expected_outcome_kinds": [],
+        "allow_safe_refusal_outcome_kinds": [],
+        "issue_count": 1,
+        "error_count": 0,
+        "issues": [
+            {
+                "check": "ancillary_artifact_unavailable",
+                "severity": "undetermined",
+                "detail": f"assessor could not inspect an ancillary artifact: {error}",
+            }
+        ],
+        "judge_results": [],
+        "scenario_kind": _scenario_kind(scenario),
+        "excluded_from_semantic_product_rates": _excluded_from_semantic_product_rates(
+            scenario
+        ),
+        "artifact_lineage": {
+            "present": False,
+            "manifest_digest": None,
+            "binding": {},
+            "provenance": "unavailable",
+        },
+        "ui_evidence": {"original": False, "final": False},
+    }
+    return _publish_assessment(output_dir, assessment)
+
+
+def assess_live_output_dir(
+    output_dir: Path | str,
+    scenario: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assess a run and publish undetermined on any ancillary access failure."""
+    try:
+        return _assess_live_output_dir(output_dir, scenario=scenario)
+    except AssessmentPublicationError:
+        raise
+    except Exception as exc:
+        # Artifact presence/read/decode/filesystem failures must not escape the
+        # assessor or silently turn into a missing-artifact fallback. Publish
+        # the undetermined result through the same atomic path as normal runs.
+        return _publish_undetermined_artifact_assessment(output_dir, scenario, exc)
