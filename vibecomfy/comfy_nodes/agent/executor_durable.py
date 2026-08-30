@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .audit import write_json_artifact
-from .contracts import build_legacy_agent_edit_v1
+from .contracts import build_legacy_agent_edit_v1, classify_failure
 from .executor_response import _sanitize_clarify_payload
 from .session import (
     allocate_turn,
@@ -219,7 +219,6 @@ def maybe_write_executor_only_durable_turn(
                 }
             )
 
-        write_json_artifact(response_path, stamped)
         write_executor_only_chat_artifact(
             turn_dir=turn_dir,
             context=context,
@@ -245,14 +244,14 @@ def maybe_write_executor_only_durable_turn(
         )
 
         return stamped
-    except Exception:
+    except Exception as exc:
         _LOGGER.warning(
             "Executor-only durable turn write failed for session=%s route=%s (best-effort)",
             session_id,
             route,
             exc_info=True,
         )
-        return response
+        return classify_failure("durable_turn", exc).to_dict()
 
 
 def write_executor_only_research_trace(
@@ -416,4 +415,3 @@ def write_executor_only_chat_artifact(
             context.turn_id,
             exc,
         )
-

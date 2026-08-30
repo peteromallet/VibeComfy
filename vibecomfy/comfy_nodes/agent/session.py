@@ -80,6 +80,7 @@ TRANSACTION_PREPARED_RECEIPT_NAME = "prepared.json"
 TRANSACTION_VERIFIED_RECEIPT_NAME = "canvas_verified.json"
 TRANSACTION_FINALIZED_RECEIPT_NAME = "finalized.json"
 TRANSACTION_ROLLBACK_RECEIPT_NAME = "rollback.json"
+RESPONSE_PUBLICATION_FILE_NAME = "response_publication.json"
 # Event-type → receipt snapshot filename (the snapshot is derived from the event).
 TRANSACTION_RECEIPT_BY_EVENT: Mapping[str, str] = MappingProxyType(
     {
@@ -1049,6 +1050,106 @@ def _write_response_immutable(
 ) -> bool:
     """Compatibility façade for immutable JSON authority publication."""
     return _session_storage.write_response_immutable_impl(response_path, response)
+
+
+def _response_publication_path(turn_dir: Path) -> Path:
+    return turn_dir / RESPONSE_PUBLICATION_FILE_NAME
+
+
+def _publication_corrupt(path: Path, message: str) -> DurableReadError:
+    return DurableReadError(DurableRead("corrupt", path=path, error=message))
+
+
+def _read_response_publication(turn_dir: Path) -> dict[str, Any] | None:
+    """Read the single recoverable response/idempotency commit record."""
+    path = _response_publication_path(turn_dir)
+    result = load_json_result_impl(path)
+    if result.status == "absent":
+        return None
+    if result.status != "valid":
+        raise DurableReadError(result)
+    payload = result.value
+    response = payload.get("response")
+    if payload.get("schema_version") != 1 or not isinstance(response, Mapping):
+        raise _publication_corrupt(path, "publication schema or response is invalid")
+    if payload.get("turn_id") != turn_dir.name:
+        raise _publication_corrupt(path, "publication turn identity is invalid")
+    response_path = payload.get("response_path")
+    expected_response_path = turn_dir / "response.json"
+    if not isinstance(response_path, str) or Path(response_path).resolve() != expected_response_path.resolve():
+        raise _publication_corrupt(path, "publication response path is invalid")
+    response_hash = payload.get("response_hash")
+    if not isinstance(response_hash, str) or response_hash != payload_hash(response):
+        raise _publication_corrupt(path, "publication response hash does not match")
+    request_hash = payload.get("request_hash")
+    if not isinstance(request_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", request_hash):
+        raise _publication_corrupt(path, "publication request hash is invalid")
+    scope = payload.get("scope")
+    if scope not in {"edit", "apply"}:
+        raise _publication_corrupt(path, "publication scope is invalid")
+    idempotency_key = payload.get("idempotency_key")
+    if idempotency_key is not None and not isinstance(idempotency_key, str):
+        raise _publication_corrupt(path, "publication idempotency key is invalid")
+    return dict(payload)
+
+
+def _recover_response_publications(session_dir: Path) -> dict[str, dict[str, Any]]:
+    """Rebuild keyed response records from complete publication artifacts."""
+    turns_dir = session_dir / "turns"
+    if not turns_dir.is_dir():
+        return {}
+    try:
+        turn_dirs = sorted(p for p in turns_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    except (OSError, UnicodeError) as exc:
+        raise DurableReadError(
+            DurableRead("unreadable", path=turns_dir, error=str(exc))
+        ) from exc
+    recovered: dict[str, dict[str, Any]] = {}
+    for turn_dir in turn_dirs:
+        publication = _read_response_publication(turn_dir)
+        if publication is None:
+            continue
+        idempotency_key = publication.get("idempotency_key")
+        if not isinstance(idempotency_key, str) or not idempotency_key:
+            continue
+        key = _record_key(publication["scope"], idempotency_key)
+        assert key is not None
+        record = {
+            "request_hash": publication["request_hash"],
+            "response_hash": publication["response_hash"],
+            "response_path": publication["response_path"],
+            "publication_path": str(_response_publication_path(turn_dir)),
+            "created_at": publication.get("created_at", _now()),
+            "operation": publication.get("operation", "edit"),
+            "turn_id": publication["turn_id"],
+        }
+        prior = recovered.get(key)
+        if prior is not None and prior != record:
+            raise _publication_corrupt(
+                _response_publication_path(turn_dir),
+                f"multiple publications claim idempotency key {key!r}",
+            )
+        recovered[key] = record
+    return recovered
+
+
+def _merge_recovered_publications(
+    state: dict[str, Any],
+    recovered: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    records = state.setdefault("idempotency_records", {})
+    if not isinstance(records, dict):
+        state["idempotency_records"] = records = {}
+    changed = False
+    for key, record in recovered.items():
+        existing = records.get(key)
+        if not isinstance(existing, Mapping) or any(
+            existing.get(field) != record.get(field)
+            for field in ("request_hash", "response_hash", "response_path", "turn_id")
+        ):
+            records[key] = dict(record)
+            changed = True
+    return changed
 
 
 # ── Index mutation primitives (operate on the in-memory state dict) ─────────
@@ -3309,6 +3410,9 @@ def allocate_turn(
 
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
+        recovered_publications = _recover_response_publications(session_dir)
+        if _merge_recovered_publications(state, recovered_publications):
+            write_state_atomic(session_dir, state)
         if key is not None:
             existing = state["idempotency_records"].get(key)
             if isinstance(existing, dict):
@@ -3319,6 +3423,21 @@ def allocate_turn(
                     idempotency_key=idempotency_key,
                 )
                 if existing.get("request_hash") == request_digest:
+                    publication = _read_response_publication(
+                        turn_dir_for(session_root, session_id, str(context.turn_id))
+                    )
+                    if publication is not None:
+                        response = dict(publication["response"])
+                        _write_response_atomic(Path(existing["response_path"]), response)
+                        return TurnAllocation(
+                            context=context,
+                            session_dir=session_dir,
+                            turn_dir=turn_dir_for(session_root, session_id, str(context.turn_id)),
+                            state=state,
+                            request_hash=request_digest,
+                            idempotency_record_key=key,
+                            replay=IdempotencyReplay(response=response, record=dict(existing)),
+                        )
                     response = _load_response(existing.get("response_path"))
                     if response is not None:
                         return TurnAllocation(
@@ -3625,6 +3744,47 @@ def _resolve_stable_workflow_id(
     return str(uuid.uuid5(_WORKFLOW_ID_NAMESPACE, seed))
 
 
+def _publish_response_authority(
+    *,
+    turn_dir: Path,
+    scope: OperationScope,
+    idempotency_key: str | None,
+    request_hash: str,
+    response: Mapping[str, Any],
+    response_path: Path,
+    operation: str,
+    turn_id: str | None,
+) -> dict[str, Any]:
+    """Publish or recover the immutable commit point for a completed turn."""
+    path = _response_publication_path(turn_dir)
+    record = {
+        "schema_version": 1,
+        "scope": scope,
+        "idempotency_key": idempotency_key,
+        "request_hash": request_hash,
+        "response_hash": payload_hash(response),
+        "response_path": str(response_path),
+        "operation": operation,
+        "turn_id": turn_id,
+        "created_at": _now(),
+        "response": json.loads(json.dumps(dict(response))),
+    }
+    existing = _read_response_publication(turn_dir)
+    if existing is not None:
+        if existing.get("request_hash") != request_hash:
+            raise ValueError("idempotency key was reused with a different request hash")
+        return existing
+    _write_response_immutable(path, record)
+    published = _read_response_publication(turn_dir)
+    if published is None:
+        raise DurableReadError(
+            DurableRead("unreadable", path=path, error="publication disappeared after write")
+        )
+    if published.get("request_hash") != request_hash:
+        raise ValueError("concurrent publication claimed a different request hash")
+    return published
+
+
 def record_idempotent_response(
     *,
     session_root: Path,
@@ -3866,37 +4026,6 @@ def record_idempotent_response(
             stamped_candidate["state"] = transaction["state"]
             stamped_response["candidate"] = stamped_candidate
     response_digest = payload_hash(stamped_response)
-    # Persist state mutation and idempotency record BEFORE publishing
-    # response.json so that durable state always precedes the response
-    # artifact.  If state persistence fails the response never becomes
-    # visible, preventing orphaned successful responses.
-    if key is None:
-        # Unkeyed edit path: persist turn state first, then publish response.
-        if scope == "edit" and turn_id is not None:
-            session_dir = session_dir_for(session_root, session_id)
-            with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
-                state = read_state(session_dir)
-                turn_record = state["turns"].get(turn_id)
-                if isinstance(turn_record, dict):
-                    _stamp_recorded_candidate(
-                        turn_record,
-                        candidate_graph_hash=candidate_graph_hash,
-                        agent_edit_protocol=agent_edit_protocol,
-                        candidate_structural_graph_hash=candidate_structural_graph_hash,
-                        candidate_plan_hash=candidate_plan_hash,
-                        candidate_structural_hash_before=candidate_structural_hash_before,
-                        candidate_structural_hash_after=candidate_structural_hash_after,
-                    )
-                    write_state_atomic(session_dir, state)
-        # Atomically publish response.json after durable state completes.
-        _write_response_atomic(response_path, stamped_response)
-        # The HTTP caller must observe the same validated v2 aggregate that was
-        # durably published; returning the pre-stamp object would strand the
-        # first browser review until a rehydrate.
-        published_response = json.loads(json.dumps(stamped_response))
-        response.clear()
-        response.update(published_response)
-        return None
     record = {
         "request_hash": request_hash,
         "response_hash": response_digest,
@@ -3906,10 +4035,45 @@ def record_idempotent_response(
         "turn_id": turn_id,
     }
     session_dir = session_dir_for(session_root, session_id)
-    # Keyed edit path: persist turn state + idempotency record first,
-    # then publish response.
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
+        recovered_publications = _recover_response_publications(session_dir)
+        if _merge_recovered_publications(state, recovered_publications):
+            write_state_atomic(session_dir, state)
+        if key is not None:
+            existing = state["idempotency_records"].get(key)
+            if isinstance(existing, Mapping):
+                if existing.get("request_hash") != request_hash:
+                    raise ValueError("idempotency key was reused with a different request hash")
+                existing_response = _load_response(existing.get("response_path"))
+                if existing_response is None:
+                    publication = _read_response_publication(
+                        turn_dir_for(session_root, session_id, str(existing.get("turn_id")))
+                    )
+                    existing_response = dict(publication["response"]) if publication is not None else None
+                if existing_response is None:
+                    raise DurableReadError(
+                        DurableRead(
+                            "unreadable",
+                            path=Path(str(existing.get("response_path", response_path))),
+                            error="idempotency record has no recoverable response",
+                        )
+                    )
+                _write_response_atomic(Path(str(existing["response_path"])), existing_response)
+                response.clear()
+                response.update(existing_response)
+                return dict(existing)
+        publication = _publish_response_authority(
+            turn_dir=response_path.parent,
+            scope=scope,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            response=stamped_response,
+            response_path=response_path,
+            operation=operation,
+            turn_id=turn_id,
+        )
+        authoritative_response = dict(publication["response"])
         if scope == "edit" and turn_id is not None:
             turn_record = state["turns"].get(turn_id)
             if isinstance(turn_record, dict):
@@ -3922,12 +4086,16 @@ def record_idempotent_response(
                     candidate_structural_hash_before=candidate_structural_hash_before,
                     candidate_structural_hash_after=candidate_structural_hash_after,
                 )
-        state["idempotency_records"][key] = record
+        if key is not None:
+            record = {
+                **record,
+                "response_hash": publication["response_hash"],
+                "publication_path": str(_response_publication_path(response_path.parent)),
+            }
+            state["idempotency_records"][key] = record
         write_state_atomic(session_dir, state)
-    # Atomically publish response.json after durable state + idempotency
-    # record completes.
-    _write_response_atomic(response_path, stamped_response)
-    published_response = json.loads(json.dumps(stamped_response))
+        _write_response_atomic(response_path, authoritative_response)
+    published_response = json.loads(json.dumps(authoritative_response))
     response.clear()
     response.update(published_response)
     return record
