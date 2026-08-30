@@ -250,6 +250,8 @@ _EVIDENCE_ATTRS = (
     "phase",
     "endpoint",
     "empty_response",
+    "fixture",
+    "fixture_error",
 )
 
 
@@ -267,7 +269,38 @@ def _audit_with_runtime_attempts(
     usage = response.get("deepseek_usage")
     if isinstance(usage, Mapping):
         merged["deepseek_usage"] = dict(usage)
+    fixture = response.get("fixture")
+    if isinstance(fixture, Mapping):
+        # Deterministic fixture runtimes provide provenance so evidence readers
+        # can distinguish an explicit match from an unsafe-looking fallback.
+        merged["fixture"] = dict(fixture)
+    fixture_error = response.get("error")
+    if isinstance(fixture_error, Mapping):
+        merged["fixture_error"] = dict(fixture_error)
+    sidecar = getattr(response, "audit_metadata", None)
+    if isinstance(sidecar, Mapping):
+        merged.update(dict(sidecar))
     return merged
+
+
+def _fixture_provider_error(response: Any) -> ProviderError | None:
+    """Turn a fixture runtime's typed refusal into a provider error."""
+    if not isinstance(response, Mapping):
+        return None
+    error = response.get("error")
+    if not isinstance(error, Mapping) or error.get("kind") not in {
+        "fixture_not_found",
+        "fixture_corruption",
+        "fixture_ambiguous",
+    }:
+        return None
+    message = str(error.get("message") or "fixture selection failed")
+    failure = ProviderError(f"Fixture provider refused the request: {message}")
+    fixture = response.get("fixture")
+    if isinstance(fixture, Mapping):
+        failure.fixture = dict(fixture)  # type: ignore[attr-defined]
+    failure.fixture_error = dict(error)  # type: ignore[attr-defined]
+    return failure
 
 
 def _forward_evidence_attrs(source: BaseException, target: BaseException) -> None:
@@ -1479,6 +1512,9 @@ def _normalize_agent_response(
 ) -> AgentTurnResult:
     if isinstance(response, AgentTurnResult):
         return response
+    fixture_error = _fixture_provider_error(response)
+    if fixture_error is not None:
+        raise fixture_error
     merged_audit = _audit_with_runtime_attempts(audit_metadata, response)
     if isinstance(response, str):
         payload = _extract_json_object(response)
@@ -1698,6 +1734,9 @@ def run_agent_turn_delta(
             provider="arnold",
         )
         raise wrapped from exc
+    fixture_error = _fixture_provider_error(response)
+    if fixture_error is not None:
+        raise fixture_error
     try:
         return normalize_delta_agent_response(
             response,
@@ -1730,6 +1769,9 @@ def _normalize_batch_response(
     """
     if isinstance(response, BatchTurnResult):
         return response
+    fixture_error = _fixture_provider_error(response)
+    if fixture_error is not None:
+        raise fixture_error
     merged_audit = _audit_with_runtime_attempts(audit_metadata, response)
     if isinstance(response, str):
         text = response

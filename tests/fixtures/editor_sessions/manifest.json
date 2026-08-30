@@ -2,106 +2,127 @@
   "023d3c0c98fd7581": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to sdxl",
-    "turn": "0009"
+    "turn": "0009",
+    "task_hash": "a1b9f2401adcd765"
   },
   "19fe1f725aab5ad1": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to sdxl",
-    "turn": "0007"
+    "turn": "0007",
+    "task_hash": "a1b9f2401adcd765"
   },
   "1c2d18e616756f23": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to using SD1.5",
-    "turn": "0008"
+    "turn": "0008",
+    "task_hash": "678988b68307249e"
   },
   "2e6aa01c8190bcc6": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "set the refiner sampler seed to 999",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "811aef4eb235347e"
   },
   "31786a6921e67f73": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "on the base sampler: set seed to 777, steps to 22, and cfg to 7.5",
-    "turn": "0016"
+    "turn": "0016",
+    "task_hash": "f99794c800357b3c"
   },
   "327b0e1235c353a9": {
     "session": "smoke_upscale_1",
     "task_preview": "Add a 2x latent/image upscale step immediately after the video VAE decode, and rewire the existing video save node to sa",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "2e2ce6f8992769ad"
   },
   "66e9a889a48d5f60": {
     "session": "hard_bypass_rewire",
     "task_preview": "Bypass the video VAE decode node and instead wire the video save node's images input directly from whatever feeds the de",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "31b939ee41ae0d5d"
   },
   "67785df94db647ca": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to SDXL",
-    "turn": "0002"
+    "turn": "0002",
+    "task_hash": "ef9ad4b827af3b36"
   },
   "7236d63ed7281dab": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to SDXL",
-    "turn": "0004"
+    "turn": "0004",
+    "task_hash": "ef9ad4b827af3b36"
   },
   "77fc0663bd2f970b": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to SD1.5",
-    "turn": "0005"
+    "turn": "0005",
+    "task_hash": "ef46c7b6c61a4a5a"
   },
   "784ded6bdd9aa05a": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to SDXL",
-    "turn": "0006"
+    "turn": "0006",
+    "task_hash": "ef9ad4b827af3b36"
   },
   "9a568fba547742b4": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "renable the upscale",
-    "turn": "0012"
+    "turn": "0012",
+    "task_hash": "16343f74d2ebec35"
   },
   "9bf513b368db1f2b": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "set the base sampler steps to 24 and seed to 5",
-    "turn": "0014"
+    "turn": "0014",
+    "task_hash": "f19640e5f3f6b7a5"
   },
   "be790a2a958a7975": {
     "session": "hard_multinode_branch",
     "task_preview": "Add a SECOND save branch: add a new SaveImage node AND wire it from the existing video VAE decode output, so the decoded",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "91d2895d5731975e"
   },
   "dd8f098bfa45e4ec": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "set the base sampler steps to 24",
-    "turn": "0013"
+    "turn": "0013",
+    "task_hash": "803ba764844daf23"
   },
   "e0b4f2df7b4da808": {
     "session": "browser_val_1",
     "task_preview": "Add a 2x ImageScaleBy upscale step immediately after the video VAE decode and rewire the video combine/save node to cons",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "9d294402bf7423ae"
   },
   "f087f0e783d70e1c": {
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to SDXL",
-    "turn": "0003"
+    "turn": "0003",
+    "task_hash": "ef9ad4b827af3b36"
   },
   "e1e66945696eb200": {
     "session": "replay_alias_depth_1",
     "task_preview": "Add a MiDaS-DepthMapPreprocessor depth preprocessor node after the image loader and wire it",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "e1e66945696eb200"
   },
   "027438a220843baa": {
     "session": "replay_canonical_uid_1",
     "task_preview": "add a new SaveImage node after the VAE decode and wire it with canonical uid and node_id identity",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "027438a220843baa"
   },
   "73344eebdb00a928": {
     "session": "replay_malformed_delta_1",
     "task_preview": "apply operations with a malformed add_node missing uid and node_id",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "73344eebdb00a928"
   },
   "9a30ba0715a88eed": {
     "session": "replay_preview_apply_1",
     "task_preview": "set the sampler seed to 42 and the steps to 20 with preview apply parity",
-    "turn": "0001"
+    "turn": "0001",
+    "task_hash": "9a30ba0715a88eed"
   }
 }
