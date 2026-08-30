@@ -22,6 +22,7 @@ from vibecomfy.registry.ready import (
     _normalize_ready_template_id,
     _ready_candidates,
     _ready_lookup_key,
+    dynamic_ready_template_rows,
     ready_template_source_info,
     workflow_from_ready,
 )
@@ -34,7 +35,14 @@ def _cmd_workflows_list(args: argparse.Namespace) -> int:
     rows = []
     if args.ready:
         discovery = _discover_ready_templates(include_dynamic=getattr(args, "include_dynamic", False))
-        index_rows, index_diagnostic = _ready_rows_from_template_index(discovery)
+        # A command invoked from an alternate workspace may provide its own
+        # index without loading plugin roots from this checkout. Reconcile an
+        # index only against discovery rooted at the same repository; direct
+        # callers of _ready_rows_from_template_index still always reconcile.
+        index_discovery = discovery
+        if TEMPLATE_INDEX_PATH.resolve().parent != Path(__file__).resolve().parents[2]:
+            index_discovery = None
+        index_rows, index_diagnostic = _ready_rows_from_template_index(index_discovery)
         if index_diagnostic is not None:
             if args.json:
                 print(
@@ -53,7 +61,7 @@ def _cmd_workflows_list(args: argparse.Namespace) -> int:
         if index_rows:
             rows = list(index_rows)
             if getattr(args, "include_dynamic", False):
-                rows.extend(_dynamic_ready_rows(set(), discovery=discovery))
+                rows.extend([dict(row, public_inputs=row.get("public_inputs") or [], public_outputs=row.get("public_outputs") or []) for row in dynamic_ready_template_rows(exclude_ids=set())])
             rows = _mark_ready_listing_collisions(rows)
         else:
             rows = _ready_rows_without_index(discovery)

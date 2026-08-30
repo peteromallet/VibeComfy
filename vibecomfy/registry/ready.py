@@ -598,7 +598,28 @@ def _canonical_root(root: Path) -> Path:
     """Recover stable directory-entry spelling for an existing root."""
     resolved = root.expanduser().resolve()
     if not resolved.exists():
-        return Path(unicodedata.normalize("NFC", str(resolved)))
+        # A case-variant spelling of an existing directory can be produced by
+        # plugin registration on case-insensitive hosts. Recover each known
+        # directory-entry component, but leave genuinely missing roots that
+        # merely differ by case distinct.
+        current = Path(resolved.anchor)
+        for component in resolved.parts[1:]:
+            desired = current / component
+            if desired.exists():
+                current = desired
+                continue
+            if not current.exists():
+                return Path(unicodedata.normalize("NFC", str(resolved)))
+            folded_name = unicodedata.normalize("NFC", component).casefold()
+            matches = [
+                child
+                for child in current.iterdir()
+                if unicodedata.normalize("NFC", child.name).casefold() == folded_name
+            ]
+            if len(matches) != 1:
+                return Path(unicodedata.normalize("NFC", str(resolved)))
+            current = matches[0]
+        return current
     current = Path(resolved.anchor)
     for component in resolved.parts[1:]:
         desired = current / component
