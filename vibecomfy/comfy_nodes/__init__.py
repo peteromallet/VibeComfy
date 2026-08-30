@@ -24,6 +24,7 @@ import logging
 import os
 import sys
 import hashlib
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +52,15 @@ _WEB_DIRECTORY = "./web"  # fallback
 _MODULE_START_AT_UTC = datetime.now(timezone.utc)
 _PROCESS_START_ID = uuid.uuid4().hex
 _INFO_CONTRACT_VERSION = 1
+
+_ROUTES_UNINITIALIZED = "uninitialized"
+_ROUTES_LOADING = "loading"
+_ROUTES_READY = "ready"
+_ROUTES_FAILED = "failed"
+_route_state = _ROUTES_UNINITIALIZED
+_route_error: BaseException | None = None
+_route_owner_thread: int | None = None
+_route_condition = threading.Condition(threading.RLock())
 
 
 def _web_source_hash() -> str | None:
@@ -216,55 +226,107 @@ def _ensure_comfyui_root_on_path() -> None:
     _LOGGER.warning("Could not locate ComfyUI root (no server.py + nodes.py found).")
 
 
-if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":
+def _register_routes_once() -> None:
     _ensure_comfyui_root_on_path()
+    from ._server_compat import import_prompt_server
+
+    global PromptServer
+    PromptServer = import_prompt_server()
+    instance = PromptServer.instance
+
+    prior_error = getattr(instance, "_vibecomfy_routes_registration_error", None)
+    if getattr(instance, "_vibecomfy_routes_registration_failed", False):
+        if isinstance(prior_error, BaseException):
+            raise prior_error
+        raise RuntimeError("VibeComfy route registration previously failed")
+
+    # Guard against double registration. ComfyUI can import this module via
+    # multiple paths (e.g. the custom_nodes symlink and the package itself),
+    # which causes Python to execute it twice. PromptServer.instance is shared,
+    # so a single marker there prevents duplicate aiohttp routes.
+    if getattr(instance, "_vibecomfy_routes_registered", False):
+        _LOGGER.info("VibeComfy routes already registered; skipping.")
+        return
+
+    instance._vibecomfy_routes_registered = True
+    _LOGGER.info("PromptServer imported; registering VibeComfy routes.")
+    try:
+        from .http_security import (
+            CSRF_BOOTSTRAP_PATH,
+            csrf_bootstrap_response,
+            install_http_namespace_middleware,
+            register_http_route,
+        )
+
+        global _vibecomfy_ping, _vibecomfy_info, _vibecomfy_csrf_bootstrap
+
+        @register_http_route(instance.routes, "GET", "/vibecomfy/ping")
+        async def _vibecomfy_ping(request):  # type: ignore[no-untyped-def]
+            from aiohttp import web
+
+            return web.json_response({"status": "ok"})
+
+        @register_http_route(instance.routes, "GET", "/vibecomfy/info")
+        async def _vibecomfy_info(request):  # type: ignore[no-untyped-def]
+            from aiohttp import web
+
+            return web.json_response(_info_payload())
+
+        @register_http_route(instance.routes, "GET", CSRF_BOOTSTRAP_PATH)
+        async def _vibecomfy_csrf_bootstrap(request):  # type: ignore[no-untyped-def]
+            return csrf_bootstrap_response()
+
+        from .agent import routes  # noqa: F401
+
+        install_http_namespace_middleware(instance)
+        _LOGGER.info("VibeComfy routes registered successfully.")
+    except BaseException as error:
+        instance._vibecomfy_routes_registration_failed = True
+        instance._vibecomfy_routes_registration_error = error
+        raise
+
+
+def _ensure_routes_registered() -> None:
+    global _route_error, _route_owner_thread, _route_state
+    current_thread = threading.get_ident()
+    with _route_condition:
+        while True:
+            if _route_state == _ROUTES_READY:
+                return
+            if _route_state == _ROUTES_FAILED:
+                error = _route_error
+                if error is None:
+                    raise RuntimeError("route registration failed without a diagnostic")
+                raise error
+            if _route_state == _ROUTES_LOADING:
+                if _route_owner_thread == current_thread:
+                    raise RuntimeError("route registration is not reentrant")
+                _route_condition.wait()
+                continue
+            _route_state = _ROUTES_LOADING
+            _route_owner_thread = current_thread
+            break
 
     try:
-        from ._server_compat import import_prompt_server
+        _register_routes_once()
+    except BaseException as error:
+        with _route_condition:
+            _route_error = error
+            _route_owner_thread = None
+            _route_state = _ROUTES_FAILED
+            _route_condition.notify_all()
+        raise
 
-        PromptServer = import_prompt_server()
+    with _route_condition:
+        _route_error = None
+        _route_owner_thread = None
+        _route_state = _ROUTES_READY
+        _route_condition.notify_all()
 
-        # Guard against double registration. ComfyUI can import this module via
-        # multiple paths (e.g. the custom_nodes symlink and the package itself),
-        # which causes Python to execute it twice. PromptServer.instance is shared,
-        # so a single marker there prevents duplicate aiohttp routes.
-        if getattr(PromptServer.instance, "_vibecomfy_routes_registered", False):
-            _LOGGER.info("VibeComfy routes already registered; skipping.")
-        else:
-            PromptServer.instance._vibecomfy_routes_registered = True
-            _LOGGER.info("PromptServer imported; registering VibeComfy routes.")
 
-            from .http_security import (
-                CSRF_BOOTSTRAP_PATH,
-                csrf_bootstrap_response,
-                install_http_namespace_middleware,
-                register_http_route,
-            )
-
-            @register_http_route(PromptServer.instance.routes, "GET", "/vibecomfy/ping")
-            async def _vibecomfy_ping(request):  # type: ignore[no-untyped-def]
-                from aiohttp import web
-
-                return web.json_response({"status": "ok"})
-
-            @register_http_route(PromptServer.instance.routes, "GET", "/vibecomfy/info")
-            async def _vibecomfy_info(request):  # type: ignore[no-untyped-def]
-                from aiohttp import web
-
-                return web.json_response(_info_payload())
-
-            @register_http_route(
-                PromptServer.instance.routes, "GET", CSRF_BOOTSTRAP_PATH
-            )
-            async def _vibecomfy_csrf_bootstrap(request):  # type: ignore[no-untyped-def]
-                return csrf_bootstrap_response()
-
-            from .agent import routes  # noqa: F401
-
-            install_http_namespace_middleware(PromptServer.instance)
-
-            _LOGGER.info("VibeComfy routes registered successfully.")
-
+if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":
+    try:
+        _ensure_routes_registered()
     except ImportError as _route_import_exc:
         _LOGGER.warning(
             "Could not register VibeComfy agent routes (%s); "

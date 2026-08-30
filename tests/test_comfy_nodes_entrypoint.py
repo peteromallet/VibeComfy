@@ -5,12 +5,22 @@ from __future__ import annotations
 import asyncio
 import importlib
 import sys
+import threading
 import tomllib
 import types
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _reset_route_state(module) -> None:
+    with module._route_condition:
+        module._route_state = module._ROUTES_UNINITIALIZED
+        module._route_error = None
+        module._route_owner_thread = None
 
 
 def test_entry_point_resolves_vibecomfy_in_comfyui_group() -> None:
@@ -71,9 +81,15 @@ def _reload_comfy_nodes_with_fake_server(monkeypatch):
 
             return _decorator
 
+    class _Router:
+        def routes(self):
+            return []
+
     server_module = types.ModuleType("server")
     server_module.PromptServer = types.SimpleNamespace(
-        instance=types.SimpleNamespace(routes=_Routes())
+        instance=types.SimpleNamespace(
+            routes=_Routes(), app=types.SimpleNamespace(router=_Router())
+        )
     )
     aiohttp_module = types.ModuleType("aiohttp")
     aiohttp_module.web = types.SimpleNamespace(
@@ -160,6 +176,107 @@ def test_comfy_nodes_info_route_keeps_success_when_git_facts_unavailable(
     assert body["git_dirty"] is None
     assert body["git_state"] == "unavailable"
     assert "restore_git_metadata" in body["remediation"]
+
+
+def test_route_registration_has_one_owner_under_concurrency(monkeypatch) -> None:
+    module = importlib.import_module("vibecomfy.comfy_nodes")
+    _reset_route_state(module)
+    entered = threading.Event()
+    release = threading.Event()
+    waiter_done = threading.Event()
+    calls = 0
+    errors: list[BaseException] = []
+    results: list[object] = []
+
+    def register_once() -> None:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(timeout=5)
+
+    def run_registration(done: threading.Event | None = None) -> None:
+        try:
+            module._ensure_routes_registered()
+            results.append(True)
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            if done is not None:
+                done.set()
+
+    monkeypatch.setattr(module, "_register_routes_once", register_once)
+    owner = threading.Thread(target=run_registration)
+    waiter = threading.Thread(target=run_registration, args=(waiter_done,))
+    owner.start()
+    assert entered.wait(timeout=5)
+    waiter.start()
+    assert not waiter_done.wait(timeout=0.05)
+    release.set()
+    owner.join(timeout=5)
+    waiter.join(timeout=5)
+
+    assert calls == 1
+    assert errors == []
+    assert results == [True, True]
+    assert module._route_state == module._ROUTES_READY
+
+
+@pytest.mark.parametrize(
+    "phase",
+    [
+        "PromptServer import",
+        "route decorators",
+        "agent routes import",
+        "middleware install",
+        "startup audit",
+    ],
+)
+def test_route_registration_failure_at_each_phase_is_terminal(
+    monkeypatch, phase: str
+) -> None:
+    module = importlib.import_module("vibecomfy.comfy_nodes")
+    _reset_route_state(module)
+    entered = threading.Event()
+    release = threading.Event()
+    waiter_done = threading.Event()
+    failure = RuntimeError(f"synthetic {phase} failure")
+    calls = 0
+    errors: list[BaseException] = []
+
+    def register_once() -> None:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(timeout=5)
+        raise failure
+
+    def run_registration(done: threading.Event | None = None) -> None:
+        try:
+            module._ensure_routes_registered()
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            if done is not None:
+                done.set()
+
+    monkeypatch.setattr(module, "_register_routes_once", register_once)
+    owner = threading.Thread(target=run_registration)
+    waiter = threading.Thread(target=run_registration, args=(waiter_done,))
+    owner.start()
+    assert entered.wait(timeout=5)
+    waiter.start()
+    assert not waiter_done.wait(timeout=0.05)
+    release.set()
+    owner.join(timeout=5)
+    waiter.join(timeout=5)
+
+    assert calls == 1
+    assert errors == [failure, failure]
+    with pytest.raises(RuntimeError, match=f"synthetic {phase} failure") as repeated:
+        module._ensure_routes_registered()
+    assert repeated.value is failure
+    assert calls == 1
+    assert module._route_state == module._ROUTES_FAILED
 
 
 def test_git_info_snapshot_derives_validated_sha_from_git_and_reports_state(
