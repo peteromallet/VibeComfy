@@ -29,8 +29,6 @@ import shutil
 import sys
 from pathlib import Path
 
-from vibecomfy.utils import find_repo_root
-
 __all__ = [
     "FIXTURE_ROOT",
     "SMOKE_FIXTURES",
@@ -41,8 +39,21 @@ __all__ = [
 ]
 
 
-# Resolve the committed fixture root relative to the repository checkout.
-FIXTURE_ROOT: Path = (find_repo_root() / "ready_templates/sources" / "input").resolve()
+def _package_relative_fixture_root() -> Path:
+    """Return the checkout-relative corpus path without requiring a checkout.
+
+    In a wheel this candidate simply does not exist, which is intentional:
+    callers can still import/list/copy and the copy path will use its existing
+    synthetic fallback.  In a source checkout ``__file__`` anchors discovery
+    independently of the process CWD.
+    """
+
+    return (Path(__file__).resolve().parents[2] / "ready_templates/sources/input").resolve()
+
+
+# Keep this public name for callers/tests that inspect or override the source
+# corpus, while avoiding the checkout-only ``find_repo_root`` import contract.
+FIXTURE_ROOT: Path = _package_relative_fixture_root()
 
 
 # Names of the committed video fixtures expected to carry an audio stream.

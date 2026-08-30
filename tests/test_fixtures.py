@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from vibecomfy.testing import smoke_fixtures as fixtures
+
+
+def _require_committed_corpus() -> None:
+    if not all((fixtures.FIXTURE_ROOT / name).is_file() for name in fixtures.SMOKE_FIXTURES):
+        pytest.skip("source checkout has no committed smoke-fixture corpus")
 
 
 def _has_audio_stream(path: Path) -> bool:
@@ -33,6 +41,7 @@ def _audio_frame_count(path: Path) -> int:
 
 
 def test_available_fixtures_includes_committed_assets() -> None:
+    _require_committed_corpus()
     available = fixtures.available_fixtures()
     # All expected smoke fixtures must be discovered on disk; this is the
     # contract that downstream callers (matrix bootstrap) rely on.
@@ -41,7 +50,46 @@ def test_available_fixtures_includes_committed_assets() -> None:
         assert available[name].is_file()
 
 
+def test_fixture_root_is_source_checkout_relative() -> None:
+    expected = (Path(__file__).resolve().parents[1] / "ready_templates/sources/input").resolve()
+    assert fixtures.FIXTURE_ROOT == expected
+
+
+def test_import_list_and_copy_work_without_a_checkout(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("av")
+    pytest.importorskip("PIL")
+    fake_site = tmp_path / "site-packages"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "vibecomfy", fake_site / "vibecomfy")
+    neutral_cwd = tmp_path / "neutral-cwd"
+    neutral_cwd.mkdir()
+    target = tmp_path / "copied-input"
+    script = """
+from pathlib import Path
+from vibecomfy.testing import smoke_fixtures as fixtures
+
+assert fixtures.available_fixtures() == {}
+written = fixtures.copy_smoke_fixtures(Path(__import__('sys').argv[1]))
+assert {path.name for path in written} == set(fixtures.SMOKE_FIXTURES)
+assert all(path.is_file() for path in written)
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(fake_site)
+    env["PYTHONNOUSERSITE"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(target)],
+        cwd=neutral_cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_committed_speech_smoke_is_non_silent() -> None:
+    _require_committed_corpus()
     av = pytest.importorskip("av")
     audio_path = fixtures.FIXTURE_ROOT / "speech_smoke.wav"
     assert audio_path.is_file()
@@ -62,6 +110,7 @@ def test_committed_speech_smoke_is_non_silent() -> None:
 
 @pytest.mark.parametrize("name", list(fixtures.GUIDE_VIDEOS))
 def test_committed_guide_videos_have_audio_stream(name: str) -> None:
+    _require_committed_corpus()
     pytest.importorskip("av")
     path = fixtures.FIXTURE_ROOT / name
     assert path.is_file(), f"missing committed video: {name}"
@@ -77,10 +126,14 @@ def test_copy_smoke_fixtures_copies_all(tmp_path: Path) -> None:
         target = tmp_path / expected
         source = fixtures.FIXTURE_ROOT / expected
         assert target.is_file()
-        assert target.stat().st_size == source.stat().st_size
+        if source.is_file():
+            assert target.stat().st_size == source.stat().st_size
+        else:
+            assert target.stat().st_size > 0
 
 
 def test_copy_smoke_fixtures_is_idempotent(tmp_path: Path) -> None:
+    _require_committed_corpus()
     first = fixtures.copy_smoke_fixtures(tmp_path)
     # Capture mtimes after the first copy.
     mtimes_before = {p: p.stat().st_mtime for p in first}
@@ -152,8 +205,10 @@ def test_cli_list_smoke(capsys: pytest.CaptureFixture[str]) -> None:
     rc = fixtures._main(["list"])
     assert rc == 0
     captured = capsys.readouterr()
-    # At minimum one expected fixture should be reported.
-    assert "speech_smoke.wav" in captured.out
+    if all((fixtures.FIXTURE_ROOT / name).is_file() for name in fixtures.SMOKE_FIXTURES):
+        assert "speech_smoke.wav" in captured.out
+    else:
+        assert captured.out == ""
 
 
 def test_cli_copy_smoke(tmp_path: Path) -> None:
