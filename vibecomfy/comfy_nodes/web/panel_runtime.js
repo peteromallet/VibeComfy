@@ -201,6 +201,11 @@ const SCOPE_SNAPSHOT_EXCLUDE = new Set([
   "__renderFailureCounts",
   "mountMode",
   "mountContainer",
+  // Live choose-engine overlay hooks are UI callbacks, not durable scope
+  // state.  Passing one to jsonClone would stringify it to undefined and
+  // then make JSON.parse(undefined) throw during a scope switch.
+  "chooseEngineRefresh",
+  "chooseEngineNavigateTo",
 ]);
 
 /**
@@ -254,6 +259,12 @@ export function saveScopeSnapshot(scopeId, panel) {
   const snapshot = {};
   for (const [key, val] of Object.entries(panel.state)) {
     if (SCOPE_SNAPSHOT_EXCLUDE.has(key)) {
+      continue;
+    }
+    // Keep future live callback fields out of the JSON snapshot boundary too.
+    // Nested functions retain the existing JSON-clone semantics, while a
+    // top-level function must never reach JSON.parse(undefined).
+    if (typeof val === "function") {
       continue;
     }
     // Null out in-flight async state — it belongs to the scope being left.
