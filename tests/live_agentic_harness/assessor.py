@@ -162,73 +162,197 @@ _RESPONSE_OUTCOME_KINDS = frozenset(
 )
 
 
+def _field_change_is_well_formed(value: Mapping[str, Any]) -> bool:
+    """Return whether *value* is a canonical display ``FieldChange``."""
+    return _non_empty_string(value.get("uid")) and _non_empty_string(
+        value.get("field_path")
+    )
+
+
+def _parsed_operation_is_well_formed(value: Mapping[str, Any]) -> bool:
+    """Validate one raw operation through the canonical edit parser."""
+    operation = value.get("op")
+    if isinstance(operation, Mapping):
+        operation = dict(operation)
+    elif isinstance(operation, str):
+        operation = dict(value)
+    else:
+        return False
+    # ``parse_edit_delta`` historically obtains set_node_field.value with
+    # ``get``; the response contract requires the field to be present even
+    # when its value is explicitly null.
+    if operation.get("op") == "set_node_field" and "value" not in operation:
+        return False
+    try:
+        from vibecomfy.porting.edit.ops import parse_edit_delta
+
+        parse_edit_delta([operation])
+    except Exception:
+        return False
+    return True
+
+
 def _change_entry_is_well_formed(value: Any) -> bool:
-    """Return whether a change/statement has a recognizable typed shape."""
+    """Return whether one outcome change is a canonical field change or op."""
     if not isinstance(value, Mapping) or not value:
         return False
-    if (
-        _non_empty_string(value.get("uid"))
-        and _non_empty_string(value.get("field_path"))
-    ):
-        return True
-    if (
-        _non_empty_string(value.get("node_id"))
-        and _non_empty_string(value.get("op"))
-    ):
-        return True
-    return _non_empty_string(value.get("op"))
+    if "op" in value:
+        return _parsed_operation_is_well_formed(value)
+    return _field_change_is_well_formed(value)
 
 
 def _accepted_batch_entry_is_well_formed(value: Any) -> bool:
     """Return whether one accepted-batch entry contains a valid edit op."""
     if not isinstance(value, Mapping):
         return False
-    operation = value.get("op")
-    if not isinstance(operation, Mapping):
-        return False
-    try:
-        # Keep this boundary aligned with the canonical edit operation parser;
-        # wrapper metadata is intentionally ignored.
-        from vibecomfy.porting.edit.ops import parse_edit_delta
-
-        parse_edit_delta([dict(operation)])
-    except Exception:
-        return False
-    return True
+    return isinstance(value.get("op"), Mapping) and _parsed_operation_is_well_formed(
+        value
+    )
 
 
-def _accepted_batch_is_well_formed(response: Mapping[str, Any]) -> bool:
+def _accepted_batch_is_well_formed(
+    response: Mapping[str, Any],
+    *,
+    allow_non_list: bool = False,
+) -> bool:
     """Return whether an explicitly present accepted Δ has its JSON shape."""
     if "accepted_batch" not in response:
         return True
     accepted_batch = response.get("accepted_batch")
     if not isinstance(accepted_batch, list):
-        # The expected-no-candidate assessor owns this legacy carrier error
-        # so it can preserve its existing error classification.
-        return True
+        # Only the explicit expected-no-candidate compatibility lane may
+        # defer this carrier's classification to its tri-state adjudicator.
+        return allow_non_list
     return all(_accepted_batch_entry_is_well_formed(item) for item in accepted_batch)
+
+
+def _graph_payload_is_well_formed(value: Any) -> bool:
+    """Return whether a candidate payload is a recognized canonical graph shape."""
+    if not isinstance(value, Mapping):
+        return False
+    try:
+        from vibecomfy.ingest.normalize import detect_workflow_shape
+
+        shape = detect_workflow_shape(dict(value))
+    except Exception:
+        return False
+    return shape in {"api", "ui", "vibe", "prompt_api"}
+
+
+def _candidate_payload_is_well_formed(value: Any) -> bool:
+    """Validate the graph-bearing shape of one legacy candidate payload."""
+    if not isinstance(value, Mapping):
+        return False
+    if value.get("contract_version") == "candidate_transaction_v2":
+        try:
+            from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+                validate_candidate_transaction,
+            )
+
+            return validate_candidate_transaction(value)[0]
+        except Exception:
+            return False
+    graph = value.get("graph") if "graph" in value else value
+    return _graph_payload_is_well_formed(graph)
+
+
+def _resolver_evidence_is_well_formed(value: Any) -> bool:
+    """Validate serialized resolver evidence when a candidate carries it."""
+    if not isinstance(value, list) or not value:
+        return False
+    for item in value:
+        if not isinstance(item, Mapping):
+            return False
+        if not all(
+            _non_empty_string(item.get(field))
+            for field in ("tier", "source", "endpoint")
+        ):
+            return False
+        if "cache_hit" in item and not isinstance(item["cache_hit"], bool):
+            return False
+        if "detail" in item and not isinstance(item["detail"], Mapping):
+            return False
+        matched = item.get("matched_classes")
+        if matched is not None and (
+            not isinstance(matched, list)
+            or not all(_non_empty_string(class_name) for class_name in matched)
+        ):
+            return False
+    return True
+
+
+def _custom_node_candidate_is_well_formed(value: Any) -> bool:
+    """Validate one resolver candidate's typed classes and evidence fields."""
+    if not isinstance(value, Mapping):
+        return False
+    expected_classes = value.get("expected_classes")
+    if (
+        not isinstance(expected_classes, list)
+        or not expected_classes
+        or not all(_non_empty_string(item) for item in expected_classes)
+    ):
+        return False
+    for field in ("pack", "provisional_schema"):
+        if field in value and not isinstance(value[field], Mapping):
+            return False
+    if "validation_mode" in value and not _non_empty_string(value["validation_mode"]):
+        return False
+    if "stable_install_hash" in value and not _non_empty_string(
+        value["stable_install_hash"]
+    ):
+        return False
+    if "runnable" in value and not isinstance(value["runnable"], bool):
+        return False
+    if "warnings" in value and (
+        not isinstance(value["warnings"], list)
+        or not all(_non_empty_string(item) for item in value["warnings"])
+    ):
+        return False
+    if "evidence" in value and not _resolver_evidence_is_well_formed(value["evidence"]):
+        return False
+    return True
+
+
+def _custom_node_candidates_are_well_formed(
+    outcome: Mapping[str, Any],
+) -> bool:
+    """Validate custom-node candidate evidence and its empty refusal exception."""
+    if "candidates" not in outcome:
+        return True
+    candidates = outcome["candidates"]
+    if not isinstance(candidates, list):
+        return False
+    if not candidates:
+        return outcome.get("kind") == "requires_custom_nodes"
+    return all(_custom_node_candidate_is_well_formed(item) for item in candidates)
 
 
 def _response_has_candidate_evidence(response: Mapping[str, Any]) -> bool:
     """Return whether a candidate outcome carries product evidence."""
-    for field in ("candidate", "candidate_graph", "candidate_transaction", "graph"):
+    explicit_fields = ("candidate", "candidate_graph", "candidate_transaction", "graph")
+    saw_explicit = False
+    for field in explicit_fields:
+        if field not in response:
+            continue
+        saw_explicit = True
         value = response.get(field)
-        if isinstance(value, Mapping) and bool(value):
-            return True
+        if not _candidate_payload_is_well_formed(value):
+            return False
+    if saw_explicit:
+        return True
     outcome = response.get("outcome")
     if (
         response.get("graph_unchanged") is False
         and isinstance(outcome, Mapping)
-        and outcome.get("kind") in {"candidate", "edit", "edit+clarify"}
+        and outcome.get("kind")
+        in {"candidate", "candidate_transaction", "edit", "edit+clarify"}
     ):
+        # A legacy response may omit the graph carrier entirely. Keep that
+        # envelope loadable so the assessor's landed-count and edit gates can
+        # classify it; any explicitly present malformed carrier fails closed
+        # above.
         return True
-    landed = _landed_operation_count(response)
-    return (
-        response.get("graph_unchanged") is False
-        and isinstance(landed, int)
-        and not isinstance(landed, bool)
-        and landed > 0
-    )
+    return False
 
 
 def _response_has_answer_evidence(
@@ -244,10 +368,15 @@ def _response_has_answer_evidence(
     for field in ("question", "reason"):
         if _non_empty_string(outcome.get(field)):
             return True
-    return bool(
-        isinstance(outcome.get("candidates"), list)
-        or isinstance(outcome.get("missing_classes"), list)
-    )
+    if "candidates" in outcome and _custom_node_candidates_are_well_formed(outcome):
+        return (
+            outcome["candidates"] == []
+            and outcome.get("kind") == "requires_custom_nodes"
+            or bool(outcome["candidates"])
+        )
+    if "missing_classes" in outcome:
+        return bool(outcome["missing_classes"])
+    return False
 
 
 def _response_outcome_is_well_formed(
@@ -280,20 +409,27 @@ def _response_outcome_is_well_formed(
             _change_entry_is_well_formed(item) for item in changes
         ):
             return False
-        if kind in {"clarify", "requires_custom_nodes", "respond"}:
+        if changes and kind not in {
+            "candidate",
+            "candidate_transaction",
+            "edit",
+            "edit+clarify",
+        }:
             return False
     if "missing_classes" in outcome:
         missing_classes = outcome["missing_classes"]
-        if not isinstance(missing_classes, list) or not all(
-            _non_empty_string(item) for item in missing_classes
+        if (
+            not isinstance(missing_classes, list)
+            or not missing_classes
+            or not all(_non_empty_string(item) for item in missing_classes)
         ):
             return False
-    if "candidates" in outcome:
-        candidates = outcome["candidates"]
-        if not isinstance(candidates, list) or not all(
-            isinstance(item, Mapping) for item in candidates
-        ):
-            return False
+    if not _custom_node_candidates_are_well_formed(outcome):
+        return False
+    if "evidence" in outcome and (
+        not isinstance(outcome["evidence"], Mapping) or not outcome["evidence"]
+    ):
+        return False
     if "clarification" in outcome:
         clarification = outcome["clarification"]
         if not isinstance(clarification, Mapping):
@@ -324,9 +460,10 @@ def _response_outcome_is_well_formed(
         if not _response_has_answer_evidence(response, outcome):
             return False
     elif kind == "respond":
-        if response.get("route") != "respond" or response.get(
-            "graph_unchanged"
-        ) is not True:
+        if (
+            response.get("route") != "respond"
+            or response.get("graph_unchanged") is not True
+        ):
             return False
     elif kind in {"error", "failure"}:
         failure_fields = (
@@ -355,9 +492,8 @@ def _legacy_response_without_outcome_is_valid(response: Mapping[str, Any]) -> bo
             _non_empty_string(response.get(field))
             for field in ("error", "failure_message", "message", "failure_kind")
         )
-    if (
-        response.get("graph_unchanged") is False
-        and _response_has_candidate_evidence(response)
+    if response.get("graph_unchanged") is False and _response_has_candidate_evidence(
+        response
     ):
         return True
     route = response.get("route")
@@ -368,7 +504,11 @@ def _legacy_response_without_outcome_is_valid(response: Mapping[str, Any]) -> bo
     )
 
 
-def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
+def _response_envelope_is_valid(
+    response: dict[str, Any],
+    *,
+    allow_non_list_accepted_batch: bool = False,
+) -> bool:
     """Validate every response shape dereferenced by the assessor or its judges."""
     has_ok = "ok" in response
     if has_ok and not isinstance(response["ok"], bool):
@@ -412,6 +552,7 @@ def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
         "candidate",
         "candidate_graph",
         "candidate_transaction",
+        "graph",
         "narrative_context",
         "apply_eligibility",
         "eligibility",
@@ -419,9 +560,16 @@ def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
     for field in mapping_fields:
         if field not in response:
             continue
-        if field == "candidate" and response[field] is None:
+        if (
+            field in {"candidate", "candidate_graph", "candidate_transaction", "graph"}
+            and response[field] is None
+        ):
             continue
         if not isinstance(response[field], dict):
+            return False
+    for field in ("candidate", "candidate_graph", "candidate_transaction", "graph"):
+        value = response.get(field)
+        if value is not None and not _candidate_payload_is_well_formed(value):
             return False
 
     readiness = response.get("readiness")
@@ -475,15 +623,19 @@ def _response_envelope_is_valid(response: dict[str, Any]) -> bool:
         "session_path_resolved",
         "plan_hash",
     ):
-        if field in response and response[field] is not None and not isinstance(
-            response[field], str
+        if (
+            field in response
+            and response[field] is not None
+            and not isinstance(response[field], str)
         ):
             return False
     for field in ("apply_eligible",):
         if field in response and not isinstance(response[field], bool):
             return False
 
-    if not _accepted_batch_is_well_formed(response):
+    if not _accepted_batch_is_well_formed(
+        response, allow_non_list=allow_non_list_accepted_batch
+    ):
         return False
     return True
 
@@ -499,7 +651,11 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _load_response_json(path: Path) -> tuple[dict[str, Any] | None, str]:
+def _load_response_json(
+    path: Path,
+    *,
+    allow_non_list_accepted_batch: bool = False,
+) -> tuple[dict[str, Any] | None, str]:
     """Parse, validate, and deeply freeze the response evidence exactly once."""
     if not path.is_file():
         return None, "missing"
@@ -509,7 +665,10 @@ def _load_response_json(path: Path) -> tuple[dict[str, Any] | None, str]:
         return None, "unavailable"
     except json.JSONDecodeError:
         return None, "malformed"
-    if not isinstance(parsed, dict) or not _response_envelope_is_valid(parsed):
+    if not isinstance(parsed, dict) or not _response_envelope_is_valid(
+        parsed,
+        allow_non_list_accepted_batch=allow_non_list_accepted_batch,
+    ):
         return None, "malformed"
     return _freeze_json(parsed), "valid"
 
@@ -1968,7 +2127,14 @@ def assess_live_output_dir(
     * ``judge_results`` — one entry per judge that ran.
     """
     output_dir = Path(output_dir)
-    response, response_state = _load_response_json(output_dir / "response.json")
+    no_candidate_contract = expected_no_candidate_contract(scenario or {})
+    if no_candidate_contract is None:
+        response, response_state = _load_response_json(output_dir / "response.json")
+    else:
+        response, response_state = _load_response_json(
+            output_dir / "response.json",
+            allow_non_list_accepted_batch=True,
+        )
     impl_result = _load_json(output_dir / "implementation_result.json")
 
     issues: list[dict[str, Any]] = []
@@ -1994,7 +2160,8 @@ def assess_live_output_dir(
     assessment_cfg = _assessment_config(scenario)
     skip_intent_judge = bool(assessment_cfg.get("skip_intent_judge"))
     skip_semantic_judge = bool(assessment_cfg.get("skip_semantic_judge"))
-    no_candidate_contract = expected_no_candidate_contract(scenario or {})
+    # The expected-no-candidate compatibility lane was selected before loading
+    # the response so its adjudicator can classify a malformed carrier itself.
     if (
         response is not None
         and no_candidate_contract is None
