@@ -61,6 +61,7 @@ def test_planted_structural_read_is_flagged() -> None:
 
 def test_semantic_projection_reads_are_not_raw_graph_reads() -> None:
     hits = scan_source(
+        "from vibecomfy.executor.revision_evidence import semantic_graph_projection\n"
         "before = semantic_graph_projection(original)\n"
         "after = semantic_graph_projection(candidate)\n"
         "same_nodes = before['nodes'] == after['nodes']\n"
@@ -85,6 +86,71 @@ def test_projection_provenance_does_not_allow_reassigned_or_arbitrary_dicts() ->
         filename="vibecomfy/arbitrary_projection_name.py",
     )
     assert any(item.kind == "structural_read" and item.detail == "nodes" for item in arbitrary)
+
+
+def test_projection_provenance_rejects_qualified_calls_and_all_rebinding_forms() -> None:
+    qualified = scan_source(
+        "before = helper.semantic_graph_projection(original)\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/qualified_projection.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in qualified)
+
+    wrong_import = scan_source(
+        "from untrusted import semantic_graph_projection\n"
+        "before = semantic_graph_projection(original)\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/untrusted_projection.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in wrong_import)
+
+    cases = {
+        "aug": "before = semantic_graph_projection(original)\nbefore += payload\nread = before['nodes']\n",
+        "for": "before = semantic_graph_projection(original)\nfor before in values:\n    read = before['nodes']\n",
+        "with": "before = semantic_graph_projection(original)\nwith context() as before:\n    read = before['nodes']\n",
+        "except": "before = semantic_graph_projection(original)\ntry:\n    work()\nexcept Exception as before:\n    read = before['nodes']\n",
+        "import": "before = semantic_graph_projection(original)\nimport something as before\nread = before['nodes']\n",
+        "parameter": "before = semantic_graph_projection(original)\ndef f(before):\n    return before['nodes']\n",
+        "lambda": "before = semantic_graph_projection(original)\nread = (lambda before: before['nodes'])(payload)\n",
+        "delete": "before = semantic_graph_projection(original)\ndel before\nread = before['nodes']\n",
+        "comprehension": "before = semantic_graph_projection(original)\nvalues = [before['nodes'] for before in payload]\n",
+    }
+    for name, source in cases.items():
+        hits = scan_source(source, filename=f"vibecomfy/rebound_{name}.py")
+        assert any(item.kind == "structural_read" and item.detail == "nodes" for item in hits), name
+
+
+def test_exact_projection_import_alias_remains_a_true_projection() -> None:
+    hits = scan_source(
+        "from vibecomfy.executor.revision_evidence import semantic_graph_projection as project\n"
+        "before = project(original)\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/projection_import_alias.py",
+    )
+    assert hits == ()
+
+
+def test_canonical_projection_definition_remains_a_true_projection() -> None:
+    hits = scan_source(
+        "def semantic_graph_projection(graph):\n"
+        "    return {'nodes': graph}\n"
+        "before = semantic_graph_projection(original)\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/executor/revision_evidence.py",
+    )
+    assert hits == ()
+
+
+def test_class_locals_are_not_treated_as_method_closure_bindings() -> None:
+    hits = scan_source(
+        "class Container:\n"
+        "    from vibecomfy.executor.revision_evidence import semantic_graph_projection\n"
+        "    def method(self):\n"
+        "        before = semantic_graph_projection(original)\n"
+        "        return before['nodes']\n",
+        filename="vibecomfy/class_scope_projection.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in hits)
 
 
 def test_doors_are_not_ci_violations() -> None:

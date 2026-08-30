@@ -18,8 +18,9 @@ dict that happens to use those key names as LiteGraph:
   formatted report fields.
 * Non-graph ``data`` blobs — CLI census, layout-section node-id lists,
   and Comfy websocket event fields.
-* Results assigned directly from ``semantic_graph_projection()`` — these are
-  already-normalized projection data, not raw LiteGraph input.
+* Results assigned directly from the exact ``semantic_graph_projection``
+  binding — these are already-normalized projection data, not raw LiteGraph
+  input.
 
 Those collisions are suppressed by ``_NON_GRAPH_RECEIVER``.  Product
 files that need a structural read must call door helpers in
@@ -156,27 +157,173 @@ def _call_name(node: ast.Call) -> str | None:
     return None
 
 
-def _is_semantic_graph_projection_call(node: ast.AST) -> bool:
-    """Return whether *node* is a direct call to the known graph projection."""
-    if not isinstance(node, ast.Call):
-        return False
-    return _call_name(node) == "semantic_graph_projection"
+def _is_semantic_graph_projection_call(
+    node: ast.AST,
+    trusted_bindings: frozenset[str],
+) -> bool:
+    """Return whether *node* calls an exact trusted projection binding."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in trusted_bindings
+    )
 
 
-def _semantic_projection_receivers(tree: ast.AST) -> frozenset[str]:
-    """Find names with one unambiguous semantic-projection assignment.
+class _BindingScopes(ast.NodeVisitor):
+    """Collect lexical bindings without attempting general dataflow."""
 
-    This is deliberately assignment-derived rather than a receiver-name
-    allow-list: ``before`` and ``after`` are not intrinsically safe names.
-    Names with any reassignment remain graph-shaped and continue to be
-    reported.  The narrow provenance rule covers the normalized dictionaries
-    returned by ``semantic_graph_projection`` without weakening planted-read
-    detection elsewhere in the product.
-    """
-    assignments: dict[str, list[ast.AST]] = {}
+    def __init__(self, *, filename: str) -> None:
+        self.filename = filename
+        self.scope_stack = [0]
+        self.parents: dict[int, int | None] = {0: None}
+        self.scope_kinds: dict[int, str] = {0: "module"}
+        self.node_scopes: dict[int, int] = {}
+        self.bindings: dict[int, dict[str, list[int]]] = {0: {}}
+        self.trusted: dict[int, dict[str, list[int]]] = {0: {}}
+        self.unknown_scopes: set[int] = set()
+
+    @property
+    def scope(self) -> int:
+        return self.scope_stack[-1]
+
+    def visit(self, node: ast.AST) -> object:
+        self.node_scopes[id(node)] = self.scope
+        return super().visit(node)
+
+    def bind(self, name: str, node: ast.AST) -> None:
+        self.bindings.setdefault(self.scope, {}).setdefault(name, []).append(id(node))
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.bind(node.id, node)
+
+    def trust(self, name: str, node: ast.AST) -> None:
+        self.trusted.setdefault(self.scope, {}).setdefault(name, []).append(id(node))
+
+    def enter_scope(self, node: ast.AST, *, kind: str = "function") -> None:
+        child = id(node)
+        parent = self.scope
+        # Class locals are not closure variables for methods or nested
+        # functions; skip a class scope when establishing their parent.
+        if kind == "function" and self.scope_kinds.get(parent) == "class":
+            parent = self.parents[parent]
+        self.parents[child] = parent
+        self.scope_kinds[child] = kind
+        self.bindings[child] = {}
+        self.trusted[child] = {}
+        self.scope_stack.append(child)
+
+    def leave_scope(self) -> None:
+        self.scope_stack.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.bind(node.name, node)
+        if node.name == "semantic_graph_projection" and self.scope == 0 and self.filename.replace("\\", "/").endswith("vibecomfy/executor/revision_evidence.py"):
+            self.trust(node.name, node)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        if node.returns is not None:
+            self.visit(node.returns)
+        self.enter_scope(node)
+        self._visit_arguments(node.args)
+        for statement in node.body:
+            self.visit(statement)
+        self.leave_scope()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        self.enter_scope(node)
+        self._visit_arguments(node.args)
+        self.visit(node.body)
+        self.leave_scope()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.bind(node.name, node)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in (*node.bases, *node.keywords):
+            self.visit(base)
+        self.enter_scope(node, kind="class")
+        for statement in node.body:
+            self.visit(statement)
+        self.leave_scope()
+
+    def _visit_arguments(self, node: ast.arguments) -> None:
+        for arg in (*node.posonlyargs, *node.args, *node.kwonlyargs):
+            self.bind(arg.arg, arg)
+            if arg.annotation is not None:
+                self.visit(arg.annotation)
+        if node.vararg is not None:
+            self.bind(node.vararg.arg, node.vararg)
+        if node.kwarg is not None:
+            self.bind(node.kwarg.arg, node.kwarg)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.bind(alias.asname or alias.name.split(".", 1)[0], alias)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name == "*":
+                self.unknown_scopes.add(self.scope)
+                continue
+            name = alias.asname or alias.name
+            self.bind(name, alias)
+            if (
+                node.level == 0
+                and node.module == "vibecomfy.executor.revision_evidence"
+                and alias.name == "semantic_graph_projection"
+            ):
+                self.trust(name, alias)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.type is not None:
+            self.visit(node.type)
+        if node.name:
+            self.bind(node.name, node)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_Global(self, node: ast.Global) -> None:
+        self.unknown_scopes.add(self.scope)
+
+    visit_Nonlocal = visit_Global
+
+    def visit_MatchAs(self, node: ast.MatchAs) -> None:
+        if node.name:
+            self.bind(node.name, node)
+        if node.pattern is not None:
+            self.visit(node.pattern)
+
+    def visit_MatchStar(self, node: ast.MatchStar) -> None:
+        if node.name:
+            self.bind(node.name, node)
+
+
+def _semantic_projection_receivers(
+    tree: ast.AST,
+    filename: str,
+) -> tuple[
+    dict[int, frozenset[str]],
+    dict[int, int | None],
+    dict[int, dict[str, list[int]]],
+    set[int],
+    dict[int, int],
+]:
+    """Find projection receivers with lexical rebinding checks."""
+    scopes = _BindingScopes(filename=filename)
+    scopes.visit(tree)
+    safe: dict[int, set[str]] = {}
+    assignments: dict[int, dict[str, list[tuple[ast.AST, int]]]] = {}
     for node in ast.walk(tree):
-        targets: tuple[ast.AST, ...]
-        value: ast.AST | None
+        scope = scopes.node_scopes.get(id(node), 0)
         if isinstance(node, ast.Assign):
             targets = tuple(node.targets)
             value = node.value
@@ -187,22 +334,69 @@ def _semantic_projection_receivers(tree: ast.AST) -> frozenset[str]:
             continue
         for target in targets:
             if isinstance(target, ast.Name):
-                assignments.setdefault(target.id, []).append(value)
-    return frozenset(
-        name
-        for name, values in assignments.items()
-        if len(values) == 1 and _is_semantic_graph_projection_call(values[0])
+                assignments.setdefault(scope, {}).setdefault(target.id, []).append((value, id(target)))
+    trusted_by_scope: dict[int, frozenset[str]] = {}
+    for scope in scopes.bindings:
+        parent = scopes.parents.get(scope)
+        inherited = set(trusted_by_scope.get(parent, frozenset()))
+        for name in scopes.bindings.get(scope, {}):
+            inherited.discard(name)
+        inherited.update(
+            name
+            for name, events in scopes.trusted.get(scope, {}).items()
+            if set(events) == set(scopes.bindings.get(scope, {}).get(name, ()))
+        )
+        trusted_by_scope[scope] = frozenset(inherited)
+    for scope, names in assignments.items():
+        for name, values in names.items():
+            if (
+                len(values) == 1
+                and _is_semantic_graph_projection_call(values[0][0], trusted_by_scope.get(scope, frozenset()))
+                and scopes.bindings.get(scope, {}).get(name, []) == [values[0][1]]
+                and scope not in scopes.unknown_scopes
+            ):
+                safe.setdefault(scope, set()).add(name)
+    return (
+        {scope: frozenset(names) for scope, names in safe.items()},
+        scopes.parents,
+        scopes.bindings,
+        scopes.unknown_scopes,
+        scopes.node_scopes,
     )
 
 
-def _is_projection_receiver(node: ast.AST, names: frozenset[str]) -> bool:
-    return isinstance(node, ast.Name) and node.id in names
+def _is_projection_receiver(
+    node: ast.AST,
+    scope: int,
+    safe: dict[int, frozenset[str]],
+    parents: dict[int, int | None],
+    bindings: dict[int, dict[str, list[int]]],
+    unknown_scopes: set[int],
+) -> bool:
+    if not isinstance(node, ast.Name):
+        return False
+    current: int | None = scope
+    while current is not None:
+        if current in unknown_scopes:
+            return False
+        if node.id in bindings.get(current, {}):
+            return node.id in safe.get(current, frozenset())
+        if node.id in safe.get(current, frozenset()):
+            return True
+        current = parents.get(current)
+    return False
 
 
 def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
     """Scan one module.  Doors and pass-through exemptions are not applied."""
     tree = ast.parse(source, filename=filename)
-    projection_receivers = _semantic_projection_receivers(tree)
+    (
+        projection_safe,
+        projection_parents,
+        projection_bindings,
+        projection_unknown_scopes,
+        projection_scopes,
+    ) = _semantic_projection_receivers(tree, filename)
     found: list[Violation] = []
     seen: set[tuple[int, str, str]] = set()
 
@@ -231,7 +425,14 @@ def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
                 key = _literal_graph_key(child)
                 if key is None or not isinstance(child, ast.Subscript):
                     continue
-                if _is_projection_receiver(child.value, projection_receivers):
+                if _is_projection_receiver(
+                    child.value,
+                    projection_scopes.get(id(child), 0),
+                    projection_safe,
+                    projection_parents,
+                    projection_bindings,
+                    projection_unknown_scopes,
+                ):
                     continue
                 if _is_graph_receiver(child.value):
                     _add(child.lineno, "structural_write", key)
@@ -240,7 +441,14 @@ def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
         if key is None:
             continue
         receiver = node.value if isinstance(node, ast.Subscript) else node.func.value
-        if _is_projection_receiver(receiver, projection_receivers):
+        if _is_projection_receiver(
+            receiver,
+            projection_scopes.get(id(node), 0),
+            projection_safe,
+            projection_parents,
+            projection_bindings,
+            projection_unknown_scopes,
+        ):
             continue
         if _is_graph_receiver(receiver):
             _add(getattr(node, "lineno", 0), "structural_read", key)
