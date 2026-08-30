@@ -45,6 +45,61 @@ def _codes(workflow: VibeWorkflow, provider: FakeSchemaProvider) -> list[str]:
     return [issue.code for issue in workflow.validate(schema_provider=provider).issues]
 
 
+def _dynamic_schema(class_type: str) -> NodeSchema:
+    if class_type == "LTXVImgToVideoInplaceKJ":
+        inputs = {
+            "num_images": InputSpec("COMFY_DYNAMICCOMBO_V3"),
+            "latent": InputSpec("LATENT"),
+            "vae": InputSpec("VAE"),
+        }
+    else:
+        inputs = {
+            "inputcount": InputSpec("INT", min=2, max=1000),
+            "image_1": InputSpec("IMAGE"),
+            "direction": InputSpec("STRING"),
+            "match_image_size": InputSpec("BOOLEAN"),
+        }
+    return _schema(class_type, inputs)
+
+
+def _dynamic_inputs(class_type: str, count: int) -> dict[str, object]:
+    if class_type == "LTXVImgToVideoInplaceKJ":
+        inputs: dict[str, object] = {"num_images": count}
+        for index in range(1, count + 1):
+            inputs.update(
+                {
+                    f"num_images.image_{index}": f"image-{index}",
+                    f"num_images.index_{index}": index,
+                    f"num_images.strength_{index}": 1.0,
+                }
+            )
+        return inputs
+    return {
+        "inputcount": count,
+        "direction": "right",
+        "match_image_size": False,
+        **{f"image_{index}": f"image-{index}" for index in range(1, count + 1)},
+    }
+
+
+def _dynamic_count_only_inputs(class_type: str, count: object) -> dict[str, object]:
+    if class_type == "LTXVImgToVideoInplaceKJ":
+        return {"num_images": count}
+    return {
+        "inputcount": count,
+        "direction": "right",
+        "match_image_size": False,
+    }
+
+
+def _dynamic_report(class_type: str, count: object, inputs: dict[str, object] | None = None):
+    payload_inputs = inputs if inputs is not None else _dynamic_inputs(class_type, count)  # type: ignore[arg-type]
+    provider = FakeSchemaProvider({class_type: _dynamic_schema(class_type)})
+    return validate_api_against_schema(
+        {"node": {"class_type": class_type, "inputs": payload_inputs}}, provider
+    )
+
+
 def test_missing_required_input_emits_error() -> None:
     provider = FakeSchemaProvider({"PromptNode": _schema("PromptNode", {"text": InputSpec("STRING", required=True)})})
     report = _workflow(VibeNode("1", "PromptNode")).validate(schema_provider=provider)
@@ -230,7 +285,7 @@ def test_ltx_dynamic_image_slots_validate_required_fields() -> None:
             "210",
             "LTXVImgToVideoInplaceKJ",
             inputs={
-                "num_images": "2",
+                "num_images": 2,
                 "num_images.index_1": 0,
                 "num_images.strength_1": 1.0,
                 "num_images.index_2": -1,
@@ -249,6 +304,90 @@ def test_ltx_dynamic_image_slots_validate_required_fields() -> None:
     assert not report.ok
     assert [(issue.code, issue.detail["input"]) for issue in report.issues] == [
         ("missing_dynamic_input", "num_images.strength_2")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("class_type", "count"),
+    [
+        ("LTXVImgToVideoInplaceKJ", 2),
+        ("ImageConcatMulti", 2),
+    ],
+)
+def test_dynamic_count_accepts_normal_integer_counts(class_type: str, count: int) -> None:
+    report = _dynamic_report(class_type, count)
+
+    assert not report
+
+
+@pytest.mark.parametrize("count", [20, 21])
+def test_ltx_dynamic_count_does_not_embed_provider_ceiling(count: int) -> None:
+    report = _dynamic_report("LTXVImgToVideoInplaceKJ", count)
+
+    assert not [
+        issue
+        for issue in report
+        if issue.code in {"invalid_dynamic_input_count", "missing_dynamic_input", "dynamic_input_exceeds_count"}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("class_type", "count"),
+    [
+        ("LTXVImgToVideoInplaceKJ", 0),
+        ("LTXVImgToVideoInplaceKJ", -1),
+        ("LTXVImgToVideoInplaceKJ", True),
+        ("LTXVImgToVideoInplaceKJ", 2.0),
+        ("LTXVImgToVideoInplaceKJ", "2"),
+        ("LTXVImgToVideoInplaceKJ", 10**10000),
+        ("ImageConcatMulti", 0),
+        ("ImageConcatMulti", 1),
+        ("ImageConcatMulti", -1),
+        ("ImageConcatMulti", True),
+        ("ImageConcatMulti", 2.0),
+        ("ImageConcatMulti", "2"),
+        ("ImageConcatMulti", 10**10000),
+    ],
+    ids=[
+        "ltx-zero",
+        "ltx-negative",
+        "ltx-bool",
+        "ltx-float",
+        "ltx-string",
+        "ltx-huge",
+        "concat-zero",
+        "concat-below-minimum",
+        "concat-negative",
+        "concat-bool",
+        "concat-float",
+        "concat-string",
+        "concat-huge",
+    ],
+)
+def test_dynamic_count_rejects_non_grammar_values(class_type: str, count: object) -> None:
+    report = _dynamic_report(class_type, count, _dynamic_count_only_inputs(class_type, count))
+    issues = [issue for issue in report if issue.code == "invalid_dynamic_input_count"]
+
+    assert len(issues) == 1
+    assert issues[0].severity == "error"
+    assert issues[0].detail["input"] in {"num_images", "inputcount"}
+
+
+@pytest.mark.parametrize("class_type", ["LTXVImgToVideoInplaceKJ", "ImageConcatMulti"])
+def test_dynamic_count_rejects_missing_and_excess_slots(class_type: str) -> None:
+    inputs = _dynamic_inputs(class_type, 2)
+    missing_name = "num_images.strength_2" if class_type == "LTXVImgToVideoInplaceKJ" else "image_2"
+    excess_name = "num_images.image_3" if class_type == "LTXVImgToVideoInplaceKJ" else "image_3"
+    del inputs[missing_name]
+    inputs[excess_name] = "excess"
+
+    report = _dynamic_report(class_type, 2, inputs)
+
+    assert [(issue.code, issue.detail["input"]) for issue in report if issue.code in {
+        "missing_dynamic_input", "dynamic_input_exceeds_count"
+    }] == [
+        ("missing_dynamic_input", missing_name),
+        ("dynamic_input_exceeds_count", excess_name),
     ]
 
 

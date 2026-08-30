@@ -352,7 +352,7 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
             if (min_value is not None or max_value is not None) and not _field_compatible(class_type, name, "value_out_of_range"):
                 try:
                     numeric_value = float(value)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     continue
                 if (min_value is not None and numeric_value < float(min_value)) or (
                     max_value is not None and numeric_value > float(max_value)
@@ -863,6 +863,11 @@ _LTX_IMAGE_SLOT_RE = re.compile(r"^num_images\.(?:image|index|strength)_(\d+)$")
 _FIXED_SLOT_INPUT_RE = re.compile(r"^in_(\d+)$")
 _IMAGE_CONCAT_MULTI_INPUT_RE = re.compile(r"^image_(\d+)$")
 
+# This is a validation-work bound, not a provider-supported count. Provider
+# ceilings require authoritative schema data and belong in a separate slice.
+_DYNAMIC_VALIDATION_WORK_LIMIT = 4096
+_DYNAMIC_VALIDATION_WORK_LIMIT_DIGITS = len(str(_DYNAMIC_VALIDATION_WORK_LIMIT))
+
 
 def _preserve_linked_undeclared_input(name: str, value: Any) -> bool:
     return bool(_FIXED_SLOT_INPUT_RE.match(name)) and _is_api_link(value)
@@ -878,7 +883,7 @@ def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str
     """
 
     if class_type == "LTXVImgToVideoInplaceKJ":
-        return _LTX_IMAGE_SLOT_RE.match(input_name) is not None
+        return _ltx_image_slot_index(input_name) is not None
     if class_type == "ImageConcatMulti":
         return _image_concat_multi_input_index(input_name) is not None
     if class_type == "SimpleCalculator" and _has_numbered_prefix(input_name, "input_"):
@@ -905,15 +910,19 @@ def _validate_dynamic_payload_inputs(
     raw_count = inputs.get("num_images")
     if raw_count is None or _is_api_link(raw_count):
         return []
-    try:
-        count = int(raw_count)
-    except (TypeError, ValueError):
+    count = _validated_dynamic_count(raw_count, minimum=1)
+    if count is None:
         return [
             ValidationIssue(
                 "invalid_dynamic_input_count",
                 f"Node {node_id} ({class_type}) input num_images must be an integer count.",
                 severity="error",
-                detail={"node_id": node_id, "class_type": class_type, "input": "num_images", "value": _truncate(raw_count)},
+                detail={
+                    "node_id": node_id,
+                    "class_type": class_type,
+                    "input": "num_images",
+                    "value": _truncate_dynamic_count_value(raw_count),
+                },
             )
         ]
 
@@ -930,18 +939,46 @@ def _validate_dynamic_payload_inputs(
                         detail={"node_id": node_id, "class_type": class_type, "input": name},
                     )
                 )
+    for name in inputs:
+        index = _ltx_image_slot_index(name)
+        if index is not None and index > count:
+            issues.append(
+                ValidationIssue(
+                    "dynamic_input_exceeds_count",
+                    f"Node {node_id} ({class_type}) input {name} exceeds num_images={count}.",
+                    severity="error",
+                    detail={"node_id": node_id, "class_type": class_type, "input": name, "num_images": count},
+                )
+            )
     return issues
+
+
+def _validated_dynamic_count(raw_count: Any, *, minimum: int) -> int | None:
+    if type(raw_count) is not int:
+        return None
+    if raw_count < minimum or raw_count > _DYNAMIC_VALIDATION_WORK_LIMIT:
+        return None
+    return raw_count
+
+
+def _bounded_decimal_index(digits: str) -> int | None:
+    normalized = digits.lstrip("0")
+    if not normalized:
+        return None
+    if len(normalized) > _DYNAMIC_VALIDATION_WORK_LIMIT_DIGITS:
+        return _DYNAMIC_VALIDATION_WORK_LIMIT + 1
+    index = int(normalized)
+    return index if index >= 1 else None
+
+
+def _ltx_image_slot_index(name: str) -> int | None:
+    match = _LTX_IMAGE_SLOT_RE.match(name)
+    return None if match is None else _bounded_decimal_index(match.group(1))
 
 
 def _image_concat_multi_input_index(name: str) -> int | None:
     match = _IMAGE_CONCAT_MULTI_INPUT_RE.match(name)
-    if match is None:
-        return None
-    try:
-        index = int(match.group(1))
-    except ValueError:
-        return None
-    return index if index >= 1 else None
+    return None if match is None else _bounded_decimal_index(match.group(1))
 
 
 def _validate_image_concat_multi_inputs(
@@ -953,15 +990,19 @@ def _validate_image_concat_multi_inputs(
     raw_count = inputs.get("inputcount")
     if raw_count is None or _is_api_link(raw_count):
         return []
-    try:
-        count = int(raw_count)
-    except (TypeError, ValueError):
+    count = _validated_dynamic_count(raw_count, minimum=2)
+    if count is None:
         return [
             ValidationIssue(
                 "invalid_dynamic_input_count",
                 f"Node {node_id} ({class_type}) input inputcount must be an integer count.",
                 severity="error",
-                detail={"node_id": node_id, "class_type": class_type, "input": "inputcount", "value": _truncate(raw_count)},
+                detail={
+                    "node_id": node_id,
+                    "class_type": class_type,
+                    "input": "inputcount",
+                    "value": _truncate_dynamic_count_value(raw_count),
+                },
             )
         ]
 
@@ -1162,6 +1203,21 @@ def _truncate(value: Any, n: int = 120) -> str:
     if len(text) <= n:
         return text
     return text[: max(0, n - 3)] + "..."
+
+
+def _truncate_dynamic_count_value(value: Any, n: int = 120) -> str:
+    """Render a rejected count without expanding hostile values."""
+    if isinstance(value, str):
+        if len(value) <= n:
+            return repr(value)
+        return repr(value[: max(0, n - 3)])[:-1] + "..."
+    if type(value) is int:
+        if -_DYNAMIC_VALIDATION_WORK_LIMIT <= value <= _DYNAMIC_VALIDATION_WORK_LIMIT:
+            return repr(value)
+        return "<int outside validation work bound>"
+    if isinstance(value, (bool, float)):
+        return repr(value)
+    return f"<{type(value).__name__}>"
 
 
 _NO_MATCH = object()
