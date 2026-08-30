@@ -26,7 +26,6 @@ from vibecomfy.commands.nodes import (
 )
 from vibecomfy.node_packs import LockEntry
 from vibecomfy.registry.pack_resolver import PackRef, PackResolution
-from vibecomfy.registry.ready import ReadyTemplateDiscovery, ReadyTemplateRecord
 from vibecomfy.schema import SchemaProviderError
 from vibecomfy.commands.workflows import (
     _asset_metadata,

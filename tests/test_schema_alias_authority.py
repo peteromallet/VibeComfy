@@ -12,7 +12,6 @@ from vibecomfy.search.index import _object_info_entries
 from vibecomfy.schema import (
     AuthoringSchemaProvider,
     CompositeSchemaProvider,
-    NodeSchema,
     SchemaProviderError,
     SchemaSnapshotError,
     schema_for,

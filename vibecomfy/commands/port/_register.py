@@ -75,7 +75,11 @@ def register(subparsers) -> None:
         description=PORT_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    convert.add_argument("workflow")
+    convert.add_argument(
+        "workflow",
+        nargs="?",
+        help="Workflow source path; omit it when using --all.",
+    )
     convert.add_argument("--out", required=False, help="Destination file path (required for writes; optional with --dry-run)")
     convert.add_argument("--all", action="store_true", help="Run across all ready templates (dry-run diff mode only)")
     convert.add_argument("--ready-id", help="Emit ready-template candidate mode; must have kind/name shape.")

@@ -16,7 +16,6 @@ from vibecomfy.porting.edit.ops import (
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
 from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
-from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
     compact_widget_names_for_node,
     missing_widget_value_sentinel,

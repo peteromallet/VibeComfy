@@ -540,7 +540,7 @@ class ObjectInfoIndexSchemaProvider:
     listing_only = True
 
     def __init__(self, root: str | Path) -> None:
-        self.root = Path(root)
+        self.root = Path(root).resolve()
         self.index_path = self.root / "index.json"
         self._index: dict[str, str] | None = None
         self._file_cache: dict[str, dict[str, Any]] = {}
@@ -556,6 +556,22 @@ class ObjectInfoIndexSchemaProvider:
 
     def schemas(self) -> dict[str, NodeSchema | None]:
         return {class_type: None for class_type in self._load_index()}
+
+    def _validated_pack_path(self, filename: str, class_type: str | None) -> Path:
+        """Return an indexed pack path confined to the authority root."""
+        try:
+            relative = PurePath(filename)
+            if not filename or relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("indexed pack filename must be relative and contain no '..'")
+            pack_path = (self.root / Path(filename)).resolve(strict=False)
+            pack_path.relative_to(self.root)
+            return pack_path
+        except (OSError, RuntimeError, ValueError) as exc:
+            if isinstance(exc, ValueError) and str(exc).startswith("indexed pack filename"):
+                cause = exc
+            else:
+                cause = ValueError(f"indexed pack path escapes authority root: {filename!r}")
+            raise SchemaProviderError(class_type, cause) from exc
 
     def _load_index(self) -> dict[str, str]:
         if self._index is not None:

@@ -832,7 +832,7 @@ def test_node_auto_resolves_single_output_builder_kwargs_and_keeps_explicit_out(
     )
 
     decoded = node(wf, "VAEDecode", "decoded", samples=sampler, vae="vae")
-    encoded = node(wf, "VAEEncode", "encoded", pixels=decoded.out("IMAGE"), vae="vae")
+    node(wf, "VAEEncode", "encoded", pixels=decoded.out("IMAGE"), vae="vae")
 
     assert any(edge.from_node == "sampler" and edge.to_node == "decoded" and edge.to_input == "samples" for edge in wf.edges)
     assert any(edge.from_node == "decoded" and edge.to_node == "encoded" and edge.to_input == "pixels" for edge in wf.edges)

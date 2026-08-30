@@ -8,9 +8,8 @@ repo template set where noted.
 
 from __future__ import annotations
 
+from typing import Any
 from pathlib import Path
-
-import pytest
 
 from vibecomfy.executor.lookup_tools import (
     EXACT_OWNERSHIP_SOURCES,
@@ -34,7 +33,7 @@ from vibecomfy.registry.pack_resolver import (
     PackRef,
     ResolverCandidate,
 )
-from vibecomfy.schema import NodeSchema, SchemaProvider
+from vibecomfy.schema import NodeSchema
 from vibecomfy.schema.types import InputSpec, OutputSpec
 
 

@@ -813,7 +813,7 @@ def test_ltx_lightricks_first_last_parity_exposes_worker_patch_points() -> None:
         + "; ".join(f"[{e.code}] {e.message}" for e in report.errors())
     )
     assert len(report.warnings()) == 0, (
-        f"Unexpected warnings: " + "; ".join(f"[{w.code}] {w.message}" for w in report.warnings())
+        "Unexpected warnings: " + "; ".join(f"[{w.code}] {w.message}" for w in report.warnings())
     )
 
     # ── named worker patch points via lens ──────────────────────────
