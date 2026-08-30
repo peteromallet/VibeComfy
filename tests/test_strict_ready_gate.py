@@ -461,12 +461,25 @@ def test_template_index_preserves_manual_source_workflow() -> None:
     from tools.refresh_template_index import build_template_index
 
     index = build_template_index(generated_at="2026-01-01T00:00:00+00:00")
-    row = next(
-        item
-        for item in index["templates"]
-        if item["id"] == "video/ltx2_3_first_last_frame_travel_iclora_control"
+    rows = {item["id"]: item for item in index["templates"]}
+    assert rows["video/ltx2_3_first_last_frame_travel_iclora_control"]["source_workflow"] == "manual"
+    assert rows["video/ltx2_3_lightricks_iclora_hdr"]["source_workflow"].endswith(
+        "LTX-2.3_ICLoRA_HDR_Distilled.json"
     )
-    assert row["source_workflow"] == "manual"
+    assert rows["video/wan_t2v"]["source_workflow"] == "ready_templates/sources/official/video/wan_t2v.json"
+
+
+def test_source_workflow_resolver_covers_metadata_aliases() -> None:
+    from vibecomfy.porting._provenance_utils import resolve_source_workflow
+
+    cases = (
+        ({"source_workflow": "top-level.json"}, "top-level.json"),
+        ({"provenance": {"source_workflow": "nested.json"}}, "nested.json"),
+        ({"provenance": {"source_workflow_path": "nested-path.json"}}, "nested-path.json"),
+        ({"provenance": {"source_path": "nested-source.json"}}, "nested-source.json"),
+    )
+    for metadata, expected in cases:
+        assert resolve_source_workflow(metadata) == expected
 
 
 def test_first_last_template_does_not_add_manual_provenance() -> None:

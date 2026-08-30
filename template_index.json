@@ -124,7 +124,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/audio/ace_step_1_5_t2a_song.json",
       "source_sha256": null
     },
     {
@@ -207,7 +207,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_custom_voice.json",
       "source_sha256": null
     },
     {
@@ -290,7 +290,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_clone.json",
       "source_sha256": null
     },
     {
@@ -373,7 +373,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_design.json",
       "source_sha256": null
     },
     {
@@ -512,7 +512,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/edit/flux2_klein_4b_image_edit_base.json",
       "source_sha256": null
     },
     {
@@ -633,7 +633,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json",
       "source_sha256": null
     },
     {
@@ -772,7 +772,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/edit/flux2_klein_9b_image_edit_base.json",
       "source_sha256": null
     },
     {
@@ -893,7 +893,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/edit/flux2_klein_9b_image_edit_distilled.json",
       "source_sha256": null
     },
     {
@@ -1032,7 +1032,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/edit/qwen_image_edit.json",
       "source_sha256": null
     },
     {
@@ -1236,7 +1236,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/image/flux2_klein_4b_t2i.json",
       "source_sha256": null
     },
     {
@@ -1337,7 +1337,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/flux2/flux2_klein_9b_gguf_t2i.json",
       "source_sha256": null
     },
     {
@@ -1438,7 +1438,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/image/flux2_klein_9b_t2i.json",
       "source_sha256": null
     },
     {
@@ -1593,7 +1593,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/image/qwen_image_2512.json",
       "source_sha256": null
     },
     {
@@ -1694,7 +1694,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/image/z_image.json",
       "source_sha256": null
     },
     {
@@ -2511,7 +2511,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json",
       "source_sha256": null
     },
     {
@@ -2730,7 +2730,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/iamccs/IAMCCS_LTX23_BEST_3SEG_AUDIOEXT_30S_FREE_LOW_RAM.json",
       "source_sha256": null
     },
     {
@@ -2941,7 +2941,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/iamccs/IAMCCS_LTX2_AU_IMG2V.json",
       "source_sha256": null
     },
     {
@@ -3134,7 +3134,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/iamccs/IAMCCS_LTX2_I2V_LONG_LENGTH.json",
       "source_sha256": null
     },
     {
@@ -3330,7 +3330,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/video/ltx2_3_lightricks_first_last_parity.py",
       "source_sha256": null,
       "custom_node_refs": [
         {
@@ -3542,7 +3542,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/video/ltx2_3_lightricks_first_last_two_stage_lowvram.py",
       "source_sha256": null,
       "custom_node_refs": [
         {
@@ -3733,7 +3733,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/lightricks_2_3/LTX-2.3_ICLoRA_HDR_Distilled.json",
       "source_sha256": null
     },
     {
@@ -3964,7 +3964,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/lightricks_2_3/LTX-2.3_ICLoRA_Motion_Track_Distilled.json",
       "source_sha256": null
     },
     {
@@ -4159,7 +4159,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/lightricks_2_3/LTX-2.3_ICLoRA_Union_Control_Distilled.json",
       "source_sha256": null
     },
     {
@@ -4426,7 +4426,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/lightricks_2_3/LTX-2.3_T2V_I2V_Two_Stage_Distilled.json",
       "source_sha256": null
     },
     {
@@ -4583,7 +4583,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json",
       "source_sha256": null
     },
     {
@@ -4794,7 +4794,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_FLF2V_First_Last_Frame.json",
       "source_sha256": null
     },
     {
@@ -4956,7 +4956,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/video/ltx2_3_runexx_first_last_raw_video_guide.py",
       "source_sha256": null,
       "custom_node_refs": [
         {
@@ -5179,7 +5179,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_FML2V_First_Middle_Last_Frame_guider.json",
       "source_sha256": null
     },
     {
@@ -5372,7 +5372,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_V2V_Just_Talk_custom_audio_lipsync.json",
       "source_sha256": null
     },
     {
@@ -5603,7 +5603,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Motion_Transfer_DWPose.json",
       "source_sha256": null
     },
     {
@@ -5868,7 +5868,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Music_Video_Creator_Low_RAM.json",
       "source_sha256": null
     },
     {
@@ -6043,7 +6043,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json",
       "source_sha256": null
     },
     {
@@ -6236,7 +6236,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_V2V_Extend_Any_Video.json",
       "source_sha256": null
     },
     {
@@ -6503,7 +6503,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json",
       "source_sha256": null
     },
     {
@@ -7219,7 +7219,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/video/wan_i2v.json",
       "source_sha256": null
     },
     {
@@ -7466,7 +7466,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/official/video/wan_t2v.json",
       "source_sha256": null
     },
     {
@@ -7567,7 +7567,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_control_lora.json",
       "source_sha256": null
     },
     {
@@ -7704,7 +7704,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_recammaster.json",
       "source_sha256": null
     },
     {
@@ -7879,7 +7879,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json",
       "source_sha256": null
     },
     {
@@ -8054,7 +8054,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_flf2v.json",
       "source_sha256": null
     },
     {
@@ -8173,7 +8173,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_fun_control.json",
       "source_sha256": null
     },
     {
@@ -8348,7 +8348,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_fun_control_camera.json",
       "source_sha256": null
     },
     {
@@ -8523,7 +8523,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_i2v.json",
       "source_sha256": null
     },
     {
@@ -8660,7 +8660,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json",
       "source_sha256": null
     },
     {
@@ -8761,7 +8761,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_v2v_infinitetalk.json",
       "source_sha256": null
     },
     {
@@ -8936,7 +8936,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_wanmove_i2v.json",
       "source_sha256": null
     },
     {
@@ -9655,7 +9655,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_5b_i2v.json",
       "source_sha256": null
     },
     {
@@ -9774,7 +9774,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_5b_i2v_controlnet.json",
       "source_sha256": null
     },
     {
@@ -9967,7 +9967,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_5b_ovi_audio_i2v.json",
       "source_sha256": null
     },
     {
@@ -10086,7 +10086,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_5b_t2v_controlnet.json",
       "source_sha256": null
     },
     {
@@ -10261,7 +10261,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_s2v_context_window.json",
       "source_sha256": null
     },
     {
@@ -10436,7 +10436,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_s2v_framepack_pose.json",
       "source_sha256": null
     },
     {
@@ -10583,7 +10583,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/video/wanvideo_wrapper_22_wan_animate_preprocess_kijai.py",
       "source_sha256": null,
       "custom_node_refs": [
         {
@@ -10809,7 +10809,7 @@
         "tested_at": "2026-07-09T09:32:35.945439+00:00",
         "version": "unknown"
       },
-      "source_workflow": null,
+      "source_workflow": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan_animate.json",
       "source_sha256": null
     }
   ]

@@ -19,6 +19,24 @@ _PROVENANCE_PATH_KEYS: frozenset[str] = frozenset(
 )
 
 
+def resolve_source_workflow(
+    metadata: Mapping[str, Any], row: Mapping[str, Any] | None = None
+) -> str | None:
+    """Resolve a ready template's source workflow across metadata generations."""
+    if row is not None:
+        source = row.get("source_workflow")
+        if isinstance(source, str) and source:
+            return source
+    provenance = metadata.get("provenance")
+    if isinstance(provenance, Mapping):
+        for key in ("source_workflow", "source_workflow_path", "source_path"):
+            source = provenance.get(key)
+            if isinstance(source, str) and source:
+                return source
+    source = metadata.get("source_workflow")
+    return source if isinstance(source, str) and source else None
+
+
 def _normalize_provenance_paths(provenance: Mapping[str, Any]) -> dict[str, Any]:
     normalized = dict(provenance)
     for key in _PROVENANCE_PATH_KEYS:

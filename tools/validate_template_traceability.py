@@ -24,6 +24,7 @@ from tools.refresh_template_index import DEFAULT_OUTPUT as DEFAULT_TEMPLATE_INDE
 from tools.refresh_template_index import _ready_template_metadata
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
 from vibecomfy.node_packs import LockEntry, read_lockfile
+from vibecomfy.porting._provenance_utils import resolve_source_workflow
 from vibecomfy.registry.models_loader import DEFAULT_REGISTRY_PATH, ModelEntry, load_registry
 from vibecomfy.registry.static_contract import extract_ready_template_contract
 
@@ -232,7 +233,7 @@ def _source_sha_diagnostics(
     metadata: Mapping[str, Any],
     row: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    source_workflow = _source_workflow(metadata, row)
+    source_workflow = resolve_source_workflow(metadata, row)
     source_sha = row.get("source_sha256") or _source_sha_from_comment(path)
     if not isinstance(source_workflow, str) or not source_workflow:
         return [_diagnostic("template_source_workflow_missing", "Template metadata does not declare source_workflow.", ready_id, target, {})]
@@ -487,19 +488,6 @@ def _load_template_rows(template_index: Path) -> list[dict[str, Any]]:
     if not isinstance(rows, list):
         raise ValueError(f"{template_index}: templates must be a list")
     return [dict(row) for row in rows if isinstance(row, Mapping)]
-
-
-def _source_workflow(metadata: Mapping[str, Any], row: Mapping[str, Any]) -> str | None:
-    source = row.get("source_workflow")
-    if isinstance(source, str) and source:
-        return source
-    provenance = metadata.get("provenance")
-    if isinstance(provenance, Mapping):
-        source = provenance.get("source_workflow") or provenance.get("source_workflow_path") or provenance.get("source_path")
-        if isinstance(source, str) and source:
-            return source
-    source = metadata.get("source_workflow")
-    return source if isinstance(source, str) and source else None
 
 
 def _source_sha_from_comment(path: Path) -> str | None:

@@ -17,6 +17,7 @@ from typing import Any, Sequence
 
 from vibecomfy.registry.ready import repo_ready_template_ids
 from vibecomfy.registry.static_contract import extract_ready_template_contract
+from vibecomfy.porting._provenance_utils import resolve_source_workflow
 
 
 # TODO(repo-root): migrate to vibecomfy.utils.find_repo_root() once this tool's
@@ -89,10 +90,8 @@ def build_template_index(*, generated_at: str | None = None) -> dict[str, Any]:
             "supplemental": static_contract["supplemental"] or coverage_tier == "supplemental",
             "vibecomfy_version": metadata.get("vibecomfy_version"),
             "comfy_core": metadata.get("comfy_core"),
-            "source_workflow": (
-                (metadata.get("provenance") or {}).get("source_workflow")
-                or ("manual" if coverage_row.get("path") == "manual" else None)
-            ),
+            "source_workflow": resolve_source_workflow(metadata)
+            or ("manual" if coverage_row.get("path") == "manual" else None),
             "source_sha256": _extract_source_sha256(REPO_ROOT / path),
         }
         custom_node_refs = static_contract.get("custom_node_refs") or _list_items(requirements.get("custom_node_refs"))
