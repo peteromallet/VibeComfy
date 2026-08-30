@@ -368,14 +368,28 @@ class OnDemandInstallSchemaProvider:
         if marker.is_symlink():
             return False
         # Accept a valid legacy checkout created before transactional clone
-        # markers were introduced. It is safe to reuse only an actual Git
-        # checkout; incomplete test/staging directories do not contain HEAD
-        # and objects, so they still take the cleanup-and-retry path below.
+        # markers were introduced. A markerless directory has no durable
+        # provenance stamp, so HEAD alone is not authority: prove that the
+        # checkout came from the requested origin and, for a pinned request,
+        # that its current commit is exactly the requested ref. Otherwise the
+        # caller below cleans it up and reclones using the transactional path.
         if not marker.exists() and (git_dir / "HEAD").is_file() and (git_dir / "objects").is_dir():
             try:
                 head = _run_git(["git", "-C", str(target), "rev-parse", "HEAD"], 10).stdout.strip()
-                if head:
-                    return True
+                if not head or not url:
+                    return False
+                origin = _run_git(
+                    ["git", "-C", str(target), "remote", "get-url", "origin"], 10
+                ).stdout.strip()
+                if origin != url:
+                    return False
+                if pin:
+                    want = _run_git(
+                        ["git", "-C", str(target), "rev-parse", f"{pin}^{{commit}}"], 10
+                    ).stdout.strip()
+                    if not want or head != want:
+                        return False
+                return True
             except (OSError, ValueError, TypeError, subprocess.SubprocessError, OnDemandCloneError):
                 return False
         try:
