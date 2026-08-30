@@ -5,6 +5,12 @@ from pathlib import Path
 
 import pytest
 
+
+from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+    build_candidate_transaction,
+    content_hash,
+)
+
 from tests.live_agentic_harness import assessor as assessor_module
 from tests.live_agentic_harness.assessor import (
     AssessmentPublicationError,
@@ -1422,3 +1428,271 @@ def test_assessment_publication_failure_preserves_stale_canonical_and_raises(
     assert isinstance(excinfo.value.__cause__, PermissionError)
     assert assessment_path.read_text(encoding="utf-8") == stale
     assert list(tmp_path.glob(".assessment.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {
+                "kind": "candidate_transaction",
+                "candidate": {"graph": {"nodes": [{"id": 1}], "links": []}},
+            },
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate_transaction"},
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate_transaction": None,
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {
+                "kind": "candidate_transaction",
+                "candidate_transaction": None,
+            },
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate_transaction": {
+                "contract_version": "candidate_transaction_v99",
+                "nodes": [],
+            },
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate_transaction": {"garbage": "x"},
+            "change_details": {"landed_operation_count": 1},
+        },
+    ],
+)
+def test_candidate_transaction_outcome_never_falls_back_to_other_evidence(
+    tmp_path: Path, response: dict
+) -> None:
+    assert assessor_module._response_envelope_is_valid(response) is False
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+@pytest.mark.parametrize("warnings", [7, [3], [""], ["   "]])
+def test_malformed_outcome_warnings_fail_closed(
+    tmp_path: Path, warnings: object
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "outcome": {
+            "kind": "requires_custom_nodes",
+            "candidates": [],
+            "warnings": warnings,
+        },
+    }
+    assert assessor_module._response_envelope_is_valid(response) is False
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+def test_empty_custom_node_refusal_with_empty_warnings_remains_compatible() -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "outcome": {
+            "kind": "requires_custom_nodes",
+            "candidates": [],
+            "warnings": [],
+        },
+    }
+    assert assessor_module._response_envelope_is_valid(response) is True
+
+
+def test_response_depth_bound_fails_closed_without_recursion_error(tmp_path: Path) -> None:
+    bomb: object = 0
+    for _ in range(500):
+        bomb = [bomb]
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+        "bomb": bomb,
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+def test_response_json_recursion_error_is_undetermined(tmp_path: Path) -> None:
+    nested = "[" * 1000 + "0" + "]" * 1000
+    (tmp_path / "response.json").write_text(
+        '{"ok":true,"graph_unchanged":true,"route":"respond",'
+        '"outcome":{"kind":"respond"},"bomb":'
+        + nested
+        + "}",
+        encoding="utf-8",
+    )
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+def test_response_byte_bound_rejects_twenty_megabyte_message(tmp_path: Path) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+        "message": "x" * (20 * 1024 * 1024),
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"bomb": [0] * 10_001},
+        {"message": "x" * 1_000_001},
+    ],
+)
+def test_response_collection_and_string_bounds_fail_closed(
+    tmp_path: Path, payload: dict
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+        **payload,
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+@pytest.mark.parametrize("hook", ["validator", "freezer"])
+def test_response_loader_hostile_exceptions_are_undetermined(
+    tmp_path: Path, monkeypatch, hook: str
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "respond",
+        "outcome": {"kind": "respond"},
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    if hook == "validator":
+        def hostile_validator(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise RuntimeError("hostile validator")
+
+        monkeypatch.setattr(
+            assessor_module, "_response_envelope_is_valid", hostile_validator
+        )
+    else:
+        def hostile_freezer(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise RecursionError("hostile freezer")
+
+        monkeypatch.setattr(assessor_module, "_freeze_json", hostile_freezer)
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["verdict"] == "undetermined"
+    assert assessment["passed"] is False
+
+
+def _valid_candidate_transaction() -> dict:
+    submit_graph = {
+        "nodes": [
+            {
+                "vibecomfy_uid": "node-1",
+                "type": "PreviewImage",
+                "pos": [0, 0],
+                "size": [200, 100],
+            }
+        ],
+        "links": [],
+        "groups": [],
+    }
+    candidate_graph = {
+        **submit_graph,
+        "nodes": [{**submit_graph["nodes"][0], "pos": [300, 100]}],
+    }
+    return build_candidate_transaction(
+        workflow_id="123e4567-e89b-12d3-a456-426614174000",
+        session_id="session",
+        turn_id="0001",
+        plan_hash="plan",
+        submit_graph=submit_graph,
+        candidate_graph=candidate_graph,
+        accepted_batch=[],
+        delta_hash=content_hash({"schema_version": "2.0.0", "ops": []}),
+        submit_graph_hash="submit",
+        submit_structural_graph_hash="submit-structural",
+        candidate_graph_hash="candidate",
+        candidate_structural_graph_hash="candidate-structural",
+        authority_receipt_hash="a" * 64,
+        schema_witness={},
+        replay_ok=True,
+        candidate_matches=True,
+        applyable=True,
+        verification_kind="delta_replay",
+    )
+
+
+def test_valid_candidate_transaction_v2_is_required_and_accepted() -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": False,
+        "outcome": {"kind": "candidate_transaction"},
+        "candidate_transaction": _valid_candidate_transaction(),
+        "change_details": {"landed_operation_count": 1},
+    }
+
+    assert assessor_module._response_envelope_is_valid(response) is True
