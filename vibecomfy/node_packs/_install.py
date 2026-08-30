@@ -13,6 +13,7 @@ from vibecomfy.registry.pack_resolver import PackNotFoundError, PackRef
 from vibecomfy.security.gate import current_gate_context, require_confirmation, requesting_provenance
 from vibecomfy.workflow import VibeWorkflow
 InstallStatus = Literal["installed", "refreshed", "skipped_dirty", "failed"]
+InstallWitnessState = Literal["clean", "dirty", "missing", "incomplete", "unknown"]
 DEFAULT_INSTALL_ROOT = Path("custom_nodes")  # Canonical install root for custom node packs.
 INSTALL_STATE_DIR = ".vibecomfy-install-state"
 SENTINEL_LEASE_SECONDS = 1800  # 30 minutes
@@ -125,6 +126,17 @@ class InstallBatchResult:
     @property
     def preflight_unsupported(self) -> bool:
         return self.preflight.unsupported
+
+
+@dataclass(frozen=True)
+class PackInstallState:
+    """Bounded state of one selected installed pack for realization witnesses."""
+
+    install_root: Path | None
+    path: Path | None
+    expected_head: str | None
+    observed_head: str | None
+    state: InstallWitnessState
 @dataclass(frozen=True)
 class _InstallSentinel:
     path: Path
@@ -724,6 +736,45 @@ def _install_sentinel(install_root: Path, name: str) -> _InstallSentinel:
         # No structured owner metadata — no active owner detectable.
         _quarantine_sentinel(path)
         return _InstallSentinel(path)
+
+
+def inspect_pack_install_state(
+    name: str,
+    *,
+    install_roots: Sequence[Path],
+    expected_head: str | None = None,
+    aux_id: str | None = None,
+    version_pin: str | None = None,
+) -> PackInstallState:
+    """Read the installer-owned bounded state for one required pack.
+
+    This deliberately uses the same first-match lookup, Git status commands,
+    and install sentinel authority as installation.  It does not inspect or
+    hash arbitrary repository contents.
+    """
+    from ._git import find_installed_pack_ref
+
+    selected = find_installed_pack_ref(
+        name,
+        install_roots=install_roots,
+        aux_id=aux_id,
+        version_pin=version_pin,
+    )
+    if selected is None or not selected.pack_ref.path:
+        return PackInstallState(None, None, expected_head, None, "missing")
+
+    root = Path(selected.install_root)
+    path = Path(selected.pack_ref.path)
+    sentinel = _install_sentinel(root, name)
+    if sentinel.incomplete:
+        return PackInstallState(root, path, expected_head, selected.pack_ref.commit, "incomplete")
+    observed_head = _git_head(path, subprocess.run)
+    if observed_head is None:
+        return PackInstallState(root, path, expected_head, None, "unknown")
+    dirty = _git_porcelain(path, subprocess.run)
+    if dirty is None:
+        return PackInstallState(root, path, expected_head, observed_head, "unknown")
+    return PackInstallState(root, path, expected_head, observed_head, "dirty" if dirty else "clean")
 
 
 def _has_incomplete_install(sentinel: _InstallSentinel) -> bool:

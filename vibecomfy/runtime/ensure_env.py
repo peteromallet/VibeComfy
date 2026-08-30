@@ -10,8 +10,12 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from vibecomfy.node_packs import CustomNodePack, get_known_node_packs
 from vibecomfy.node_packs import find_installed_pack_ref
 from vibecomfy.node_packs import DEFAULT_INSTALL_ROOT, InstallBatchResult, install_required_packs
+from vibecomfy.node_packs import inspect_pack_install_state
+from vibecomfy.porting.object_info import consume as object_info_consume
 from vibecomfy.porting.object_info.consume import reset_cache
+from vibecomfy.porting.object_info.generation import active_cache_root
 from vibecomfy.porting.object_info.serialize import CacheIdentity, build_cache
+from vibecomfy.errors import ObjectInfoCacheCorruptError
 from vibecomfy.porting.provenance import (
     ProvenanceReport,
     ProvenanceRecord,
@@ -126,7 +130,32 @@ class PackResolver(Protocol):
     ) -> PackResolution:
         ...
 
+@dataclass(frozen=True, slots=True)
+class PackRealizationWitness:
+    slug: str
+    install_root: str | None
+    path: str | None
+    expected_head: str | None
+    observed_head: str | None
+    state: str
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectInfoRealizationWitness:
+    provider_root: str
+    state: str
+    generation: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RealizationWitness:
+    roots: tuple[str, ...]
+    packs: tuple[PackRealizationWitness, ...]
+    object_info: ObjectInfoRealizationWitness
+
+
 _REALIZED_SIGNATURES: set[tuple[object, ...]] = set()
+_REALIZATION_WITNESSES: dict[tuple[object, ...], RealizationWitness] = {}
 
 
 def ensure_env(
@@ -253,7 +282,21 @@ def ensure_env(
         cache_writer=cache_writer,
         server_url=server_url,
     )
-    if not failures and realization_signature in _REALIZED_SIGNATURES:
+    current_witness = _realization_witness(
+        packs,
+        requirements_by_slug=requirement_plan.requirements_by_slug,
+        refs_by_slug=resolved_refs_by_slug | requirement_plan.install_refs_by_slug,
+        install_batch=None,
+        install_roots=install_roots,
+    )
+    cached_witness = _REALIZATION_WITNESSES.get(realization_signature)
+    if (
+        not failures
+        and realization_signature in _REALIZED_SIGNATURES
+        and cached_witness is not None
+        and current_witness == cached_witness
+        and _witness_is_cacheable(current_witness)
+    ):
         if core_outcome is not None:
             outcomes_by_slug[CORE_CNR_ID] = core_outcome
         pack_outcomes = tuple(outcomes_by_slug[slug] for slug in sorted(outcomes_by_slug))
@@ -396,9 +439,19 @@ def ensure_env(
     all_pack_outcomes_ok = all(outcome.ok for outcome in pack_outcomes)
     ok = not failures and all_pack_outcomes_ok
     if ok:
-        _REALIZED_SIGNATURES.add(realization_signature)
-        if len(_REALIZED_SIGNATURES) > 256:
-            _REALIZED_SIGNATURES.clear()
+        witness = _realization_witness(
+            packs,
+            requirements_by_slug=requirement_plan.requirements_by_slug,
+            refs_by_slug=resolved_refs_by_slug | requirement_plan.install_refs_by_slug,
+            install_batch=install_batch,
+            install_roots=install_roots,
+        )
+        if _witness_is_cacheable(witness):
+            _REALIZED_SIGNATURES.add(realization_signature)
+            _REALIZATION_WITNESSES[realization_signature] = witness
+            if len(_REALIZED_SIGNATURES) > 256:
+                _REALIZED_SIGNATURES.clear()
+                _REALIZATION_WITNESSES.clear()
     return EnsureEnvResult(
         ok=ok,
         noop=False,
@@ -765,6 +818,82 @@ def _realization_signature(
     )
 
 
+def _canonical_install_roots(install_roots: Sequence[Path]) -> tuple[str, ...]:
+    return tuple(str(Path(root).expanduser().resolve(strict=False)) for root in install_roots)
+
+
+def _object_info_realization_witness() -> ObjectInfoRealizationWitness:
+    provider_root = Path(object_info_consume.CACHE_DIR).expanduser().resolve(strict=False)
+    marker = provider_root / "CURRENT"
+    if not marker.exists() and not marker.is_symlink():
+        return ObjectInfoRealizationWitness(str(provider_root), "legacy")
+    try:
+        active_root = active_cache_root(provider_root)
+    except (ObjectInfoCacheCorruptError, OSError, UnicodeError):
+        return ObjectInfoRealizationWitness(str(provider_root), "invalid")
+    return ObjectInfoRealizationWitness(str(provider_root), "authoritative", active_root.name)
+
+
+def _realization_witness(
+    packs: Sequence[CustomNodePack],
+    *,
+    requirements_by_slug: Mapping[str, ProvenanceRequirement],
+    refs_by_slug: Mapping[str, PackRef],
+    install_batch: InstallBatchResult | None,
+    install_roots: Sequence[Path],
+) -> RealizationWitness:
+    results_by_name = {result.name: result for result in install_batch.results} if install_batch else {}
+    rows: list[PackRealizationWitness] = []
+    for pack in sorted(packs, key=lambda item: item.name):
+        requirement = requirements_by_slug.get(pack.name)
+        ref = refs_by_slug.get(pack.name)
+        install_result = results_by_name.get(pack.name)
+        expected_head = ref.commit if ref is not None else None
+        if expected_head is None and install_result is not None:
+            expected_head = install_result.git_commit_sha
+        try:
+            state = inspect_pack_install_state(
+                pack.name,
+                install_roots=install_roots,
+                expected_head=expected_head,
+                aux_id=requirement.aux_id if requirement is not None else None,
+                version_pin=(
+                    requirement.version_pin.version
+                    if requirement is not None and requirement.version_pin is not None
+                    else None
+                ),
+            )
+            rows.append(
+                PackRealizationWitness(
+                    slug=pack.name,
+                    install_root=(str(state.install_root.resolve(strict=False)) if state.install_root else None),
+                    path=str(state.path.resolve(strict=False)) if state.path else None,
+                    expected_head=state.expected_head,
+                    observed_head=state.observed_head,
+                    state=state.state,
+                )
+            )
+        except Exception:
+            rows.append(PackRealizationWitness(pack.name, None, None, expected_head, None, "unknown"))
+    return RealizationWitness(
+        roots=_canonical_install_roots(install_roots),
+        packs=tuple(rows),
+        object_info=_object_info_realization_witness(),
+    )
+
+
+def _witness_is_cacheable(witness: RealizationWitness) -> bool:
+    if witness.object_info.state != "authoritative" or not witness.object_info.generation:
+        return False
+    return all(
+        pack.state == "clean"
+        and pack.observed_head is not None
+        and pack.expected_head is not None
+        and pack.observed_head.lower() == pack.expected_head.lower()
+        for pack in witness.packs
+    )
+
+
 def _runtime_object_info(*, server_url: str | None) -> dict[str, Any]:
     provider = RuntimeSchemaProvider(server_url=server_url)
     return provider.object_info()
@@ -942,5 +1071,6 @@ __all__ = [
     "EnsureFailure",
     "EnsurePackOutcome",
     "EnsureWarning",
+    "RealizationWitness",
     "ensure_env",
 ]

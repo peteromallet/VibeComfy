@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 from vibecomfy.node_packs import CustomNodePack
@@ -17,6 +18,38 @@ def _pack(name: str) -> CustomNodePack:
         name=name,
         repo=f"https://example.test/{name}.git",
         classes=frozenset({f"{name}Node"}),
+    )
+
+
+def _git_pack(root: Path, name: str) -> tuple[Path, str]:
+    root.mkdir(parents=True, exist_ok=True)
+    pack_dir = root / name
+    pack_dir.mkdir()
+    for args in (("git", "init"), ("git", "config", "user.name", "Test"), ("git", "config", "user.email", "test@example.test")):
+        subprocess.run(args, cwd=pack_dir, check=True, capture_output=True, text=True)
+    (pack_dir / "tracked.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(("git", "add", "tracked.py"), cwd=pack_dir, check=True, capture_output=True, text=True)
+    subprocess.run(("git", "commit", "-m", "init"), cwd=pack_dir, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ("git", "remote", "add", "origin", f"https://example.test/{name}.git"),
+        cwd=pack_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    head = subprocess.run(("git", "rev-parse", "HEAD"), cwd=pack_dir, check=True, capture_output=True, text=True).stdout.strip()
+    return pack_dir, head
+
+
+def _authoritative_cache(root: Path, class_type: str = "FixtureNode") -> None:
+    source = root.parent / f"{root.name}-object-info.json"
+    source.write_text(f'{{"{class_type}": {{"python_module": "Fixture.nodes"}}}}', encoding="utf-8")
+    object_info_serialize.build_cache(
+        source,
+        version="fixture",
+        identity=object_info_serialize.CacheIdentity(pack_slug="Fixture", pack_version="fixture"),
+        full_pack_refresh={"Fixture"},
+        cache_dir=root,
     )
 
 
@@ -702,8 +735,13 @@ def test_ensure_env_default_cache_write_warns_when_semver_head_is_unverifiable(m
     assert result.pack_outcomes[0].cache_written is False
 
 
-def test_ensure_env_second_call_is_noop_after_successful_realization(monkeypatch) -> None:
+def test_ensure_env_second_call_is_noop_after_successful_realization(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "IdempotentPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
     workflow = {
         "nodes": [
             {"id": 1, "type": "IdempotentNode", "properties": {"cnr_id": "IdempotentPack"}},
@@ -716,7 +754,7 @@ def test_ensure_env_second_call_is_noop_after_successful_realization(monkeypatch
         events.append(("install", tuple(pack.name for pack in packs)))
         return InstallBatchResult(
             ok=True,
-            results=(InstallResult("IdempotentPack", "installed", "id123", None),),
+            results=(InstallResult("IdempotentPack", "installed", head, None),),
             preflight=PipPreflightResult(ok=True),
         )
 
@@ -737,6 +775,7 @@ def test_ensure_env_second_call_is_noop_after_successful_realization(monkeypatch
         installer=installer,
         introspector=introspector,
         cache_writer=cache_writer,
+        install_roots=(install_root,),
     )
     second = ensure_env(
         workflow,
@@ -744,6 +783,7 @@ def test_ensure_env_second_call_is_noop_after_successful_realization(monkeypatch
         installer=installer,
         introspector=introspector,
         cache_writer=cache_writer,
+        install_roots=(install_root,),
     )
 
     assert first.ok is True
@@ -1002,13 +1042,18 @@ def test_ensure_env_same_slug_different_ref_identity_avoids_noop_reuse(monkeypat
     ]
 
 
-def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
+def test_ensure_env_same_identity_second_call_is_noop(monkeypatch, tmp_path: Path) -> None:
     """Confirm that _identical_ authored identity + ref identity + classes still produces noop=True.
 
     This is the positive counter-case to the regression tests above: when nothing
     relevant changes, the dedupe must still trigger.
     """
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "TestPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
 
     workflow = {
         "nodes": [
@@ -1025,7 +1070,7 @@ def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
                 slug="TestPack",
                 source="comfy-registry",
                 version=version_pin,
-                url="https://example.test/TestPack.git",
+                    url="https://example.test/TestPack.git",
             ),
         )
 
@@ -1033,7 +1078,7 @@ def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
         events.append(("install", tuple(pack.name for pack in packs)))
         return InstallBatchResult(
             ok=True,
-            results=(InstallResult("TestPack", "installed", "abc123", None),),
+            results=(InstallResult("TestPack", "installed", head, None),),
             preflight=PipPreflightResult(ok=True),
         )
 
@@ -1052,6 +1097,7 @@ def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
         introspector=introspector,
         cache_writer=cache_writer,
         resolver=resolver,
+        install_roots=(install_root,),
     )
     second = ensure_env(
         workflow,
@@ -1060,6 +1106,7 @@ def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
         introspector=introspector,
         cache_writer=cache_writer,
         resolver=resolver,
+        install_roots=(install_root,),
     )
 
     assert first.ok is True
@@ -1071,6 +1118,172 @@ def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
         ("introspect", ("TestPack",)),
         ("cache", ["TestPack"]),
     ]
+
+
+def test_ensure_env_root_order_is_part_of_realization_witness(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    root_a = tmp_path / "a"
+    pack_a, head = _git_pack(root_a, "WitnessPack")
+    root_b = tmp_path / "b"
+    root_b.mkdir()
+    shutil.copytree(pack_a, root_b / "WitnessPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    events: list[str] = []
+    workflow = {"nodes": [{"id": 1, "type": "WitnessPackNode", "properties": {"cnr_id": "WitnessPack"}}]}
+
+    def installer(packs):
+        events.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("WitnessPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    kwargs = dict(
+        known_packs=(_pack("WitnessPack"),),
+        installer=installer,
+        introspector=lambda packs: {"WitnessPackNode": {"python_module": "WitnessPack.nodes"}},
+        cache_writer=lambda payload: {"written": sorted(payload)},
+    )
+    first = ensure_env(workflow, install_roots=(root_a,), **kwargs)
+    second = ensure_env(workflow, install_roots=(root_b,), **kwargs)
+    assert first.ok and second.ok
+    assert first.noop is False and second.noop is False
+    assert events == ["install", "install"]
+
+
+def test_ensure_env_tracked_pack_mutation_invalidates_noop(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    install_root = tmp_path / "custom_nodes"
+    pack_dir, head = _git_pack(install_root, "DirtyPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    events: list[str] = []
+    workflow = {"nodes": [{"id": 1, "type": "DirtyPackNode", "properties": {"cnr_id": "DirtyPack"}}]}
+
+    def installer(packs):
+        events.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("DirtyPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    kwargs = dict(
+        known_packs=(_pack("DirtyPack"),),
+        installer=installer,
+        introspector=lambda packs: {"DirtyPackNode": {"python_module": "DirtyPack.nodes"}},
+        cache_writer=lambda payload: {"written": sorted(payload)},
+        install_roots=(install_root,),
+    )
+    first = ensure_env(workflow, **kwargs)
+    (pack_dir / "tracked.py").write_text("VALUE = 2\n", encoding="utf-8")
+    second = ensure_env(workflow, **kwargs)
+    assert first.ok and second.ok
+    assert second.noop is False
+    assert events == ["install", "install"]
+
+
+def test_ensure_env_object_info_generation_change_invalidates_noop(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "GenerationPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root, "GenerationPackNode")
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    workflow = {"nodes": [{"id": 1, "type": "GenerationPackNode", "properties": {"cnr_id": "GenerationPack"}}]}
+    calls: list[str] = []
+
+    def installer(packs):
+        calls.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("GenerationPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    kwargs = dict(
+        known_packs=(_pack("GenerationPack"),),
+        installer=installer,
+        introspector=lambda packs: {"GenerationPackNode": {"python_module": "GenerationPack.nodes"}},
+        cache_writer=lambda payload: {"written": sorted(payload)},
+        install_roots=(install_root,),
+    )
+    first = ensure_env(workflow, **kwargs)
+    _authoritative_cache(cache_root, "GenerationPackNode")
+    second = ensure_env(workflow, **kwargs)
+    assert first.ok and second.ok
+    assert second.noop is False
+    assert calls == ["install", "install"]
+
+
+def test_ensure_env_provider_witness_requires_validated_authority(monkeypatch, tmp_path: Path) -> None:
+    def witness(root: Path):
+        monkeypatch.setattr(object_info_consume, "CACHE_DIR", root)
+        return ensure_env_module._object_info_realization_witness()
+
+    absent = witness(tmp_path / "absent")
+    assert absent.state == "legacy"
+    assert ensure_env_module._witness_is_cacheable(
+        ensure_env_module.RealizationWitness((), (), absent)
+    ) is False
+
+    legacy_root = tmp_path / "legacy"
+    legacy_root.mkdir()
+    (legacy_root / "index.json").write_text("{}", encoding="utf-8")
+    assert witness(legacy_root).state == "legacy"
+
+    malformed_root = tmp_path / "malformed"
+    malformed_root.mkdir()
+    (malformed_root / "CURRENT").write_text("missing-generation\n", encoding="utf-8")
+    assert witness(malformed_root).state == "invalid"
+
+    tampered_root = tmp_path / "tampered"
+    _authoritative_cache(tampered_root, "TamperedNode")
+    generation = witness(tampered_root).generation
+    assert generation is not None
+    active = tampered_root / "generations" / generation
+    (active / "index.json").write_text(
+        (active / "index.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+    )
+    tampered = witness(tampered_root)
+    assert tampered.state == "invalid"
+
+
+def test_ensure_env_invalid_utf8_current_fails_closed_through_noop_path(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "Utf8Pack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    workflow = {"nodes": [{"id": 1, "type": "Utf8PackNode", "properties": {"cnr_id": "Utf8Pack"}}]}
+    calls: list[str] = []
+
+    def installer(packs):
+        calls.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("Utf8Pack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    kwargs = dict(
+        known_packs=(_pack("Utf8Pack"),),
+        installer=installer,
+        introspector=lambda packs: {"Utf8PackNode": {"python_module": "Utf8Pack.nodes"}},
+        cache_writer=lambda payload: {"written": sorted(payload)},
+        install_roots=(install_root,),
+    )
+    first = ensure_env(workflow, **kwargs)
+    (cache_root / "CURRENT").write_bytes(b"\xff\n")
+    second = ensure_env(workflow, **kwargs)
+    assert first.ok and second.ok
+    assert second.noop is False
+    assert calls == ["install", "install"]
 
 
 def test_ensure_env_core_refresh_does_not_clobber_custom_pack_cache(monkeypatch, tmp_path: Path) -> None:
