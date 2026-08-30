@@ -31,16 +31,10 @@ def _stem_map() -> dict[str, str]:
 
 def _build_compiled_api(workflow_path: Path) -> dict[str, Any]:
     """Build a workflow from its module and return the compiled API dict."""
-    from importlib.util import module_from_spec, spec_from_file_location
+    from vibecomfy.testing.snapshot import load_recipe_build
 
-    spec = spec_from_file_location(f"_recipe_{workflow_path.stem}", workflow_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load recipe module: {workflow_path}")
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not hasattr(module, "build"):
-        raise RuntimeError(f"recipe {workflow_path} has no `build()` function")
-    wf = module.build()
+    loaded = load_recipe_build(workflow_path)
+    wf = loaded() if callable(loaded) else loaded
     return wf.compile("api")
 
 

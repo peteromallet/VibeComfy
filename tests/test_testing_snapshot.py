@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -12,8 +13,8 @@ import pytest
 import vibecomfy.commands.test as test_commands
 from vibecomfy.errors import CheckoutRequiredError
 from vibecomfy.testing.fixtures import make_workflow_factory
-from vibecomfy.testing.snapshot import canonicalize_api
-from vibecomfy.workflow import VibeNode
+from vibecomfy.testing.snapshot import canonicalize_api, load_recipe_build
+from vibecomfy.workflow import VibeNode, VibeWorkflow
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +76,55 @@ def test_user_recipe_snapshot_round_trip(tmp_path: Path):
         capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=60,
     )
     assert r2.returncode == 0, r2.stderr
+
+
+def _workflow_source(helper_module: str) -> str:
+    return (
+        "from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource\n"
+        f"from {helper_module} import VALUE\n\n"
+        "def build():\n"
+        "    wf = VibeWorkflow(id='loader', source=WorkflowSource(id='loader'))\n"
+        "    wf.nodes['1'] = VibeNode(id='1', class_type='SaveImage', inputs={'value': VALUE})\n"
+        "    return wf\n"
+    )
+
+
+def test_cli_loader_uses_canonical_sibling_and_same_stem_isolation(tmp_path: Path):
+    """The CLI inherits the canonical loader's sibling and path isolation."""
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for directory, value in ((first, "'first'"), (second, "'second'")):
+        directory.mkdir()
+        helper_module = f"helper_{directory.name}"
+        (directory / f"{helper_module}.py").write_text(f"VALUE = {value}\n", encoding="utf-8")
+        (directory / "recipe.py").write_text(_workflow_source(helper_module), encoding="utf-8")
+
+    first_api = test_commands._build_compiled_api(first / "recipe.py")
+    second_api = test_commands._build_compiled_api(second / "recipe.py")
+
+    assert first_api["1"]["inputs"]["value"] == "first"
+    assert second_api["1"]["inputs"]["value"] == "second"
+
+
+def test_canonical_loader_supports_workflow_fallback_and_cleans_failed_module(tmp_path: Path):
+    workflow_path = tmp_path / "workflow.py"
+    workflow_path.write_text(
+        "from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource\n"
+        "WORKFLOW = VibeWorkflow(id='fallback', source=WorkflowSource(id='fallback'))\n"
+        "WORKFLOW.nodes['1'] = VibeNode(id='1', class_type='SaveImage', inputs={})\n",
+        encoding="utf-8",
+    )
+    loaded = load_recipe_build(workflow_path)
+    assert isinstance(loaded, VibeWorkflow)
+    assert test_commands._build_compiled_api(workflow_path)["1"]["class_type"] == "SaveImage"
+
+    broken_path = tmp_path / "broken.py"
+    broken_path.write_text("raise RuntimeError('broken recipe')\n", encoding="utf-8")
+    digest = hashlib.sha1(str(broken_path.resolve()).encode("utf-8")).hexdigest()[:12]
+    module_name = f"vibecomfy_recipe_{broken_path.stem}_{digest}"
+    with pytest.raises(RuntimeError, match="broken recipe"):
+        load_recipe_build(broken_path)
+    assert module_name not in sys.modules
 
 
 def test_wheel_shaped_user_recipe_works_from_neutral_cwd_and_applies_directives(
