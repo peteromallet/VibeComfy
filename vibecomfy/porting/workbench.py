@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-PortAnalysisMode = Literal["auto", "scratchpad", "strict_ready", "app_active"]
 
 from vibecomfy.cli_loader import _ready_id_for
 from vibecomfy.commands._workflow_path import resolve_workflow_path
@@ -37,6 +36,8 @@ from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.schema import schema_for, schema_registry_empty
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
+
+PortAnalysisMode = Literal["auto", "scratchpad", "strict_ready", "app_active"]
 
 _OPAQUE_COMPONENT_CLASS_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -718,6 +719,7 @@ def load_port_source(
     *,
     schema_provider: Any | None = None,
     use_comfy_converter: bool = True,
+    logical_source_path: str | None = None,
 ) -> LoadedPortSource:
     ready_id = _ready_id_for(source)
     if ready_id is not None:
@@ -734,7 +736,11 @@ def load_port_source(
 
     source_path = Path(source)
     if source_path.is_file() and source_path.suffix.lower() == ".py":
-        workflow = load_scratchpad(source_path, provenance_override="user_confirmed")
+        workflow = load_scratchpad(
+            source_path,
+            provenance_override="user_confirmed",
+            logical_path=logical_source_path,
+        )
         return LoadedPortSource(
             source_ref=source,
             source_kind="scratchpad",
@@ -757,7 +763,11 @@ def load_port_source(
 
     resolved = Path(resolved_path)
     if resolved.suffix.lower() == ".py":
-        workflow = load_scratchpad(resolved, provenance_override="user_confirmed")
+        workflow = load_scratchpad(
+            resolved,
+            provenance_override="user_confirmed",
+            logical_path=logical_source_path,
+        )
         return LoadedPortSource(
             source_ref=source,
             source_kind="scratchpad",
