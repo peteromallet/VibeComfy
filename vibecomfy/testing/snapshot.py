@@ -30,7 +30,9 @@ import json
 import re
 import sys
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
 
@@ -229,6 +231,83 @@ def apply_directives(api: dict, directives: list[RecipeDirective]) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# Top-level sibling imports are placed in ``sys.modules`` under their ordinary
+# names. Keep custody of the ones loaded from recipe directories so a later
+# same-stem recipe cannot accidentally reuse a sibling from an earlier path.
+_RECIPE_SIBLING_MODULES: dict[str, Path] = {}
+
+
+def _module_path(module: Any) -> Path | None:
+    filename = getattr(module, "__file__", None)
+    if not filename:
+        return None
+    try:
+        return Path(filename).resolve()
+    except OSError:  # pragma: no cover - unusual import hook
+        return None
+
+
+def _module_is_under(module: Any, parent: Path) -> bool:
+    filename = _module_path(module)
+    if filename is None:
+        return False
+    try:
+        filename.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _evict_conflicting_siblings(parent: Path) -> None:
+    for name, owner in list(_RECIPE_SIBLING_MODULES.items()):
+        if owner != parent:
+            sys.modules.pop(name, None)
+            _RECIPE_SIBLING_MODULES.pop(name, None)
+
+
+def _record_siblings(parent: Path, recipe_module: str) -> None:
+    for name, module in list(sys.modules.items()):
+        if name != recipe_module and _module_is_under(module, parent):
+            _RECIPE_SIBLING_MODULES[name] = parent
+
+
+def _cleanup_recipe_modules(
+    parent: Path,
+    recipe_module: str,
+    modules_before: set[str],
+) -> None:
+    for name, module in list(sys.modules.items()):
+        if name == recipe_module or (name not in modules_before and _module_is_under(module, parent)):
+            sys.modules.pop(name, None)
+            _RECIPE_SIBLING_MODULES.pop(name, None)
+
+
+@contextmanager
+def _recipe_import_context(parent: Path):
+    original_path = list(sys.path)
+    _evict_conflicting_siblings(parent)
+    if str(parent) not in sys.path:
+        sys.path.insert(0, str(parent))
+    try:
+        yield
+    finally:
+        sys.path[:] = original_path
+
+
+def _scoped_build(
+    build: Callable[..., Any], parent: Path, recipe_module: str
+) -> Callable[..., Any]:
+    @wraps(build)
+    def invoke(*args: Any, **kwargs: Any) -> Any:
+        with _recipe_import_context(parent):
+            try:
+                return build(*args, **kwargs)
+            finally:
+                _record_siblings(parent, recipe_module)
+
+    return invoke
+
+
 def load_recipe_build(path: str | Path) -> Callable[[], Any] | Any:
     """Load a user recipe file and return the workflow builder.
 
@@ -264,38 +343,32 @@ def load_recipe_build(path: str | Path) -> Callable[[], Any] | Any:
     if not target.is_file():
         raise FileNotFoundError(f"load_recipe_build: recipe path does not exist: {target}")
 
-    parent = str(target.parent)
+    parent = target.parent
     digest = hashlib.sha1(str(target).encode("utf-8")).hexdigest()[:12]
     module_name = f"vibecomfy_recipe_{target.stem}_{digest}"
 
-    added_parent = False
-    if parent not in sys.path:
-        sys.path.insert(0, parent)
-        added_parent = True
+    modules_before: set[str]
     try:
-        spec = importlib.util.spec_from_file_location(module_name, str(target))
-        if spec is None or spec.loader is None:  # pragma: no cover - defensive
-            raise RuntimeError(f"load_recipe_build: could not build import spec for {target}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        try:
+        with _recipe_import_context(parent):
+            modules_before = set(sys.modules)
+            spec = importlib.util.spec_from_file_location(module_name, str(target))
+            if spec is None or spec.loader is None:  # pragma: no cover - defensive
+                raise RuntimeError(f"load_recipe_build: could not build import spec for {target}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
             spec.loader.exec_module(module)
-        except Exception:
-            sys.modules.pop(module_name, None)
-            raise
-    finally:
-        if added_parent:
-            try:
-                sys.path.remove(parent)
-            except ValueError:  # pragma: no cover - already removed
-                pass
+            _record_siblings(parent, module_name)
+    except BaseException:
+        _cleanup_recipe_modules(parent, module_name, locals().get("modules_before", set()))
+        raise
 
     build = getattr(module, "build", None)
     if callable(build):
-        return build
+        return _scoped_build(build, parent, module_name)
     workflow = getattr(module, "WORKFLOW", None)
     if workflow is not None:
         return workflow
+    _cleanup_recipe_modules(parent, module_name, modules_before)
     raise RuntimeError(
         f"load_recipe_build: {target} must define `build()` or a module-level "
         "`WORKFLOW` attribute."

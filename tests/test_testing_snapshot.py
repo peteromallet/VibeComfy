@@ -81,8 +81,8 @@ def test_user_recipe_snapshot_round_trip(tmp_path: Path):
 def _workflow_source(helper_module: str) -> str:
     return (
         "from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource\n"
-        f"from {helper_module} import VALUE\n\n"
         "def build():\n"
+        f"    from {helper_module} import VALUE\n"
         "    wf = VibeWorkflow(id='loader', source=WorkflowSource(id='loader'))\n"
         "    wf.nodes['1'] = VibeNode(id='1', class_type='SaveImage', inputs={'value': VALUE})\n"
         "    return wf\n"
@@ -95,7 +95,7 @@ def test_cli_loader_uses_canonical_sibling_and_same_stem_isolation(tmp_path: Pat
     second = tmp_path / "second"
     for directory, value in ((first, "'first'"), (second, "'second'")):
         directory.mkdir()
-        helper_module = f"helper_{directory.name}"
+        helper_module = "helper"
         (directory / f"{helper_module}.py").write_text(f"VALUE = {value}\n", encoding="utf-8")
         (directory / "recipe.py").write_text(_workflow_source(helper_module), encoding="utf-8")
 
@@ -124,6 +124,14 @@ def test_canonical_loader_supports_workflow_fallback_and_cleans_failed_module(tm
     module_name = f"vibecomfy_recipe_{broken_path.stem}_{digest}"
     with pytest.raises(RuntimeError, match="broken recipe"):
         load_recipe_build(broken_path)
+    assert module_name not in sys.modules
+
+    missing_entry_path = tmp_path / "missing_entry.py"
+    missing_entry_path.write_text("VALUE = 1\n", encoding="utf-8")
+    digest = hashlib.sha1(str(missing_entry_path.resolve()).encode("utf-8")).hexdigest()[:12]
+    module_name = f"vibecomfy_recipe_{missing_entry_path.stem}_{digest}"
+    with pytest.raises(RuntimeError, match=r"must define `build\(\)`"):
+        load_recipe_build(missing_entry_path)
     assert module_name not in sys.modules
 
 
