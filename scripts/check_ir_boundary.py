@@ -306,6 +306,13 @@ class _BindingScopes(ast.NodeVisitor):
         if node.name:
             self.bind(node.name, node)
 
+    def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+        for key, pattern in zip(node.keys, node.patterns):
+            self.visit(key)
+            self.visit(pattern)
+        if node.rest:
+            self.bind(node.rest, node)
+
 
 def _semantic_projection_receivers(
     tree: ast.AST,
@@ -344,7 +351,9 @@ def _semantic_projection_receivers(
         inherited.update(
             name
             for name, events in scopes.trusted.get(scope, {}).items()
-            if set(events) == set(scopes.bindings.get(scope, {}).get(name, ()))
+            if len(events) == 1
+            and len(scopes.bindings.get(scope, {}).get(name, ())) == 1
+            and set(events) == set(scopes.bindings.get(scope, {}).get(name, ()))
         )
         trusted_by_scope[scope] = frozenset(inherited)
     for scope, names in assignments.items():

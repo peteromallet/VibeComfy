@@ -141,6 +141,43 @@ def test_canonical_projection_definition_remains_a_true_projection() -> None:
     assert hits == ()
 
 
+def test_match_mapping_rest_rebinds_projection_receiver() -> None:
+    rebound = scan_source(
+        "from vibecomfy.executor.revision_evidence import semantic_graph_projection\n"
+        "before = semantic_graph_projection(original)\n"
+        "match payload:\n"
+        "    case {'nodes': _, **before}:\n"
+        "        pass\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/match_mapping_rebound.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in rebound)
+
+    retained = scan_source(
+        "from vibecomfy.executor.revision_evidence import semantic_graph_projection\n"
+        "before = semantic_graph_projection(original)\n"
+        "match payload:\n"
+        "    case {'nodes': _, **rest}:\n"
+        "        pass\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/match_mapping_retained.py",
+    )
+    assert retained == ()
+
+
+def test_duplicate_canonical_projection_definitions_fail_closed() -> None:
+    hits = scan_source(
+        "def semantic_graph_projection(graph):\n"
+        "    return {'nodes': graph}\n"
+        "def semantic_graph_projection(graph):\n"
+        "    return {'nodes': graph}\n"
+        "before = semantic_graph_projection(original)\n"
+        "read = before['nodes']\n",
+        filename="vibecomfy/executor/revision_evidence.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in hits)
+
+
 def test_class_locals_are_not_treated_as_method_closure_bindings() -> None:
     hits = scan_source(
         "class Container:\n"
