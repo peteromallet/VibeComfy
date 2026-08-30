@@ -322,8 +322,32 @@ def test_semantic_projection_and_scoped_diff_preserve_link_order() -> None:
     assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
     scoped = _scoped_link_diff(original, candidate)
     assert scoped.has_diff is True
-    assert scoped.candidate_eligible is True
+    assert scoped.candidate_eligible is False
     assert "links.order" in scoped.diff_paths
+    assert "unrepresentable_link_order" in scoped.eligibility_blockers
+
+
+def test_revision_finalizer_marks_order_only_candidate_unrepresentable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _idless_link("out-a", "in-a")
+    second = _idless_link("out-b", "in-b")
+    original = _make_simple_graph(links=[first, second])
+    candidate = _make_simple_graph(links=[second, first])
+
+    evidence = _finalize_scoped_diff(
+        original,
+        candidate,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+
+    assert evidence.candidate_eligible is False
+    assert evidence.no_candidate_reason == "unrepresentable_link_order"
+    assert evidence.scoped_diff is not None
+    assert evidence.scoped_diff.has_diff is True
+    assert "links.order" in evidence.scoped_diff.diff_paths
 
 
 def test_scoped_diff_preserves_duplicate_idless_link_addition() -> None:
@@ -361,10 +385,90 @@ def test_scoped_diff_preserves_duplicate_idless_link_reordering() -> None:
     scoped = _scoped_link_diff(original, candidate)
     assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
     assert scoped.has_diff is True
-    assert scoped.candidate_eligible is True
+    assert scoped.candidate_eligible is False
     assert scoped.added_links == ()
     assert scoped.removed_links == ()
     assert "links.order" in scoped.diff_paths
+    assert "unrepresentable_link_order" in scoped.eligibility_blockers
+
+
+def test_scoped_diff_matches_standard_origin_target_ids_losslessly() -> None:
+    original = _make_simple_graph(
+        links=[{"id": 7, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"}]
+    )
+    candidate = _make_simple_graph(
+        links=[{"id": 8, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"}]
+    )
+
+    scoped = compute_scoped_diff(
+        original,
+        candidate,
+        topology=TopologyFindings(schema_available=True),
+        readiness=ReadinessReport(),
+        candidate_topology=TopologyFindings(schema_available=True),
+        candidate_readiness=ReadinessReport(),
+        target_node_ids=("2",),
+    )
+
+    assert scoped.target_matched is True
+    assert scoped.candidate_eligible is True
+    assert scoped.added_links == (
+        {"link_id": 8, "origin_node": 1, "origin_slot": 0, "target_node": 2, "target_slot": 0, "type": "IMAGE"},
+    )
+    assert scoped.removed_links == (
+        {"link_id": 7, "origin_node": 1, "origin_slot": 0, "target_node": 2, "target_slot": 0, "type": "IMAGE"},
+    )
+
+
+def test_scoped_diff_matches_legacy_source_target_forms() -> None:
+    original = _make_simple_graph(
+        links=[{"id": 7, "source_node": 1, "source_slot": 0, "target_node": 2, "target_slot": 0, "type": "IMAGE"}]
+    )
+    candidate = _make_simple_graph(
+        links=[{"id": 8, "source": {"node_uid": 1, "port": 0}, "target": {"node_uid": 2, "port": 0}, "type": "IMAGE"}]
+    )
+
+    scoped = compute_scoped_diff(
+        original,
+        candidate,
+        topology=TopologyFindings(schema_available=True),
+        readiness=ReadinessReport(),
+        candidate_topology=TopologyFindings(schema_available=True),
+        candidate_readiness=ReadinessReport(),
+        target_node_ids=("2",),
+    )
+
+    assert scoped.target_matched is True
+    assert scoped.candidate_eligible is True
+    assert scoped.added_links[0]["origin_node"] == 1
+    assert scoped.added_links[0]["target_node"] == 2
+
+
+def test_scoped_diff_fails_closed_for_malformed_link_endpoints() -> None:
+    original = _make_simple_graph(
+        links=[{"id": 7, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"}]
+    )
+    candidate = _make_simple_graph(
+        links=[{"id": 8, "origin_id": 1, "origin_slot": 0, "target_slot": 0, "type": "IMAGE"}]
+    )
+
+    scoped = _scoped_link_diff(original, candidate)
+
+    assert scoped.has_diff is True
+    assert scoped.candidate_eligible is False
+    assert "malformed_link" in scoped.eligibility_blockers
+
+
+def test_scoped_diff_fails_closed_for_non_link_record() -> None:
+    original = _make_simple_graph(links=[])
+    candidate = _make_simple_graph(links=["not-a-link"])
+
+    scoped = _scoped_link_diff(original, candidate)
+
+    assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
+    assert scoped.has_diff is True
+    assert scoped.candidate_eligible is False
+    assert "malformed_link" in scoped.eligibility_blockers
 
 
 def _graph_with_terminal_node() -> dict[str, Any]:

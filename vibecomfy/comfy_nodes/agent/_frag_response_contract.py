@@ -1919,18 +1919,39 @@ def _build_dev_success_response(
     contract: str,
 ) -> dict[str, Any]:
     from vibecomfy.comfy_nodes.agent.edit import (ApplyEligibility, LOGGER, TurnIdentity, TurnOutcome, _build_candidate_payload, _build_compatibility_response_fields, _build_precedent_semantic_check_entries, _canonical_agent_edit_route, _canonical_delta_ops_envelope_payload, _execution_plan_debug_fields, _execution_plan_response_fields, _execution_plan_task_satisfaction_entries, _has_enough_grounded_facts_for_dev_narrative, _json_safe, _legacy_narrative_debug_status, _narrate_final_message, _narrative_debug_fields, _plan_validation_allows_candidate, _prepare_narrative_artifact_paths, _record_narrative_artifacts, _record_post_edit_reorganisation_advisory, _response_artifacts_with_execution_plan, _route_blocks_apply, _route_change_focus_label, _sanitize_pure_clarify_response, _session_artifact_response_fields, _stage_snapshot_payloads, _sync_narrated_clarify_outcome, _v2_candidate_mutation_plan_fields, build_legacy_agent_edit_v1, derive_apply_eligibility, format_compact_plan_feedback, public_outcome_from_turn_outcome, success_envelope, turn_envelope)  # T-039 late import: host namespace lookup; resolved at call time
-    from vibecomfy.executor.revision_evidence import semantic_graph_hash
+    from vibecomfy.executor.revision_evidence import (
+        _link_order_only_change,
+        semantic_graph_hash,
+    )
     semantic_delta_graph_changed = (
         isinstance(state.ui_payload, Mapping)
         and isinstance(state.graph, Mapping)
         and semantic_graph_hash(state.ui_payload) != semantic_graph_hash(state.graph)
     )
     delta_graph_noop = contract == "delta" and not semantic_delta_graph_changed
+    delta_ops_payload: list[dict[str, Any]] | None = None
+    delta_unrepresentable_reason: str | None = None
+    if contract == "delta" and semantic_delta_graph_changed:
+        if _link_order_only_change(state.graph, state.ui_payload):
+            delta_unrepresentable_reason = "unrepresentable_link_order"
+        else:
+            try:
+                delta_ops_payload = _canonical_delta_ops_envelope_payload(state.delta_ops)["ops"]
+            except Exception:
+                delta_unrepresentable_reason = "unrepresentable_delta"
+            else:
+                if not delta_ops_payload:
+                    delta_unrepresentable_reason = "no_accepted_delta"
+    delta_candidate_representable = delta_unrepresentable_reason is None
     turn_identity = TurnIdentity.from_context(context)
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     eligibility = derive_apply_eligibility(
         context,
-        has_candidate=plan_allows_candidate and not delta_graph_noop,
+        has_candidate=(
+            plan_allows_candidate
+            and not delta_graph_noop
+            and delta_candidate_representable
+        ),
         candidate_state="candidate",
     )
     # inspect and clarify routes cannot be Apply-eligible.
@@ -1956,6 +1977,9 @@ def _build_dev_success_response(
     elif delta_graph_noop:
         has_candidate = False
         internal_outcome = TurnOutcome.noop(reason="No semantic graph changes.")
+    elif delta_unrepresentable_reason is not None:
+        has_candidate = False
+        internal_outcome = TurnOutcome.noop(reason=delta_unrepresentable_reason)
     else:
         has_candidate = True
         internal_outcome = TurnOutcome.edit()
@@ -1975,7 +1999,7 @@ def _build_dev_success_response(
         [] if contract == "delta" and not has_candidate else None
     )
     if contract == "delta" and has_candidate:
-        derived_ops = _canonical_delta_ops_envelope_payload(state.delta_ops)["ops"]
+        derived_ops = delta_ops_payload or []
         accepted_batch = [{"op": dict(op)} for op in derived_ops if isinstance(op, Mapping)]
         accepted_ops_for_plan = [
             dict(item["op"])
@@ -2080,6 +2104,9 @@ def _build_dev_success_response(
     if delta_graph_noop:
         response["graph_unchanged"] = True
         response["no_candidate_reason"] = "no_changes"
+    elif delta_unrepresentable_reason is not None:
+        response["graph_unchanged"] = True
+        response["no_candidate_reason"] = delta_unrepresentable_reason
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)

@@ -11438,6 +11438,73 @@ def test_dev_delta_empty_semantic_change_is_not_a_candidate() -> None:
     assert response["outcome"]["kind"] == "noop"
 
 
+def test_dev_delta_semantic_change_without_accepted_delta_is_unrepresentable() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+
+    original = {"nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}], "links": []}
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"] = [2]
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        delta_ops=(),
+    )
+    context = TurnContext(session_id="delta-semantic-empty", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="delta")
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert "agent_edit_protocol" not in response
+    assert response["no_candidate_reason"] == "no_accepted_delta"
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_allowed"] is False
+    assert response["canvas_apply_allowed"] is False
+    assert response["queue_allowed"] is False
+    assert response["outcome"]["kind"] == "noop"
+
+
+def test_dev_delta_order_only_change_is_not_applyable_without_replay_op() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    original = {
+        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
+        "links": [
+            {"id": 7, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"},
+            {"id": 8, "origin_id": 1, "origin_slot": 1, "target_id": 3, "target_slot": 0, "type": "LATENT"},
+        ],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["links"] = list(reversed(candidate["links"]))
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "1", "widgets_values"),
+        value=[1],
+    )
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        delta_ops=(op,),
+    )
+    context = TurnContext(session_id="delta-order-only", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="delta")
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert response["no_candidate_reason"] == "unrepresentable_link_order"
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_allowed"] is False
+    assert response["outcome"]["kind"] == "noop"
+
+
 def test_dev_delta_valid_semantic_change_retains_accepted_delta() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
     from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp

@@ -333,7 +333,14 @@ def _finalize_revision_evidence_with_candidate(
     # Candidate eligibility is owned by the semantic scoped diff above; raw
     # graph hashes and landed-count diagnostics cannot override its no_diff
     # result.  Accepted-batch authority remains the durable mutation source.
-    no_candidate_reason = None if scoped_diff.candidate_eligible else "no_changes"
+    if scoped_diff.candidate_eligible:
+        no_candidate_reason = None
+    elif "unrepresentable_link_order" in scoped_diff.eligibility_blockers:
+        no_candidate_reason = "unrepresentable_link_order"
+    elif state.revision_evidence.topology.missing_graph:
+        no_candidate_reason = "no_graph"
+    else:
+        no_candidate_reason = "no_changes"
     state.revision_evidence = dataclasses.replace(
         state.revision_evidence,
         scoped_diff=scoped_diff,

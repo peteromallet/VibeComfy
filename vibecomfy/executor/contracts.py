@@ -643,6 +643,9 @@ _NO_CANDIDATE_REASONS = frozenset({
     "implementation_skipped",
     "implementation_failed",
     "no_changes",
+    "no_accepted_delta",
+    "unrepresentable_delta",
+    "unrepresentable_link_order",
     "unknown_route",
 })
 

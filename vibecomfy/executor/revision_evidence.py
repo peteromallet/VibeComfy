@@ -905,13 +905,25 @@ def compute_scoped_diff(
             changed_link_ids.add(lid)
 
     # A pure reorder has no added/removed occurrences, but remains semantic
-    # because the projection deliberately preserves edge sequence.
+    # because the projection deliberately preserves edge sequence.  It is not
+    # an applyable candidate: the canonical delta grammar has no replayable
+    # reorder operation.  Supported remove/upsert operations may still change
+    # order incidentally, but that is not an order-only diff.
     orig_link_bases = [_link_diff_identity(link) for link in orig_links]
     cand_link_bases = [_link_diff_identity(link) for link in cand_links]
     link_order_changed = (
         len(orig_links) == len(cand_links)
         and _sequence_counts(orig_link_bases) == _sequence_counts(cand_link_bases)
         and orig_link_bases != cand_link_bases
+    )
+    order_only_change = (
+        link_order_changed
+        and not changed_ids
+        and not added_ids
+        and not removed_ids
+        and not changed_link_ids
+        and not added_link_ids
+        and not removed_link_ids
     )
 
     # ── 5. Stable dot paths ─────────────────────────────────────────────
@@ -933,6 +945,15 @@ def compute_scoped_diff(
     added_link_order = _ordered_link_ids(cand_link_entries, added_link_ids)
     removed_link_order = _ordered_link_ids(orig_link_entries, removed_link_ids)
     changed_link_order = _ordered_link_ids(orig_link_entries, changed_link_ids)
+    changed_link_ids_with_malformed_endpoints = {
+        lid
+        for lid in added_link_ids | removed_link_ids | changed_link_ids
+        if not _link_is_well_formed(
+            cand_link_map[lid] if lid in cand_link_map else orig_link_map[lid]
+        )
+    }
+    if changed_link_ids_with_malformed_endpoints:
+        eligibility_blockers.append("malformed_link")
     for lid in added_link_order:
         diff_paths.append(f"links.added.{lid}")
     for lid in removed_link_order:
@@ -965,6 +986,8 @@ def compute_scoped_diff(
         eligibility_blockers.append("candidate_readiness_blockers")
     if has_schema_unavailable:
         eligibility_blockers.append("schema_unavailable")
+    if order_only_change:
+        eligibility_blockers.append("unrepresentable_link_order")
 
     has_any_diff = (
         semantic_graph_hash(original_graph) != semantic_graph_hash(candidate_graph)
@@ -1145,7 +1168,7 @@ def _node_for_scoped_diff(node: dict) -> dict:
     return semantic_node_projection(node)
 
 
-def _link_content_hash(link: dict | list) -> str:
+def _link_content_hash(link: Any) -> str:
     """Stable hash of a single link for change detection."""
     import hashlib
     import json
@@ -1187,9 +1210,11 @@ def _diff_value_paths(before: Any, after: Any, prefix: str = "") -> tuple[str, .
     return (prefix or "value",)
 
 
-def _stable_link_id(link: dict | list) -> Any:
+def _stable_link_id(link: Any) -> Any:
     if isinstance(link, list):
-        return link[0] if link and link[0] is not None else None
+        # Six-field LiteGraph records begin with an explicit link id.  The
+        # older five-field source/target form begins directly with endpoints.
+        return link[0] if len(link) >= 6 and link[0] is not None else None
     if isinstance(link, dict):
         for key in ("id", "link_id"):
             if link.get(key) is not None:
@@ -1197,35 +1222,82 @@ def _stable_link_id(link: dict | list) -> Any:
     return None
 
 
-def _link_endpoint_value(link: dict | list, side: str, field: str) -> Any:
+def _link_endpoint_value(link: Any, side: str, field: str) -> Any:
+    """Read a link endpoint across the supported serialized forms.
+
+    ComfyUI's standard dict form uses ``origin_id``/``target_id`` while
+    internal/editor records may use ``origin_node``/``target_node`` or the
+    nested ``from``/``to`` (and legacy ``source``/``target``) form.  Never use
+    truthiness here: node/slot id ``0`` is valid evidence.
+    """
     if isinstance(link, list):
+        # Support both [id, origin, origin_slot, target, target_slot, type]
+        # and the legacy [origin, origin_slot, target, target_slot, type].
+        offset = 1 if len(link) >= 6 else 0
         index = {
-            ("origin", "node"): 1,
-            ("origin", "slot"): 2,
-            ("target", "node"): 3,
-            ("target", "slot"): 4,
+            ("origin", "node"): offset,
+            ("origin", "slot"): offset + 1,
+            ("target", "node"): offset + 2,
+            ("target", "slot"): offset + 3,
         }.get((side, field))
         return link[index] if index is not None and len(link) > index else None
-    if not isinstance(link, dict):
+    if not isinstance(link, Mapping):
         return None
-    direct_key = f"{side}_{field}"
-    if direct_key in link:
-        return link.get(direct_key)
-    endpoint = link.get("from" if side == "origin" else "to")
-    if not isinstance(endpoint, Mapping):
-        return None
-    if field == "node":
-        for key in ("node_uid", "node_id", "node", "id"):
-            if endpoint.get(key) is not None:
-                return endpoint[key]
-        return None
-    for key in ("port", "slot", "slot_index"):
-        if endpoint.get(key) is not None:
-            return endpoint[key]
+
+    direct_keys = {
+        ("origin", "node"): ("origin_node", "origin_id", "source_node", "source_id"),
+        ("origin", "slot"): ("origin_slot", "source_slot"),
+        ("target", "node"): ("target_node", "target_id", "dest_node", "destination_node", "dest_id"),
+        ("target", "slot"): ("target_slot", "dest_slot", "destination_slot"),
+    }[(side, field)]
+    for key in direct_keys:
+        value = link.get(key)
+        if value is not None:
+            return value
+
+    endpoint_keys = ("from", "source", "origin") if side == "origin" else (
+        "to", "target", "destination", "dest"
+    )
+    endpoint: Any = None
+    for key in endpoint_keys:
+        if key in link and link.get(key) is not None:
+            endpoint = link.get(key)
+            break
+    if isinstance(endpoint, Mapping):
+        if field == "node":
+            for key in ("node_uid", "node_id", "node", "uid", "id"):
+                value = endpoint.get(key)
+                if value is not None:
+                    return value
+        else:
+            for key in ("port", "slot", "slot_index", "index"):
+                value = endpoint.get(key)
+                if value is not None:
+                    return value
+    elif field == "node" and endpoint is not None:
+        # Legacy scalar source/target endpoint ids.
+        return endpoint
     return None
 
 
-def _link_identity(link: dict | list) -> str:
+def _link_endpoint_is_present(value: Any) -> bool:
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _link_is_well_formed(link: Any) -> bool:
+    """Return whether both endpoints are present in a supported link shape."""
+    return all(
+        _link_endpoint_is_present(_link_endpoint_value(link, side, field))
+        for side in ("origin", "target")
+        for field in ("node", "slot")
+    )
+
+
+def _link_identity(link: Any) -> str:
     """Return a stable display identity for *link*.
 
     Explicit link ids are authoritative.  Id-less endpoint links retain an
@@ -1240,17 +1312,17 @@ def _link_identity(link: dict | list) -> str:
     return f"link:{origin if origin is not None else '?'}->{target if target is not None else '?'}"
 
 
-def _link_diff_identity(link: dict | list) -> str:
+def _link_diff_identity(link: Any) -> str:
     if _stable_link_id(link) is not None:
         return _link_identity(link)
     return f"{_link_identity(link)}:content:{_link_content_hash(link)[:16]}"
 
 
 def _link_occurrence_entries(
-    links: list[dict | list],
-) -> list[tuple[str, dict | list]]:
+    links: list[Any],
+) -> list[tuple[str, Any]]:
     counts: dict[str, int] = {}
-    entries: list[tuple[str, dict | list]] = []
+    entries: list[tuple[str, Any]] = []
     for link in links:
         identity = _link_diff_identity(link)
         occurrence = counts.get(identity, 0)
@@ -1261,7 +1333,7 @@ def _link_occurrence_entries(
 
 
 def _ordered_link_ids(
-    entries: list[tuple[str, dict | list]],
+    entries: list[tuple[str, Any]],
     selected: set[str],
 ) -> list[str]:
     return [key for key, _link in entries if key in selected]
@@ -1276,30 +1348,30 @@ def _sequence_counts(values: list[str]) -> dict[str, int]:
 
 def _semantic_link_sequence(
     graph: dict[str, Any] | None,
-) -> tuple[dict[str, Any] | list[Any], ...]:
-    """Return valid links in exact source order, preserving multiplicity."""
+) -> tuple[Any, ...]:
+    """Return the raw link sequence, preserving order and malformed records."""
     import copy
 
     links_raw = door_get_links(graph) if isinstance(graph, dict) else None
     if not isinstance(links_raw, list):
         return ()
-    return tuple(
-        copy.deepcopy(link)
-        for link in links_raw
-        if isinstance(link, (dict, list))
-    )
+    return tuple(copy.deepcopy(link) for link in links_raw)
 
 
-def _link_serializable(link: dict | list) -> dict[str, Any]:
+def _link_serializable(link: Any) -> dict[str, Any]:
     """Convert a link to a serializable dict form for ScopedDiff."""
     if isinstance(link, list):
         return {
-            "link_id": link[0] if len(link) > 0 else None,
-            "origin_node": link[1] if len(link) > 1 else None,
-            "origin_slot": link[2] if len(link) > 2 else None,
-            "target_node": link[3] if len(link) > 3 else None,
-            "target_slot": link[4] if len(link) > 4 else None,
-            "type": link[5] if len(link) > 5 else None,
+            "link_id": _stable_link_id(link),
+            "origin_node": _link_endpoint_value(link, "origin", "node"),
+            "origin_slot": _link_endpoint_value(link, "origin", "slot"),
+            "target_node": _link_endpoint_value(link, "target", "node"),
+            "target_slot": _link_endpoint_value(link, "target", "slot"),
+            "type": (
+                link[5] if len(link) >= 6
+                else link[4] if len(link) >= 5
+                else None
+            ),
         }
     return {
         "link_id": _stable_link_id(link),
@@ -1307,7 +1379,7 @@ def _link_serializable(link: dict | list) -> dict[str, Any]:
         "origin_slot": _link_endpoint_value(link, "origin", "slot"),
         "target_node": _link_endpoint_value(link, "target", "node"),
         "target_slot": _link_endpoint_value(link, "target", "slot"),
-        "type": link.get("type"),
+        "type": link.get("type") if isinstance(link, Mapping) else None,
     }
 
 
@@ -1343,6 +1415,28 @@ def semantic_graph_projection(graph: dict[str, Any] | None) -> dict[str, Any]:
 def semantic_graph_hash(graph: dict[str, Any] | None) -> str:
     """Hash the shared semantic graph projection."""
     return _hash_graph(semantic_graph_projection(graph))
+
+
+def _link_order_only_change(
+    original_graph: dict[str, Any] | None,
+    candidate_graph: dict[str, Any] | None,
+) -> bool:
+    """Return whether the semantic change is exclusively link ordering."""
+    if not isinstance(original_graph, dict) or not isinstance(candidate_graph, dict):
+        return False
+    before = semantic_graph_projection(original_graph)
+    after = semantic_graph_projection(candidate_graph)
+    if before["nodes"] != after["nodes"]:
+        return False
+    before_links = list(before["links"])
+    after_links = list(after["links"])
+    before_bases = [_link_diff_identity(link) for link in before_links]
+    after_bases = [_link_diff_identity(link) for link in after_links]
+    return (
+        len(before_links) == len(after_links)
+        and _sequence_counts(before_bases) == _sequence_counts(after_bases)
+        and before_bases != after_bases
+    )
 
 
 
@@ -1424,14 +1518,9 @@ def collect_graph_facts(
             source_node_ids: set[int | str] = set()
             if isinstance(links_raw, list):
                 for link in links_raw:
-                    if isinstance(link, list) and len(link) >= 2:
-                        src = link[0]
-                        if src is not None:
-                            source_node_ids.add(src)
-                    elif isinstance(link, dict):
-                        src = link.get("origin_node") or link.get("source_node")
-                        if src is not None:
-                            source_node_ids.add(src)
+                    src = _link_endpoint_value(link, "origin", "node")
+                    if _link_endpoint_is_present(src):
+                        source_node_ids.add(src)
 
             # Terminal nodes: nodes that exist but are never a link source.
             terminal_ids = node_ids - source_node_ids
@@ -1452,22 +1541,13 @@ def collect_graph_facts(
             consumed_output_slots: set[tuple[int | str, int]] = set()
             if isinstance(links_raw, list):
                 for link in links_raw:
-                    if isinstance(link, list) and len(link) >= 4:
-                        src = link[0]
-                        src_slot = link[1]
-                        tgt = link[3]
-                        if tgt is not None:
-                            target_node_ids.add(tgt)
-                        if src is not None and isinstance(src_slot, int):
-                            consumed_output_slots.add((src, src_slot))
-                    elif isinstance(link, dict):
-                        tgt = link.get("target_node") or link.get("dest_node")
-                        if tgt is not None:
-                            target_node_ids.add(tgt)
-                        src = link.get("origin_node") or link.get("source_node")
-                        src_slot = link.get("origin_slot") or link.get("source_slot")
-                        if src is not None and isinstance(src_slot, int):
-                            consumed_output_slots.add((src, src_slot))
+                    tgt = _link_endpoint_value(link, "target", "node")
+                    if _link_endpoint_is_present(tgt):
+                        target_node_ids.add(tgt)
+                    src = _link_endpoint_value(link, "origin", "node")
+                    src_slot = _link_endpoint_value(link, "origin", "slot")
+                    if _link_endpoint_is_present(src) and isinstance(src_slot, int) and not isinstance(src_slot, bool):
+                        consumed_output_slots.add((src, src_slot))
 
             # A node with required inputs that are not linked has dangling inputs.
             if topology.missing_required_inputs:
