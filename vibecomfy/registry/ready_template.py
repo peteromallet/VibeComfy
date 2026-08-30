@@ -178,12 +178,14 @@ def _merge_requirements(workflow: VibeWorkflow, requirements: Mapping[str, list[
 
 
 def _append_model_asset(workflow: VibeWorkflow, asset: Mapping[str, Any]) -> None:
+    from vibecomfy.model_assets import _asset_entry_key
+
     model_assets = workflow.metadata.setdefault("model_assets", [])
     if not isinstance(model_assets, list):
         model_assets = []
         workflow.metadata["model_assets"] = model_assets
-    key = (asset.get("name"), asset.get("subdir"))
-    if any(isinstance(existing, Mapping) and (existing.get("name"), existing.get("subdir")) == key for existing in model_assets):
+    key = _asset_entry_key(asset)
+    if any(isinstance(existing, Mapping) and _asset_entry_key(existing) == key for existing in model_assets):
         return
     model_assets.append(dict(asset))
 
@@ -445,9 +447,11 @@ def finalise_model_assets(workflow: VibeWorkflow) -> None:
     ]
     combined = filtered + [asset for asset in extra_assets if isinstance(asset, dict)]
     final_assets: list[dict[str, Any]] = []
-    seen: set[tuple[object, object]] = set()
+    from vibecomfy.model_assets import _asset_entry_key
+
+    seen: set[tuple[str, str, str]] = set()
     for asset in combined:
-        key = (asset.get("name"), asset.get("subdir"))
+        key = _asset_entry_key(asset)
         if key in seen:
             continue
         seen.add(key)

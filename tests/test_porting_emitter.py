@@ -475,6 +475,28 @@ def test_model_block_emits_gated_model_assets() -> None:
     assert "sha256='gated'" not in text
 
 
+@pytest.mark.parametrize("field", ["subdir", "directory"])
+@pytest.mark.parametrize("subdir", ["", None, 0, []])
+def test_model_block_rejects_explicit_malformed_subdir(field: str, subdir: Any) -> None:
+    with pytest.raises(ValueError, match="model asset subdir must be a non-empty string"):
+        emit_ready_template_python(
+            _sample_workflow(),
+            ready_metadata={
+                "ready_template": "image/malformed-model",
+                "capability": "image",
+                "model_assets": [
+                    {
+                        "name": "model.safetensors",
+                        "url": "https://example.test/model.safetensors",
+                        field: subdir,
+                    }
+                ],
+            },
+            ready_requirements={},
+            template_id="image/malformed-model",
+        )
+
+
 def test_subgraph_materialized_as_bare_function() -> None:
     text = _emit_ready_from_ui_json(
         "ready_templates/sources/official/edit/flux2_klein_9b_image_edit_base.json",

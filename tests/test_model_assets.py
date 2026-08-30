@@ -11,7 +11,7 @@ from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.model_assets import entries_from_scratchpad_path, extract_from_raw_workflow, resolve_referenced_assets
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
 import vibecomfy.runtime.attempt as runtime_attempt
-from vibecomfy.runtime.session import _model_assets_from_workflow
+from vibecomfy.runtime.session import SessionConfig, _model_assets_from_workflow
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -420,6 +420,37 @@ def test_attempt_hash_uses_fetch_target_path_and_not_models_subdir(
     assert runtime_attempt._compute_actual_sha256(asset) == hashlib.sha256(
         b"custom-node asset"
     ).hexdigest()
+
+
+def test_attempt_hash_uses_configured_models_root_for_target_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured_base = tmp_path / "configured"
+    ambient_base = tmp_path / "ambient"
+    configured_root = configured_base / "models"
+    ambient_root = ambient_base / "models"
+    configured_destination = configured_base / "custom_nodes" / "pack" / "asset.bin"
+    ambient_destination = ambient_base / "custom_nodes" / "pack" / "asset.bin"
+    configured_destination.parent.mkdir(parents=True)
+    ambient_destination.parent.mkdir(parents=True)
+    configured_destination.write_bytes(b"configured")
+    ambient_destination.write_bytes(b"ambient")
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(ambient_root))
+
+    asset = {
+        "name": "asset.bin",
+        "subdir": "checkpoints",
+        "target_path": "custom_nodes/pack/asset.bin",
+    }
+
+    expected = hashlib.sha256(b"configured").hexdigest()
+    assert runtime_attempt._compute_actual_sha256(
+        asset, config={"models_root": str(configured_root)}
+    ) == expected
+    assert runtime_attempt._compute_actual_sha256(
+        asset,
+        config=SessionConfig(extra={"models_root_normalized": str(configured_root)}),
+    ) == expected
 
 
 def test_model_install_policy_only_requires_registry_or_authored_downloadables(

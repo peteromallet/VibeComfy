@@ -18,6 +18,7 @@ import re
 from collections import Counter
 from pathlib import Path
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from vibecomfy.porting.emit.emit_kwargs import (
     _format_value,
@@ -981,7 +982,14 @@ def _format_models_block(model_assets: list[Mapping[str, Any]]) -> list[str]:
     for asset in model_assets:
         key = _model_key(asset, used)
         filename = asset.get("filename", asset.get("name"))
-        subdir = asset.get("subdir") or asset.get("directory") or "checkpoints"
+        if "subdir" in asset:
+            subdir = asset["subdir"]
+        elif "directory" in asset:
+            subdir = asset["directory"]
+        else:
+            subdir = "checkpoints"
+        if not isinstance(subdir, str) or not subdir:
+            raise ValueError("model asset subdir must be a non-empty string")
         args: list[str] = []
         if filename is not None and not _filename_is_url_derived(str(filename), asset.get("url")):
             args.append(f"filename={_format_value(filename)}")

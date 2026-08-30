@@ -205,7 +205,24 @@ def _compute_actual_sha256(asset: dict[str, Any], *, config: Any = None) -> str 
     from vibecomfy.runtime.model_policy import normalized_models_root
     from vibecomfy.fetch import local_path
 
-    models_root = Path(normalized_models_root())
+    configured_root: Any = None
+    configured_root_present = False
+    if isinstance(config, dict):
+        configured_root_present = "models_root_normalized" in config or "models_root" in config
+        configured_root = config.get("models_root_normalized", config.get("models_root"))
+    elif config is not None:
+        extra = getattr(config, "extra", {})
+        if isinstance(extra, dict):
+            configured_root_present = "models_root_normalized" in extra or "models_root" in extra
+            configured_root = extra.get("models_root_normalized", extra.get("models_root"))
+    if configured_root_present and (
+        not isinstance(configured_root, (str, Path)) or not str(configured_root).strip()
+    ):
+        return None
+    try:
+        models_root = Path(normalized_models_root(configured_root if configured_root_present else None))
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
     try:
         candidate_path = local_path(asset, root=models_root)
     except (KeyError, ValueError, OSError):

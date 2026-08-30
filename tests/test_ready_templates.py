@@ -14,11 +14,15 @@ from vibecomfy.patches.resolution import resolution
 from vibecomfy.porting.parity import compile_equivalent
 from vibecomfy.registry import ready as ready_registry
 from vibecomfy.registry.ready import ready_template_ids, ready_template_source_info, workflow_from_ready
-from vibecomfy.registry.ready_template import apply_ready_template_policy
+from vibecomfy.registry.ready_template import (
+    _merge_requirements,
+    apply_ready_template_policy,
+    finalise_model_assets,
+)
 from vibecomfy.registry.static_contract import compare_public_contracts, extract_ready_template_contract
 from vibecomfy.runtime.session import SessionConfig, _model_assets_from_workflow
 from vibecomfy.testing.canonical import canonical_equal
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
 SNAPSHOT_IDS = (
@@ -55,6 +59,63 @@ def test_ready_template_ids_include_curated_workflows() -> None:
     assert "image/flux2_klein_9b_t2i" in ids
     assert "video/wan_t2v" in ids
     assert all(not template_id.rsplit("/", 1)[-1].startswith("_") for template_id in ids)
+
+
+def test_requirement_merge_preserves_distinct_target_path_assets() -> None:
+    workflow = VibeWorkflow("assets", WorkflowSource("assets"))
+    workflow.metadata["model_assets"] = [
+        {
+            "name": "shared.bin",
+            "url": "https://example.test/shared.bin",
+            "subdir": "checkpoints",
+        }
+    ]
+
+    _merge_requirements(
+        workflow,
+        {
+            "models": [
+                {
+                    "name": "shared.bin",
+                    "url": "https://example.test/shared.bin",
+                    "subdir": "checkpoints",
+                    "target_path": "custom_nodes/pack/shared.bin",
+                }
+            ]
+        },
+    )
+
+    assert {entry.get("target_path") for entry in workflow.metadata["model_assets"]} == {
+        None,
+        "custom_nodes/pack/shared.bin",
+    }
+
+
+def test_model_asset_finalization_preserves_distinct_target_path_assets() -> None:
+    workflow = VibeWorkflow("assets", WorkflowSource("assets"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "CheckpointLoaderSimple", inputs={"ckpt_name": "shared.bin"}
+    )
+    workflow.metadata["model_assets"] = [
+        {
+            "name": "shared.bin",
+            "url": "https://example.test/shared.bin",
+            "subdir": "checkpoints",
+        },
+        {
+            "name": "shared.bin",
+            "url": "https://example.test/shared.bin",
+            "subdir": "checkpoints",
+            "target_path": "custom_nodes/pack/shared.bin",
+        },
+    ]
+
+    finalise_model_assets(workflow)
+
+    assert {entry.get("target_path") for entry in workflow.metadata["model_assets"]} == {
+        None,
+        "custom_nodes/pack/shared.bin",
+    }
 
 
 def test_ready_templates_use_v26_context_bound_shape() -> None:
