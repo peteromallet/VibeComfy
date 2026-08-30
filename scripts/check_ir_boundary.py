@@ -18,6 +18,8 @@ dict that happens to use those key names as LiteGraph:
   formatted report fields.
 * Non-graph ``data`` blobs — CLI census, layout-section node-id lists,
   and Comfy websocket event fields.
+* Results assigned directly from ``semantic_graph_projection()`` — these are
+  already-normalized projection data, not raw LiteGraph input.
 
 Those collisions are suppressed by ``_NON_GRAPH_RECEIVER``.  Product
 files that need a structural read must call door helpers in
@@ -154,9 +156,53 @@ def _call_name(node: ast.Call) -> str | None:
     return None
 
 
+def _is_semantic_graph_projection_call(node: ast.AST) -> bool:
+    """Return whether *node* is a direct call to the known graph projection."""
+    if not isinstance(node, ast.Call):
+        return False
+    return _call_name(node) == "semantic_graph_projection"
+
+
+def _semantic_projection_receivers(tree: ast.AST) -> frozenset[str]:
+    """Find names with one unambiguous semantic-projection assignment.
+
+    This is deliberately assignment-derived rather than a receiver-name
+    allow-list: ``before`` and ``after`` are not intrinsically safe names.
+    Names with any reassignment remain graph-shaped and continue to be
+    reported.  The narrow provenance rule covers the normalized dictionaries
+    returned by ``semantic_graph_projection`` without weakening planted-read
+    detection elsewhere in the product.
+    """
+    assignments: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        targets: tuple[ast.AST, ...]
+        value: ast.AST | None
+        if isinstance(node, ast.Assign):
+            targets = tuple(node.targets)
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = (node.target,)
+            value = node.value
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                assignments.setdefault(target.id, []).append(value)
+    return frozenset(
+        name
+        for name, values in assignments.items()
+        if len(values) == 1 and _is_semantic_graph_projection_call(values[0])
+    )
+
+
+def _is_projection_receiver(node: ast.AST, names: frozenset[str]) -> bool:
+    return isinstance(node, ast.Name) and node.id in names
+
+
 def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
     """Scan one module.  Doors and pass-through exemptions are not applied."""
     tree = ast.parse(source, filename=filename)
+    projection_receivers = _semantic_projection_receivers(tree)
     found: list[Violation] = []
     seen: set[tuple[int, str, str]] = set()
 
@@ -185,6 +231,8 @@ def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
                 key = _literal_graph_key(child)
                 if key is None or not isinstance(child, ast.Subscript):
                     continue
+                if _is_projection_receiver(child.value, projection_receivers):
+                    continue
                 if _is_graph_receiver(child.value):
                     _add(child.lineno, "structural_write", key)
 
@@ -192,6 +240,8 @@ def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
         if key is None:
             continue
         receiver = node.value if isinstance(node, ast.Subscript) else node.func.value
+        if _is_projection_receiver(receiver, projection_receivers):
+            continue
         if _is_graph_receiver(receiver):
             _add(getattr(node, "lineno", 0), "structural_read", key)
 

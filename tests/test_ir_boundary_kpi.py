@@ -59,6 +59,34 @@ def test_planted_structural_read_is_flagged() -> None:
     assert classify_violation(planted_wv) == "structural_read"
 
 
+def test_semantic_projection_reads_are_not_raw_graph_reads() -> None:
+    hits = scan_source(
+        "before = semantic_graph_projection(original)\n"
+        "after = semantic_graph_projection(candidate)\n"
+        "same_nodes = before['nodes'] == after['nodes']\n"
+        "same_links = before.get('links') == after.get('links')\n",
+        filename="vibecomfy/semantic_projection_consumer.py",
+    )
+    assert hits == ()
+
+
+def test_projection_provenance_does_not_allow_reassigned_or_arbitrary_dicts() -> None:
+    reassigned = scan_source(
+        "before = semantic_graph_projection(original)\n"
+        "before = arbitrary_payload\n"
+        "nodes = before['nodes']\n",
+        filename="vibecomfy/reassigned_projection.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in reassigned)
+
+    arbitrary = scan_source(
+        "before = {}\n"
+        "nodes = before['nodes']\n",
+        filename="vibecomfy/arbitrary_projection_name.py",
+    )
+    assert any(item.kind == "structural_read" and item.detail == "nodes" for item in arbitrary)
+
+
 def test_doors_are_not_ci_violations() -> None:
     from pathlib import Path
 
