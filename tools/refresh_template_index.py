@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-from vibecomfy.registry.ready import repo_ready_template_ids
+from vibecomfy.registry.ready import repo_ready_template_discovery
 from vibecomfy.registry.static_contract import extract_ready_template_contract
 from vibecomfy.porting._provenance_utils import resolve_source_workflow
 
@@ -54,10 +54,12 @@ def build_template_index(*, generated_at: str | None = None) -> dict[str, Any]:
     generated_at = generated_at or _existing_generated_at(DEFAULT_OUTPUT)
     coverage = _load_coverage_by_template_id(DEFAULT_COVERAGE)
     templates: list[dict[str, Any]] = []
-    for template_id in repo_ready_template_ids():
-        path = _ready_template_path(template_id)
-        metadata, requirements = _ready_template_metadata(REPO_ROOT / path)
-        static_contract = extract_ready_template_contract(REPO_ROOT / path)
+    for record in repo_ready_template_discovery().records:
+        template_id = record.template_id
+        source_path = record.path
+        path = source_path.relative_to(REPO_ROOT).as_posix()
+        metadata, requirements = _ready_template_metadata(source_path)
+        static_contract = extract_ready_template_contract(source_path)
         coverage_row = coverage.get(template_id, {})
         coverage_tier = metadata.get("coverage_tier") or coverage_row.get("coverage_tier", "")
         row = {
@@ -92,7 +94,7 @@ def build_template_index(*, generated_at: str | None = None) -> dict[str, Any]:
             "comfy_core": metadata.get("comfy_core"),
             "source_workflow": resolve_source_workflow(metadata)
             or ("manual" if coverage_row.get("path") == "manual" else None),
-            "source_sha256": _extract_source_sha256(REPO_ROOT / path),
+            "source_sha256": _extract_source_sha256(source_path),
         }
         custom_node_refs = static_contract.get("custom_node_refs") or _list_items(requirements.get("custom_node_refs"))
         if custom_node_refs:
@@ -107,10 +109,6 @@ def build_template_index(*, generated_at: str | None = None) -> dict[str, Any]:
         "template_count": len(templates),
         "templates": templates,
     }
-
-
-def _ready_template_path(template_id: str) -> str:
-    return (Path("ready_templates") / f"{template_id}.py").as_posix()
 
 
 def _extract_source_sha256(path: Path) -> str | None:

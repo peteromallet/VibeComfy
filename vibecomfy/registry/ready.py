@@ -455,26 +455,32 @@ def _resolve_ready_path(
     return _resolve_ready_record(template_id, discovery).path
 
 
+def _ready_candidates(
+    template_id: str,
+    discovery: ReadyTemplateDiscovery,
+) -> tuple[ReadyTemplateRecord, ...]:
+    """Return physical candidates using the canonical ready-id alias rules."""
+    query_id = _normalize_ready_template_id(template_id)
+    exact = discovery.by_id.get(query_id, ()) if "/" in query_id else ()
+    if exact:
+        return exact
+    if "/" in query_id:
+        return discovery.by_lookup.get(_ready_lookup_key(query_id), ())
+    lookup_key = _ready_lookup_key(query_id)
+    return tuple(
+        record
+        for record in discovery.records
+        if _ready_lookup_key(record.template_id.rsplit("/", 1)[-1]) == lookup_key
+    )
+
+
 def _resolve_ready_record(
     template_id: str,
     discovery: ReadyTemplateDiscovery | None = None,
 ) -> ReadyTemplateRecord:
     query_id = _normalize_ready_template_id(template_id)
     discovery = discovery or _discover_ready_templates()
-    exact_candidates = list(discovery.by_id.get(query_id, ())) if "/" in query_id else []
-    if exact_candidates:
-        if len(exact_candidates) > 1:
-            raise ValueError(_collision_message(query_id, exact_candidates))
-        return exact_candidates[0]
-    if "/" in query_id:
-        candidates = list(discovery.by_lookup.get(_ready_lookup_key(query_id), ()))
-    else:
-        lookup_key = _ready_lookup_key(query_id)
-        candidates = [
-            record
-            for record in discovery.records
-            if _ready_lookup_key(record.template_id.rsplit("/", 1)[-1]) == lookup_key
-        ]
+    candidates = list(_ready_candidates(query_id, discovery))
     if not candidates:
         raise KeyError(f"Ready template not found: {template_id}")
     candidate_ids = {record.template_id for record in candidates}

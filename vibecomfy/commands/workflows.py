@@ -20,6 +20,7 @@ from vibecomfy.registry.ready import (
     _discover_ready_templates,
     _id_sort_key,
     _normalize_ready_template_id,
+    _ready_candidates,
     _ready_lookup_key,
     ready_template_source_info,
     workflow_from_ready,
@@ -123,7 +124,7 @@ def _ready_rows_from_template_index(
     if discovery is not None:
         matched_rows: list[dict[str, Any]] = []
         for row in rows:
-            matches = _ready_index_matches(str(row["id"]), discovery)
+            matches = _ready_candidates(str(row["id"]), discovery)
             if not matches:
                 # The physical snapshot is the listing authority.  An index
                 # row without a physical match is stale metadata, not a
@@ -141,25 +142,6 @@ def _ready_rows_from_template_index(
         rows = matched_rows
     rows.sort(key=lambda row: _id_sort_key(str(row.get("id", ""))))
     return rows, None
-
-
-def _ready_index_matches(
-    template_id: str,
-    discovery: ReadyTemplateDiscovery,
-) -> tuple[Any, ...]:
-    """Resolve an indexed id against the physical snapshot's alias rules."""
-    query_id = _normalize_ready_template_id(template_id)
-    if "/" in query_id:
-        exact = discovery.by_id.get(query_id, ())
-        if exact:
-            return exact
-        return discovery.by_lookup.get(_ready_lookup_key(query_id), ())
-    lookup_key = _ready_lookup_key(query_id)
-    return tuple(
-        record
-        for record in discovery.records
-        if _ready_lookup_key(record.template_id.rsplit("/", 1)[-1]) == lookup_key
-    )
 
 
 def _template_index_diagnostic(

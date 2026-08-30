@@ -173,6 +173,27 @@ def test_indexed_listing_prefers_exact_physical_id_and_is_order_independent(
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
 
 
+def test_template_index_producer_uses_discovered_record_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools import refresh_template_index as refresh
+
+    candidate = tmp_path / "ready_templates" / "image" / "CaseSensitive.py"
+    _write_template(candidate)
+    discovery = ready._discover_ready_templates(roots=[candidate.parents[1]])
+    monkeypatch.setattr(refresh, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(refresh, "repo_ready_template_discovery", lambda: discovery)
+    monkeypatch.setattr(refresh, "_load_coverage_by_template_id", lambda _path: {})
+
+    payload = refresh.build_template_index(generated_at="2026-01-01T00:00:00+00:00")
+
+    assert payload["template_count"] == 1
+    assert payload["templates"][0]["id"] == "image/CaseSensitive"
+    assert payload["templates"][0]["path"] == (
+        "ready_templates/image/CaseSensitive.py"
+    )
+
+
 def test_indexed_listing_reports_physical_collision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
