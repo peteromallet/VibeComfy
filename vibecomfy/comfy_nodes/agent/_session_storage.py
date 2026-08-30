@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import time
@@ -536,11 +537,50 @@ def write_state_atomic_impl(
     session_dir.mkdir(parents=True, exist_ok=True)
     target = session_dir / state_file_name
     tmp = session_dir / f".{state_file_name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-    tmp.write_text(
-        json.dumps(state, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(state, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, target)
+        _fsync_parent_directory(session_dir)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+_UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = frozenset(
+    errno_value
+    for errno_value in (
+        errno.EINVAL,
+        errno.ENOTSUP,
+        getattr(errno, "EOPNOTSUPP", None),
+        errno.ENOSYS,
     )
-    tmp.replace(target)
+    if errno_value is not None
+)
+
+
+def _fsync_parent_directory(path: Path) -> None:
+    """Durably publish a directory entry, when the platform supports it."""
+    if os.name == "nt":
+        return
+    try:
+        directory_fd = os.open(path, os.O_RDONLY)
+    except OSError as error:
+        if error.errno in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+            return
+        raise
+    try:
+        try:
+            os.fsync(directory_fd)
+        except OSError as error:
+            if error.errno not in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+                raise
+    finally:
+        os.close(directory_fd)
 
 
 def write_response_atomic_impl(

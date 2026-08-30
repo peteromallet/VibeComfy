@@ -7,12 +7,15 @@ display, or drop explicit evidence paths.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from vibecomfy.comfy_nodes.agent.audit import write_audit
+from vibecomfy.comfy_nodes.agent import _session_storage
 from vibecomfy.comfy_nodes.agent.contracts import (
     DEFAULT_GATE_NAMES,
     PUBLIC_OUTCOME_KINDS,
@@ -38,6 +41,115 @@ from vibecomfy.comfy_nodes.agent.session import (
     read_state,
 )
 from vibecomfy.porting.edit.types import FieldChange
+
+
+def _state_for_storage_test() -> dict[str, object]:
+    return {"schema_version": 1, "turns": {"t1": {"state": "submitted"}}}
+
+
+def test_session_state_atomic_write_fsyncs_file_then_replace_then_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    real_fsync = _session_storage.os.fsync
+    real_replace = _session_storage.os.replace
+
+    def record_fsync(fd: int) -> None:
+        events.append("fsync")
+        real_fsync(fd)
+
+    def record_replace(
+        source: str | os.PathLike[str], target: str | os.PathLike[str]
+    ) -> None:
+        events.append("replace")
+        real_replace(source, target)
+
+    monkeypatch.setattr(_session_storage.os, "fsync", record_fsync)
+    monkeypatch.setattr(_session_storage.os, "replace", record_replace)
+
+    _session_storage.write_state_atomic_impl(
+        tmp_path, _state_for_storage_test(), state_file_name="session_state.json"
+    )
+
+    assert events == ["fsync", "replace", "fsync"]
+    assert not list(tmp_path.glob(".session_state.json.*.tmp"))
+    assert json.loads((tmp_path / "session_state.json").read_text()) == _state_for_storage_test()
+
+
+@pytest.mark.parametrize("fault", ["file_fsync", "replace", "directory_fsync"])
+def test_session_state_atomic_write_cleans_temp_on_durability_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    target = tmp_path / "session_state.json"
+    target.write_text('{"old": true}\n', encoding="utf-8")
+    real_fsync = _session_storage.os.fsync
+    calls = 0
+
+    def fail_fsync(fd: int) -> None:
+        nonlocal calls
+        calls += 1
+        if (fault == "file_fsync" and calls == 1) or (
+            fault == "directory_fsync" and calls == 2
+        ):
+            raise OSError(errno.EIO, f"synthetic {fault}")
+        real_fsync(fd)
+
+    def fail_replace(
+        source: str | os.PathLike[str], destination: str | os.PathLike[str]
+    ) -> None:
+        raise OSError(errno.EIO, "synthetic replace")
+
+    monkeypatch.setattr(_session_storage.os, "fsync", fail_fsync)
+    if fault == "replace":
+        monkeypatch.setattr(_session_storage.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="synthetic"):
+        _session_storage.write_state_atomic_impl(
+            tmp_path, _state_for_storage_test(), state_file_name="session_state.json"
+        )
+
+    assert not list(tmp_path.glob(".session_state.json.*.tmp"))
+    if fault != "directory_fsync":
+        assert target.read_text(encoding="utf-8") == '{"old": true}\n'
+
+
+@pytest.mark.parametrize(
+    ("operation", "error_number", "raises"),
+    [
+        ("open", errno.EINVAL, False),
+        ("open", errno.EIO, True),
+        ("fsync", errno.EINVAL, False),
+        ("fsync", errno.EIO, True),
+    ],
+)
+def test_session_state_directory_fsync_handles_only_unsupported_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    error_number: int,
+    raises: bool,
+) -> None:
+    if operation == "open":
+
+        def fail_open(path: str | os.PathLike[str], flags: int) -> int:
+            raise OSError(error_number, "synthetic directory open")
+
+        monkeypatch.setattr(_session_storage.os, "open", fail_open)
+    else:
+        calls = 0
+
+        def fail_fsync(fd: int) -> None:
+            nonlocal calls
+            calls += 1
+            raise OSError(error_number, "synthetic directory fsync")
+
+        monkeypatch.setattr(_session_storage.os, "fsync", fail_fsync)
+
+    if raises:
+        with pytest.raises(OSError, match="synthetic"):
+            _session_storage._fsync_parent_directory(tmp_path)
+    else:
+        _session_storage._fsync_parent_directory(tmp_path)
 
 
 # ---------------------------------------------------------------------------
