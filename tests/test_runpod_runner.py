@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+from concurrent.futures import ThreadPoolExecutor
 from collections import namedtuple
 from pathlib import Path
 
@@ -283,11 +284,14 @@ def test_lifecycle_snapshot_is_mutation_isolated(tmp_path: Path, monkeypatch: py
 
 @pytest.mark.parametrize("alias_kind", ["alias", "dangling"])
 def test_bind_artifact_root_rejects_lexical_symlink_aliases(
-    tmp_path: Path, alias_kind: str
+    tmp_path: Path, alias_kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     staging_root = tmp_path / "staging"
     expected = staging_root / "artifacts"
     expected.mkdir(parents=True)
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
     if alias_kind == "alias":
         returned = staging_root / "alias"
         returned.symlink_to(expected, target_is_directory=True)
@@ -295,7 +299,7 @@ def test_bind_artifact_root_rejects_lexical_symlink_aliases(
         returned = staging_root / "dangling"
         returned.symlink_to(staging_root / "missing", target_is_directory=True)
 
-    destination = tmp_path / "final"
+    destination = publication_root / "final"
     assert runpod_runner._bind_artifact_root(
         returned, destination, staging_root=staging_root
     ) is None
@@ -304,22 +308,113 @@ def test_bind_artifact_root_rejects_lexical_symlink_aliases(
     assert expected.is_dir() and not expected.is_symlink()
 
 
-def test_bind_artifact_root_rejects_internal_symlink_tree(tmp_path: Path) -> None:
+def test_bind_artifact_root_rejects_internal_symlink_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     staging_root = tmp_path / "staging"
     expected = staging_root / "artifacts"
     expected.mkdir(parents=True)
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
     target = tmp_path / "outside.txt"
     target.write_text("must not be imported", encoding="utf-8")
     (expected / "nested").mkdir()
     (expected / "nested" / "alias.txt").symlink_to(target)
 
-    destination = tmp_path / "final"
+    destination = publication_root / "final"
     assert runpod_runner._bind_artifact_root(
         expected, destination, staging_root=staging_root
     ) is None
     assert not destination.exists()
     assert expected.is_dir() and (expected / "nested" / "alias.txt").is_symlink()
     assert target.read_text(encoding="utf-8") == "must not be imported"
+
+
+def test_allocate_artifact_root_rejects_symlinked_publication_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "runpod_artifacts"
+    linked_root.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", linked_root)
+
+    with pytest.raises(RuntimeError, match="not a real directory"):
+        runpod_runner._allocate_artifact_root()
+    assert list(outside.iterdir()) == []
+
+
+def test_bind_artifact_root_rejects_symlinked_intermediate_destination_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging_root = tmp_path / "staging"
+    expected = staging_root / "artifacts"
+    expected.mkdir(parents=True)
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (publication_root / "nested").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
+
+    destination = publication_root / "nested" / "final"
+    assert runpod_runner._bind_artifact_root(
+        expected, destination, staging_root=staging_root
+    ) is None
+    assert not (outside / "final").exists()
+    assert expected.is_dir() and not expected.is_symlink()
+
+
+def test_bind_artifact_root_rejects_preexisting_destination_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging_root = tmp_path / "staging"
+    expected = staging_root / "artifacts"
+    expected.mkdir(parents=True)
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    destination = publication_root / "final"
+    destination.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
+
+    assert runpod_runner._bind_artifact_root(
+        expected, destination, staging_root=staging_root
+    ) is None
+    assert destination.is_symlink()
+    assert list(outside.iterdir()) == []
+    assert expected.is_dir() and not expected.is_symlink()
+
+
+def test_bind_artifact_root_concurrent_collision_publishes_one_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
+    destinations = publication_root / "same"
+    roots: list[Path] = []
+    for label in ("a", "b"):
+        staging_root = tmp_path / f"staging-{label}"
+        artifact_root = staging_root / "artifacts"
+        artifact_root.mkdir(parents=True)
+        (artifact_root / "owner").write_text(label, encoding="utf-8")
+        roots.append(staging_root)
+
+    def bind(staging_root: Path) -> Path | None:
+        return runpod_runner._bind_artifact_root(
+            staging_root / "artifacts", destinations, staging_root=staging_root
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(bind, roots))
+    assert sum(result is not None for result in results) == 1
+    winner = destinations / "owner"
+    assert winner.read_text(encoding="utf-8") in {"a", "b"}
+    loser = roots[0] / "artifacts" if results[1] is not None else roots[1] / "artifacts"
+    assert (loser / "owner").exists()
 
 
 async def test_run_pod_detached_binds_unique_download_and_preserves_source(

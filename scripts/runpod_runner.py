@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import uuid
@@ -52,8 +53,81 @@ DEFAULT_UPLOAD_EXCLUDES: set[str] = {
 
 def _allocate_artifact_root() -> Path:
     """Allocate a unique final artifact root for this detached invocation."""
-    ARTIFACT_RUNS_ROOT.mkdir(parents=True, exist_ok=True)
-    return ARTIFACT_RUNS_ROOT / uuid.uuid4().hex
+    publication_root = Path(ARTIFACT_RUNS_ROOT)
+    if not _ensure_real_directory(publication_root):
+        raise RuntimeError(
+            f"RunPod artifact publication root is not a real directory without "
+            f"symlink components: {publication_root}"
+        )
+    return publication_root / uuid.uuid4().hex
+
+
+def _has_symlink_component(path: Path) -> bool:
+    """Return whether an existing component of *path* is a symlink.
+
+    This intentionally uses lexical parents and ``lstat``/``lexists`` rather
+    than ``resolve``.  A missing leaf is acceptable while allocating a new
+    destination, but a dangling link or a link in any existing parent is not.
+    """
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    while True:
+        try:
+            if os.path.lexists(candidate):
+                mode = os.lstat(candidate).st_mode
+                if stat.S_ISLNK(mode):
+                    return True
+        except OSError:
+            return True
+        parent = candidate.parent
+        if parent == candidate:
+            return False
+        candidate = parent
+
+
+def _ensure_real_directory(path: Path) -> bool:
+    """Create *path* if needed, requiring a real directory at every step."""
+    path = Path(path)
+    if not path.is_absolute() or _has_symlink_component(path):
+        return False
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    # Re-check after mkdir: a stale symlink or a concurrent replacement must
+    # not become the publication root just because mkdir followed it.
+    try:
+        return path.is_dir() and not _has_symlink_component(path)
+    except OSError:
+        return False
+
+
+def _destination_is_owned(
+    destination: Path,
+    publication_root: Path,
+    *,
+    allow_missing: bool,
+) -> bool:
+    """Validate a lexical destination below the real publication root."""
+    destination = Path(destination)
+    publication_root = Path(publication_root)
+    if destination == publication_root:
+        return False
+    try:
+        destination.relative_to(publication_root)
+    except ValueError:
+        return False
+    if _has_symlink_component(publication_root) or _has_symlink_component(destination.parent):
+        return False
+    if not publication_root.is_dir() or publication_root.is_symlink():
+        return False
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        return False
+    destination_exists = os.path.lexists(destination)
+    if allow_missing:
+        return not destination_exists
+    return destination_exists and destination.is_dir() and not destination.is_symlink()
 
 
 def _stage_lifecycle_local_root(exclude: set[str]) -> Path:
@@ -120,8 +194,36 @@ def _bind_artifact_root(
         return None
     if _contains_symlink(source):
         return None
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    source.replace(destination)
+    publication_root = Path(ARTIFACT_RUNS_ROOT)
+    if not _destination_is_owned(destination, publication_root, allow_missing=True):
+        return None
+
+    # Reserve the destination as an empty real directory.  This makes UUID
+    # collisions and concurrent callers fail closed instead of replacing an
+    # already-published run.  Recheck the complete lexical boundary directly
+    # before the atomic directory rename as well.
+    try:
+        destination.mkdir()
+    except OSError:
+        return None
+    if not _destination_is_owned(destination, publication_root, allow_missing=False):
+        # Do not recursively remove a path after a boundary check failed: it
+        # may have been replaced by another owner.  The invocation cleanup is
+        # responsible for its private staging tree; this reserved path is
+        # intentionally left as an auditable collision/failure marker.
+        return None
+    if destination.is_symlink() or _has_symlink_component(destination):
+        return None
+    try:
+        source.replace(destination)
+    except OSError:
+        return None
+    # The source is now published.  Check immediately after rename too, so a
+    # parent replacement race cannot be reported as a successful safe bind.
+    if destination.is_symlink() or _has_symlink_component(destination):
+        return None
+    if _contains_symlink(destination):
+        return None
     return destination
 
 
