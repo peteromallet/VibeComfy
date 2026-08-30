@@ -66,13 +66,13 @@ def export_to_api_json(wf: VibeWorkflow) -> dict:
 # 3. Inspect nodes with lookup_id()
 # ---------------------------------------------------------------------------
 
-def inspect_nodes(wf: VibeWorkflow) -> list[dict]:
+def inspect_nodes(wf: VibeWorkflow) -> list[tuple[str, dict]]:
     """Use ``wf.lookup_id()`` to get rich info about each node."""
     results = []
     for node_id in list(wf.nodes.keys())[:3]:  # limit for readability
         try:
             info = wf.lookup_id(node_id)
-            results.append(info)
+            results.append((node_id, info))
         except KeyError:
             pass
     return results
@@ -107,8 +107,8 @@ if __name__ == "__main__":
     print(f"API JSON: {len(api)} nodes")
 
     # Inspect nodes
-    for info in inspect_nodes(wf):
-        print(f"  Node {info.get('id', '?')}: class_type={info.get('class_type', '?')}")
+    for node_id, info in inspect_nodes(wf):
+        print(f"  Node {node_id}: class_type={info.get('class_type', '?')}")
 
     # Strict types demo
     print(f"\nwf.strict_types = {wf.strict_types}")

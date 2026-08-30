@@ -24,7 +24,7 @@ VibeComfy already has most of the low-level machinery:
 - `vibecomfy.porting.workbench`
   Performs source-level port checks: workflow shape, helper/component diagnostics, custom-node suggestions, model asset analysis, widget alias checks, known runtime-required inputs, and schema validation.
 
-- `vibecomfy.porting.emit.emitter`
+- `vibecomfy.porting.emitter`
   Emits pure Python ready templates from `VibeWorkflow`.
 
 - `tools/convert_ready_templates.py`
