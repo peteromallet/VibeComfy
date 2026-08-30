@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from vibecomfy.porting.object_info.consume import CACHE_DIR, reset_cache
-from vibecomfy.porting.object_info.serialize import CacheIdentity, _read_existing_index, build_cache
+from vibecomfy.porting.object_info.serialize import (
+    CacheIdentity,
+    _read_existing_index,
+    build_cache,
+    republish_cache_root,
+)
 
 # Canonical persist tokens per extraction rung (plan "Canonical tokens").
 # Never persist runtime_* / executed_* / workflow_json_stub from this path.
@@ -323,6 +328,10 @@ def persist_on_demand_pack(
     provenance["packs"] = packs
     provenance["class_count"] = len(index)
     _schemas_write(provenance, cache_root)
+    # The hygiene pass edits the compatibility-root artifacts after
+    # build_cache's atomic publication. Recommit that final state so readers
+    # using CURRENT cannot observe the pre-hygiene merged pack generation.
+    republish_cache_root(cache_root)
 
     reset_cache()
     return PersistResult(

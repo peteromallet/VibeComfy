@@ -204,6 +204,22 @@ class ObjectInfoIdentityError(SchemaValidationError):
     default_next_action = "vibecomfy schema refresh"
 
 
+class ObjectInfoCacheError(SchemaValidationError):
+    """The object_info cache is present but cannot be trusted."""
+
+    default_next_action = "vibecomfy schemas refresh"
+
+
+class ObjectInfoCacheCorruptError(ObjectInfoCacheError):
+    """A cache generation is malformed, incomplete, or internally inconsistent."""
+
+
+class OnDemandCloneError(SchemaValidationError):
+    """An on-demand node-pack clone could not be prepared for reading."""
+
+    default_next_action = "verify the node-pack URL and pinned revision"
+
+
 class ObjectInfoIdentityAmbiguityError(ObjectInfoIdentityError):
     """Multiple cached object_info entries matched one requested identity."""
 
@@ -276,6 +292,9 @@ __all__ = [
     "ArityDisagreementError",
     "ObjectInfoIdentityAmbiguityError",
     "ObjectInfoIdentityError",
+    "ObjectInfoCacheCorruptError",
+    "ObjectInfoCacheError",
+    "OnDemandCloneError",
     "UnknownNodeSchemaError",
     # origin/main
     "NodePackInstallError",

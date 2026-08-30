@@ -367,6 +367,17 @@ class OnDemandInstallSchemaProvider:
         marker = target / _CLONE_COMPLETE_MARKER
         if marker.is_symlink():
             return False
+        # Accept a valid legacy checkout created before transactional clone
+        # markers were introduced. It is safe to reuse only an actual Git
+        # checkout; incomplete test/staging directories do not contain HEAD
+        # and objects, so they still take the cleanup-and-retry path below.
+        if not marker.exists() and (git_dir / "HEAD").is_file() and (git_dir / "objects").is_dir():
+            try:
+                head = _run_git(["git", "-C", str(target), "rev-parse", "HEAD"], 10).stdout.strip()
+                if head:
+                    return True
+            except (OSError, ValueError, TypeError, subprocess.SubprocessError, OnDemandCloneError):
+                return False
         try:
             data = json.loads(marker.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or data.get("complete") is not True:

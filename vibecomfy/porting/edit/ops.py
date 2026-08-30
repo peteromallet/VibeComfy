@@ -546,6 +546,7 @@ def require_known_schema_for_operation(
                 detail={"evidence_refs": ["reason:missing_touched_schema"], "op": getattr(operation, "op", None)},
             )
         return
+    admitted = admit_operation(snapshot, operation)
     if isinstance(admitted, AdmissionRejected):
         raise EditOpParseError(
             admitted.typed_reason,
