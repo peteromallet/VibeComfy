@@ -4,6 +4,7 @@ PYTEST ?= $(PYTHON) -m pytest
 NODE ?= node
 COMFY_INDEX_URL ?= https://nodes.appmana.com/simple/
 BROAD_COVERAGE_FAIL_UNDER ?= 70
+PARITY_NETWORK ?= 0
 
 FAST_PYTEST := \
 	tests/test_cli_loader.py \
@@ -229,7 +230,7 @@ browser-contracts:
 	VIBECOMFY_PYTHON="$(PYTHON)" $(NODE) --test $(BROWSER_CONTRACT_TESTS)
 
 parity:
-	$(PYTHON) -m tools.check_canonical_parity --all
+	VIBECOMFY_PARITY_NETWORK="$(PARITY_NETWORK)" $(PYTHON) -m tools.check_canonical_parity --all
 
 e2e-browser:
 	cd tests/e2e && npm install

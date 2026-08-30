@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import types
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +22,32 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 READY_ROOT = REPO_ROOT / "ready_templates"
 DEFAULT_BASELINE = REPO_ROOT / "tests" / "fixtures" / "canonical_parity_baseline.json"
 BASELINE_VERSION = 1
+PARITY_NETWORK_ENV = "VIBECOMFY_PARITY_NETWORK"
+ON_DEMAND_SCHEMAS_ENV = "VIBECOMFY_ON_DEMAND_SCHEMAS"
+
+
+@contextmanager
+def _parity_schema_policy():
+    """Keep canonical parity local unless its network mode is explicit.
+
+    ``VibeWorkflow`` may consult the authoring provider while a ready template
+    builds an output handle.  The provider's on-demand tail can clone public
+    repositories, so parity must not inherit the normal authoring default.
+    In opt-in mode the existing on-demand provider remains responsible for its
+    per-operation subprocess/network timeouts.
+    """
+    network_enabled = os.environ.get(PARITY_NETWORK_ENV, "0").strip() == "1"
+    names = (ON_DEMAND_SCHEMAS_ENV,)
+    previous = {name: os.environ.get(name) for name in names}
+    os.environ[ON_DEMAND_SCHEMAS_ENV] = "1" if network_enabled else "0"
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 @dataclass(frozen=True)
@@ -210,17 +238,18 @@ def _is_manual_template(path: Path) -> bool:
 
 
 def _compile_ready_template(path: Path, template_id: str) -> dict[str, Any]:
-    module = types.ModuleType(f"vibecomfy_canonical_parity_{template_id.replace('/', '_')}")
-    module.__file__ = str(path)
-    source = path.read_text(encoding="utf-8")
-    exec(compile(source, str(path), "exec"), module.__dict__)  # noqa: S102 - trusted repo ready-template code.
-    build = getattr(module, "build", None)
-    if build is None:
-        raise ValueError(f"Ready template {template_id} must define build()")
-    workflow = build()
-    if not isinstance(workflow, VibeWorkflow):
-        raise TypeError(f"Ready template {template_id} build() must return VibeWorkflow, got {type(workflow).__name__}")
-    return workflow.compile("api")
+    with _parity_schema_policy():
+        module = types.ModuleType(f"vibecomfy_canonical_parity_{template_id.replace('/', '_')}")
+        module.__file__ = str(path)
+        source = path.read_text(encoding="utf-8")
+        exec(compile(source, str(path), "exec"), module.__dict__)  # noqa: S102 - trusted repo ready-template code.
+        build = getattr(module, "build", None)
+        if build is None:
+            raise ValueError(f"Ready template {template_id} must define build()")
+        workflow = build()
+        if not isinstance(workflow, VibeWorkflow):
+            raise TypeError(f"Ready template {template_id} build() must return VibeWorkflow, got {type(workflow).__name__}")
+        return workflow.compile("api")
 
 
 def _reset_leaked_workflow_context() -> None:

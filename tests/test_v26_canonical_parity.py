@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from tools import check_canonical_parity as parity
@@ -97,6 +98,55 @@ def test_canonical_parity_excludes_manual_templates(tmp_path: Path) -> None:
     assert [row["id"] for row in payload["templates"]] == ["image/example"]
 
 
+def test_canonical_parity_is_offline_by_default_even_with_authoring_opt_in(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Parity must not inherit the normal authoring provider's network default."""
+    from vibecomfy.schema import on_demand
+
+    class NetworkBomb:
+        def __init__(self):
+            raise AssertionError("canonical parity attempted on-demand resolution")
+
+    monkeypatch.delenv("VIBECOMFY_PARITY_NETWORK", raising=False)
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "1")
+    monkeypatch.setattr(on_demand, "OnDemandInstallSchemaProvider", NetworkBomb)
+    ready_root = _write_schema_probe_template(tmp_path)
+
+    records, skipped = parity.collect_records_with_skips(ready_root)
+
+    assert [record.id for record in records] == ["image/schema_probe"]
+    assert skipped == []
+    assert os.environ["VIBECOMFY_ON_DEMAND_SCHEMAS"] == "1"
+
+
+def test_canonical_parity_network_opt_in_preserves_provider_timeout_boundary(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from vibecomfy.schema import on_demand
+
+    seen: list[str | None] = []
+
+    class CapturingProvider:
+        def __init__(self):
+            seen.append(os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS"))
+
+        def get_schema(self, _class_type):
+            return None
+
+    monkeypatch.setenv("VIBECOMFY_PARITY_NETWORK", "1")
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    monkeypatch.setattr(on_demand, "OnDemandInstallSchemaProvider", CapturingProvider)
+    ready_root = _write_schema_probe_template(tmp_path)
+
+    records, skipped = parity.collect_records_with_skips(ready_root)
+
+    assert [record.id for record in records] == ["image/schema_probe"]
+    assert skipped == []
+    assert seen == ["1"]
+    assert os.environ["VIBECOMFY_ON_DEMAND_SCHEMAS"] == "0"
+
+
 def _write_ready_template(
     tmp_path: Path,
     *,
@@ -121,6 +171,22 @@ def build() -> VibeWorkflow:
     wf.connect("1.0", "2.images")
     return wf
 """,
+        encoding="utf-8",
+    )
+    return ready_root
+
+
+def _write_schema_probe_template(tmp_path: Path) -> Path:
+    ready_root = tmp_path / "schema_probe_root"
+    path = ready_root / "image" / "schema_probe.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "from vibecomfy.workflow import VibeWorkflow, WorkflowSource\n"
+        "\n"
+        "def build() -> VibeWorkflow:\n"
+        "    wf = VibeWorkflow('image/schema_probe', WorkflowSource('image/schema_probe'))\n"
+        "    wf.node('UnknownSchemaNode').out(0)\n"
+        "    return wf\n",
         encoding="utf-8",
     )
     return ready_root
