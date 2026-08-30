@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import difflib
+import importlib
 import json
 import os
 import re
@@ -16,7 +17,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -43,16 +43,38 @@ _PROTOCOL_LIMIT = 64 * 1024
 _WORKER_STDOUT_LIMIT = 16 * 1024
 _WORKER_STDERR_LIMIT = 16 * 1024
 _WORKER_TIMEOUT = 30
-_ALLOWED_IMPORT_PREFIXES = (
-    "vibecomfy.nodes.",
-    "vibecomfy.patches.",
-)
-_ALLOWED_IMPORTS = frozenset(
+_ALLOWED_IMPORTED_NAMES: dict[str, frozenset[str]] = {
+    "vibecomfy.templates": frozenset({"InputSpec", "ModelAsset", "ReadyMetadata", "new_workflow", "node"}),
+    "vibecomfy.workflow": frozenset({"VibeWorkflow", "WorkflowSource"}),
+    "vibecomfy.patches.ltx_lowvram": frozenset({"apply"}),
+    "vibecomfy.patches.requirements": frozenset({"ensure_custom_nodes"}),
+    "vibecomfy.patches.resolution": frozenset({"resolution"}),
+}
+_ALLOWED_NODE_MODULES = frozenset(
     {
-        "vibecomfy.templates",
-        "vibecomfy.workflow",
+        "vibecomfy.nodes.controlnet_aux",
+        "vibecomfy.nodes.core",
+        "vibecomfy.nodes.custom_scripts",
+        "vibecomfy.nodes.depthanythingv2",
+        "vibecomfy.nodes.florence2",
+        "vibecomfy.nodes.gguf",
+        "vibecomfy.nodes.gimm_vfi",
+        "vibecomfy.nodes.kjnodes",
+        "vibecomfy.nodes.ltxvideo",
+        "vibecomfy.nodes.melbandroformer",
+        "vibecomfy.nodes.qwentts",
+        "vibecomfy.nodes.rgthree",
+        "vibecomfy.nodes.sam2",
+        "vibecomfy.nodes.vibecomfy_internal",
+        "vibecomfy.nodes.videohelpersuite",
+        "vibecomfy.nodes.wananimatepreprocess",
+        "vibecomfy.nodes.wanvideowrapper",
     }
 )
+_ALLOWED_IMPORT_ALIASES = {
+    ("vibecomfy.templates", "node", "raw_call"),
+    ("vibecomfy.patches.ltx_lowvram", "apply", "apply_ltx_lowvram"),
+}
 _DETERMINISTIC_BUILTINS = frozenset(
     {"bool", "float", "int", "len", "max", "min", "range", "str", "tuple"}
 )
@@ -180,6 +202,16 @@ class _BindingCollector(ast.NodeVisitor):
                 self._collect_target(item)
 
 
+def _is_allowed_node_constructor(module: str, name: str) -> bool:
+    if module not in _ALLOWED_NODE_MODULES:
+        return False
+    try:
+        imported_module = importlib.import_module(module)
+    except (ImportError, AttributeError, RuntimeError):
+        return False
+    constructors = getattr(imported_module, "__vibecomfy_class_types__", {})
+    return isinstance(constructors, dict) and name in constructors and callable(getattr(imported_module, name, None))
+
 class _AdmissionVisitor(ast.NodeVisitor):
     _allowed_nodes = (
         ast.Module,
@@ -288,17 +320,37 @@ class _AdmissionVisitor(ast.NodeVisitor):
         if node.level:
             self._reject("forbidden_import", "relative imports are not admitted", node)
         if module == "__future__":
-            if any(alias.name != "annotations" for alias in node.names):
+            if any(alias.name != "annotations" or alias.asname for alias in node.names):
                 self._reject("forbidden_import", "only future annotations is admitted", node)
             return
         forbidden = _FORBIDDEN_IMPORTS.get(module)
         if forbidden:
             self._reject(*forbidden, node)
-        if module not in _ALLOWED_IMPORTS and not module.startswith(_ALLOWED_IMPORT_PREFIXES):
+        allowed_names = _ALLOWED_IMPORTED_NAMES.get(module)
+        is_node_module = module in _ALLOWED_NODE_MODULES
+        if allowed_names is None and not is_node_module:
             code = "arbitrary_provider_import" if ("schema" in module or "provider" in module) else "forbidden_import"
             self._reject(code, f"import {module!r} is not an admitted repository construct", node)
-        if any(alias.name == "*" for alias in node.names):
-            self._reject("forbidden_import", "star imports are not admitted", node)
+        for alias in node.names:
+            if alias.name == "*":
+                self._reject("forbidden_import", "star imports are not admitted", node)
+            allowed = (
+                _is_allowed_node_constructor(module, alias.name)
+                if is_node_module
+                else alias.name in (allowed_names or ())
+            )
+            if not allowed:
+                self._reject(
+                    "forbidden_import_name",
+                    f"name {alias.name!r} is not in the generated template vocabulary for {module!r}",
+                    node,
+                )
+            if alias.asname and (module, alias.name, alias.asname) not in _ALLOWED_IMPORT_ALIASES:
+                self._reject(
+                    "forbidden_import_alias",
+                    f"alias {alias.asname!r} is not admitted for imported name {alias.name!r}",
+                    node,
+                )
 
     def visit_If(self, node: ast.If) -> None:
         if not _deterministic_expr(node.test, self.collector.static_names):
@@ -577,29 +629,7 @@ def _worker_environment() -> dict[str, str]:
     return env
 
 
-def _read_protocol(fd: int, result: dict[str, Any]) -> None:
-    try:
-        with os.fdopen(fd, "rb") as stream:
-            chunks: list[bytes] = []
-            total = 0
-            overflow = False
-            while True:
-                chunk = stream.read(8192)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total <= _PROTOCOL_LIMIT:
-                    chunks.append(chunk)
-                else:
-                    overflow = True
-            result["data"] = b"".join(chunks)
-            result["overflow"] = overflow
-    except OSError as exc:
-        result["error"] = exc
-
-
 def _run_artifact_worker(path: Path, *, logical_path: Path) -> dict[str, Any]:
-    read_fd, write_fd = os.pipe()
     command = [
         sys.executable,
         "-m",
@@ -608,42 +638,26 @@ def _run_artifact_worker(path: Path, *, logical_path: Path) -> dict[str, Any]:
         str(path),
         "--logical-path",
         str(logical_path),
-        "--protocol-fd",
-        str(write_fd),
     ]
-    reader_result: dict[str, Any] = {}
-    reader = threading.Thread(target=_read_protocol, args=(read_fd, reader_result), daemon=True)
     try:
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=_artifact_source_root(path).parent,
-                env=_worker_environment(),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                pass_fds=(write_fd,),
-            )
-        except OSError as exc:
-            raise _ArtifactExecutionError("isolated artifact worker", f"{type(exc).__name__}: {exc}") from exc
-        os.close(write_fd)
-        write_fd = -1
-        reader.start()
-        try:
-            stdout, stderr = process.communicate(timeout=_WORKER_TIMEOUT)
-        except subprocess.TimeoutExpired as exc:
-            process.kill()
-            stdout, stderr = process.communicate()
-            raise _ArtifactExecutionError("isolated artifact worker", f"worker timed out after {_WORKER_TIMEOUT}s") from exc
-        reader.join(timeout=5)
-        if reader.is_alive():
-            raise _ArtifactExecutionError("protocol", "worker protocol reader did not terminate")
-    finally:
-        if write_fd >= 0:
-            os.close(write_fd)
-    if reader_result.get("error"):
-        raise _ArtifactExecutionError("protocol", f"could not read worker response: {reader_result['error']}")
-    if reader_result.get("overflow"):
+        process = subprocess.Popen(
+            command,
+            cwd=_artifact_source_root(path).parent,
+            env=_worker_environment(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+        )
+    except OSError as exc:
+        raise _ArtifactExecutionError("isolated artifact worker", f"{type(exc).__name__}: {exc}") from exc
+    try:
+        stdout, stderr = process.communicate(timeout=_WORKER_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        stdout, stderr = process.communicate()
+        raise _ArtifactExecutionError("isolated artifact worker", f"worker timed out after {_WORKER_TIMEOUT}s") from exc
+    if len(stdout) > _PROTOCOL_LIMIT:
         raise _ArtifactExecutionError("protocol", f"worker response exceeded {_PROTOCOL_LIMIT} bytes")
     if process.returncode != 0:
         detail = bytes(stderr[:_WORKER_STDERR_LIMIT]).decode("utf-8", errors="replace").strip()
@@ -651,7 +665,7 @@ def _run_artifact_worker(path: Path, *, logical_path: Path) -> dict[str, Any]:
             detail = bytes(stdout[:_WORKER_STDOUT_LIMIT]).decode("utf-8", errors="replace").strip()
         raise _ArtifactExecutionError("isolated artifact worker", f"worker exited {process.returncode}: {detail}")
     try:
-        payload = json.loads(bytes(reader_result.get("data", b"")).decode("utf-8"))
+        payload = json.loads(bytes(stdout).decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise _ArtifactExecutionError("protocol", f"invalid worker response: {exc}") from exc
     if not isinstance(payload, dict):
@@ -675,24 +689,17 @@ def _emit_worker_payload(payload: dict[str, Any], protocol_fd: int) -> None:
         written += os.write(protocol_fd, encoded[written:])
 
 
-def _artifact_worker_main(argv: list[str]) -> int:
+def _artifact_execution_main(argv: list[str]) -> int:
     import argparse
     import contextlib
     import io
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--_artifact-worker", required=True)
+    parser.add_argument("--_artifact-exec", required=True)
     parser.add_argument("--logical-path")
-    parser.add_argument("--protocol-fd", type=int, default=-1)
     args = parser.parse_args(argv)
-    path = Path(args._artifact_worker).resolve()
+    path = Path(args._artifact_exec).resolve()
     logical_path = Path(args.logical_path).resolve() if args.logical_path else path
-    if args.protocol_fd >= 0:
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull_fd, 1)
-        finally:
-            os.close(devnull_fd)
     stage = "artifact execution"
     try:
         with contextlib.redirect_stdout(io.StringIO()) as captured_stdout:
@@ -710,12 +717,68 @@ def _artifact_worker_main(argv: list[str]) -> int:
                 "stdout": stdout[:_WORKER_STDOUT_LIMIT],
                 "stdout_truncated": len(stdout) > _WORKER_STDOUT_LIMIT,
             },
-            args.protocol_fd,
+            -1,
         )
         return 0
     except Exception as exc:
-        _emit_worker_payload({"ok": False, "stage": stage, "error": f"{type(exc).__name__}: {exc}"}, args.protocol_fd)
+        _emit_worker_payload({"ok": False, "stage": stage, "error": f"{type(exc).__name__}: {exc}"}, -1)
         return 0
+
+
+def _artifact_worker_main(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--_artifact-worker", required=True)
+    parser.add_argument("--logical-path")
+    args = parser.parse_args(argv)
+    path = Path(args._artifact_worker).resolve()
+    logical_path = Path(args.logical_path).resolve() if args.logical_path else path
+    command = [
+        sys.executable,
+        "-m",
+        "vibecomfy.porting.simulate",
+        "--_artifact-exec",
+        str(path),
+        "--logical-path",
+        str(logical_path),
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=_artifact_source_root(path).parent,
+            env=_worker_environment(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+        )
+        stdout, stderr = process.communicate(timeout=_WORKER_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        _emit_worker_payload({"ok": False, "stage": "isolated artifact worker", "error": f"worker timed out after {_WORKER_TIMEOUT}s"}, -1)
+        return 0
+    except OSError as exc:
+        _emit_worker_payload({"ok": False, "stage": "isolated artifact worker", "error": f"{type(exc).__name__}: {exc}"}, -1)
+        return 0
+    if process.returncode != 0:
+        detail = bytes(stderr[:_WORKER_STDERR_LIMIT]).decode("utf-8", errors="replace").strip()
+        _emit_worker_payload({"ok": False, "stage": "isolated artifact worker", "error": f"worker exited {process.returncode}: {detail}"}, -1)
+        return 0
+    if len(stdout) > _PROTOCOL_LIMIT:
+        _emit_worker_payload({"ok": False, "stage": "protocol", "error": f"worker response exceeded {_PROTOCOL_LIMIT} bytes"}, -1)
+        return 0
+    try:
+        payload = json.loads(bytes(stdout).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _emit_worker_payload({"ok": False, "stage": "protocol", "error": f"invalid worker response: {exc}"}, -1)
+        return 0
+    if not isinstance(payload, dict):
+        _emit_worker_payload({"ok": False, "stage": "protocol", "error": "invalid worker response: expected object"}, -1)
+        return 0
+    _emit_worker_payload(payload, -1)
+    return 0
 
 
 def _freeze_schema_snapshot(provider: Any | None, node_classes: set[str]) -> dict[str, Any]:
@@ -902,9 +965,11 @@ def simulate_rule(rule_spec: str, template_ids: list[str] | None = None, *, sche
     )
 
 
-if __name__ == "__main__" and "--_artifact-worker" in sys.argv:
-    raise SystemExit(_artifact_worker_main(sys.argv[1:]))
-
+if __name__ == "__main__":
+    if "--_artifact-worker" in sys.argv:
+        raise SystemExit(_artifact_worker_main(sys.argv[1:]))
+    if "--_artifact-exec" in sys.argv:
+        raise SystemExit(_artifact_execution_main(sys.argv[1:]))
 __all__ = [
     "SimulationPerTemplate",
     "SimulationResult",

@@ -12,7 +12,7 @@ from ._shared import READY_ROOT
 
 
 def _cmd_port_simulate(args: argparse.Namespace) -> int:
-    """Sandbox simulation of an experimental emitter rule."""
+    """Run the bounded generated-template parity simulation."""
     rule_spec: str = args.rule
     all_mode = getattr(args, "all", False)
     json_mode = getattr(args, "json", False)
@@ -47,9 +47,18 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
             pt.get("original_loc", 0) for pt in result.per_template
         )) * 100
         print(f"  LOC delta: {result.loc_delta_total:+d} lines total ({pct:+.1f}% corpus)")
-    print(f"  canonical parity: {result.parity_preserved}/{result.parity_preserved + result.parity_broken} preserved {'✅' if result.parity_broken == 0 else '❌'}")
+    evaluated = result.parity_preserved + result.parity_broken
+    if result.unsupported and evaluated == 0:
+        print("  canonical parity: no admitted templates evaluated")
+    elif result.unsupported:
+        print(f"  canonical parity: {result.parity_preserved}/{evaluated} admitted templates preserved (unsupported templates excluded)")
+    else:
+        print(f"  canonical parity: {result.parity_preserved}/{evaluated} preserved {'✅' if result.parity_broken == 0 else '❌'}")
     print(f"  unsupported templates: {result.unsupported}")
-    print("  no broken outputs" if result.parity_broken == 0 else f"  {result.parity_broken} broken outputs")
+    if result.unsupported:
+        print("  simulation incomplete: unsupported templates were not executed")
+    else:
+        print("  no broken outputs" if result.parity_broken == 0 else f"  {result.parity_broken} broken outputs")
 
     # Per-template top 5
     affected = [pt for pt in result.per_template if pt.get("changed")]

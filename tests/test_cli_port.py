@@ -928,6 +928,53 @@ def test_port_simulate_unsupported_returns_refusal_status(
     assert payload["unsupported"] == 1
 
 
+ def test_port_simulate_unsupported_human_output_is_not_success_framed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        port_simulate_cmd,
+        "simulate_rule",
+        lambda *args, **kwargs: simulate.SimulationResult(
+            rule_spec="drop_set_id_map=true",
+            templates_total=1,
+            templates_affected=1,
+            loc_delta_total=0,
+            parity_preserved=0,
+            parity_broken=0,
+            unsupported=1,
+            per_template=[{"status": "unsupported"}],
+        ),
+    )
+
+    code = _cmd_port_simulate(
+        argparse.Namespace(rule="drop_set_id_map=true", all=False, json=False)
+    )
+    text = capsys.readouterr().out
+    assert code == 2
+    assert "0/0 preserved" not in text
+    assert "✅" not in text
+    assert "no broken outputs" not in text
+    assert "no admitted templates evaluated" in text
+    assert "simulation incomplete" in text
+
+
+@pytest.mark.parametrize(
+    "rule",
+    ['drop_set_id_map="true', "drop_set_id_map='true\""],
+)
+def test_port_simulate_malformed_quotes_return_nonzero(
+    rule: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = _cmd_port_simulate(
+        argparse.Namespace(rule=rule, all=False, json=True)
+    )
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Malformed quoted boolean value" in captured.err
+
 # ── port convert dry-run diff ───────────────────────────────────────────
 
 
