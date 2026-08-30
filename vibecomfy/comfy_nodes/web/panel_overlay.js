@@ -945,7 +945,9 @@ export function installAgentPreviewOverlay(app, deps = {}) {
     }
     try {
       const diff = getOrBuildPreviewDiff();
-      if (diff) {
+      if (diff?.ok === false && diff?.kind === "PreviewError") {
+        clearPreviewDomOverlay(liveCanvasElement(app)?.ownerDocument);
+      } else if (diff) {
         drawPreviewOverlay(ctx, diff, deps);
         syncPreviewDomOverlay(app, ctx, diff, diff._candidateGraph || panel.state.candidateGraph, deps);
       } else {

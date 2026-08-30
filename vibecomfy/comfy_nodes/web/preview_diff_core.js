@@ -16,6 +16,16 @@ export {
   extractCanvasProjection,
 } from "./projection_registry_v1.js";
 
+export function previewFailure() {
+  return {
+    ok: false,
+    kind: "PreviewError",
+    failure_kind: "PreviewError",
+    stage: "preview",
+    message: "Unable to compute preview diff.",
+  };
+}
+
 function values(node) {
   return Array.isArray(node?.widgets_values) ? node.widgets_values : [];
 }

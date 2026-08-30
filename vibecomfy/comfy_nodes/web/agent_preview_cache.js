@@ -2,6 +2,7 @@ import { preflightDeltaPlan } from "./comfy_adapter.js";
 import {
   computeSerializedGraphPreviewDiff,
   constrainPreviewDiffToLegacyIntent,
+  previewFailure,
 } from "./preview_diff_core.js";
 import {
   crossGraphNodeIdentityIndexV1,
@@ -562,19 +563,8 @@ export function createAgentPreviewCache(deps) {
 
       return diff;
     } catch (e) {
-      console.warn("[vibecomfy] computePreviewDiff failed, returning empty diff:", safePreviewLogDetail(e));
-      return {
-        edited: [],
-        edited_fields: [],
-        added: [],
-        removed: [],
-        removed_named: [],
-        layout_moved: [],
-        layout_groups: [],
-        unresolved: [],
-        added_links: [],
-        removed_links: [],
-      };
+      console.warn("[vibecomfy] computePreviewDiff failed:", safePreviewLogDetail(e));
+      return previewFailure(e);
     }
   }
 

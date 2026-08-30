@@ -214,7 +214,6 @@ test("B18 durable status cannot default to done or erase terminal state", () => 
   );
   assert.equal(mergedProgress.status, "done");
 });
-
 test("B18 feed rejects unknown, blank, and missing HTTP statuses over every terminal variant", () => {
   for (const terminalStatus of ["done", "clarify", "budget_exhausted", "error"]) {
     const feed = [makeFeedActivity({ status: terminalStatus })];

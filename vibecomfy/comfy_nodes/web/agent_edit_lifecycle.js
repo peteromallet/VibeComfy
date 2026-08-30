@@ -2708,7 +2708,7 @@ function _compatibilityTurnsFromExecutionEvents(events) {
     if (!batchTurns.length && (event?.turn_id || event?.status || event?.message)) {
       const entry = {
         entry_type: "durable",
-        status: event.status || "done",
+        status: typeof event.status === "string" && event.status.trim() ? event.status : "unknown",
         session_id: sessionId,
         turn_id: event.turn_id || null,
         baseline_turn_id: event.baseline_turn_id || null,

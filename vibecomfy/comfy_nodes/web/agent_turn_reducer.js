@@ -15,7 +15,11 @@ const BATCH_SOURCE_PRIORITY = {
   websocket: 1,
   response: 2,
 };
-const BATCH_TERMINAL_STATUSES = new Set(["clarify", "done", "budget_exhausted"]);
+const BATCH_TERMINAL_STATUSES = new Set(["clarify", "done", "budget_exhausted", "error"]);
+
+function durableStatusOrUnknown(value) {
+  return typeof value === "string" && value.trim() ? value : "unknown";
+}
 
 export function stableTurnSessionId(value) {
   return typeof value === "string" && value ? value : "none";
@@ -84,10 +88,18 @@ export function executionEventTurnEntry(event) {
     return null;
   }
   if (event.turnEntry && typeof event.turnEntry === "object") {
-    return clonePlainData(event.turnEntry);
+    const entry = clonePlainData(event.turnEntry);
+    if (entry?.entry_type === "durable") {
+      entry.status = durableStatusOrUnknown(entry.status);
+    }
+    return entry;
   }
   if (event.entry_type === "batch" || event.entry_type === "durable") {
-    return clonePlainData(event);
+    const entry = clonePlainData(event);
+    if (entry.entry_type === "durable") {
+      entry.status = durableStatusOrUnknown(entry.status);
+    }
+    return entry;
   }
   if (Array.isArray(event.batchTurns) && event.batchTurns.length) {
     return null;
@@ -97,7 +109,7 @@ export function executionEventTurnEntry(event) {
   }
   const entry = {
     entry_type: "durable",
-    status: event.status || "done",
+    status: durableStatusOrUnknown(event.status),
     session_id: event.session_id || null,
     turn_id: event.turn_id || null,
     baseline_turn_id: event.baseline_turn_id || null,
@@ -229,8 +241,7 @@ export function mergeBatchTurnEntry(existing, incoming) {
   const existingPriority = existing.source_priority || 0;
   const incomingPriority = incoming.source_priority || 0;
   const keepExistingStatus =
-    existingPriority > incomingPriority
-    && BATCH_TERMINAL_STATUSES.has(existing.status)
+    BATCH_TERMINAL_STATUSES.has(existing.status)
     && !BATCH_TERMINAL_STATUSES.has(incoming.status);
   return {
     ...existing,

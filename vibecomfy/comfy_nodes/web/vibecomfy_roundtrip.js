@@ -51,6 +51,7 @@ import {
   invalidateOverlayDrawModelCache,
   syncPreviewDomOverlay,
 } from "./panel_overlay.js";
+import { previewFailure } from "./preview_diff_core.js";
 import {
   renderComposerActions as renderComposerActionsImpl,
   renderComposerNotice as renderComposerNoticeImpl,
@@ -6822,11 +6823,16 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       return nodePayload?.properties?.vibecomfy_uid || null;
     },
   };
-  return computePreviewDiffImpl(candidateGraph, candidateReport, deltaOps, {
-    ...nativeAccessors,
-    ...identityAccessors,
-    widgetIndexFromFieldPath,
-  });
+  try {
+    return computePreviewDiffImpl(candidateGraph, candidateReport, deltaOps, {
+      ...nativeAccessors,
+      ...identityAccessors,
+      widgetIndexFromFieldPath,
+    });
+  } catch (e) {
+    console.warn("[vibecomfy] computePreviewDiff failed:", safePreviewLogDetail(e));
+    return previewFailure(e);
+  }
 }
 
 /*
@@ -6870,6 +6876,11 @@ function refreshPreviewDomOverlay() {
     ? canvasElement.getContext("2d")
     : null;
   const diff = getOrBuildPreviewDiff();
+  if (diff?.ok === false && diff?.kind === "PreviewError") {
+    refreshReport.result = "diff-failed";
+    clearPreviewDomOverlay(app?.canvas?.canvas?.ownerDocument);
+    return false;
+  }
   refreshReport.editedFieldCount = Array.isArray(diff?.edited_fields)
     ? diff.edited_fields.length
     : null;
