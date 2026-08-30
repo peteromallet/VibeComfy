@@ -959,7 +959,12 @@ def test_restore_clones_and_checks_out_pinned_sha(tmp_path: Path) -> None:
     runner = FakeRunner()
     entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
 
-    result = restore_pack(entry, install_root=tmp_path / "custom_nodes", runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+    )
 
     assert result.status == "installed"
     assert result.git_commit_sha == "pinnedsha"
@@ -978,7 +983,12 @@ def test_restore_installs_known_pack_pip_dependencies(tmp_path: Path) -> None:
         "https://github.com/kijai/ComfyUI-WanVideoWrapper.git",
     )
 
-    result = restore_pack(entry, install_root=tmp_path / "custom_nodes", runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+    )
 
     assert result.status == "installed"
     assert [
@@ -996,7 +1006,12 @@ def test_restore_existing_clean_dir_at_correct_sha_is_noop(tmp_path: Path) -> No
     runner = FakeRunner(sha="pinnedsha", porcelain="")
     entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
 
-    result = restore_pack(entry, install_root=tmp_path / "custom_nodes", runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+    )
 
     assert result.status == "refreshed"
     assert result.git_commit_sha == "pinnedsha"
@@ -1015,7 +1030,12 @@ def test_restore_recovers_legacy_sentinel_without_owner_metadata(tmp_path: Path)
     runner = FakeRunner(sha="pinnedsha", porcelain="")
     entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
 
-    result = restore_pack(entry, install_root=install_root, runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+    )
 
     # Sentinel without owner metadata is quarantined; restore proceeds.
     assert result.status == "refreshed"
@@ -1037,7 +1057,12 @@ def test_restore_quarantines_corrupt_sentinel_and_proceeds(tmp_path: Path) -> No
     runner = FakeRunner(sha="pinnedsha", porcelain="")
     entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
 
-    result = restore_pack(entry, install_root=install_root, runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+    )
 
     # Corrupt sentinel is quarantined; restore proceeds.
     assert result.status == "refreshed"
@@ -1067,7 +1092,12 @@ def test_restore_keeps_sentinel_when_verification_head_mismatches(tmp_path: Path
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         return runner(args, check=check, capture_output=capture_output, text=text, cwd=cwd)
 
-    result = restore_pack(entry, install_root=install_root, runner=run_without_checkout_side_effect)
+    result = restore_pack(
+        entry,
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=run_without_checkout_side_effect,
+    )
 
     sentinel = install_root / ".vibecomfy-install-state" / "ExamplePack.json"
     payload = json.loads(sentinel.read_text(encoding="utf-8"))
@@ -1085,7 +1115,12 @@ def test_restore_existing_dirty_dir_returns_skipped(tmp_path: Path) -> None:
     runner = FakeRunner(porcelain=" M nodes.py\n")
     entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
 
-    result = restore_pack(entry, install_root=tmp_path / "custom_nodes", runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=lockfile,
+        runner=runner,
+    )
 
     assert result.status == "skipped_dirty"
     assert result.git_commit_sha == "abc123"

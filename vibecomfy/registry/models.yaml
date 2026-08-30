@@ -68,6 +68,7 @@ models:
       repo: Comfy-Org/z_image_turbo
       filename: split_files/text_encoders/qwen_3_4b.safetensors
     min_size: 1_000_000_000
+    canonical_name: qwen_3_4b.safetensors
     targets:
       - node_pack: comfy_core
         path: text_encoders/qwen_3_4b.safetensors
@@ -79,6 +80,7 @@ models:
       repo: Comfy-Org/z_image
       filename: split_files/diffusion_models/z_image_bf16.safetensors
     min_size: 1_000_000_000
+    canonical_name: z_image_bf16.safetensors
     targets:
       - node_pack: comfy_core
         path: diffusion_models/z_image_bf16.safetensors
@@ -90,6 +92,7 @@ models:
       repo: Comfy-Org/z_image_turbo
       filename: split_files/vae/ae.safetensors
     min_size: 10_000_000
+    canonical_name: ae.safetensors
     targets:
       - node_pack: comfy_core
         path: vae/ae.safetensors

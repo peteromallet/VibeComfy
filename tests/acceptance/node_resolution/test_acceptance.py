@@ -182,6 +182,49 @@ def _acceptance_pack(name: str, *, pip_packages: tuple[str, ...] = ()):
     )
 
 
+def _write_git_install(root: Path, name: str) -> str:
+    """Create the clean, installer-owned repository used by realization witnesses."""
+    pack_dir = root / name
+    pack_dir.mkdir(parents=True)
+    for args in (
+        ("git", "init"),
+        ("git", "config", "user.name", "Acceptance Test"),
+        ("git", "config", "user.email", "acceptance@example.test"),
+    ):
+        subprocess.run(args, cwd=pack_dir, check=True, capture_output=True, text=True)
+    (pack_dir / "tracked.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(("git", "add", "tracked.py"), cwd=pack_dir, check=True, capture_output=True, text=True)
+    subprocess.run(("git", "commit", "-m", "acceptance fixture"), cwd=pack_dir, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ("git", "remote", "add", "origin", f"https://example.test/{name}.git"),
+        cwd=pack_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return subprocess.run(
+        ("git", "rev-parse", "HEAD"), cwd=pack_dir, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _write_authoritative_object_info_cache(root: Path) -> None:
+    """Publish a generation so the no-op path has an authoritative witness."""
+    source = root.parent / "acceptance-object-info.json"
+    source.write_text(
+        json.dumps({"AcceptancePackNode": {"python_module": "AcceptancePack.nodes"}}),
+        encoding="utf-8",
+    )
+    from vibecomfy.porting.object_info.serialize import CacheIdentity
+
+    build_cache(
+        source,
+        version="acceptance",
+        identity=CacheIdentity(pack_slug="AcceptancePack", pack_version="acceptance"),
+        full_pack_refresh={"AcceptancePack"},
+        cache_dir=root,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # smoke — passes today; proves fixtures + harness are wired
 # --------------------------------------------------------------------------- #
@@ -387,12 +430,22 @@ def test_a5_identity_keyed_cache_and_drift(
 # Sprint B — environment realization (scenarios 6–8, 12-compile)
 # --------------------------------------------------------------------------- #
 @pytest.mark.sprint_b
-def test_b6_ensure_env_installs_and_is_idempotent(monkeypatch: pytest.MonkeyPatch):
+def test_b6_ensure_env_installs_and_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     import vibecomfy.runtime.ensure_env as ensure_env_module
+    from vibecomfy.porting.object_info import consume as object_info_consume
     from vibecomfy.node_packs import InstallBatchResult, InstallResult, PipPreflightResult
     from vibecomfy.runtime.ensure_env import ensure_env
 
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    install_root = tmp_path / "custom_nodes"
+    head = _write_git_install(install_root, "AcceptancePack")
+    cache_root = tmp_path / "object-info"
+    _write_authoritative_object_info_cache(cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    monkeypatch.setattr(object_info_consume, "INDEX_PATH", cache_root / "index.json")
+    object_info_consume.reset_cache()
     workflow = {
         "nodes": [
             {"id": 1, "type": "AcceptancePackNode", "properties": {"cnr_id": "AcceptancePack", "ver": "ignored-in-sprint-b"}},
@@ -405,7 +458,7 @@ def test_b6_ensure_env_installs_and_is_idempotent(monkeypatch: pytest.MonkeyPatc
         events.append(("install", tuple(pack.name for pack in packs)))
         return InstallBatchResult(
             ok=True,
-            results=(InstallResult("AcceptancePack", "installed", "abc123", None),),
+            results=(InstallResult("AcceptancePack", "installed", head, None),),
             preflight=PipPreflightResult(ok=True),
         )
 
@@ -426,6 +479,7 @@ def test_b6_ensure_env_installs_and_is_idempotent(monkeypatch: pytest.MonkeyPatc
         installer=installer,
         introspector=introspector,
         cache_writer=cache_writer,
+        install_roots=(install_root,),
     )
     second = ensure_env(
         workflow,
@@ -433,6 +487,7 @@ def test_b6_ensure_env_installs_and_is_idempotent(monkeypatch: pytest.MonkeyPatc
         installer=installer,
         introspector=introspector,
         cache_writer=cache_writer,
+        install_roots=(install_root,),
     )
 
     assert first.ok is True
