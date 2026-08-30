@@ -425,20 +425,59 @@ def capture_ingress_schema_snapshot(
             from vibecomfy.schema.provider import schemas_for
 
             surface = schemas_for(schema_provider)
-        except Exception:  # noqa: BLE001 - surface enumeration must never break ingest
-            surface = None
-    if surface:
-        requested.update(str(name) for name in surface)
+        except Exception as exc:  # noqa: BLE001 - provider failure is not a miss
+            raise SchemaSnapshotError(
+                f"schema_provider_error:surface:{type(exc).__name__}: {exc}",
+                code="schema_provider_error",
+            ) from exc
+    # An index-backed provider exposes a listing-only surface.  Its IDs are
+    # useful alias authority, but listing must not turn into a physical read of
+    # every indexed pack.  Graph classes are the only classes fetched during
+    # this ingress capture; non-index providers retain the historical full
+    # enumerated surface behavior.
+    listing_only = bool(getattr(schema_provider, "listing_only", False))
+    if surface is not None and not isinstance(surface, Mapping):
+        # ``schemas_for`` validates this too, but keep the ingress boundary
+        # fail-closed if a custom provider bypasses that helper in the future.
+        raise SchemaSnapshotError(
+            "schema_provider_error:surface:invalid_enumeration",
+            code="schema_provider_error",
+        )
+    if surface is not None and not listing_only:
+        # Composite/authoring providers may carry listing-only entries as
+        # ``None`` values.  Keep those names as alias authority, but fetch
+        # their packs only when they are present in the graph request.
+        requested.update(str(name) for name, value in surface.items() if value is not None)
     schemas: dict[str, Any] = {}
     missing: list[str] = []
     for class_type in sorted(requested):
         payload = None
-        schema = schema_for(schema_provider, class_type)
+        try:
+            from vibecomfy.porting.edit._ir_utils import _resolve_class_type_from_alias
+
+            resolved_class_type = _resolve_class_type_from_alias(
+                class_type,
+                schema_provider,
+                known_schemas=surface if isinstance(surface, Mapping) else None,
+            )
+            schema = (
+                schema_for(schema_provider, resolved_class_type)
+                if resolved_class_type is not None
+                else None
+            )
+        except Exception as exc:  # noqa: BLE001 - retain typed authority failure
+            raise SchemaSnapshotError(
+                f"schema_provider_error:{class_type}:{type(exc).__name__}: {exc}",
+                code="schema_provider_error",
+            ) from exc
         if schema is not None:
             try:
                 payload = schema_payload_from_node_schema(class_type, schema)
-            except Exception:  # noqa: BLE001 - an unusable schema reads as absence
-                payload = None
+            except Exception as exc:  # noqa: BLE001 - malformed authority is not a miss
+                raise SchemaSnapshotError(
+                    f"schema_provider_error:{class_type}:{type(exc).__name__}: {exc}",
+                    code="schema_provider_error",
+                ) from exc
         if payload is None:
             missing.append(class_type)
             continue

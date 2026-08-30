@@ -145,13 +145,32 @@ def emit_available_node_signatures(
     else:
         raw = schemas_for(schema_provider)
         if raw is not None:
-            schemas_map.update(
-                {str(key): value for key, value in raw.items() if isinstance(key, str)}
-            )
+            if bool(getattr(schema_provider, "listing_only", False)):
+                # Index providers intentionally enumerate IDs without reading
+                # every pack.  Signature generation is an explicit full-schema
+                # request, so fetch each exact class here, one at a time.
+                for key in raw:
+                    if not isinstance(key, str):
+                        continue
+                    schema = schema_for(schema_provider, key)
+                    if schema is not None:
+                        schemas_map[key] = schema
+            else:
+                schemas_map.update(
+                    {
+                        str(key): value
+                        for key, value in raw.items()
+                        if isinstance(key, str) and value is not None
+                    }
+                )
 
     rows: list[NodeSignatureRow] = []
     for class_type in sorted(schemas_map):
         schema = schemas_map[class_type]
+        # A listing-only surface may be composed with a materialized provider;
+        # unresolved entries must never become fake empty signatures.
+        if schema is None:
+            continue
         if is_workflow_stub_schema(schema):
             continue
         inputs = _build_input_signature_fields(schema)

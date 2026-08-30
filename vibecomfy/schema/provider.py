@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from vibecomfy.comfy_command import has_comfyui_runtime
@@ -34,6 +34,8 @@ from .types import (
 )
 
 _logger = logging.getLogger(__name__)
+MAX_SCHEMA_INDEX_BYTES = 4 * 1024 * 1024
+MAX_SCHEMA_INDEX_ENTRIES = 100_000
 
 # DEEP-AUDIT-FIX-1-ADJUDICATION: exact provenance allowlist for bounded
 # generation completion. Only evidence-backed registry/workflow tags may enter
@@ -149,6 +151,18 @@ class SchemaIndexError(ValueError):
         self.cause = cause
 
 
+class SchemaProviderError(RuntimeError):
+    """A provider failed while answering a schema authority query."""
+
+    code = "schema_provider_error"
+
+    def __init__(self, class_type: str | None, cause: Exception) -> None:
+        label = f" for {class_type!r}" if class_type else ""
+        super().__init__(f"schema provider lookup failed{label}: {cause}")
+        self.class_type = class_type
+        self.cause = cause
+
+
 @runtime_checkable
 class SchemaProvider(Protocol):
     def get_schema(self, class_type: str) -> NodeSchema | None: ...
@@ -163,7 +177,12 @@ def schema_for(provider: object | None, class_type: str) -> object | None:
     getter = getattr(provider, "get_schema", None) or getattr(provider, "get", None)
     if not callable(getter):
         return None
-    return getter(class_type)
+    try:
+        return getter(class_type)
+    except SchemaProviderError:
+        raise
+    except Exception as exc:
+        raise SchemaProviderError(class_type, exc) from exc
 
 class SchemaSnapshotProvider:
     """Ingress-bound provider: explicit request, verified object_info, then cache.
@@ -312,7 +331,29 @@ def schemas_for(provider: object | None) -> dict[str, object] | None:
     schemas = getattr(provider, "schemas", None)
     if not callable(schemas):
         return None
-    return schemas()
+    try:
+        result = schemas()
+    except SchemaProviderError:
+        raise
+    except Exception as exc:
+        raise SchemaProviderError(None, exc) from exc
+    if result is None:
+        return None
+    if not isinstance(result, Mapping):
+        raise SchemaProviderError(
+            None,
+            TypeError(
+                "schema enumeration must return a mapping or None, "
+                f"got {type(result).__name__}"
+            ),
+        )
+    try:
+        # Materialize the provider's surface once.  This both gives callers a
+        # stable authority view and keeps a mutable/custom Mapping from being
+        # re-read while aliases and graph classes are resolved.
+        return dict(result)
+    except Exception as exc:
+        raise SchemaProviderError(None, exc) from exc
 
 
 class LocalSchemaProvider:
@@ -495,6 +536,9 @@ class ObjectInfoSchemaProvider:
 class ObjectInfoIndexSchemaProvider:
     """Schema provider backed by ``object_info/index.json`` class-to-file rows."""
 
+    # The index is a listing authority; focused lookups load one exact pack.
+    listing_only = True
+
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
         self.index_path = self.root / "index.json"
@@ -510,27 +554,62 @@ class ObjectInfoIndexSchemaProvider:
             self._schemas[class_type] = self._load_schema(class_type)
         return self._schemas[class_type]
 
-    def schemas(self) -> dict[str, NodeSchema]:
-        loaded: dict[str, NodeSchema] = {}
-        for class_type in self._load_index():
-            schema = self.get_schema(class_type)
-            if schema is not None:
-                loaded[class_type] = schema
-        return loaded
+    def schemas(self) -> dict[str, NodeSchema | None]:
+        return {class_type: None for class_type in self._load_index()}
 
     def _load_index(self) -> dict[str, str]:
         if self._index is not None:
             return self._index
-        data = load_object_info_cache(self.index_path)
+        index_missing = False
+        try:
+            index_size = self.index_path.stat().st_size
+        except FileNotFoundError:
+            index_missing = True
+            index_size = 0
+        except OSError as exc:
+            raise SchemaProviderError(None, exc) from exc
+        if index_size > MAX_SCHEMA_INDEX_BYTES:
+            raise SchemaProviderError(
+                None,
+                ValueError(
+                    f"schema index exceeds {MAX_SCHEMA_INDEX_BYTES} bytes: "
+                    f"{index_size}"
+                ),
+            )
+        try:
+            data = load_object_info_cache(self.index_path)
+        except Exception as exc:  # noqa: BLE001 - malformed index is not empty
+            raise SchemaProviderError(
+                None,
+                ValueError(
+                    f"schema index read failed: {self.index_path}: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            ) from exc
         if data is None:
+            if not index_missing:
+                raise SchemaProviderError(
+                    None,
+                    ValueError(f"malformed or unreadable schema index: {self.index_path}"),
+                )
             self._index = {}
         else:
-            self._index = {
-                str(key): str(value)
-                for key, value in data.items()
-                if isinstance(key, str) and isinstance(value, str)
-                and not str(value).lower().endswith("@stub.json")
-            }
+            if len(data) > MAX_SCHEMA_INDEX_ENTRIES:
+                raise SchemaProviderError(
+                    None,
+                    ValueError(
+                        f"schema index exceeds {MAX_SCHEMA_INDEX_ENTRIES} entries: "
+                        f"{len(data)}"
+                    ),
+                )
+            index: dict[str, str] = {}
+            for key, value in data.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    continue
+                self._validated_pack_path(value, key)
+                if not value.lower().endswith("@stub.json"):
+                    index[key] = value
+            self._index = index
         return self._index
 
     def raw_widget_order(self, class_type: str) -> list[str | None] | None:
@@ -543,13 +622,8 @@ class ObjectInfoIndexSchemaProvider:
         filename = self._load_index().get(class_type)
         if not filename:
             return None
-        data = self._file_cache.get(filename)
-        if data is None:
-            data = load_object_info_cache(self.root / filename) or {}
-            self._file_cache[filename] = data
-        info = data.get(class_type)
-        if not isinstance(info, dict):
-            return None
+        data = self._load_pack(filename, class_type)
+        info = self._indexed_class_info(data, class_type, filename)
         from vibecomfy.porting.object_info.consume import (  # noqa: PLC0415
             reconciled_object_info_widget_order,
         )
@@ -561,13 +635,8 @@ class ObjectInfoIndexSchemaProvider:
         filename = self._load_index().get(class_type)
         if not filename:
             return None
-        data = self._file_cache.get(filename)
-        if data is None:
-            data = load_object_info_cache(self.root / filename) or {}
-            self._file_cache[filename] = data
-        info = data.get(class_type)
-        if not isinstance(info, dict):
-            return None
+        data = self._load_pack(filename, class_type)
+        info = self._indexed_class_info(data, class_type, filename)
         schema = _schema_from_object_info(class_type, info)
         from vibecomfy.porting.object_info.consume import (  # noqa: PLC0415
             compact_literal_widget_order,
@@ -592,6 +661,41 @@ class ObjectInfoIndexSchemaProvider:
             else None,
         )
 
+    @staticmethod
+    def _indexed_class_info(
+        data: Mapping[str, Any], class_type: str, filename: str
+    ) -> dict[str, Any]:
+        info = data.get(class_type)
+        if not isinstance(info, dict):
+            raise SchemaProviderError(
+                class_type,
+                ValueError(
+                    f"indexed pack {filename!r} does not contain object_info "
+                    f"for advertised class {class_type!r}"
+                ),
+            )
+        return info
+
+    def _load_pack(self, filename: str, class_type: str) -> dict[str, Any]:
+        """Read one exact indexed pack, preserving read failures as typed errors."""
+        pack_path = self._validated_pack_path(filename, class_type)
+        data = self._file_cache.get(filename)
+        if data is not None:
+            return data
+        if not pack_path.exists():
+            raise SchemaProviderError(class_type, FileNotFoundError(str(pack_path)))
+        try:
+            data = load_object_info_cache(pack_path)
+        except Exception as exc:  # noqa: BLE001 - preserve typed authority failure
+            raise SchemaProviderError(class_type, exc) from exc
+        if data is None:
+            raise SchemaProviderError(
+                class_type,
+                ValueError(f"unreadable object_info pack: {pack_path}"),
+            )
+        self._file_cache[filename] = data
+        return data
+
 
 class CompositeSchemaProvider:
     def __init__(
@@ -612,12 +716,24 @@ class CompositeSchemaProvider:
                 return schema
         return None
 
+    @property
+    def listing_only(self) -> bool:
+        """Whether any component exposes IDs without materializing schemas."""
+        return any(bool(getattr(provider, "listing_only", False)) for provider in self.providers)
+
     def schemas(self) -> dict[str, NodeSchema]:
         merged: dict[str, NodeSchema] = {}
         for provider in reversed(self.providers):
             schemas = schemas_for(provider)
             if schemas is not None:
-                merged.update({str(key): value for key, value in schemas.items() if isinstance(value, NodeSchema)})
+                if bool(getattr(provider, "listing_only", False)):
+                    for key in schemas:
+                        if isinstance(key, str):
+                            merged.setdefault(key, None)  # type: ignore[arg-type]
+                else:
+                    merged.update(
+                        {str(key): value for key, value in schemas.items() if isinstance(value, NodeSchema)}
+                    )
         return merged
 
     @property
@@ -801,12 +917,24 @@ class AuthoringSchemaProvider:
                 return schema
         return None
 
+    @property
+    def listing_only(self) -> bool:
+        """Whether any authoring source is backed by a listing-only index."""
+        return any(bool(getattr(provider, "listing_only", False)) for provider in self._providers)
+
     def schemas(self) -> dict[str, NodeSchema]:
         merged: dict[str, NodeSchema] = {}
         for provider in reversed(self._providers):
             schemas = schemas_for(provider)
             if schemas is not None:
-                merged.update({str(key): value for key, value in schemas.items() if isinstance(value, NodeSchema)})
+                if bool(getattr(provider, "listing_only", False)):
+                    for key in schemas:
+                        if isinstance(key, str):
+                            merged.setdefault(key, None)  # type: ignore[arg-type]
+                else:
+                    merged.update(
+                        {str(key): value for key, value in schemas.items() if isinstance(value, NodeSchema)}
+                    )
         return merged
 
     def _build_providers(self, *, source_roots: list[str | Path] | None, on_demand_schemas: bool | None = None) -> tuple[SchemaProvider, ...]:

@@ -9,6 +9,7 @@ from vibecomfy._compile._widgets import (
     WIDGET_SCHEMA,
     WIDGET_SEMANTIC_NAMES,
 )
+from vibecomfy.schema import schema_for
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,13 +44,7 @@ def _input_alias_from_schema(schema: Any | None) -> list[str | None]:
 def _schema_from_provider(schema_provider: Any | None, class_type: str) -> Any | None:
     if schema_provider is None:
         return None
-    getter = getattr(schema_provider, "get_schema", None) or getattr(schema_provider, "get", None)
-    if not callable(getter):
-        return None
-    try:
-        return getter(class_type)
-    except Exception:
-        return None
+    return schema_for(schema_provider, class_type)
 
 
 def resolve_widget_name_with_provenance(

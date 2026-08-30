@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from vibecomfy.nodes.index import index_custom_node_examples
-from vibecomfy.schema import NodeSchema, RuntimeSchemaProvider, SchemaProvider, get_schema_provider, schemas_for
+from vibecomfy.schema import NodeSchema, RuntimeSchemaProvider, SchemaProvider, get_schema_provider, schema_for, schemas_for
 from vibecomfy.search.aliases import ADAPT_PATTERN_ALIASES, normalize_text, tokenize
 from vibecomfy.search.bootstrap import _index_base_dir, ensure_indexes
 from vibecomfy.ingest.workflow_source import load_workflow_source
@@ -102,20 +102,44 @@ def _object_info_entries(schema_provider: SchemaProvider | None, *, warnings: li
     try:
         schemas = schemas_for(provider)
     except Exception as exc:
+        cause = getattr(exc, "cause", exc)
         if warnings is not None:
             warnings.append(
                 SearchWarning(
                     source="object_info",
                     message=(
                         f"object_info schema discovery failed via {provider.__class__.__name__}: "
-                        f"{type(exc).__name__}: {exc}"
+                        f"{type(cause).__name__}: {cause}"
                     ),
                 )
             )
         return []
     if schemas is None:
         return []
-    return [_entry_from_schema(schema) for schema in schemas.values()]
+    if bool(getattr(provider, "listing_only", False)):
+        entries: list[SearchEntry] = []
+        for class_type in schemas:
+            if not isinstance(class_type, str):
+                continue
+            try:
+                schema = schema_for(provider, class_type)
+            except Exception as exc:
+                cause = getattr(exc, "cause", exc)
+                if warnings is not None:
+                    warnings.append(
+                        SearchWarning(
+                            source="object_info",
+                            message=(
+                                f"object_info schema lookup failed for {class_type!r} via "
+                                f"{provider.__class__.__name__}: {type(cause).__name__}: {cause}"
+                            ),
+                        )
+                    )
+                continue
+            if schema is not None:
+                entries.append(_entry_from_schema(schema))
+        return entries
+    return [_entry_from_schema(schema) for schema in schemas.values() if schema is not None]
 
 
 def _entry_from_schema(schema: NodeSchema) -> SearchEntry:

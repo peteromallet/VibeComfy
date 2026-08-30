@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace as _dataclass_replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol, runtime_checkable
 
 SCHEMA_SNAPSHOT_VERSION = "schema-snapshot-v1"
@@ -90,6 +91,14 @@ class SchemaSnapshot:
     workflow_observation_authoritative: bool = False
     ambient_lookup_forbidden: bool = True
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "precedence", tuple(self.precedence))
+        object.__setattr__(self, "conflicts", tuple(self.conflicts))
+        object.__setattr__(self, "schemas", _freeze_jsonable(self.schemas))
+        object.__setattr__(self, "missing_classes", tuple(self.missing_classes))
+        object.__setattr__(self, "input_order", _freeze_jsonable(self.input_order))
+        object.__setattr__(self, "node_classes", _freeze_jsonable(self.node_classes))
+
     def get_schema(self, class_type: str) -> Any | None:
         return self.schemas.get(class_type)
 
@@ -99,9 +108,19 @@ class SchemaSnapshot:
 
 def _freeze_jsonable(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {str(key): _freeze_jsonable(item) for key, item in value.items()}
+        return MappingProxyType(
+            {str(key): _freeze_jsonable(item) for key, item in value.items()}
+        )
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_freeze_jsonable(item) for item in value]
+        return tuple(_freeze_jsonable(item) for item in value)
+    return value
+
+
+def _thaw_jsonable(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_jsonable(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_jsonable(item) for item in value]
     return value
 
 
@@ -118,8 +137,8 @@ def _input_spec_payload(spec: Any) -> dict[str, Any]:
     return {
         "type": getattr(spec, "type", None),
         "required": bool(getattr(spec, "required", False)),
-        "default": _freeze_jsonable(getattr(spec, "default", None)),
-        "choices": _freeze_jsonable(getattr(spec, "choices", None)),
+        "default": _thaw_jsonable(_freeze_jsonable(getattr(spec, "default", None))),
+        "choices": _thaw_jsonable(_freeze_jsonable(getattr(spec, "choices", None))),
         "min": getattr(spec, "min", None),
         "max": getattr(spec, "max", None),
         "unresolved_choices": bool(getattr(spec, "unresolved_choices", False)),
@@ -173,7 +192,8 @@ def schema_payload_from_node_schema(class_type: str, schema: Any) -> dict[str, A
         if getattr(schema, "widget_input_order", None)
         else [],
         "provenance": {
-            field: _freeze_jsonable(getattr(schema, field, None)) for field in provenance_fields
+            field: _thaw_jsonable(_freeze_jsonable(getattr(schema, field, None)))
+            for field in provenance_fields
         },
     }
 
@@ -186,7 +206,8 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
     raw_input_order = raw.get("input_order")
     ordered_names = (
         [name for name in raw_input_order if isinstance(name, str)]
-        if isinstance(raw_input_order, list)
+        if isinstance(raw_input_order, Sequence)
+        and not isinstance(raw_input_order, (str, bytes, bytearray))
         else []
     )
     if isinstance(raw_inputs, Mapping):
@@ -202,25 +223,35 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
             type=spec.get("type") if isinstance(spec.get("type"), str) else None,
             required=spec.get("required") is True,
             default=spec.get("default"),
-            choices=list(choices) if isinstance(choices, list) else None,
+            choices=list(choices)
+            if isinstance(choices, Sequence)
+            and not isinstance(choices, (str, bytes, bytearray))
+            else None,
             min=spec.get("min") if isinstance(spec.get("min"), (int, float)) else None,
             max=spec.get("max") if isinstance(spec.get("max"), (int, float)) else None,
             unresolved_choices=spec.get("unresolved_choices") is True,
         )
     raw_outputs = raw.get("outputs")
-    outputs = [
-        OutputSpec(
-            type=item.get("type") if isinstance(item.get("type"), str) else None,
-            name=item.get("name") if isinstance(item.get("name"), str) else None,
-        )
-        for item in raw_outputs
-        if isinstance(item, Mapping)
-    ] if isinstance(raw_outputs, list) else []
+    outputs = (
+        [
+            OutputSpec(
+                type=item.get("type") if isinstance(item.get("type"), str) else None,
+                name=item.get("name") if isinstance(item.get("name"), str) else None,
+            )
+            for item in raw_outputs
+            if isinstance(item, Mapping)
+        ]
+        if isinstance(raw_outputs, Sequence)
+        and not isinstance(raw_outputs, (str, bytes, bytearray))
+        else []
+    )
     provenance = raw.get("provenance")
     provenance = provenance if isinstance(provenance, Mapping) else {}
     raw_widget_input_order = raw.get("widget_input_order")
     widget_input_order: tuple[str | None, ...] = ()
-    if isinstance(raw_widget_input_order, list):
+    if isinstance(raw_widget_input_order, Sequence) and not isinstance(
+        raw_widget_input_order, (str, bytes, bytearray)
+    ):
         widget_input_order = tuple(
             name if isinstance(name, str) else None
             for name in raw_widget_input_order
@@ -278,7 +309,7 @@ def schema_snapshot_to_payload(snapshot: SchemaSnapshot) -> dict[str, Any]:
         "conflicts": list(snapshot.conflicts),
         "timestamp": snapshot.timestamp,
         "version": snapshot.version,
-        "schemas": _freeze_jsonable(snapshot.schemas),
+        "schemas": _thaw_jsonable(snapshot.schemas),
         "missing_classes": list(snapshot.missing_classes),
         "input_order": {
             str(class_type): list(names) for class_type, names in snapshot.input_order.items()
@@ -413,36 +444,42 @@ def _capture_external_custom_node_schemas(
         return resolved
     import os
 
-    try:
-        from vibecomfy.schema.provider import SourceSchemaProvider
+    from vibecomfy.schema.provider import SchemaProviderError, SourceSchemaProvider
 
+    try:
         resolvers: list[Any] = [
             SourceSchemaProvider(list(source_roots) if source_roots is not None else None)
         ]
-    except Exception:  # noqa: BLE001 - source resolution must never break capture
-        return resolved
+    except SchemaProviderError:
+        raise
+    except Exception as exc:
+        raise SchemaProviderError(None, exc) from exc
     if os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS", "1") != "0":
         try:
             from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
 
             resolvers.append(OnDemandInstallSchemaProvider())
-        except Exception:  # noqa: BLE001 - best-effort last rung only
-            pass
+        except SchemaProviderError:
+            raise
+        except Exception as exc:
+            raise SchemaProviderError(None, exc) from exc
     for class_type in candidates:
         schema = None
         for resolver in resolvers:
             try:
                 schema = resolver.get_schema(class_type)
-            except Exception:  # noqa: BLE001 - a failing resolver reads as absence
-                schema = None
+            except SchemaProviderError:
+                raise
+            except Exception as exc:
+                raise SchemaProviderError(class_type, exc) from exc
             if schema is not None:
                 break
         if schema is None:
             continue
         try:
             payload = schema_payload_from_node_schema(class_type, schema)
-        except Exception:  # noqa: BLE001 - an unusable schema reads as absence
-            continue
+        except Exception as exc:
+            raise SchemaProviderError(class_type, exc) from exc
         order = tuple(str(name) for name in (payload.get("input_order") or ()))
         resolved[class_type] = (payload, order)
     return resolved
