@@ -150,7 +150,6 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     # S4 — Swarm ecosystem (82ffb9 fps vs length, 17dc9b)
     "SwarmSaveAnimationWS": ["fps"],
     "SwarmKSampler": ["seed", None, "steps", "cfg", "sampler_name", "scheduler", "denoise"],
-    "ImageBatch": ["images", "batch_size"],
     "VHS_VideoCombine": ["frame_rate", "loop_count", "filename_prefix", "format", "pix_fmt", "crf", "save_metadata", "pingpong", "save_output"],
     "ACN_AdvancedControlNetApply": ["strength", "start_percent", "end_percent"],
     "BasicScheduler": ["scheduler", "steps", "denoise"],

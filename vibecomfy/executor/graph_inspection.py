@@ -1037,9 +1037,6 @@ def _render_key_nodes_section(
                 steps = by_name.get("steps")
                 cfg = by_name.get("cfg")
                 sections.append(f"  - Semantics: KSampler seed={seed} steps={steps} cfg={cfg} [control_after_generate at idx 1 enum fixed/randomize/increment/decrement — do not read steps as control]\n")
-            elif ct == "ImageBatch":
-                by_name = {w.name: w.value for w in node.widgets if w.name}
-                sections.append(f"  - Semantics: ImageBatch effective_frames derived from batch_size/overlap — widgets {by_name}\n")
         else:
             sections.append("  - Widgets: none\n")
 
