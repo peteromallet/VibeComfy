@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import subprocess
 import tempfile
 import time
@@ -296,7 +297,7 @@ class EmbeddedSession:
             # Dev convenience only; production should pre-stage nodepacks with `vibecomfy nodes ensure`.
             try:
                 packs, _unresolved = missing_packs_for_workflow(workflow)
-            except FileNotFoundError as exc:
+            except FileNotFoundError:
                 packs = _node_packs_from_requirements(workflow)
                 if not packs:
                     logger.warning(
@@ -724,12 +725,9 @@ class ServerSession:
         await _resolve_inflight_before_stop(self, wait_for_inflight)
         process = self.process
         if process is not None and process.returncode is None:
-            process.send_signal(signal.SIGTERM)
-            try:
-                await asyncio.wait_for(process.wait(), timeout=15)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
+            await _stop_managed_process(process)
+        elif process is not None:
+            await process.wait()
         if self.log_handle:
             self.log_handle.close()
         self.process = None
@@ -912,6 +910,122 @@ def _cleanup_session_files(session_dir: Path) -> None:
             (session_dir / name).unlink()
         except FileNotFoundError:
             pass
+
+
+_MANAGED_STARTUP_NEXT_ACTION = (
+    "Check the ComfyUI startup log, installed custom nodes, and selected port before retrying."
+)
+_MANAGED_PROCESS_STOP_TIMEOUT_SEC = 15
+
+
+def _managed_ready_timeout_sec(config: SessionConfig) -> int:
+    raw = (
+        config.extra.get("ready_timeout_sec")
+        or os.environ.get("VIBECOMFY_SESSION_READY_TIMEOUT_SEC")
+        or 300
+    )
+    try:
+        return max(int(raw), 0)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeStartupError(
+            f"Invalid managed Comfy readiness timeout: {raw!r}",
+            next_action=_MANAGED_STARTUP_NEXT_ACTION,
+        ) from exc
+
+
+def _assert_managed_endpoint_available(config: SessionConfig) -> None:
+    """Reject an already-owned endpoint before a managed child is spawned.
+
+    ComfyUI has no launch-token handshake in its HTTP protocol.  A short
+    loopback bind is therefore the offline ownership boundary: a managed
+    launch never treats an endpoint already occupied by a sibling as its own.
+    The child-returncode checks in ``_spawn_comfy_server`` cover a failed bind
+    after this preflight.
+    """
+    port = config.port or 8188
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", port))
+    except OSError as exc:
+        raise RuntimeStartupError(
+            f"Managed Comfy endpoint 127.0.0.1:{port} is already in use",
+            next_action=_MANAGED_STARTUP_NEXT_ACTION,
+        ) from exc
+    finally:
+        probe.close()
+
+
+def _startup_log_evidence(log_path: str | Path | None, log_handle: Any | None) -> str:
+    if log_handle is not None:
+        try:
+            log_handle.flush()
+        except OSError:
+            pass
+    if log_path is None:
+        return "<no startup log configured>"
+    try:
+        data = Path(log_path).read_bytes()
+    except OSError as exc:
+        return f"<startup log unavailable: {exc}>"
+    text = data.decode("utf-8", errors="replace").strip()
+    if len(text) > 2000:
+        text = "...<truncated>..." + text[-1985:]
+    return text or "<startup log empty>"
+
+
+async def _stop_managed_process(
+    process: asyncio.subprocess.Process,
+    *,
+    force: bool = False,
+    signal_sent: bool = False,
+) -> None:
+    if process.returncode is not None:
+        await process.wait()
+        return
+    if force:
+        process.kill()
+        await process.wait()
+        return
+    if not signal_sent:
+        process.send_signal(signal.SIGTERM)
+    try:
+        await asyncio.wait_for(
+            process.wait(),
+            timeout=_MANAGED_PROCESS_STOP_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+
+
+async def _cleanup_spawn_failure(
+    process: asyncio.subprocess.Process,
+    log_handle: Any | None,
+    *,
+    force: bool = False,
+) -> None:
+    """Finish ownership cleanup even while the caller is being cancelled."""
+    signal_sent = False
+    if process.returncode is None:
+        if force:
+            process.kill()
+        else:
+            process.send_signal(signal.SIGTERM)
+        signal_sent = True
+    cleanup_task = asyncio.create_task(
+        _stop_managed_process(process, force=force, signal_sent=signal_sent)
+    )
+    try:
+        await asyncio.shield(cleanup_task)
+    except asyncio.CancelledError:
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            current_task.uncancel()
+        await cleanup_task
+        raise
+    finally:
+        if log_handle is not None:
+            log_handle.close()
 
 
 def _is_benign_embedded_cleanup_exception(exc: Exception) -> bool:
@@ -1754,6 +1868,8 @@ def _config_requests_sage_attention(config: SessionConfig) -> bool:
 async def _spawn_comfy_server(
     config: SessionConfig, log_path: str | Path | None = None
 ) -> tuple[asyncio.subprocess.Process, str, Any | None]:
+    ready_timeout_sec = _managed_ready_timeout_sec(config)
+    _assert_managed_endpoint_available(config)
     log_handle = None
     if log_path:
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
@@ -1763,35 +1879,67 @@ async def _spawn_comfy_server(
         log_handle.write(f"[vibecomfy] launching managed Comfy server: {json.dumps(list(argv))}\n".encode())
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
-    process = await asyncio.create_subprocess_exec(
-        *argv,
-        stdout=log_handle or asyncio.subprocess.DEVNULL,
-        stderr=log_handle or asyncio.subprocess.DEVNULL,
-        env=env,
-    )
-    managed_url = f"http://127.0.0.1:{config.port or 8188}"
-    client = ComfyClient(managed_url)
-    ready_timeout_sec = int(config.extra.get("ready_timeout_sec") or os.environ.get("VIBECOMFY_SESSION_READY_TIMEOUT_SEC") or 300)
-    for second in range(ready_timeout_sec):
-        if await client.ready():
-            break
-        if log_handle and second and second % 30 == 0:
-            log_handle.write(f"[vibecomfy] waiting for managed Comfy server readiness: {second}/{ready_timeout_sec}s\n".encode())
-        await asyncio.sleep(1)
-    else:
-        if process.returncode is None:
-            process.kill()
-            await process.wait()
-        if log_handle:
-            log_handle.close()
+    process: asyncio.subprocess.Process | None = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=log_handle or asyncio.subprocess.DEVNULL,
+            stderr=log_handle or asyncio.subprocess.DEVNULL,
+            env=env,
+        )
+        managed_url = f"http://127.0.0.1:{config.port or 8188}"
+        client = ComfyClient(managed_url)
+        for second in range(ready_timeout_sec):
+            if process.returncode is not None:
+                returncode = process.returncode
+                await process.wait()
+                evidence = _startup_log_evidence(log_path, log_handle)
+                raise RuntimeStartupError(
+                    f"Managed Comfy server exited during startup with return code "
+                    f"{returncode}; log evidence: {evidence}",
+                    next_action=_MANAGED_STARTUP_NEXT_ACTION,
+                )
+            if await client.ready():
+                if process.returncode is None:
+                    return process, managed_url, log_handle
+                returncode = process.returncode
+                await process.wait()
+                evidence = _startup_log_evidence(log_path, log_handle)
+                raise RuntimeStartupError(
+                    f"Managed Comfy server exited during startup with return code "
+                    f"{returncode}; log evidence: {evidence}",
+                    next_action=_MANAGED_STARTUP_NEXT_ACTION,
+                )
+            if process.returncode is not None:
+                returncode = process.returncode
+                await process.wait()
+                evidence = _startup_log_evidence(log_path, log_handle)
+                raise RuntimeStartupError(
+                    f"Managed Comfy server exited during startup with return code "
+                    f"{returncode}; log evidence: {evidence}",
+                    next_action=_MANAGED_STARTUP_NEXT_ACTION,
+                )
+            if log_handle and second and second % 30 == 0:
+                log_handle.write(
+                    f"[vibecomfy] waiting for managed Comfy server readiness: "
+                    f"{second}/{ready_timeout_sec}s\n".encode()
+                )
+            await asyncio.sleep(1)
         timeout = TimeoutError(
             f"Managed Comfy server did not become ready within {ready_timeout_sec} seconds"
         )
+        await _cleanup_spawn_failure(process, log_handle, force=True)
+        log_handle = None
         raise RuntimeStartupError(
             str(timeout),
-            next_action="Check the ComfyUI startup log, installed custom nodes, and selected port before retrying.",
+            next_action=_MANAGED_STARTUP_NEXT_ACTION,
         ) from timeout
-    return process, managed_url, log_handle
+    except BaseException:
+        if process is not None:
+            await _cleanup_spawn_failure(process, log_handle)
+        elif log_handle is not None:
+            log_handle.close()
+        raise
 
 
 def _comfyui_command() -> tuple[str, ...]:

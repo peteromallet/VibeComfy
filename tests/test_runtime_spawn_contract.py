@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 
 import pytest
 
@@ -41,6 +42,11 @@ class _NotReadyClient:
     async def ready(self) -> bool:
         self.ready_calls += 1
         return False
+
+
+class _ExplodingClient:
+    async def ready(self) -> bool:
+        raise RuntimeError("readiness probe exploded")
 
 
 def _patch_spawn(
@@ -123,6 +129,102 @@ def test_spawn_timeout_chains_underlying_timeout_error(
     assert "did not become ready within 2 seconds" in str(cause)
     # The chained detail is preserved in the surfaced message.
     assert str(cause) in str(exc_info.value)
+
+
+def test_spawn_post_child_readiness_exception_cleans_child_and_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    spawned, _client = _patch_spawn(monkeypatch)
+    monkeypatch.setattr(session_module, "ComfyClient", lambda _url: _ExplodingClient())
+    log_path = tmp_path / "startup.log"
+
+    with pytest.raises(RuntimeError, match="readiness probe exploded"):
+        asyncio.run(_spawn_comfy_server(SessionConfig(port=8200), log_path=log_path))
+
+    process = spawned[0][1]
+    assert process.signals == [session_module.signal.SIGTERM]
+    assert process.killed is False
+    assert "launching managed Comfy server" in log_path.read_text(encoding="utf-8")
+
+
+def test_spawn_cancellation_after_child_creation_cleans_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned: list[FakeProcess] = []
+    readiness_started = asyncio.Event()
+    release_readiness = asyncio.Event()
+
+    async def fake_create_subprocess_exec(*_argv: str, **_kwargs: object) -> FakeProcess:
+        process = FakeProcess()
+        spawned.append(process)
+        return process
+
+    class _HangingClient:
+        async def ready(self) -> bool:
+            readiness_started.set()
+            await release_readiness.wait()
+            return False
+
+    monkeypatch.setattr(session_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(session_module, "ComfyClient", lambda _url: _HangingClient())
+
+    async def run_case() -> None:
+        task = asyncio.create_task(_spawn_comfy_server(SessionConfig(port=8200)))
+        await readiness_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run_case())
+    assert spawned[0].signals == [session_module.signal.SIGTERM]
+    assert spawned[0].killed is False
+
+
+def test_spawn_reports_early_child_death_with_return_code_and_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    process = FakeProcess()
+    process.returncode = 17
+
+    async def fake_create_subprocess_exec(*_argv: str, **_kwargs: object) -> FakeProcess:
+        return process
+
+    class _NeverCalledClient:
+        async def ready(self) -> bool:
+            raise AssertionError("readiness must not run after child death")
+
+    monkeypatch.setattr(session_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(session_module, "ComfyClient", lambda _url: _NeverCalledClient())
+    log_path = tmp_path / "startup.log"
+
+    with pytest.raises(RuntimeStartupError, match=r"return code 17") as exc_info:
+        asyncio.run(_spawn_comfy_server(SessionConfig(port=8200), log_path=log_path))
+
+    assert "log evidence:" in str(exc_info.value)
+    assert "launching managed Comfy server" in str(exc_info.value)
+
+
+def test_spawn_rejects_foreign_sibling_before_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sibling = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sibling.bind(("127.0.0.1", 0))
+    sibling.listen()
+    port = sibling.getsockname()[1]
+    spawned = False
+
+    async def fake_create_subprocess_exec(*_argv: str, **_kwargs: object) -> FakeProcess:
+        nonlocal spawned
+        spawned = True
+        return FakeProcess()
+
+    monkeypatch.setattr(session_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    try:
+        with pytest.raises(RuntimeStartupError, match="already in use"):
+            asyncio.run(_spawn_comfy_server(SessionConfig(port=port)))
+    finally:
+        sibling.close()
+    assert spawned is False
 
 
 def test_spawn_timeout_precedence_env_over_default(monkeypatch: pytest.MonkeyPatch) -> None:

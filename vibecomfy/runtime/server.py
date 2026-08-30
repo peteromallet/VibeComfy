@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
 from .server_process import _spawn_comfy_server
-from .session import SessionConfig
+from .session import SessionConfig, _stop_managed_process
 
 
 @asynccontextmanager
@@ -28,12 +27,7 @@ async def comfy_server(
         )
         yield managed_url
     finally:
-        if process and process.returncode is None:
-            process.send_signal(signal.SIGTERM)
-            try:
-                await asyncio.wait_for(process.wait(), timeout=15)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
+        if process:
+            await _stop_managed_process(process)
         if log_handle:
             log_handle.close()
