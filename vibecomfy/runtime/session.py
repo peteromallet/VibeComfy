@@ -923,9 +923,26 @@ def _process_commandline(pid: int) -> tuple[str, ...] | None:
     try:
         raw = Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
-        raw = b""
-    if raw:
-        return tuple(part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part)
+        raw = None
+    if raw is not None:
+        if not isinstance(raw, bytes) or not raw or not raw.endswith(b"\0"):
+            return None
+        parts = raw.split(b"\0")
+        if len(parts) < 2 or any(not part for part in parts[:-1]):
+            return None
+        try:
+            commandline = tuple(part.decode("utf-8") for part in parts[:-1])
+        except UnicodeDecodeError:
+            return None
+        launch_flag_positions = [
+            index for index, argument in enumerate(commandline) if argument == "--launch-token"
+        ]
+        if launch_flag_positions and (
+            len(launch_flag_positions) != 1
+            or launch_flag_positions[0] + 1 >= len(commandline)
+        ):
+            return None
+        return commandline
     try:
         result = subprocess.run(
             ["ps", "-ww", "-p", str(pid), "-o", "command="],
@@ -934,12 +951,18 @@ def _process_commandline(pid: int) -> tuple[str, ...] | None:
             text=True,
             timeout=2,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
-    if result.returncode != 0:
+    try:
+        returncode = result.returncode
+        output = result.stdout
+    except (AttributeError, TypeError):
         return None
-    output = result.stdout
-    if not output or "\x00" in output or len(output.splitlines()) != 1:
+    if type(returncode) is not int or returncode != 0:
+        return None
+    if type(output) is not str or not output or "\x00" in output or len(output.splitlines()) != 1:
+        return None
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in output):
         return None
     try:
         commandline = tuple(shlex.split(output, comments=False, posix=True))

@@ -255,6 +255,7 @@ def test_process_commandline_parses_darwin_ps_argv_with_quoted_spaces(
         "python --launch-token owned\nforeign-process\n",
         "python --launch-token\n",
         "python --launch-token owned --launch-token owned\n",
+        "python --launch-token owned\x00foreign-process\n",
     ],
 )
 def test_process_commandline_rejects_malformed_or_truncated_darwin_ps_output(
@@ -275,6 +276,184 @@ def test_process_commandline_rejects_malformed_or_truncated_darwin_ps_output(
     )
 
     assert session_module._process_commandline(4242) is None
+
+
+@pytest.mark.parametrize("stdout", [None, b"python --launch-token owned\n", object()])
+def test_process_commandline_rejects_non_string_darwin_ps_output(
+    monkeypatch: pytest.MonkeyPatch, stdout: object
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: (_ for _ in ()).throw(OSError("/proc unavailable on Darwin"))
+        if path == Path("/proc/4242/cmdline")
+        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
+    )
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=stdout),
+    )
+
+    assert session_module._process_commandline(4242) is None
+
+
+def test_process_commandline_rejects_darwin_ps_decode_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: (_ for _ in ()).throw(OSError("/proc unavailable on Darwin"))
+        if path == Path("/proc/4242/cmdline")
+        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
+    )
+
+    def fail_decode(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(session_module.subprocess, "run", fail_decode)
+
+    assert session_module._process_commandline(4242) is None
+
+
+@pytest.mark.parametrize(
+    "proc_output",
+    [
+        b"",
+        b"python\0--launch-token\0owned",
+        b"python\0--launch-token\0owned\0\0",
+        b"python\0\0--launch-token\0owned\0",
+        b"python\0--launch-token\0\xff\0",
+        b"\0",
+        b"python\0--launch-token\0",
+        b"python\0--launch-token\0owned\0--launch-token\0owned\0",
+    ],
+)
+def test_process_commandline_rejects_malformed_linux_proc_argv(
+    monkeypatch: pytest.MonkeyPatch, proc_output: bytes
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: proc_output
+        if path == Path("/proc/4242/cmdline")
+        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
+    )
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("malformed Linux /proc argv must not call ps"),
+    )
+
+    assert session_module._process_commandline(4242) is None
+
+
+@pytest.mark.parametrize(
+    "proc_output",
+    [b"", b"python\0--launch-token\0owned", b"python\0--launch-token\0\xff\0"],
+)
+def test_malformed_linux_process_evidence_never_authorizes_readiness_or_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, proc_output: bytes
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_dir = tmp_path / "out/sessions/default"
+    session_dir.mkdir(parents=True)
+    (session_dir / "pid").write_text("4242", encoding="utf-8")
+    (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+    (session_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "launch_token": "owned",
+                "pid": 4242,
+                "process_start_identity": "same-incarnation",
+                "url": "http://127.0.0.1:8200",
+            }
+        ),
+        encoding="utf-8",
+    )
+    signals: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+
+    monkeypatch.setattr(session_module.os, "kill", fake_kill)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "same-incarnation")
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: pytest.fail("ownership refusal must precede readiness HTTP"))
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: proc_output
+        if path == Path("/proc/4242/cmdline")
+        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
+    )
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("malformed Linux /proc argv must not call ps"),
+    )
+
+    assert session_module._session_ready(session_dir) is False
+    assert session_module._terminate_session_pid(4242, session_dir=session_dir) is False
+    assert session_cmd._cmd_session_stop(argparse.Namespace(id="default")) == 1
+    assert all(sig == 0 for _pid, sig in signals)
+
+
+@pytest.mark.parametrize(
+    "hostile_evidence",
+    [
+        None,
+        b"python --launch-token owned\n",
+        object(),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+    ],
+)
+def test_hostile_darwin_process_evidence_never_authorizes_readiness_or_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, hostile_evidence: object
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_dir = tmp_path / "out/sessions/default"
+    session_dir.mkdir(parents=True)
+    (session_dir / "pid").write_text("4242", encoding="utf-8")
+    (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+    (session_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "launch_token": "owned",
+                "pid": 4242,
+                "process_start_identity": "same-incarnation",
+                "url": "http://127.0.0.1:8200",
+            }
+        ),
+        encoding="utf-8",
+    )
+    signals: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+
+    monkeypatch.setattr(session_module.os, "kill", fake_kill)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "same-incarnation")
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: pytest.fail("ownership refusal must precede readiness HTTP"))
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: (_ for _ in ()).throw(OSError("/proc unavailable on Darwin"))
+        if path == Path("/proc/4242/cmdline")
+        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
+    )
+
+    def fake_run(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
+        if isinstance(hostile_evidence, BaseException):
+            raise hostile_evidence
+        return SimpleNamespace(returncode=0, stdout=hostile_evidence)
+
+    monkeypatch.setattr(session_module.subprocess, "run", fake_run)
+
+    assert session_module._session_ready(session_dir) is False
+    assert session_module._terminate_session_pid(4242, session_dir=session_dir) is False
+    assert session_cmd._cmd_session_stop(argparse.Namespace(id="default")) == 1
+    assert all(sig == 0 for _pid, sig in signals)
 
 
 @pytest.mark.parametrize(
