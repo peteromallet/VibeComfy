@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import shlex
 import signal
 import socket
 import subprocess
@@ -927,7 +928,7 @@ def _process_commandline(pid: int) -> tuple[str, ...] | None:
         return tuple(part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part)
     try:
         result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "command="],
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
             check=False,
             capture_output=True,
             text=True,
@@ -935,8 +936,35 @@ def _process_commandline(pid: int) -> tuple[str, ...] | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    value = result.stdout.strip()
-    return (value,) if value else None
+    if result.returncode != 0:
+        return None
+    output = result.stdout
+    if not output or "\x00" in output or len(output.splitlines()) != 1:
+        return None
+    try:
+        commandline = tuple(shlex.split(output, comments=False, posix=True))
+    except ValueError:
+        return None
+    launch_flag_positions = [
+        index for index, argument in enumerate(commandline) if argument == "--launch-token"
+    ]
+    if launch_flag_positions and (
+        len(launch_flag_positions) != 1
+        or launch_flag_positions[0] + 1 >= len(commandline)
+    ):
+        return None
+    return commandline or None
+
+
+def _launch_token_is_exactly_paired(commandline: tuple[str, ...], token: str) -> bool:
+    """Return whether *token* is the sole exact ``--launch-token`` value."""
+    flag_positions = [
+        index for index, argument in enumerate(commandline) if argument == "--launch-token"
+    ]
+    if len(flag_positions) != 1:
+        return False
+    flag_index = flag_positions[0]
+    return flag_index + 1 < len(commandline) and commandline[flag_index + 1] == token
 
 
 def _session_ownership_verified(session_dir: Path, pid: int) -> bool:
@@ -963,7 +991,7 @@ def _session_ownership_verified(session_dir: Path, pid: int) -> bool:
     if _process_start_identity(pid) != start_identity:
         return False
     commandline = _process_commandline(pid)
-    return commandline is not None and token in commandline
+    return commandline is not None and _launch_token_is_exactly_paired(commandline, token)
 
 
 def _terminate_session_pid(pid: int, *, session_dir: Path) -> bool:

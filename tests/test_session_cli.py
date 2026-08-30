@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import signal
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
 
@@ -206,6 +207,123 @@ def test_session_cli_start_without_memory_profile_leaves_config_unchanged(
     config = json.loads((tmp_path / "out/sessions/default/config.json").read_text(encoding="utf-8"))
 
     assert "memory_profile" not in config
+
+
+def test_process_commandline_parses_darwin_ps_argv_with_quoted_spaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_read_bytes = Path.read_bytes
+    ps_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def fake_read_bytes(path: Path) -> bytes:
+        if path == Path("/proc/4242/cmdline"):
+            raise OSError("/proc unavailable on Darwin")
+        return original_read_bytes(path)
+
+    def fake_run(argv: list[str], **kwargs: Any) -> SimpleNamespace:
+        ps_calls.append((argv, kwargs))
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "/usr/bin/python3 -m vibecomfy.commands.session --daemon "
+                "--launch-token owned-token --config "
+                "'{\"input_directory\": \"/tmp/input folder\"}'\n"
+            ),
+        )
+
+    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+    monkeypatch.setattr(session_module.subprocess, "run", fake_run)
+
+    assert session_module._process_commandline(4242) == (
+        "/usr/bin/python3",
+        "-m",
+        "vibecomfy.commands.session",
+        "--daemon",
+        "--launch-token",
+        "owned-token",
+        "--config",
+        '{"input_directory": "/tmp/input folder"}',
+    )
+    assert ps_calls and ps_calls[0][0] == ["ps", "-ww", "-p", "4242", "-o", "command="]
+    assert ps_calls[0][1]["timeout"] == 2
+
+
+@pytest.mark.parametrize(
+    "ps_output",
+    [
+        "python --launch-token 'unterminated\n",
+        "python --launch-token owned\nforeign-process\n",
+        "python --launch-token\n",
+        "python --launch-token owned --launch-token owned\n",
+    ],
+)
+def test_process_commandline_rejects_malformed_or_truncated_darwin_ps_output(
+    monkeypatch: pytest.MonkeyPatch, ps_output: str
+) -> None:
+    original_read_bytes = Path.read_bytes
+
+    def fake_read_bytes(path: Path) -> bytes:
+        if path == Path("/proc/4242/cmdline"):
+            raise OSError("/proc unavailable on Darwin")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=ps_output),
+    )
+
+    assert session_module._process_commandline(4242) is None
+
+
+@pytest.mark.parametrize(
+    ("commandline", "expected"),
+    [
+        (("python", "--launch-token", "owned"), True),
+        (("python", "--launch-token", "owned-suffix"), False),
+        (("python", "--config", '{"token": "owned"}'), False),
+        (("python", "owned", "--config", "spoof"), False),
+        (("python", "--launch-token", "other"), False),
+        (("python", "--launch-token"), False),
+        (("python", "--launch-token", "owned", "--launch-token", "owned"), False),
+        (("python", "--launch-token=owned"), False),
+    ],
+)
+def test_launch_token_requires_one_exact_paired_argv_value(
+    commandline: tuple[str, ...], expected: bool
+) -> None:
+    assert session_module._launch_token_is_exactly_paired(commandline, "owned") is expected
+
+
+def test_process_commandline_preserves_linux_proc_argv_tuple(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda path: (
+            b"/usr/bin/python3\0-m\0vibecomfy.commands.session\0"
+            b"--launch-token\0owned\0--config\0{}\0"
+            if path == Path("/proc/4242/cmdline")
+            else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}"))
+        ),
+    )
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("Linux /proc argv should not call ps"),
+    )
+
+    assert session_module._process_commandline(4242) == (
+        "/usr/bin/python3",
+        "-m",
+        "vibecomfy.commands.session",
+        "--launch-token",
+        "owned",
+        "--config",
+        "{}",
+    )
 
 
 def test_session_cli_start_timeout_terminates_daemon_and_records_argv(
@@ -412,7 +530,11 @@ def test_session_cli_start_refuses_duplicate_without_clearing_markers(
     monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
     monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "same-incarnation")
-    monkeypatch.setattr(session_module, "_process_commandline", lambda _pid: ("python", "existing"))
+    monkeypatch.setattr(
+        session_module,
+        "_process_commandline",
+        lambda _pid: ("python", "--launch-token", "existing"),
+    )
     monkeypatch.setattr(session_cmd.subprocess, "Popen", lambda *_args, **_kwargs: pytest.fail("spawned duplicate"))
 
     assert session_cmd._cmd_session_start(argparse.Namespace(id="default")) == 1
@@ -426,6 +548,12 @@ def test_session_cli_start_refuses_duplicate_without_clearing_markers(
     [
         ("old-incarnation", "new-incarnation", ("python", "--launch-token", "owned")),
         ("same-incarnation", "same-incarnation", ("foreign-server",)),
+        ("same-incarnation", "same-incarnation", ("python", "owned", "--config", "owned-suffix")),
+        (
+            "same-incarnation",
+            "same-incarnation",
+            ("python", "--launch-token", "owned", "--launch-token", "owned"),
+        ),
     ],
 )
 def test_stale_or_foreign_marker_never_authorizes_signal(
@@ -494,7 +622,11 @@ def test_session_cli_stop_timeout_is_nonzero_and_retains_markers(
 
     monkeypatch.setattr(session_module.os, "kill", fake_kill)
     monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "same-incarnation")
-    monkeypatch.setattr(session_module, "_process_commandline", lambda _pid: ("python", "owned"))
+    monkeypatch.setattr(
+        session_module,
+        "_process_commandline",
+        lambda _pid: ("python", "--launch-token", "owned"),
+    )
     monkeypatch.setattr(session_cmd.time, "sleep", lambda _seconds: None)
 
     assert session_cmd._cmd_session_stop(argparse.Namespace(id="default")) == 1
