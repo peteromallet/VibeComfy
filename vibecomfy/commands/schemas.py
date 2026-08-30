@@ -29,6 +29,11 @@ from vibecomfy.schema import RuntimeSchemaProvider
 # ---------------------------------------------------------------------------
 
 
+def _cache_root() -> Path:
+    """Return the command's canonical object-info cache root."""
+    return Path(CACHE_DIR)
+
+
 def _extract_class_types_from_template(template_path: str | Path) -> list[str]:
     """Parse a narrative template and return every class type used in node calls.
 
@@ -78,20 +83,21 @@ def _extract_class_types_from_template(template_path: str | Path) -> list[str]:
 
 def _cmd_schemas_refresh(args: argparse.Namespace) -> int:
     """``schemas refresh --source <path>``"""
+    cache_root = _cache_root()
     if args.server_url:
         provider = RuntimeSchemaProvider(server_url=args.server_url)
         object_info = provider.object_info()
         source = Path("out/cache") / "object_info.schemas-refresh.json"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(json_module.dumps(object_info, indent=2, sort_keys=True), encoding="utf-8")
-        result = refresh_from_source(str(source))
+        result = refresh_from_source(str(source), cache_dir=cache_root)
         result["source"] = str(source)
         result["server_url"] = args.server_url
     else:
         if args.source is None:
             print("--source is required unless --server-url is supplied", file=__import__("sys").stderr)
             return 2
-        result = refresh_schema_cache_from_source(args.source)
+        result = refresh_schema_cache_from_source(args.source, cache_dir=cache_root)
     identity = f"{result.get('pack_version', result.get('version', 'unknown'))} / {result.get('source_kind', 'unknown')}"
     confidence = "authoritative" if result.get("authoritative", False) else "non-authoritative"
     msg = (
@@ -106,6 +112,7 @@ def _cmd_schemas_regen_core(args: argparse.Namespace) -> int:
     """``schemas regen-core`` — introspect core ComfyUI schemas and stamp them."""
     comfy_version = _validate_comfy_version(args.comfy_version)
     object_info = _introspect_core_object_info(args)
+    cache_root = _cache_root()
     source = Path("out/cache") / f"object_info.comfy-core.{comfy_version}.json"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(json_module.dumps(object_info, indent=2, sort_keys=True), encoding="utf-8")
@@ -114,7 +121,7 @@ def _cmd_schemas_regen_core(args: argparse.Namespace) -> int:
     class_count, pack_count = build_cache(
         source,
         version=pack_version,
-        cache_dir=CACHE_DIR,
+        cache_dir=cache_root,
         identity=CacheIdentity(
             pack_slug="comfy-core",
             pack_version=pack_version,
@@ -127,7 +134,7 @@ def _cmd_schemas_regen_core(args: argparse.Namespace) -> int:
         "status": "ok",
         "classes_indexed": class_count,
         "packs_written": pack_count,
-        "cache_dir": str(CACHE_DIR),
+        "cache_dir": str(cache_root),
         "source": str(source),
         "pack_slug": "comfy-core",
         "version": pack_version,
@@ -140,22 +147,27 @@ def _cmd_schemas_regen_core(args: argparse.Namespace) -> int:
     }
     msg = (
         f"Core schema cache regenerated for ComfyUI {comfy_version}: "
-        f"{class_count} classes across {pack_count} pack(s) -> {CACHE_DIR}"
+        f"{class_count} classes across {pack_count} pack(s) -> {cache_root}"
     )
     return emit(result, json=args.json, text_renderer=lambda _: msg)
 
 
-def refresh_schema_cache_from_source(source: str | Path) -> dict[str, Any]:
+def refresh_schema_cache_from_source(
+    source: str | Path,
+    *,
+    cache_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    cache_root = _cache_root() if cache_dir is None else Path(cache_dir)
     source_path = Path(source)
     if source_path.is_dir() and (source_path / "index.json").is_file():
-        return _copy_structured_cache(source_path)
+        return _copy_structured_cache(source_path, cache_root)
     if source_path.name == "index.json" and source_path.parent.is_dir():
-        return _copy_structured_cache(source_path.parent)
+        return _copy_structured_cache(source_path.parent, cache_root)
     if source_path.is_file():
         data = json_module.loads(source_path.read_text(encoding="utf-8"))
         if _looks_like_structured_pack_cache(data):
-            return _copy_single_structured_cache_file(source_path, data)
-    result = refresh_from_source(str(source_path))
+            return _copy_single_structured_cache_file(source_path, data, cache_root)
+    result = refresh_from_source(str(source_path), cache_dir=cache_root)
     result["source"] = str(source_path)
     return result
 
@@ -216,7 +228,7 @@ def _write_provenance(provenance: dict[str, Any], cache_root: Path | None = None
     )
 
 
-def _prune_stale_index_rows(index: dict[str, Any]) -> list[str]:
+def _prune_stale_index_rows(index: dict[str, Any], cache_root: Path) -> list[str]:
     """Drop index rows whose mapped cache file no longer exists.
 
     RRSYN2-3: regenerating the index after an ingest must not leave rows
@@ -227,7 +239,7 @@ def _prune_stale_index_rows(index: dict[str, Any]) -> list[str]:
         class_type
         for class_type, filename in index.items()
         if not isinstance(filename, str)
-        or not (CACHE_DIR / filename).is_file()
+        or not (cache_root / filename).is_file()
     ]
     for class_type in stale:
         del index[class_type]
@@ -238,6 +250,7 @@ def _attest_ingested_capture(
     filename: str,
     source_file: Path,
     data: dict[str, Any],
+    cache_root: Path,
 ) -> dict[str, Any]:
     """Record/refresh the provenance attestation for one ingested pack.
 
@@ -250,7 +263,7 @@ def _attest_ingested_capture(
     ``ingested_at`` — never as the capture time, which only a real capture
     can attest.
     """
-    provenance = _load_provenance()
+    provenance = _load_provenance(cache_root)
     packs = provenance.get("packs")
     if not isinstance(packs, dict):
         packs = {}
@@ -296,46 +309,46 @@ def _attest_ingested_capture(
     packs[filename] = entry
     provenance["packs"] = packs
     provenance["class_count"] = len(
-        json_module.loads((CACHE_DIR / "index.json").read_text(encoding="utf-8"))
+        json_module.loads((cache_root / "index.json").read_text(encoding="utf-8"))
     )
-    _write_provenance(provenance)
+    _write_provenance(provenance, cache_root)
     return entry
 
 
-def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+def _copy_structured_cache(source_dir: Path, cache_root: Path) -> dict[str, Any]:
+    cache_root.mkdir(parents=True, exist_ok=True)
     copied = 0
     for path in source_dir.glob("*.json"):
-        target = CACHE_DIR / path.name
+        target = cache_root / path.name
         if target.is_symlink():
             raise ValueError(f"object_info cache target is symlinked: {target}")
         shutil.copy2(path, target)
         copied += 1
-    index_path = CACHE_DIR / "index.json"
+    index_path = cache_root / "index.json"
     index = json_module.loads(index_path.read_text(encoding="utf-8"))
     if not isinstance(index, dict):
         index = {}
     # RRSYN2-3: regenerate — prune rows whose capture file is gone, then
     # keep provenance.class_count consistent with the rewritten index.
-    pruned = _prune_stale_index_rows(index)
+    pruned = _prune_stale_index_rows(index, cache_root)
     if pruned:
         index_path.write_text(
             json_module.dumps(index, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-    provenance = _load_provenance()
+    provenance = _load_provenance(cache_root)
     provenance["class_count"] = len(index)
-    _write_provenance(provenance)
+    _write_provenance(provenance, cache_root)
     # The copy above edits the historical root as an input adapter only. The
     # committed-generation publisher is the sole reader-visible publication
     # authority and must commit the final root state before returning.
-    republish_cache_root(CACHE_DIR)
+    republish_cache_root(cache_root)
     return {
         "status": "ok",
         "classes_indexed": len(index),
         "stale_rows_pruned": len(pruned),
         "packs_written": max(0, copied - 1),
-        "cache_dir": str(CACHE_DIR),
+        "cache_dir": str(cache_root),
         "version": "structured-cache",
         "pack_version": "structured-cache",
         "source": str(source_dir),
@@ -344,7 +357,11 @@ def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
     }
 
 
-def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) -> dict[str, Any]:
+def _copy_single_structured_cache_file(
+    source_file: Path,
+    data: dict[str, Any],
+    cache_root: Path,
+) -> dict[str, Any]:
     """Ingest ONE pinned pack capture into the authoritative cache.
 
     RRSYN2-3: this is the path ``schemas refresh --source <capture>.json``
@@ -353,12 +370,12 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
     so an ingested capture is preflight-authoritative instead of silently
     unattested.  No workflow-observation fallback exists here by design.
     """
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    target = CACHE_DIR / source_file.name
+    cache_root.mkdir(parents=True, exist_ok=True)
+    target = cache_root / source_file.name
     if target.is_symlink():
         raise ValueError(f"object_info cache target is symlinked: {target}")
     shutil.copy2(source_file, target)
-    index_path = CACHE_DIR / "index.json"
+    index_path = cache_root / "index.json"
     if index_path.is_file():
         index = json_module.loads(index_path.read_text(encoding="utf-8"))
         if not isinstance(index, dict):
@@ -380,19 +397,19 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
     for class_type in data:
         if class_type != "_cache_metadata":
             index[str(class_type)] = target.name
-    pruned = _prune_stale_index_rows(index)
+    pruned = _prune_stale_index_rows(index, cache_root)
     index_path.write_text(json_module.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
-    entry = _attest_ingested_capture(target.name, source_file, data)
+    entry = _attest_ingested_capture(target.name, source_file, data, cache_root)
     # As with directory ingestion, the legacy-root edits are only an adapter
     # input to the single committed-generation publisher.
-    republish_cache_root(CACHE_DIR)
+    republish_cache_root(cache_root)
     return {
         "status": "ok",
         "classes_indexed": entry["classes"],
         "stale_rows_pruned": len(pruned) + len(superseded),
         "provenance": entry,
         "packs_written": 1,
-        "cache_dir": str(CACHE_DIR),
+        "cache_dir": str(cache_root),
         "version": "structured-cache",
         "pack_version": "structured-cache",
         "source": str(source_file),

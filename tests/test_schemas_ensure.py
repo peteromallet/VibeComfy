@@ -24,14 +24,24 @@ import yaml
 
 # Add repo root for imports
 REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_OBJECT_INFO_CACHE = REPO_ROOT / "vibecomfy/porting/cache/object_info"
 
 from vibecomfy.handles import Handle
 from vibecomfy.commands import schemas as schemas_command
 
 
+def _object_info_cache_snapshot() -> dict[str, bytes]:
+    return {
+        str(path.relative_to(REPO_OBJECT_INFO_CACHE)): path.read_bytes()
+        for path in REPO_OBJECT_INFO_CACHE.rglob("*")
+        if path.is_file()
+    }
+
+
 def test_schemas_refresh_accepts_structured_cache_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cache_root = tmp_path / "object_info_cache"
     monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    before = _object_info_cache_snapshot()
     source = tmp_path / "pack.json"
     source.write_text(
         json.dumps(
@@ -55,6 +65,7 @@ def test_schemas_refresh_accepts_structured_cache_file(tmp_path: Path, monkeypat
     assert result["authoritative"] is False
     index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
     assert index == {"TinyNode": "pack.json"}
+    assert _object_info_cache_snapshot() == before
 
 
 def test_schema_freshness_workflow_is_manual_and_artifact_based() -> None:
@@ -120,6 +131,7 @@ def test_schemas_refresh_command_text_surfaces_non_authoritative_identity(
 ) -> None:
     cache_root = tmp_path / "object_info_cache"
     monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    before = _object_info_cache_snapshot()
     source = tmp_path / "object_info.json"
     source.write_text(
         json.dumps(
@@ -150,6 +162,8 @@ def test_schemas_refresh_command_text_surfaces_non_authoritative_identity(
     text = capsys.readouterr().out.strip()
     assert "non-authoritative" in text
     assert "legacy-import / legacy_object_info_import" in text
+    assert (cache_root / "index.json").is_file()
+    assert _object_info_cache_snapshot() == before
 
 
 def test_schemas_regen_core_uses_fake_provider_and_stamps_authoritative_cache(
@@ -159,6 +173,7 @@ def test_schemas_regen_core_uses_fake_provider_and_stamps_authoritative_cache(
 ) -> None:
     cache_root = tmp_path / "object_info_cache"
     monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    before = _object_info_cache_snapshot()
 
     def fake_provider() -> dict:
         return {
@@ -206,6 +221,7 @@ def test_schemas_regen_core_uses_fake_provider_and_stamps_authoritative_cache(
     assert entry["pack_version"] == "0.24.0.1"
     assert entry["evidence_identity"] == "comfy-core:0.24.0.1"
     assert entry["source_kind"] == "runtime_core_object_info"
+    assert _object_info_cache_snapshot() == before
 
 
 def test_schemas_regen_core_default_path_uses_explicit_runner_not_runtime_provider(
@@ -215,6 +231,7 @@ def test_schemas_regen_core_default_path_uses_explicit_runner_not_runtime_provid
 ) -> None:
     cache_root = tmp_path / "object_info_cache"
     monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    before = _object_info_cache_snapshot()
 
     def fail_runtime_provider(*args, **kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("regen-core must not use the generic runtime provider")
@@ -251,6 +268,7 @@ def test_schemas_regen_core_default_path_uses_explicit_runner_not_runtime_provid
     payload = json.loads(capsys.readouterr().out)
     assert payload["pack_slug"] == "comfy-core"
     assert (cache_root / "comfy-core@0.25.0.json").is_file()
+    assert _object_info_cache_snapshot() == before
 
 
 def test_schemas_regen_core_registration_help_warns_unsandboxed() -> None:
