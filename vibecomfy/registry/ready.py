@@ -4,7 +4,7 @@ import ast
 from dataclasses import asdict, dataclass, field
 import importlib.util
 from pathlib import Path
-import warnings
+import unicodedata
 from typing import Any, Iterable
 
 from vibecomfy.errors import WorkflowBuildError
@@ -17,7 +17,6 @@ from vibecomfy.workflow import VibeWorkflow
 
 
 READY_ROOT = find_repo_root() / "ready_templates"
-_WARNED_COLLISIONS: set[str] = set()
 
 
 class ReadyTemplateLoadError(WorkflowBuildError):
@@ -52,67 +51,200 @@ class ReadyTemplateSourceInfo:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class ReadyTemplateRecord:
+    """One enumerated ready template and its physical discovery scope."""
+
+    template_id: str
+    path: Path
+    source_scope: str
+    root: Path
+
+
+@dataclass(frozen=True)
+class ReadyTemplateDiscovery:
+    """One physical ready-template discovery snapshot."""
+
+    roots: tuple[Path, ...]
+    records: tuple[ReadyTemplateRecord, ...]
+    by_id: dict[str, tuple[ReadyTemplateRecord, ...]]
+    by_lookup: dict[str, tuple[ReadyTemplateRecord, ...]]
+    # Reference assets share this physical snapshot but are intentionally not
+    # executable ready-template records or ids.
+    reference_records: tuple[ReadyTemplateRecord, ...] = ()
+    references_by_id: dict[str, tuple[ReadyTemplateRecord, ...]] = field(default_factory=dict)
+    references_by_lookup: dict[str, tuple[ReadyTemplateRecord, ...]] = field(default_factory=dict)
+
+    @property
+    def ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self.by_id, key=_id_sort_key))
+
+
 def repo_ready_template_paths(root: Path | None = None) -> list[Path]:
     """Return checked-in repo ready-template paths without loading plugins."""
-    return _template_paths(root or READY_ROOT)
+    return [record.path for record in _discover_ready_templates(roots=[root or READY_ROOT]).records]
 
 
 def repo_ready_template_id_for_path(path: Path, root: Path | None = None) -> str:
-    """Return the ready-template id for a path under the repo ready root."""
-    return path.relative_to(root or READY_ROOT).with_suffix("").as_posix()
+    """Return the enumerated ready-template id for a path under the repo root."""
+    return _template_id_for_path(path, root or READY_ROOT)
 
 
 def repo_ready_template_ids(root: Path | None = None) -> list[str]:
     """Return checked-in repo ready-template ids without loading plugins."""
-    ready_root = root or READY_ROOT
-    return sorted(repo_ready_template_id_for_path(path, ready_root) for path in repo_ready_template_paths(ready_root))
+    discovery = _discover_ready_templates(roots=[root or READY_ROOT])
+    _raise_duplicate_ids(discovery)
+    return list(discovery.ids)
+
+
+def _normalize_ready_template_id(template_id: str) -> str:
+    """Normalize query separators and Unicode without changing filesystem case."""
+    return unicodedata.normalize("NFC", str(template_id).replace("\\", "/"))
+
+
+def _ready_lookup_key(template_id: str) -> str:
+    """Return the case-folded lookup key for a canonical or query id."""
+    return _normalize_ready_template_id(template_id).casefold()
+
+
+def _normalized_path_key(path: Path) -> str:
+    """Return a deterministic path sort key without becoming path identity."""
+    return unicodedata.normalize("NFC", str(path)).casefold()
+
+
+def _id_sort_key(template_id: str) -> tuple[str, str]:
+    return (_ready_lookup_key(template_id), template_id)
 
 
 def dynamic_ready_template_rows(*, exclude_ids: Iterable[str] = ()) -> list[dict[str, Any]]:
     """Return explicitly discovered plugin/user ready-template rows."""
-    excluded = set(exclude_ids)
-    seen: dict[str, Path] = {}
-    rows: list[dict[str, Any]] = []
-    for root in _dynamic_ready_roots():
-        if not root.exists():
+    excluded = {_ready_lookup_key(template_id) for template_id in exclude_ids}
+    discovery = _discover_ready_templates()
+    rows = [
+        {
+            "id": record.template_id,
+            "path": str(record.path),
+            "source_scope": "dynamic",
+            "indexed": False,
+        }
+        for record in discovery.records
+        if record.source_scope == "dynamic" and _ready_lookup_key(record.template_id) not in excluded
+    ]
+    for lookup_key, all_records in discovery.by_lookup.items():
+        records = tuple(record for record in all_records if record.source_scope == "dynamic")
+        matching_rows = [
+            row for row in rows if _ready_lookup_key(str(row["id"])) == lookup_key
+        ]
+        if len(matching_rows) < 2:
             continue
-        for path in _template_paths(root):
-            template_id = path.relative_to(root).with_suffix("").as_posix()
-            if template_id in excluded:
-                continue
-            if template_id in seen:
-                _warn_collision(template_id, path, seen[template_id])
-                continue
-            seen[template_id] = path
-            rows.append(
-                {
-                    "id": template_id,
-                    "path": str(path),
-                    "source_scope": "dynamic",
-                    "indexed": False,
-                }
-            )
-    return sorted(rows, key=lambda row: row["id"])
+        details = _collision_details(min((record.template_id for record in records), key=_id_sort_key), records)
+        for row in matching_rows:
+            row.update(details)
+    return sorted(rows, key=lambda row: _id_sort_key(str(row["id"])))
+
 
 
 def ready_template_ids(*, include_dynamic: bool = True) -> list[str]:
-    seen: dict[str, Path] = {}
-    roots = _ready_roots() if include_dynamic else [READY_ROOT]
-    for root in roots:
-        if not root.exists():
-            continue
-        for path in _template_paths(root):
-            template_id = path.relative_to(root).with_suffix("").as_posix()
-            if template_id in seen:
-                _warn_collision(template_id, path, seen[template_id])
-                continue
-            seen[template_id] = path
-    return sorted(seen)
+    discovery = _discover_ready_templates(include_dynamic=include_dynamic)
+    _raise_duplicate_ids(discovery)
+    return list(discovery.ids)
 
 
-def workflow_from_ready(template_id: str) -> VibeWorkflow:
-    path = _resolve_ready_path(template_id)
-    is_dynamic_ready_template = _path_is_dynamic_ready_template(path)
+def _discover_ready_templates(
+    *,
+    roots: Iterable[Path] | None = None,
+    include_dynamic: bool = True,
+    include_json_references: bool = True,
+) -> ReadyTemplateDiscovery:
+    selected_roots = list(roots) if roots is not None else (
+        _ready_roots() if include_dynamic else [READY_ROOT]
+    )
+    canonical_roots = tuple(_dedupe_roots(selected_roots))
+    records: list[ReadyTemplateRecord] = []
+    reference_records: list[ReadyTemplateRecord] = []
+    for root in canonical_roots:
+        source_scope = "repo" if _roots_are_same(root, _canonical_root(READY_ROOT)) else "dynamic"
+        for path in _template_paths(root, include_json_references=include_json_references):
+            record = ReadyTemplateRecord(
+                # JSON files are corpus/reference assets, not executable
+                # ready-template ids. Preserve their suffix so source-info can
+                # resolve the existing ``foo.json`` spelling.
+                template_id=_template_id_for_path(
+                    path,
+                    root,
+                    preserve_suffix=include_json_references and path.suffix.lower() == ".json",
+                ),
+                path=path,
+                source_scope=source_scope,
+                root=root,
+            )
+            (reference_records if path.suffix.lower() == ".json" else records).append(record)
+    records.sort(key=lambda record: (_id_sort_key(record.template_id), _path_sort_key(record.path)))
+    reference_records.sort(key=lambda record: (_id_sort_key(record.template_id), _path_sort_key(record.path)))
+    by_id: dict[str, list[ReadyTemplateRecord]] = {}
+    by_lookup: dict[str, list[ReadyTemplateRecord]] = {}
+    for record in records:
+        by_id.setdefault(record.template_id, []).append(record)
+        by_lookup.setdefault(_ready_lookup_key(record.template_id), []).append(record)
+    references_by_id: dict[str, list[ReadyTemplateRecord]] = {}
+    references_by_lookup: dict[str, list[ReadyTemplateRecord]] = {}
+    for record in reference_records:
+        references_by_id.setdefault(record.template_id, []).append(record)
+        references_by_lookup.setdefault(_ready_lookup_key(record.template_id), []).append(record)
+    return ReadyTemplateDiscovery(
+        roots=canonical_roots,
+        records=tuple(records),
+        by_id={key: tuple(value) for key, value in sorted(by_id.items(), key=lambda item: _id_sort_key(item[0]))},
+        by_lookup={key: tuple(value) for key, value in sorted(by_lookup.items())},
+        reference_records=tuple(reference_records),
+        references_by_id={
+            key: tuple(value)
+            for key, value in sorted(references_by_id.items(), key=lambda item: _id_sort_key(item[0]))
+        },
+        references_by_lookup={key: tuple(value) for key, value in sorted(references_by_lookup.items())},
+    )
+def ready_template_discovery(
+    *,
+    roots: Iterable[Path] | None = None,
+    include_dynamic: bool = True,
+    include_json_references: bool = True,
+) -> ReadyTemplateDiscovery:
+    """Return one physical ready-template discovery snapshot."""
+    return _discover_ready_templates(
+        roots=roots,
+        include_dynamic=include_dynamic,
+        include_json_references=include_json_references,
+    )
+
+
+def resolve_ready_template(
+    template_id: str,
+    discovery: ReadyTemplateDiscovery | None = None,
+) -> ReadyTemplateRecord:
+    """Resolve a ready-template alias against one discovery snapshot."""
+    return _resolve_ready_record(template_id, discovery)
+
+
+def repo_ready_template_discovery(root: Path | None = None) -> ReadyTemplateDiscovery:
+    return _discover_ready_templates(roots=[root or READY_ROOT])
+
+
+def _raise_duplicate_ids(discovery: ReadyTemplateDiscovery) -> None:
+    for template_id, records in discovery.by_id.items():
+        if len(records) > 1:
+            raise ValueError(_collision_message(template_id, records))
+
+
+
+
+def workflow_from_ready(
+    template_id: str,
+    *,
+    _discovery: ReadyTemplateDiscovery | None = None,
+) -> VibeWorkflow:
+    record = _resolve_ready_record(template_id, _discovery)
+    path = record.path
+    is_dynamic_ready_template = record.source_scope == "dynamic"
     if is_dynamic_ready_template:
         _scan_dynamic_ready_template(path)
     spec = importlib.util.spec_from_file_location(f"vibecomfy_ready_{path.stem}", path)
@@ -123,8 +255,8 @@ def workflow_from_ready(template_id: str) -> VibeWorkflow:
     if provenance == "untrusted_source" and is_dynamic_ready_template:
         provenance = "user_confirmed"
     require_confirmation(
-        operation="scratchpad_exec",
         class_type=None,  # type: ignore[arg-type]
+        operation="scratchpad_exec",
         provenance=provenance,
         capabilities=frozenset({"code_exec"}),
         details={"path": str(path)},
@@ -137,7 +269,7 @@ def workflow_from_ready(template_id: str) -> VibeWorkflow:
     workflow = build()
     if not isinstance(workflow, VibeWorkflow):
         raise TypeError(f"Ready template {template_id} build() must return VibeWorkflow, got {type(workflow).__name__}")
-    resolved_template_id = _template_id_for_path(path)
+    resolved_template_id = record.template_id
     if not workflow.metadata.get("python_policy_applied"):
         ready_metadata = getattr(module, "READY_METADATA", None)
         if isinstance(ready_metadata, dict):
@@ -153,15 +285,28 @@ def workflow_from_ready(template_id: str) -> VibeWorkflow:
     return workflow
 
 
-def ready_template_source_info(template_id: str) -> ReadyTemplateSourceInfo:
-    """Classify a ready template's runtime source mode.
+def ready_template_source_info(
+    template_id: str,
+    *,
+    _discovery: ReadyTemplateDiscovery | None = None,
+) -> ReadyTemplateSourceInfo:
+    """Classify a ready template using one physical discovery snapshot.
 
     ``pure_python`` means the ready template builds a ``VibeWorkflow`` directly
     and does not load JSON/API dictionaries at runtime. API-dict or JSON
     wrappers are reported as diagnostics because app-active templates should
     not use them as runtime source of truth.
     """
-    path = _resolve_ready_path(template_id)
+    # Source-info retains the historical ``path/to/reference.json`` API, but
+    # resolves it through the same physical enumeration as other consumers.
+    # A caller-supplied snapshot is authoritative and must include references
+    # when JSON is needed.
+    discovery = _discovery or _discover_ready_templates(include_json_references=True)
+    try:
+        record = _resolve_ready_record(template_id, discovery)
+    except KeyError:
+        record = _resolve_ready_reference_record(template_id, discovery)
+    path = record.path
     diagnostics: list[dict[str, Any]] = []
     source_mode = "unknown"
     runtime_source_of_truth = False
@@ -186,13 +331,23 @@ def ready_template_source_info(template_id: str) -> ReadyTemplateSourceInfo:
                     "message": str(exc),
                 }
             )
+        except (OSError, UnicodeError) as exc:
+            source_mode = "unreadable"
+            diagnostics.append(
+                {
+                    "code": "source_unreadable",
+                    "severity": "error",
+                    "message": f"Could not read ready template source: {type(exc).__name__}: {exc}",
+                    "error_type": type(exc).__name__,
+                }
+            )
         else:
             findings = _classify_ready_template_ast(tree)
             source_mode = findings["source_mode"]
             runtime_source_of_truth = bool(findings["runtime_source_of_truth"])
             diagnostics.extend(findings["diagnostics"])
     return ReadyTemplateSourceInfo(
-        template_id=template_id,
+        template_id=record.template_id,
         path=str(path),
         source_mode=source_mode,
         runtime_source_of_truth=runtime_source_of_truth,
@@ -284,18 +439,89 @@ def _ast_call_name(func: ast.AST) -> str:
     return ""
 
 
-def _resolve_ready_path(template_id: str) -> Path:
-    for root in _ready_roots():
+def _resolve_ready_path(
+    template_id: str,
+    discovery: ReadyTemplateDiscovery | None = None,
+) -> Path:
+    return _resolve_ready_record(template_id, discovery).path
+
+
+def _resolve_ready_record(
+    template_id: str,
+    discovery: ReadyTemplateDiscovery | None = None,
+) -> ReadyTemplateRecord:
+    query_id = _normalize_ready_template_id(template_id)
+    discovery = discovery or _discover_ready_templates()
+    exact_candidates = list(discovery.by_id.get(query_id, ())) if "/" in query_id else []
+    if exact_candidates:
+        if len(exact_candidates) > 1:
+            raise ValueError(_collision_message(query_id, exact_candidates))
+        return exact_candidates[0]
+    if "/" in query_id:
+        candidates = list(discovery.by_lookup.get(_ready_lookup_key(query_id), ()))
+    else:
+        lookup_key = _ready_lookup_key(query_id)
         candidates = [
-            root / f"{template_id}.py",
-            root / template_id,
+            record
+            for record in discovery.records
+            if _ready_lookup_key(record.template_id.rsplit("/", 1)[-1]) == lookup_key
         ]
-        if "/" not in template_id and root.exists():
-            candidates.extend(root.glob(f"*/{template_id}.py"))
-        for candidate in candidates:
-            if candidate.is_file():
-                return candidate
-    raise KeyError(f"Ready template not found: {template_id}")
+    if not candidates:
+        raise KeyError(f"Ready template not found: {template_id}")
+    candidate_ids = {record.template_id for record in candidates}
+    if len(candidate_ids) > 1 or len(candidates) > 1:
+        raise ValueError(_collision_message(query_id, candidates))
+    return candidates[0]
+
+
+def _resolve_ready_reference_record(
+    template_id: str,
+    discovery: ReadyTemplateDiscovery,
+) -> ReadyTemplateRecord:
+    """Resolve a corpus JSON reference from the same discovery snapshot."""
+    query_id = _normalize_ready_template_id(template_id)
+    exact = list(discovery.references_by_id.get(query_id, ())) if "/" in query_id else []
+    if exact:
+        if len(exact) > 1:
+            raise ValueError(_collision_message(query_id, exact))
+        return exact[0]
+    candidates = list(discovery.references_by_lookup.get(_ready_lookup_key(query_id), ()))
+    if not candidates:
+        raise KeyError(f"Ready template not found: {template_id}")
+    if len(candidates) > 1:
+        raise ValueError(_collision_message(query_id, candidates))
+    return candidates[0]
+
+def _collision_details(
+    query_id: str,
+    records: Iterable[ReadyTemplateRecord],
+) -> dict[str, Any]:
+    records = tuple(records)
+    candidates = sorted(
+        {str(record.path) for record in records},
+        key=lambda path: (_normalized_path_key(Path(path)), path),
+    )
+    candidate_ids = {record.template_id for record in records}
+    if len(candidate_ids) == 1:
+        remediation = "Remove the duplicate or use one canonical source."
+    elif "/" in query_id:
+        remediation = "Use the exact canonical id."
+    else:
+        remediation = "Use a category-qualified id."
+    message = (
+        f"Ambiguous ready template id {query_id!r}; candidates: "
+        + ", ".join(candidates)
+        + f". {remediation}"
+    )
+    return {
+        "collision": True,
+        "collision_candidates": candidates,
+        "collision_message": message,
+        "resolution_status": "collision",
+    }
+
+def _collision_message(query_id: str, records: Iterable[ReadyTemplateRecord]) -> str:
+    return _collision_details(query_id, records)["collision_message"]
 
 
 def _scan_dynamic_ready_template(path: Path) -> None:
@@ -314,25 +540,19 @@ def _scan_dynamic_ready_template(path: Path) -> None:
         )
 
 
-def _template_id_for_path(path: Path) -> str:
-    resolved = path.resolve()
-    for root in _ready_roots():
-        try:
-            return resolved.relative_to(root.resolve()).with_suffix("").as_posix()
-        except ValueError:
-            continue
-    return path.with_suffix("").name
-
-
-def _path_is_dynamic_ready_template(path: Path) -> bool:
-    resolved = path.expanduser().resolve()
-    for root in _dynamic_ready_roots():
-        try:
-            if resolved.is_relative_to(root.resolve()):
-                return True
-        except (ValueError, OSError):
-            continue
-    return False
+def _template_id_for_path(
+    path: Path,
+    root: Path | None = None,
+    *,
+    preserve_suffix: bool = False,
+) -> str:
+    root = root or READY_ROOT
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        relative = path.resolve().relative_to(root.resolve())
+    value = relative if preserve_suffix else relative.with_suffix("")
+    return _normalize_ready_template_id(value.as_posix())
 
 
 def _ready_roots() -> list[Path]:
@@ -352,35 +572,93 @@ def _dynamic_ready_roots() -> list[Path]:
     )
 
 
+def _roots_are_same(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve().samefile(right.resolve())
+    except OSError:
+        return False
+
+
+def _canonical_root(root: Path) -> Path:
+    """Recover stable directory-entry spelling for an existing root."""
+    resolved = root.expanduser().resolve()
+    if not resolved.exists():
+        return Path(unicodedata.normalize("NFC", str(resolved)))
+    current = Path(resolved.anchor)
+    for component in resolved.parts[1:]:
+        desired = current / component
+        matches: list[Path] = []
+        try:
+            for child in current.iterdir():
+                if child.name == component:
+                    matches.append(child)
+                    continue
+                try:
+                    if child.samefile(desired):
+                        matches.append(child)
+                except OSError:
+                    continue
+        except OSError:
+            return Path(unicodedata.normalize("NFC", str(resolved)))
+        if matches:
+            current = min(matches, key=_path_sort_key)
+        else:
+            current = desired
+    return current
+
+
 def _dedupe_roots(roots: Iterable[Path]) -> list[Path]:
     deduped: list[Path] = []
-    seen: set[Path] = set()
     for root in roots:
-        resolved = root.expanduser().resolve()
-        if resolved not in seen:
-            deduped.append(resolved)
-            seen.add(resolved)
-    return deduped
+        canonical = _canonical_root(root)
+        duplicate_index = next(
+            (
+                index
+                for index, existing in enumerate(deduped)
+                if (
+                    existing.exists()
+                    and canonical.exists()
+                    and _roots_are_same(existing, canonical)
+                )
+                or (
+                    not existing.exists()
+                    and not canonical.exists()
+                    and str(existing) == str(canonical)
+                )
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            deduped.append(canonical)
+        else:
+            deduped[duplicate_index] = min(
+                deduped[duplicate_index],
+                canonical,
+                key=_path_sort_key,
+            )
+    return sorted(deduped, key=_path_sort_key)
 
 
-def _template_paths(root: Path) -> list[Path]:
+def _template_paths(root: Path, *, include_json_references: bool = False) -> list[Path]:
+    suffixes = ("*.py", "*.json") if include_json_references else ("*.py",)
+    paths = [path for suffix in suffixes for path in root.rglob(suffix)]
     return sorted(
-        path
-        for path in root.rglob("*.py")
-        if path.name != "__init__.py" and not path.name.startswith("_")
+        (
+            path
+            for path in paths
+            if (path.suffix.lower() == ".json" or path.name != "__init__.py")
+            and not path.name.startswith("_")
+        ),
+        key=_path_sort_key,
     )
 
 
-def _warn_collision(template_id: str, candidate: Path, winner: Path) -> None:
-    if template_id in _WARNED_COLLISIONS:
-        return
-    warnings.warn(
-        f"Ready template id collision for {template_id!r}; using {winner} and ignoring {candidate}",
-        RuntimeWarning,
-        stacklevel=2,
-    )
-    _WARNED_COLLISIONS.add(template_id)
+def _path_sort_key(path: Path) -> tuple[str, str]:
+    text = str(path)
+    return _normalized_path_key(path), text
+
+
 
 
 def _reset_for_tests() -> None:
-    _WARNED_COLLISIONS.clear()
+    pass

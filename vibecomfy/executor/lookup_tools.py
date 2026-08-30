@@ -37,7 +37,7 @@ from vibecomfy.registry.pack_resolver import (
     MissingNodeResolution,
     resolve_missing_nodes,
 )
-from vibecomfy.registry.ready import READY_ROOT
+from vibecomfy.registry import ready as ready_registry
 from vibecomfy.schema import (
     NodeSchema,
     SchemaProvider,
@@ -492,7 +492,7 @@ def _default_roots(*, include_dynamic: bool) -> tuple[Path, ...]:
     user's ``~/.vibecomfy`` dir, plugin-registered roots).  Plugin loading is
     best-effort: any failure degrades to the repo templates only.
     """
-    roots: list[Path] = [READY_ROOT]
+    roots: list[Path] = [ready_registry.READY_ROOT]
     if include_dynamic:
         try:
             from vibecomfy.extras import ensure_plugins_loaded, registered_ready_roots
@@ -535,20 +535,12 @@ def _resolve_template_path(template_id: str, roots: Sequence[Path]) -> tuple[Pat
     verified inside an allowed root, so ``..``/absolute/symlink escapes cannot
     read files outside the template roots.
     """
-    resolved_roots = tuple(root.expanduser().resolve() for root in roots)
-    for root in resolved_roots:
-        for candidate in (root / f"{template_id}.py", root / template_id):
-            if candidate.is_file():
-                resolved = candidate.resolve()
-                _require_inside(resolved, resolved_roots)
-                return resolved, root
-    if "/" not in template_id:
-        for root in resolved_roots:
-            for candidate in root.glob(f"*/{template_id}.py"):
-                resolved = candidate.resolve()
-                _require_inside(resolved, resolved_roots)
-                return resolved, root
-    raise KeyError(template_id)
+    discovery = ready_registry.ready_template_discovery(roots=roots)
+    record = ready_registry.resolve_ready_template(template_id, discovery)
+    resolved_roots = tuple(root.expanduser().resolve() for root in discovery.roots)
+    resolved = record.path.resolve()
+    _require_inside(resolved, resolved_roots)
+    return resolved, record.root
 
 
 def _validate_template_id(template_id: Any) -> tuple[bool, str | None]:
@@ -566,24 +558,52 @@ def _validate_template_id(template_id: Any) -> tuple[bool, str | None]:
 
 def _template_rows(roots: Sequence[Path]) -> list[dict[str, Any]]:
     """Inventory rows for every ready-template source under *roots*."""
-    resolved_roots = tuple(root.expanduser().resolve() for root in roots)
-    seen: dict[str, dict[str, Any]] = {}
-    repo_root = READY_ROOT.expanduser().resolve()
-    for root in resolved_roots:
-        if not root.is_dir():
-            continue
-        for path in sorted(root.rglob("*.py")):
-            if path.name == "__init__.py" or path.name.startswith("_"):
-                continue
-            template_id = path.relative_to(root).with_suffix("").as_posix()
-            if template_id in seen:
-                continue
-            seen[template_id] = {
-                "id": template_id,
-                "path": path.relative_to(root).as_posix(),
-                "scope": "repo" if root == repo_root else "dynamic",
-            }
-    return [seen[key] for key in sorted(seen)]
+    discovery = ready_registry.ready_template_discovery(roots=roots)
+    return _template_rows_from_discovery(discovery)
+
+
+def _template_rows_from_discovery(
+    discovery: ready_registry.ReadyTemplateDiscovery,
+) -> list[dict[str, Any]]:
+    """Build inventory rows from an already captured physical snapshot."""
+    rows: list[dict[str, Any]] = []
+    for record in discovery.records:
+        row: dict[str, Any] = {
+            "id": record.template_id,
+            "path": record.path.relative_to(record.root).as_posix(),
+            "scope": record.source_scope,
+        }
+        aliases = discovery.by_lookup.get(ready_registry._ready_lookup_key(record.template_id), ())
+        if len(aliases) > 1:
+            row.update(ready_registry._collision_details(record.template_id, aliases))
+        rows.append(row)
+    return rows
+
+
+def _ready_discovery(
+    *,
+    roots: Sequence[Path] | None,
+    include_dynamic: bool,
+) -> ready_registry.ReadyTemplateDiscovery:
+    """Capture the canonical physical snapshot used by one lookup operation."""
+    if roots is not None:
+        return ready_registry.ready_template_discovery(roots=roots)
+    return ready_registry.ready_template_discovery(include_dynamic=include_dynamic)
+
+
+def _collision_candidates(
+    template_id: str,
+    discovery: ready_registry.ReadyTemplateDiscovery,
+) -> list[ready_registry.ReadyTemplateRecord]:
+    query_id = ready_registry._normalize_ready_template_id(template_id)
+    if "/" in query_id:
+        return list(discovery.by_lookup.get(ready_registry._ready_lookup_key(query_id), ()))
+    lookup_key = ready_registry._ready_lookup_key(query_id)
+    return [
+        record
+        for record in discovery.records
+        if ready_registry._ready_lookup_key(record.template_id.rsplit("/", 1)[-1]) == lookup_key
+    ]
 
 
 def ready_template_list(
@@ -616,7 +636,28 @@ def ready_template_list(
         )
     capability = capability.strip() if capability else None
 
-    rows = _template_rows(roots if roots is not None else _default_roots(include_dynamic=include_dynamic))
+    try:
+        discovery = _ready_discovery(roots=roots, include_dynamic=include_dynamic)
+        rows = _template_rows_from_discovery(discovery)
+    except Exception as exc:  # noqa: BLE001 - lookup transport remains typed
+        return _result(
+            tool,
+            ToolStatus.UNAVAILABLE,
+            result={
+                "filter": capability,
+                "count": 0,
+                "templates": [],
+                "is_research_evidence": READY_IS_RESEARCH_EVIDENCE,
+                "evidence_label": READY_EVIDENCE_LABEL,
+            },
+            diagnostics=(
+                _diagnostic(
+                    "ready_discovery_unavailable",
+                    f"Ready-template discovery failed: {type(exc).__name__}: {exc}",
+                    {"error_type": type(exc).__name__},
+                ),
+            ),
+        )
     if capability is not None:
         rows = [row for row in rows if _capability_matches(capability, row["id"])]
 
@@ -701,9 +742,42 @@ def ready_template_load(
 
     requested_id = template_id
     try:
-        path, owning_root = _resolve_template_path(
-            template_id,
-            roots if roots is not None else _default_roots(include_dynamic=include_dynamic),
+        discovery = _ready_discovery(roots=roots, include_dynamic=include_dynamic)
+    except Exception as exc:  # noqa: BLE001 - lookup transport remains typed
+        return _result(
+            tool,
+            ToolStatus.UNAVAILABLE,
+            result={"requested_id": requested_id, "is_research_evidence": READY_IS_RESEARCH_EVIDENCE},
+            diagnostics=(
+                _diagnostic(
+                    "ready_discovery_unavailable",
+                    f"Ready-template discovery failed: {type(exc).__name__}: {exc}",
+                    {"error_type": type(exc).__name__},
+                ),
+            ),
+        )
+    try:
+        record = ready_registry.resolve_ready_template(template_id, discovery)
+        path = record.path.resolve()
+        _require_inside(path, tuple(root.expanduser().resolve() for root in discovery.roots))
+        owning_root = record.root
+    except ValueError as exc:
+        candidates = _collision_candidates(requested_id, discovery)
+        return _result(
+            tool,
+            ToolStatus.REFUSED,
+            result={"requested_id": requested_id, "is_research_evidence": READY_IS_RESEARCH_EVIDENCE},
+            diagnostics=(
+                _diagnostic(
+                    "template_alias_ambiguous",
+                    str(exc),
+                    {
+                        "template_id": requested_id,
+                        "candidates": [record.template_id for record in candidates],
+                        "paths": [str(record.path) for record in candidates],
+                    },
+                ),
+            ),
         )
     except _PathEscape as exc:
         return _result(
@@ -748,8 +822,8 @@ def ready_template_load(
             ),
         )
 
-    stable_id = path.relative_to(owning_root).with_suffix("").as_posix()
-    relative_path = path.relative_to(owning_root).as_posix()
+    stable_id = record.template_id
+    relative_path = record.path.relative_to(owning_root).as_posix()
     content: str | None = None
     truncated = False
     if include_content:
@@ -765,7 +839,7 @@ def ready_template_load(
             "id": stable_id,
             "requested_id": requested_id,
             "path": relative_path,
-            "scope": "repo" if owning_root == READY_ROOT.expanduser().resolve() else "dynamic",
+            "scope": record.source_scope,
             "sha256": hashlib.sha256(data).hexdigest(),
             "size_bytes": len(data),
             "content": content,

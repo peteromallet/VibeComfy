@@ -414,6 +414,23 @@ def test_ready_template_list_empty_root_is_no_results(tmp_path: Path) -> None:
     assert result.result["count"] == 0
 
 
+def test_ready_template_list_preserves_canonical_case_and_reports_folded_collision(
+    tmp_path: Path,
+) -> None:
+    _write_template(tmp_path / "upper", "image/Foo")
+    _write_template(tmp_path / "lower", "image/foo")
+
+    result = ready_template_list(roots=[tmp_path / "upper", tmp_path / "lower"])
+
+    assert result.status is ToolStatus.OK
+    assert [row["id"] for row in result.result["templates"]] == ["image/Foo", "image/foo"]
+    assert all(row["collision"] is True for row in result.result["templates"])
+    assert {str(path) for row in result.result["templates"] for path in row["collision_candidates"]} == {
+        str(tmp_path / "upper" / "image" / "Foo.py"),
+        str(tmp_path / "lower" / "image" / "foo.py"),
+    }
+
+
 def test_ready_template_list_invalid_capability(tmp_path: Path) -> None:
     _write_template(tmp_path, "video/wan_t2v")
 
@@ -458,6 +475,23 @@ def test_ready_template_load_flat_id_resolves_via_shallow_glob(tmp_path: Path) -
     assert result.status is ToolStatus.OK
     assert result.result["id"] == "video/wan_t2v"
     assert result.result["requested_id"] == "wan_t2v"
+
+
+def test_ready_template_load_exact_case_wins_but_folded_alias_collision_refuses(
+    tmp_path: Path,
+) -> None:
+    _write_template(tmp_path / "upper", "image/Foo", content="UPPER\n")
+    _write_template(tmp_path / "lower", "image/foo", content="lower\n")
+    roots = [tmp_path / "upper", tmp_path / "lower"]
+
+    exact = ready_template_load("image/Foo", roots=roots)
+    folded = ready_template_load("image/FOO", roots=roots)
+
+    assert exact.status is ToolStatus.OK
+    assert exact.result["id"] == "image/Foo"
+    assert exact.result["content"] == "UPPER\n"
+    assert folded.status is ToolStatus.REFUSED
+    assert folded.diagnostics[0].code == "template_alias_ambiguous"
 
 
 def test_ready_template_load_hash_changes_with_content(tmp_path: Path) -> None:

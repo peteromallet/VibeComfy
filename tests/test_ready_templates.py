@@ -468,6 +468,59 @@ def test_ready_template_source_info_classifies_json_reference(
     assert [item["code"] for item in info.diagnostics] == ["json_runtime_source"]
 
 
+def test_ready_template_source_info_json_reference_uses_supplied_snapshot(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "ready_templates"
+    reference = root / "corpus" / "Reference.json"
+    reference.parent.mkdir(parents=True)
+    reference.write_text("{}", encoding="utf-8")
+    discovery = ready_registry.ready_template_discovery(roots=[root])
+
+    info = ready_template_source_info("CORPUS/REFERENCE.JSON", _discovery=discovery)
+
+    assert not discovery.records
+    assert [record.template_id for record in discovery.reference_records] == ["corpus/Reference.json"]
+    assert info.template_id == "corpus/Reference.json"
+    assert info.source_mode == "json_reference"
+
+
+def test_ready_template_source_info_reports_invalid_utf8_as_structured_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "ready_templates"
+    template_path = root / "image" / "invalid_utf8.py"
+    template_path.parent.mkdir(parents=True)
+    template_path.write_bytes(b"def build():\n    return '\xff'\n")
+    monkeypatch.setattr(ready_registry, "_ready_roots", lambda: [root])
+
+    info = ready_template_source_info("image/invalid_utf8")
+
+    assert info.source_mode == "unreadable"
+    assert info.runtime_source_of_truth is False
+    assert info.diagnostics[0]["code"] == "source_unreadable"
+    assert info.diagnostics[0]["error_type"] == "UnicodeDecodeError"
+
+
+def test_ready_template_source_info_reports_read_failure_as_structured_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "ready_templates"
+    # rglob includes this directory, while read_text raises IsADirectoryError.
+    template_path = root / "image" / "unreadable.py"
+    template_path.mkdir(parents=True)
+    monkeypatch.setattr(ready_registry, "_ready_roots", lambda: [root])
+
+    info = ready_template_source_info("image/unreadable")
+
+    assert info.source_mode == "unreadable"
+    assert info.runtime_source_of_truth is False
+    assert info.diagnostics[0]["code"] == "source_unreadable"
+    assert info.diagnostics[0]["error_type"] == "IsADirectoryError"
+
+
 def test_ready_loader_applies_authored_metadata_for_manual_python_templates() -> None:
     workflow = workflow_from_ready("image/z_image")
 
