@@ -3858,6 +3858,11 @@ def _link_id(link: Any) -> int | None:
     return None
 
 
+def _canonical_native_int(value: Any) -> int | None:
+    """Return a LiteGraph native ID/slot only when its wire type is canonical."""
+    return value if type(value) is int else None
+
+
 def _iter_scopes(graph: Mapping[str, Any], scope_path: str = "") -> list[tuple[str, Mapping[str, Any]]]:
     scopes: list[tuple[str, Mapping[str, Any]]] = [(scope_path, graph)]
     definitions = graph.get("definitions")
@@ -4156,10 +4161,10 @@ def _scope_node_for_uid(scope: Mapping[str, Any], uid: str) -> Mapping[str, Any]
     return None
 
 
-def _native_node_id(node: Mapping[str, Any] | None) -> str | None:
+def _native_node_id(node: Mapping[str, Any] | None) -> int | None:
     if not isinstance(node, Mapping) or node.get("id") is None:
         return None
-    return str(node["id"])
+    return _canonical_native_int(node["id"])
 
 
 def _input_slot_for_name(node: Mapping[str, Any], name: str) -> int | None:
@@ -4196,12 +4201,15 @@ def _link_matches_remove_target(
     node = _scope_node_for_uid(scope, target.uid)
     native_id = _native_node_id(node)
     input_slot = _input_slot_for_name(node, target.input_field) if node is not None else None
+    native_int = _canonical_native_int(native_id)
+    target_int = _canonical_native_int(parts[3]) if parts is not None else None
+    input_int = _canonical_native_int(parts[4]) if parts is not None else None
     return bool(
         parts is not None
-        and native_id is not None
+        and native_int is not None
         and input_slot is not None
-        and str(parts[3]) == native_id
-        and parts[4] == input_slot
+        and target_int == native_int
+        and input_int == input_slot
     )
 
 
@@ -4213,16 +4221,22 @@ def _link_matches_upsert(link: Any, op: UpsertLinkOp, scope: Mapping[str, Any]) 
     target_id = _native_node_id(target)
     source_slot = _output_slot_for_ref(source, op.source.output_slot) if source is not None else None
     target_slot = _input_slot_for_name(target, op.target.input_field) if target is not None else None
+    source_int = _canonical_native_int(source_id)
+    target_int = _canonical_native_int(target_id)
+    from_node = _canonical_native_int(parts[1]) if parts is not None else None
+    from_slot = _canonical_native_int(parts[2]) if parts is not None else None
+    to_node = _canonical_native_int(parts[3]) if parts is not None else None
+    to_slot = _canonical_native_int(parts[4]) if parts is not None else None
     return bool(
         parts is not None
-        and source_id is not None
-        and target_id is not None
+        and source_int is not None
+        and target_int is not None
         and source_slot is not None
         and target_slot is not None
-        and str(parts[1]) == source_id
-        and parts[2] == source_slot
-        and str(parts[3]) == target_id
-        and parts[4] == target_slot
+        and from_node == source_int
+        and from_slot == source_slot
+        and to_node == target_int
+        and to_slot == target_slot
     )
 
 
@@ -4243,43 +4257,6 @@ def _link_ids_by_id(scope: Mapping[str, Any] | None) -> dict[int, Any] | None:
     return indexed
 
 
-def _authorized_removed_link_ids(
-    scope: Mapping[str, Any] | None,
-    ops: Sequence[EditOp],
-) -> set[int]:
-    if not isinstance(scope, Mapping):
-        return set()
-    links = scope.get("links")
-    if not isinstance(links, list):
-        return set()
-    authorized: set[int] = set()
-    for op in ops:
-        if isinstance(op, RemoveLinkOp) and op.target is not None:
-            for link in links:
-                link_id = _link_id(link)
-                if (
-                    link_id is not None
-                    and (op.link_id is None or op.link_id == link_id)
-                    and _link_matches_remove_target(link, op.target, scope)
-                ):
-                    authorized.add(link_id)
-        elif isinstance(op, RemoveNodeOp):
-            node = _scope_node_for_uid(scope, op.target.uid)
-            native_id = _native_node_id(node)
-            if native_id is None:
-                continue
-            for link in links:
-                parts = _raw_link_parts(link)
-                link_id = _link_id(link)
-                if (
-                    link_id is not None
-                    and parts is not None
-                    and (str(parts[1]) == native_id or str(parts[3]) == native_id)
-                ):
-                    authorized.add(link_id)
-    return authorized
-
-
 def _counter_value_valid(value: Any) -> bool:
     return type(value) is int and value >= 0
 
@@ -4293,6 +4270,7 @@ def _counter_advanced_or_materialized(
     candidate_scope: Mapping[str, Any] | None = None,
     allow_link_removal: bool = False,
     authorized_removed_link_ids: set[int] | None = None,
+    allowed_changed_link_ids: set[int] | None = None,
 ) -> bool:
     if original is None and candidate is None:
         return True
@@ -4331,7 +4309,8 @@ def _counter_advanced_or_materialized(
             or candidate_parts is None
             or original_parts[1:] != candidate_parts[1:]
         ):
-            changed_ids.add(link_id)
+            if link_id not in (allowed_changed_link_ids or set()):
+                changed_ids.add(link_id)
     expected_removed = authorized_removed_link_ids or set()
     if not removed_ids or removed_ids != expected_removed:
         return False
@@ -4440,14 +4419,6 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     }
 
 
-def _link_attributed_to_upsert(
-    link: Any,
-    scope: Mapping[str, Any],
-    ops: Sequence[EditOp],
-) -> bool:
-    return any(isinstance(op, UpsertLinkOp) and _link_matches_upsert(link, op, scope) for op in ops)
-
-
 def _link_attributed_to_add(
     link: Any,
     scope: Mapping[str, Any],
@@ -4475,30 +4446,306 @@ def _link_attributed_to_add(
                 and source_id is not None
                 and source_slot is not None
                 and target_slot is not None
-                and str(parts[1]) == source_id
-                and parts[2] == source_slot
-                and str(parts[3]) == target_id
-                and parts[4] == target_slot
+                and _canonical_native_int(parts[1]) == source_id
+                and _canonical_native_int(parts[2]) == source_slot
+                and _canonical_native_int(parts[3]) == target_id
+                and _canonical_native_int(parts[4]) == target_slot
             ):
                 return True
     return False
 
 
-def _link_removed_by_upsert(
-    original_link: Any,
+def _scope_identity_issues(scope: Mapping[str, Any], *, scope_path: str) -> list[PortIssue]:
+    """Validate raw UI-list identity before any dict index or attribution."""
+    diagnostics: list[PortIssue] = []
+    nodes = scope.get("nodes")
+    seen_uids: set[str] = set()
+    seen_native_ids: set[str] = set()
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UI node identity is malformed.",
+                        detail={"scope_path": scope_path, "reason": "malformed_node"},
+                    )
+                )
+                continue
+            uid = _node_uid(node)
+            if uid is None:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UI node has no stable identity.",
+                        detail={"scope_path": scope_path, "reason": "missing_uid"},
+                    )
+                )
+            elif uid in seen_uids:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UI node identity is duplicated.",
+                        detail={"scope_path": scope_path, "reason": "duplicate_uid", "uid": uid},
+                    )
+                )
+            else:
+                seen_uids.add(uid)
+            if node.get("id") is not None:
+                native_id = str(node["id"])
+                if native_id in seen_native_ids:
+                    diagnostics.append(
+                        _issue(
+                            "full_ui_identity_malformed",
+                            "UI native node ID is duplicated.",
+                            detail={"scope_path": scope_path, "reason": "duplicate_native_id", "id": native_id},
+                        )
+                    )
+                else:
+                    seen_native_ids.add(native_id)
+    links = scope.get("links")
+    seen_link_ids: set[int] = set()
+    if isinstance(links, list):
+        for link in links:
+            parts = _raw_link_parts(link)
+            malformed = (
+                parts is None
+                or type(parts[0]) is not int
+                or parts[0] < 0
+                or any(type(value) is not int for value in parts[1:5])
+            )
+            if malformed:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UI link identity or native endpoint types are malformed.",
+                        detail={"scope_path": scope_path, "reason": "malformed_link"},
+                    )
+                )
+                continue
+            link_id = parts[0]
+            if link_id in seen_link_ids:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UI link ID is duplicated.",
+                        detail={"scope_path": scope_path, "reason": "duplicate_link_id", "link_id": link_id},
+                    )
+                )
+            else:
+                seen_link_ids.add(link_id)
+    return diagnostics
+
+
+def _expected_ui_links(
+    original_scope: Mapping[str, Any],
+    scope_ops: Sequence[EditOp],
+) -> tuple[list[dict[str, Any]], set[int], set[int], list[PortIssue]]:
+    """Fold the landed topology ops using the UI projection of apply_edit_cow."""
+    records: list[dict[str, Any]] = []
+    diagnostics: list[PortIssue] = []
+    original_ids: set[int] = set()
+    for link in original_scope.get("links") or ():
+        parts = _raw_link_parts(link)
+        if parts is not None:
+            records.append({"parts": tuple(parts), "locked": True})
+            if type(parts[0]) is int:
+                original_ids.add(parts[0])
+
+    def endpoint_match(record: Mapping[str, Any], op: RemoveLinkOp | UpsertLinkOp) -> bool:
+        if isinstance(op, RemoveLinkOp):
+            return op.target is not None and _link_matches_remove_target(
+                record["parts"], op.target, original_scope
+            )
+        return _link_matches_remove_target(record["parts"], op.target, original_scope)
+
+    for op in scope_ops:
+        if isinstance(op, RemoveLinkOp):
+            if op.target is not None:
+                records = [record for record in records if not endpoint_match(record, op)]
+            continue
+        if isinstance(op, UpsertLinkOp):
+            dropped = [record for record in records if endpoint_match(record, op)]
+            records = [record for record in records if not endpoint_match(record, op)]
+            source = _scope_node_for_uid(original_scope, op.source.uid)
+            target = _scope_node_for_uid(original_scope, op.target.uid)
+            source_id = _native_node_id(source)
+            target_id = _native_node_id(target)
+            source_slot = _output_slot_for_ref(source, op.source.output_slot) if source is not None else None
+            target_slot = _input_slot_for_name(target, op.target.input_field) if target is not None else None
+            if source_id is None or target_id is None or source_slot is None or target_slot is None:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UpsertLink target or source cannot be resolved in the original UI scope.",
+                        detail={"reason": "unresolved_upsert_endpoint"},
+                    )
+                )
+                continue
+            link_type = dropped[0]["parts"][5] if dropped else ""
+            records.append({
+                "parts": (None, source_id, source_slot, target_id, target_slot, link_type),
+                "locked": False,
+            })
+            continue
+        if isinstance(op, RemoveNodeOp):
+            node = _scope_node_for_uid(original_scope, op.target.uid)
+            native_id = _native_node_id(node)
+            if native_id is None:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "RemoveNode target cannot be resolved in the original UI scope.",
+                        detail={"reason": "unresolved_remove_node"},
+                    )
+                )
+                continue
+            incoming = [record for record in records if record["parts"][3] == native_id]
+            outgoing = [record for record in records if record["parts"][1] == native_id]
+            records = [
+                record
+                for record in records
+                if record not in incoming and record not in outgoing
+            ]
+            if (
+                isinstance(node, Mapping)
+                and node.get("type") == "Reroute"
+                and incoming
+                and outgoing
+            ):
+                for index, (source_record, target_record) in enumerate(
+                    (left, right) for left in incoming for right in outgoing
+                ):
+                    target_parts = target_record["parts"]
+                    source_parts = source_record["parts"]
+                    link_id = target_parts[0] if index < len(outgoing) else None
+                    records.append({
+                        "parts": (
+                            link_id,
+                            source_parts[1],
+                            source_parts[2],
+                            target_parts[3],
+                            target_parts[4],
+                            target_parts[5],
+                        ),
+                        "locked": link_id is not None,
+                    })
+    locked_ids = {
+        record["parts"][0]
+        for record in records
+        if record["locked"] and type(record["parts"][0]) is int
+    }
+    fold_removed_ids = original_ids - locked_ids
+    allowed_changed_ids = {
+        record["parts"][0]
+        for record in records
+        if record["locked"] and type(record["parts"][0]) is int
+        and record["parts"][0] in original_ids
+    }
+    return records, fold_removed_ids, allowed_changed_ids, diagnostics
+
+
+def _compare_expected_ui_links(
+    expected: Sequence[Mapping[str, Any]],
     candidate_links: Sequence[Any],
     original_scope: Mapping[str, Any],
     candidate_scope: Mapping[str, Any],
-    ops: Sequence[EditOp],
-) -> bool:
-    for op in ops:
-        if not isinstance(op, UpsertLinkOp):
+    scope_ops: Sequence[EditOp],
+    *,
+    scope_path: str,
+) -> list[PortIssue]:
+    diagnostics: list[PortIssue] = []
+    candidate_parts = [_raw_link_parts(link) for link in candidate_links]
+    candidate_parts = [parts for parts in candidate_parts if parts is not None]
+    by_id = {parts[0]: parts for parts in candidate_parts}
+    original_ids = {
+        parts[0]
+        for link in original_scope.get("links") or ()
+        for parts in [_raw_link_parts(link)]
+        if parts is not None
+    }
+    used: set[int] = set()
+    for record in expected:
+        parts = record["parts"]
+        if record["locked"]:
+            link_id = parts[0]
+            actual = by_id.get(link_id)
+            if actual is None:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_link_removed_unattributed",
+                        "Candidate removed a link required by the landed topology fold.",
+                        detail={"scope_path": scope_path, "link_id": link_id},
+                    )
+                )
+                continue
+            used.add(link_id)
+            if tuple(actual[1:]) != tuple(parts[1:]):
+                original_link = next(
+                    (
+                        link
+                        for link in original_scope.get("links") or ()
+                        if _link_id(link) == link_id
+                    ),
+                    None,
+                )
+                if original_link is not None and _link_preserves_canonical_target(
+                    original_link,
+                    actual,
+                    original_scope,
+                    candidate_scope,
+                ):
+                    continue
+                diagnostics.append(
+                    _issue(
+                        "full_ui_link_changed_unattributed",
+                        "Candidate changed a link required by the landed topology fold.",
+                        detail={"scope_path": scope_path, "link_id": link_id},
+                    )
+                )
             continue
-        if not _link_matches_remove_target(original_link, op.target, original_scope):
+        match = next(
+            (
+                actual
+                for actual in candidate_parts
+                if actual[0] not in used
+                and actual[0] not in original_ids
+                and tuple(actual[1:]) == tuple(parts[1:])
+            ),
+            None,
+        )
+        if match is None:
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_removed_unattributed",
+                    "Candidate omitted an unlocked link required by the landed topology fold.",
+                    detail={"scope_path": scope_path, "origin": "upsert_or_reroute"},
+                )
+            )
+        else:
+            used.add(match[0])
+    for actual in candidate_parts:
+        if actual[0] in used:
             continue
-        if any(_link_matches_upsert(link, op, candidate_scope) for link in candidate_links):
-            return True
-    return False
+        if actual[0] in original_ids:
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_changed_unattributed",
+                    "Candidate retained an original link outside the folded topology.",
+                    detail={"scope_path": scope_path, "link_id": actual[0]},
+                )
+            )
+        elif _link_attributed_to_add(actual, candidate_scope, scope_ops):
+            continue
+        else:
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_added_unattributed",
+                    "Candidate added a link outside the folded topology.",
+                    detail={"scope_path": scope_path, "link_id": actual[0]},
+                )
+            )
+    return diagnostics
 
 
 def _guard_counter(
@@ -4511,6 +4758,7 @@ def _guard_counter(
     candidate_scope: Mapping[str, Any] | None = None,
     allow_link_removal: bool = False,
     authorized_removed_link_ids: set[int] | None = None,
+    allowed_changed_link_ids: set[int] | None = None,
 ) -> list[PortIssue]:
     if _counter_advanced_or_materialized(
         original,
@@ -4520,6 +4768,7 @@ def _guard_counter(
         candidate_scope=candidate_scope,
         allow_link_removal=allow_link_removal,
         authorized_removed_link_ids=authorized_removed_link_ids,
+        allowed_changed_link_ids=allowed_changed_link_ids,
     ):
         return []
     return [
@@ -4541,6 +4790,7 @@ def _guard_subgraph_state(
     candidate_scope: Mapping[str, Any] | None = None,
     allow_link_removal: bool = False,
     authorized_removed_link_ids: set[int] | None = None,
+    allowed_changed_link_ids: set[int] | None = None,
 ) -> list[PortIssue]:
     allowed_paths = allowed_paths or set()
     original_state = original if isinstance(original, Mapping) else {}
@@ -4560,6 +4810,7 @@ def _guard_subgraph_state(
                     candidate_scope=candidate_scope,
                     allow_link_removal=allow_link_removal,
                     authorized_removed_link_ids=authorized_removed_link_ids,
+                    allowed_changed_link_ids=allowed_changed_link_ids,
                 )
             )
             continue
@@ -4707,10 +4958,28 @@ def guard_exit_ui(
     ops: Sequence[EditOp] = (),
 ) -> ExitGuardResult:
     """Refuse emit candidates that change UI outside the accepted Δ."""
-    attribution = _attribution(ops)
     diagnostics: list[PortIssue] = []
     original_scopes = dict(_iter_scopes(original_ui))
     candidate_scopes = dict(_iter_scopes(candidate_ui))
+    invalid_identity_scopes: set[str] = set()
+    for scope_path in set(original_scopes) | set(candidate_scopes):
+        for graph in (original_scopes.get(scope_path), candidate_scopes.get(scope_path)):
+            if graph is None:
+                continue
+            issues = _scope_identity_issues(graph, scope_path=scope_path)
+            if issues:
+                invalid_identity_scopes.add(scope_path)
+                diagnostics.extend(issues)
+    for op in ops:
+        if isinstance(op, RemoveLinkOp) and op.target is None:
+            diagnostics.append(
+                _issue(
+                    "full_ui_identity_malformed",
+                    "A targetless RemoveLink operation cannot be attributed safely.",
+                    detail={"reason": "targetless_remove_link"},
+                )
+            )
+    attribution = _attribution(ops)
 
     for scope_path, original_scope in original_scopes.items():
         candidate_scope = candidate_scopes.get(scope_path)
@@ -4730,8 +4999,18 @@ def guard_exit_ui(
         keys = (set(original_scope) | set(candidate_scope)) - ignored
         allowed_scope_paths = set(attribution["scope_field_paths"].get(scope_path, set()))
         scope_ops = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
-        authorized_removed_link_ids = _authorized_removed_link_ids(original_scope, scope_ops)
         scope_has_link_removal_ops = scope_path in attribution["link_removal_ops"]
+        expected_links: list[dict[str, Any]] = []
+        fold_removed_ids: set[int] = set()
+        allowed_changed_link_ids: set[int] = set()
+        if scope_path not in invalid_identity_scopes:
+            (
+                expected_links,
+                fold_removed_ids,
+                allowed_changed_link_ids,
+                fold_diagnostics,
+            ) = _expected_ui_links(original_scope, scope_ops)
+            diagnostics.extend(fold_diagnostics)
         scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
         if scope_id and scope_id in attribution["changed_scope_ids"]:
             allowed_scope_paths.update({"name", "inputs", "outputs", "revision", "state.lastRerouteId"})
@@ -4746,7 +5025,8 @@ def guard_exit_ui(
                         original_scope=original_scope,
                         candidate_scope=candidate_scope,
                         allow_link_removal=scope_has_link_removal_ops,
-                        authorized_removed_link_ids=authorized_removed_link_ids,
+                        authorized_removed_link_ids=fold_removed_ids,
+                        allowed_changed_link_ids=allowed_changed_link_ids,
                     )
                 )
                 continue
@@ -4760,7 +5040,8 @@ def guard_exit_ui(
                         original_scope=original_scope,
                         candidate_scope=candidate_scope,
                         allow_link_removal=scope_has_link_removal_ops,
-                        authorized_removed_link_ids=authorized_removed_link_ids,
+                        authorized_removed_link_ids=fold_removed_ids,
+                        allowed_changed_link_ids=allowed_changed_link_ids,
                     )
                 )
                 continue
@@ -4774,7 +5055,8 @@ def guard_exit_ui(
                         original_scope=original_scope,
                         candidate_scope=candidate_scope,
                         allow_link_removal=scope_has_link_removal_ops,
-                        authorized_removed_link_ids=authorized_removed_link_ids,
+                        authorized_removed_link_ids=fold_removed_ids,
+                        allowed_changed_link_ids=allowed_changed_link_ids,
                     )
                 )
                 continue
@@ -4814,68 +5096,15 @@ def guard_exit_ui(
                 )
             )
 
-        original_links = {
-            _link_id(link): link
-            for link in (original_scope.get("links") or [])
-            if _link_id(link) is not None
-        }
-        candidate_links = {
-            _link_id(link): link
-            for link in (candidate_scope.get("links") or [])
-            if _link_id(link) is not None
-        }
-        candidate_link_values = list(candidate_links.values())
-        for link_id, original_link in original_links.items():
-            if link_id not in candidate_links:
-                if (
-                    link_id in authorized_removed_link_ids
-                    or _link_removed_by_upsert(
-                        original_link,
-                        candidate_link_values,
-                        original_scope,
-                        candidate_scope,
-                        scope_ops,
-                    )
-                ):
-                    continue
-                diagnostics.append(
-                    _issue(
-                        "full_ui_link_removed_unattributed",
-                        "Candidate removed a link without an attributed operation.",
-                        detail={"scope_path": scope_path, "link_id": link_id},
-                    )
-                )
-                continue
-            if candidate_links[link_id] == original_link:
-                continue
-            if _link_attributed_to_upsert(candidate_links[link_id], candidate_scope, scope_ops):
-                continue
-            if _link_preserves_canonical_target(
-                original_link,
-                candidate_links[link_id],
-                original_scope,
-                candidate_scope,
-            ):
-                continue
-            diagnostics.append(
-                _issue(
-                    "full_ui_link_changed_unattributed",
-                    "Candidate changed a link without an attributed operation.",
-                    detail={"scope_path": scope_path, "link_id": link_id},
-                )
-            )
-        for link_id, candidate_link in candidate_links.items():
-            if link_id in original_links:
-                continue
-            if _link_attributed_to_upsert(candidate_link, candidate_scope, scope_ops) or _link_attributed_to_add(
-                candidate_link, candidate_scope, scope_ops
-            ):
-                continue
-            diagnostics.append(
-                _issue(
-                    "full_ui_link_added_unattributed",
-                    "Candidate added a link without an attributed operation.",
-                    detail={"scope_path": scope_path, "link_id": link_id},
+        if scope_path not in invalid_identity_scopes:
+            diagnostics.extend(
+                _compare_expected_ui_links(
+                    expected_links,
+                    candidate_scope.get("links") or [],
+                    original_scope,
+                    candidate_scope,
+                    scope_ops,
+                    scope_path=scope_path,
                 )
             )
 
