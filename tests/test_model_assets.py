@@ -8,7 +8,12 @@ import pytest
 from vibecomfy.errors import ModelAssetError
 import vibecomfy.fetch as fetch
 from vibecomfy.ingest.loader import load_workflow_json
-from vibecomfy.model_assets import entries_from_scratchpad_path, extract_from_raw_workflow, resolve_referenced_assets
+from vibecomfy.model_assets import (
+    _asset_for_reference,
+    entries_from_scratchpad_path,
+    extract_from_raw_workflow,
+    resolve_referenced_assets,
+)
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
 import vibecomfy.runtime.attempt as runtime_attempt
 from vibecomfy.runtime.session import SessionConfig, _model_assets_from_workflow
@@ -291,6 +296,7 @@ def test_resolve_referenced_assets_preserves_classified_unresolved_references() 
         ModelEntry(
             id="registry",
             source=ModelSource(kind="url", url="https://example.test/registry.safetensors"),
+            canonical_name="registry.safetensors",
             min_size=1,
             targets=(ModelTarget(node_pack="comfy_core", path="diffusion_models/registry.safetensors"),),
         )
@@ -323,6 +329,42 @@ def test_resolve_referenced_assets_preserves_classified_unresolved_references() 
     assert all({"node_id", "class_type", "field", "value", "subdir"} <= set(item) for item in unresolved)
 
 
+def test_ensure_models_resolves_historical_qualified_wan_alias_to_exact_workflow_path(tmp_path: Path) -> None:
+    workflow = VibeWorkflow("wan-alias", WorkflowSource("wan-alias"))
+    workflow.nodes["98"] = VibeNode(
+        "98",
+        "WanVideoLoraSelect",
+        inputs={"lora": r"WanVid\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors"},
+    )
+
+    entries = _model_assets_from_workflow(workflow)
+
+    assert len(entries) == 1
+    assert entries[0]["name"] == "WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors"
+    assert fetch.local_path(entries[0], root=tmp_path) == (
+        tmp_path / "loras/WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors"
+    )
+
+
+def test_nested_target_does_not_guess_undeclared_basename() -> None:
+    registry = (
+        ModelEntry(
+            id="nested",
+            source=ModelSource(kind="url", url="https://example.test/nested.bin"),
+            canonical_name="foo/bar.bin",
+            min_size=1,
+            targets=(ModelTarget(node_pack="wan_wrapper", path="loras/foo/bar.bin"),),
+        ),
+    )
+    bare = {"node_id": "1", "class_type": "WanVideoLoraSelect", "field": "lora", "value": "bar.bin", "subdir": "loras"}
+    qualified = {**bare, "value": "foo/bar.bin"}
+
+    assert _asset_for_reference(bare, registry=registry) is None
+    asset = _asset_for_reference(qualified, registry=registry)
+    assert asset is not None
+    assert asset["name"] == "foo/bar.bin"
+
+
 def test_model_asset_install_policy_still_ignores_non_registry_url_and_path_values() -> None:
     workflow = VibeWorkflow("models", WorkflowSource("models"))
     workflow.nodes["1"] = VibeNode("1", "UNETLoader", inputs={"unet_name": "https://example.test/model.safetensors"})
@@ -350,6 +392,7 @@ def test_attempt_report_serializes_classified_model_references(monkeypatch: pyte
         ModelEntry(
             id="registry",
             source=ModelSource(kind="url", url="https://example.test/registry.safetensors"),
+            canonical_name="registry.safetensors",
             min_size=1,
             targets=(ModelTarget(node_pack="comfy_core", path="diffusion_models/registry.safetensors"),),
         )
@@ -476,6 +519,7 @@ def test_model_install_policy_only_requires_registry_or_authored_downloadables(
         ModelEntry(
             id="registry",
             source=ModelSource(kind="url", url="https://example.test/registry.safetensors"),
+            canonical_name="registry.safetensors",
             min_size=1,
             targets=(ModelTarget(node_pack="comfy_core", path="diffusion_models/registry.safetensors"),),
         )

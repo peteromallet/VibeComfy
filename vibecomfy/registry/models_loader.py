@@ -73,6 +73,7 @@ class ModelEntry:
     gated: bool = False
     files: tuple[ModelFile, ...] = ()
     composite_sha256: str | None = None
+    lookup_aliases: tuple[str, ...] = ()
 
 
 _REGISTRY_CACHE: dict[Path, tuple[ModelEntry, ...]] = {}
@@ -251,12 +252,41 @@ def _rollback_created_paths(created_paths: Sequence[Path]) -> None:
 
 def normalize_alias(value: str, *, registry: Sequence[ModelEntry] | None = None, node_pack: str | None = None) -> str | None:
     entries = registry if registry is not None else load_registry()
-    for entry in entries:
-        if node_pack is not None and all(target.node_pack != node_pack for target in entry.targets):
-            continue
-        if value in entry.aliases:
-            return canonical_filename(entry.id, registry=entries)
-    return None
+    entry = resolve_model_entry(value, registry=entries, node_pack=node_pack)
+    return canonical_filename(entry.id, registry=entries) if entry is not None else None
+
+
+def resolve_model_entry(
+    value: str,
+    *,
+    registry: Sequence[ModelEntry] | None = None,
+    node_pack: str | None = None,
+    subdir: str | None = None,
+) -> ModelEntry | None:
+    """Resolve a logical model reference through the registry's one index.
+
+    ``aliases`` are safe, materialized filenames; ``lookup_aliases`` are
+    compatibility spellings and are deliberately never used by staging.
+    Both are lookup keys here, alongside each entry's canonical name.
+    """
+    entries = tuple(registry) if registry is not None else load_registry()
+    key = _normalize_lookup_key(value)
+    if key is None:
+        return None
+    entry = _lookup_index(entries).get(key)
+    if entry is None:
+        return None
+    if subdir is not None:
+        normalized_subdir = subdir.replace("\\", "/")
+        if not any(
+            target.path.replace("\\", "/") == normalized_subdir
+            or target.path.replace("\\", "/").startswith(f"{normalized_subdir}/")
+            for target in entry.targets
+        ):
+            return None
+    if node_pack is not None and all(target.node_pack != node_pack for target in entry.targets):
+        return None
+    return entry
 
 
 def canonical_filename(model_id: str, *, registry: Sequence[ModelEntry] | None = None) -> str:
@@ -305,6 +335,7 @@ def _parse_entry(raw: Any, *, registry_path: Path) -> ModelEntry:
     targets = tuple(_parse_target(target, entry_id=entry_id) for target in targets_raw)
     canonical_name = _optional_str(raw.get("canonical_name"))
     aliases = _str_tuple(raw.get("aliases", []), entry_id=entry_id, field="aliases")
+    lookup_aliases = _str_tuple(raw.get("lookup_aliases", []), entry_id=entry_id, field="lookup_aliases")
     tags = _str_tuple(raw.get("tags", []), entry_id=entry_id, field="tags")
     if not isinstance(min_size := raw.get("min_size"), int) or min_size < 0:
         raise ValueError(f"{entry_id}: min_size must be a non-negative integer")
@@ -331,6 +362,7 @@ def _parse_entry(raw: Any, *, registry_path: Path) -> ModelEntry:
         composite_sha256=composite_sha256,
         canonical_name=canonical_name,
         aliases=aliases,
+        lookup_aliases=lookup_aliases,
         tags=tags,
         notes=notes,
     )
@@ -379,7 +411,6 @@ def _parse_files(raw: Any, *, entry_id: str) -> tuple[ModelFile, ...]:
 
 def _validate_registry(entries: Sequence[ModelEntry], *, registry_path: Path) -> None:
     seen_ids: set[str] = set()
-    seen_aliases: dict[str, str] = {}
     for entry in entries:
         if entry.id in seen_ids:
             raise ValueError(f"{registry_path}: duplicate model id {entry.id!r}")
@@ -406,12 +437,65 @@ def _validate_registry(entries: Sequence[ModelEntry], *, registry_path: Path) ->
             if tag not in RESERVED_TAGS:
                 raise ValueError(f"{entry.id}: unknown tag {tag!r}")
         for alias in entry.aliases:
-            owner = seen_aliases.get(alias)
-            if owner is not None:
-                raise ValueError(f"{entry.id}: duplicate alias {alias!r}; already used by {owner}")
-            seen_aliases[alias] = entry.id
+            _validate_alias(alias, entry_id=entry.id)
+        for alias in entry.lookup_aliases:
+            _normalize_lookup_key(alias, entry_id=entry.id, field="lookup_aliases")
+        if entry.canonical_name is not None:
+            _normalize_lookup_key(entry.canonical_name, entry_id=entry.id, field="canonical_name")
         for target in entry.targets:
             _validate_target_node_pack(target, entry_id=entry.id, registry_path=registry_path)
+    _lookup_index(entries, registry_path=registry_path)
+
+
+def _normalize_lookup_key(
+    value: str,
+    *,
+    entry_id: str | None = None,
+    field: str = "lookup alias",
+) -> str | None:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        if entry_id is not None:
+            raise ValueError(f"{entry_id}: invalid {field} {value!r}: must be a relative logical model path")
+        return None
+    normalized = value.replace("\\", "/")
+    raw_parts = normalized.split("/")
+    posix, windows = PurePosixPath(normalized), PureWindowsPath(normalized)
+    if (
+        not normalized
+        or posix.is_absolute()
+        or windows.is_absolute()
+        or windows.root
+        or windows.drive
+        or normalized.endswith("/")
+        or any(part in {".", ".."} for part in raw_parts)
+    ):
+        if entry_id is not None:
+            raise ValueError(f"{entry_id}: invalid {field} {value!r}: must be a relative logical model path")
+        return None
+    return str(posix)
+
+
+def _lookup_index(
+    entries: Sequence[ModelEntry], *, registry_path: Path | None = None
+) -> dict[str, ModelEntry]:
+    index: dict[str, ModelEntry] = {}
+    for entry in entries:
+        # Only an explicitly declared canonical name is a logical registry
+        # key.  Source filenames are often reused by different model repos
+        # (for example split VAE files) and are not safe global identities.
+        keys = ((entry.canonical_name,) if entry.canonical_name else ()) + entry.aliases + entry.lookup_aliases
+        for raw_key in keys:
+            key = _normalize_lookup_key(raw_key, entry_id=entry.id, field="model lookup key")
+            assert key is not None
+            owner = index.get(key)
+            if owner is not None and owner.id != entry.id:
+                prefix = f"{registry_path}: " if registry_path is not None else ""
+                raise ValueError(
+                    f"{prefix}duplicate alias or model lookup key {raw_key!r} normalizes to {key!r} "
+                    f"but is claimed by both {owner.id!r} and {entry.id!r}"
+                )
+            index[key] = entry
+    return index
 
 
 def _validate_target_node_pack(target: ModelTarget, *, entry_id: str, registry_path: Path) -> None:

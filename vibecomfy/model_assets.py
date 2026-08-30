@@ -217,36 +217,29 @@ def _asset_for_reference(
     *,
     registry: Sequence[ModelEntry],
 ) -> dict[str, Any] | None:
+    from vibecomfy.registry.models_loader import resolve_model_entry
+
     value = reference["value"].replace("\\", "/")
     subdir = reference["subdir"].replace("\\", "/")
-    expected_paths = {f"{subdir}/{value}", f"{subdir}/{Path(value).name}"}
-    for entry in registry:
-        for target in entry.targets:
-            target_path = target.path.replace("\\", "/")
-            if target_path not in expected_paths and not (
-                target_path.startswith(f"{subdir}/") and target_path.endswith(f"/{value}")
-            ):
-                continue
-            url = _url_for_registry_entry(entry)
-            if not url:
-                return None
-            if target_path.startswith(f"{subdir}/"):
-                name = target_path[len(subdir) + 1 :]
-                asset_subdir = subdir
-            else:
-                name = Path(target_path).name
-                asset_subdir = str(Path(target_path).parent)
-            asset: dict[str, Any] = {"name": name, "url": url, "subdir": asset_subdir}
-            if getattr(entry, "sha256", None):
-                asset["sha256"] = entry.sha256
-            if getattr(entry, "size_bytes", None) is not None:
-                asset["size_bytes"] = entry.size_bytes
-            revision = getattr(entry.source, "revision", None)
-            if revision:
-                asset["hf_revision"] = revision
-            asset.update(_reference_metadata(reference, reference_type="registry-backed", downloadable=True))
-            return asset
-    return None
+    entry = resolve_model_entry(value, registry=registry, subdir=subdir)
+    if entry is None:
+        return None
+    # A logical alias may intentionally differ from the registry target's
+    # filename.  Ensure it is still requested in a directory served by one of
+    # the entry's targets, then install at the exact workflow spelling.
+    url = _url_for_registry_entry(entry)
+    if not url:
+        return None
+    asset: dict[str, Any] = {"name": value, "url": url, "subdir": subdir}
+    if getattr(entry, "sha256", None):
+        asset["sha256"] = entry.sha256
+    if getattr(entry, "size_bytes", None) is not None:
+        asset["size_bytes"] = entry.size_bytes
+    revision = getattr(entry.source, "revision", None)
+    if revision:
+        asset["hf_revision"] = revision
+    asset.update(_reference_metadata(reference, reference_type="registry-backed", downloadable=True))
+    return asset
 
 
 def _url_for_registry_entry(entry: ModelEntry) -> str | None:

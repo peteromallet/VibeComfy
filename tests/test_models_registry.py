@@ -21,6 +21,7 @@ from vibecomfy.registry.models_loader import (
     composite_sha256,
     load_registry,
     normalize_alias,
+    resolve_model_entry,
     stage_entry,
     stage_many,
 )
@@ -385,6 +386,102 @@ def test_normalize_alias_hits_and_misses(tmp_path: Path) -> None:
     assert normalize_alias("alias.bin", registry=entries, node_pack="comfy_gguf") == "model.bin"
     assert normalize_alias("alias.bin", registry=entries, node_pack="missing") is None
     assert normalize_alias("unknown.bin", registry=entries) is None
+
+
+def test_lookup_aliases_normalize_slashes_without_becoming_staging_aliases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    registry = _write_registry(
+        tmp_path / "models.yaml",
+        r"""
+models:
+  - id: qualified
+    source:
+      kind: huggingface
+      repo: example/repo
+      filename: model.bin
+    canonical_name: Pack/model.bin
+    min_size: 1
+    targets:
+      - node_pack: wan_wrapper
+        path: loras/target.bin
+    aliases:
+      - model.bin
+    lookup_aliases:
+      - Pack\model.bin
+""",
+    )
+    entries = load_registry(registry)
+    entry = entries[0]
+
+    assert resolve_model_entry("Pack/model.bin", registry=entries) is entry
+    assert resolve_model_entry(r"Pack\model.bin", registry=entries) is entry
+    assert normalize_alias(r"Pack\model.bin", registry=entries) == "Pack/model.bin"
+    models_loader._validate_staging_paths(entry, models_root=tmp_path / "models")
+
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"model")
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **_kwargs: str(source))
+    staged = stage_entry(entry, models_root=tmp_path / "models")
+    assert [path.relative_to(tmp_path / "models").as_posix() for path in staged] == [
+        "loras/target.bin",
+        "loras/model.bin",
+    ]
+    assert not (tmp_path / "models" / "loras" / "Pack" / "model.bin").exists()
+
+
+@pytest.mark.parametrize("bad", ["", ".", "..", "foo/../bar", "foo/./bar", "/absolute/model.bin", r"C:\\model.bin"])
+def test_lookup_aliases_reject_non_relative_logical_paths(tmp_path: Path, bad: str) -> None:
+    registry = _write_registry(
+        tmp_path / "models.yaml",
+        f"""
+models:
+  - id: bad_lookup
+    source:
+      kind: huggingface
+      repo: example/repo
+      filename: model.bin
+    min_size: 1
+    targets:
+      - node_pack: wan_wrapper
+        path: loras/model.bin
+    lookup_aliases: [{bad!r}]
+""",
+    )
+    with pytest.raises(ValueError, match="bad_lookup.*lookup"):
+        load_registry(registry)
+
+
+def test_lookup_index_fails_closed_on_cross_entry_canonical_collision(tmp_path: Path) -> None:
+    registry = _write_registry(
+        tmp_path / "models.yaml",
+        """
+models:
+  - id: first
+    source: {kind: url, url: https://example.test/first}
+    canonical_name: Pack\\model.bin
+    min_size: 1
+    targets: [{node_pack: wan_wrapper, path: loras/first.bin}]
+  - id: second
+    source: {kind: url, url: https://example.test/second}
+    canonical_name: Pack/model.bin
+    min_size: 1
+    targets: [{node_pack: wan_wrapper, path: loras/second.bin}]
+""",
+    )
+    with pytest.raises(ValueError, match="duplicate alias or model lookup key"):
+        load_registry(registry)
+
+
+def test_shipped_registry_declares_four_lookup_only_aliases() -> None:
+    entries = load_registry()
+    lookup_aliases = {alias for entry in entries for alias in entry.lookup_aliases}
+    assert {
+        "WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors",
+        "WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors",
+        "WanVideo/InfiniteTalk/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf",
+        "WanVideo/wan2.1-i2v-14b-480p-Q8_0.gguf",
+    } <= lookup_aliases
 
 
 def test_shipped_registry_aliases_are_adjacent_and_staging_paths_prevalidate(

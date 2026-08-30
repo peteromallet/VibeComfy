@@ -2009,6 +2009,7 @@ class TestLookupId:
             ModelEntry(
                 id="registry",
                 source=ModelSource(kind="url", url="https://example.test/registry.safetensors"),
+                canonical_name="registry.safetensors",
                 min_size=1,
                 targets=(ModelTarget(node_pack="comfy_core", path="diffusion_models/registry.safetensors"),),
             )

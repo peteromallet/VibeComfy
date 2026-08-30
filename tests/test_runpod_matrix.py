@@ -19,7 +19,11 @@ from scripts.runpod_matrix_remote import (
     LTX_VIDEO_VAE,
     patch_workflow_api,
     resolve_attention_profile,
+    _patch_wanvideo_wrapper,
 )
+from vibecomfy.ingest.loader import load_workflow_json
+from vibecomfy.ingest.normalize import normalize_to_api
+from vibecomfy.registry.models_loader import canonical_filename, load_registry
 
 
 def test_runpod_matrix_model_constants_match_registry_contract() -> None:
@@ -77,6 +81,40 @@ def test_wanvideo_wrapper_patch_preserves_sageattn_for_sage_profile() -> None:
     inputs = api["1"]["inputs"]
     assert inputs["attention_mode"] == "sageattn"
     assert inputs["widget_4"] == "sageattn"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            "source",
+            id="source-json",
+        ),
+        pytest.param(
+            "ready",
+            id="ready-python",
+        ),
+    ],
+)
+def test_wanvideo_wrapper_patch_resolves_real_historical_registry_spellings(payload: str) -> None:
+    if payload == "source":
+        source = Path("ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan22_s2v_context_window.json")
+        api = normalize_to_api(load_workflow_json(source), comfy_converter_strict=True)
+    else:
+        from ready_templates.video.wanvideo_wrapper_21_14b_t2v import build
+
+        api = build().compile(backend="api")
+
+    _patch_wanvideo_wrapper(api, attention_profile="portable")
+
+    values = [
+        value
+        for node in api.values()
+        if isinstance(node, dict)
+        for value in node.get("inputs", {}).values()
+        if isinstance(value, str)
+    ]
+    assert canonical_filename("wan_lightx2v_t2v_14b_v2_lora", registry=load_registry()) in values
 
 
 def _write_matrix_results(root: Path, statuses: list[str]) -> Path:
