@@ -763,6 +763,11 @@ def _hoist_constants(
                 base, canonical_model_value = canonical_model
                 emit_value = canonical_model_value
                 value_key_value = _model_basename(value).lower()
+            # Comfy serializes model selections with either separator.  Keep
+            # the emitted model reference canonical as well as the
+            # requirements metadata; otherwise the same model can produce
+            # platform-dependent ready-template source.
+            emit_value = _normalize_model_path(emit_value)
         value_key = (base, category, value_key_value)
         if value_key in value_to_name:
             name = value_to_name[value_key]
