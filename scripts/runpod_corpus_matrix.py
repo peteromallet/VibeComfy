@@ -797,11 +797,9 @@ downloads = [
     ], 1_000_000_000),
     ("Kijai/WanVideo_comfy", "Wan2_1_VAE_bf16.safetensors", [
         Path("models/vae/wanvideo/Wan2_1_VAE_bf16.safetensors"),
-        Path("models/vae/wanvideo\\Wan2_1_VAE_bf16.safetensors"),
     ], 100_000_000),
     ("Kijai/WanVideo_comfy", "Wan2_2_VAE_bf16.safetensors", [
         Path("models/vae/wanvideo/Wan2_2_VAE_bf16.safetensors"),
-        Path("models/vae/wanvideo\\Wan2_2_VAE_bf16.safetensors"),
     ], 100_000_000),
     ("Kijai/WanVideo_comfy_fp8_scaled", "T2V/Wan2_1-T2V-14B_fp8_e4m3fn_scaled_KJ.safetensors", [
         Path("models/diffusion_models/WanVideo/fp8_scaled_kj/T2V/Wan2_1-T2V-14B_fp8_e4m3fn_scaled_KJ.safetensors"),
@@ -849,9 +847,7 @@ downloads = [
     ], 5_000_000_000),
     ("Kijai/MelBandRoFormer_comfy", "MelBandRoformer_fp16.safetensors", [
         Path("models/diffusion_models/MelBandRoFormer/MelBandRoformer_fp16.safetensors"),
-        Path("models/diffusion_models/MelBandRoFormer\\MelBandRoformer_fp16.safetensors"),
         Path("models/diffusion_models/MelBandRoformer/MelBandRoformer_fp16.safetensors"),
-        Path("models/diffusion_models/MelBandRoformer\\MelBandRoformer_fp16.safetensors"),
     ], 400_000_000),
 ]
 for repo, filename, targets, min_size in downloads:

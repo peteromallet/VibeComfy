@@ -450,8 +450,6 @@ models:
     targets:
       - node_pack: wan_wrapper
         path: vae/wanvideo/Wan2_1_VAE_bf16.safetensors
-      - node_pack: wan_wrapper
-        path: 'vae/wanvideo\Wan2_1_VAE_bf16.safetensors'
     tags: [phase:wan_wrapper]
 
   - id: wan2_2_vae_bf16
@@ -463,8 +461,6 @@ models:
     targets:
       - node_pack: wan_wrapper
         path: vae/wanvideo/Wan2_2_VAE_bf16.safetensors
-      - node_pack: wan_wrapper
-        path: 'vae/wanvideo\Wan2_2_VAE_bf16.safetensors'
     tags: [phase:wan_wrapper]
 
   - id: wan2_1_t2v_14b_fp8_scaled_kj
@@ -671,9 +667,5 @@ models:
       - node_pack: wan_wrapper
         path: diffusion_models/MelBandRoFormer/MelBandRoformer_fp16.safetensors
       - node_pack: wan_wrapper
-        path: 'diffusion_models/MelBandRoFormer\MelBandRoformer_fp16.safetensors'
-      - node_pack: wan_wrapper
         path: diffusion_models/MelBandRoformer/MelBandRoformer_fp16.safetensors
-      - node_pack: wan_wrapper
-        path: 'diffusion_models/MelBandRoformer\MelBandRoformer_fp16.safetensors'
     tags: [phase:wan_wrapper]

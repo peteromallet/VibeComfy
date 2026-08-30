@@ -95,6 +95,7 @@ def load_registry(path: str | Path | None = None) -> tuple[ModelEntry, ...]:
 
 
 def stage_entry(entry: ModelEntry, *, models_root: Path) -> list[Path]:
+    _validate_staging_paths(entry, models_root=models_root)
     if entry.files:
         return _stage_composite_entry(entry, models_root=models_root)
     source = _existing_source(entry, models_root=models_root)
@@ -104,21 +105,40 @@ def stage_entry(entry: ModelEntry, *, models_root: Path) -> list[Path]:
     _check_pins(source, entry)
     staged_paths: list[Path] = []
     for target in entry.targets:
-        staged = models_root / target.path
+        staged = _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
         staged.parent.mkdir(parents=True, exist_ok=True)
+        _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
         if os.path.lexists(staged):
+            _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
+            _validate_final_component(
+                staged, models_root=models_root, entry_id=entry.id, source=source, entry=entry
+            )
             if _existing_target_satisfies(staged, entry):
                 staged_paths.append(staged)
                 staged_paths.extend(_stage_aliases(entry, source=staged, target=target, models_root=models_root))
                 continue
             _check_collision(staged, source, entry.id)
+            _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             staged.unlink()
+        created = False
         try:
+            _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             os.link(source, staged)
+            created = True
         except OSError:
+            _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             os.symlink(source, staged)
-        _check_size(staged, entry.min_size, entry.id)
-        _check_pins(staged, entry)
+            created = True
+        try:
+            _validate_final_component(
+                staged, models_root=models_root, entry_id=entry.id, source=source, entry=entry
+            )
+            _check_size(staged, entry.min_size, entry.id)
+            _check_pins(staged, entry)
+        except (OSError, RuntimeError, ValueError):
+            if created and os.path.lexists(staged):
+                staged.unlink()
+            raise
         staged_paths.append(staged)
         staged_paths.extend(_stage_aliases(entry, source=staged, target=target, models_root=models_root))
     return staged_paths
@@ -126,9 +146,13 @@ def stage_entry(entry: ModelEntry, *, models_root: Path) -> list[Path]:
 
 def _existing_source(entry: ModelEntry, *, models_root: Path) -> Path | None:
     for target in entry.targets:
-        staged = models_root / target.path
+        staged = _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
         if os.path.lexists(staged) and _existing_target_satisfies(staged, entry):
-            return staged.resolve(strict=True)
+            resolved = staged.resolve(strict=True)
+            if resolved.is_relative_to(models_root.resolve(strict=False)) or _has_content_pins(entry):
+                return resolved
+            # Without content pins, an external symlink has no known source
+            # identity. Defer its authorization until after download.
     return None
 
 
@@ -136,29 +160,58 @@ def _stage_aliases(entry: ModelEntry, *, source: Path, target: ModelTarget, mode
     if not entry.aliases:
         return []
     staged_aliases: list[Path] = []
-    target_dir = (models_root / target.path).parent
     for alias in entry.aliases:
-        if "/" in alias or "\\" in alias:
+        alias_path = _authorized_alias_path(
+            target, alias, models_root=models_root, entry_id=entry.id
+        )
+        if alias_path is None:
             continue
-        alias_path = target_dir / alias
         if os.path.lexists(alias_path):
+            _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
+            _validate_final_component(
+                alias_path,
+                models_root=models_root,
+                entry_id=entry.id,
+                source=source,
+                entry=entry,
+            )
             if _existing_target_satisfies(alias_path, entry):
                 staged_aliases.append(alias_path)
                 continue
             _check_collision(alias_path, source, entry.id)
+            _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             alias_path.unlink()
+        created = False
         try:
+            _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             os.link(source, alias_path)
+            created = True
         except OSError:
+            _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             os.symlink(source, alias_path)
-        _check_size(alias_path, entry.min_size, entry.id)
-        _check_pins(alias_path, entry)
+            created = True
+        try:
+            _validate_final_component(
+                alias_path,
+                models_root=models_root,
+                entry_id=entry.id,
+                source=source,
+                entry=entry,
+            )
+            _check_size(alias_path, entry.min_size, entry.id)
+            _check_pins(alias_path, entry)
+        except (OSError, RuntimeError, ValueError):
+            if created and os.path.lexists(alias_path):
+                alias_path.unlink()
+            raise
         staged_aliases.append(alias_path)
     return staged_aliases
 
 
 def stage_many(entries: Sequence[ModelEntry], *, models_root: Path, ids: Sequence[str] | None = None) -> None:
     selected = _select_by_ids(entries, ids)
+    for entry in selected:
+        _validate_staging_paths(entry, models_root=models_root)
     for entry in selected:
         stage_entry(entry, models_root=models_root)
 
@@ -342,21 +395,181 @@ def _validate_target_node_pack(target: ModelTarget, *, entry_id: str, registry_p
 
 
 def _validate_target_path(path: str, *, entry_id: str) -> None:
-    if not path:
+    if not isinstance(path, str) or not path or "\x00" in path:
         raise ValueError(f"{entry_id}: invalid target.path {path!r}: path must be non-empty")
     if path.startswith("models/") or path.startswith("models\\"):
         raise ValueError(f"{entry_id}: invalid target.path {path!r}: path is relative to models_root and must not start with models/")
     posix, windows = PurePosixPath(path), PureWindowsPath(path)
-    if posix.is_absolute() or windows.is_absolute() or windows.drive:
+    if (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or windows.root
+        or windows.drive
+        or "\\" in path
+        or path.endswith("/")
+        or path.rstrip("/").rsplit("/", 1)[-1] == "."
+    ):
         raise ValueError(f"{entry_id}: invalid target.path {path!r}: absolute paths are not allowed")
     if ".." in posix.parts or ".." in windows.parts:
         raise ValueError(f"{entry_id}: invalid target.path {path!r}: '..' segments are not allowed")
 
 
 def _validate_relative_file_path(path: str, *, entry_id: str, field: str) -> None:
-    posix, windows = PurePosixPath(path), PureWindowsPath(path)
-    if not path or posix.is_absolute() or windows.is_absolute() or windows.drive or ".." in posix.parts or ".." in windows.parts:
+    if not isinstance(path, str) or "\x00" in path:
         raise ValueError(f"{entry_id}: invalid {field} {path!r}: must be a relative file path")
+    posix, windows = PurePosixPath(path), PureWindowsPath(path)
+    if (
+        not path
+        or posix.is_absolute()
+        or windows.is_absolute()
+        or windows.root
+        or windows.drive
+        or "\\" in path
+        or path.endswith("/")
+        or path.rstrip("/").rsplit("/", 1)[-1] == "."
+        or ".." in posix.parts
+        or ".." in windows.parts
+    ):
+        raise ValueError(f"{entry_id}: invalid {field} {path!r}: must be a relative file path")
+
+
+def _validate_alias(alias: str, *, entry_id: str) -> None:
+    if (
+        not isinstance(alias, str)
+        or not alias
+        or "\x00" in alias
+        or "/" in alias
+        or "\\" in alias
+        or PureWindowsPath(alias).is_absolute()
+        or PureWindowsPath(alias).root
+        or PureWindowsPath(alias).drive
+        or alias in {".", ".."}
+    ):
+        raise ValueError(f"{entry_id}: invalid alias {alias!r}: must be a single relative filename")
+
+
+def _authorized_staging_path(
+    models_root: Path, relative: str, *, entry_id: str, field: str
+) -> Path:
+    candidate = models_root / relative
+    try:
+        resolved_root = models_root.resolve(strict=False)
+        resolved_parent = candidate.parent.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(
+            f"{entry_id}: {field} could not be resolved safely: {relative!r}"
+        ) from exc
+    if not resolved_parent.is_relative_to(resolved_root):
+        raise ValueError(
+            f"{entry_id}: {field} resolves outside models_root {resolved_root}: {relative!r}"
+        )
+    return candidate
+
+
+def _has_content_pins(entry: ModelEntry, file: ModelFile | None = None) -> bool:
+    if file is not None:
+        return file.size_bytes is not None or bool(file.sha256)
+    return entry.size_bytes is not None or bool(entry.sha256)
+
+
+def _validate_final_component(
+    path: Path,
+    *,
+    models_root: Path,
+    entry_id: str,
+    source: Path,
+    entry: ModelEntry,
+    file: ModelFile | None = None,
+) -> None:
+    """Allow only an in-root or source/pin-authorized final symlink."""
+    root = models_root.resolve(strict=False)
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        resolved = path.resolve(strict=False)
+        if not resolved.is_relative_to(root):
+            raise ValueError(
+                f"{entry_id}: final staging path resolves outside models_root {root}: {path}"
+            ) from exc
+        raise ValueError(
+            f"{entry_id}: final staging path could not be resolved safely: {path}"
+        ) from exc
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(
+            f"{entry_id}: final staging path could not be resolved safely: {path}"
+        ) from exc
+    if resolved.is_relative_to(root):
+        return
+    try:
+        source_resolved = source.resolve(strict=True)
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        raise ValueError(f"{entry_id}: source could not be resolved safely: {source}") from exc
+    if resolved == source_resolved:
+        return
+    if _has_content_pins(entry, file):
+        try:
+            if file is None:
+                _check_pins(path, entry)
+            else:
+                _check_model_file_pins(path, entry=entry, file=file)
+            return
+        except (OSError, RuntimeError):
+            pass
+    raise ValueError(
+        f"{entry_id}: final staging path resolves outside models_root {root}: {path}"
+    )
+
+
+def _authorized_target_path(
+    target: ModelTarget, *, models_root: Path, entry_id: str
+) -> Path:
+    _validate_target_path(target.path, entry_id=entry_id)
+    return _authorized_staging_path(
+        models_root, target.path, entry_id=entry_id, field="target.path"
+    )
+
+
+def _authorized_alias_path(
+    target: ModelTarget, alias: str, *, models_root: Path, entry_id: str
+) -> Path | None:
+    _validate_target_path(target.path, entry_id=entry_id)
+    if not isinstance(alias, str):
+        _validate_alias(alias, entry_id=entry_id)
+    if "/" in alias or "\\" in alias:
+        return None
+    _validate_alias(alias, entry_id=entry_id)
+    relative = PurePosixPath(target.path).parent / alias
+    return _authorized_staging_path(
+        models_root, str(relative), entry_id=entry_id, field="alias"
+    )
+
+
+def _authorized_composite_path(
+    target: ModelTarget, file: ModelFile, *, models_root: Path, entry_id: str
+) -> Path:
+    _validate_target_path(target.path, entry_id=entry_id)
+    _validate_relative_file_path(file.path, entry_id=entry_id, field="files.path")
+    relative = PurePosixPath(target.path) / PurePosixPath(file.path)
+    return _authorized_staging_path(
+        models_root, str(relative), entry_id=entry_id, field="files.path"
+    )
+
+
+def _validate_staging_paths(entry: ModelEntry, *, models_root: Path) -> None:
+    if not entry.targets:
+        raise ValueError(f"{entry.id}: targets must be a non-empty list")
+    for target in entry.targets:
+        _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
+        if entry.files:
+            for file in entry.files:
+                _authorized_composite_path(
+                    target, file, models_root=models_root, entry_id=entry.id
+                )
+        else:
+            for alias in entry.aliases:
+                _authorized_alias_path(
+                    target, alias, models_root=models_root, entry_id=entry.id
+                )
 
 
 def _download_source(entry: ModelEntry, *, models_root: Path) -> Path:
@@ -400,19 +613,50 @@ def _stage_composite_entry(entry: ModelEntry, *, models_root: Path) -> list[Path
         source = _download_model_file(entry, file)
         _check_model_file_pins(source, entry=entry, file=file)
         for target in entry.targets:
-            staged = models_root / target.path / file.path
+            staged = _authorized_composite_path(
+                target, file, models_root=models_root, entry_id=entry.id
+            )
             staged.parent.mkdir(parents=True, exist_ok=True)
+            _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
             if os.path.lexists(staged):
+                _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
+                _validate_final_component(
+                    staged,
+                    models_root=models_root,
+                    entry_id=entry.id,
+                    source=source,
+                    entry=entry,
+                    file=file,
+                )
                 if _existing_model_file_satisfies(staged, entry=entry, file=file):
                     staged_paths.append(staged)
                     continue
                 _check_collision(staged, source, entry.id)
+                _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 staged.unlink()
+            created = False
             try:
+                _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 os.link(source, staged)
+                created = True
             except OSError:
+                _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 os.symlink(source, staged)
-            _check_model_file_pins(staged, entry=entry, file=file)
+                created = True
+            try:
+                _validate_final_component(
+                    staged,
+                    models_root=models_root,
+                    entry_id=entry.id,
+                    source=source,
+                    entry=entry,
+                    file=file,
+                )
+                _check_model_file_pins(staged, entry=entry, file=file)
+            except (OSError, RuntimeError, ValueError):
+                if created and os.path.lexists(staged):
+                    staged.unlink()
+                raise
             staged_paths.append(staged)
     return staged_paths
 
