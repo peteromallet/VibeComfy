@@ -4349,6 +4349,8 @@ def record_idempotent_response(
                 response.clear()
                 response.update(existing_response)
                 return dict(authority_record)
+        publication_path = _response_publication_path(response_path.parent)
+        publication_existed = publication_path.is_file()
         publication = _publish_response_authority(
             turn_dir=response_path.parent,
             scope=scope,
@@ -4379,7 +4381,19 @@ def record_idempotent_response(
                 "publication_path": str(_response_publication_path(response_path.parent)),
             }
             state["idempotency_records"][key] = record
-        write_state_atomic(session_dir, state)
+        try:
+            write_state_atomic(session_dir, state)
+        except Exception:
+            # The immutable publication is a commit point only when the
+            # corresponding session-state write succeeds. Remove a newly
+            # created publication on state-write failure so recovery cannot
+            # resurrect an uncommitted idempotency record.
+            if not publication_existed:
+                try:
+                    publication_path.unlink()
+                except OSError:
+                    pass
+            raise
         _write_response_atomic(response_path, authoritative_response)
     published_response = json.loads(json.dumps(authoritative_response))
     response.clear()

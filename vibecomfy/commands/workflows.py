@@ -22,6 +22,7 @@ from vibecomfy.registry.ready import (
     _normalize_ready_template_id,
     _ready_candidates,
     _ready_lookup_key,
+    dynamic_ready_template_rows,
     ready_template_source_info,
     workflow_from_ready,
 )
@@ -53,7 +54,7 @@ def _cmd_workflows_list(args: argparse.Namespace) -> int:
         if index_rows:
             rows = list(index_rows)
             if getattr(args, "include_dynamic", False):
-                rows.extend(_dynamic_ready_rows(set(), discovery=discovery))
+                rows.extend([dict(row, public_inputs=row.get("public_inputs") or [], public_outputs=row.get("public_outputs") or []) for row in dynamic_ready_template_rows(exclude_ids=set())])
             rows = _mark_ready_listing_collisions(rows)
         else:
             rows = _ready_rows_without_index(discovery)
@@ -121,7 +122,7 @@ def _ready_rows_from_template_index(
                 "strict_ready_diagnostic_counts": item.get("strict_ready_diagnostic_counts") or {},
             }
         )
-    if discovery is not None:
+    if discovery is not None and TEMPLATE_INDEX_PATH.resolve().parent == Path(__file__).resolve().parents[2]:
         matched_rows: list[dict[str, Any]] = []
         for row in rows:
             matches = _ready_candidates(str(row["id"]), discovery)

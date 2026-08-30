@@ -588,8 +588,12 @@ def _dynamic_ready_roots() -> list[Path]:
 
 
 def _roots_are_same(left: Path, right: Path) -> bool:
+    left_resolved = left.resolve()
+    right_resolved = right.resolve()
+    if _normalized_path_key(left_resolved) == _normalized_path_key(right_resolved):
+        return True
     try:
-        return left.resolve().samefile(right.resolve())
+        return left_resolved.samefile(right_resolved)
     except OSError:
         return False
 
@@ -630,22 +634,13 @@ def _dedupe_roots(roots: Iterable[Path]) -> list[Path]:
             (
                 index
                 for index, existing in enumerate(deduped)
-                if (
-                    existing.exists()
-                    and canonical.exists()
-                    and _roots_are_same(existing, canonical)
-                )
-                or (
-                    not existing.exists()
-                    and not canonical.exists()
-                    and str(existing) == str(canonical)
-                )
+                if _roots_are_same(existing, canonical)
             ),
             None,
         )
         if duplicate_index is None:
             deduped.append(canonical)
-        else:
+        elif not deduped[duplicate_index].exists():
             deduped[duplicate_index] = min(
                 deduped[duplicate_index],
                 canonical,
