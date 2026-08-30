@@ -956,6 +956,187 @@ def test_type_invalid_response_envelopes_are_malformed_and_never_pass(
     }
 
 
+def _candidate_assessment_response(**carrier: object) -> dict:
+    response = {
+        "ok": True,
+        "graph_unchanged": False,
+        "outcome": {"kind": "candidate"},
+        "change_details": {"landed_operation_count": 1},
+    }
+    response.update(carrier)
+    return response
+
+
+@pytest.mark.parametrize(
+    ("carrier", "payload"),
+    [
+        ("candidate_graph", {"nodes": [1], "links": []}),
+        ("candidate_graph", {"1": {"class_type": 3}}),
+        (
+            "candidate_graph",
+            {"vibecomfy_format_version": "1", "nodes": {"1": 1}},
+        ),
+        ("candidate_graph", {}),
+    ],
+)
+def test_assessor_rejects_malformed_graph_products(
+    tmp_path: Path, carrier: str, payload: dict
+) -> None:
+    (tmp_path / "response.json").write_text(
+        json.dumps(_candidate_assessment_response(**{carrier: payload})),
+        encoding="utf-8",
+    )
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+
+
+@pytest.mark.parametrize(
+    ("carrier", "payload"),
+    [
+        ("candidate", {"garbage": "x"}),
+        ("candidate_graph", {"garbage": "x"}),
+        ("candidate_transaction", {"garbage": "x"}),
+        ("graph", {"nodes": [1]}),
+    ],
+)
+def test_assessor_rejects_nested_malformed_candidate_carriers(
+    tmp_path: Path, carrier: str, payload: dict
+) -> None:
+    response = _candidate_assessment_response()
+    response["outcome"][carrier] = payload
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+
+
+def test_assessor_rejects_unsupported_nested_candidate_transaction_contract(
+    tmp_path: Path,
+) -> None:
+    response = _candidate_assessment_response()
+    response["outcome"]["candidate_transaction"] = {
+        "contract_version": "candidate_transaction_v99",
+        "nodes": [],
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        {"expected_classes": ["Missing"], "pack": {"slug": 7}},
+        {"expected_classes": ["Missing"], "provisional_schema": {"schema": 7}},
+    ],
+)
+def test_assessor_rejects_malformed_custom_node_candidate_contents(
+    tmp_path: Path, candidate: dict
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "outcome": {"kind": "requires_custom_nodes", "candidates": [candidate]},
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(tmp_path)
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+
+
+@pytest.mark.parametrize("changes", [[{"op": "definitely_not_an_op"}], "not-a-list"])
+def test_assessor_rejects_malformed_direct_changes_carrier(
+    tmp_path: Path, changes: object
+) -> None:
+    response = _candidate_assessment_response(
+        candidate_graph={"nodes": [{"id": 1}], "links": []},
+        changes=changes,
+    )
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] == "undetermined"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        _candidate_assessment_response(
+            candidate_graph={"nodes": [{"id": 1}], "links": []}
+        ),
+        _candidate_assessment_response(
+            candidate_graph={"1": {"class_type": "KSampler", "inputs": {}}}
+        ),
+        _candidate_assessment_response(
+            candidate={"graph": {"nodes": [{"id": 1}], "links": []}}
+        ),
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {
+                "kind": "requires_custom_nodes",
+                "candidates": [
+                    {
+                        "pack": {
+                            "slug": "ComfyUI-Example",
+                            "source": "registry",
+                            "version": "1.0.0",
+                            "url": "https://example.test/pack",
+                        },
+                        "expected_classes": ["ExampleNode"],
+                        "validation_mode": "class_validatable",
+                        "evidence": [
+                            {
+                                "tier": "registry",
+                                "source": "schema",
+                                "endpoint": "/nodes/example/schema",
+                                "cache_hit": False,
+                                "detail": {"version": "1.0.0"},
+                                "matched_classes": ["ExampleNode"],
+                            }
+                        ],
+                        "provisional_schema": {
+                            "version": "1.0.0",
+                            "schema": {"nodes": {"ExampleNode": {}}},
+                            "runnable": False,
+                        },
+                        "warnings": [],
+                        "runnable": False,
+                        "stable_install_hash": "hash",
+                    }
+                ],
+            },
+        },
+    ],
+)
+def test_valid_compatibility_carriers_remain_accepted(response: dict) -> None:
+    assert assessor_module._response_envelope_is_valid(response) is True
+
+
 @pytest.mark.parametrize(
     "response",
     [
