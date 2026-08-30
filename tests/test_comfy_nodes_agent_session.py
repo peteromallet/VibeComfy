@@ -1113,7 +1113,7 @@ class _TurnSchemaProvider:
     a live ComfyUI registry.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, node_class: str = "KSampler") -> None:
         self._schemas = {
             "KSampler": NodeSchema(
                 class_type="KSampler",
@@ -1158,7 +1158,7 @@ class _TurnSchemaProvider:
                 "schemas": payloads,
                 "missing_classes": [],
             },
-            node_classes={"1": "KSampler", "sampler-1": "KSampler"},
+            node_classes={"1": node_class, "sampler-1": node_class},
         )
         self.snapshot = snapshot
 
@@ -1229,7 +1229,9 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         candidate=candidate_graph,
         response=response,
         schema_version="2.0.0",
-        schema_provider=_TurnSchemaProvider(),
+        schema_provider=_TurnSchemaProvider(
+            node_class="LoadImage" if load_image else "KSampler"
+        ),
     )
     assert receipt.is_applyable
     write_authority_receipt(turn_dir, receipt)
