@@ -867,6 +867,7 @@ _IMAGE_CONCAT_MULTI_INPUT_RE = re.compile(r"^image_(\d+)$")
 # ceilings require authoritative schema data and belong in a separate slice.
 _DYNAMIC_VALIDATION_WORK_LIMIT = 4096
 _DYNAMIC_VALIDATION_WORK_LIMIT_DIGITS = len(str(_DYNAMIC_VALIDATION_WORK_LIMIT))
+_CANONICAL_DECIMAL_COUNT_RE = re.compile(r"[1-9][0-9]*")
 
 
 def _preserve_linked_undeclared_input(name: str, value: Any) -> bool:
@@ -954,11 +955,24 @@ def _validate_dynamic_payload_inputs(
 
 
 def _validated_dynamic_count(raw_count: Any, *, minimum: int) -> int | None:
-    if type(raw_count) is not int:
+    if type(raw_count) is int:
+        count = raw_count
+    elif type(raw_count) is str:
+        # DynamicCombo serializes its selector as a canonical decimal string
+        # in real API/ready-template payloads. Keep this exception local to
+        # dynamic count controllers; ordinary INT fields retain their own
+        # primitive compatibility rules.
+        if (
+            len(raw_count) > _DYNAMIC_VALIDATION_WORK_LIMIT_DIGITS
+            or _CANONICAL_DECIMAL_COUNT_RE.fullmatch(raw_count) is None
+        ):
+            return None
+        count = int(raw_count)
+    else:
         return None
-    if raw_count < minimum or raw_count > _DYNAMIC_VALIDATION_WORK_LIMIT:
+    if count < minimum or count > _DYNAMIC_VALIDATION_WORK_LIMIT:
         return None
-    return raw_count
+    return count
 
 
 def _bounded_decimal_index(digits: str) -> int | None:

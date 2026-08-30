@@ -320,6 +320,66 @@ def test_dynamic_count_accepts_normal_integer_counts(class_type: str, count: int
     assert not report
 
 
+@pytest.mark.parametrize(
+    ("class_type", "count"),
+    [
+        ("LTXVImgToVideoInplaceKJ", "2"),
+        ("ImageConcatMulti", "2"),
+    ],
+)
+def test_dynamic_count_accepts_canonical_decimal_strings(class_type: str, count: str) -> None:
+    inputs = _dynamic_inputs(class_type, 2)
+    inputs["num_images" if class_type == "LTXVImgToVideoInplaceKJ" else "inputcount"] = count
+    report = _dynamic_report(class_type, count, inputs)
+
+    assert not report
+
+
+def test_ltx_ready_template_dynamic_combo_string_count_validates_against_object_info() -> None:
+    from ready_templates.video.ltx2_3_first_last_frame_travel_iclora_control import build
+    from vibecomfy.schema import ObjectInfoSchemaProvider
+
+    api = build().compile("api")
+    node_id, node = next(
+        (node_id, node)
+        for node_id, node in api.items()
+        if node.get("class_type") == "LTXVImgToVideoInplaceKJ"
+    )
+    assert node["inputs"]["num_images"] == "2"
+
+    provider = ObjectInfoSchemaProvider(
+        "vibecomfy/porting/cache/object_info/ComfyUI-KJNodes@runpod-snapshot.json"
+    )
+    report = validate_api_against_schema({node_id: node}, provider)
+
+    assert not report
+
+
+def test_image_concat_object_info_accepts_string_count_with_real_dynamic_shape() -> None:
+    from vibecomfy.schema import ObjectInfoSchemaProvider
+
+    provider = ObjectInfoSchemaProvider(
+        "vibecomfy/porting/cache/object_info/ComfyUI-KJNodes@runpod-snapshot.json"
+    )
+    report = validate_api_against_schema(
+        {
+            "concat": {
+                "class_type": "ImageConcatMulti",
+                "inputs": {
+                    "inputcount": "2",
+                    "image_1": ["source-1", 0],
+                    "image_2": ["source-2", 0],
+                    "direction": "right",
+                    "match_image_size": False,
+                },
+            }
+        },
+        provider,
+    )
+
+    assert not report
+
+
 @pytest.mark.parametrize("count", [20, 21])
 def test_ltx_dynamic_count_does_not_embed_provider_ceiling(count: int) -> None:
     report = _dynamic_report("LTXVImgToVideoInplaceKJ", count)
@@ -338,14 +398,24 @@ def test_ltx_dynamic_count_does_not_embed_provider_ceiling(count: int) -> None:
         ("LTXVImgToVideoInplaceKJ", -1),
         ("LTXVImgToVideoInplaceKJ", True),
         ("LTXVImgToVideoInplaceKJ", 2.0),
-        ("LTXVImgToVideoInplaceKJ", "2"),
+        ("LTXVImgToVideoInplaceKJ", "02"),
+        ("LTXVImgToVideoInplaceKJ", "+2"),
+        ("LTXVImgToVideoInplaceKJ", " 2"),
+        ("LTXVImgToVideoInplaceKJ", "2 "),
+        ("LTXVImgToVideoInplaceKJ", "2e0"),
+        ("LTXVImgToVideoInplaceKJ", "9" * 5000),
         ("LTXVImgToVideoInplaceKJ", 10**10000),
         ("ImageConcatMulti", 0),
         ("ImageConcatMulti", 1),
         ("ImageConcatMulti", -1),
         ("ImageConcatMulti", True),
         ("ImageConcatMulti", 2.0),
-        ("ImageConcatMulti", "2"),
+        ("ImageConcatMulti", "02"),
+        ("ImageConcatMulti", "+2"),
+        ("ImageConcatMulti", " 2"),
+        ("ImageConcatMulti", "2 "),
+        ("ImageConcatMulti", "2e0"),
+        ("ImageConcatMulti", "9" * 5000),
         ("ImageConcatMulti", 10**10000),
     ],
     ids=[
@@ -353,14 +423,24 @@ def test_ltx_dynamic_count_does_not_embed_provider_ceiling(count: int) -> None:
         "ltx-negative",
         "ltx-bool",
         "ltx-float",
-        "ltx-string",
+        "ltx-leading-zero-string",
+        "ltx-signed-string",
+        "ltx-leading-whitespace-string",
+        "ltx-trailing-whitespace-string",
+        "ltx-exponent-string",
+        "ltx-pathological-string",
         "ltx-huge",
         "concat-zero",
         "concat-below-minimum",
         "concat-negative",
         "concat-bool",
         "concat-float",
-        "concat-string",
+        "concat-leading-zero-string",
+        "concat-signed-string",
+        "concat-leading-whitespace-string",
+        "concat-trailing-whitespace-string",
+        "concat-exponent-string",
+        "concat-pathological-string",
         "concat-huge",
     ],
 )
