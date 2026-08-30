@@ -669,13 +669,21 @@ def class_is_known(class_type: str) -> bool:
     # Lazy import: ``schema.provider`` imports from this module at call time
     # (see ``AuthoringSchemaProvider``), so a module-level import would cycle.
     try:
-        from vibecomfy.schema.provider import get_authoring_schema_provider  # noqa: PLC0415
+        from vibecomfy.schema.provider import (  # noqa: PLC0415
+            get_authoring_schema_provider,
+            schema_for,
+        )
         provider = get_authoring_schema_provider()
-        if provider.get_schema(class_type) is not None:
+        if schema_for(provider, class_type) is not None:
             return True
-    except Exception:
+    except Exception as exc:
         # Fall through to the local snapshot/curated fallback below on any
-        # provider error so ``class_is_known`` stays total and never raises.
+        # local cache miss, but preserve provider failures as failures rather
+        # than misclassifying an unreadable authority as a missing class.
+        from vibecomfy.schema.provider import SchemaProviderError
+
+        if isinstance(exc, SchemaProviderError):
+            raise
         pass
     if _resolve_class_type(class_type) is not None:
         return True

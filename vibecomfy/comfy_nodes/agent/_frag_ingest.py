@@ -103,40 +103,10 @@ def _ensure_ingest_workflow(state: AgentEditState) -> Any:
     if state.workflow is None:
         from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 
-        # S1: warm real snapshot for every class_type in original.ui.json before paid turns.
-        # Eagerly probe the live provider for all graph classes so a trivial
-        # set_node_field (e.g., Moonvalley steps) is not blocked by a cold lazy
-        # lookup that hasn't happened yet. No stubs, no installs.
-        provider = getattr(state, "schema_provider", None)
-        if provider is not None and isinstance(state.graph, dict):
-            try:
-                graph_nodes = state.graph.get("nodes")
-                if isinstance(graph_nodes, list):
-                    for node in graph_nodes:
-                        if isinstance(node, dict):
-                            ct = node.get("type") or node.get("class_type")
-                            if isinstance(ct, str) and ct:
-                                try:
-                                    getter = getattr(provider, "get_schema", None) or getattr(provider, "get", None)
-                                    if callable(getter):
-                                        getter(ct)
-                                        try:
-                                            from vibecomfy.porting.edit._ir_utils import _resolve_class_type_from_alias
-                                            resolved = _resolve_class_type_from_alias(ct, provider)
-                                            if resolved and resolved != ct:
-                                                getter(resolved)
-                                            lower = ct.lower()
-                                            if lower != ct:
-                                                getter(lower)
-                                                rl = _resolve_class_type_from_alias(lower, provider)
-                                                if rl and rl != lower:
-                                                    getter(rl)
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    pass
-            except Exception:
-                pass
+        # The production ingress door captures and retains the schema surface.
+        # Direct stage callers use the same conversion path; never warm a live
+        # provider here, because that duplicates discovery and can turn typed
+        # provider failures into apparent schema misses.
         workflow, graph = ingest_workflow_and_ui(
             state.graph,
             schema_provider=state.schema_provider,

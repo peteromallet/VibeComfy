@@ -102,6 +102,48 @@ _LEGACY_STATE_ADAPTER: Mapping[str, str] = {
     "cancelled": "superseded",
     "unknown": "superseded",
 }
+MAX_GRAPH_TRAVERSAL_DEPTH = 64
+MAX_GRAPH_TRAVERSAL_ITEMS = 100_000
+
+
+class _GraphTraversalGuard:
+    """Bound schema-authority graph inspection and reject active cycles."""
+
+    def __init__(self) -> None:
+        self._active: set[int] = set()
+        self._visited: set[int] = set()
+        self.items = 0
+
+    def enter(self, value: Any, depth: int) -> bool:
+        if depth > MAX_GRAPH_TRAVERSAL_DEPTH:
+            raise SchemaSnapshotError(
+                f"graph schema traversal exceeds depth {MAX_GRAPH_TRAVERSAL_DEPTH}",
+                code="schema_graph_depth_exceeded",
+            )
+        identity = id(value)
+        if identity in self._active:
+            raise SchemaSnapshotError(
+                "graph schema traversal encountered a cycle",
+                code="schema_graph_cycle",
+            )
+        if identity in self._visited:
+            return False
+        self._visited.add(identity)
+        self._active.add(identity)
+        self.consume()
+        return True
+
+    def leave(self, value: Any) -> None:
+        self._active.discard(id(value))
+
+    def consume(self) -> None:
+        self.items += 1
+        if self.items > MAX_GRAPH_TRAVERSAL_ITEMS:
+            raise SchemaSnapshotError(
+                f"graph schema traversal exceeds {MAX_GRAPH_TRAVERSAL_ITEMS} items",
+                code="schema_graph_items_exceeded",
+            )
+
 
 def _semantic_hash_view(value: Any) -> Any:
     """Project a hash preimage onto its semantic-canonical numeric form.
@@ -173,33 +215,59 @@ def available_actions_for_state(
 
 def _graph_class_types(graph: Mapping[str, Any] | None) -> set[str]:
     result: set[str] = set()
+    guard = _GraphTraversalGuard()
 
-    def visit(scope: Mapping[str, Any]) -> None:
-        nodes = door_get_nodes(scope)
-        if isinstance(nodes, list):
-            for node in nodes:
-                if not isinstance(node, Mapping):
-                    continue
-                class_type = node.get("type") or node.get("class_type")
-                if isinstance(class_type, str) and class_type:
-                    result.add(class_type)
-        definitions = scope.get("definitions")
-        if isinstance(definitions, Mapping):
-            for definition in definitions.values():
-                if isinstance(definition, Mapping):
-                    visit(definition)
-        prompt = scope.get("prompt")
-        if isinstance(prompt, Mapping):
-            visit(prompt)
-        if not isinstance(nodes, list):
-            # API-format graphs (including the standard ``{prompt: api}``
-            # wrapper) are keyed directly by node id.
-            for node in scope.values():
-                if not isinstance(node, Mapping):
-                    continue
-                class_type = node.get("type") or node.get("class_type")
-                if isinstance(class_type, str) and class_type:
-                    result.add(class_type)
+    def visit(value: Any, depth: int = 0) -> None:
+        if not isinstance(value, (Mapping, list)):
+            return
+        if not guard.enter(value, depth):
+            return
+        try:
+            if isinstance(value, list):
+                for item in value:
+                    guard.consume()
+                    if isinstance(item, (Mapping, list)):
+                        visit(item, depth + 1)
+                return
+            scope = value
+            nodes = door_get_nodes(scope)
+            if isinstance(nodes, list):
+                for node in nodes:
+                    guard.consume()
+                    if not isinstance(node, Mapping):
+                        continue
+                    class_type = node.get("type") or node.get("class_type")
+                    if isinstance(class_type, str) and class_type:
+                        result.add(class_type)
+            definitions = scope.get("definitions")
+            if isinstance(definitions, Mapping):
+                for definition in definitions.values():
+                    if isinstance(definition, Mapping):
+                        visit(definition, depth + 1)
+            elif isinstance(definitions, list):
+                visit(definitions, depth + 1)
+            subgraphs = scope.get("subgraphs")
+            if isinstance(subgraphs, Mapping):
+                for subgraph in subgraphs.values():
+                    if isinstance(subgraph, (Mapping, list)):
+                        visit(subgraph, depth + 1)
+            elif isinstance(subgraphs, list):
+                visit(subgraphs, depth + 1)
+            prompt = scope.get("prompt")
+            if isinstance(prompt, (Mapping, list)):
+                visit(prompt, depth + 1)
+            if not isinstance(nodes, list):
+                # API-format graphs (including the standard ``{prompt: api}``
+                # wrapper) are keyed directly by node id.
+                for node in scope.values():
+                    guard.consume()
+                    if not isinstance(node, Mapping):
+                        continue
+                    class_type = node.get("type") or node.get("class_type")
+                    if isinstance(class_type, str) and class_type:
+                        result.add(class_type)
+        finally:
+            guard.leave(value)
 
     if isinstance(graph, Mapping):
         visit(graph)
@@ -211,6 +279,7 @@ def _graph_node_class_by_identity(
 ) -> dict[str, str]:
     """Index serialized nodes by every stable identity available on the wire."""
     result: dict[str, str] = {}
+    guard = _GraphTraversalGuard()
 
     def add(node: Mapping[str, Any], *, fallback_id: Any = None) -> None:
         class_type = node.get("type") or node.get("class_type")
@@ -224,37 +293,49 @@ def _graph_node_class_by_identity(
             if identity is not None and str(identity):
                 result[str(identity)] = class_type
 
-    def visit(value: Any) -> None:
-        if isinstance(value, Mapping):
-            nodes = door_get_nodes(value)
-            if isinstance(nodes, list):
-                for node in nodes:
-                    if isinstance(node, Mapping):
-                        add(node)
-            elif nodes is None:
-                # API-format root/definition: node id -> {class_type, inputs}.
-                for node_id, node in value.items():
-                    if isinstance(node, Mapping) and isinstance(
-                        node.get("type") or node.get("class_type"), str
-                    ):
-                        add(node, fallback_id=node_id)
-            definitions = value.get("definitions")
-            if isinstance(definitions, (Mapping, list)):
-                visit(definitions)
-            subgraphs = value.get("subgraphs")
-            if isinstance(subgraphs, (Mapping, list)):
-                visit(subgraphs)
-            prompt = value.get("prompt")
-            if isinstance(prompt, Mapping):
-                visit(prompt)
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, (Mapping, list)):
-                    visit(item)
+    def visit(value: Any, depth: int = 0) -> None:
+        if not isinstance(value, (Mapping, list)):
+            return
+        if not guard.enter(value, depth):
+            return
+        try:
+            if isinstance(value, Mapping):
+                nodes = door_get_nodes(value)
+                if isinstance(nodes, list):
+                    for node in nodes:
+                        guard.consume()
+                        if isinstance(node, Mapping):
+                            add(node)
+                elif nodes is None:
+                    # API-format root/definition: node id -> {class_type, inputs}.
+                    for node_id, node in value.items():
+                        guard.consume()
+                        if isinstance(node, Mapping) and isinstance(
+                            node.get("type") or node.get("class_type"), str
+                        ):
+                            add(node, fallback_id=node_id)
+                definitions = value.get("definitions")
+                if isinstance(definitions, (Mapping, list)):
+                    visit(definitions, depth + 1)
+                subgraphs = value.get("subgraphs")
+                if isinstance(subgraphs, (Mapping, list)):
+                    visit(subgraphs, depth + 1)
+                prompt = value.get("prompt")
+                if isinstance(prompt, Mapping):
+                    visit(prompt, depth + 1)
+            else:
+                for item in value:
+                    guard.consume()
+                    if isinstance(item, (Mapping, list)):
+                        visit(item, depth + 1)
+        finally:
+            guard.leave(value)
 
     if isinstance(graph, Mapping):
         visit(graph)
     return result
+
+
 
 
 def _delta_touched_node_identities(

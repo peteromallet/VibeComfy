@@ -7,15 +7,20 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from vibecomfy.workflow import VibeWorkflow
+
 import vibecomfy.fetch as fetch_assets
 from vibecomfy.commands._diagnostics import Diagnostic, diagnostics_to_json, diagnostics_to_text
 from vibecomfy.commands._output import emit
 from vibecomfy.commands._index_files import IndexReadError, print_index_error
 from vibecomfy.commands._workflow_path import load_workflow_index_rows
 from vibecomfy.registry.ready import (
-    READY_ROOT,
-    dynamic_ready_template_rows,
-    repo_ready_template_ids,
+    ReadyTemplateDiscovery,
+    _collision_details,
+    _discover_ready_templates,
+    _id_sort_key,
+    _normalize_ready_template_id,
+    _ready_lookup_key,
     ready_template_source_info,
     workflow_from_ready,
 )
@@ -27,7 +32,8 @@ CONTRACT_SHAPE = "workflow_runtime_contract.v1.public_descriptors.v2"
 def _cmd_workflows_list(args: argparse.Namespace) -> int:
     rows = []
     if args.ready:
-        index_rows, index_diagnostic = _ready_rows_from_template_index()
+        discovery = _discover_ready_templates(include_dynamic=getattr(args, "include_dynamic", False))
+        index_rows, index_diagnostic = _ready_rows_from_template_index(discovery)
         if index_diagnostic is not None:
             if args.json:
                 print(
@@ -44,13 +50,13 @@ def _cmd_workflows_list(args: argparse.Namespace) -> int:
                 print(diagnostics_to_text([index_diagnostic]), file=sys.stderr)
             return 1
         if index_rows:
-            rows = index_rows[: args.limit]
+            rows = list(index_rows)
             if getattr(args, "include_dynamic", False):
-                indexed_ids = {str(row["id"]) for row in index_rows if isinstance(row.get("id"), str)}
-                rows = [*rows, *_dynamic_ready_rows(indexed_ids)][: args.limit]
+                rows.extend(_dynamic_ready_rows(set(), discovery=discovery))
+            rows = _mark_ready_listing_collisions(rows)
         else:
-            rows = _ready_rows_without_index()[: args.limit]
-        return emit(rows, json=args.json, text_renderer=_render_workflow_rows)
+            rows = _ready_rows_without_index(discovery)
+        return emit(rows[: args.limit], json=args.json, text_renderer=_render_workflow_rows)
     try:
         rows.extend(load_workflow_index_rows())
     except IndexReadError as exc:
@@ -58,8 +64,9 @@ def _cmd_workflows_list(args: argparse.Namespace) -> int:
         return 1
     return emit(rows[: args.limit], json=args.json, text_renderer=_render_workflow_rows)
 
-
-def _ready_rows_from_template_index() -> tuple[list[dict[str, Any]], Diagnostic | None]:
+def _ready_rows_from_template_index(
+    discovery: ReadyTemplateDiscovery | None = None,
+) -> tuple[list[dict[str, Any]], Diagnostic | None]:
     if not TEMPLATE_INDEX_PATH.exists():
         return [], None
     try:
@@ -95,6 +102,7 @@ def _ready_rows_from_template_index() -> tuple[list[dict[str, Any]], Diagnostic 
             {
                 "media_type": "ready",
                 **item,
+                "id": _normalize_ready_template_id(item["id"]),
                 "source_scope": item.get("source_scope", "repo"),
                 "indexed": item.get("indexed", True),
                 "contract_shape": item.get("contract_shape", CONTRACT_SHAPE),
@@ -112,6 +120,17 @@ def _ready_rows_from_template_index() -> tuple[list[dict[str, Any]], Diagnostic 
                 "strict_ready_diagnostic_counts": item.get("strict_ready_diagnostic_counts") or {},
             }
         )
+    if discovery is not None:
+        for row in rows:
+            matches = discovery.by_lookup.get(_ready_lookup_key(str(row["id"])), ())
+            if len(matches) == 1:
+                record = matches[0]
+                row["id"] = record.template_id
+                row["path"] = str(record.path)
+                row["source_scope"] = record.source_scope
+            elif matches:
+                row.update(_collision_details(str(row["id"]), matches))
+    rows.sort(key=lambda row: _id_sort_key(str(row.get("id", ""))))
     return rows, None
 
 
@@ -135,14 +154,16 @@ def _template_index_diagnostic(
         details=details,
     )
 
-
-def _ready_rows_without_index() -> list[dict[str, Any]]:
+def _ready_rows_without_index(
+    discovery: ReadyTemplateDiscovery | None = None,
+) -> list[dict[str, Any]]:
+    discovery = discovery or _discover_ready_templates(include_dynamic=True)
     rows = [
         {
-            "id": template_id,
+            "id": record.template_id,
             "media_type": "ready",
-            "path": str(READY_ROOT / f"{template_id}.py"),
-            "source_scope": "repo",
+            "path": str(record.path),
+            "source_scope": record.source_scope,
             "indexed": False,
             "contract_shape": CONTRACT_SHAPE,
             "public_inputs": [],
@@ -158,36 +179,92 @@ def _ready_rows_without_index() -> list[dict[str, Any]]:
             "custom_node_count": 0,
             "strict_ready_diagnostic_counts": {},
         }
-        for template_id in repo_ready_template_ids()
+        for record in discovery.records
     ]
-    repo_ids = {row["id"] for row in rows}
-    rows.extend(_dynamic_ready_rows(repo_ids))
-    return sorted(rows, key=lambda row: str(row["id"]))
+    return _mark_ready_listing_collisions(
+        sorted(rows, key=lambda row: _id_sort_key(str(row.get("id", ""))))
+    )
 
 
-def _dynamic_ready_rows(exclude_ids: set[str]) -> list[dict[str, Any]]:
-    return [
+def _dynamic_ready_rows(
+    exclude_ids: set[str],
+    *,
+    discovery: ReadyTemplateDiscovery | None = None,
+) -> list[dict[str, Any]]:
+    discovery = discovery or _discover_ready_templates()
+    excluded = {_ready_lookup_key(value) for value in exclude_ids}
+    rows = [
         {
             "media_type": "ready",
-            **row,
+            "id": record.template_id,
+            "path": str(record.path),
             "source_scope": "dynamic",
             "indexed": False,
             "contract_shape": CONTRACT_SHAPE,
-            "public_inputs": row.get("public_inputs") or [],
-            "public_outputs": row.get("public_outputs") or [],
-            "readiness_class": row.get("readiness_class") or "",
-            "coverage_tier": row.get("coverage_tier") or "",
-            "app_active": row.get("app_active") is True,
-            "blocked": row.get("blocked") is True,
-            "reference": row.get("reference") is True,
-            "supplemental": row.get("supplemental") is True,
-            "model_count": int(row.get("model_count") or 0),
-            "custom_nodes": row.get("custom_nodes") or [],
-            "custom_node_count": int(row.get("custom_node_count") or len(row.get("custom_nodes") or [])),
-            "strict_ready_diagnostic_counts": row.get("strict_ready_diagnostic_counts") or {},
+            "public_inputs": [],
+            "public_outputs": [],
+            "readiness_class": "",
+            "coverage_tier": "",
+            "app_active": False,
+            "blocked": False,
+            "reference": False,
+            "supplemental": False,
+            "model_count": 0,
+            "custom_nodes": [],
+            "custom_node_count": 0,
+            "strict_ready_diagnostic_counts": {},
         }
-        for row in dynamic_ready_template_rows(exclude_ids=exclude_ids)
+        for record in discovery.records
+        if record.source_scope == "dynamic"
+        and _ready_lookup_key(record.template_id) not in excluded
     ]
+    return sorted(rows, key=lambda row: _id_sort_key(str(row.get("id", ""))))
+
+def _mark_ready_listing_collisions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_lookup: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        template_id = row.get("id")
+        if isinstance(template_id, str):
+            by_lookup.setdefault(_ready_lookup_key(template_id), []).append(row)
+    for matching_rows in by_lookup.values():
+        if len(matching_rows) < 2:
+            continue
+        candidate_paths = {
+            str(row.get("path") or f"<indexed:{row.get('id', '')}>")
+            for row in matching_rows
+        }
+        for row in matching_rows:
+            existing_candidates = row.get("collision_candidates")
+            if isinstance(existing_candidates, list):
+                candidate_paths.update(str(path) for path in existing_candidates)
+        ordered_candidates = sorted(candidate_paths, key=lambda path: (path.casefold(), path))
+        ids = {
+            _normalize_ready_template_id(str(row["id"]))
+            for row in matching_rows
+            if isinstance(row.get("id"), str)
+        }
+        query_id = min(ids, key=lambda value: _ready_lookup_key(value))
+        remediation = (
+            "Remove the duplicate or use one canonical source."
+            if len(ids) == 1
+            else "Use the exact canonical id."
+        )
+        message = (
+            f"Ambiguous ready template id {query_id!r}; candidates: "
+            + ", ".join(ordered_candidates)
+            + f". {remediation}"
+        )
+        for row in matching_rows:
+            row.update(
+                {
+                    "collision": True,
+                    "collision_candidates": ordered_candidates,
+                    "collision_message": message,
+                    "resolution_status": "collision",
+                }
+            )
+    return rows
+
 
 
 def _cmd_workflows_source_info(args: argparse.Namespace) -> int:
@@ -393,6 +470,7 @@ def enrich_target_manifest(
     enriched_targets: list[dict[str, Any]] = []
     seen_template_ids: set[str] = set()
     selected_template_ids: list[str] = []
+    discovery: ReadyTemplateDiscovery | None = None
     for target in targets:
         if not isinstance(target, dict):
             continue
@@ -413,10 +491,19 @@ def enrich_target_manifest(
                 }
             )
             continue
+        if discovery is None:
+            discovery = _discover_ready_templates()
         if template_id not in seen_template_ids:
             seen_template_ids.add(template_id)
             selected_template_ids.append(template_id)
-        enriched_targets.append(_enrich_target(target, template_id=template_id, models_root=root))
+        enriched_targets.append(
+            _enrich_target(
+                target,
+                template_id=template_id,
+                models_root=root,
+                discovery=discovery,
+            )
+        )
     return {
         "schema_version": 1,
         "source_manifest_schema_version": manifest.get("schema_version"),
@@ -436,11 +523,12 @@ def _enrich_target(
     *,
     template_id: str,
     models_root: Path,
+    discovery: ReadyTemplateDiscovery,
 ) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     try:
-        source_info = ready_template_source_info(template_id).to_dict()
-        workflow = workflow_from_ready(template_id)
+        source_info = ready_template_source_info(template_id, _discovery=discovery).to_dict()
+        workflow = workflow_from_ready(template_id, _discovery=discovery)
         validation_issues: list[Any] = []
         try:
             validation_report = workflow.validate()
@@ -538,11 +626,9 @@ def _enrich_target(
 def _asset_metadata(entry: dict[str, str], *, models_root: Path) -> dict[str, Any]:
     name = entry["name"]
     subdir = entry.get("subdir") or entry.get("directory") or "checkpoints"
+    target_path = entry.get("target_path")
     expected = fetch_assets.local_path(entry, root=models_root)
-    if "target_path" in entry:
-        relative = Path(entry["target_path"])
-    else:
-        relative = Path(subdir) / name
+    relative = Path(target_path) if target_path else Path(subdir) / name
     paths_checked = [str(expected)]
     present = expected.exists()
     remediation = None
@@ -563,7 +649,13 @@ def _asset_metadata(entry: dict[str, str], *, models_root: Path) -> dict[str, An
 
 
 def _render_workflow_rows(rows: list[dict]) -> str:
-    return "\n".join(f"{row.get('id')}\t{row.get('media_type', '-')}\t{row.get('path')}" for row in rows)
+    rendered: list[str] = []
+    for row in rows:
+        line = f"{row.get('id')}\t{row.get('media_type', '-')}\t{row.get('path')}"
+        if row.get("collision"):
+            line += f"\t{row.get('collision_message', 'COLLISION')}"
+        rendered.append(line)
+    return "\n".join(rendered)
 
 
 # ── new lens CLI ─────────────────────────────────────────────────────────────

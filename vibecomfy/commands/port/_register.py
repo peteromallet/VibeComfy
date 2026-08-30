@@ -78,10 +78,10 @@ def register(subparsers) -> None:
     convert.add_argument(
         "workflow",
         nargs="?",
-        help="Workflow source path; omit it when using --all.",
+        help="Workflow path or ready-template id (omit when using --all).",
     )
     convert.add_argument("--out", required=False, help="Destination file path (required for writes; optional with --dry-run)")
-    convert.add_argument("--all", action="store_true", help="Run across all ready templates (dry-run diff mode only)")
+    convert.add_argument("--all", action="store_true", help="Run across all ready templates (dry-run diff mode only). Human output is best-effort and exits 0 despite per-template failures; --json exits nonzero when any row fails.")
     convert.add_argument("--ready-id", help="Emit ready-template candidate mode; must have kind/name shape.")
     convert.add_argument("--json", action="store_true")
     convert.add_argument("--dry-run", action="store_true", help="Emit conversion payload and evidence without writing target file.")

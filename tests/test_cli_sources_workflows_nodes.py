@@ -92,13 +92,23 @@ def test_workflows_list_ready_missing_index_falls_back_exit_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "vibecomfy.commands.workflows.repo_ready_template_ids",
-        lambda: ["image/fallback"],
+    from vibecomfy.commands.workflows import ReadyTemplateDiscovery
+    from vibecomfy.registry.ready import ReadyTemplateRecord
+
+    record = ReadyTemplateRecord(
+        template_id="image/fallback",
+        path=tmp_path / "image" / "fallback.py",
+        source_scope="repo",
+        root=tmp_path,
     )
     monkeypatch.setattr(
-        "vibecomfy.commands.workflows.dynamic_ready_template_rows",
-        lambda *, exclude_ids: [],
+        "vibecomfy.commands.workflows._discover_ready_templates",
+        lambda **_: ReadyTemplateDiscovery(
+            roots=(tmp_path,),
+            records=(record,),
+            by_id={"image/fallback": (record,)},
+            by_lookup={"image/fallback": (record,)},
+        ),
     )
 
     code = _cmd_workflows_list(argparse.Namespace(ready=True, limit=10, json=True, include_dynamic=False))

@@ -5,7 +5,7 @@ from pathlib import Path
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.ingest.normalize import _named_import
-from vibecomfy.registry.ready import ready_template_ids, workflow_from_ready
+from vibecomfy.registry.ready import resolve_ready_template, workflow_from_ready
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import VibeWorkflow
 
@@ -40,15 +40,12 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
 
 
 def _ready_id_for(value: str) -> str | None:
-    ids = ready_template_ids()
-    if value in ids:
-        return value
-    if "/" in value:
+    # Resolve through the same discovery authority used by direct ready loads.
+    # This preserves canonical case and fails closed on ambiguous aliases.
+    try:
+        return resolve_ready_template(value).template_id
+    except KeyError:
         return None
-    matches = [template_id for template_id in ids if Path(template_id).name == value]
-    if len(matches) == 1:
-        return matches[0]
-    return None
 
 
 def _looks_like_path(value: str) -> bool:

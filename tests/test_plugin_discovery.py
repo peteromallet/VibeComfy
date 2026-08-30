@@ -6,9 +6,11 @@ import warnings
 import pytest
 
 from vibecomfy import extras
+from vibecomfy.cli_loader import load_workflow_any
 from vibecomfy.ops import registry as op_registry
 from vibecomfy.ops import image
 from vibecomfy.registry import ready as ready_registry
+from vibecomfy.registry.library import workflow_from_id
 from vibecomfy.registry.ready import (
     ReadyTemplateLoadError,
     dynamic_ready_template_rows,
@@ -167,10 +169,11 @@ def test_plugin_op_override_wins_for_builtin_module_attribute(tmp_path: Path, mo
     assert any("Overriding vibecomfy op image.t2i" in str(item.message) for item in caught)
 
 
-def test_ready_template_collision_warns_and_builtin_wins(tmp_path: Path, monkeypatch) -> None:
+def test_ready_template_collision_fails_closed_with_all_candidates(tmp_path: Path, monkeypatch) -> None:
     _reset_plugin_state(monkeypatch, tmp_path)
     root = tmp_path / "plugin_ready"
-    _write_ready_template(root / "image" / "z_image.py")
+    candidate = root / "image" / "z_image.py"
+    _write_ready_template(candidate)
     plugin = tmp_path / "vibecomfy_extras" / "ops" / "collision_plugin.py"
     plugin.parent.mkdir(parents=True)
     plugin.write_text(
@@ -179,15 +182,86 @@ def test_ready_template_collision_warns_and_builtin_wins(tmp_path: Path, monkeyp
         encoding="utf-8",
     )
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        ids = ready_template_ids()
+    with pytest.raises(ValueError, match="Ambiguous ready template id 'image/z_image'") as exc_info:
+        ready_template_ids()
 
-    assert "image/z_image" in ids
-    assert any("Ready template id collision" in str(item.message) for item in caught)
-    assert workflow_from_ready("image/z_image").metadata["ready_template"] == "image/z_image"
+    message = str(exc_info.value)
+    assert str(candidate) in message
+    assert str((ready_registry.READY_ROOT / "image/z_image.py").resolve()) in message
 
 
+def test_ready_template_short_alias_collision_requires_qualified_id(tmp_path: Path, monkeypatch) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    root = tmp_path / "ready_templates"
+    image_candidate = root / "image" / "shared.py"
+    video_candidate = root / "video" / "shared.py"
+    _write_ready_template(image_candidate)
+    _write_ready_template(video_candidate)
+    monkeypatch.setattr(ready_registry, "_ready_roots", lambda: [root])
+
+    with pytest.raises(ValueError, match="Ambiguous ready template id 'shared'") as exc_info:
+        workflow_from_ready("shared")
+    message = str(exc_info.value)
+    assert f"{image_candidate}, {video_candidate}" in message
+    assert message.endswith("Use a category-qualified id.")
+    assert ready_registry.ready_template_source_info("IMAGE\\SHARED").path == str(image_candidate)
+    assert ready_registry.ready_template_source_info("video/shared").path == str(video_candidate)
+
+
+def test_case_variant_registered_root_is_one_discovery_root(tmp_path: Path, monkeypatch) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    root = tmp_path / "PluginReady"
+    candidate = root / "image" / "only.py"
+    _write_ready_template(candidate)
+    variant = Path(str(root).swapcase())
+    roots = ready_registry._dedupe_roots([root, variant])
+    monkeypatch.setattr(ready_registry, "_ready_roots", lambda: roots)
+    monkeypatch.setattr(ready_registry, "_dynamic_ready_roots", lambda: roots)
+
+    assert roots == [root.resolve()]
+    assert ready_template_ids() == ["image/only"]
+    assert workflow_from_ready("IMAGE/ONLY").metadata["ready_template"] == "image/only"
+
+
+def test_case_variant_qualified_ids_remain_exact_and_folded_aliases_collide(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first_candidate = first / "image" / "Foo.py"
+    second_candidate = second / "image" / "foo.py"
+    _write_ready_template(first_candidate)
+    _write_ready_template(second_candidate)
+    monkeypatch.setattr(ready_registry, "_ready_roots", lambda: [first, second])
+
+    assert ready_registry.ready_template_source_info("image/Foo").path == str(first_candidate)
+    assert ready_registry.ready_template_source_info("image/foo").path == str(second_candidate)
+    with pytest.raises(ValueError, match="Ambiguous ready template id 'IMAGE/FOO'") as exc_info:
+        workflow_from_ready("IMAGE/FOO")
+    message = str(exc_info.value)
+    assert str(first_candidate) in message
+    assert str(second_candidate) in message
+    assert message.endswith("Use the exact canonical id.")
+    with pytest.raises(ValueError, match="Ambiguous ready template id 'foo'"):
+        workflow_from_ready("foo")
+
+
+def test_unique_case_variant_aliases_preserve_enumerated_id(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    root = tmp_path / "ready_templates"
+    candidate = root / "image" / "Foo.py"
+    _write_ready_template(candidate)
+    monkeypatch.setattr(ready_registry, "_ready_roots", lambda: [root])
+    monkeypatch.setattr(ready_registry, "_dynamic_ready_roots", lambda: [root])
+
+    assert ready_template_ids() == ["image/Foo"]
+    assert ready_registry.ready_template_source_info("IMAGE/FOO").template_id == "image/Foo"
+    assert workflow_from_ready("fOo").metadata["ready_template"] == "image/Foo"
+    assert workflow_from_id("IMAGE\\FOO").metadata["ready_template"] == "image/Foo"
+    assert load_workflow_any("IMAGE/FOO").metadata["ready_template"] == "image/Foo"
 def test_ensure_plugins_loaded_is_idempotent_when_empty(tmp_path: Path, monkeypatch) -> None:
     _reset_plugin_state(monkeypatch, tmp_path)
     calls = 0
