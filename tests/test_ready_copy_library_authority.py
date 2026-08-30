@@ -64,7 +64,7 @@ def test_copy_alias_resolves_enumerated_not_cwd_or_suffix_decoy(
     decoy = tmp_path / "IMAGE" / "FOO.py"
     _write_template(decoy, "DECOY")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(copy_cmd, "READY_ROOT", ready_root)
+    _install_copy_discovery(monkeypatch, [ready_root])
 
     for query in ("IMAGE/FOO", r"image\Foo", "image/Foo"):
         assert copy_cmd._resolve_template_path(query) == enumerated
@@ -117,7 +117,7 @@ def test_copy_direct_filesystem_path_does_not_impersonate_ready_id(
     decoy = tmp_path / "IMAGE" / "FOO.py"
     _write_template(decoy, "DECOY")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(copy_cmd, "READY_ROOT", ready_root)
+    _install_copy_discovery(monkeypatch, [ready_root])
 
     assert copy_cmd._resolve_template_path(str(direct)) == direct
     assert copy_cmd._resolve_template_path("IMAGE/FOO") is None
