@@ -1,5 +1,7 @@
 """S5 final-wave: Reroute wildcard, leftover Δ, judge inputs, corpus RefusedEmit."""
-import json, pathlib, pytest
+import json
+import pathlib
+import pytest
 from vibecomfy.ingest.normalize import from_envelope
 from vibecomfy.porting.emit.ui import emit_ui_json, _emitted_input_slot_for_link
 from vibecomfy.porting.refuse import RefusedEmit
@@ -18,14 +20,36 @@ def test_reroute_wildcard_normalization() -> None:
             assert isinstance(ui, dict)
 
 def test_2x2_seed_variation_emits_after_fix() -> None:
-    p = pathlib.Path("external_workflows/corpus/cdb8167d4eccd0a8.json")
-    if not p.is_file():
-        pytest.skip("corpus file absent")
+    p = pathlib.Path("tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json")
     data = json.loads(p.read_text())
-    wf = from_envelope(data)
-    ui = emit_ui_json(wf)
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    _, ui = ingest_workflow_and_ui(
+        data,
+        schema_provider=get_authoring_schema_provider(on_demand_schemas=False),
+    )
     assert isinstance(ui, dict)
     assert len(ui.get("nodes", [])) >= 20
+    splitter = next(node for node in ui["nodes"] if node["id"] == 58)
+    assert len(splitter["outputs"]) == 5  # remained + four split_count slots
+    splitter_links = [link for link in ui["links"] if link[1] == 58]
+    assert [link[2] for link in splitter_links] == [1, 2, 3, 4]
+    assert all(link[2] < len(splitter["outputs"]) for link in splitter_links)
+
+
+def test_2x2_splitter_still_refuses_links_beyond_declared_count() -> None:
+    p = pathlib.Path("tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json")
+    data = json.loads(p.read_text())
+    data["58"]["inputs"]["widget_0"] = 2
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    with pytest.raises(RefusedEmit):
+        ingest_workflow_and_ui(
+            data,
+            schema_provider=get_authoring_schema_provider(on_demand_schemas=False),
+        )
 
 def test_corpus_preflight_refused_emit_surfaces_typed_failure() -> None:
     assert _emitted_input_slot_for_link([{"name": "a"}, {"name": "b"}], "nonexistent_xyz") is None

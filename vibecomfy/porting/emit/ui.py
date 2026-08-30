@@ -131,6 +131,71 @@ _CHUNKED_EMIT_NODE_THRESHOLD = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD",
 _CHUNKED_EMIT_CHUNK_SIZE = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_CHUNK_SIZE", "128"))
 _CHUNKED_EMIT_WARN_EVERY = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_WARN_EVERY", "50"))
 
+# Some custom nodes expose a variable number of LiteGraph output sockets while
+# their object_info schema can only describe the base return type.  Inspire's
+# batch splitters are the important example: ``split_count`` image/latent
+# outputs are followed by one ``remained`` output, so the editor addresses
+# them at slots 1..split_count (slot 0 is the remainder).  Keep this contract
+# explicit and bounded rather than treating every schema/edge disagreement as
+# an inferred output; ordinary phantom endpoints must still refuse emission.
+_DYNAMIC_OUTPUT_COUNT_INPUTS = {
+    "ImageBatchSplitter //Inspire": ("split_count", "IMAGE", 50),
+    "LatentBatchSplitter //Inspire": ("split_count", "LATENT", 50),
+}
+
+
+@dataclass(frozen=True)
+class _DynamicOutputSpec:
+    type: str
+    name: str
+
+
+def _dynamic_output_count(
+    node: Any,
+    schema: Any | None,
+) -> int | None:
+    """Return dynamic output arity for the small, evidence-backed node set."""
+    contract = _DYNAMIC_OUTPUT_COUNT_INPUTS.get(getattr(node, "class_type", ""))
+    if contract is None:
+        return None
+    input_name, _output_type, maximum = contract
+    candidates: list[Any] = []
+    inputs = getattr(node, "inputs", None)
+    widgets = getattr(node, "widgets", None)
+    if isinstance(inputs, Mapping):
+        candidates.append(inputs.get(input_name))
+    if isinstance(widgets, Mapping):
+        candidates.extend((widgets.get(input_name), widgets.get("widget_0")))
+    raw_widgets = getattr(getattr(node, "raw_widgets", None), "values", None)
+    if isinstance(raw_widgets, list) and raw_widgets:
+        candidates.append(raw_widgets[-1])
+    schema_inputs = getattr(schema, "inputs", None)
+    if isinstance(schema_inputs, Mapping):
+        spec = schema_inputs.get(input_name)
+        candidates.append(getattr(spec, "default", None))
+    for value in candidates:
+        # bool is an int subclass but is not a valid Comfy widget value.
+        if type(value) is int and 0 <= value <= maximum:
+            return value + 1  # remainder slot + split_count item slots
+    return None
+
+
+def _materialized_schema_outputs(
+    node: Any,
+    schema: Any | None,
+) -> list[Any]:
+    """Expand an explicitly dynamic node's base output schema for the editor."""
+    base = list(getattr(schema, "outputs", None) or []) if schema else []
+    count = _dynamic_output_count(node, schema)
+    if count is None or not base:
+        return base
+    output_type = getattr(base[0], "type", None) or _DYNAMIC_OUTPUT_COUNT_INPUTS[node.class_type][1]
+    output_name = getattr(base[0], "name", None) or output_type
+    return [
+        *base,
+        *(_DynamicOutputSpec(output_type, f"{output_name}_{slot}") for slot in range(len(base), count)),
+    ]
+
 
 def _door_ui_passthrough_applicable(
     wf: Any,
@@ -1221,6 +1286,14 @@ def _resolve_output_slot_and_type(
             outputs = getattr(schema, "outputs", None) or []
             if slot < len(outputs):
                 return slot, outputs[slot].type or ""
+            # Inspire batch splitters materialize additional IMAGE/LATENT
+            # sockets from ``split_count`` at runtime.  Their static schema
+            # intentionally contains only the base return type, so preserve
+            # the type for an out-of-range dynamic slot while endpoint
+            # validation still checks the materialized socket array.
+            dynamic = _DYNAMIC_OUTPUT_COUNT_INPUTS.get(class_type)
+            if dynamic is not None and outputs:
+                return slot, outputs[0].type or dynamic[1]
         return slot, ""
     # Name lookup against OutputSpec list position
     if schema is not None:
@@ -1920,6 +1993,20 @@ def materialize_litegraph_node(
         fields=merged_fields,
     )
     outputs: list[dict[str, Any]] = _schema_outputs_for_unwired_node(schema)
+    if class_type in _DYNAMIC_OUTPUT_COUNT_INPUTS:
+        dynamic_count = _dynamic_output_count(node, schema)
+        if dynamic_count is not None and schema and schema.outputs:
+            output_type = schema.outputs[0].type or _DYNAMIC_OUTPUT_COUNT_INPUTS[class_type][1]
+            output_name = schema.outputs[0].name or output_type
+            outputs.extend(
+                {
+                    "name": f"{output_name}_{slot}",
+                    "type": output_type,
+                    "links": None,
+                    "slot_index": slot,
+                }
+                for slot in range(len(outputs), dynamic_count)
+            )
     if class_type == "vibecomfy.exec":
         exec_io = _exec_io_for_node(node)
         if exec_io is not None:
@@ -3190,7 +3277,6 @@ def emit_ui_json(
             )
             furniture = _resolve_furniture(node, None)
         schema = schema_cache.get(node.class_type)
-        schema_outputs = list(getattr(schema, "outputs", None) or []) if schema else []
         raw_ui_node = _raw_ui_node_for_node(node_id, node, raw_ui_node_map)
         exec_io = _exec_io_for_node(node)
 
@@ -3202,6 +3288,11 @@ def emit_ui_json(
             slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
             eid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
             output_links_by_slot[slot].append(eid)
+
+        schema_outputs = _materialized_schema_outputs(
+            node,
+            schema,
+        )
 
         if exec_io is not None:
             outputs = _exec_dynamic_outputs(exec_io, output_links_by_slot)
@@ -3753,6 +3844,21 @@ def structural_validate(
         if schema_outputs is not None:
             emitted_outputs = len(node.get("outputs", []))
             schema_output_count = len(schema_outputs)
+            if class_type in _DYNAMIC_OUTPUT_COUNT_INPUTS and emitted_outputs >= schema_output_count:
+                # The static object_info row contains only the base return
+                # type; the editor's split_count-derived sockets are valid
+                # and have already been checked by the link endpoint pass.
+                skipped.append(
+                    {
+                        "node_id": node["id"],
+                        "class_type": class_type,
+                        "reason": (
+                            f"dynamic output count {emitted_outputs} is derived "
+                            f"from split_count; schema base {schema_output_count}"
+                        ),
+                    }
+                )
+                continue
             if emitted_outputs > schema_output_count:
                 errors.append(
                     f"node {node['id']}({class_type}): output slot count "
