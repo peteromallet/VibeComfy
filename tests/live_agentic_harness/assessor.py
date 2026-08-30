@@ -227,23 +227,157 @@ def _accepted_batch_is_well_formed(
 
 
 def _graph_payload_is_well_formed(value: Any) -> bool:
-    """Return whether a candidate payload is a recognized canonical graph shape."""
-    if not isinstance(value, Mapping):
+    """Validate a graph through the canonical ingest/import contract."""
+    if not isinstance(value, Mapping) or not value:
         return False
     try:
-        from vibecomfy.ingest.normalize import detect_workflow_shape
+        from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui
 
-        shape = detect_workflow_shape(dict(value))
+        if "prompt" in value:
+            prompt = value.get("prompt")
+            if not isinstance(prompt, Mapping) or not prompt:
+                return False
+            _api_graph_structure_is_well_formed(prompt)
+            from_api(dict(prompt))
+            return True
+
+        nodes = value.get("nodes")
+        if isinstance(nodes, list):
+            _ui_graph_structure_is_well_formed(value)
+            from_ui(dict(value), use_comfy_converter=False)
+            return True
+        if isinstance(nodes, dict) and (
+            "vibecomfy_format_version" in value
+            or isinstance(value.get("compiled_api"), dict)
+        ):
+            from_envelope(dict(value))
+            return True
+
+        _api_graph_structure_is_well_formed(value)
+        from_api(dict(value))
+        return True
     except Exception:
         return False
-    return shape in {"api", "ui", "vibe", "prompt_api"}
 
 
-def _candidate_payload_is_well_formed(value: Any) -> bool:
-    """Validate the graph-bearing shape of one legacy candidate payload."""
+def _api_graph_structure_is_well_formed(value: Mapping[str, Any]) -> None:
+    """Reject empty/non-node API containers before canonical import."""
+    if not value or not all(
+        isinstance(node, Mapping)
+        and _non_empty_string(node.get("class_type"))
+        for node in value.values()
+    ):
+        raise ValueError("API graph must contain non-empty node mappings")
+    node_ids = {str(node_id) for node_id in value}
+    for node in value.values():
+        inputs = node.get("inputs", {})
+        if not isinstance(inputs, Mapping):
+            raise ValueError("API node inputs must be a mapping")
+        for link in inputs.values():
+            if (
+                isinstance(link, list)
+                and len(link) == 2
+                and isinstance(link[0], str)
+                and link[0].lstrip("-").isdigit()
+            ):
+                if isinstance(link[1], bool) or not isinstance(link[1], int):
+                    raise ValueError("API link slot must be an integer")
+                if link[0] not in node_ids:
+                    raise ValueError("API link source must name an existing node")
+
+
+def _ui_graph_structure_is_well_formed(value: Mapping[str, Any]) -> None:
+    """Validate LiteGraph nodes, links, endpoints, and link references."""
+    nodes = value.get("nodes")
+    links = value.get("links", [])
+    if not isinstance(nodes, list) or not nodes or not isinstance(links, list):
+        raise ValueError("UI graph requires non-empty nodes and an optional links list")
+    node_ids: set[str] = set()
+    for node in nodes:
+        if not isinstance(node, Mapping) or "id" not in node:
+            raise ValueError("UI graph node must be a mapping with an id")
+        node_id = node["id"]
+        if isinstance(node_id, bool) or not isinstance(node_id, (int, str)):
+            raise ValueError("UI graph node id must be an integer or string")
+        node_key = str(node_id)
+        if not node_key or node_key in node_ids:
+            raise ValueError("UI graph node ids must be unique and non-empty")
+        node_ids.add(node_key)
+        if "type" in node and not _non_empty_string(node["type"]):
+            raise ValueError("UI graph node type must be a non-empty string")
+        if "class_type" in node and not _non_empty_string(node["class_type"]):
+            raise ValueError("UI graph node class_type must be a non-empty string")
+
+    link_ids: set[int] = set()
+    for link in links:
+        if isinstance(link, list):
+            if len(link) < 5:
+                raise ValueError("UI graph link tuple is too short")
+            link_id, origin_id, origin_slot, target_id, target_slot, *rest = link
+            link_type = rest[0] if rest else None
+        elif isinstance(link, Mapping):
+            required = {"id", "origin_id", "origin_slot", "target_id", "target_slot"}
+            if not required <= set(link):
+                raise ValueError("UI graph link mapping is incomplete")
+            link_id = link["id"]
+            origin_id = link["origin_id"]
+            origin_slot = link["origin_slot"]
+            target_id = link["target_id"]
+            target_slot = link["target_slot"]
+            link_type = link.get("type")
+        else:
+            raise ValueError("UI graph links must be tuples or mappings")
+        if (
+            isinstance(link_id, bool)
+            or not isinstance(link_id, int)
+            or link_id in link_ids
+            or not isinstance(origin_slot, int)
+            or isinstance(origin_slot, bool)
+            or origin_slot < 0
+            or not isinstance(target_slot, int)
+            or isinstance(target_slot, bool)
+            or target_slot < 0
+            or not isinstance(target_id, (int, str))
+            or isinstance(target_id, bool)
+            or not isinstance(origin_id, (int, str))
+            or isinstance(origin_id, bool)
+            or str(origin_id) not in node_ids
+            or str(target_id) not in node_ids
+            or (link_type is not None and not isinstance(link_type, str))
+        ):
+            raise ValueError("UI graph link has invalid id, slot, type, or endpoint")
+        link_ids.add(link_id)
+    for node in nodes:
+        inputs = node.get("inputs", [])
+        if inputs is None:
+            continue
+        if not isinstance(inputs, list):
+            raise ValueError("UI graph node inputs must be a list")
+        for input_item in inputs:
+            if not isinstance(input_item, Mapping):
+                raise ValueError("UI graph input must be a mapping")
+            link_id = input_item.get("link")
+            if link_id is not None and (
+                isinstance(link_id, bool) or not isinstance(link_id, int) or link_id not in link_ids
+            ):
+                raise ValueError("UI graph input references an unknown link")
+            if "name" in input_item and input_item["name"] is not None and not isinstance(
+                input_item["name"], str
+            ):
+                raise ValueError("UI graph input name must be a string")
+
+
+def _candidate_payload_is_well_formed(
+    value: Any,
+    *,
+    carrier: str | None = None,
+) -> bool:
+    """Validate one graph or strict candidate-transaction payload."""
     if not isinstance(value, Mapping):
         return False
-    if value.get("contract_version") == "candidate_transaction_v2":
+    if carrier == "candidate_transaction" or "contract_version" in value:
+        if value.get("contract_version") != "candidate_transaction_v2":
+            return False
         try:
             from vibecomfy.comfy_nodes.agent.candidate_transaction import (
                 validate_candidate_transaction,
@@ -256,12 +390,90 @@ def _candidate_payload_is_well_formed(value: Any) -> bool:
     return _graph_payload_is_well_formed(graph)
 
 
+_CANDIDATE_CARRIERS = ("candidate", "candidate_graph", "candidate_transaction", "graph")
+
+
+def _iter_candidate_carriers(
+    response: Mapping[str, Any],
+) -> tuple[tuple[str, Any], ...]:
+    """Extract all candidate carriers from the response and its outcome."""
+    carriers: list[tuple[str, Any]] = [
+        (field, response[field]) for field in _CANDIDATE_CARRIERS if field in response
+    ]
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        carriers.extend(
+            (f"outcome.{field}", outcome[field])
+            for field in _CANDIDATE_CARRIERS
+            if field in outcome
+        )
+    return tuple(carriers)
+
+
+def _candidate_carriers_are_well_formed(response: Mapping[str, Any]) -> bool:
+    """Validate every present candidate carrier at its actual nesting path."""
+    return all(
+        value is None
+        or _candidate_payload_is_well_formed(
+            value, carrier=field.rsplit(".", 1)[-1]
+        )
+        for field, value in _iter_candidate_carriers(response)
+    )
+
+
+_PACK_REF_KEYS = frozenset(
+    {"slug", "source", "version", "commit", "url", "path", "name", "registry_id"}
+)
+_PROVISIONAL_SCHEMA_KEYS = frozenset({"version", "schema", "runnable"})
+_RESOLVER_EVIDENCE_KEYS = frozenset(
+    {"tier", "source", "endpoint", "cache_hit", "detail", "matched_classes"}
+)
+_CUSTOM_NODE_CANDIDATE_KEYS = frozenset(
+    {
+        "pack",
+        "expected_classes",
+        "validation_mode",
+        "evidence",
+        "warnings",
+        "provisional_schema",
+        "runnable",
+        "stable_install_hash",
+    }
+)
+
+
+def _pack_ref_is_well_formed(value: Any) -> bool:
+    if not isinstance(value, Mapping) or not value or set(value) - _PACK_REF_KEYS:
+        return False
+    if not _non_empty_string(value.get("slug")) or not _non_empty_string(
+        value.get("source")
+    ):
+        return False
+    return all(
+        field not in value or value[field] is None or _non_empty_string(value[field])
+        for field in _PACK_REF_KEYS - {"slug", "source"}
+    )
+
+
+def _provisional_schema_is_well_formed(value: Any) -> bool:
+    if not isinstance(value, Mapping) or set(value) - _PROVISIONAL_SCHEMA_KEYS:
+        return False
+    if not value:
+        return True
+    if not _non_empty_string(value.get("version")):
+        return False
+    schema = value.get("schema")
+    if not isinstance(schema, (Mapping, list)):
+        return False
+    return "runnable" not in value or value["runnable"] is False
+
+
 def _resolver_evidence_is_well_formed(value: Any) -> bool:
-    """Validate serialized resolver evidence when a candidate carries it."""
+    """Validate serialized resolver evidence through its wire contract."""
     if not isinstance(value, list) or not value:
         return False
     for item in value:
-        if not isinstance(item, Mapping):
+        if not isinstance(item, Mapping) or set(item) - _RESOLVER_EVIDENCE_KEYS:
             return False
         if not all(
             _non_empty_string(item.get(field))
@@ -282,8 +494,11 @@ def _resolver_evidence_is_well_formed(value: Any) -> bool:
 
 
 def _custom_node_candidate_is_well_formed(value: Any) -> bool:
-    """Validate one resolver candidate's typed classes and evidence fields."""
-    if not isinstance(value, Mapping):
+    """Validate one complete serialized resolver candidate."""
+    if (
+        not isinstance(value, Mapping)
+        or set(value) - _CUSTOM_NODE_CANDIDATE_KEYS
+    ):
         return False
     expected_classes = value.get("expected_classes")
     if (
@@ -292,16 +507,22 @@ def _custom_node_candidate_is_well_formed(value: Any) -> bool:
         or not all(_non_empty_string(item) for item in expected_classes)
     ):
         return False
-    for field in ("pack", "provisional_schema"):
-        if field in value and not isinstance(value[field], Mapping):
-            return False
-    if "validation_mode" in value and not _non_empty_string(value["validation_mode"]):
+    if "pack" in value and not _pack_ref_is_well_formed(value["pack"]):
+        return False
+    if "provisional_schema" in value and not _provisional_schema_is_well_formed(
+        value["provisional_schema"]
+    ):
+        return False
+    if "validation_mode" in value and (
+        value["validation_mode"]
+        not in {"class_validatable", "evidence_only", "workflow_json_provisional"}
+    ):
         return False
     if "stable_install_hash" in value and not _non_empty_string(
         value["stable_install_hash"]
     ):
         return False
-    if "runnable" in value and not isinstance(value["runnable"], bool):
+    if "runnable" in value and value["runnable"] is not False:
         return False
     if "warnings" in value and (
         not isinstance(value["warnings"], list)
@@ -379,6 +600,41 @@ def _response_has_answer_evidence(
     return False
 
 
+def _response_has_candidate_evidence(response: Mapping[str, Any]) -> bool:
+    """Return whether a candidate outcome carries product evidence."""
+    carriers = _iter_candidate_carriers(response)
+    if not _candidate_carriers_are_well_formed(response):
+        return False
+    if any(value is not None for _field, value in carriers):
+        return True
+    outcome = response.get("outcome")
+    if (
+        response.get("graph_unchanged") is False
+        and isinstance(outcome, Mapping)
+        and outcome.get("kind")
+        in {"candidate", "candidate_transaction", "edit", "edit+clarify"}
+    ):
+        # A legacy response may omit the graph carrier entirely. Keep that
+        # envelope loadable so the assessor's landed-count and edit gates can
+        # classify it; any explicitly present non-null malformed carrier fails
+        # closed above.
+        return True
+    return False
+
+
+def _response_changes_are_well_formed(response: Mapping[str, Any]) -> bool:
+    """Validate direct and outcome change carriers through the edit parser."""
+    for owner in (response, response.get("outcome")):
+        if not isinstance(owner, Mapping) or "changes" not in owner:
+            continue
+        changes = owner["changes"]
+        if not isinstance(changes, list) or not all(
+            _change_entry_is_well_formed(item) for item in changes
+        ):
+            return False
+    return True
+
+
 def _response_outcome_is_well_formed(
     response: Mapping[str, Any],
 ) -> bool:
@@ -390,6 +646,10 @@ def _response_outcome_is_well_formed(
     if not _non_empty_string(kind) or kind not in _RESPONSE_OUTCOME_KINDS:
         return False
 
+    if not _candidate_carriers_are_well_formed(response):
+        return False
+    if not _response_changes_are_well_formed(response):
+        return False
     if "question" in outcome and not _non_empty_string(outcome["question"]):
         return False
     if "reason" in outcome and not _non_empty_string(outcome["reason"]):
@@ -405,10 +665,6 @@ def _response_outcome_is_well_formed(
         return False
     if "changes" in outcome:
         changes = outcome["changes"]
-        if not isinstance(changes, list) or not all(
-            _change_entry_is_well_formed(item) for item in changes
-        ):
-            return False
         if changes and kind not in {
             "candidate",
             "candidate_transaction",
@@ -519,6 +775,10 @@ def _response_envelope_is_valid(
         return False
     if "route" in response and not isinstance(response["route"], str):
         return False
+    if not _candidate_carriers_are_well_formed(response):
+        return False
+    if not _response_changes_are_well_formed(response):
+        return False
     if not has_ok:
         if "outcome" in response:
             if not _response_outcome_is_well_formed(response):
@@ -538,6 +798,7 @@ def _response_envelope_is_valid(
         return False
     elif response["outcome"].get("kind") not in {"error", "failure"}:
         return False
+
 
     mapping_fields = (
         "outcome",
@@ -566,10 +827,6 @@ def _response_envelope_is_valid(
         ):
             continue
         if not isinstance(response[field], dict):
-            return False
-    for field in ("candidate", "candidate_graph", "candidate_transaction", "graph"):
-        value = response.get(field)
-        if value is not None and not _candidate_payload_is_well_formed(value):
             return False
 
     readiness = response.get("readiness")
