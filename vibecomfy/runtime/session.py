@@ -598,7 +598,6 @@ class EmbeddedSession:
             prompt_id = normalize_prompt_id(queued)
             _set_watchdog_prompt_id(watchdog, prompt_id)
             timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-            self.last_fingerprint = fp
             phase_start = time.monotonic()
             comfy_outputs = _decode_terminal_result(
                 queued,
@@ -613,6 +612,7 @@ class EmbeddedSession:
                 ),
             )
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
+            self.last_fingerprint = fp
             stop_reason = "completed"
         except asyncio.TimeoutError:
             stop_reason = "timeout"
@@ -851,7 +851,6 @@ class ServerSession:
                 )
             _set_watchdog_prompt_id(watchdog, prompt_id)
             timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-            self.last_fingerprint = fp
 
             phase_start = time.monotonic()
             history = await _wait_for_server_history(self.url, prompt_id, config=self.config)
@@ -863,6 +862,7 @@ class ServerSession:
                 ),
             )
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
+            self.last_fingerprint = fp
             stop_reason = "completed"
         except asyncio.TimeoutError:
             stop_reason = "timeout"

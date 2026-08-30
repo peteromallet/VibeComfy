@@ -10,7 +10,7 @@ import pytest
 from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
-from vibecomfy.runtime.session import ServerSession, SessionConfig
+from vibecomfy.runtime.session import EmbeddedSession, ServerSession, SessionConfig
 from tests._runtime_session_helpers import (
     FakeAsyncClient,
     FakeProcess,
@@ -61,6 +61,57 @@ def test_server_session_two_runs_share_one_subprocess(
 
     assert len(fake_server) == 1
     assert [post[0] for post in FakeAsyncClient.posts].count("http://127.0.0.1:8200/prompt") == 2
+
+
+def test_embedded_and_server_sessions_keep_fingerprint_state_separate() -> None:
+    embedded = EmbeddedSession()
+    server = ServerSession(SessionConfig(port=8200))
+    assert embedded.last_fingerprint is None
+    assert server.last_fingerprint is None
+
+    embedded.last_fingerprint = (("embedded", "model", "a"),)
+    assert server.last_fingerprint is None
+
+    server.last_fingerprint = (("server", "model", "b"),)
+
+    assert embedded.last_fingerprint != server.last_fingerprint
+
+
+def test_server_failed_run_does_not_promote_fingerprint_authority(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(session_module, "_free_vram_gb", lambda: 10.0)
+    session = ServerSession(SessionConfig(port=8200))
+
+    async def run_cases() -> None:
+        try:
+            await session.run(_workflow("model-a.safetensors"))
+            first_fingerprint = session.last_fingerprint
+            assert first_fingerprint is not None
+
+            FakeAsyncClient.history_status = {
+                "status_str": "error",
+                "completed": True,
+                "messages": [["execution_error", {"exception_message": "model-b failed"}]],
+            }
+            with pytest.raises(RuntimeNodeError, match="model-b failed"):
+                await session.run(_workflow("model-b.safetensors"))
+            assert session.last_fingerprint == first_fingerprint
+
+            FakeAsyncClient.history_status = {
+                "status_str": "success",
+                "completed": True,
+                "messages": [],
+            }
+            monkeypatch.setattr(session_module, "_free_vram_gb", lambda: 0.5)
+            await session.run(_workflow("model-b.safetensors"))
+        finally:
+            await session.stop()
+
+    asyncio.run(run_cases())
+
+    assert sum(url.endswith("/api/free") for url, _payload in FakeAsyncClient.posts) == 1
 
 
 

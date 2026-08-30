@@ -217,7 +217,9 @@ def test_embedded_session_reconfigure_passes_typed_configuration(
     assert config.disable_smart_memory is True
 
 
-def test_auto_flush_truth_table(fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_flush_unchanged_model_no_flush_changed_model_once(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     free_vram = 0.5
     monkeypatch.setattr(session_module, "_free_vram_gb", lambda: free_vram)
@@ -238,6 +240,85 @@ def test_auto_flush_truth_table(fake_comfy, tmp_path: Path, monkeypatch: pytest.
             await session.stop()
 
     asyncio.run(run_cases())
+
+
+def test_embedded_failed_run_does_not_promote_fingerprint_authority(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    free_vram = 10.0
+    monkeypatch.setattr(session_module, "_free_vram_gb", lambda: free_vram)
+    queue_calls = 0
+
+    async def queue_with_failure(_self, _api_dict):
+        nonlocal queue_calls
+        queue_calls += 1
+        if queue_calls == 2:
+            raise RuntimeError("model-b failed")
+        return {"prompt_id": f"prompt-{queue_calls}", "outputs": []}
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", queue_with_failure)
+
+    async def run_cases() -> None:
+        nonlocal free_vram
+        session = EmbeddedSession()
+        try:
+            await session.run(_workflow("model-a.safetensors"))
+            first_fingerprint = session.last_fingerprint
+            assert first_fingerprint is not None
+
+            with pytest.raises(QueueError, match="model-b failed"):
+                await session.run(_workflow("model-b.safetensors"))
+            assert session.last_fingerprint == first_fingerprint
+
+            free_vram = 0.5
+            await session.run(_workflow("model-b.safetensors"))
+        finally:
+            await session.stop()
+
+    asyncio.run(run_cases())
+
+    assert fake_comfy.instances[0].clear_cache_calls == 1
+
+
+def test_embedded_output_collection_failure_does_not_promote_fingerprint_authority(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    free_vram = 10.0
+    monkeypatch.setattr(session_module, "_free_vram_gb", lambda: free_vram)
+    collect_calls = 0
+    collect_outputs = session_module._collect_output_paths
+
+    def collect_with_failure(value, *, output_directory=None):
+        nonlocal collect_calls
+        collect_calls += 1
+        if collect_calls == 2:
+            raise RuntimeError("output collection failed")
+        return collect_outputs(value, output_directory=output_directory)
+
+    monkeypatch.setattr(session_module, "_collect_output_paths", collect_with_failure)
+
+    async def run_cases() -> None:
+        nonlocal free_vram
+        session = EmbeddedSession()
+        try:
+            await session.run(_workflow("model-a.safetensors"))
+            first_fingerprint = session.last_fingerprint
+            assert first_fingerprint is not None
+
+            with pytest.raises(RuntimeError, match="output collection failed"):
+                await session.run(_workflow("model-b.safetensors"))
+            assert session.last_fingerprint == first_fingerprint
+
+            free_vram = 0.5
+            await session.run(_workflow("model-b.safetensors"))
+        finally:
+            await session.stop()
+
+    asyncio.run(run_cases())
+
+    assert fake_comfy.instances[0].clear_cache_calls == 1
 
 
 def test_warm_policy_never_flushes_before_every_run(
