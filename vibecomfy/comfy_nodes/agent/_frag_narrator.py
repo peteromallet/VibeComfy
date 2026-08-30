@@ -390,8 +390,22 @@ def _narrate_final_message(
         )
 
         # ── LLM narrator path (sole path; SD1 fast-path removed) ──────
-        route = _narrator_route() or _NARRATOR_DEFAULT_ROUTE
-        model = _narrator_model() or _NARRATOR_DEFAULT_MODEL
+        # Prefer an explicit process override (used by isolated harness
+        # runs), then the selector carried by this request's resolved
+        # profile. The latter keeps the narrator on the same per-run route
+        # and model as the edit phase without changing shipped defaults.
+        request_payload = getattr(state, "request_payload", None)
+        request_payload = request_payload if isinstance(request_payload, Mapping) else {}
+        route = (
+            _narrator_route()
+            or (request_payload.get("narrator_route") if isinstance(request_payload.get("narrator_route"), str) else None)
+            or _NARRATOR_DEFAULT_ROUTE
+        )
+        model = (
+            _narrator_model()
+            or (request_payload.get("narrator_model") if isinstance(request_payload.get("narrator_model"), str) else None)
+            or _NARRATOR_DEFAULT_MODEL
+        )
 
         # Pre-compute the deterministic fallback in case the LLM path
         # produces no message at all.

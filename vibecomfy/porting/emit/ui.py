@@ -4305,6 +4305,19 @@ def _output_slot_for_ref(node: Mapping[str, Any], output: str | int) -> int | No
         if slot.get("name") == output:
             slot_index = slot.get("slot_index", index)
             return slot_index if type(slot_index) is int and slot_index >= 0 else None
+    # Virtual/helper outputs are serialized as ``unknown_<N>`` by the IR
+    # authoring surface, while schema-less LiteGraph nodes expose the same
+    # socket as ``*`` (or ``output_<N>``). The numeric suffix is the stable
+    # slot identity; resolving it here keeps topology-fold attribution
+    # consistent with the emitter and avoids false
+    # ``full_ui_link_changed_unattributed`` failures.
+    import re
+
+    match = re.fullmatch(r"(?:unknown|output)_(\d+)", output)
+    if match is not None:
+        index = int(match.group(1))
+        if 0 <= index < len(outputs):
+            return index
     return None
 
 
@@ -5031,8 +5044,53 @@ def pin_untouched_ui(
                     allowed = attribution["node_paths"].get(key, set())
                     merged = deepcopy(dict(original_node))
                     for field in allowed:
+                        # A named widget write is represented in
+                        # ``widgets_values``. Re-emission may reconstruct
+                        # linked input sockets with a schema-less placeholder
+                        # (``UNKNOWN``) even when the captured UI used ``*``.
+                        # Copying that reconstructed ``inputs`` array here
+                        # would let an unrelated field write launder a socket
+                        # identity change into the replay candidate. Link
+                        # operations still own ``inputs`` through their own
+                        # attribution; SetNodeField only owns the named
+                        # literal field and any explicitly removed inbound
+                        # socket.
+                        preserve_linked_inputs = (
+                            field == "inputs"
+                            and key in attribution["set_node_fields"]
+                            and any(
+                                isinstance(item, Mapping) and item.get("link") is not None
+                                for item in original_node.get("inputs") or ()
+                            )
+                            and any(
+                                isinstance(item, Mapping) and item.get("link") is not None
+                                for item in node.get("inputs") or ()
+                            )
+                        )
+                        if preserve_linked_inputs:
+                            continue
                         if field in node:
                             merged[field] = deepcopy(node[field])
+                    set_fields = attribution["set_node_fields"].get(key, set())
+                    if set_fields and isinstance(merged.get("inputs"), list):
+                        candidate_input_names = {
+                            str(item.get("name"))
+                            for item in node.get("inputs") or ()
+                            if isinstance(item, Mapping) and item.get("name") is not None
+                        }
+                        # Assigning a literal to a linked input removes that
+                        # edge in the IR. Preserve all other captured input
+                        # records, but drop precisely the endpoint that the
+                        # SetNodeField operation replaced.
+                        merged["inputs"] = [
+                            item
+                            for item in merged["inputs"]
+                            if not (
+                                isinstance(item, Mapping)
+                                and str(item.get("name")) in set_fields
+                                and str(item.get("name")) not in candidate_input_names
+                            )
+                        ]
                     nodes[index] = merged
                     continue
                 nodes[index] = deepcopy(dict(original_node))

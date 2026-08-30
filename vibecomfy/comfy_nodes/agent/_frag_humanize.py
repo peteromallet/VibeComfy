@@ -1074,8 +1074,22 @@ def _synthesize_post_validation_narrative(
     )
     write_json_artifact(context_path, narrative_context)
 
-    route = os.getenv("VIBECOMFY_NARRATOR_ROUTE") or None
-    model = os.getenv("VIBECOMFY_NARRATOR_MODEL") or None
+    request_payload = getattr(state, "request_payload", None)
+    request_payload = request_payload if isinstance(request_payload, Mapping) else {}
+    # A request-scoped profile selector is authoritative for this isolated
+    # turn; environment overrides remain useful for tests and harness probes.
+    # Do not invent a default here: this legacy synthesis helper only calls an
+    # LLM when a route/model was explicitly selected.
+    route = os.getenv("VIBECOMFY_NARRATOR_ROUTE") or (
+        request_payload.get("narrator_route")
+        if isinstance(request_payload.get("narrator_route"), str)
+        else None
+    )
+    model = os.getenv("VIBECOMFY_NARRATOR_MODEL") or (
+        request_payload.get("narrator_model")
+        if isinstance(request_payload.get("narrator_model"), str)
+        else None
+    )
     fallback_message = _fallback_narrative_message(
         state,
         outcome=outcome,

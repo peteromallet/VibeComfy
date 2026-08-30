@@ -1482,6 +1482,14 @@ def _run_implement(
         "executor_route": executor_route,
         "provider_route": spec.agent,
         "model": spec.model,
+        # The edit kernel's post-validation narrator is part of this same
+        # request-scoped run. Carry the resolved profile selector explicitly
+        # so a temporary/profile-selected implementation route (for example
+        # Codex) cannot silently fall back to the shipped OpenRouter narrator
+        # defaults. The shipped default profile remains unchanged.
+        "narrator_route": spec.agent,
+        "narrator_model": spec.model,
+        "profile": request.profile,
         "effort": spec.effort,
         "executor_classification": classification,
         "additive": bool(additive),

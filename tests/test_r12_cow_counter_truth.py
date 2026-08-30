@@ -5,13 +5,15 @@ from copy import deepcopy
 from vibecomfy.porting.edit.ops import (
     LinkSourceRef,
     LinkTargetRef,
+    NodeFieldTarget,
     NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
+    SetNodeFieldOp,
     SubgraphInterfaceOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.emit.ui import guard_exit_ui
+from vibecomfy.porting.emit.ui import guard_exit_ui, pin_untouched_ui
 
 
 def _counter_ui(*, node_counter=5, link_counter=3, links=None, nodes=None) -> dict:
@@ -133,6 +135,40 @@ def test_guard_rejects_unrelated_and_ghost_remove_link_counter_decreases() -> No
         issue.code == "full_ui_counter_changed_unattributed" for issue in unrelated.diagnostics
     )
     assert any(issue.code == "full_ui_counter_changed_unattributed" for issue in ghost.diagnostics)
+
+
+def test_guard_attributes_unknown_virtual_output_upsert() -> None:
+    """Generated ``unknown_0`` output names resolve to the wildcard slot."""
+    original = {
+        "last_node_id": 3,
+        "last_link_id": 3,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Reroute",
+                "properties": {"vibecomfy_uid": "source"},
+                "outputs": [{"name": "*", "type": "*", "links": [2]}],
+            },
+            {
+                "id": 2,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "control", "type": "*", "link": 2}],
+            },
+        ],
+        "links": [[2, 1, 0, 2, 0, "*"]],
+    }
+    candidate = deepcopy(original)
+    candidate["links"] = [[2, 1, 0, 2, 0, ""]]
+    operation = UpsertLinkOp(
+        "upsert_link",
+        LinkSourceRef("", "source", "unknown_0"),
+        LinkTargetRef("", "target", "control"),
+    )
+
+    result = guard_exit_ui(original, candidate, (operation,))
+
+    assert result.ok is True, result.diagnostics
 
 
 def test_guard_rejects_remove_node_without_incident_links() -> None:
@@ -429,3 +465,29 @@ def test_guard_allows_authorized_subgraph_removal() -> None:
     result = guard_exit_ui(original, candidate, (operation,))
 
     assert result.ok is True
+
+
+def test_pin_set_field_preserves_schema_less_link_type_on_unrelated_reemit() -> None:
+    """A widget write must not replace an untouched ``*`` socket with UNKNOWN."""
+    original = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SchemaLessTarget",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "control", "type": "*", "link": 4}],
+                "widgets_values": [0],
+            }
+        ],
+        "links": [[4, 2, 0, 1, 0, "*"]],
+    }
+    emitted = deepcopy(original)
+    emitted["nodes"][0]["inputs"][0]["type"] = "UNKNOWN"
+    emitted["nodes"][0]["widgets_values"] = [1]
+    operation = SetNodeFieldOp(
+        "set_node_field", NodeFieldTarget("", "target", "value"), 1
+    )
+
+    pinned = pin_untouched_ui(original, emitted, (operation,))
+
+    assert pinned["nodes"][0]["inputs"] == original["nodes"][0]["inputs"]

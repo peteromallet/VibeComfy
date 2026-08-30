@@ -3087,6 +3087,9 @@ class TestRouteGateFlows:
         assert payload["route"] == "revise"
         assert payload["executor_route"] == "revise"
         assert payload["provider_route"] == "codex"
+        assert payload["narrator_route"] == "codex"
+        assert payload["narrator_model"] == "gpt-5.4"
+        assert payload["profile"] == "default"
         assert payload["executor_classification"]["route"] == "revise"
         assert payload["executor_classification"]["task"] == "edit_graph"
 

@@ -454,6 +454,54 @@ class TestWriteNarrativeArtifacts:
 
 
 class TestNarrateFinalMessage:
+    def test_request_profile_selector_reaches_narrator(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The narrator follows the per-run selector carried by the profile."""
+        monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
+        monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
+        captured: dict[str, Any] = {}
+
+        def _fake_run_model_turn(**kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return {"json": {"message": "Profile-routed narration."}}
+
+        monkeypatch.setattr(
+            "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+            _fake_run_model_turn,
+        )
+        state = _make_state(
+            request_payload={
+                "profile": "codex-test",
+                "narrator_route": "codex",
+                "narrator_model": "gpt-5.6-sol",
+            },
+            graph={"nodes": [{"id": 1, "type": "SaveImage"}]},
+            ui_payload={"nodes": [{"id": 1, "type": "SaveImage"}]},
+            batch_field_changes=(
+                FieldChange(uid="1", field_path="filename_prefix", old="before", new="after"),
+            ),
+            batch_exit_mode="done",
+            session_dir=tmp_path / "session",
+            turn_dir=tmp_path / "turns" / "0001",
+            narrative_context_path=Path("narrative_context.json"),
+            narrative_request_path=Path("narrative_request.json"),
+            narrative_response_path=Path("narrative_response.json"),
+            narrative_validation_path=Path("narrative_validation.json"),
+            artifacts={},
+        )
+        state.turn_dir.mkdir(parents=True, exist_ok=True)
+        context = TurnContext(session_id="profile-routed", turn_id="0001")
+        for gate_name in context.gate_results:
+            context.set_gate(gate_name, True)
+
+        assert _narrate_final_message(
+            state,
+            context,
+            outcome=TurnOutcome.edit(changes=state.batch_field_changes),
+            public_outcome="candidate",
+        ) == "Profile-routed narration."
+        assert captured["route"] == "codex"
+        assert captured["model"] == "gpt-5.6-sol"
+
     def test_clean_success_calls_llm_and_ships_agent_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
