@@ -626,9 +626,13 @@ def build_schema_witness(
             "no live-provider witness may be manufactured",
             code="missing_schema_snapshot",
         )
-    schemas: dict[str, Any] = dict(snapshot.schemas)
     missing_class_types: list[str] = list(snapshot.missing_classes)
     snapshot_payload = schema_snapshot_to_payload(snapshot)
+    # ``SchemaSnapshot`` is deeply immutable (nested mappings are
+    # ``mappingproxy`` instances).  Reuse its canonical thawed payload for the
+    # witness so the durable receipt remains JSON serializable while retaining
+    # exactly the locked snapshot bytes and digest domain.
+    schemas: dict[str, Any] = dict(snapshot_payload.get("schemas", {}))
     body = {
         "contract_version": SCHEMA_WITNESS_CONTRACT_VERSION,
         "provider_mode": "frozen",
