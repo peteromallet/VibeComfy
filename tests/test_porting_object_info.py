@@ -434,6 +434,7 @@ def test_build_cache_requires_explicit_pack_version_for_authoritative_identity(t
     with pytest.raises(ValueError, match="explicit pack_version"):
         build_cache(
             str(source),
+            cache_dir=str(tmp_path / "cache_obj"),
             identity=CacheIdentity(
                 pack_slug="ComfyUI-KJNodes",
                 git_commit="abc123",
