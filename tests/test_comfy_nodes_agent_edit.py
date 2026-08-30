@@ -1111,15 +1111,18 @@ def test_batch_response_default_off_does_not_add_reorganisation_advisory(
     monkeypatch.delenv("VIBECOMFY_REORGANISE_AUTO", raising=False)
     monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
     monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
-    before = _layout_reorganisation_base_ui()
-    after = _layout_reorganisation_branch_ui()
+    layout_fixture = _layout_replayable_fixture()
+    before = layout_fixture["before"]
+    after = layout_fixture["after"]
     before_hash = payload_hash(before)
     after_hash = payload_hash(after)
     state = AgentEditState(
         task="add a preview branch",
         graph=before,
         request_payload={"task": "add a preview branch", "graph": before},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=layout_fixture["schema_provider"],
+        workflow=layout_fixture["workflow"],
+        batch_turns=layout_fixture["batch_turns"],
         baseline_graph_hash=before_hash,
         submit_graph_hash=before_hash,
         submit_structural_graph_hash=structural_graph_hash(before),
@@ -1184,15 +1187,18 @@ def test_batch_response_explicit_suggest_adds_reorganisation_advisory_without_se
     monkeypatch.setenv("VIBECOMFY_REORGANISE_AUTO", "suggest")
     monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
     monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
-    before = _layout_reorganisation_base_ui()
-    after = _layout_reorganisation_branch_ui()
+    layout_fixture = _layout_replayable_fixture()
+    before = layout_fixture["before"]
+    after = layout_fixture["after"]
     before_hash = payload_hash(before)
     after_hash = payload_hash(after)
     state = AgentEditState(
         task="add a preview branch",
         graph=before,
         request_payload={"task": "add a preview branch", "graph": before},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=layout_fixture["schema_provider"],
+        workflow=layout_fixture["workflow"],
+        batch_turns=layout_fixture["batch_turns"],
         baseline_graph_hash=before_hash,
         submit_graph_hash=before_hash,
         submit_structural_graph_hash=structural_graph_hash(before),
@@ -1255,15 +1261,18 @@ def test_batch_response_candidate_mode_replaces_functional_candidate_with_reorga
     monkeypatch.setenv("VIBECOMFY_REORGANISE_AUTO", "candidate")
     monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
     monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
-    before = _layout_reorganisation_base_ui()
-    functional = _layout_reorganisation_branch_ui()
+    layout_fixture = _layout_replayable_fixture()
+    before = layout_fixture["before"]
+    functional = layout_fixture["after"]
     before_hash = payload_hash(before)
     functional_hash = payload_hash(functional)
     state = AgentEditState(
         task="add a preview branch",
         graph=before,
         request_payload={"task": "add a preview branch", "graph": before},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=layout_fixture["schema_provider"],
+        workflow=layout_fixture["workflow"],
+        batch_turns=layout_fixture["batch_turns"],
         baseline_graph_hash=before_hash,
         submit_graph_hash=before_hash,
         submit_structural_graph_hash=structural_graph_hash(before),
@@ -1333,15 +1342,18 @@ def test_batch_response_candidate_mode_does_not_preview_when_functional_candidat
         "vibecomfy.comfy_nodes.agent.reorganise.preview_reorganise_workflow",
         _fail_if_called,
     )
-    before = _layout_reorganisation_base_ui()
-    functional = _layout_reorganisation_branch_ui()
+    layout_fixture = _layout_replayable_fixture()
+    before = layout_fixture["before"]
+    functional = layout_fixture["after"]
     before_hash = payload_hash(before)
     functional_hash = payload_hash(functional)
     state = AgentEditState(
         task="add a preview branch",
         graph=before,
         request_payload={"task": "add a preview branch", "graph": before},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=layout_fixture["schema_provider"],
+        workflow=layout_fixture["workflow"],
+        batch_turns=layout_fixture["batch_turns"],
         baseline_graph_hash=before_hash,
         submit_graph_hash=before_hash,
         submit_structural_graph_hash=structural_graph_hash(before),
@@ -7370,9 +7382,13 @@ def test_batch_repl_response_failed_execution_plan_suppresses_candidate_and_expo
 def test_batch_repl_response_no_plan_preserves_legacy_candidate_aliases() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
 
+    fixture = _live_seed_edit_fixture()
     state = _make_state(
-        graph={"nodes": []},
-        ui_payload={"nodes": [{"id": 1}]},
+        graph=fixture["original"],
+        ui_payload=fixture["candidate"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
     )
@@ -7412,6 +7428,7 @@ def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidat
 ) -> None:
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
 
+    fixture = _live_seed_edit_fixture()
     plan = ExecutionPlan(
         plan_id="save-prefix-plan",
         goal="SaveImage filename prefix must be updated.",
@@ -7427,8 +7444,11 @@ def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidat
     execution_plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
     plan_evaluation_path.write_text(json.dumps(evaluation.to_dict()), encoding="utf-8")
     state = _make_state(
-        graph={"nodes": []},
-        ui_payload={"nodes": [{"id": 1}]},
+        graph=fixture["original"],
+        ui_payload=fixture["candidate"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
         execution_plan=plan,
@@ -11343,6 +11363,9 @@ def _live_seed_edit_fixture() -> dict[str, Any]:
         ).read_text(encoding="utf-8")
     )
     provider = _live_seed_edit_schema_provider()
+    baseline_session = EditSession(
+        json.loads(json.dumps(original)), schema_provider=provider
+    )
     session = EditSession(json.loads(json.dumps(original)), schema_provider=provider)
     matching = SetNodeFieldOp(
         op="set_node_field",
@@ -11358,12 +11381,97 @@ def _live_seed_edit_fixture() -> dict[str, Any]:
         "candidate": result.graph,
         "matching_op": landed[0],
         "matching_op_dict": op_to_dict(landed[0]),
+        "workflow": baseline_session.workflow,
+        "batch_turns": [
+            {
+                "statements": [
+                    {
+                        "statement_index": index,
+                        "ok": True,
+                        "landed": True,
+                        "op": op_to_dict(op),
+                    }
+                    for index, op in enumerate(landed)
+                ]
+            }
+        ],
         "stale_op": SetNodeFieldOp(
             op="set_node_field",
             target=NodeFieldTarget("", "5", "seed"),
             value=12345,
         ),
         "schema_provider": provider,
+    }
+
+
+def _layout_replayable_fixture() -> dict[str, Any]:
+    """Return a layout candidate plus the exact landed batch that produced it."""
+    from vibecomfy.porting.edit.ops import (
+        AddNodeOp,
+        LinkSourceRef,
+        LinkTargetRef,
+        UpsertLinkOp,
+        op_to_dict,
+    )
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _batch_repl_provider()
+    provider._schemas["KSampler"] = _schema(
+        "KSampler", [OutputSpec("IMAGE", "IMAGE")]
+    )
+    provider._schemas["PreviewImage"] = NodeSchema(
+        class_type="PreviewImage",
+        pack=None,
+        inputs={"images": InputSpec("IMAGE", required=True)},
+        outputs=[],
+        source_provider="test",
+        confidence=1.0,
+    )
+    before = _layout_reorganisation_base_ui()
+    # The canonical EditSession path owns placement; the hand-built group
+    # bounds would make the generated candidate fail the compiler's gutter
+    # checks before reorganisation can be previewed.
+    before.pop("groups", None)
+    baseline_session = EditSession(_json_clone(before), schema_provider=provider)
+    session = EditSession(_json_clone(before), schema_provider=provider)
+    requested_ops = (
+        AddNodeOp(
+            op="add_node",
+            scope_path="",
+            class_type="PreviewImage",
+            fields={},
+            inputs={},
+            uid="preview",
+        ),
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef("", "sampler", 0),
+            target=LinkTargetRef("", "preview", "images"),
+        ),
+    )
+    result = session.apply_ops(requested_ops)
+    assert result.ok is True, result.reason
+    assert result.graph is not None
+    landed = tuple(result.landed_ops or ())
+    assert landed
+    return {
+        "before": before,
+        "after": result.graph,
+        "workflow": baseline_session.workflow,
+        "schema_provider": provider,
+        "batch_turns": [
+            {
+                "statements": [
+                    {
+                        "statement_index": index,
+                        "ok": True,
+                        "landed": True,
+                        "op": op_to_dict(op),
+                    }
+                    for index, op in enumerate(landed)
+                ]
+            }
+        ],
     }
 
 
@@ -11404,6 +11512,8 @@ def _seed_edit_state(fixture: dict[str, Any], **overrides: Any) -> AgentEditStat
         "ui_payload": fixture["candidate"],
         "route": "direct_edit",
         "schema_provider": fixture["schema_provider"],
+        "workflow": fixture["workflow"],
+        "batch_turns": fixture["batch_turns"],
     }
     defaults.update(overrides)
     return _make_state(**defaults)
@@ -16964,10 +17074,14 @@ def test_batch_repl_response_direct_edit_apply_not_blocked() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
+    fixture = _live_seed_edit_fixture()
     state = _make_state(
         route="direct_edit",
-        ui_payload={"nodes": [{"id": 1}]},
-        graph={"nodes": [{"id": 1, "widgets_values": ["before"]}]},
+        ui_payload=fixture["candidate"],
+        graph=fixture["original"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
         revision_evidence=RevisionEvidence(
@@ -17081,9 +17195,14 @@ def test_batch_repl_response_precedent_research_apply_not_blocked() -> None:
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
     plan = {"structural_validation": "pass", "semantic_validation": "pass"}
+    fixture = _live_seed_edit_fixture()
     state = _make_state(
         route="precedent_research",
-        ui_payload={"nodes": [{"id": 1}]},
+        ui_payload=fixture["candidate"],
+        graph=fixture["original"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="adapted precedent",
         execution_protocol_notes={'adaptation_plan': plan},
@@ -17134,9 +17253,13 @@ def test_batch_repl_success_uses_canonical_candidate_identity_and_stage_snapshot
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
     from vibecomfy.comfy_nodes.agent.contracts import StageResult, TurnContext
 
+    fixture = _live_seed_edit_fixture()
     state = _make_state(
-        graph={"nodes": []},
-        ui_payload={"nodes": [{"id": 1}]},
+        graph=fixture["original"],
+        ui_payload=fixture["candidate"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
     )
@@ -17862,10 +17985,14 @@ def test_batch_repl_response_direct_edit_applyable_with_graph_changes_and_gates(
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
+    fixture = _live_seed_edit_fixture()
     state = _make_state(
         route="direct_edit",
-        ui_payload={"nodes": [{"id": 3, "type": "KSampler"}], "links": []},
-        graph={"nodes": [{"id": 3, "type": "KSampler", "widgets_values": [1]}], "links": []},
+        ui_payload=fixture["candidate"],
+        graph=fixture["original"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied seed change",
         revision_evidence=RevisionEvidence(
@@ -17901,9 +18028,14 @@ def test_batch_repl_response_precedent_research_applyable_with_valid_candidate()
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
     plan = {"structural_validation": "pass", "semantic_validation": "pass"}
+    fixture = _live_seed_edit_fixture()
     state = _make_state(
         route="precedent_research",
-        ui_payload={"nodes": [{"id": 4, "type": "KSampler"}], "links": []},
+        ui_payload=fixture["candidate"],
+        graph=fixture["original"],
+        schema_provider=fixture["schema_provider"],
+        workflow=fixture["workflow"],
+        batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="adapted precedent",
         execution_protocol_notes={'adaptation_plan': plan},
