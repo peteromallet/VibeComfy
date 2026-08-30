@@ -50,6 +50,15 @@ from .scenario_obligations import (
 
 _ERROR_SEVERITIES = {"error", "fatal"}
 
+# Response artifacts are untrusted model output. Keep parsing, validation, and
+# snapshot construction bounded before any recursive helper can see them.
+_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+_MAX_RESPONSE_DEPTH = 256
+_MAX_COLLECTION_ITEMS = 10_000
+_MAX_STRING_LENGTH = 1_000_000
+_MAX_AGGREGATE_VALUES = 100_000
+_MAX_OUTCOME_WARNINGS = 256
+
 # Critical upstream failures that should always fail a live run.
 _UPSTREAM_FAILURE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"Hivemind HTTP error.*500", re.IGNORECASE),
@@ -412,12 +421,32 @@ def _iter_candidate_carriers(
 
 def _candidate_carriers_are_well_formed(response: Mapping[str, Any]) -> bool:
     """Validate every present candidate carrier at its actual nesting path."""
-    return all(
-        value is None
-        or _candidate_payload_is_well_formed(
-            value, carrier=field.rsplit(".", 1)[-1]
-        )
+    for field, value in _iter_candidate_carriers(response):
+        carrier = field.rsplit(".", 1)[-1]
+        if value is None:
+            if carrier == "candidate_transaction":
+                return False
+            continue
+        if not _candidate_payload_is_well_formed(value, carrier=carrier):
+            return False
+    return True
+
+
+def _candidate_transaction_carrier_is_well_formed(
+    response: Mapping[str, Any],
+) -> bool:
+    """Require a strict, present v2 transaction for transaction outcomes."""
+    transactions = [
+        (field, value)
         for field, value in _iter_candidate_carriers(response)
+        if field.rsplit(".", 1)[-1] == "candidate_transaction"
+    ]
+    return bool(transactions) and any(
+        value is not None
+        and _candidate_payload_is_well_formed(
+            value, carrier="candidate_transaction"
+        )
+        for _field, value in transactions
     )
 
 
@@ -504,6 +533,7 @@ def _custom_node_candidate_is_well_formed(value: Any) -> bool:
     if (
         not isinstance(expected_classes, list)
         or not expected_classes
+        or len(expected_classes) > _MAX_COLLECTION_ITEMS
         or not all(_non_empty_string(item) for item in expected_classes)
     ):
         return False
@@ -526,6 +556,7 @@ def _custom_node_candidate_is_well_formed(value: Any) -> bool:
         return False
     if "warnings" in value and (
         not isinstance(value["warnings"], list)
+        or len(value["warnings"]) > _MAX_OUTCOME_WARNINGS
         or not all(_non_empty_string(item) for item in value["warnings"])
     ):
         return False
@@ -543,6 +574,8 @@ def _custom_node_candidates_are_well_formed(
     candidates = outcome["candidates"]
     if not isinstance(candidates, list):
         return False
+    if len(candidates) > _MAX_COLLECTION_ITEMS:
+        return False
     if not candidates:
         return outcome.get("kind") == "requires_custom_nodes"
     return all(_custom_node_candidate_is_well_formed(item) for item in candidates)
@@ -550,28 +583,27 @@ def _custom_node_candidates_are_well_formed(
 
 def _response_has_candidate_evidence(response: Mapping[str, Any]) -> bool:
     """Return whether a candidate outcome carries product evidence."""
-    explicit_fields = ("candidate", "candidate_graph", "candidate_transaction", "graph")
-    saw_explicit = False
-    for field in explicit_fields:
-        if field not in response:
-            continue
-        saw_explicit = True
-        value = response.get(field)
-        if not _candidate_payload_is_well_formed(value):
-            return False
-    if saw_explicit:
-        return True
+    if not _candidate_carriers_are_well_formed(response):
+        return False
     outcome = response.get("outcome")
+    if (
+        isinstance(outcome, Mapping)
+        and outcome.get("kind") == "candidate_transaction"
+    ):
+        # Transaction outcomes are authoritative and cannot fall back to a
+        # graph, legacy candidate, or landed-count claim.
+        return _candidate_transaction_carrier_is_well_formed(response)
+    carriers = _iter_candidate_carriers(response)
+    if any(value is not None for _field, value in carriers):
+        return True
     if (
         response.get("graph_unchanged") is False
         and isinstance(outcome, Mapping)
-        and outcome.get("kind")
-        in {"candidate", "candidate_transaction", "edit", "edit+clarify"}
+        and outcome.get("kind") in {"candidate", "edit", "edit+clarify"}
     ):
         # A legacy response may omit the graph carrier entirely. Keep that
         # envelope loadable so the assessor's landed-count and edit gates can
-        # classify it; any explicitly present malformed carrier fails closed
-        # above.
+        # classify it; any explicitly present malformed carrier fails closed.
         return True
     return False
 
@@ -600,28 +632,6 @@ def _response_has_answer_evidence(
     return False
 
 
-def _response_has_candidate_evidence(response: Mapping[str, Any]) -> bool:
-    """Return whether a candidate outcome carries product evidence."""
-    carriers = _iter_candidate_carriers(response)
-    if not _candidate_carriers_are_well_formed(response):
-        return False
-    if any(value is not None for _field, value in carriers):
-        return True
-    outcome = response.get("outcome")
-    if (
-        response.get("graph_unchanged") is False
-        and isinstance(outcome, Mapping)
-        and outcome.get("kind")
-        in {"candidate", "candidate_transaction", "edit", "edit+clarify"}
-    ):
-        # A legacy response may omit the graph carrier entirely. Keep that
-        # envelope loadable so the assessor's landed-count and edit gates can
-        # classify it; any explicitly present non-null malformed carrier fails
-        # closed above.
-        return True
-    return False
-
-
 def _response_changes_are_well_formed(response: Mapping[str, Any]) -> bool:
     """Validate direct and outcome change carriers through the edit parser."""
     for owner in (response, response.get("outcome")):
@@ -642,6 +652,14 @@ def _response_outcome_is_well_formed(
     outcome = response.get("outcome")
     if not isinstance(outcome, Mapping):
         return False
+    if "warnings" in outcome:
+        warnings = outcome["warnings"]
+        if (
+            not isinstance(warnings, list)
+            or len(warnings) > _MAX_OUTCOME_WARNINGS
+            or not all(_non_empty_string(item) for item in warnings)
+        ):
+            return False
     kind = outcome.get("kind")
     if not _non_empty_string(kind) or kind not in _RESPONSE_OUTCOME_KINDS:
         return False
@@ -766,6 +784,8 @@ def _response_envelope_is_valid(
     allow_non_list_accepted_batch: bool = False,
 ) -> bool:
     """Validate every response shape dereferenced by the assessor or its judges."""
+    if not _response_tree_is_bounded(response):
+        return False
     has_ok = "ok" in response
     if has_ok and not isinstance(response["ok"], bool):
         return False
@@ -897,6 +917,46 @@ def _response_envelope_is_valid(
     return True
 
 
+def _response_tree_is_bounded(value: Any) -> bool:
+    """Reject response trees exceeding assessor resource budgets."""
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    aggregate_values = 0
+    while stack:
+        current, depth = stack.pop()
+        if depth > _MAX_RESPONSE_DEPTH:
+            return False
+        aggregate_values += 1
+        if aggregate_values > _MAX_AGGREGATE_VALUES:
+            return False
+        if isinstance(current, str):
+            if len(current) > _MAX_STRING_LENGTH:
+                return False
+        elif isinstance(current, dict):
+            if len(current) > _MAX_COLLECTION_ITEMS:
+                return False
+            if aggregate_values + len(current) > _MAX_AGGREGATE_VALUES:
+                return False
+            for key, item in current.items():
+                if not isinstance(key, str) or len(key) > _MAX_STRING_LENGTH:
+                    return False
+                stack.append((item, depth + 1))
+        elif isinstance(current, list):
+            if len(current) > _MAX_COLLECTION_ITEMS:
+                return False
+            if aggregate_values + len(current) > _MAX_AGGREGATE_VALUES:
+                return False
+            stack.extend((item, depth + 1) for item in current)
+    return True
+
+
+def _response_file_is_bounded(path: Path) -> bool:
+    """Check the response artifact size before decoding it."""
+    try:
+        return path.stat().st_size <= _MAX_RESPONSE_BYTES
+    except OSError:
+        return False
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     """Load a JSON artifact if it exists and is valid."""
     if not path.is_file():
@@ -914,20 +974,27 @@ def _load_response_json(
     allow_non_list_accepted_batch: bool = False,
 ) -> tuple[dict[str, Any] | None, str]:
     """Parse, validate, and deeply freeze the response evidence exactly once."""
-    if not path.is_file():
-        return None, "missing"
     try:
+        if not path.is_file():
+            return None, "missing"
+        if not _response_file_is_bounded(path):
+            return None, "malformed"
         parsed = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict) or not _response_tree_is_bounded(parsed):
+            return None, "malformed"
+        if not _response_envelope_is_valid(
+            parsed,
+            allow_non_list_accepted_batch=allow_non_list_accepted_batch,
+        ):
+            return None, "malformed"
+        return _freeze_json(parsed), "valid"
     except (OSError, UnicodeError, TypeError):
         return None, "unavailable"
-    except json.JSONDecodeError:
+    except Exception:
+        # JSON parsing, validation, and snapshot construction all operate on
+        # hostile untrusted artifacts. Any exception is an unavailable
+        # assessment input, never an assessor crash or fallback.
         return None, "malformed"
-    if not isinstance(parsed, dict) or not _response_envelope_is_valid(
-        parsed,
-        allow_non_list_accepted_batch=allow_non_list_accepted_batch,
-    ):
-        return None, "malformed"
-    return _freeze_json(parsed), "valid"
 
 
 def _walk(obj: Any) -> Any:
