@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
-from vibecomfy.errors import RuntimeNodeError
+from vibecomfy.errors import QueueError, RuntimeNodeError
 
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
@@ -1325,6 +1325,82 @@ def test_one_shot_run_terminal_error_fails_before_metadata(
     with pytest.raises(RuntimeNodeError, match="one-shot node failed"):
         asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
 
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+
+
+def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://127.0.0.1:8188"
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def queue_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "accepted-before-wait"}
+
+    async def interrupted_history(_url: str, prompt_id: str | None, config=None) -> dict:
+        assert prompt_id == "accepted-before-wait"
+        attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
+        attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+        assert attempt["queue_acceptance"] == {
+            "status": "accepted",
+            "prompt_id": "accepted-before-wait",
+        }
+        raise TimeoutError("history wait interrupted")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", interrupted_history)
+
+    with pytest.raises(TimeoutError, match="history wait interrupted"):
+        asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+
+
+@pytest.mark.parametrize("queue_response", [{}, {"prompt_id": "   "}])
+def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
+    queue_response: dict,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://127.0.0.1:8188"
+
+    queue_calls = 0
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def queue_prompt(self, _prompt: dict) -> dict:
+            nonlocal queue_calls
+            queue_calls += 1
+            return queue_response
+
+    async def unexpected_history(_url: str, _prompt_id: str | None, config=None) -> dict:
+        raise AssertionError("ambiguous queue acceptance must not enter history polling")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", unexpected_history)
+
+    with pytest.raises(QueueError, match="acceptance is ambiguous"):
+        asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+
+    assert queue_calls == 1
+    attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
+    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    assert attempt["queue_acceptance"] == {
+        "status": "ambiguous",
+        "prompt_id": None,
+    }
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
 

@@ -104,6 +104,31 @@ async def run(
                 next_action="vibecomfy runtime doctor",
             ) from exc
         prompt_id = normalize_prompt_id(queued)
+        if prompt_id is not None and not prompt_id.strip():
+            prompt_id = None
+        prompt_id_is_usable = bool(prompt_id and prompt_id.strip())
+        attempt_bundle["queue_acceptance"] = {
+            "status": "accepted" if prompt_id_is_usable else "ambiguous",
+            "prompt_id": prompt_id,
+        }
+        try:
+            # The queue boundary may have accepted work even when the later
+            # history wait or terminal metadata write fails.  Record that
+            # witness durably before making the next request, and never retry
+            # a response that cannot identify the accepted prompt.
+            write_attempt_json(run_dir, attempt_bundle)
+        except Exception as exc:
+            raise QueueError(
+                "Comfy prompt acceptance could not be recorded durably; "
+                "the run may be in flight and must not be retried automatically",
+                next_action="vibecomfy runtime doctor",
+            ) from exc
+        if not prompt_id_is_usable:
+            raise QueueError(
+                "Comfy queue response did not include a prompt_id; acceptance "
+                "is ambiguous and must not be retried automatically",
+                next_action="vibecomfy runtime doctor",
+            )
         history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
         comfy_outputs = _outputs_from_server_history(history, prompt_id)
         outputs = _collect_output_paths(
