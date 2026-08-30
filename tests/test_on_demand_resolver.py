@@ -287,7 +287,7 @@ def test_sandbox_cap_respects_byte_budget(tmp_path: Path) -> None:
     assert "old" not in remaining  # oldest evicted first
 
 
-def test_sandbox_clone_reuse_bumps_lru_mtime(tmp_path: Path) -> None:
+def test_sandbox_clone_reuse_bumps_lru_mtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Re-resolving an already-cloned pack touches its mtime so it reads as recently used
     for eviction (a hot pack isn't wrongly evicted over a cold one)."""
     import os
@@ -296,14 +296,31 @@ def test_sandbox_clone_reuse_bumps_lru_mtime(tmp_path: Path) -> None:
     root = tmp_path / "sandbox"
     root.mkdir()
     cold = root / "cold"
-    cold.mkdir()
+    (cold / ".git").mkdir(parents=True)
+    (cold / ".vibecomfy-clone-complete.json").write_text(
+        json.dumps(
+            {
+                "complete": True,
+                "slug": "cold",
+                "url": "https://example.invalid/cold",
+                "pin": None,
+                "head": "commit-123",
+            }
+        ),
+        encoding="utf-8",
+    )
     os.utime(cold, (1_000_000, 1_000_000))  # old
     provider = OnDemandInstallSchemaProvider(sandbox_root=root)
     from types import SimpleNamespace
 
     ref = SimpleNamespace(slug="cold", url="https://example.invalid/cold")
+    monkeypatch.setattr(
+        "vibecomfy.schema.on_demand._run_git",
+        lambda command, timeout: __import__("subprocess").CompletedProcess(
+            command, 0, stdout="commit-123\n", stderr=""
+        ),
+    )
     before = cold.stat().st_mtime
     time.sleep(1.05)
     assert provider._ensure_clone(ref) == cold
     assert cold.stat().st_mtime > before  # touched -> recently used
-

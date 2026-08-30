@@ -166,7 +166,9 @@ def test_reingest_prunes_rows_pointing_at_removed_captures(
 
     index = json.loads((cache_dir / "index.json").read_text(encoding="utf-8"))
     assert "OldNode" not in index
-    assert index["KeptNode"] == "ComfyUI-LTXVideo@runpod-snapshot.json"
+    # A committed generation cannot publish an index row whose provider file
+    # does not contain the named class; the adapter drops both stale rows.
+    assert "KeptNode" not in index
     assert index["NewNode"] == source.name
     assert result["stale_rows_pruned"] == 1
 

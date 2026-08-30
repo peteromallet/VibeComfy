@@ -22,12 +22,18 @@ because a miss triggers network + git operations against public third-party repo
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
+import tempfile
+import uuid
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+
+from vibecomfy.errors import OnDemandCloneError
 
 _DEFAULT_SANDBOX = Path(
     os.environ.get("VIBECOMFY_SCHEMA_SANDBOX", "~/.cache/vibecomfy/schema-sandbox")
@@ -49,6 +55,7 @@ def _env_int(name: str, default: int) -> int:
 # tight disk can shrink it and a generous one can grow it.
 _DEFAULT_MAX_PACKS = _env_int("VIBECOMFY_SCHEMA_SANDBOX_MAX_PACKS", 64)
 _DEFAULT_MAX_BYTES = _env_int("VIBECOMFY_SCHEMA_SANDBOX_MAX_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GiB
+_CLONE_COMPLETE_MARKER = ".vibecomfy-clone-complete.json"
 
 
 def _dir_size(path: Path) -> int:
@@ -75,6 +82,67 @@ def _normalize_class_name(name: str) -> str:
     return name.replace("_", " ").strip().casefold()
 
 
+def _safe_slug(slug: Any) -> str:
+    if not isinstance(slug, str) or not slug or "\x00" in slug:
+        raise ValueError("on-demand pack slug must be a non-empty string")
+    path = Path(slug)
+    if slug in {".", ".."} or "/" in slug or "\\" in slug or path.is_absolute() or path.name != slug:
+        raise ValueError("on-demand pack slug must be a single path-safe component")
+    return slug
+
+
+def _git_diagnostics(command: list[str], exc: BaseException) -> str:
+    stdout = getattr(exc, "stdout", None) or getattr(exc, "output", None) or ""
+    stderr = getattr(exc, "stderr", None) or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    details = [f"git command failed: {' '.join(command)}"]
+    returncode = getattr(exc, "returncode", None)
+    if returncode is not None:
+        details.append(f"returncode={returncode}")
+    if stdout:
+        details.append(f"stdout: {str(stdout).strip()}")
+    if stderr:
+        details.append(f"stderr: {str(stderr).strip()}")
+    if isinstance(exc, subprocess.TimeoutExpired):
+        details.append("timed out")
+    if isinstance(exc, OSError):
+        details.append(str(exc))
+    return "; ".join(details)
+
+
+def _run_git(command: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise OnDemandCloneError(_git_diagnostics(command, exc)) from exc
+
+
+def _has_active_reader(path: Path) -> bool:
+    for lease in path.glob(".vibecomfy-reader-*.lease"):
+        try:
+            pid = int(lease.read_text(encoding="ascii").strip())
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            try:
+                lease.unlink()
+            except OSError:
+                pass
+        except (OSError, ValueError):
+            return True
+        else:
+            return True
+    return False
+
+
 class OnDemandInstallSchemaProvider:
     """Resolve a node's schema by cloning its pack and parsing source (no execution)."""
 
@@ -91,6 +159,7 @@ class OnDemandInstallSchemaProvider:
         self.max_packs = _DEFAULT_MAX_PACKS if max_packs is None else max_packs
         self.max_bytes = _DEFAULT_MAX_BYTES if max_bytes is None else max_bytes
         self._cache: dict[str, Any] = {}  # class_type -> NodeSchema | None
+        self.last_clone_error: str | None = None
 
     def get(self, class_type: str) -> Any:
         return self.get_schema(class_type)
@@ -115,38 +184,39 @@ class OnDemandInstallSchemaProvider:
             return None
         slug = getattr(ref, "slug", None) or _slug_from_url(ref.url)
 
-        # Rung 1 — static AST parse (no execution; safe). Covers most nodes.
-        static_schema = None
-        try:
-            from vibecomfy.schema.provider import SourceSchemaProvider
-
-            static_schema = SourceSchemaProvider([clone_path]).get_schema(class_type)
-        except Exception:
+        with self._reader_lease(clone_path):
+            # Rung 1 — static AST parse (no execution; safe). Covers most nodes.
             static_schema = None
-        # A non-empty static schema is a real hit. An empty-inputs schema is a
-        # degenerate parse (INPUT_TYPES was dynamic) — keep it as a fallback but
-        # prefer rung 2 if it can do better.
-        if static_schema is not None and static_schema.inputs:
-            return replace(
-                static_schema,
-                source_provider="on_demand_static",
-                source_package=slug,
-                confidence=0.9,
-            )
+            try:
+                from vibecomfy.schema.provider import SourceSchemaProvider
 
-        # Rung 2 — subprocess runtime INPUT_TYPES() (executes third-party code).
-        runtime_schema = self._resolve_runtime(class_type, clone_path, slug)
-        if runtime_schema is not None:
-            return runtime_schema
-        # Fall back to the degenerate static schema (if any) rather than nothing.
-        if static_schema is not None:
-            return replace(
-                static_schema,
-                source_provider="on_demand_static",
-                source_package=slug,
-                confidence=0.9,
-            )
-        return None
+                static_schema = SourceSchemaProvider([clone_path]).get_schema(class_type)
+            except Exception:
+                static_schema = None
+            # A non-empty static schema is a real hit. An empty-inputs schema is a
+            # degenerate parse (INPUT_TYPES was dynamic) — keep it as a fallback but
+            # prefer rung 2 if it can do better.
+            if static_schema is not None and static_schema.inputs:
+                return replace(
+                    static_schema,
+                    source_provider="on_demand_static",
+                    source_package=slug,
+                    confidence=0.9,
+                )
+
+            # Rung 2 — subprocess runtime INPUT_TYPES() (executes third-party code).
+            runtime_schema = self._resolve_runtime(class_type, clone_path, slug)
+            if runtime_schema is not None:
+                return runtime_schema
+            # Fall back to the degenerate static schema (if any) rather than nothing.
+            if static_schema is not None:
+                return replace(
+                    static_schema,
+                    source_provider="on_demand_static",
+                    source_package=slug,
+                    confidence=0.9,
+                )
+            return None
 
     def _resolve_runtime(self, class_type: str, clone_path: Any, slug: str) -> Any:
         """Rung 2: exec the cloned pack in a stubbed subprocess, call INPUT_TYPES() at runtime.
@@ -210,82 +280,122 @@ class OnDemandInstallSchemaProvider:
 
     def _ensure_clone(self, ref: Any) -> Path | None:
         slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or _slug_from_url(ref.url)
+        slug = _safe_slug(slug)
         target = self.sandbox_root / slug
         pin = getattr(ref, "version", None) or getattr(ref, "commit", None)
-        # Fallback map may have version pins for packs whose current master
-        # uses the v3 ComfyExtension API (define_schema) which our rung 1/2
-        # extractors miss. Pinned packs must check out the pre-v3 commit.
+        url = getattr(ref, "url", None)
+        self.last_clone_error = None
+        if target.is_symlink():
+            error = OnDemandCloneError(f"refusing symlinked on-demand clone at {target}")
+            self.last_clone_error = str(error)
+            raise error
         if target.is_dir():
-            # LRU: bump mtime so this clone reads as recently used for eviction.
+            if self._is_complete_clone(target, slug, pin, url):
+                try:
+                    os.utime(target, None)
+                except OSError:
+                    pass
+                return target
+            if _has_active_reader(target):
+                error = OnDemandCloneError(
+                    f"refusing incomplete on-demand clone with an active reader at {target}"
+                )
+                self.last_clone_error = str(error)
+                raise error
             try:
-                os.utime(target, None)
+                shutil.rmtree(target)
+            except OSError as exc:
+                error = OnDemandCloneError(f"could not clean incomplete on-demand clone at {target}: {exc}")
+                self.last_clone_error = str(error)
+                raise error from exc
+        elif target.exists():
+            error = OnDemandCloneError(f"refusing existing non-directory on-demand clone at {target}")
+            self.last_clone_error = str(error)
+            raise error
+        self._enforce_cap()  # make room before adding a new clone
+        staging_parent: Path | None = None
+        try:
+            self.sandbox_root.mkdir(parents=True, exist_ok=True)
+            staging_parent = Path(tempfile.mkdtemp(prefix=f".{slug}-", dir=self.sandbox_root))
+            staging = staging_parent / slug
+            if pin:
+                _run_git(["git", "clone", ref.url, str(staging)], self.clone_timeout)
+                _run_git(
+                    ["git", "-C", str(staging), "fetch", "--tags", "--depth", "1", "origin", pin],
+                    30,
+                )
+                _run_git(["git", "-C", str(staging), "checkout", pin], 10)
+            else:
+                _run_git(["git", "clone", "--depth", "1", ref.url, str(staging)], self.clone_timeout)
+            head = _run_git(["git", "-C", str(staging), "rev-parse", "HEAD"], 10).stdout.strip()
+            if pin:
+                want = _run_git(["git", "-C", str(staging), "rev-parse", f"{pin}^{{commit}}"], 10).stdout.strip()
+                if not want or head != want:
+                    raise OnDemandCloneError(
+                        f"git checkout did not reach requested pin {pin!r}: head={head!r}, expected={want!r}"
+                    )
+            (staging / _CLONE_COMPLETE_MARKER).write_text(
+                json.dumps(
+                    {"complete": True, "slug": slug, "url": ref.url, "pin": pin, "head": head},
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            if target.exists() or target.is_symlink():
+                raise OnDemandCloneError(f"on-demand clone target appeared during publish: {target}")
+            os.replace(staging, target)
+            return target
+        except OnDemandCloneError as exc:
+            self.last_clone_error = str(exc)
+            raise
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            error = OnDemandCloneError(_git_diagnostics([], exc))
+            self.last_clone_error = str(error)
+            raise error from exc
+        finally:
+            if staging_parent is not None:
+                shutil.rmtree(staging_parent, ignore_errors=True)
+
+    def _is_complete_clone(
+        self, target: Path, slug: str, pin: str | None, url: str | None = None
+    ) -> bool:
+        if target.is_symlink():
+            return False
+        git_dir = target / ".git"
+        if git_dir.is_symlink() or not git_dir.exists():
+            return False
+        marker = target / _CLONE_COMPLETE_MARKER
+        if marker.is_symlink():
+            return False
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or data.get("complete") is not True:
+                return False
+            if data.get("slug") != slug or data.get("pin") != pin:
+                return False
+            if url is not None and data.get("url") != url:
+                return False
+            head = _run_git(["git", "-C", str(target), "rev-parse", "HEAD"], 10).stdout.strip()
+            return data.get("head") == head
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, OnDemandCloneError):
+            return False
+
+    @contextmanager
+    def _reader_lease(self, clone_path: Path):
+        lease = clone_path / f".vibecomfy-reader-{os.getpid()}-{uuid.uuid4().hex}.lease"
+        try:
+            lease.write_text(str(os.getpid()), encoding="ascii")
+        except OSError as exc:
+            raise OnDemandCloneError(f"could not lease on-demand clone for reading: {clone_path}") from exc
+        try:
+            yield clone_path
+        finally:
+            try:
+                lease.unlink()
+            except FileNotFoundError:
+                pass
             except OSError:
                 pass
-            if pin:
-                # Ensure the existing clone is at the pinned version; if not,
-                # fetch and checkout. This handles stale LRU clones from prior
-                # runs that were at HEAD.
-                try:
-                    head = subprocess.run(
-                        ["git", "-C", str(target), "rev-parse", "HEAD"],
-                        capture_output=True, text=True, timeout=10,
-                    ).stdout.strip()
-                    # Resolve pin to a commit (tag → commit)
-                    want = subprocess.run(
-                        ["git", "-C", str(target), "rev-parse", pin + "^{commit}"],
-                        capture_output=True, text=True, timeout=10,
-                    ).stdout.strip()
-                    if want and head != want:
-                        # Fetch the pin if not present, then checkout
-                        subprocess.run(
-                            ["git", "-C", str(target), "fetch", "--tags", "--depth", "1", "origin", pin],
-                            capture_output=True, timeout=30,
-                        )
-                        subprocess.run(
-                            ["git", "-C", str(target), "checkout", pin],
-                            capture_output=True, timeout=10,
-                        )
-                except Exception:
-                    pass
-            return target
-        self._enforce_cap()  # make room before adding a new clone
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if pin:
-                # For pinned fallbacks, clone without --depth 1 then checkout
-                # the pin so the extraction sees the INPUT_TYPES-era code.
-                subprocess.run(
-                    ["git", "clone", ref.url, str(target)],
-                    check=True,
-                    capture_output=True,
-                    timeout=self.clone_timeout,
-                )
-                # Fetch tags if pin is a tag
-                subprocess.run(
-                    ["git", "-C", str(target), "fetch", "--tags", "--depth", "1", "origin", pin],
-                    capture_output=True, timeout=30,
-                )
-                subprocess.run(
-                    ["git", "-C", str(target), "checkout", pin],
-                    check=True,
-                    capture_output=True,
-                    timeout=10,
-                )
-            else:
-                subprocess.run(
-                    ["git", "clone", "--depth", "1", ref.url, str(target)],
-                    check=True,
-                    capture_output=True,
-                    timeout=self.clone_timeout,
-                )
-            return target
-        except Exception:
-            # Cleanup half-cloned dir
-            try:
-                shutil.rmtree(target, ignore_errors=True)
-            except Exception:
-                pass
-            return None
 
     def _enforce_cap(self) -> None:
         """Evict oldest clones (LRU by mtime) to stay under max_packs / max_bytes.
@@ -298,7 +408,9 @@ class OnDemandInstallSchemaProvider:
                 return
             entries = []
             for child in self.sandbox_root.iterdir():
-                if not child.is_dir():
+                if not child.is_dir() or child.name.startswith("."):
+                    continue
+                if _has_active_reader(child):
                     continue
                 try:
                     stat = child.stat()

@@ -13,8 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from vibecomfy.commands._output import emit
-from vibecomfy.porting.object_info.consume import get_class, list_classes
-from vibecomfy.porting.object_info.serialize import CACHE_DIR, CacheIdentity, build_cache, refresh_from_source
+from vibecomfy.porting.object_info.consume import get_class, list_classes as _list_classes
+from vibecomfy.porting.object_info.serialize import (
+    CACHE_DIR,
+    CacheIdentity,
+    build_cache,
+    refresh_from_source,
+    republish_cache_root,
+)
 from vibecomfy.schema import RuntimeSchemaProvider
 
 
@@ -300,7 +306,10 @@ def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     copied = 0
     for path in source_dir.glob("*.json"):
-        shutil.copy2(path, CACHE_DIR / path.name)
+        target = CACHE_DIR / path.name
+        if target.is_symlink():
+            raise ValueError(f"object_info cache target is symlinked: {target}")
+        shutil.copy2(path, target)
         copied += 1
     index_path = CACHE_DIR / "index.json"
     index = json_module.loads(index_path.read_text(encoding="utf-8"))
@@ -317,6 +326,10 @@ def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
     provenance = _load_provenance()
     provenance["class_count"] = len(index)
     _write_provenance(provenance)
+    # The copy above edits the historical root as an input adapter only. The
+    # committed-generation publisher is the sole reader-visible publication
+    # authority and must commit the final root state before returning.
+    republish_cache_root(CACHE_DIR)
     return {
         "status": "ok",
         "classes_indexed": len(index),
@@ -342,6 +355,8 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
     """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     target = CACHE_DIR / source_file.name
+    if target.is_symlink():
+        raise ValueError(f"object_info cache target is symlinked: {target}")
     shutil.copy2(source_file, target)
     index_path = CACHE_DIR / "index.json"
     if index_path.is_file():
@@ -368,6 +383,9 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
     pruned = _prune_stale_index_rows(index)
     index_path.write_text(json_module.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
     entry = _attest_ingested_capture(target.name, source_file, data)
+    # As with directory ingestion, the legacy-root edits are only an adapter
+    # input to the single committed-generation publisher.
+    republish_cache_root(CACHE_DIR)
     return {
         "status": "ok",
         "classes_indexed": entry["classes"],
@@ -475,7 +493,7 @@ def _cmd_schemas_validate_coverage(args: argparse.Namespace) -> int:
         print(f"Template not found: {template_path}", file=__import__("sys").stderr)
         return 1
     class_types = _extract_class_types_from_template(template_path)
-    all_cached = set(list_classes())
+    all_cached = set(_list_classes())
     unique = sorted(set(class_types))
     covered: list[str] = []
     missing: list[str] = []
@@ -815,8 +833,6 @@ def _capture_missing_classes(
                 if getattr(cand, "version", None) and getattr(cand, "slug", None) in _PINS:
                     # Verify the pinned clone actually contains the class
                     # (text search, cheap) before preferring it over registry.
-                    from vibecomfy.registry.pack_resolver import PACK_URL_FALLBACKS as _FBMAP
-
                     # Ensure we have a clone to verify (may already be cached)
                     tmp_clone = provider._ensure_clone(cand)
                     if tmp_clone is not None and _clone_contains_class(tmp_clone, class_type):

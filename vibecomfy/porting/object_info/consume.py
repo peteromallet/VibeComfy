@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from vibecomfy.errors import ObjectInfoIdentityAmbiguityError
+from vibecomfy.errors import ObjectInfoCacheCorruptError
+from vibecomfy.porting.object_info.generation import active_cache_root, read_json, safe_cache_filename
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -171,30 +173,41 @@ def _normalize_output_name(name: str) -> str:
 def _load_index() -> dict[str, str]:
     global _index
     if _index is None:
-        if INDEX_PATH.is_file():
-            with open(INDEX_PATH, "r", encoding="utf-8") as fh:
-                _index = json.load(fh)
-        else:
+        root = active_cache_root(CACHE_DIR)
+        path = root / "index.json"
+        if not path.exists() and not path.is_symlink():
             _index = {}
+        else:
+            data = read_json(root, "index.json")
+            if not isinstance(data, dict):
+                raise ObjectInfoCacheCorruptError(f"object_info index must be an object: {path}")
+            normalized: dict[str, str] = {}
+            for class_type, filename in data.items():
+                if not isinstance(class_type, str) or not isinstance(filename, str) or not safe_cache_filename(filename):
+                    raise ObjectInfoCacheCorruptError(f"unsafe object_info index row in {path}")
+                normalized[class_type] = filename
+            _index = normalized
     return _index
 
 
 def _load_pack(filename: str) -> dict[str, dict[str, Any]]:
     if filename not in _pack_cache:
-        filepath = CACHE_DIR / filename
-        if filepath.is_file():
-            with open(filepath, "r", encoding="utf-8") as fh:
-                _pack_cache[filename] = json.load(fh)
-        else:
-            _pack_cache[filename] = {}
+        if not safe_cache_filename(filename):
+            raise ObjectInfoCacheCorruptError(f"unsafe object_info provider filename: {filename!r}")
+        root = active_cache_root(CACHE_DIR)
+        data = read_json(root, filename)
+        if not isinstance(data, dict):
+            raise ObjectInfoCacheCorruptError(f"object_info provider file must be an object: {root / filename}")
+        _pack_cache[filename] = data
     return _pack_cache[filename]
 
 
 def _all_pack_filenames() -> list[str]:
+    root = active_cache_root(CACHE_DIR)
     filenames = {
         str(path.name)
-        for path in CACHE_DIR.glob("*.json")
-        if path.name != INDEX_PATH.name
+        for path in root.glob("*.json")
+        if path.name not in {"index.json", "provenance.json", "manifest.json"}
     }
     filenames.update(str(filename) for filename in _load_index().values())
     return sorted(filenames)
