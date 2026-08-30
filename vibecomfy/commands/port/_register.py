@@ -146,6 +146,11 @@ def register(subparsers) -> None:
     export.add_argument("--json", action="store_true")
     export.add_argument("--object-info-cache")
     export.add_argument("--out", default=None, help="Output file path (required for --to ui).")
+    export.add_argument(
+        "--persist-sidecar",
+        action="store_true",
+        help="Persist the layout sidecar next to the loaded Python source (also implied when --out is omitted).",
+    )
     export.add_argument("--strict", action="store_true", help="Raise ValueError on schema-less or low-confidence node class types.")
     export.add_argument("--main-positions", action="store_true", help="Include main positions in emitted UI JSON (no-op, wired for future use).")
     export.add_argument("--no-virtual-wires", action="store_true", help="Omit SetNode/GetNode virtual wire resolution.")

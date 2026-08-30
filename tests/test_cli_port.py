@@ -178,6 +178,99 @@ def test_port_export_ready_template_subprocess_json_matches_compile() -> None:
     assert payload["api"] == load_workflow_any("image/z_image").compile("api")
 
 
+def test_port_export_ready_template_explicit_out_preserves_source_sidecar(
+    tmp_path: Path,
+) -> None:
+    """An explicit UI destination must not rewrite a checked-in ready sidecar."""
+    sidecar = Path("ready_templates/image/z_image.layout.json")
+    original_sidecar = sidecar.read_bytes()
+    out_path = tmp_path / "z_image.json"
+
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="image/z_image",
+            ready=True,
+            to="ui",
+            json=False,
+            out=str(out_path),
+            object_info_cache=None,
+            no_object_info_cache=True,
+            from_path=None,
+            fresh=False,
+            strict=False,
+            main_positions=False,
+            no_virtual_wires=False,
+            force_drop=False,
+            dry_run=False,
+        )
+    )
+
+    assert code == 0
+    assert out_path.exists()
+    assert sidecar.read_bytes() == original_sidecar
+
+
+def test_port_export_without_explicit_out_persists_canonical_source_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The canonical default export retains source-sidecar persistence."""
+    workflow_path = tmp_path / "scratch.py"
+    workflow_path.write_text("# generated scratchpad\n", encoding="utf-8")
+
+    class _Source:
+        path = str(workflow_path)
+
+    class _Workflow:
+        source = _Source()
+
+    ui_payload = {
+        "nodes": [
+            {
+                "id": 1,
+                "pos": [0, 0],
+                "size": [100, 50],
+                "properties": {"vibecomfy_uid": "node-1"},
+            }
+        ]
+    }
+    persisted: list[Path] = []
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda args: object())
+    monkeypatch.setattr(port_commands, "load_workflow_reference", lambda *args, **kwargs: _Workflow())
+    monkeypatch.setattr(port_commands, "emit_ui_json", lambda *args, **kwargs: ui_payload)
+    monkeypatch.setattr(port_export_cmd, "_resolve_preserve_source", lambda *args, **kwargs: (None, None, {}, None))
+
+    def capture_write_store(py_path: Path, store_envelope: dict[str, object]) -> Path:
+        persisted.append(py_path)
+        return py_path.with_suffix(".layout.json")
+
+    monkeypatch.setattr(port_export_cmd, "write_store", capture_write_store)
+
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow=str(workflow_path),
+            ready=False,
+            to="ui",
+            json=False,
+            out=None,
+            object_info_cache=None,
+            no_object_info_cache=True,
+            from_path=None,
+            fresh=False,
+            strict=False,
+            main_positions=False,
+            no_virtual_wires=True,
+            force_drop=False,
+            dry_run=False,
+        )
+    )
+
+    assert code == 0
+    assert persisted == [workflow_path]
+
+
 def test_port_export_ui_sidecar_write_failure_reports_partial_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -229,6 +322,7 @@ def test_port_export_ui_sidecar_write_failure_reports_partial_json(
             no_virtual_wires=False,
             force_drop=False,
             dry_run=False,
+            persist_sidecar=True,
         )
     )
 
@@ -299,6 +393,7 @@ def test_port_export_ui_sidecar_write_failure_reports_warning_text(
             no_virtual_wires=False,
             force_drop=False,
             dry_run=False,
+            persist_sidecar=True,
         )
     )
 
@@ -2521,6 +2616,7 @@ def test_port_export_help_lists_all_flags() -> None:
         "--fresh",
         "--from",
         "--out",
+        "--persist-sidecar",
         "--change-report-out",
         "--strict",
         "--main-positions",

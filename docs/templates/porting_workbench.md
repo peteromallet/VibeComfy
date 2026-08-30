@@ -201,6 +201,8 @@ Remaining work belongs in later batches:
 
 `port export --to ui` emits a litegraph-compatible UI JSON envelope from a Python workflow. It preserves positions and furniture by default: when a prior UI JSON or layout-store sidecar exists, matched nodes keep their exact positions, and groups/notes/reroutes/bypass/subgraphs are carried forward. Pass `--fresh` to skip preservation and re-layout from scratch.
 
+When `--out` is omitted, the canonical export also refreshes the layout sidecar next to the loaded Python source. An explicit `--out` writes only that UI artifact by default; pass `--persist-sidecar` when an explicitly targeted export is intentionally authorized to update the source sidecar.
+
 The identity scheme uses the `vibecomfy_uid` stamped in each node's `properties` plus the layout-store sidecar. A node whose uid appears in both the prior store and the current IR keeps its prior position byte-for-byte. New nodes receive engine-placed positions via the M4 layout engine.
 
 Furniture coverage: groups, notes (via `extra.notes`), reroutes, GetNode/SetNode broadcast pairs, bypass edges, and subgraph inner-node definitions are all preserved through the sidecar envelope and re-emitted in the UI JSON.

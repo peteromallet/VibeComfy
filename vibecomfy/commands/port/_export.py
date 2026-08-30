@@ -397,6 +397,17 @@ def _read_ui_payload(path: str | Path) -> dict[str, Any] | None:
     return None
 
 
+def _should_persist_sidecar(args: argparse.Namespace) -> bool:
+    """Return whether this export has authority to update the source sidecar.
+
+    An export using the canonical output path (no explicit ``--out``) retains
+    the historical source-sidecar update.  An explicit output is commonly a
+    preview, fixture, or temporary artifact and must not mutate the loaded
+    Python source unless the caller opts in with ``--persist-sidecar``.
+    """
+    return not bool(getattr(args, "out", None)) or bool(getattr(args, "persist_sidecar", False))
+
+
 def _cmd_port_export(args: argparse.Namespace) -> int:
     from vibecomfy.commands import port as _port
 
@@ -546,13 +557,16 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 _print_felt_violation_summary(felt_report, artifact_path=change_report_path)
                 return 5
 
-            # Emit layout sidecar alongside the UI JSON (best-effort).
+            # Emit the source layout sidecar only when this export has
+            # authority to persist it.  An explicit --out is often a
+            # temporary/preview destination and must not rewrite a checked-in
+            # ready-template source unless --persist-sidecar is supplied.
             # Build the store from the freshly-emitted ui_payload (which carries
             # correct positions in properties['vibecomfy_uid']).  Do NOT call
             # write_layout(py_path, workflow) here: a workflow loaded from a .py
             # file has no _ui metadata so write_layout would overwrite the valid
             # convert-time sidecar with empty entries.
-            if not dry_run:
+            if not dry_run and _should_persist_sidecar(args):
                 try:
                     write_store(py_path, store_from_ui_json(ui_payload))
                 except Exception as exc:  # noqa: BLE001 - main UI JSON remains authoritative
