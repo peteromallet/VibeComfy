@@ -3849,10 +3849,11 @@ def _node_uid(node: Mapping[str, Any]) -> str | None:
 
 
 def _link_id(link: Any) -> int | None:
-    if isinstance(link, Mapping) and isinstance(link.get("id"), int):
-        return link["id"]
+    if isinstance(link, Mapping):
+        value = link.get("id")
+        return value if type(value) is int else None
     if isinstance(link, Sequence) and not isinstance(link, (str, bytes)):
-        if link and isinstance(link[0], int):
+        if link and type(link[0]) is int:
             return link[0]
     return None
 
@@ -4104,9 +4105,183 @@ def _recomputed_link_counter(scope: Mapping[str, Any] | None) -> int | None:
     links = scope.get("links")
     if not isinstance(links, list):
         return None
-    link_ids = [_link_id(link) for link in links]
-    numeric_ids = [link_id for link_id in link_ids if link_id is not None]
-    return max(numeric_ids) + 1 if numeric_ids else 0
+    link_ids: list[int] = []
+    for link in links:
+        link_id = _link_id(link)
+        if link_id is None or link_id < 0:
+            return None
+        link_ids.append(link_id)
+    return max(link_ids, default=-1) + 1
+
+
+def _recomputed_node_counter(scope: Mapping[str, Any] | None) -> int | None:
+    """Return the emitter's highest native node id for a candidate scope."""
+    if not isinstance(scope, Mapping):
+        return None
+    nodes = scope.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    numeric_ids: list[int] = []
+    for node in nodes:
+        if not isinstance(node, Mapping) or node.get("id") is None:
+            continue
+        value = node["id"]
+        if type(value) is int and value >= 0:
+            numeric_ids.append(value)
+        elif isinstance(value, str) and value.isdigit():
+            numeric_ids.append(int(value))
+        else:
+            return None
+    return max(numeric_ids, default=0)
+
+
+def _raw_link_parts(link: Any) -> tuple[Any, Any, Any, Any, Any, Any] | None:
+    if isinstance(link, Mapping):
+        keys = ("id", "from_node", "from_slot", "to_node", "to_slot", "type")
+        if not all(key in link for key in keys):
+            return None
+        return tuple(link[key] for key in keys)  # type: ignore[return-value]
+    if isinstance(link, Sequence) and not isinstance(link, (str, bytes)) and len(link) == 6:
+        return tuple(link)  # type: ignore[return-value]
+    return None
+
+
+def _scope_node_for_uid(scope: Mapping[str, Any], uid: str) -> Mapping[str, Any] | None:
+    nodes = scope.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    for node in nodes:
+        if isinstance(node, Mapping) and _node_uid(node) == str(uid):
+            return node
+    return None
+
+
+def _native_node_id(node: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(node, Mapping) or node.get("id") is None:
+        return None
+    return str(node["id"])
+
+
+def _input_slot_for_name(node: Mapping[str, Any], name: str) -> int | None:
+    inputs = node.get("inputs")
+    if not isinstance(inputs, list):
+        return None
+    for index, slot in enumerate(inputs):
+        if isinstance(slot, Mapping) and slot.get("name") == name:
+            return index
+    return None
+
+
+def _output_slot_for_ref(node: Mapping[str, Any], output: str | int) -> int | None:
+    if type(output) is int and output >= 0:
+        return output
+    outputs = node.get("outputs")
+    if not isinstance(outputs, list) or not isinstance(output, str):
+        return None
+    for index, slot in enumerate(outputs):
+        if not isinstance(slot, Mapping):
+            continue
+        if slot.get("name") == output:
+            slot_index = slot.get("slot_index", index)
+            return slot_index if type(slot_index) is int and slot_index >= 0 else None
+    return None
+
+
+def _link_matches_remove_target(
+    link: Any,
+    target: Any,
+    scope: Mapping[str, Any],
+) -> bool:
+    parts = _raw_link_parts(link)
+    node = _scope_node_for_uid(scope, target.uid)
+    native_id = _native_node_id(node)
+    input_slot = _input_slot_for_name(node, target.input_field) if node is not None else None
+    return bool(
+        parts is not None
+        and native_id is not None
+        and input_slot is not None
+        and str(parts[3]) == native_id
+        and parts[4] == input_slot
+    )
+
+
+def _link_matches_upsert(link: Any, op: UpsertLinkOp, scope: Mapping[str, Any]) -> bool:
+    parts = _raw_link_parts(link)
+    source = _scope_node_for_uid(scope, op.source.uid)
+    target = _scope_node_for_uid(scope, op.target.uid)
+    source_id = _native_node_id(source)
+    target_id = _native_node_id(target)
+    source_slot = _output_slot_for_ref(source, op.source.output_slot) if source is not None else None
+    target_slot = _input_slot_for_name(target, op.target.input_field) if target is not None else None
+    return bool(
+        parts is not None
+        and source_id is not None
+        and target_id is not None
+        and source_slot is not None
+        and target_slot is not None
+        and str(parts[1]) == source_id
+        and parts[2] == source_slot
+        and str(parts[3]) == target_id
+        and parts[4] == target_slot
+    )
+
+
+def _link_ids_by_id(scope: Mapping[str, Any] | None) -> dict[int, Any] | None:
+    if not isinstance(scope, Mapping):
+        return None
+    links = scope.get("links")
+    if not isinstance(links, list):
+        return None
+    indexed: dict[int, Any] = {}
+    for link in links:
+        link_id = _link_id(link)
+        if link_id is None or link_id < 0:
+            return None
+        if link_id in indexed:
+            return None
+        indexed[link_id] = link
+    return indexed
+
+
+def _authorized_removed_link_ids(
+    scope: Mapping[str, Any] | None,
+    ops: Sequence[EditOp],
+) -> set[int]:
+    if not isinstance(scope, Mapping):
+        return set()
+    links = scope.get("links")
+    if not isinstance(links, list):
+        return set()
+    authorized: set[int] = set()
+    for op in ops:
+        if isinstance(op, RemoveLinkOp) and op.target is not None:
+            for link in links:
+                link_id = _link_id(link)
+                if (
+                    link_id is not None
+                    and (op.link_id is None or op.link_id == link_id)
+                    and _link_matches_remove_target(link, op.target, scope)
+                ):
+                    authorized.add(link_id)
+        elif isinstance(op, RemoveNodeOp):
+            node = _scope_node_for_uid(scope, op.target.uid)
+            native_id = _native_node_id(node)
+            if native_id is None:
+                continue
+            for link in links:
+                parts = _raw_link_parts(link)
+                link_id = _link_id(link)
+                if (
+                    link_id is not None
+                    and parts is not None
+                    and (str(parts[1]) == native_id or str(parts[3]) == native_id)
+                ):
+                    authorized.add(link_id)
+    return authorized
+
+
+def _counter_value_valid(value: Any) -> bool:
+    return type(value) is int and value >= 0
 
 
 def _counter_advanced_or_materialized(
@@ -4117,31 +4292,52 @@ def _counter_advanced_or_materialized(
     original_scope: Mapping[str, Any] | None = None,
     candidate_scope: Mapping[str, Any] | None = None,
     allow_link_removal: bool = False,
+    authorized_removed_link_ids: set[int] | None = None,
 ) -> bool:
-    if isinstance(candidate, int) and original is None:
+    if original is None and candidate is None:
         return True
-    if isinstance(original, int) and isinstance(candidate, int):
-        if candidate >= original:
-            return True
-        # Node counters are LiteGraph high-water marks and may never decrease.
-        if field.rsplit(".", 1)[-1] not in {"last_link_id", "lastLinkId"}:
-            return False
-        if not allow_link_removal:
-            return False
-        original_links = {
-            _link_id(link)
-            for link in (original_scope or {}).get("links", [])
-            if _link_id(link) is not None
-        }
-        candidate_links = {
-            _link_id(link)
-            for link in (candidate_scope or {}).get("links", [])
-            if _link_id(link) is not None
-        }
-        if not original_links - candidate_links:
-            return False
-        return candidate == _recomputed_link_counter(candidate_scope)
-    return False
+    if original is not None and not _counter_value_valid(original):
+        return False
+    if candidate is not None and not _counter_value_valid(candidate):
+        return False
+    if original is None:
+        expected = (
+            _recomputed_link_counter(candidate_scope)
+            if field.rsplit(".", 1)[-1] in {"last_link_id", "lastLinkId"}
+            else _recomputed_node_counter(candidate_scope)
+        )
+        return candidate is not None and expected is not None and candidate == expected
+    if candidate is None:
+        return False
+    if candidate >= original:
+        return True
+    # Node counters are LiteGraph high-water marks and may never decrease.
+    if field.rsplit(".", 1)[-1] not in {"last_link_id", "lastLinkId"}:
+        return False
+    if not allow_link_removal:
+        return False
+    original_links = _link_ids_by_id(original_scope)
+    candidate_links = _link_ids_by_id(candidate_scope)
+    if original_links is None or candidate_links is None:
+        return False
+    removed_ids = set(original_links) - set(candidate_links)
+    added_ids = set(candidate_links) - set(original_links)
+    changed_ids: set[int] = set()
+    for link_id in set(original_links) & set(candidate_links):
+        original_parts = _raw_link_parts(original_links[link_id])
+        candidate_parts = _raw_link_parts(candidate_links[link_id])
+        if (
+            original_parts is None
+            or candidate_parts is None
+            or original_parts[1:] != candidate_parts[1:]
+        ):
+            changed_ids.add(link_id)
+    expected_removed = authorized_removed_link_ids or set()
+    if not removed_ids or removed_ids != expected_removed:
+        return False
+    if added_ids or changed_ids:
+        return False
+    return candidate == _recomputed_link_counter(candidate_scope)
 
 
 def _scope_definition_id(scope: Any) -> str | None:
@@ -4161,6 +4357,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     new_nodes: set[tuple[str, str]] = set()
     touched_scopes: set[str] = set()
     link_ops: set[str] = set()
+    link_ops_by_scope: dict[str, list[EditOp]] = {}
     link_removal_ops: set[str] = set()
     new_scope_ids: set[str] = set()
     removed_scope_ids: set[str] = set()
@@ -4170,6 +4367,9 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
         touched_scopes.add(scope_path)
+    def record_link_op(scope_path: str, op: EditOp) -> None:
+        link_ops.add(scope_path)
+        link_ops_by_scope.setdefault(scope_path, []).append(op)
 
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
@@ -4184,17 +4384,17 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         if isinstance(op, UpsertLinkOp):
             allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
             allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
-            link_ops.add(op.target.scope_path)
-            link_removal_ops.add(op.target.scope_path)
+            record_link_op(op.target.scope_path, op)
             continue
         if isinstance(op, RemoveLinkOp):
-            allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
-            link_ops.add(op.target.scope_path)
-            link_removal_ops.add(op.target.scope_path)
+            if op.target is not None:
+                allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
+                record_link_op(op.target.scope_path, op)
+                link_removal_ops.add(op.target.scope_path)
             continue
         if isinstance(op, RemoveNodeOp):
             removed_nodes.add((op.target.scope_path, op.target.uid))
-            link_ops.add(op.target.scope_path)
+            record_link_op(op.target.scope_path, op)
             link_removal_ops.add(op.target.scope_path)
             continue
         if isinstance(op, AddNodeOp):
@@ -4206,7 +4406,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
                 for source in op.inputs.values():
                     allow_node_paths(source.scope_path, source.uid, "outputs")
             scope_field_paths.setdefault(op.scope_path, set()).update({"groups", "last_node_id", "last_link_id"})
-            link_ops.add(op.scope_path)
+            record_link_op(op.scope_path, op)
             continue
         if isinstance(op, SubgraphInterfaceOp):
             # Attribute only the emitted paths this op can touch: root
@@ -4232,12 +4432,73 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "new_nodes": new_nodes,
         "touched_scopes": touched_scopes,
         "link_ops": link_ops,
+        "link_ops_by_scope": link_ops_by_scope,
         "link_removal_ops": link_removal_ops,
         "new_scope_ids": new_scope_ids,
-        "removed_scope_ids": removed_scope_ids,
         "changed_scope_ids": changed_scope_ids,
         "set_node_fields": set_node_fields,
     }
+
+
+def _link_attributed_to_upsert(
+    link: Any,
+    scope: Mapping[str, Any],
+    ops: Sequence[EditOp],
+) -> bool:
+    return any(isinstance(op, UpsertLinkOp) and _link_matches_upsert(link, op, scope) for op in ops)
+
+
+def _link_attributed_to_add(
+    link: Any,
+    scope: Mapping[str, Any],
+    ops: Sequence[EditOp],
+) -> bool:
+    for op in ops:
+        if not isinstance(op, AddNodeOp) or not op.uid:
+            continue
+        target = _scope_node_for_uid(scope, op.uid)
+        target_id = _native_node_id(target)
+        if target_id is None:
+            continue
+        for input_name, source in op.inputs.items():
+            source_node = _scope_node_for_uid(scope, source.uid)
+            source_id = _native_node_id(source_node)
+            source_slot = (
+                _output_slot_for_ref(source_node, source.output_slot)
+                if source_node is not None
+                else None
+            )
+            target_slot = _input_slot_for_name(target, input_name)
+            parts = _raw_link_parts(link)
+            if (
+                parts is not None
+                and source_id is not None
+                and source_slot is not None
+                and target_slot is not None
+                and str(parts[1]) == source_id
+                and parts[2] == source_slot
+                and str(parts[3]) == target_id
+                and parts[4] == target_slot
+            ):
+                return True
+    return False
+
+
+def _link_removed_by_upsert(
+    original_link: Any,
+    candidate_links: Sequence[Any],
+    original_scope: Mapping[str, Any],
+    candidate_scope: Mapping[str, Any],
+    ops: Sequence[EditOp],
+) -> bool:
+    for op in ops:
+        if not isinstance(op, UpsertLinkOp):
+            continue
+        if not _link_matches_remove_target(original_link, op.target, original_scope):
+            continue
+        if any(_link_matches_upsert(link, op, candidate_scope) for link in candidate_links):
+            return True
+    return False
 
 
 def _guard_counter(
@@ -4249,9 +4510,8 @@ def _guard_counter(
     original_scope: Mapping[str, Any] | None = None,
     candidate_scope: Mapping[str, Any] | None = None,
     allow_link_removal: bool = False,
+    authorized_removed_link_ids: set[int] | None = None,
 ) -> list[PortIssue]:
-    if original == candidate:
-        return []
     if _counter_advanced_or_materialized(
         original,
         candidate,
@@ -4259,6 +4519,7 @@ def _guard_counter(
         original_scope=original_scope,
         candidate_scope=candidate_scope,
         allow_link_removal=allow_link_removal,
+        authorized_removed_link_ids=authorized_removed_link_ids,
     ):
         return []
     return [
@@ -4279,20 +4540,15 @@ def _guard_subgraph_state(
     original_scope: Mapping[str, Any] | None = None,
     candidate_scope: Mapping[str, Any] | None = None,
     allow_link_removal: bool = False,
+    authorized_removed_link_ids: set[int] | None = None,
 ) -> list[PortIssue]:
-    if original == candidate:
-        return []
     allowed_paths = allowed_paths or set()
-    if "state" in allowed_paths:
-        return []
     original_state = original if isinstance(original, Mapping) else {}
     candidate_state = candidate if isinstance(candidate, Mapping) else {}
     diagnostics: list[PortIssue] = []
     keys = set(original_state) | set(candidate_state)
     for key in sorted(keys):
         field = f"state.{key}"
-        if any(_path_is_at_or_below(field, allowed) for allowed in allowed_paths):
-            continue
         if key in {"lastNodeId", "lastLinkId"}:
             diagnostics.extend(
                 _guard_counter(
@@ -4303,8 +4559,13 @@ def _guard_subgraph_state(
                     original_scope=original_scope,
                     candidate_scope=candidate_scope,
                     allow_link_removal=allow_link_removal,
+                    authorized_removed_link_ids=authorized_removed_link_ids,
                 )
             )
+            continue
+        if "state" in allowed_paths or any(
+            _path_is_at_or_below(field, allowed) for allowed in allowed_paths
+        ):
             continue
         if original_state.get(key) != candidate_state.get(key):
             diagnostics.append(
@@ -4468,7 +4729,8 @@ def guard_exit_ui(
         ignored = {"nodes", "links", "definitions"}
         keys = (set(original_scope) | set(candidate_scope)) - ignored
         allowed_scope_paths = set(attribution["scope_field_paths"].get(scope_path, set()))
-        scope_has_link_ops = scope_path in attribution["link_ops"]
+        scope_ops = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
+        authorized_removed_link_ids = _authorized_removed_link_ids(original_scope, scope_ops)
         scope_has_link_removal_ops = scope_path in attribution["link_removal_ops"]
         scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
         if scope_id and scope_id in attribution["changed_scope_ids"]:
@@ -4484,6 +4746,7 @@ def guard_exit_ui(
                         original_scope=original_scope,
                         candidate_scope=candidate_scope,
                         allow_link_removal=scope_has_link_removal_ops,
+                        authorized_removed_link_ids=authorized_removed_link_ids,
                     )
                 )
                 continue
@@ -4497,6 +4760,7 @@ def guard_exit_ui(
                         original_scope=original_scope,
                         candidate_scope=candidate_scope,
                         allow_link_removal=scope_has_link_removal_ops,
+                        authorized_removed_link_ids=authorized_removed_link_ids,
                     )
                 )
                 continue
@@ -4510,6 +4774,7 @@ def guard_exit_ui(
                         original_scope=original_scope,
                         candidate_scope=candidate_scope,
                         allow_link_removal=scope_has_link_removal_ops,
+                        authorized_removed_link_ids=authorized_removed_link_ids,
                     )
                 )
                 continue
@@ -4559,10 +4824,19 @@ def guard_exit_ui(
             for link in (candidate_scope.get("links") or [])
             if _link_id(link) is not None
         }
-        scope_has_link_ops = scope_path in attribution["link_ops"]
+        candidate_link_values = list(candidate_links.values())
         for link_id, original_link in original_links.items():
             if link_id not in candidate_links:
-                if scope_has_link_ops:
+                if (
+                    link_id in authorized_removed_link_ids
+                    or _link_removed_by_upsert(
+                        original_link,
+                        candidate_link_values,
+                        original_scope,
+                        candidate_scope,
+                        scope_ops,
+                    )
+                ):
                     continue
                 diagnostics.append(
                     _issue(
@@ -4574,7 +4848,7 @@ def guard_exit_ui(
                 continue
             if candidate_links[link_id] == original_link:
                 continue
-            if scope_has_link_ops:
+            if _link_attributed_to_upsert(candidate_links[link_id], candidate_scope, scope_ops):
                 continue
             if _link_preserves_canonical_target(
                 original_link,
@@ -4590,10 +4864,12 @@ def guard_exit_ui(
                     detail={"scope_path": scope_path, "link_id": link_id},
                 )
             )
-        for link_id in candidate_links:
+        for link_id, candidate_link in candidate_links.items():
             if link_id in original_links:
                 continue
-            if scope_has_link_ops:
+            if _link_attributed_to_upsert(candidate_link, candidate_scope, scope_ops) or _link_attributed_to_add(
+                candidate_link, candidate_scope, scope_ops
+            ):
                 continue
             diagnostics.append(
                 _issue(

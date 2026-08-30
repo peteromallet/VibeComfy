@@ -107,14 +107,11 @@ def _schema_gap_literal_field(
 
     ``VibeNode.inputs`` contains both scalar values and socket carriers.  A
     membership check therefore is not sufficient: applying a socket-shaped
-    field first removes its edge, then materializes a literal.  The hydrated
-    edit surface is the instance-aware authority and includes connectivity;
-    only its literal channel (or an explicit ``widgets`` carrier) may use the
+    field first removes its edge, then materializes a literal.  Connectivity
+    and socket evidence is authoritative, even when a duplicate ``widgets``
+    carrier exists.  Only a proven non-socket literal channel may use the
     bounded observable-COW escape hatch.
     """
-    widgets = getattr(node, "widgets", None)
-    if isinstance(widgets, Mapping) and field_name in widgets:
-        return True
     try:
         surface = editable_surface_for(
             node,
@@ -125,6 +122,16 @@ def _schema_gap_literal_field(
         return False
     if field_name in surface.socket_names():
         return False
+
+    widgets = getattr(node, "widgets", None)
+    if isinstance(widgets, Mapping) and field_name in widgets:
+        # A link-shaped widget carrier is not literal evidence.  In
+        # particular, do not let a duplicate carrier authorize unlinking a
+        # graph edge when the input side is socket-backed.
+        value = widgets[field_name]
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return False
+        return True
     if field_name in surface.literal_names():
         return True
     try:
