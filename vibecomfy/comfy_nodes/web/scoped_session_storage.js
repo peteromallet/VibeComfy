@@ -14,6 +14,7 @@
 const SS_SCOPE_SESSION_PREFIX = "vibecomfy_scope_session:";
 const SS_TAB_NONCE_KEY = "vibecomfy_tab_nonce";
 const LS_LEGACY_ACTIVE_SESSION_KEY = "vibecomfy_active_session_id";
+let _memoryTabNonce = null;
 
 function _safeStorage(storageKind) {
   try {
@@ -91,12 +92,16 @@ function _ssRemove(key) {
 // conversation per duplicate-tab rule (SD2).
 
 function _tabNonce() {
+  if (_memoryTabNonce) {
+    return _memoryTabNonce;
+  }
   let nonce = _ssGet(SS_TAB_NONCE_KEY);
   if (!nonce) {
     nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     _ssSet(SS_TAB_NONCE_KEY, nonce);
   }
-  return nonce;
+  _memoryTabNonce = nonce;
+  return _memoryTabNonce;
 }
 
 // ── Scoped session-id persistence ─────────────────────────────────────────

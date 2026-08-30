@@ -64,7 +64,6 @@ test("B18 snapshots use JSON clone semantics and preserve __proto__ data", async
   assert.throws(() => saveScopeSnapshot(`${scopeId}-cycle`, cyclic), TypeError);
   forgetScopeSnapshot(scopeId);
 });
-
 test("B18 candidate-only scope switches exclude live callback state", async () => {
   const { createAgentEditState, transition } = await import(
     "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js",

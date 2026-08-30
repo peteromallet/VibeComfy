@@ -1,3 +1,5 @@
+import { jsonClone as cloneJsonData } from "./json_clone.js";
+
 const AGENT_PANEL_SINGLETON_KEY = "__vibecomfyAgentPanelSingleton";
 
 let fallbackRecord = null;
@@ -209,35 +211,21 @@ const SCOPE_SNAPSHOT_EXCLUDE = new Set([
 ]);
 
 /**
- * Deep-clone a value for snapshot storage.  Handles:
- *   - Plain objects / arrays (recursive)
- *   - Set (converted to array of values)
- *   - Map (converted to array of [key, value] pairs)
- *   - Primitives, null, undefined (returned as-is)
- *   - Functions, DOM nodes, Symbols (converted to null)
+ * Snapshot cloning uses the same JSON-family contract as the shared clone
+ * authority: JSON values are copied without aliases, unsupported graphs (for
+ * example cycles or BigInt) reject, and own __proto__ data keys survive.
  */
 function _cloneForSnapshot(value) {
-  if (value === null || value === undefined) {
-    return value;
-  }
-  if (typeof value !== "object") {
-    return value;
-  }
-  if (value instanceof Set) {
-    return [...value].map((entry) => _cloneForSnapshot(entry));
-  }
-  if (value instanceof Map) {
-    return [...value.entries()].map(([k, v]) => [_cloneForSnapshot(k), _cloneForSnapshot(v)]);
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => _cloneForSnapshot(entry));
-  }
-  // Plain objects
-  const cloned = {};
-  for (const [key, val] of Object.entries(value)) {
-    cloned[key] = _cloneForSnapshot(val);
-  }
-  return cloned;
+  return cloneJsonData(value);
+}
+
+function _setOwnDataProperty(target, key, value) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
 /**
@@ -270,10 +258,10 @@ export function saveScopeSnapshot(scopeId, panel) {
     // Null out in-flight async state — it belongs to the scope being left.
     if (key === "submitAbortController" || key === "inFlightSubmit"
         || key === "inFlightApply" || key === "inFlightRebaseline") {
-      snapshot[key] = null;
+      _setOwnDataProperty(snapshot, key, null);
       continue;
     }
-    snapshot[key] = _cloneForSnapshot(val);
+    _setOwnDataProperty(snapshot, key, _cloneForSnapshot(val));
   }
   // Stamp with metadata for diagnostics.
   snapshot._snapshotScopeId = scopeId;
@@ -301,16 +289,14 @@ export function restoreScopeSnapshot(scopeId, panel) {
   if (!snapshot || typeof snapshot !== "object") {
     return false;
   }
-  // Preserve undoStack — it is canvas-affine and must never be overwritten.
-  const { undoStack: _undoStack, ...restoredState } = snapshot;
-  // Remove metadata keys that should not be written onto panel.state.
-  delete restoredState._snapshotScopeId;
-  delete restoredState._snapshotCapturedAt;
   // Restore all snapshot keys onto panel.state (merge — keys not in snapshot
   // are left as-is, so fresh non-lifecycle fields added after snapshot capture
   // survive the restore).
-  for (const [key, val] of Object.entries(restoredState)) {
-    panel.state[key] = _cloneForSnapshot(val);
+  for (const [key, val] of Object.entries(snapshot)) {
+    if (key === "undoStack" || key === "_snapshotScopeId" || key === "_snapshotCapturedAt") {
+      continue;
+    }
+    _setOwnDataProperty(panel.state, key, _cloneForSnapshot(val));
   }
   return true;
 }
