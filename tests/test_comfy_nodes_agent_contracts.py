@@ -2682,35 +2682,85 @@ def test_diagnostic_record_requires_string_identity_fields() -> None:
             DiagnosticRecord.from_dict(payload)
 
 
-def test_diagnostic_record_preserves_permissive_optional_historical_fields() -> None:
+def test_diagnostic_record_rejects_malformed_known_fields() -> None:
+    base_payload = {"session_id": "sess-1", "turn_id": "0003"}
+    invalid_values = (
+        ("path", 123),
+        ("mtime", "not-a-float"),
+        ("mtime", True),
+        ("baseline_turn_id", 456),
+        ("ok", "yes"),
+        ("kind", 789),
+        ("outcome", {"kind": "candidate"}),
+        ("lifecycle", ["candidate"]),
+        ("fidelity_ok", "true"),
+        ("state_match_ok", 1),
+        ("queue_validate_ok", []),
+        ("canvas_apply_allowed", "allowed"),
+        ("queue_allowed", 0),
+        ("candidate_nodes", "seven"),
+        ("candidate_nodes", True),
+        ("task", {"prompt": "make it pop"}),
+        ("route", 42),
+        ("protocol", False),
+        ("summary", ["changed saturation"]),
+        ("is_baseline", "no"),
+        ("accepted_at", 123.45),
+        ("live_token", {"token": "abc"}),
+    )
+
+    for field, value in invalid_values:
+        with pytest.raises(ValueError, match=rf"DiagnosticRecord\.{field}"):
+            DiagnosticRecord.from_dict({**base_payload, field: value})
+
+
+def test_diagnostic_record_defaults_missing_optional_fields() -> None:
+    record = DiagnosticRecord.from_dict({"session_id": "sess-1", "turn_id": "0003"})
+
+    assert record.is_baseline is False
+    assert record.path is None
+    assert record.ok is None
+
+
+def test_diagnostic_record_rejects_non_mapping_and_explicit_baseline_null() -> None:
+    with pytest.raises(ValueError, match="payload must be a mapping"):
+        DiagnosticRecord.from_dict([])  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="is_baseline must be a boolean"):
+        DiagnosticRecord.from_dict(
+            {"session_id": "sess-1", "turn_id": "0003", "is_baseline": None}
+        )
+
+
+def test_diagnostic_record_accepts_nullable_known_fields() -> None:
     payload = {
         "session_id": "sess-1",
         "turn_id": "0003",
-        "path": 123,
-        "mtime": "not-a-float",
-        "baseline_turn_id": 456,
-        "ok": "yes",
-        "kind": 789,
-        "outcome": {"kind": "candidate"},
-        "lifecycle": ["candidate"],
-        "fidelity_ok": "true",
-        "state_match_ok": 1,
+        "path": None,
+        "mtime": None,
+        "baseline_turn_id": None,
+        "ok": None,
+        "kind": None,
+        "outcome": None,
+        "lifecycle": None,
+        "fidelity_ok": None,
+        "state_match_ok": None,
         "queue_validate_ok": None,
-        "canvas_apply_allowed": "allowed",
-        "queue_allowed": [],
-        "candidate_nodes": "seven",
-        "task": {"prompt": "make it pop"},
-        "route": 42,
-        "protocol": False,
-        "summary": ["changed saturation"],
-        "is_baseline": "no",
-        "accepted_at": 123.45,
-        "live_token": {"token": "abc"},
+        "canvas_apply_allowed": None,
+        "queue_allowed": None,
+        "candidate_nodes": None,
+        "task": None,
+        "route": None,
+        "protocol": None,
+        "summary": None,
+        "accepted_at": None,
+        "live_token": None,
     }
 
-    record = DiagnosticRecord.from_dict(payload)
-
-    assert record.to_dict() == payload
+    assert DiagnosticRecord.from_dict(payload).to_dict() == {
+        **payload,
+        "is_baseline": False,
+    }
 
 
 def test_repair_field_changes_fills_missing_old_value_from_ui_graph() -> None:

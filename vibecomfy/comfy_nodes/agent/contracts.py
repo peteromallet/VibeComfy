@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -1477,34 +1478,75 @@ class DiagnosticRecord:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "DiagnosticRecord":
+        if not isinstance(payload, Mapping):
+            raise ValueError("DiagnosticRecord payload must be a mapping")
         for identity_field in ("session_id", "turn_id"):
             if not isinstance(payload.get(identity_field), str):
                 raise ValueError(f"DiagnosticRecord.{identity_field} must be a string")
-        fields = {
-            "session_id",
-            "turn_id",
+        string_fields = {
             "path",
-            "mtime",
             "baseline_turn_id",
-            "ok",
             "kind",
             "outcome",
             "lifecycle",
+            "task",
+            "route",
+            "protocol",
+            "summary",
+            "accepted_at",
+            "live_token",
+        }
+        bool_fields = {
+            "ok",
             "fidelity_ok",
             "state_match_ok",
             "queue_validate_ok",
             "canvas_apply_allowed",
             "queue_allowed",
-            "candidate_nodes",
-            "task",
-            "route",
-            "protocol",
-            "summary",
             "is_baseline",
-            "accepted_at",
-            "live_token",
         }
-        kwargs = {name: payload.get(name) for name in fields}
+        kwargs: dict[str, Any] = {
+            "session_id": payload["session_id"],
+            "turn_id": payload["turn_id"],
+        }
+        for name in string_fields:
+            if name not in payload:
+                continue
+            value = payload[name]
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"DiagnosticRecord.{name} must be a string or null")
+            kwargs[name] = value
+        for name in bool_fields:
+            if name not in payload:
+                continue
+            value = payload[name]
+            if name == "is_baseline" and value is None:
+                raise ValueError("DiagnosticRecord.is_baseline must be a boolean")
+            if value is not None and not isinstance(value, bool):
+                raise ValueError(f"DiagnosticRecord.{name} must be a boolean or null")
+            kwargs[name] = value
+        if "mtime" in payload:
+            value = payload["mtime"]
+            try:
+                finite = value is None or math.isfinite(value)
+            except (OverflowError, TypeError, ValueError):
+                finite = False
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not finite
+            ):
+                raise ValueError("DiagnosticRecord.mtime must be a finite number or null")
+            kwargs["mtime"] = value
+        if "candidate_nodes" in payload:
+            value = payload["candidate_nodes"]
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(
+                    "DiagnosticRecord.candidate_nodes must be a non-negative integer or null"
+                )
+            kwargs["candidate_nodes"] = value
         return cls(**kwargs)
 
 

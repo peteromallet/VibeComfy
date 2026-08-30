@@ -383,6 +383,45 @@ def load_json_result_impl(path: Path) -> DurableRead:
     return DurableRead("valid", value=data, path=path)
 
 
+def _validate_diagnostic_value_impl(
+    value: Any,
+    field: str,
+    *,
+    session_id: str,
+    turn_id: str,
+    path: Path,
+) -> None:
+    """Validate one persisted diagnostic value and retain its artifact path."""
+    try:
+        DiagnosticRecord.from_dict(
+            {"session_id": session_id, "turn_id": turn_id, field: value}
+        )
+    except ValueError as exc:
+        raise DurableReadError(
+            DurableRead("corrupt", path=path, error=str(exc))
+        ) from exc
+
+
+def _validate_diagnostic_fields_impl(
+    source: Mapping[str, Any],
+    fields: tuple[tuple[str, str], ...],
+    *,
+    session_id: str,
+    turn_id: str,
+    path: Path,
+) -> None:
+    """Validate known fields from a persisted source without coercion."""
+    for source_field, diagnostic_field in fields:
+        if source_field in source:
+            _validate_diagnostic_value_impl(
+                source[source_field],
+                diagnostic_field,
+                session_id=session_id,
+                turn_id=turn_id,
+                path=path,
+            )
+
+
 def iter_turn_records_impl(
     session_root: Path | str,
     session_id: str,
@@ -419,7 +458,63 @@ def iter_turn_records_impl(
         life = st_turns.get(turn_id, {})
         if not isinstance(life, Mapping):
             life = {}
-        gates = response.get("gates") or {}
+        response_path = turn_dir / "response.json"
+        _validate_diagnostic_fields_impl(
+            response,
+            (
+                ("ok", "ok"),
+                ("kind", "kind"),
+                ("task", "task"),
+                ("done_summary", "summary"),
+                ("message", "summary"),
+                ("user_facing_message", "summary"),
+                ("canvas_apply_allowed", "canvas_apply_allowed"),
+                ("queue_allowed", "queue_allowed"),
+            ),
+            session_id=session_id,
+            turn_id=turn_id,
+            path=response_path,
+        )
+        _validate_diagnostic_fields_impl(
+            request,
+            (("task", "task"), ("route", "route")),
+            session_id=session_id,
+            turn_id=turn_id,
+            path=turn_dir / "request.json",
+        )
+        _validate_diagnostic_fields_impl(
+            life,
+            (
+                ("state", "lifecycle"),
+                ("agent_edit_protocol", "protocol"),
+                ("accepted_at", "accepted_at"),
+                ("submitted_client_live_canvas_token", "live_token"),
+            ),
+            session_id=session_id,
+            turn_id=turn_id,
+            path=session_dir / STATE_FILE_NAME,
+        )
+        raw_gates = response.get("gates")
+        if raw_gates is not None and not isinstance(raw_gates, Mapping):
+            raise DurableReadError(
+                DurableRead(
+                    "corrupt",
+                    path=response_path,
+                    error="DiagnosticRecord.gates must be a mapping or null",
+                )
+            )
+        gates = raw_gates or {}
+        _validate_diagnostic_fields_impl(
+            gates,
+            (
+                ("ui_fidelity_ok", "fidelity_ok"),
+                ("state_match_ok", "state_match_ok"),
+                ("queue_validate_ok", "queue_validate_ok"),
+            ),
+            session_id=session_id,
+            turn_id=turn_id,
+            path=response_path,
+        )
         ok = response.get("ok")
         kind = response.get("kind")
         unchanged = response.get("graph_unchanged")
@@ -467,35 +562,41 @@ def iter_turn_records_impl(
             else None
         )
 
-        yield DiagnosticRecord(
-            session_id=session_id,
-            turn_id=turn_id,
-            baseline_turn_id=(
+        record_payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "baseline_turn_id": (
                 baseline_turn_id if turn_id == baseline_turn_id else None
             ),
-            ok=ok,
-            kind=kind,
-            outcome=outcome,
-            lifecycle=lifecycle,
-            fidelity_ok=gates.get("ui_fidelity_ok"),
-            state_match_ok=gates.get("state_match_ok"),
-            queue_validate_ok=gates.get("queue_validate_ok"),
-            canvas_apply_allowed=response.get("canvas_apply_allowed"),
-            queue_allowed=response.get("queue_allowed"),
-            candidate_nodes=candidate_nodes,
-            task=request.get("task") or response.get("task") or "",
-            route=request.get("route") or "",
-            protocol=life.get("agent_edit_protocol"),
-            summary=(
+            "ok": ok,
+            "kind": kind,
+            "outcome": outcome,
+            "lifecycle": lifecycle,
+            "fidelity_ok": gates.get("ui_fidelity_ok"),
+            "state_match_ok": gates.get("state_match_ok"),
+            "queue_validate_ok": gates.get("queue_validate_ok"),
+            "canvas_apply_allowed": response.get("canvas_apply_allowed"),
+            "queue_allowed": response.get("queue_allowed"),
+            "candidate_nodes": candidate_nodes,
+            "task": request.get("task") or response.get("task") or "",
+            "route": request.get("route") or "",
+            "protocol": life.get("agent_edit_protocol"),
+            "summary": (
                 response.get("done_summary")
                 or response.get("message")
                 or response.get("user_facing_message")
                 or ""
             ),
-            is_baseline=(turn_id == baseline_turn_id),
-            accepted_at=life.get("accepted_at"),
-            live_token=life.get("submitted_client_live_canvas_token"),
-        )
+            "is_baseline": (turn_id == baseline_turn_id),
+            "accepted_at": life.get("accepted_at"),
+            "live_token": life.get("submitted_client_live_canvas_token"),
+        }
+        try:
+            yield DiagnosticRecord.from_dict(record_payload)
+        except ValueError as exc:
+            raise DurableReadError(
+                DurableRead("corrupt", path=response_path, error=str(exc))
+            ) from exc
 
 
 def candidate_structural_hash_from_turn_dir_impl(

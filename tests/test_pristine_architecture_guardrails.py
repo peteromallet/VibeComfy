@@ -529,6 +529,61 @@ def test_iter_turn_records_reads_explicit_evidence(tmp_path: Path) -> None:
     assert record.task == "evidence test"
 
 
+@pytest.mark.parametrize(
+    ("artifact", "payload", "expected_path"),
+    [
+        (
+            "response.json",
+            {"ok": 1, "graph": {"nodes": []}},
+            "response.json",
+        ),
+        (
+            "response.json",
+            {"gates": [], "graph": {"nodes": []}},
+            "response.json",
+        ),
+        (
+            "request.json",
+            {"task": [], "route": "agent-edit"},
+            "request.json",
+        ),
+    ],
+)
+def test_iter_turn_records_reports_typed_corruption_for_malformed_diagnostics(
+    tmp_path: Path,
+    artifact: str,
+    payload: dict[str, object],
+    expected_path: str,
+) -> None:
+    session_root = tmp_path / "sessions"
+    session_dir = session_root / "sess"
+    turn_dir = session_dir / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    (session_dir / "session_state.json").write_text(
+        json.dumps({"turns": {"0001": {"state": "candidate"}}}),
+        encoding="utf-8",
+    )
+    (turn_dir / "request.json").write_text(
+        json.dumps(
+            {"task": "valid task", "route": "agent-edit"}
+            if artifact == "response.json"
+            else {"route": "agent-edit"}
+        ),
+        encoding="utf-8",
+    )
+    (turn_dir / "response.json").write_text(
+        json.dumps({"ok": True, "graph": {"nodes": []}}), encoding="utf-8"
+    )
+    (turn_dir / artifact).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(DurableReadError) as exc_info:
+        list(iter_turn_records(session_root, "sess"))
+
+    assert exc_info.value.status == "corrupt"
+    assert exc_info.value.path is not None
+    assert exc_info.value.path.name == expected_path
+
+
 # ---------------------------------------------------------------------------
 # 6. Field-change repair remains canonical
 # ---------------------------------------------------------------------------
