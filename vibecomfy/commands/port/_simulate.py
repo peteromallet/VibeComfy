@@ -38,7 +38,7 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
 
     if json_mode:
         print(json.dumps(result.to_json(), indent=2, sort_keys=True))
-        return 1 if result.parity_broken else 0
+        return 1 if result.parity_broken else (2 if result.unsupported else 0)
 
     print(f"\nCorpus simulation: {rule_spec}")
     print(f"  templates affected: {result.templates_affected}")
@@ -48,7 +48,8 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
         )) * 100
         print(f"  LOC delta: {result.loc_delta_total:+d} lines total ({pct:+.1f}% corpus)")
     print(f"  canonical parity: {result.parity_preserved}/{result.parity_preserved + result.parity_broken} preserved {'✅' if result.parity_broken == 0 else '❌'}")
-    print(f"  no broken outputs" if result.parity_broken == 0 else f"  {result.parity_broken} broken outputs")
+    print(f"  unsupported templates: {result.unsupported}")
+    print("  no broken outputs" if result.parity_broken == 0 else f"  {result.parity_broken} broken outputs")
 
     # Per-template top 5
     affected = [pt for pt in result.per_template if pt.get("changed")]
@@ -61,4 +62,4 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
         print(f"\nSample diff ({affected[0]['template_id'] if affected else 'N/A'}):")
         print(result.sample_diff[:2000])
 
-    return 1 if result.parity_broken else 0
+    return 1 if result.parity_broken else (2 if result.unsupported else 0)

@@ -233,9 +233,13 @@ def register(subparsers) -> None:
 
     simulate = port_subparsers.add_parser(
         "simulate",
-        help="Sandbox simulation of an experimental emitter rule.",
+        help="Bounded simulation of a pure generated-template rule.",
     )
     simulate.add_argument("--rule", required=True, help="Rule spec (e.g. drop_set_id_map=true)")
     simulate.add_argument("--all", action="store_true", help="Simulate corpus-wide")
-    simulate.add_argument("--json", action="store_true")
+    simulate.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON; exit 2 when templates are unsupported, 1 on failure.",
+    )
     simulate.set_defaults(func=_cmd_port_simulate)

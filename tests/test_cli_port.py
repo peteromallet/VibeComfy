@@ -883,6 +883,35 @@ def test_port_simulate_parity_broken_returns_nonzero(
     assert code == 1
     assert json.loads(capsys.readouterr().out)["parity_broken"] == 1
 
+def test_port_simulate_unsupported_returns_refusal_status(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        port_simulate_cmd,
+        "simulate_rule",
+        lambda *args, **kwargs: simulate.SimulationResult(
+            rule_spec="drop_set_id_map=true",
+            templates_total=1,
+            templates_affected=1,
+            loc_delta_total=0,
+            parity_preserved=0,
+            parity_broken=0,
+            unsupported=1,
+            per_template=[{"status": "unsupported"}],
+        ),
+    )
+
+    code = _cmd_port_simulate(
+        argparse.Namespace(rule="drop_set_id_map=true", all=False, json=True)
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "unsupported"
+    assert payload["parity_broken"] == 0
+    assert payload["unsupported"] == 1
+
 
 # ── port convert dry-run diff ───────────────────────────────────────────
 
