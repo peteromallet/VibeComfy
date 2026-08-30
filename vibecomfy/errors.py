@@ -8,6 +8,28 @@ catch tuple ``(OSError, RuntimeError, ValueError)`` in
 from __future__ import annotations
 
 
+def _safe_value_label(value: object, *, limit: int = 80) -> str:
+    """Render configuration values without invoking untrusted repr/str methods."""
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    value_type = type(value)
+    if value_type is int:
+        try:
+            text = str(value)
+        except (ValueError, OverflowError):
+            return f"<int with {value.bit_length()} bits>"
+    elif value_type is float:
+        text = repr(value)
+    elif value_type is str:
+        text = repr(value[:limit])
+        return f"{text}..." if len(value) > limit else text
+    else:
+        return f"<{value_type.__name__}>"
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
 class VibeComfyError(RuntimeError):
     """Base exception for all VibeComfy framework errors.
 

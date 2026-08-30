@@ -77,6 +77,7 @@ from vibecomfy.contracts.intent_nodes import (
     validate_intent_node_contract,
     validate_runtime_code_contract,
 )
+from vibecomfy.errors import RuntimeConfigurationError, _safe_value_label
 from vibecomfy.identity.uid import mint_local_uid
 from vibecomfy.porting.endpoint_invariant import schema_input_sockets_for_unwired_node
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
@@ -127,9 +128,63 @@ _UI_DOOR_KEY = "_ui_door"
 # the 480s turn budget before the agent can reply. Chunked emit processes
 # nodes in bounded slices and aggregates warnings so memory and wall-time stay
 # linear; the emitted envelope is byte-identical to the single-pass path.
-_CHUNKED_EMIT_NODE_THRESHOLD = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD", "400"))
-_CHUNKED_EMIT_CHUNK_SIZE = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_CHUNK_SIZE", "128"))
-_CHUNKED_EMIT_WARN_EVERY = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_WARN_EVERY", "50"))
+_CHUNKED_EMIT_NODE_THRESHOLD_DEFAULT = 400
+_CHUNKED_EMIT_CHUNK_SIZE_DEFAULT = 128
+_CHUNKED_EMIT_WARN_EVERY_DEFAULT = 50
+
+
+def _positive_int_value(raw: Any, *, name: str) -> int:
+    if isinstance(raw, bool):
+        raise RuntimeConfigurationError(
+            f"Invalid {name} value: booleans are not positive integers.",
+            next_action=f"Unset {name} or set it to a positive integer.",
+        )
+    if type(raw) is int:
+        value = raw
+    elif type(raw) is str:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeConfigurationError(
+                f"Invalid {name} value {_safe_value_label(raw)}; expected a positive integer.",
+                next_action=f"Unset {name} or set it to a positive integer.",
+            ) from exc
+    else:
+        raise RuntimeConfigurationError(
+            f"Invalid {name} value {_safe_value_label(raw)}; expected a positive integer.",
+            next_action=f"Unset {name} or set it to a positive integer.",
+        )
+    if value <= 0:
+        raise RuntimeConfigurationError(
+            f"Invalid {name} value {_safe_value_label(raw)}; expected a positive integer.",
+            next_action=f"Unset {name} or set it to a positive integer.",
+        )
+    return value
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    return _positive_int_value(raw, name=name)
+
+
+def _chunked_emit_settings() -> tuple[int, int, int]:
+    """Read chunked-emitter settings at call time with actionable validation."""
+    return (
+        _positive_int_env(
+            "VIBECOMFY_CHUNKED_EMIT_THRESHOLD",
+            _CHUNKED_EMIT_NODE_THRESHOLD_DEFAULT,
+        ),
+        _positive_int_env(
+            "VIBECOMFY_CHUNKED_EMIT_CHUNK_SIZE",
+            _CHUNKED_EMIT_CHUNK_SIZE_DEFAULT,
+        ),
+        _positive_int_env(
+            "VIBECOMFY_CHUNKED_EMIT_WARN_EVERY",
+            _CHUNKED_EMIT_WARN_EVERY_DEFAULT,
+        ),
+    )
 
 # Some custom nodes expose a variable number of LiteGraph output sockets while
 # their object_info schema can only describe the base return type.  Inspire's
@@ -2792,6 +2847,11 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
+    (
+        chunked_emit_node_threshold,
+        chunked_emit_chunk_size,
+        chunked_emit_warn_every,
+    ) = _chunked_emit_settings()
     _raise_embedded_api_links(wf, surface="UI serialization")
 
     # P0-WIDGET-CANON: sealed snapshot table is the sole name authority for
@@ -3213,12 +3273,12 @@ def emit_ui_json(
     emitted_inputs_by_node: dict[str, list[dict[str, Any]]] = {}
 
     def _chunked_order():
-        if len(order_list) <= _CHUNKED_EMIT_NODE_THRESHOLD:
+        if len(order_list) <= chunked_emit_node_threshold:
             for idx, nid in enumerate(order_list):
                 yield idx, nid
         else:
-            for _base in range(0, len(order_list), _CHUNKED_EMIT_CHUNK_SIZE):
-                _slice = order_list[_base:_base + _CHUNKED_EMIT_CHUNK_SIZE]
+            for _base in range(0, len(order_list), chunked_emit_chunk_size):
+                _slice = order_list[_base:_base + chunked_emit_chunk_size]
                 for _off, _nid in enumerate(_slice):
                     yield _base + _off, _nid
 
@@ -3583,7 +3643,7 @@ def emit_ui_json(
     if not strict:
         _schema_less = [(nid, node_prov[nid]) for nid in order_list if node_prov[nid].get("schema_less")]
         if _schema_less:
-            if len(order_list) <= _CHUNKED_EMIT_NODE_THRESHOLD:
+            if len(order_list) <= chunked_emit_node_threshold:
                 for node_id, p in _schema_less:
                     warnings.warn(
                         f"emit_ui_json: schema-less node {node_id}({p['class_type']}); "
@@ -3591,20 +3651,20 @@ def emit_ui_json(
                         stacklevel=2,
                     )
             else:
-                for _ci in range(0, len(_schema_less), _CHUNKED_EMIT_CHUNK_SIZE):
-                    _chunk = _schema_less[_ci:_ci + _CHUNKED_EMIT_CHUNK_SIZE]
+                for _ci in range(0, len(_schema_less), chunked_emit_chunk_size):
+                    _chunk = _schema_less[_ci:_ci + chunked_emit_chunk_size]
                     if _ci == 0:
                         _sample = ", ".join(f"{nid}({p['class_type']})" for nid, p in _chunk[:5])
                         warnings.warn(
                             f"emit_ui_json: {len(_schema_less)} schema-less nodes "
                             f"(e.g. {_sample}); emitting best-effort slots in "
-                            f"{(len(_schema_less) + _CHUNKED_EMIT_CHUNK_SIZE - 1)//_CHUNKED_EMIT_CHUNK_SIZE} chunks. "
+                            f"{(len(_schema_less) + chunked_emit_chunk_size - 1)//chunked_emit_chunk_size} chunks. "
                             "Pass strict=True to hard-fail.",
                             stacklevel=2,
                         )
-                    elif _ci % (_CHUNKED_EMIT_WARN_EVERY * _CHUNKED_EMIT_CHUNK_SIZE) == 0:
+                    elif _ci % (chunked_emit_warn_every * chunked_emit_chunk_size) == 0:
                         warnings.warn(
-                            f"emit_ui_json: chunk {_ci // _CHUNKED_EMIT_CHUNK_SIZE + 1} "
+                            f"emit_ui_json: chunk {_ci // chunked_emit_chunk_size + 1} "
                             f"emitted ({_ci + len(_chunk)}/{len(_schema_less)} schema-less nodes)",
                             stacklevel=2,
                         )

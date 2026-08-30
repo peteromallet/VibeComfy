@@ -103,7 +103,8 @@ _HERMES_CREDENTIAL_ENV_KEYS = frozenset(
 #  - Large-graph floor (480s) is honest infra vs product (not determinized).
 #  - Research ledger checkpoints so attempt-2 resumes instead of redoing work.
 #  - Same-cause second timeout stays infra_timeout, never product.
-_CHUNKED_EMIT_NODE_THRESHOLD_RT = int(os.getenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD", "400"))
+# The emitter owns chunked settings and validates them at call time; this
+# adapter does not capture that environment variable during import.
 _RESEARCH_CHECKPOINT_ENV = "VIBECOMFY_RESEARCH_CHECKPOINT_DIR"
 _RESEARCH_CHECKPOINT_TTL_SECONDS = float(os.getenv("VIBECOMFY_RESEARCH_CHECKPOINT_TTL", "3600"))
 _LARGE_GRAPH_NODE_THRESHOLD = int(os.getenv("VIBECOMFY_LARGE_GRAPH_NODE_THRESHOLD", "350"))

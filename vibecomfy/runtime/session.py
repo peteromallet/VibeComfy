@@ -5,6 +5,7 @@ import ctypes
 import hashlib
 import json
 import logging
+import math
 import os
 import signal
 import socket
@@ -30,6 +31,7 @@ from vibecomfy.errors import (
     RuntimeStartupError,
     SchemaValidationError,
     VibeComfyError,
+    _safe_value_label,
 )
 from vibecomfy.memory_profile import MemoryProfile, apply_memory_profile_overrides
 from vibecomfy.utils import atomic_write_json, find_repo_root
@@ -187,6 +189,37 @@ def _configuration_error(detail: str, exc: Exception | None = None) -> RuntimeCo
     if exc is not None:
         error.__cause__ = exc
     return error
+
+
+def _duration_seconds(
+    raw: Any,
+    *,
+    name: str,
+    default: float,
+    allow_zero: bool = False,
+) -> float:
+    """Parse a configured finite duration, optionally allowing an immediate poll."""
+    if raw is None or (type(raw) is str and raw == ""):
+        return default
+    if isinstance(raw, bool):
+        expected = "non-negative" if allow_zero else "positive"
+        raise _configuration_error(
+            f"{name} must be a {expected} finite number; got a boolean"
+        )
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        expected = "non-negative" if allow_zero else "positive"
+        raise _configuration_error(
+            f"{name} must be a {expected} finite number; got {_safe_value_label(raw)}",
+            exc,
+        ) from exc
+    if not math.isfinite(value) or value < 0 or (value == 0 and not allow_zero):
+        expected = "non-negative" if allow_zero else "positive"
+        raise _configuration_error(
+            f"{name} must be a {expected} finite number; got {_safe_value_label(raw)}"
+        )
+    return value
 
 
 def _resolve_runtime_path(value: str | Path | None, *, base: Path, field_name: str) -> Path:
@@ -2068,13 +2101,18 @@ async def _wait_for_server_history(
         if config is not None and "prompt_timeout_sec" in config.extra
         else os.environ.get("VIBECOMFY_PROMPT_TIMEOUT_SEC")
     )
-    timeout_sec = float(raw_timeout if raw_timeout not in (None, "") else 3600)
-    if not timeout_sec > 0:
-        timeout_sec = 0.0
+    timeout_sec = _duration_seconds(
+        raw_timeout,
+        name="prompt_timeout_sec (VIBECOMFY_PROMPT_TIMEOUT_SEC)",
+        default=3600,
+    )
     raw_poll_interval = os.environ.get("VIBECOMFY_HISTORY_POLL_INTERVAL_SEC")
-    poll_interval_sec = float(raw_poll_interval if raw_poll_interval not in (None, "") else 1)
-    if not poll_interval_sec > 0:
-        poll_interval_sec = 0.0
+    poll_interval_sec = _duration_seconds(
+        raw_poll_interval,
+        name="history_poll_interval_sec (VIBECOMFY_HISTORY_POLL_INTERVAL_SEC)",
+        default=1,
+        allow_zero=True,
+    )
     deadline = time.monotonic() + timeout_sec
     client = ComfyClient(server_url)
     while True:
