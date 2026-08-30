@@ -11542,6 +11542,183 @@ def test_dev_delta_valid_semantic_change_retains_accepted_delta() -> None:
     assert response["outcome"]["kind"] == "candidate"
 
 
+def test_batch_semantic_candidate_requires_effective_accepted_delta() -> None:
+    """Revision eligibility cannot publish a graph change without landed Δ."""
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+
+    original = {
+        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
+        "links": [],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"] = [2]
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        batch_exit_mode="done",
+        revision_evidence=RevisionEvidence(
+            scoped_diff=ScopedDiff(
+                changed_nodes=("1",),
+                diff_paths=("nodes.1.widgets_values.0",),
+                candidate_eligible=True,
+            ),
+            candidate_eligible=True,
+        ),
+    )
+    response = _build_batch_repl_response(
+        state, TurnContext(session_id="batch-empty-delta", turn_id="0001")
+    )
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert "agent_edit_protocol" not in response
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_allowed"] is False
+    assert response["canvas_apply_allowed"] is False
+    assert response["queue_allowed"] is False
+    assert response["no_candidate_reason"] == "no_accepted_delta"
+
+
+def test_dev_delta_stale_ops_are_replay_bound_to_candidate() -> None:
+    """A canonical-looking op for an older value cannot publish this candidate."""
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    original = {
+        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
+        "links": [],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"] = [2]
+    stale = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "1", "widgets_values"),
+        value=[999],
+    )
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        delta_ops=(stale,),
+    )
+    context = TurnContext(session_id="delta-stale", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="delta")
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert "agent_edit_protocol" not in response
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_allowed"] is False
+    assert response["canvas_apply_allowed"] is False
+    assert response["queue_allowed"] is False
+
+
+def test_dev_delta_rejects_changed_malformed_link() -> None:
+    """An unrelated valid op cannot mask malformed changed-link evidence."""
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    original = {
+        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
+        "links": [
+            {
+                "id": 7,
+                "origin_id": 1,
+                "origin_slot": 0,
+                "target_id": 2,
+                "target_slot": 0,
+                "type": "IMAGE",
+            }
+        ],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["links"][0].pop("target_id")
+    unrelated = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "1", "widgets_values"),
+        value=[1],
+    )
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        delta_ops=(unrelated,),
+    )
+    context = TurnContext(session_id="delta-malformed-link", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="delta")
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert "agent_edit_protocol" not in response
+    assert response["apply_eligibility"]["applyable"] is False
+
+
+def test_batch_stale_accepted_statement_is_replay_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admission of a retained statement is not candidate binding."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+
+    original = {
+        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
+        "links": [],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"] = [2]
+    stale_statement = {
+        "statement_index": 0,
+        "ok": True,
+        "landed": True,
+        "op": {
+            "op": "set_node_field",
+            "target": ["", "1", "widgets_values"],
+            "value": [999],
+        },
+    }
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        batch_exit_mode="done",
+        batch_turns=[{"statements": [stale_statement]}],
+        revision_evidence=RevisionEvidence(
+            scoped_diff=ScopedDiff(
+                changed_nodes=("1",),
+                diff_paths=("nodes.1.widgets_values.0",),
+                candidate_eligible=True,
+            ),
+            candidate_eligible=True,
+        ),
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_validate_delta_evidence_for_apply",
+        lambda *_args, **_kwargs: (
+            True,
+            {"delta_evidence_valid": True},
+            {"schema_version": "2.0.0", "ops": [stale_statement["op"]]},
+        ),
+    )
+
+    response = _build_batch_repl_response(
+        state, TurnContext(session_id="batch-stale", turn_id="0001")
+    )
+
+    assert response["candidate"] is None
+    assert response["accepted_batch"] == []
+    assert "agent_edit_protocol" not in response
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_allowed"] is False
+
+
 def test_synthesize_message_empty_prose_with_valid_batch_fence() -> None:
     """Empty user_message with no outcome still produces a non-empty sentence."""
     state = _make_state(user_message="")

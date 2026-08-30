@@ -187,6 +187,30 @@ def _build_cumulative_batch_repl_delta_envelope(state: AgentEditState) -> dict[s
     return derived_accepted_delta_envelope({"accepted_batch": list(accepted)})
 
 
+def _verify_canonical_candidate_replay(
+    state: AgentEditState,
+    delta_envelope: Mapping[str, Any],
+) -> tuple[bool, str | None, dict[str, Any]]:
+    """Bind a live candidate to the canonical authority replay.
+
+    Both response doors use the same authority implementation as session
+    receipt minting. The response builder never reinterprets ops itself.
+    """
+    from vibecomfy.comfy_nodes.agent.authority_receipts import verify_replay
+
+    receipt = verify_replay(
+        state.graph if isinstance(state.graph, Mapping) else None,
+        delta_envelope,
+        state.ui_payload if isinstance(state.ui_payload, Mapping) else None,
+        schema_provider=getattr(state, "schema_provider", None),
+        name_authority=getattr(state, "name_authority", None),
+    )
+    diagnostics = receipt.to_dict()
+    if not receipt.replay_ok or not receipt.candidate_matches:
+        return False, receipt.error or "authority_replay_mismatch", diagnostics
+    return True, None, diagnostics
+
+
 def _product_failure_response(failure: AgentError) -> dict[str, Any]:
     from vibecomfy.comfy_nodes.agent.edit import (product_failure_envelope_fields)  # T-039 late import: host namespace lookup; resolved at call time
     response = failure.to_dict()
@@ -1057,21 +1081,20 @@ def _validate_delta_evidence_for_apply(
     state: AgentEditState,
     *,
     has_candidate: bool,
+    allow_empty_evidence: bool = False,
 ) -> tuple[bool, dict[str, Any], dict[str, Any] | None]:
     from vibecomfy.comfy_nodes.agent.edit import (_build_cumulative_batch_repl_delta_envelope, _json_safe)  # T-039 late import: host namespace lookup; resolved at call time
     """Validate cumulative delta evidence for Apply eligibility.
 
     Assembles the cumulative delta envelope and runs
-    ``validate_apply_delta_evidence``.  For edit turns where a candidate
-    would otherwise be produced, absent delta evidence is fail-closed:
-    a canonical empty V2 envelope is synthesized so that identity/no-op
-    apply carries explicit (empty) evidence rather than silently
-    accepting absent evidence.  Malformed or corrupted evidence blocks
-    Apply unconditionally.
+    ``validate_apply_delta_evidence``.  A semantic candidate must carry a
+    non-empty accepted delta; callers may explicitly opt into an empty
+    envelope for non-semantic (layout) candidates.  Malformed or corrupted
+    evidence blocks Apply unconditionally.
 
     Returns ``(delta_evidence_valid, diagnostics, validated_envelope)``
     where *validated_envelope* is the canonical envelope to emit in the
-    response (the real envelope, the synthesized empty envelope, or
+    response (the real envelope, an explicitly permitted empty envelope, or
     ``None`` when no candidate is being considered).
     """
     from vibecomfy.porting.edit.ops import (
@@ -1083,19 +1106,16 @@ def _validate_delta_evidence_for_apply(
     cumulative = _build_cumulative_batch_repl_delta_envelope(state)
     validated_envelope: dict[str, Any] | None = cumulative
 
-    # When a candidate would otherwise be produced, absent cumulative delta
-    # evidence is fail-closed: synthesize a canonical empty V2 envelope so
-    # that identity/no-op apply carries explicit (empty) evidence rather
-    # than silently accepting absent evidence.
-    if has_candidate and cumulative is None:
+    # Layout candidates have a separate structural authority and may carry an
+    # explicit identity semantic delta. Semantic graph candidates may not.
+    if has_candidate and cumulative is None and allow_empty_evidence:
         cumulative = {"schema_version": DELTA_SCHEMA_VERSION, "ops": []}
         validated_envelope = cumulative
         diagnostics["delta_evidence_synthesized_empty"] = True
 
     # Absent evidence is acceptable only for non-applyable turns (no
-    # candidate).  When a candidate exists, the synthesized empty envelope
-    # ensures the payload is never None, so allow_absent=False is enforced.
-    allow_absent = not has_candidate
+    # candidate), or for the explicitly-authorized layout identity path.
+    allow_absent = not has_candidate or allow_empty_evidence
 
     valid, code, detail = validate_apply_delta_evidence(
         cumulative,
@@ -1564,14 +1584,47 @@ def _build_batch_repl_response(
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     if not plan_allows_candidate:
         has_candidate = False
-    # ── Delta evidence validation (fail-closed for applyable turns) ─────────
+    # The semantic candidate and its durable delta are one atomic authority
+    # unit.  A graph-changing batch with no effective landed statement is not
+    # a candidate, even when the revision gate was independently optimistic.
     _had_candidate_before_delta = has_candidate
+    accepted_batch_for_candidate = (
+        _effective_accepted_batch_statements(state) if has_candidate else ()
+    )
+    candidate_binding_reason: str | None = None
+    if (
+        has_candidate
+        and canonical_route != "reorganise"
+        and not accepted_batch_for_candidate
+    ):
+        has_candidate = False
+        candidate_binding_reason = "no_accepted_delta"
+    # ── Delta evidence validation (fail-closed for applyable turns) ─────────
     delta_evidence_valid, delta_evidence_diagnostics, delta_evidence_envelope = _validate_delta_evidence_for_apply(
         state,
         has_candidate=has_candidate,
+        allow_empty_evidence=canonical_route == "reorganise",
     )
     if has_candidate and not delta_evidence_valid:
         has_candidate = False
+        candidate_binding_reason = "delta_evidence_invalid"
+    if has_candidate and delta_evidence_valid:
+        # Admission validates shape and authorization; the canonical replay
+        # authority additionally binds the accepted batch to this exact
+        # candidate graph.  Stale/cross-turn accepted statements therefore
+        # refuse before any response claims or apply bits are minted.
+        replay_envelope = delta_evidence_envelope
+        if replay_envelope is None:
+            replay_envelope = derived_accepted_delta_envelope(
+                {"accepted_batch": list(accepted_batch_for_candidate)}
+            )
+        replay_bound, replay_reason, replay_diagnostics = (
+            _verify_canonical_candidate_replay(state, replay_envelope)
+        )
+        delta_evidence_diagnostics["canonical_replay"] = replay_diagnostics
+        if not replay_bound:
+            has_candidate = False
+            candidate_binding_reason = replay_reason or "authority_replay_mismatch"
     blocker_has_candidate = has_candidate and not _persisted_delta_empty_for_named_schema_absence(
         state
     )
@@ -1612,9 +1665,7 @@ def _build_batch_repl_response(
     )
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
-    accepted_batch = (
-        _effective_accepted_batch_statements(state) if has_candidate else ()
-    )
+    accepted_batch = accepted_batch_for_candidate if has_candidate else ()
     candidate_plan_fields = _v2_candidate_mutation_plan_fields(
         compatibility_fields=compatibility_fields,
         accepted_ops=[
@@ -1813,6 +1864,9 @@ def _build_batch_repl_response(
         response["delta_evidence_diagnostic"] = delta_evidence_diagnostics.get(
             "delta_evidence_code"
         )
+    elif candidate_binding_reason is not None:
+        response["no_candidate_reason"] = candidate_binding_reason
+        response["graph_unchanged"] = True
     if state.batch_exit_mode in {_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY} and not unresolved_schema_terminal:
         response["clarification_required"] = True
         response["graph_unchanged"] = state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY
@@ -1936,12 +1990,25 @@ def _build_dev_success_response(
             delta_unrepresentable_reason = "unrepresentable_link_order"
         else:
             try:
-                delta_ops_payload = _canonical_delta_ops_envelope_payload(state.delta_ops)["ops"]
+                delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
+                delta_ops_payload = delta_envelope["ops"]
             except Exception:
                 delta_unrepresentable_reason = "unrepresentable_delta"
             else:
                 if not delta_ops_payload:
                     delta_unrepresentable_reason = "no_accepted_delta"
+                else:
+                    # Canonical serialization is only the wire-shape gate.
+                    # Replay the exact accepted ops against submit state and
+                    # require equality with the candidate semantic projection
+                    # before exposing any applyable response.
+                    replay_bound, replay_reason, _replay_diagnostics = (
+                        _verify_canonical_candidate_replay(state, delta_envelope)
+                    )
+                    if not replay_bound:
+                        delta_unrepresentable_reason = (
+                            replay_reason or "authority_replay_mismatch"
+                        )
     delta_candidate_representable = delta_unrepresentable_reason is None
     turn_identity = TurnIdentity.from_context(context)
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)

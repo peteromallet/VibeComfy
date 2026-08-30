@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from vibecomfy.ingest.normalize import door_get_nodes
 
@@ -944,12 +944,32 @@ def verify_replay(
             verification_kind="delta_replay",
         )
 
+    from vibecomfy.executor.revision_evidence import (
+        changed_link_has_malformed_endpoints,
+        semantic_graph_hash,
+    )
+    if (
+        isinstance(candidate, Mapping)
+        and changed_link_has_malformed_endpoints(submit_graph, candidate)
+    ):
+        return ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash=persisted_hash,
+            error="malformed_link",
+            op_count=op_count,
+            verification_kind="delta_replay",
+        )
+
     recomputed_hash = structural_graph_hash(recomputed)
-    matches = persisted_hash is not None and recomputed_hash == persisted_hash
-    # S2: hash mismatch names emit path. vace-retarget, IP-Adapter, e8c20a
-    # showed candidate_hash_mismatch due to emit drift (schema-less slots at
-    # ingest/normalize.py:1746 + emit_ready.py:1577, ui.py emit). Include path.
-    error_value: str | None = None if matches else "candidate_hash_mismatch: vibecomfy/porting/emit/ui.py:emit_ui_json"
+    semantic_matches = (
+        isinstance(candidate, Mapping)
+        and isinstance(recomputed, Mapping)
+        and semantic_graph_hash(dict(candidate)) == semantic_graph_hash(dict(recomputed))
+    )
+    matches = recomputed_hash == persisted_hash and semantic_matches
+    error_value: str | None = None if matches else "candidate_hash_mismatch"
     return ReplayReceipt(
         replay_ok=True,
         candidate_matches=matches,

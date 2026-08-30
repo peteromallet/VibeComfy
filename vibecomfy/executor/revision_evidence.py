@@ -945,14 +945,7 @@ def compute_scoped_diff(
     added_link_order = _ordered_link_ids(cand_link_entries, added_link_ids)
     removed_link_order = _ordered_link_ids(orig_link_entries, removed_link_ids)
     changed_link_order = _ordered_link_ids(orig_link_entries, changed_link_ids)
-    changed_link_ids_with_malformed_endpoints = {
-        lid
-        for lid in added_link_ids | removed_link_ids | changed_link_ids
-        if not _link_is_well_formed(
-            cand_link_map[lid] if lid in cand_link_map else orig_link_map[lid]
-        )
-    }
-    if changed_link_ids_with_malformed_endpoints:
+    if changed_link_has_malformed_endpoints(original_graph, candidate_graph):
         eligibility_blockers.append("malformed_link")
     for lid in added_link_order:
         diff_paths.append(f"links.added.{lid}")
@@ -1155,7 +1148,17 @@ def semantic_node_projection(node: dict) -> dict:
     cleaned = copy.deepcopy(node)
     properties = cleaned.get("properties")
     if isinstance(properties, dict):
-        properties.pop("vibecomfy_uid", None)
+        # These are generated identity/renderer metadata, not executable
+        # node state.  Replay may reconstitute them while the retained UI
+        # candidate intentionally omits them; they must not make equivalent
+        # semantic projections diverge.
+        for key in (
+            "vibecomfy_uid",
+            "vibecomfy_id",
+            "Node name for S&R",
+            "_vibecomfy_schema_provider",
+        ):
+            properties.pop(key, None)
         if not properties:
             cleaned.pop("properties", None)
     for key in _SEMANTIC_LAYOUT_NODE_FIELDS:
@@ -1344,6 +1347,40 @@ def _sequence_counts(values: list[str]) -> dict[str, int]:
     for value in values:
         counts[value] = counts.get(value, 0) + 1
     return counts
+
+
+def changed_link_has_malformed_endpoints(
+    original_graph: dict[str, Any] | None,
+    candidate_graph: dict[str, Any] | None,
+) -> bool:
+    """Return whether a changed link occurrence has malformed endpoints.
+
+    Link validity is evaluated only for occurrences introduced, removed, or
+    changed by the candidate. Malformed links already present and unchanged
+    in the submit graph are not newly introduced damage.
+    """
+    original_links = list(_semantic_link_sequence(original_graph))
+    candidate_links = list(_semantic_link_sequence(candidate_graph))
+    original_entries = _link_occurrence_entries(original_links)
+    candidate_entries = _link_occurrence_entries(candidate_links)
+    original_map = {key: link for key, link in original_entries}
+    candidate_map = {key: link for key, link in candidate_entries}
+    original_ids = set(original_map)
+    candidate_ids = set(candidate_map)
+    changed_ids = {
+        link_id
+        for link_id in original_ids & candidate_ids
+        if _link_content_hash(original_map[link_id])
+        != _link_content_hash(candidate_map[link_id])
+    }
+    affected_ids = (candidate_ids ^ original_ids) | changed_ids
+    for link_id in affected_ids:
+        link = candidate_map.get(link_id)
+        if link is None:
+            link = original_map.get(link_id)
+        if not _link_is_well_formed(link):
+            return True
+    return False
 
 
 def _semantic_link_sequence(
