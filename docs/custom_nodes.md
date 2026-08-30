@@ -10,6 +10,13 @@ ComfyUI-WanVideoWrapper df8f3e49daaad117cf3090cc916c83f3d001494c https://github.
 
 The lockfile is `custom_nodes.lock`.
 
+For custom-node packs, the enforced identity is the git URL plus immutable
+commit SHA. An entry's `pip_packages` is an unversioned inventory hint used by
+local catalog install, doctor, and ready-template metadata; it is not a pip
+lock and is not folded into `uv.lock`. RunPod provisioning continues to clone
+the pinned pack and install its `requirements.txt`, plus the hard-coded
+`NODE_PACK_COMPAT_DEPS` compatibility additions.
+
 ComfyUI-QwenTTS is required by `ready_templates/video/ltx2_3_runexx_talking_avatar_qwen_tts.py`. The lockfile entry pins upstream HEAD at lock time. Run `vibecomfy nodes install ComfyUI-QwenTTS` to install locally; the verb will UPSERT the lockfile to your installed SHA.
 
 The opt-in P1 GPU smoke test is documented in [RunPod P1 Smoke Test](runpod/smoke.md). It provisions a real RunPod pod, so run it only with `pytest --runpod -m runpod tests/smoke/test_p1_runpod.py`.

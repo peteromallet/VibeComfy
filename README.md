@@ -189,6 +189,13 @@ Use this when you want an agent to install VibeComfy, discover templates, copy
 one into a recipe, import unfamiliar ComfyUI workflows when needed, validate the
 result, and show the runtime JSON that ComfyUI will receive.
 
+The supported template-corpus install is a VibeComfy checkout installed
+editable (`pip install -e .`); `ready_templates/` and `template_index.json` are
+checkout data. A built wheel is the Python library and ComfyUI plugin, including
+its plugin assets, but does not include that corpus. The in-editor agent panel
+is optional and requires `pip install -e ".[agent]"` (or the equivalent extra
+on a wheel install).
+
 ```text
 Clone https://github.com/peteromallet/VibeComfy and install it with `python -m pip install -e .`.
 The canonical agent skill lives in `docs/agent-skill/SKILL.md`; there are no root
@@ -293,7 +300,7 @@ evidence; do not make compiled API JSON the reusable source of truth.
 | `tests/` | Unit, integration, browser, parity, structural harness, and live agentic harness tests. |
 | `.github/` | GitHub Actions workflows. |
 | `pyproject.toml`, `uv.lock` | Python package metadata and locked dependencies. |
-| `custom_nodes.lock` | Custom-node pack lockfile used by node install/restore flows. |
+| `custom_nodes.lock` | Custom-node pack inventory: the enforced pin is each pack's git URL + commit; `pip_packages` is an unversioned hint for local catalog install/doctor/template metadata. RunPod continues with the cloned pack's `requirements.txt` plus compatibility dependencies; this is separate from `uv.lock`. |
 | `template_index.json` | Tracked ready-template index consumed by fast discovery and strict-ready validation. |
 | `out/`, `input/`, `output/`, `temp/` | Generated local runtime data; gitignored. |
 

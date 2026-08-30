@@ -16,13 +16,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.registry.ready import repo_ready_template_id_for_path, repo_ready_template_paths
+from vibecomfy.registry.ready import (
+    repo_ready_template_id_for_path,
+    repo_ready_template_paths,
+    repo_ready_template_root,
+)
 from vibecomfy.utils import find_repo_root
 
-REPO_ROOT = find_repo_root()
-READY_ROOT = REPO_ROOT / "ready_templates"
-COVERAGE_PATH = REPO_ROOT / "ready_templates/sources" / "manifests" / "coverage.json"
-TEMPLATE_INDEX_PATH = REPO_ROOT / "template_index.json"
+
+def __getattr__(name: str) -> Path:
+    """Keep legacy path constants lazy for checkout-only inventory callers."""
+    if name == "REPO_ROOT":
+        return find_repo_root()
+    if name == "READY_ROOT":
+        return repo_ready_template_root()
+    if name == "COVERAGE_PATH":
+        return find_repo_root() / "ready_templates/sources/manifests/coverage.json"
+    if name == "TEMPLATE_INDEX_PATH":
+        return find_repo_root() / "template_index.json"
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -114,11 +126,11 @@ def _enumerate_repo_templates() -> list[Path]:
     ``find ready_templates -type f -name '*.py' ! -name '_*' | sort``
     plus explicit ``__init__.py`` exclusion.
     """
-    return repo_ready_template_paths(READY_ROOT)
+    return repo_ready_template_paths(repo_ready_template_root())
 
 
 def _ready_id_for_path(path: Path) -> str:
-    return repo_ready_template_id_for_path(path, READY_ROOT)
+    return repo_ready_template_id_for_path(path, repo_ready_template_root())
 
 
 # ---------------------------------------------------------------------------
@@ -328,10 +340,11 @@ def _classify_marker(source: str) -> str:
 
 def _load_coverage_map() -> dict[str, dict[str, Any]]:
     """Load coverage.json keyed by ready_template id."""
-    if not COVERAGE_PATH.exists():
+    coverage_path = find_repo_root() / "ready_templates/sources/manifests/coverage.json"
+    if not coverage_path.exists():
         return {}
     try:
-        data = json.loads(COVERAGE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(coverage_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     workflows = data.get("workflows", []) if isinstance(data, dict) else []
@@ -352,10 +365,11 @@ def _load_coverage_map() -> dict[str, dict[str, Any]]:
 
 def _load_template_index_map() -> dict[str, dict[str, Any]]:
     """Load template_index.json keyed by template id."""
-    if not TEMPLATE_INDEX_PATH.exists():
+    template_index_path = find_repo_root() / "template_index.json"
+    if not template_index_path.exists():
         return {}
     try:
-        data = json.loads(TEMPLATE_INDEX_PATH.read_text(encoding="utf-8"))
+        data = json.loads(template_index_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     templates = data.get("templates", []) if isinstance(data, dict) else []
@@ -373,6 +387,7 @@ def build_readability_inventory() -> ReadabilityInventory:
     Walks checked-in ``ready_templates/**/*.py``, never calls
     ``ready_template_ids()``.
     """
+    repo_root = find_repo_root()
     paths = _enumerate_repo_templates()
     coverage_map = _load_coverage_map()
     index_map = _load_template_index_map()
@@ -435,7 +450,7 @@ def build_readability_inventory() -> ReadabilityInventory:
 
         entry = TemplateInventoryEntry(
             ready_id=ready_id,
-            path=path.relative_to(REPO_ROOT).as_posix(),
+            path=path.relative_to(repo_root).as_posix(),
             marker=marker,
             coverage_tier=coverage_tier,
             capability=capability,

@@ -492,7 +492,7 @@ def _default_roots(*, include_dynamic: bool) -> tuple[Path, ...]:
     user's ``~/.vibecomfy`` dir, plugin-registered roots).  Plugin loading is
     best-effort: any failure degrades to the repo templates only.
     """
-    roots: list[Path] = [ready_registry.READY_ROOT]
+    roots: list[Path] = [ready_registry.repo_ready_template_root()]
     if include_dynamic:
         try:
             from vibecomfy.extras import ensure_plugins_loaded, registered_ready_roots

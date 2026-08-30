@@ -8,17 +8,30 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
+import tomllib
 from typing import Any
+
+from vibecomfy.errors import CheckoutRequiredError
 
 
 @lru_cache(maxsize=1)
 def find_repo_root() -> Path:
-    """Return the VibeComfy repository root."""
+    """Return the VibeComfy repository root, or explain how to get one."""
     here = Path(__file__).resolve()
     for candidate in (here, *here.parents):
-        if (candidate / "pyproject.toml").is_file():
+        pyproject = candidate / "pyproject.toml"
+        if not pyproject.is_file():
+            continue
+        try:
+            project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if isinstance(project, dict) and project.get("name") == "vibecomfy":
             return candidate
-    raise RuntimeError("not inside vibecomfy repo")
+    raise CheckoutRequiredError(
+        "VibeComfy ready-template and repository corpus operations require a git checkout. "
+        "Clone the VibeComfy repository and install it editable with `pip install -e .`."
+    )
 
 
 def repo_relative_path(path: str | Path) -> str:

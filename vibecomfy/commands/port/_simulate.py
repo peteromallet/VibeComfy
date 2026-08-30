@@ -8,7 +8,7 @@ from vibecomfy.analysis.corpus import build_corpus_snapshot
 from vibecomfy.porting.simulate import simulate_rule
 from vibecomfy.schema import get_schema_provider
 
-from ._shared import READY_ROOT
+from vibecomfy.registry.ready import repo_ready_template_root
 
 
 def _cmd_port_simulate(args: argparse.Namespace) -> int:
@@ -23,7 +23,7 @@ def _cmd_port_simulate(args: argparse.Namespace) -> int:
     # with --all, explicitly gather all template IDs from the corpus.
     template_ids = None
     if all_mode:
-        snapshot = build_corpus_snapshot(READY_ROOT)
+        snapshot = build_corpus_snapshot(repo_ready_template_root())
         template_ids = [t["id"] for t in snapshot.templates_list]
 
     result = simulate_rule(

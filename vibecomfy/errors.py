@@ -56,6 +56,12 @@ class VibeComfyError(RuntimeError):
         }
 
 
+class CheckoutRequiredError(VibeComfyError):
+    """A checkout-only corpus operation was requested from an installed wheel."""
+
+    default_next_action = "Clone VibeComfy and install it with `pip install -e .`."
+
+
 # ---------------------------------------------------------------------------
 # Block A error classes
 # ---------------------------------------------------------------------------

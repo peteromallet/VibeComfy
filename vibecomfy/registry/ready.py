@@ -16,7 +16,16 @@ from vibecomfy.utils import find_repo_root
 from vibecomfy.workflow import VibeWorkflow
 
 
-READY_ROOT = find_repo_root() / "ready_templates"
+def repo_ready_template_root() -> Path:
+    """Return the checkout-only ready-template corpus root lazily."""
+    return find_repo_root() / "ready_templates"
+
+
+def __getattr__(name: str) -> Path:
+    """Keep the historical READY_ROOT name lazy for checkout callers."""
+    if name == "READY_ROOT":
+        return repo_ready_template_root()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ReadyTemplateLoadError(WorkflowBuildError):
@@ -82,17 +91,17 @@ class ReadyTemplateDiscovery:
 
 def repo_ready_template_paths(root: Path | None = None) -> list[Path]:
     """Return checked-in repo ready-template paths without loading plugins."""
-    return [record.path for record in _discover_ready_templates(roots=[root or READY_ROOT]).records]
+    return [record.path for record in _discover_ready_templates(roots=[root or repo_ready_template_root()]).records]
 
 
 def repo_ready_template_id_for_path(path: Path, root: Path | None = None) -> str:
     """Return the enumerated ready-template id for a path under the repo root."""
-    return _template_id_for_path(path, root or READY_ROOT)
+    return _template_id_for_path(path, root or repo_ready_template_root())
 
 
 def repo_ready_template_ids(root: Path | None = None) -> list[str]:
     """Return checked-in repo ready-template ids without loading plugins."""
-    discovery = _discover_ready_templates(roots=[root or READY_ROOT])
+    discovery = _discover_ready_templates(roots=[root or repo_ready_template_root()])
     _raise_duplicate_ids(discovery)
     return list(discovery.ids)
 
@@ -157,13 +166,13 @@ def _discover_ready_templates(
     include_json_references: bool = True,
 ) -> ReadyTemplateDiscovery:
     selected_roots = list(roots) if roots is not None else (
-        _ready_roots() if include_dynamic else [READY_ROOT]
+        _ready_roots() if include_dynamic else [repo_ready_template_root()]
     )
     canonical_roots = tuple(_dedupe_roots(selected_roots))
     records: list[ReadyTemplateRecord] = []
     reference_records: list[ReadyTemplateRecord] = []
     for root in canonical_roots:
-        source_scope = "repo" if _roots_are_same(root, _canonical_root(READY_ROOT)) else "dynamic"
+        source_scope = "repo" if _roots_are_same(root, _canonical_root(repo_ready_template_root())) else "dynamic"
         for path in _template_paths(root, include_json_references=include_json_references):
             record = ReadyTemplateRecord(
                 # JSON files are corpus/reference assets, not executable
@@ -226,7 +235,7 @@ def resolve_ready_template(
 
 
 def repo_ready_template_discovery(root: Path | None = None) -> ReadyTemplateDiscovery:
-    return _discover_ready_templates(roots=[root or READY_ROOT])
+    return _discover_ready_templates(roots=[root or repo_ready_template_root()])
 
 
 def _raise_duplicate_ids(discovery: ReadyTemplateDiscovery) -> None:
@@ -546,7 +555,7 @@ def _template_id_for_path(
     *,
     preserve_suffix: bool = False,
 ) -> str:
-    root = root or READY_ROOT
+    root = root or repo_ready_template_root()
     try:
         relative = path.relative_to(root)
     except ValueError:
@@ -556,7 +565,7 @@ def _template_id_for_path(
 
 
 def _ready_roots() -> list[Path]:
-    return _dedupe_roots([READY_ROOT, *_dynamic_ready_roots()])
+    return _dedupe_roots([repo_ready_template_root(), *_dynamic_ready_roots()])
 
 
 def _dynamic_ready_roots() -> list[Path]:

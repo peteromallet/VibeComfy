@@ -18,9 +18,6 @@ from typing import Any
 from vibecomfy.registry.ready import repo_ready_template_id_for_path, repo_ready_template_paths
 from vibecomfy.utils import find_repo_root
 
-REPO_ROOT = find_repo_root()
-READY_ROOT = REPO_ROOT / "ready_templates"
-
 
 @dataclass
 class CorpusSnapshot:
@@ -67,7 +64,7 @@ def build_corpus_snapshot(root: Path | None = None) -> CorpusSnapshot:
     Uses ``repo_ready_template_paths()`` for template discovery — no
     duplication of the template-discovery logic.
     """
-    ready_root = root or READY_ROOT
+    ready_root = root if root is not None else find_repo_root() / "ready_templates"
     paths = repo_ready_template_paths(ready_root)
 
     snapshot = CorpusSnapshot()

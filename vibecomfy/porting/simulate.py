@@ -37,7 +37,6 @@ from vibecomfy.schema import (
 from vibecomfy.utils import find_repo_root
 from vibecomfy.workflow import VibeWorkflow
 
-_REPO_ROOT = find_repo_root()
 _SOURCE_LIMIT = 2 * 1024 * 1024
 _PROTOCOL_LIMIT = 64 * 1024
 _WORKER_STDOUT_LIMIT = 16 * 1024
@@ -623,7 +622,7 @@ def _materialize_transformed_source(source_path: Path, transformed: str, destina
 
 def _worker_environment() -> dict[str, str]:
     env = dict(os.environ)
-    root = str(_REPO_ROOT)
+    root = str(find_repo_root())
     env["PYTHONPATH"] = root if not env.get("PYTHONPATH") else root + os.pathsep + env["PYTHONPATH"]
     env["PYTHONHASHSEED"] = "0"
     return env
@@ -833,7 +832,7 @@ def simulate_rule(rule_spec: str, template_ids: list[str] | None = None, *, sche
     caller_schema_provider = schema_provider
     if schema_provider is None:
         schema_provider = get_schema_provider("auto")
-    snapshot = build_corpus_snapshot(_REPO_ROOT / "ready_templates")
+    snapshot = build_corpus_snapshot(find_repo_root() / "ready_templates")
     templates_by_id = {template["id"]: template for template in snapshot.templates_list}
     target_ids = (
         [template["id"] for template in snapshot.templates_list if template["marker"] == "generated"]

@@ -9,7 +9,6 @@ description = "Python scratchpads for discovering, editing, validating, and runn
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "arnold @ git+https://github.com/peteromallet/Arnold.git@9d8b2a4af93ba764e7e82381656a8fffb3678cf7",
   "huggingface_hub[hf_xet]>=0.32.0",
   "httpx>=0.25",
   "pyyaml>=6",
@@ -50,11 +49,11 @@ png = [
 agent = [
   # The agent-edit runtime backend (the package is named ``arnold``).
   # OPTIONAL: only the VibeComfy agent-edit panel routing to the local
-  # Arnold/Hermes backend needs it. vibecomfy installs and tests without it; the
-  # runtime is pluggable via VIBECOMFY_ARNOLD_RUNTIME_MODULE and falls back to a
-  # pure-Python path when the package is absent. Mirrors the runpod-lifecycle
-  # git-pin pattern below. Pinned to the latest pushed Arnold SHA we validate
-  # against; bump as Arnold stabilizes (a real release tag would replace this).
+  # Arnold/Hermes backend needs it. VibeComfy installs and tests without it;
+  # default agent turns still need ``arnold.agent``. The runtime is pluggable
+  # via VIBECOMFY_ARNOLD_RUNTIME_MODULE for explicit provider substitutions.
+  # Pinned to the latest pushed Arnold SHA we validate against; bump as Arnold
+  # stabilizes (a real release tag would replace this).
   "arnold @ git+https://github.com/peteromallet/Arnold.git@9d8b2a4af93ba764e7e82381656a8fffb3678cf7",
 ]
 runpod-local = [

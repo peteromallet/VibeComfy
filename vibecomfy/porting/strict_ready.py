@@ -47,11 +47,17 @@ STRICT_READY_VIOLATION_CODES: frozenset[str] = frozenset(
     }
 )
 
-DEFAULT_EXCEPTION_PATH = find_repo_root() / "docs" / "templates" / "strict_ready_exceptions.json"
 EXCEPTION_MATCH_KEYS: tuple[str, str, str] = ("ready_id", "violation_code", "target")
 ALLOWED_FINAL_CATEGORIES: frozenset[str] = frozenset(
     {"reference", "supplemental", "blocked", "scratchpad-only"}
 )
+
+
+def __getattr__(name: str) -> Path:
+    """Keep the historical exception-path constant lazy."""
+    if name == "DEFAULT_EXCEPTION_PATH":
+        return find_repo_root() / "docs" / "templates" / "strict_ready_exceptions.json"
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +129,11 @@ class StrictReadyException:
 
 
 def load_strict_ready_exceptions(path: Path | str | None = None) -> tuple[StrictReadyException, ...]:
-    exception_path = Path(path) if path is not None else DEFAULT_EXCEPTION_PATH
+    exception_path = (
+        Path(path)
+        if path is not None
+        else find_repo_root() / "docs" / "templates" / "strict_ready_exceptions.json"
+    )
     if not exception_path.exists():
         return ()
     payload = json.loads(exception_path.read_text())
@@ -485,7 +495,6 @@ def _sort_key(value: object) -> tuple[int, object]:
 
 __all__ = [
     "ALLOWED_FINAL_CATEGORIES",
-    "DEFAULT_EXCEPTION_PATH",
     "EXCEPTION_MATCH_KEYS",
     "HIDDEN_MODEL_FILENAME",
     "OPAQUE_COMPONENT_NODE_CLASS",

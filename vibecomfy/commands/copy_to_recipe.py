@@ -12,11 +12,11 @@ import argparse
 import re
 from pathlib import Path
 
-from vibecomfy.registry.ready import repo_ready_template_id_for_path, repo_ready_template_paths
-from vibecomfy.utils import find_repo_root
-
-REPO_ROOT = find_repo_root()
-READY_ROOT = REPO_ROOT / "ready_templates"
+from vibecomfy.registry.ready import (
+    repo_ready_template_id_for_path,
+    repo_ready_template_paths,
+    repo_ready_template_root,
+)
 
 _HEADER_RE = re.compile(
     r"^#\s*vibecomfy:\s*(?:generated|manual).*?(?=\n\n)",
@@ -76,9 +76,10 @@ def _cmd_copy_to_recipe(args: argparse.Namespace) -> int:
 
 def _resolve_template_path(template_id: str) -> Path | None:
     """Resolve a ready-template ID to its source file path."""
+    ready_root = repo_ready_template_root()
     # Try repo paths first
-    for path in repo_ready_template_paths(READY_ROOT):
-        rid = repo_ready_template_id_for_path(path, READY_ROOT)
+    for path in repo_ready_template_paths(ready_root):
+        rid = repo_ready_template_id_for_path(path, ready_root)
         if rid == template_id:
             return path
 
@@ -93,7 +94,7 @@ def _resolve_template_path(template_id: str) -> Path | None:
         return py_path
 
     # Try under ready_templates
-    rt_path = READY_ROOT / f"{template_id}.py"
+    rt_path = ready_root / f"{template_id}.py"
     if rt_path.is_file():
         return rt_path
 

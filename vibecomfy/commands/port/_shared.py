@@ -10,10 +10,6 @@ from typing import Any
 from vibecomfy.porting.layout_store import read_store, store_from_ui_json, write_layout, write_store
 from vibecomfy.porting.report import PortIssue, PortReport
 from vibecomfy.analysis.corpus import build_corpus_snapshot
-from vibecomfy.utils import find_repo_root
-
-READY_ROOT = find_repo_root() / "ready_templates"
-
 from vibecomfy.porting.strict_ready import (
     STRICT_READY_LOAD_FAILED,
     STRICT_READY_MISSING_OUTPUT_CONTRACT,

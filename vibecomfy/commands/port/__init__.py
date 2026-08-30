@@ -14,7 +14,6 @@ from __future__ import annotations
 # --- Shared / monkeypatch-sensitive symbols ---
 from ._shared import (
     PORT_HELP,
-    READY_ROOT,
     _apply_strict_ready_template_gate,
     _attach_contract_fields,
     _attach_report_strict_ready,

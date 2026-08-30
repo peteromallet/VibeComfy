@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from vibecomfy.contracts.model import build_contract
@@ -16,7 +15,6 @@ from vibecomfy.workflow import VibeWorkflow
 
 
 CONTRACT_SHAPE = "workflow_runtime_contract.v1.public_descriptors.v2"
-TEMPLATE_INDEX_PATH = find_repo_root() / "template_index.json"
 
 
 def build_contract_surface(
@@ -77,10 +75,11 @@ def _ready_id(workflow: VibeWorkflow, contract: dict[str, Any]) -> str | None:
 
 
 def _template_index_row(ready_id: str) -> dict[str, Any]:
-    if not TEMPLATE_INDEX_PATH.exists():
+    template_index_path = find_repo_root() / "template_index.json"
+    if not template_index_path.exists():
         return {}
     try:
-        payload = json.loads(TEMPLATE_INDEX_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(template_index_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     templates = payload.get("templates") if isinstance(payload, dict) else None
