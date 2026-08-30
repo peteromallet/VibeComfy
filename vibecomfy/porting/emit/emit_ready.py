@@ -1053,6 +1053,10 @@ def _emit_build_function(
     for nid in topo_order:
         node = workflow_nodes[nid]
         var = var_names[nid]
+        from vibecomfy.workflow import mode_to_litegraph  # noqa: PLC0415
+
+        node_mode = mode_to_litegraph(getattr(node, "mode", 0))
+        node_mode_expr = repr(node_mode) if node_mode else None
 
         # -- readability diagnostic: variable name too long -------------------
         if diagnostics is not None and len(var) > 40:
@@ -1155,6 +1159,8 @@ def _emit_build_function(
                     # and the explicit _id noise is unnecessary.
                     all_args.append(("_id", repr(str(nid))))
                 all_args.extend((_wrapper_kwarg_name(key), expr) for key, expr in ready_kwargs)
+                if node_mode_expr is not None:
+                    all_args.append(("_mode", node_mode_expr))
                 if uid_arg is not None:
                     all_args.append(uid_arg)
                 # v2.6.4 Fix 3: drop _outputs= for schema-known typed wrappers.
@@ -1174,6 +1180,8 @@ def _emit_build_function(
                 if outputs_expr is not None:
                     all_args.append(("_outputs", outputs_expr))
                 all_args.extend(ready_kwargs)
+                if node_mode_expr is not None:
+                    all_args.append(("_mode", node_mode_expr))
                 if uid_arg is not None:
                     all_args.append(uid_arg)
                 if extras_expr is not None:
@@ -1250,7 +1258,8 @@ def _emit_build_function(
                 out_lines.append(single_line)
         else:
             _uid_str = f", _uid={node.uid!r}" if node.uid else ""
-            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}"
+            mode_str = f", _mode={node_mode_expr}" if node_mode_expr is not None else ""
+            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}{mode_str}"
             if not kwargs:
                 out_lines.append(f"{head})")
             else:
@@ -1704,6 +1713,7 @@ def _node(
     _extras: dict | None = None,
     _outputs: tuple[str, ...] | None = None,
     _uid: str | None = None,
+    _mode: int | str | None = None,
     **kwargs,
 ):
     """Create a node, preserving the original node id from the source workflow.
@@ -1716,6 +1726,9 @@ def _node(
     builder = wf.node(class_type, **kwargs)
     if _uid:
         builder.node.uid = _uid
+    if _mode is not None:
+        from vibecomfy.workflow import litegraph_to_mode
+        builder.node.mode = litegraph_to_mode(_mode)
     if _outputs is not None:
         builder.node.metadata["output_names"] = list(_outputs)
     if _extras:

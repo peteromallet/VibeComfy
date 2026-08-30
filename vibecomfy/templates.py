@@ -165,6 +165,7 @@ def node(
         raise TypeError(f"node() got too many positional args: {len(rest)}")
 
     explicit_outputs = kwargs.pop("_outputs", None)
+    explicit_mode = kwargs.pop("_mode", None)
     # Durable node identity (M2): a carried _uid is applied verbatim to the
     # created node so the ready-template round-trip preserves uids. Popped before
     # coercion so it never reaches the graph as an input/widget.
@@ -177,6 +178,10 @@ def node(
     builder = ready_node(wf, class_type, source_id=str(_id) if _id is not None else None, outputs=outputs or None, extras=_extras, **kwargs)
     if _uid:
         builder.node.uid = str(_uid)
+    if explicit_mode is not None:
+        from vibecomfy.workflow import litegraph_to_mode
+
+        builder.node.mode = litegraph_to_mode(explicit_mode)
     return builder
 
 

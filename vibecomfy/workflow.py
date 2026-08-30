@@ -148,9 +148,9 @@ def mode_to_litegraph(mode: Any) -> int:
             return _MODE_BYPASS
         return 0
     if isinstance(mode, str):
-        if mode == "muted":
+        if mode in {"muted", "never"}:
             return _MODE_MUTED
-        if mode == "bypassed":
+        if mode in {"bypassed", "bypass"}:
             return _MODE_BYPASS
         return 0
     if isinstance(mode, int):
@@ -164,6 +164,12 @@ def litegraph_to_mode(mode: Any) -> NodeMode:
     if isinstance(mode, NodeMode):
         return mode
     if isinstance(mode, str):
+        if mode in {"never", "muted"}:
+            return NodeMode.MUTED
+        if mode in {"bypass", "bypassed"}:
+            return NodeMode.BYPASSED
+        if mode in {"live", "enabled"}:
+            return NodeMode.ENABLED
         try:
             return NodeMode(mode)
         except ValueError:
@@ -989,20 +995,17 @@ class VibeWorkflow:
             return self._compile_graphbuilder()
         if backend != "api":
             raise ValueError(f"Unknown compile backend: {backend}")
-        dropped_ids, bypassed_ids = _compute_dropped_bypassed_ids(self.nodes)
-        resolved_edges = _resolve_bypass_edges(self.edges, dropped_ids, bypassed_ids)
-        broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, resolved_edges)
+        projection = _execution_projection(self.nodes, self.edges)
+        broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, projection.edges)
         api: dict[str, Any] = {}
-        for node_id, node in self.nodes.items():
+        for node_id, node in projection.nodes.items():
             if _is_compile_stripped_node(node):
-                continue
-            if str(node_id) in dropped_ids:
                 continue
             inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
             inputs.update(_compile_intent_runtime_inputs(node))
             api[str(node_id)] = {"class_type": node.class_type, "inputs": inputs}
         edge_inputs = _compile_resolved_edge_inputs(
-            self.nodes, resolved_edges, broadcast_sources, dropped_ids=dropped_ids
+            self.nodes, projection.edges, broadcast_sources, dropped_ids=projection.dropped_ids
         )
         for target_node_id, inputs in edge_inputs.items():
             if target_node_id not in api:
@@ -1141,11 +1144,14 @@ class VibeWorkflow:
         except ImportError as exc:
             raise RuntimeError("GraphBuilder backend requires the installed HiddenSwitch ComfyUI runtime.") from exc
 
-        broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, self.edges)
-        edge_inputs = _compile_resolved_edge_inputs(self.nodes, self.edges, broadcast_sources)
+        projection = _execution_projection(self.nodes, self.edges)
+        broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, projection.edges)
+        edge_inputs = _compile_resolved_edge_inputs(
+            self.nodes, projection.edges, broadcast_sources, dropped_ids=projection.dropped_ids
+        )
 
         builder = GraphBuilder(prefix="")
-        for node_id, node in self.nodes.items():
+        for node_id, node in projection.nodes.items():
             if _is_compile_stripped_node(node):
                 continue
             inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
@@ -1509,6 +1515,21 @@ def _compute_dropped_bypassed_ids(
     return frozenset(dropped), frozenset(bypassed)
 
 
+@dataclass(frozen=True, slots=True)
+class _ExecutionProjection:
+    """The mode-aware graph view consumed by execution backends.
+
+    The rich IR remains the authority for envelopes and editor surfaces.  This
+    small view is deliberately limited to execution concerns: nodes that never
+    execute are omitted and bypass edges are resolved around them.
+    """
+
+    nodes: dict[str, VibeNode]
+    edges: list[VibeEdge]
+    dropped_ids: frozenset[str]
+    bypassed_ids: frozenset[str]
+
+
 def _resolve_bypass_edges(
     edges: list[VibeEdge],
     dropped_ids: frozenset[str],
@@ -1568,6 +1589,26 @@ def _resolve_bypass_edges(
     return result
 
 
+def _execution_projection(
+    nodes: dict[str, VibeNode],
+    edges: list[VibeEdge],
+) -> _ExecutionProjection:
+    """Return the shared mode/bypass/edge projection for execution surfaces."""
+    dropped_ids, bypassed_ids = _compute_dropped_bypassed_ids(nodes)
+    resolved_edges = _resolve_bypass_edges(edges, dropped_ids, bypassed_ids)
+    projected_nodes = {
+        str(node_id): node
+        for node_id, node in nodes.items()
+        if str(node_id) not in dropped_ids
+    }
+    return _ExecutionProjection(
+        nodes=projected_nodes,
+        edges=resolved_edges,
+        dropped_ids=dropped_ids,
+        bypassed_ids=bypassed_ids,
+    )
+
+
 def _rewrite_broadcast_links(
     inputs: dict[str, Any],
     nodes: dict[str, VibeNode],
@@ -1601,7 +1642,8 @@ def _compile_resolved_edge_inputs(
         for node_id, node in nodes.items()
         if not _is_compile_stripped_node(node) and str(node_id) not in dropped_ids
     }
-    for edge in edges:
+    target_edges: dict[tuple[str, str], list[int]] = {}
+    for edge_index, edge in enumerate(edges):
         target_node_id = str(edge.to_node)
         target_node = nodes.get(target_node_id)
         if target_node is None:
@@ -1639,6 +1681,25 @@ def _compile_resolved_edge_inputs(
                 },
                 next_action="Reconnect the target input to a runtime node before compiling.",
             )
+        target_key = (target_node_id, str(edge.to_input))
+        prior_edge_indices = target_edges.setdefault(target_key, [])
+        if prior_edge_indices:
+            prior_edge_indices.append(edge_index)
+            raise WorkflowCompileError(
+                "target_input_cardinality",
+                (
+                    f"Target input {target_node_id!r}.{edge.to_input!r} has multiple "
+                    "execution edges; one input accepts exactly one edge."
+                ),
+                detail={
+                    "target_node_id": target_node_id,
+                    "target_input": str(edge.to_input),
+                    "edge_indices": list(prior_edge_indices),
+                    "edge_count": len(prior_edge_indices),
+                },
+                next_action="Disconnect the extra edge or target a distinct input socket before compiling.",
+            )
+        prior_edge_indices.append(edge_index)
         resolved.setdefault(target_node_id, {})[edge.to_input] = edge_source
     return resolved
 

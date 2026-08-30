@@ -57,6 +57,7 @@ def emit_agent_edit_python(
         apply_overrides=None,
         keep_virtual_wires=True,
         prune_dead_branches=False,
+        project_execution_edges=False,
         diagnostics=diagnostics,
     )
     definitions_source = raw_workflow

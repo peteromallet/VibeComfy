@@ -72,6 +72,7 @@ def _prepare_workflow_for_emit(
     template_id: str | None = None,
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
+    project_execution_edges: bool = True,
     diagnostics: list[Any] | None = None,
 ) -> dict[str, Any]:
     # Preserve fully disconnected canvases. Dead-branch pruning is useful when
@@ -124,8 +125,23 @@ def _prepare_workflow_for_emit(
         )
     }
     _sync_declared_exec_output_metadata(workflow_nodes)
+    from vibecomfy.workflow import mode_to_litegraph  # noqa: PLC0415
+
+    # Execution-edge projection intentionally disconnects muted/bypassed nodes,
+    # but Python emission still has to carry their semantic mode so rebuilding
+    # the emitted source produces the same execution projection.
+    mode_nodes = {
+        str(nid): node
+        for nid, node in workflow_nodes.items()
+        if mode_to_litegraph(getattr(node, "mode", 0)) != 0
+    }
+    emission_edges = workflow.edges
+    if project_execution_edges:
+        from vibecomfy.workflow import _execution_projection  # noqa: PLC0415
+
+        emission_edges = _execution_projection(workflow.nodes, workflow.edges).edges
     edges_in: dict[str, list[Any]] = {}
-    for edge in workflow.edges:
+    for edge in emission_edges:
         if edge.from_node not in workflow_nodes or edge.to_node not in workflow_nodes:
             continue
         edges_in.setdefault(edge.to_node, []).append(edge)
@@ -147,6 +163,8 @@ def _prepare_workflow_for_emit(
             edges_in,
             template_id=template_id,
         )
+        for nid, node in mode_nodes.items():
+            workflow_nodes.setdefault(nid, node)
 
     from vibecomfy.workflow import VibeEdge as _Edge
 

@@ -261,21 +261,20 @@ def test_duplicate_edge_reorder_changes_fingerprint_and_survives_round_trip() ->
     ]
     decoded = from_envelope(workflow.to_envelope())
     before_fingerprint = _door_node_fingerprint(decoded)
-    before_api = decoded.compile("api")["3"]["inputs"]["image"]
+    with pytest.raises(WorkflowCompileError, match="target_input_cardinality"):
+        decoded.compile("api")
 
     decoded.edges.reverse()
     after_fingerprint = _door_node_fingerprint(decoded)
-    after_api = decoded.compile("api")["3"]["inputs"]["image"]
     before_emit = deepcopy(decoded)
     emitted = decoded.to_envelope()
 
-    assert before_api == ["2", 0]
-    assert after_api == ["1", 0]
     assert after_fingerprint != before_fingerprint
     assert [edge.from_node for edge in decoded.edges] == ["2", "1"]
     assert [edge["from_node"] for edge in emitted["edges"]] == ["2", "1"]
     assert len(emitted["edges"]) == 2
-    assert from_envelope(emitted).compile("api")["3"]["inputs"]["image"] == after_api
+    with pytest.raises(WorkflowCompileError, match="target_input_cardinality"):
+        from_envelope(emitted).compile("api")
     assert decoded == before_emit
 
 
