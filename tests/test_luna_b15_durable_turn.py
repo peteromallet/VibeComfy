@@ -171,6 +171,117 @@ def test_missing_publication_for_state_key_fails_closed(tmp_path: Path) -> None:
     assert exc_info.value.status == "unreadable"
 
 
+@pytest.mark.parametrize("reader_name", ["read_session_chat", "read_session_json"])
+def test_public_readers_reject_deleted_publication_with_valid_projection(
+    tmp_path: Path, reader_name: str
+) -> None:
+    from vibecomfy.comfy_nodes.agent._frag_chat import read_session_chat
+    from vibecomfy.comfy_nodes.agent._frag_session_bundle import read_session_json
+
+    request, allocation = _allocation(tmp_path)
+    _record(allocation, {"ok": True, "message": "authoritative"})
+    (allocation.turn_dir / S.RESPONSE_PUBLICATION_FILE_NAME).unlink()
+
+    reader = {
+        "read_session_chat": read_session_chat,
+        "read_session_json": read_session_json,
+    }[reader_name]
+    with pytest.raises(S.DurableReadError) as exc_info:
+        reader(tmp_path, "b15-session")
+    assert exc_info.value.status == "unreadable"
+    assert json.loads((allocation.turn_dir / "response.json").read_text())["message"] == (
+        "authoritative"
+    )
+    assert request["idempotency_key"] == "retry-key"
+
+
+@pytest.mark.parametrize("reader_name", ["read_session_chat", "read_session_json"])
+def test_public_readers_reconcile_tampered_chat_from_valid_publication(
+    tmp_path: Path, reader_name: str
+) -> None:
+    from vibecomfy.comfy_nodes.agent._frag_chat import read_session_chat
+    from vibecomfy.comfy_nodes.agent._frag_session_bundle import read_session_json
+
+    _, allocation = _allocation(tmp_path)
+    _record(allocation, {"ok": True, "message": "immutable answer"})
+    (allocation.turn_dir / "chat.json").write_text(
+        json.dumps(
+            {
+                "session_id": "b15-session",
+                "turn_id": allocation.context.turn_id,
+                "messages": [
+                    {"role": "user", "text": "inspect", "turn_id": allocation.context.turn_id},
+                    {
+                        "role": "agent",
+                        "text": "tampered",
+                        "turn_id": allocation.context.turn_id,
+                        "outcome": {"kind": "tampered"},
+                        "change_details": {"secret": "tampered"},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    reader = {
+        "read_session_chat": read_session_chat,
+        "read_session_json": read_session_json,
+    }[reader_name]
+    result = reader(tmp_path, "b15-session")
+    assert result["messages"][-1]["text"] == "immutable answer"
+    repaired = json.loads((allocation.turn_dir / "chat.json").read_text())
+    assert repaired["messages"][-1]["text"] == "immutable answer"
+    assert repaired["messages"][-1].get("outcome", {}).get("kind") != "tampered"
+    assert repaired["messages"][-1].get("change_details", {}).get("secret") != "tampered"
+
+
+@pytest.mark.parametrize("reader_name", ["read_session_chat", "read_session_json"])
+def test_public_readers_reject_corrupt_publication_even_with_valid_projections(
+    tmp_path: Path, reader_name: str
+) -> None:
+    from vibecomfy.comfy_nodes.agent._frag_chat import read_session_chat
+    from vibecomfy.comfy_nodes.agent._frag_session_bundle import read_session_json
+
+    _, allocation = _allocation(tmp_path)
+    _record(allocation, {"ok": True, "message": "must fail closed"})
+    (allocation.turn_dir / S.RESPONSE_PUBLICATION_FILE_NAME).write_text(
+        "{broken", encoding="utf-8"
+    )
+
+    reader = {
+        "read_session_chat": read_session_chat,
+        "read_session_json": read_session_json,
+    }[reader_name]
+    with pytest.raises(S.DurableReadError) as exc_info:
+        reader(tmp_path, "b15-session")
+    assert exc_info.value.status == "corrupt"
+
+
+def test_public_readers_preserve_non_keyed_legacy_response_fallback(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent._frag_chat import read_session_chat
+    from vibecomfy.comfy_nodes.agent._frag_session_bundle import read_session_json
+
+    allocation = S.allocate_turn(
+        session_root=tmp_path,
+        session_id="legacy-session",
+        request_payload={"task": "legacy task"},
+    )
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps({"task": "legacy task"}), encoding="utf-8"
+    )
+    (allocation.turn_dir / "response.json").write_text(
+        json.dumps({"ok": True, "message": "legacy response"}), encoding="utf-8"
+    )
+
+    chat = read_session_chat(tmp_path, "legacy-session")
+    detail = read_session_json(tmp_path, "legacy-session")
+    assert chat["messages"][-1]["text"] == "legacy response"
+    assert detail["messages"][-1]["text"] == "legacy response"
+
+
 def test_idempotency_retry_conflict_still_does_not_allocate_second_turn(tmp_path: Path) -> None:
     _, allocation = _allocation(tmp_path)
     _record(allocation, {"ok": True, "message": "one turn"})

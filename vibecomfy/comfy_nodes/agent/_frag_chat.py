@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.candidate_transaction import classify_legacy_migration_v1
 from vibecomfy.comfy_nodes.agent.contracts import TurnContext, ensure_agent_edit_response_contract
-from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, REVIEWABLE_CANDIDATE_STATES, _read_response_publication, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, load_json_result_impl, project_transaction_state, read_state, session_dir_for
+from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, RESPONSE_PUBLICATION_FILE_NAME, REVIEWABLE_CANDIDATE_STATES, _read_response_publication, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, load_json_result_impl, project_transaction_state, read_state, session_dir_for
 from vibecomfy.porting.edit.types import FieldChange
 from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _ops_from_accepted_batch, _safe_session_id
 
@@ -161,13 +161,35 @@ def _stamped_message_outcome(
     return dict(public_outcome) if isinstance(public_outcome, Mapping) else None
 
 
-def _read_turn_response_payload(turn_dir: Path) -> dict[str, Any]:
+def _turn_has_idempotency_claim(state: Mapping[str, Any], turn_id: str) -> bool:
+    records = state.get("idempotency_records")
+    if not isinstance(records, Mapping):
+        return False
+    return any(
+        isinstance(record, Mapping) and record.get("turn_id") == turn_id
+        for record in records.values()
+    )
+
+
+def _read_turn_response_payload(
+    turn_dir: Path,
+    *,
+    keyed: bool = False,
+) -> dict[str, Any]:
     # response_publication.json is the immutable keyed replay authority. A
     # damaged response.json is only a repairable projection when publication
     # is valid; it must never hide a completed turn from chat reconstruction.
     publication = _read_response_publication(turn_dir)
     if publication is not None:
         return dict(publication["response"])
+    if keyed:
+        raise DurableReadError(
+            DurableRead(
+                "unreadable",
+                path=turn_dir / RESPONSE_PUBLICATION_FILE_NAME,
+                error="idempotency record claims a key but its response publication is absent",
+            )
+        )
     response_path = turn_dir / "response.json"
     result = load_json_result_impl(response_path)
     if result.status == "absent":
@@ -175,6 +197,73 @@ def _read_turn_response_payload(turn_dir: Path) -> dict[str, Any]:
     if result.status != "valid":
         raise DurableReadError(result)
     return dict(result.value)
+
+
+def _authoritative_agent_text(response: Mapping[str, Any]) -> str:
+    raw = response.get("user_facing_message") or response.get("message", "")
+    text = raw if isinstance(raw, str) else ""
+    return text if text.strip() else "The agent edit turn completed."
+
+
+def _reconcile_chat_projection(
+    chat_path: Path,
+    chat_record: dict[str, Any],
+    response: Mapping[str, Any],
+    *,
+    turn_id: str,
+) -> dict[str, Any]:
+    """Reconcile a derived chat projection with an immutable publication."""
+    messages = chat_record.get("messages")
+    reconciled_messages = list(messages) if isinstance(messages, list) else []
+    agent_index = next(
+        (
+            index
+            for index in range(len(reconciled_messages) - 1, -1, -1)
+            if isinstance(reconciled_messages[index], Mapping)
+            and reconciled_messages[index].get("role") == "agent"
+        ),
+        None,
+    )
+    agent_message = {
+        "role": "agent",
+        "text": _authoritative_agent_text(response),
+        "turn_id": turn_id,
+    }
+    outcome = _stamped_turn_response_outcome(response, stage="submit")
+    if outcome is not None:
+        agent_message["outcome"] = outcome
+    change_details = response.get("change_details")
+    if isinstance(change_details, Mapping):
+        agent_message["change_details"] = _json_safe(dict(change_details))
+    if agent_index is None:
+        reconciled_messages.append(agent_message)
+    else:
+        existing = reconciled_messages[agent_index]
+        merged = dict(existing) if isinstance(existing, Mapping) else {}
+        for field in ("outcome", "changes", "change_details"):
+            merged.pop(field, None)
+        merged.update(agent_message)
+        if outcome is not None:
+            merged["outcome"] = outcome
+        if isinstance(change_details, Mapping):
+            merged["change_details"] = _json_safe(dict(change_details))
+        reconciled_messages[agent_index] = merged
+
+    reconciled = dict(chat_record)
+    reconciled["messages"] = reconciled_messages
+    if reconciled != chat_record:
+        try:
+            chat_path.write_text(
+                json.dumps(reconciled, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            LOGGER.warning(
+                "chat.json repair failed for turn %s (best-effort): %s",
+                turn_id,
+                exc,
+            )
+    return reconciled
 
 
 def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) -> dict[str, Any] | None:
@@ -711,7 +800,9 @@ def read_session_chat(
         turn_dir = turns_dir / turn_id
         chat_path = turn_dir / "chat.json"
         chat_record: dict[str, Any] | None = None
-        response = _read_turn_response_payload(turn_dir)
+        keyed = _turn_has_idempotency_claim(session_state, turn_id)
+        response = _read_turn_response_payload(turn_dir, keyed=keyed)
+        publication_present = (turn_dir / RESPONSE_PUBLICATION_FILE_NAME).is_file()
         fallback_agent_outcome = _stamped_turn_response_outcome(response, stage="submit")
         request_path = turn_dir / "request.json"
         request_metadata: dict[str, Any] | None = None
@@ -726,9 +817,19 @@ def read_session_chat(
         # Try chat.json first.
         if chat_path.is_file():
             try:
-                chat_record = json.loads(chat_path.read_text(encoding="utf-8"))
+                parsed_chat_record = json.loads(chat_path.read_text(encoding="utf-8"))
+                if isinstance(parsed_chat_record, dict):
+                    chat_record = parsed_chat_record
             except (OSError, json.JSONDecodeError):
                 pass
+
+        if chat_record is not None and publication_present:
+            chat_record = _reconcile_chat_projection(
+                chat_path,
+                chat_record,
+                response,
+                turn_id=turn_id,
+            )
 
         # Fall back to request.json + response.json.
         if chat_record is None:
@@ -753,10 +854,7 @@ def read_session_chat(
                     raise DurableReadError(
                         DurableRead("corrupt", path=request_path, error="request must be a JSON object")
                     )
-                agent_text_raw = response.get("user_facing_message") or response.get("message", "")
-                agent_text: str = agent_text_raw if isinstance(agent_text_raw, str) else ""
-                if not agent_text.strip():
-                    agent_text = "The agent edit turn completed."
+                agent_text = _authoritative_agent_text(response)
                 chat_record = {
                     "session_id": safe_id,
                     "turn_id": turn_id,

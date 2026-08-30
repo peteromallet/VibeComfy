@@ -12,8 +12,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Mapping
-from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, session_dir_for
-from ._frag_chat import _BUNDLE_MAX_FILE_BYTES, _BUNDLE_MAX_TOTAL_BYTES, _BUNDLE_TEXT_SUFFIXES, _json_safe, _read_turn_response_payload
+from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, RESPONSE_PUBLICATION_FILE_NAME, read_state, session_dir_for
+from ._frag_chat import _BUNDLE_MAX_FILE_BYTES, _BUNDLE_MAX_TOTAL_BYTES, _BUNDLE_TEXT_SUFFIXES, _authoritative_agent_text, _json_safe, _read_turn_response_payload, _reconcile_chat_projection, _turn_has_idempotency_claim
 from ._frag_state import LOGGER, _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS, _WARNED_LEGACY_CONTRACTS, _safe_session_id
 
 def read_session_bundle(
@@ -124,6 +124,8 @@ def read_session_json(
         "turns_dir": str(turns_dir),
     }
 
+    session_state = read_state(session_dir) if session_dir.is_dir() else {}
+
     if not turns_dir.is_dir():
         return {
             **session_meta,
@@ -165,13 +167,25 @@ def read_session_json(
         # Reuse the chat-reader logic for message extraction.
         chat_path = turn_dir / "chat.json"
         chat_record: dict[str, Any] | None = None
-        response = _read_turn_response_payload(turn_dir)
+        keyed = _turn_has_idempotency_claim(session_state, turn_name)
+        response = _read_turn_response_payload(turn_dir, keyed=keyed)
+        publication_present = (turn_dir / RESPONSE_PUBLICATION_FILE_NAME).is_file()
 
         if chat_path.is_file():
             try:
-                chat_record = json.loads(chat_path.read_text(encoding="utf-8"))
+                parsed_chat_record = json.loads(chat_path.read_text(encoding="utf-8"))
+                if isinstance(parsed_chat_record, dict):
+                    chat_record = parsed_chat_record
             except (OSError, json.JSONDecodeError):
                 pass
+
+        if chat_record is not None and publication_present:
+            chat_record = _reconcile_chat_projection(
+                chat_path,
+                chat_record,
+                response,
+                turn_id=turn_name,
+            )
 
         if chat_record is None:
             request_path = turn_dir / "request.json"
@@ -195,9 +209,7 @@ def read_session_json(
                     raise DurableReadError(
                         DurableRead("corrupt", path=request_path, error="request must be a JSON object")
                     )
-                agent_text: str = response.get("message", "")
-                if not isinstance(agent_text, str) or not agent_text.strip():
-                    agent_text = "The agent edit turn completed."
+                agent_text = _authoritative_agent_text(response)
                 chat_record = {
                     "session_id": safe_id,
                     "turn_id": turn_name,
