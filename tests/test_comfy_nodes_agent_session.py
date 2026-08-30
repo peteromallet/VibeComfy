@@ -18,7 +18,13 @@ from vibecomfy.comfy_nodes.agent.session import (
     session_dir_for,
     turn_dir_for,
 )
-from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.schema import (
+    InputSpec,
+    NodeSchema,
+    OutputSpec,
+    capture_schema_snapshot,
+    schema_payload_from_node_schema,
+)
 
 
 # ── normalize_path_component ────────────────────────────────────────────────
@@ -1137,6 +1143,24 @@ class _TurnSchemaProvider:
                 ],
             ),
         }
+        # B15 receipts require the exact admission snapshot, not a live
+        # provider. Keep this helper aligned with the production ingress
+        # contract while retaining the small deterministic schemas used by
+        # these transaction tests.
+        payloads = {
+            class_type: schema_payload_from_node_schema(class_type, schema)
+            for class_type, schema in self._schemas.items()
+        }
+        snapshot = capture_schema_snapshot(
+            class_types=sorted(payloads),
+            request_snapshot={
+                "contract_version": "schema_snapshot_v1",
+                "schemas": payloads,
+                "missing_classes": [],
+            },
+            node_classes={"1": "KSampler", "sampler-1": "KSampler"},
+        )
+        self.snapshot = snapshot
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)

@@ -39,8 +39,8 @@ MANIFEST_PATH = ROOT / "tests/fixtures/agent_edit/cleanup_surface_manifest.json"
 # Frozen counts pinned by the ORACLE-1 capture; the name sets themselves are
 # read from the manifest (never hardcoded here), only the counts are pinned.
 PINNED_EDIT_EXPORT_COUNT = 437  # S73 fixture cutover 440→437 (B3: 441→440 via _stage_apply_delta)
-PINNED_SESSION_ALL_COUNT = 23
-PINNED_SESSION_PUBLIC_DIRECT_COUNT = 31
+PINNED_SESSION_ALL_COUNT = 28
+PINNED_SESSION_PUBLIC_DIRECT_COUNT = 36
 PINNED_SESSION_PRIVATE_IMPORTED_COUNT = 23
 
 
@@ -123,7 +123,7 @@ def test_required_post_split_contract_declared_in_manifest() -> None:
     # Post-T-039 flip point: for name in required: assert hasattr(agent_edit, name)
 
 
-# ── session surface (S5, T-042): __all__ 23 / public 31 / private 23 ─────────
+# ── session surface (S5, T-042): __all__ 28 / public 36 / private 23 ─────────
 
 
 def test_session_all_matches_frozen_manifest_membership_only() -> None:
@@ -141,7 +141,7 @@ def test_session_all_matches_frozen_manifest_membership_only() -> None:
     ],
 )
 def test_session_section_lengths_match_frozen_counts(key: str, pinned: int) -> None:
-    """Sanity: each session manifest list length matches its pinned 23/31/23 count."""
+    """Sanity: each session manifest list length matches its pinned 28/36/23 count."""
     assert len(_session_section()[key]) == pinned
 
 
