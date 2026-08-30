@@ -12,7 +12,9 @@ L2 (live, opt-in): resolves real uninstalled registry nodes by cloning their pub
 from __future__ import annotations
 
 import json
+import io
 import os
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -104,6 +106,58 @@ def test_l1_no_pack_resolves_returns_none(tmp_path: Path, monkeypatch: pytest.Mo
     assert provider.get_schema("DoesNotExistNode") is None
     # Cached negative so the chain doesn't keep retrying network lookups.
     assert provider._cache["DoesNotExistNode"] is None
+
+
+def test_registry_archive_resolves_package_version_without_git_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Comfy Registry package archive is a valid cold-cache schema source."""
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr(
+            "nodes.py",
+            """
+class ArchiveNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"strength": ("FLOAT", {"default": 0.5})}}
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+""",
+        )
+    archive_bytes = payload.getvalue()
+
+    class _Response:
+        def __enter__(self):
+            return io.BytesIO(archive_bytes)
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr("vibecomfy.schema.on_demand.urllib.request.urlopen", lambda *a, **k: _Response())
+    provider = OnDemandInstallSchemaProvider(sandbox_root=tmp_path / "sandbox")
+    ref = type(
+        "Ref",
+        (),
+        {
+            "slug": "registry-pack",
+            "url": "https://github.com/example/registry-pack",
+            "version": "1.3.5",
+            "download_url": "https://cdn.comfy.org/example/registry-pack/1.3.5/node.zip",
+        },
+    )()
+    monkeypatch.setattr(provider, "_resolve_pack", lambda _class_type: ref)
+
+    schema = provider.get_schema("ArchiveNode")
+
+    assert schema is not None
+    assert schema.source_provider == "on_demand_static"
+    assert schema.inputs["strength"].type == "FLOAT"
+    marker = tmp_path / "sandbox" / "registry-pack" / ".vibecomfy-clone-complete.json"
+    metadata = json.loads(marker.read_text(encoding="utf-8"))
+    assert metadata["kind"] == "registry-archive"
+    assert metadata["pin"] == "1.3.5"
+    assert metadata["archive_sha256"] == metadata["head"]
 
 
 def test_l1_ladder_ast_degrades_dynamic_import_catches_fully(tmp_path: Path) -> None:

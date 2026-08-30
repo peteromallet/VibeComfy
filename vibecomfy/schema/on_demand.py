@@ -23,11 +23,15 @@ because a miss triggers network + git operations against public third-party repo
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import tempfile
 import uuid
+import urllib.error
+import urllib.request
+import zipfile
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -284,13 +288,20 @@ class OnDemandInstallSchemaProvider:
         target = self.sandbox_root / slug
         pin = getattr(ref, "version", None) or getattr(ref, "commit", None)
         url = getattr(ref, "url", None)
+        download_url = getattr(ref, "download_url", None)
         self.last_clone_error = None
         if target.is_symlink():
             error = OnDemandCloneError(f"refusing symlinked on-demand clone at {target}")
             self.last_clone_error = str(error)
             raise error
         if target.is_dir():
-            if self._is_complete_clone(target, slug, pin, url):
+            if download_url and self._is_complete_archive(target, slug, pin, download_url):
+                try:
+                    os.utime(target, None)
+                except OSError:
+                    pass
+                return target
+            if not download_url and self._is_complete_clone(target, slug, pin, url):
                 try:
                     os.utime(target, None)
                 except OSError:
@@ -318,17 +329,31 @@ class OnDemandInstallSchemaProvider:
             self.sandbox_root.mkdir(parents=True, exist_ok=True)
             staging_parent = Path(tempfile.mkdtemp(prefix=f".{slug}-", dir=self.sandbox_root))
             staging = staging_parent / slug
-            if pin:
+            if download_url:
+                archive_path = staging_parent / "node.zip"
+                archive_sha256 = self._download_and_extract_archive(download_url, archive_path, staging)
+                head = archive_sha256
+                marker_payload = {
+                    "complete": True,
+                    "kind": "registry-archive",
+                    "slug": slug,
+                    "url": download_url,
+                    "pin": pin,
+                    "head": head,
+                    "archive_sha256": archive_sha256,
+                }
+            elif pin:
                 _run_git(["git", "clone", ref.url, str(staging)], self.clone_timeout)
                 _run_git(
                     ["git", "-C", str(staging), "fetch", "--tags", "--depth", "1", "origin", pin],
                     30,
                 )
                 _run_git(["git", "-C", str(staging), "checkout", pin], 10)
+                head = _run_git(["git", "-C", str(staging), "rev-parse", "HEAD"], 10).stdout.strip()
             else:
                 _run_git(["git", "clone", "--depth", "1", ref.url, str(staging)], self.clone_timeout)
-            head = _run_git(["git", "-C", str(staging), "rev-parse", "HEAD"], 10).stdout.strip()
-            if pin:
+                head = _run_git(["git", "-C", str(staging), "rev-parse", "HEAD"], 10).stdout.strip()
+            if not download_url and pin:
                 want = _run_git(["git", "-C", str(staging), "rev-parse", f"{pin}^{{commit}}"], 10).stdout.strip()
                 if not want or head != want:
                     raise OnDemandCloneError(
@@ -336,7 +361,9 @@ class OnDemandInstallSchemaProvider:
                     )
             (staging / _CLONE_COMPLETE_MARKER).write_text(
                 json.dumps(
-                    {"complete": True, "slug": slug, "url": ref.url, "pin": pin, "head": head},
+                    marker_payload if download_url else {
+                        "complete": True, "slug": slug, "url": ref.url, "pin": pin, "head": head
+                    },
                     sort_keys=True,
                 ),
                 encoding="utf-8",
@@ -355,6 +382,66 @@ class OnDemandInstallSchemaProvider:
         finally:
             if staging_parent is not None:
                 shutil.rmtree(staging_parent, ignore_errors=True)
+
+    def _download_and_extract_archive(
+        self, download_url: str, archive_path: Path, destination: Path
+    ) -> str:
+        """Fetch a registry package archive and safely materialize its source.
+
+        Registry versions are package archives, not Git refs.  Extraction is
+        deliberately path-safe and records the archive digest in the clone
+        marker so a warm sandbox cannot silently substitute another payload.
+        """
+        if not isinstance(download_url, str) or not download_url.startswith("https://"):
+            raise OnDemandCloneError(f"registry archive URL must use HTTPS: {download_url!r}")
+        try:
+            with urllib.request.urlopen(download_url, timeout=self.clone_timeout) as response, archive_path.open("wb") as output:
+                shutil.copyfileobj(response, output)
+            archive_sha256 = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            destination.mkdir(parents=True, exist_ok=False)
+            with zipfile.ZipFile(archive_path) as archive:
+                members = archive.infolist()
+                for member in members:
+                    member_path = Path(member.filename)
+                    if member_path.is_absolute() or ".." in member_path.parts or "\\" in member.filename:
+                        raise OnDemandCloneError(
+                            f"registry archive contains unsafe path {member.filename!r}"
+                        )
+                    # Unix mode 0120000 denotes a symlink.  Do not materialize
+                    # links from third-party archives into the schema sandbox.
+                    if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                        raise OnDemandCloneError(
+                            f"registry archive contains unsupported symlink {member.filename!r}"
+                        )
+                    archive.extract(member, destination)
+            return archive_sha256
+        except OnDemandCloneError:
+            raise
+        except (OSError, urllib.error.URLError, zipfile.BadZipFile, RuntimeError) as exc:
+            raise OnDemandCloneError(
+                f"registry archive fetch/extract failed for {download_url!r}: {exc}"
+            ) from exc
+
+    def _is_complete_archive(
+        self, target: Path, slug: str, pin: str | None, download_url: str
+    ) -> bool:
+        marker = target / _CLONE_COMPLETE_MARKER
+        if marker.is_symlink() or not marker.is_file():
+            return False
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return False
+        return (
+            isinstance(data, dict)
+            and data.get("complete") is True
+            and data.get("kind") == "registry-archive"
+            and data.get("slug") == slug
+            and data.get("pin") == pin
+            and data.get("url") == download_url
+            and isinstance(data.get("archive_sha256"), str)
+            and data.get("head") == data.get("archive_sha256")
+        )
 
     def _is_complete_clone(
         self, target: Path, slug: str, pin: str | None, url: str | None = None

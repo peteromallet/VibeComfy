@@ -138,6 +138,10 @@ class PackRef:
     path: str | None = None
     name: str | None = None
     registry_id: str | None = None
+    # Comfy Registry distributes pinned node versions as immutable-ish archives
+    # on cdn.comfy.org.  This is distinct from ``url`` (the source repository):
+    # registry version strings are package versions, not necessarily Git refs.
+    download_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in asdict(self).items() if value is not None}
@@ -208,6 +212,7 @@ class ResolverCandidate:
             "version": self.ref.version,
             "commit": self.ref.commit,
             "url": self.ref.url,
+            "download_url": self.ref.download_url,
             "registry_id": self.ref.registry_id,
             "expected_classes": list(self.expected_classes),
             "validation_mode": self.validation_mode,
@@ -837,9 +842,13 @@ class _ComfyRegistryClient:
         provisional_schema: dict[str, Any] = {}
         versions_path = f"/nodes/{quote(ref.registry_id or ref.slug, safe='')}/versions"
         version = _concrete_registry_version(ref.version)
-        if version is None:
+        version_record: Mapping[str, Any] | None = None
+        if ref.source == "comfy-registry" or version is None:
             payload, cache_hit = self._get_json(versions_path)
-            version = _version_from_versions_payload(payload)
+            version_record = _version_record_from_versions_payload(payload, version)
+            version = version or _version_from_versions_payload(payload)
+            if version_record is None:
+                version_record = _version_record_from_versions_payload(payload, version)
             evidence.append(ResolverEvidence(
                 tier="comfy-registry",
                 source="version-list",
@@ -871,6 +880,9 @@ class _ComfyRegistryClient:
             matched_classes=tuple(expected_classes),
             detail={"version": version},
         ))
+        download_url = ref.download_url
+        if version_record is not None:
+            download_url = _first_string(version_record, "downloadUrl", "download_url") or download_url
         ref_with_version = PackRef(
             slug=ref.slug,
             source=ref.source,
@@ -880,6 +892,7 @@ class _ComfyRegistryClient:
             path=ref.path,
             name=ref.name,
             registry_id=ref.registry_id,
+            download_url=download_url,
         )
         return ResolverCandidate(
             ref=ref_with_version,
@@ -1381,6 +1394,25 @@ def _version_from_versions_payload(payload: Any) -> str | None:
     return None
 
 
+def _version_record_from_versions_payload(
+    payload: Any, version: str | None
+) -> Mapping[str, Any] | None:
+    """Return the registry's exact version row, including its archive URL.
+
+    A registry version such as ``1.3.5`` is a package version and is not
+    required to exist as a Git tag.  The version endpoint is the authority for
+    the matching ``downloadUrl``; callers must not synthesize a repository ref
+    from the version string.
+    """
+    if not version:
+        return None
+    for record in _iter_records(payload):
+        candidate = _first_string(record, "version", "name", "tag", "id")
+        if candidate == version:
+            return record
+    return None
+
+
 def _classes_from_schema_payload(payload: Any) -> tuple[str, ...]:
     classes: list[str] = []
     if isinstance(payload, dict):
@@ -1606,6 +1638,7 @@ def _prefer_ref(left: PackRef, right: PackRef) -> PackRef:
         path=left.path or right.path,
         name=left.name or right.name,
         registry_id=left.registry_id or right.registry_id,
+        download_url=left.download_url or right.download_url,
     )
 
 
@@ -1678,6 +1711,9 @@ def _apply_version_pin(
         path=str(metadata.get("path") or ref.path) if metadata.get("path") or ref.path else None,
         name=str(metadata.get("name") or ref.name) if metadata.get("name") or ref.name else None,
         registry_id=str(metadata.get("registry_id") or ref.registry_id) if metadata.get("registry_id") or ref.registry_id else None,
+        download_url=str(metadata.get("download_url") or ref.download_url)
+        if metadata.get("download_url") or ref.download_url
+        else None,
     )
 
 

@@ -842,6 +842,57 @@ def test_resolve_missing_nodes_fetches_registry_schema_with_concrete_version(tmp
     assert result.candidates[0].provisional_schema["runnable"] is False
 
 
+def test_resolve_missing_nodes_carries_registry_archive_for_package_version(tmp_path: Path) -> None:
+    """Registry package versions are resolved to their CDN archive, not Git refs."""
+    registry = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/comfy-nodes/UltralyticsDetectorProvider/node", ()): {
+                "node": {
+                    "id": "comfyui-impact-subpack",
+                    "name": "ComfyUI Impact Subpack",
+                    "latestVersion": "1.3.5",
+                    "repository": "https://github.com/ltdrdata/ComfyUI-Impact-Subpack",
+                }
+            },
+            ("https://api.comfy.org/nodes/comfyui-impact-subpack/versions", ()): {
+                "versions": [
+                    {
+                        "version": "1.3.5",
+                        "downloadUrl": "https://cdn.comfy.org/drltdata/comfyui-impact-subpack/1.3.5/node.zip",
+                    }
+                ]
+            },
+            ("https://api.comfy.org/nodes/comfyui-impact-subpack/versions/1.3.5/schema", ()): None,
+        }
+    )
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {},
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [],
+        }
+    )
+    github = FakeRegistryClient({})
+
+    result = resolve_missing_nodes(
+        "UltralyticsDetectorProvider",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=registry,
+        github_client=github,
+    )
+
+    assert result.candidates[0].ref.version == "1.3.5"
+    assert result.candidates[0].ref.download_url == (
+        "https://cdn.comfy.org/drltdata/comfyui-impact-subpack/1.3.5/node.zip"
+    )
+
+
 def test_resolve_missing_nodes_preserves_evidence_only_manager_match(tmp_path: Path) -> None:
     manager = FakeRegistryClient(
         {
