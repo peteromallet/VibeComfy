@@ -993,6 +993,101 @@ def test_type_invalid_response_envelopes_are_malformed_and_never_pass(
                 {"op": {"op": "set_node_field", "target": ["", "sampler"]}}
             ],
         },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "candidate_graph": {"garbage": "x"},
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate_transaction": {"garbage": "x"},
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {
+                "kind": "candidate",
+                "changes": [{"op": "set_node_field"}],
+            },
+            "candidate_graph": {"nodes": [], "links": []},
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {
+                "kind": "candidate",
+                "changes": [{"op": "definitely_not_an_op"}],
+            },
+            "candidate_graph": {"nodes": [], "links": []},
+            "change_details": {"landed_operation_count": 1},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {
+                "kind": "requires_custom_nodes",
+                "candidates": [{"expected_classes": [3]}],
+            },
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {
+                "kind": "requires_custom_nodes",
+                "missing_classes": [],
+            },
+            "message": "A custom node is required.",
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {
+                "kind": "requires_custom_nodes",
+                "candidates": [
+                    {
+                        "expected_classes": ["MissingNode"],
+                        "evidence": [],
+                    }
+                ],
+            },
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {
+                "kind": "requires_custom_nodes",
+                "candidates": [
+                    {
+                        "expected_classes": ["MissingNode"],
+                        "evidence": [{"garbage": "x"}],
+                    }
+                ],
+            },
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "clarify", "candidates": []},
+            "message": "Which node should change?",
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "budget", "candidates": []},
+            "message": "The execution budget was exhausted.",
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop", "reason": "No changes."},
+            "accepted_batch": {},
+        },
     ],
 )
 def test_semantically_incomplete_response_envelopes_never_pass(
@@ -1008,8 +1103,7 @@ def test_semantically_incomplete_response_envelopes_never_pass(
     assert assessment["passed"] is False
     assert assessment["verdict"] == "undetermined"
     assert any(
-        issue["check"] == "response_malformed"
-        and issue["severity"] == "undetermined"
+        issue["check"] == "response_malformed" and issue["severity"] == "undetermined"
         for issue in assessment["issues"]
     )
 
