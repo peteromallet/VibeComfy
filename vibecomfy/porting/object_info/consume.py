@@ -7,6 +7,7 @@ All public functions are deterministic and do not require ComfyUI or network.
 from __future__ import annotations
 
 import json
+import threading
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any
 
 from vibecomfy.errors import ObjectInfoIdentityAmbiguityError
 from vibecomfy.errors import ObjectInfoCacheCorruptError
-from vibecomfy.porting.object_info.generation import active_cache_root, read_json, safe_cache_filename
+from vibecomfy.porting.object_info.generation import active_cache_root, cache_file_witness, read_json, safe_cache_filename
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -142,6 +143,8 @@ _CURATED_OUTPUTS: dict[str, list[dict[str, str]]] = {
 
 _index: dict[str, str] | None = None
 _pack_cache: dict[str, dict[str, dict[str, Any]]] = {}
+_reader_lock = threading.RLock()
+_reader_state: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -170,40 +173,95 @@ def _normalize_output_name(name: str) -> str:
     return cleaned.upper()
 
 
+def _sync_reader() -> bool:
+    global _reader_state, _index
+    configured = Path(CACHE_DIR).expanduser().resolve(strict=False)
+    marker = configured / "CURRENT"
+    marker_sig = cache_file_witness(marker)
+    prior = _reader_state
+    if prior and prior["root"] == configured and prior["committed"] and marker_sig is None:
+        raise ObjectInfoCacheCorruptError(f"object_info cache marker disappeared: {marker}")
+    marker_changed = not prior or prior["root"] != configured or marker_sig != prior["marker_sig"]
+    committed = bool(marker_sig)
+    marker_text = prior["marker_text"] if prior and not marker_changed else None
+    if marker_sig is not None and marker_changed:
+        active = active_cache_root(configured)
+        try:
+            marker_text = marker.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ObjectInfoCacheCorruptError(f"cannot read object_info cache marker {marker}: {exc}") from exc
+    elif marker_sig is None:
+        active = configured
+        committed = False
+    else:
+        active = prior["active"]
+    index_sig = cache_file_witness(active / "index.json")
+    pack_changed = bool(prior and prior["root"] == configured and prior["pack_sigs"] and any(cache_file_witness(active / name) != sig for name, sig in prior["pack_sigs"].items()))
+    changed = marker_changed or not prior or index_sig != (prior["index_sig"] if prior else None) or pack_changed
+    if changed and committed and not (marker_sig is not None and marker_changed):
+        active = active_cache_root(configured)
+        index_sig = cache_file_witness(active / "index.json")
+    if changed:
+        _index = None
+        _pack_cache.clear()
+    pack_sigs = {} if changed else (prior["pack_sigs"] if prior else {})
+    _reader_state = {"root": configured, "active": active, "committed": committed,
+                     "marker_sig": marker_sig, "marker_text": marker_text,
+                     "index_sig": index_sig, "pack_sigs": pack_sigs}
+    return changed
+
+
 def _load_index() -> dict[str, str]:
     global _index
-    if _index is None:
-        root = active_cache_root(CACHE_DIR)
-        path = root / "index.json"
-        if not path.exists() and not path.is_symlink():
-            _index = {}
-        else:
-            data = read_json(root, "index.json")
-            if not isinstance(data, dict):
-                raise ObjectInfoCacheCorruptError(f"object_info index must be an object: {path}")
-            normalized: dict[str, str] = {}
-            for class_type, filename in data.items():
-                if not isinstance(class_type, str) or not isinstance(filename, str) or not safe_cache_filename(filename):
-                    raise ObjectInfoCacheCorruptError(f"unsafe object_info index row in {path}")
-                normalized[class_type] = filename
-            _index = normalized
-    return _index
+    with _reader_lock:
+        for attempt in range(2):
+            _sync_reader()
+            if _index is None:
+                root = _reader_state["active"]
+                path = root / "index.json"
+                if not path.exists() and not path.is_symlink():
+                    _index = {}
+                else:
+                    data = read_json(root, "index.json")
+                    if not isinstance(data, dict):
+                        raise ObjectInfoCacheCorruptError(f"object_info index must be an object: {path}")
+                    _index = {
+                        class_type: filename for class_type, filename in data.items()
+                        if isinstance(class_type, str) and isinstance(filename, str) and safe_cache_filename(filename)
+                    }
+                    if len(_index) != len(data):
+                        raise ObjectInfoCacheCorruptError(f"unsafe object_info index row in {path}")
+            if not _sync_reader():
+                return _index
+            if attempt:
+                raise ObjectInfoCacheCorruptError("object_info cache changed during index load")
+        return _index
 
 
 def _load_pack(filename: str) -> dict[str, dict[str, Any]]:
-    if filename not in _pack_cache:
-        if not safe_cache_filename(filename):
-            raise ObjectInfoCacheCorruptError(f"unsafe object_info provider filename: {filename!r}")
-        root = active_cache_root(CACHE_DIR)
-        data = read_json(root, filename)
-        if not isinstance(data, dict):
-            raise ObjectInfoCacheCorruptError(f"object_info provider file must be an object: {root / filename}")
-        _pack_cache[filename] = data
-    return _pack_cache[filename]
+    with _reader_lock:
+        for attempt in range(2):
+            _sync_reader()
+            if filename not in _pack_cache:
+                if not safe_cache_filename(filename):
+                    raise ObjectInfoCacheCorruptError(f"unsafe object_info provider filename: {filename!r}")
+                root = _reader_state["active"]
+                data = read_json(root, filename)
+                if not isinstance(data, dict):
+                    raise ObjectInfoCacheCorruptError(f"object_info provider file must be an object: {root / filename}")
+                _pack_cache[filename] = data
+                _reader_state["pack_sigs"][filename] = cache_file_witness(root / filename)
+            if not _sync_reader():
+                return _pack_cache[filename]
+            if attempt:
+                raise ObjectInfoCacheCorruptError("object_info cache changed during pack load")
+        return _pack_cache[filename]
 
 
 def _all_pack_filenames() -> list[str]:
-    root = active_cache_root(CACHE_DIR)
+    with _reader_lock:
+        _sync_reader()
+        root = _reader_state["active"]
     filenames = {
         str(path.name)
         for path in root.glob("*.json")
@@ -214,12 +272,12 @@ def _all_pack_filenames() -> list[str]:
 
 
 def _resolve_class_type(class_type: str) -> dict[str, Any] | None:
-    idx = _load_index()
-    filename = idx.get(class_type)
-    if filename is None:
-        return None
-    pack = _load_pack(filename)
-    return pack.get(class_type)
+    with _reader_lock:
+        idx = _load_index()
+        filename = idx.get(class_type)
+        if filename is None:
+            return None
+        return _load_pack(filename).get(class_type)
 
 
 def _identity_matches(
@@ -799,9 +857,11 @@ def reset_cache() -> None:
     (e.g. after an ``ensure_env`` run) so that subsequent ``consume`` reads
     pick up the latest on-disk state.
     """
-    global _index, _pack_cache
-    _index = None
-    _pack_cache.clear()
+    global _index, _pack_cache, _reader_state
+    with _reader_lock:
+        _index = None
+        _pack_cache.clear()
+        _reader_state = None
 
 
 def cache_stats() -> dict[str, Any]:

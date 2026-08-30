@@ -37,6 +37,15 @@ def safe_artifact_filename(filename: str) -> bool:
     return filename in {"index.json", "provenance.json"} or safe_cache_filename(filename)
 
 
+def cache_file_witness(path: str | Path) -> tuple[int, int, int, int, int] | None:
+    """Return a bounded identity for a provider-owned file without following links."""
+    try:
+        stat = Path(path).lstat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_mode)
+
+
 def active_cache_root(cache_root: str | Path) -> Path:
     """Resolve the committed generation, or the legacy root when none exists."""
     root = Path(cache_root)

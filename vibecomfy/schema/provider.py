@@ -4,6 +4,7 @@ import asyncio
 import ast
 import json
 import logging
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
@@ -12,7 +13,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from vibecomfy.comfy_command import has_comfyui_runtime
 from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.server import comfy_server
-from vibecomfy.porting.object_info.generation import active_cache_root
+from vibecomfy.porting.object_info.generation import active_cache_root, cache_file_witness
 
 from .cache import (
     CACHE_METADATA_KEY,
@@ -547,17 +548,68 @@ class ObjectInfoIndexSchemaProvider:
         self._index: dict[str, str] | None = None
         self._file_cache: dict[str, dict[str, Any]] = {}
         self._schemas: dict[str, NodeSchema | None] = {}
+        self._lock = threading.RLock()
+        self._marker_sig = None
+        self._marker_text = None
+        self._committed = False
+        self._index_sig = None
+        self._pack_sigs: dict[str, Any] = {}
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self.get_schema(class_type)
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        if class_type not in self._schemas:
-            self._schemas[class_type] = self._load_schema(class_type)
-        return self._schemas[class_type]
+        with self._lock:
+            for attempt in range(2):
+                self._sync_reader()
+                if class_type not in self._schemas:
+                    self._schemas[class_type] = self._load_schema(class_type)
+                if not self._sync_reader():
+                    return self._schemas[class_type]
+                if attempt:
+                    raise SchemaProviderError(class_type, ValueError("cache changed during schema load"))
+            return self._schemas[class_type]
 
     def schemas(self) -> dict[str, NodeSchema | None]:
-        return {class_type: None for class_type in self._load_index()}
+        with self._lock:
+            self._sync_reader()
+            return {class_type: None for class_type in self._load_index()}
+
+    def _sync_reader(self) -> bool:
+        marker = self.root / "CURRENT"
+        marker_sig = cache_file_witness(marker)
+        if self._committed and marker_sig is None:
+            raise SchemaProviderError(None, ValueError(f"object_info cache marker disappeared: {marker}"))
+        marker_changed = marker_sig != self._marker_sig
+        if marker_sig is not None and marker_changed:
+            try:
+                active = active_cache_root(self.root)
+                marker_text = marker.read_text(encoding="utf-8").strip()
+            except Exception as exc:  # noqa: BLE001 - preserve typed boundary
+                raise SchemaProviderError(None, exc) from exc
+            committed = True
+        elif marker_sig is None:
+            active, marker_text, committed = self.root, None, False
+        else:
+            active, marker_text, committed = self._active_root, self._marker_text, self._committed
+        index_sig = cache_file_witness(active / "index.json")
+        pack_changed = any(cache_file_witness(active / name) != signature for name, signature in self._pack_sigs.items())
+        changed = marker_changed or index_sig != self._index_sig or pack_changed
+        if changed and committed and not (marker_sig is not None and marker_changed):
+            try:
+                active = active_cache_root(self.root)
+            except Exception as exc:  # noqa: BLE001 - preserve typed boundary
+                raise SchemaProviderError(None, exc) from exc
+            index_sig = cache_file_witness(active / "index.json")
+        if changed:
+            self._index = None
+            self._file_cache.clear()
+            self._schemas.clear()
+            self._pack_sigs.clear()
+        self._active_root, self.index_path = active, active / "index.json"
+        self._marker_sig, self._marker_text = marker_sig, marker_text
+        self._committed, self._index_sig = committed, index_sig
+        return changed
 
     def _validated_pack_path(self, filename: str, class_type: str | None) -> Path:
         """Return an indexed pack path confined to the authority root."""
@@ -578,11 +630,6 @@ class ObjectInfoIndexSchemaProvider:
     def _load_index(self) -> dict[str, str]:
         if self._index is not None:
             return self._index
-        try:
-            self._active_root = active_cache_root(self.root)
-        except Exception as exc:  # noqa: BLE001 - preserve provider error boundary
-            raise SchemaProviderError(None, exc) from exc
-        self.index_path = self._active_root / "index.json"
         index_missing = False
         try:
             index_size = self.index_path.stat().st_size
@@ -642,11 +689,13 @@ class ObjectInfoIndexSchemaProvider:
         This is the authoritative slot-count source (nulls denote UI-only slots);
         the compacted null-free list is for widget VALUES emission only.
         """
-        filename = self._load_index().get(class_type)
-        if not filename:
-            return None
-        data = self._load_pack(filename, class_type)
-        info = self._indexed_class_info(data, class_type, filename)
+        with self._lock:
+            self._sync_reader()
+            filename = self._load_index().get(class_type)
+            if not filename:
+                return None
+            data = self._load_pack(filename, class_type)
+            info = self._indexed_class_info(data, class_type, filename)
         from vibecomfy.porting.object_info.consume import (  # noqa: PLC0415
             reconciled_object_info_widget_order,
         )
@@ -717,6 +766,7 @@ class ObjectInfoIndexSchemaProvider:
                 ValueError(f"unreadable object_info pack: {pack_path}"),
             )
         self._file_cache[filename] = data
+        self._pack_sigs[filename] = cache_file_witness(pack_path)
         return data
 
 

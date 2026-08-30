@@ -842,7 +842,6 @@ def test_ensure_env_cache_writer_resets_stale_object_info_cache(monkeypatch, tmp
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
     monkeypatch.setattr(object_info_consume, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(object_info_consume, "INDEX_PATH", tmp_path / "index.json")
-    object_info_consume.reset_cache()
     (tmp_path / "old.json").write_text(
         '{"FreshEvidenceNode": {"outputs": [{"name": "OLD", "type": "OLD"}]}}',
         encoding="utf-8",

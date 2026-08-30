@@ -12,6 +12,7 @@ import vibecomfy.porting.object_info.consume as consume
 import vibecomfy.porting.object_info.serialize as serialize
 from vibecomfy.errors import ObjectInfoCacheCorruptError
 from vibecomfy.porting.object_info.serialize import build_cache
+from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 
 
 def _source(path: Path, class_type: str, *, pack: str = "Pack") -> Path:
@@ -194,3 +195,97 @@ def test_committed_generation_rejects_symlinked_artifacts(
 
     with pytest.raises(ObjectInfoCacheCorruptError, match="symlink"):
         consume.get_class("One")
+
+
+def test_warm_consumer_tracks_later_generation_without_reset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = tmp_path / "cache"
+    build_cache(_source(tmp_path / "one.json", "One"), version="v1", cache_dir=cache)
+    _use_cache(monkeypatch, cache)
+    assert consume.output_names("One") == ["IMAGE"]
+    build_cache(_source(tmp_path / "two.json", "Two"), version="v2", cache_dir=cache)
+    assert consume.output_names("Two") == ["IMAGE"]
+
+
+def test_warm_index_provider_tracks_additions_removals_and_same_pack_bytes(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "cache"
+    source = _source(tmp_path / "pack.json", "One")
+    build_cache(source, version="v1", cache_dir=cache, full_pack_refresh=True)
+    provider = ObjectInfoIndexSchemaProvider(cache)
+    assert provider.get_schema("One") is not None
+    source.write_text(json.dumps({"Two": json.loads(source.read_text())["One"]}), encoding="utf-8")
+    build_cache(source, version="v1", cache_dir=cache, full_pack_refresh=True)
+    assert provider.get_schema("One") is None
+    assert provider.get_schema("Two") is not None
+
+
+def test_loaded_committed_pack_change_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = tmp_path / "cache"
+    build_cache(_source(tmp_path / "one.json", "One"), version="v1", cache_dir=cache)
+    _use_cache(monkeypatch, cache)
+    assert consume.get_class("One") is not None
+    marker = (cache / "CURRENT").read_text(encoding="utf-8").strip()
+    generation = cache / "generations" / marker
+    filename = json.loads((generation / "index.json").read_text(encoding="utf-8"))["One"]
+    pack = generation / filename
+    pack.write_text(pack.read_text(encoding="utf-8").replace("IMAGE", "BROKEN"), encoding="utf-8")
+    with pytest.raises(ObjectInfoCacheCorruptError, match="failed its hash check"):
+        consume.get_class("One")
+
+
+def test_legacy_witnesses_and_marker_disappearance_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    pack = cache / "pack.json"
+    pack.write_text('{"Old": {"outputs": [{"name": "OLD", "type": "OLD"}]}}', encoding="utf-8")
+    (cache / "index.json").write_text('{"Old": "pack.json"}', encoding="utf-8")
+    _use_cache(monkeypatch, cache)
+    assert consume.output_names("Old") == ["OLD"]
+    pack.write_text('{"Old": {"outputs": [{"name": "NEW", "type": "NEW"}]}}', encoding="utf-8")
+    assert consume.output_names("Old") == ["NEW"]
+    build_cache(_source(tmp_path / "committed.json", "Committed"), version="v1", cache_dir=cache)
+    assert consume.output_names("Committed") == ["IMAGE"]
+    (cache / "CURRENT").unlink()
+    with pytest.raises(ObjectInfoCacheCorruptError, match="marker disappeared"):
+        consume.output_names("Committed")
+
+
+def test_concurrent_consumer_reads_refresh_after_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    cache = tmp_path / "cache"
+    build_cache(_source(tmp_path / "one.json", "One"), version="v1", cache_dir=cache)
+    _use_cache(monkeypatch, cache)
+    assert consume.output_names("One") == ["IMAGE"]
+    ready = threading.Barrier(3)
+    published = threading.Event()
+    results: list[list[str]] = []
+
+    def reader() -> None:
+        ready.wait()
+        published.wait()
+        results.append(consume.output_names("Two"))
+
+    def writer() -> None:
+        ready.wait()
+        build_cache(_source(tmp_path / "two.json", "Two"), version="v2", cache_dir=cache)
+        published.set()
+
+    workers = [threading.Thread(target=reader) for _ in range(2)]
+    writer_thread = threading.Thread(target=writer)
+    for worker in workers:
+        worker.start()
+    writer_thread.start()
+    writer_thread.join()
+    for worker in workers:
+        worker.join()
+    assert results == [["IMAGE"], ["IMAGE"]]
