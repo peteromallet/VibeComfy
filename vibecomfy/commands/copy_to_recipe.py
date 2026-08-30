@@ -13,9 +13,8 @@ import re
 from pathlib import Path
 
 from vibecomfy.registry.ready import (
-    repo_ready_template_id_for_path,
-    repo_ready_template_paths,
-    repo_ready_template_root,
+    repo_ready_template_discovery,
+    resolve_ready_template,
 )
 
 _HEADER_RE = re.compile(
@@ -75,28 +74,17 @@ def _cmd_copy_to_recipe(args: argparse.Namespace) -> int:
 
 
 def _resolve_template_path(template_id: str) -> Path | None:
-    """Resolve a ready-template ID to its source file path."""
-    ready_root = repo_ready_template_root()
-    # Try repo paths first
-    for path in repo_ready_template_paths(ready_root):
-        rid = repo_ready_template_id_for_path(path, ready_root)
-        if rid == template_id:
-            return path
+    """Resolve a ready-template ID to its canonical physical source path."""
+    discovery = repo_ready_template_discovery()
+    try:
+        return resolve_ready_template(template_id, discovery).path
+    except KeyError:
+        pass
 
-    # Try as a direct path
+    # Separate input mode: an existing filesystem path, never a synthesized ready id.
     direct = Path(template_id)
     if direct.is_file():
         return direct
-
-    # Try with .py suffix
-    py_path = Path(f"{template_id}.py")
-    if py_path.is_file():
-        return py_path
-
-    # Try under ready_templates
-    rt_path = ready_root / f"{template_id}.py"
-    if rt_path.is_file():
-        return rt_path
 
     return None
 

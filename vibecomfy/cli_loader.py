@@ -5,7 +5,12 @@ from pathlib import Path
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.ingest.normalize import _named_import
-from vibecomfy.registry.ready import resolve_ready_template, workflow_from_ready
+from vibecomfy.registry.ready import (
+    ReadyTemplateDiscovery,
+    ready_template_discovery,
+    resolve_ready_template,
+    workflow_from_ready,
+)
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import VibeWorkflow
 
@@ -16,9 +21,10 @@ from vibecomfy.workflow import VibeWorkflow
 
 def load_workflow_any(path_or_id: str) -> VibeWorkflow:
     value = str(path_or_id)
-    ready_id = _ready_id_for(value)
+    discovery = ready_template_discovery()
+    ready_id = _ready_id_for(value, discovery)
     if ready_id is not None:
-        return workflow_from_ready(ready_id)
+        return workflow_from_ready(value, _discovery=discovery)
 
     try:
         path = resolve_workflow_path(value)
@@ -39,11 +45,11 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
     raise FileNotFoundError(path)
 
 
-def _ready_id_for(value: str) -> str | None:
-    # Resolve through the same discovery authority used by direct ready loads.
-    # This preserves canonical case and fails closed on ambiguous aliases.
+def _ready_id_for(
+    value: str, discovery: ReadyTemplateDiscovery | None = None
+) -> str | None:
     try:
-        return resolve_ready_template(value).template_id
+        return resolve_ready_template(value, discovery).template_id
     except KeyError:
         return None
 
