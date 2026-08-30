@@ -5,6 +5,7 @@ import types
 
 import pytest
 
+from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.porting.emit import emit_ready_template_python, emit_scratchpad_python
 from vibecomfy.workflow import (
     NodeMode,
@@ -92,6 +93,47 @@ def test_projection_resolves_multi_hop_bypass_reroutes() -> None:
     )
 
     assert workflow.compile("api")["4"]["inputs"]["images"] == ["1", 0]
+
+
+def _set_get_bypass_workflow() -> VibeWorkflow:
+    workflow = VibeWorkflow("b11b-set-get", WorkflowSource("b11b-set-get"))
+    workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "reference.png"}, uid="u1")
+    workflow.nodes["2"] = VibeNode("2", "ImageFilter", mode=NodeMode.BYPASSED, uid="u2")
+    workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "reference_image"}, uid="u3")
+    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "reference_image"}, uid="u4")
+    workflow.nodes["5"] = VibeNode("5", "SaveImage", uid="u5")
+    workflow.edges.extend(
+        [
+            VibeEdge("1", "0", "2", "image"),
+            VibeEdge("2", "0", "3", "IMAGE"),
+            VibeEdge("4", "0", "5", "images"),
+        ]
+    )
+    return workflow
+
+
+def test_set_get_bypass_projection_agrees_across_api_graphbuilder_and_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
+    workflow = _set_get_bypass_workflow()
+    expected = {
+        "1": {"class_type": "LoadImage", "inputs": {"image": "reference.png"}},
+        "5": {"class_type": "SaveImage", "inputs": {"images": ["1", 0]}},
+    }
+
+    api = workflow.compile("api")
+    assert api == expected
+    assert workflow.compile("graphbuilder") == expected
+
+    converted = port_convert_workflow(workflow, validate=True, prune_dead_branches=False)
+    assert converted.validation is not None
+    assert converted.validation.parity_ok is True
+    namespace: dict[str, object] = {"__file__": "b11b_set_get.py"}
+    exec(compile(converted.text, "b11b set/get emitted", "exec"), namespace)  # noqa: S102
+    rebuilt = namespace["build"]()
+    assert rebuilt.nodes["2"].mode is NodeMode.BYPASSED
+    assert rebuilt.compile("api") == expected
 
 
 def test_target_cardinality_fails_execution_but_preserves_duplicate_edges(

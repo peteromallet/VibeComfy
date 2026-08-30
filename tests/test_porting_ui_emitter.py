@@ -16,6 +16,7 @@ from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import (
+    NodeMode,
     RawWidgetPayload,
     VibeEdge,
     VibeNode,
@@ -2583,29 +2584,26 @@ def test_compile_byte_identical_no_mode_nodes() -> None:
 
 
 def test_compile_muted_node_dropped() -> None:
-    """T11: A muted node (mode=2) is absent from compile('api') output."""
+    """T11: A muted node is absent from compile('api') output."""
     wf = _wf("muted-drop")
-    n = VibeNode("1", "LoadImage")
-    n.metadata["_ui"] = {"mode": 2}
-    wf.nodes["1"] = n
+    wf.nodes["1"] = VibeNode("1", "LoadImage", mode=NodeMode.MUTED)
 
     api = wf.compile("api")
     assert "1" not in api, f"muted node must be dropped from compile output; got {api}"
 
 
 def test_compile_bypassed_node_direct_skip() -> None:
-    """T11: A bypassed node (mode=4) is dropped and downstream is wired to upstream.
+    """T11: A bypassed node is dropped and downstream is wired to upstream.
 
-    Graph: A(mode=0) → B(mode=4, bypassed) → C(mode=0)
-    Expected compile output: A and C present; B absent; C.inputs["image"] = [A_id, 0].
+    Graph: A → B(bypassed) → C
+    Expected compile output: A and C present; B absent; C.inputs["images"] = [A_id, 0].
     """
     wf = _wf("bypass-skip")
 
     node_a = VibeNode("1", "LoadImage")
     wf.nodes["1"] = node_a
 
-    node_b = VibeNode("2", "FakeMiddle")
-    node_b.metadata["_ui"] = {"mode": 4}
+    node_b = VibeNode("2", "FakeMiddle", mode=NodeMode.BYPASSED)
     wf.nodes["2"] = node_b
 
     node_c = VibeNode("3", "SaveImage")

@@ -1020,6 +1020,56 @@ def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
     assert written["nodes"]["2"]["metadata"]["_ui"]["mode"] == 4
 
 
+def test_envelope_first_class_mode_beats_stale_ui_and_missing_mode_uses_furniture() -> None:
+    """Importer: semantic first-class mode is authoritative; furniture is a gap fill."""
+    from vibecomfy.workflow import NodeMode, VibeWorkflow
+
+    def _node(mode, ui_mode: int) -> dict:
+        entry = {
+            "id": "1",
+            "class_type": "LoadImage",
+            "pack": None,
+            "inputs": {"image": "a.png"},
+            "widgets": {},
+            "metadata": {"_ui": {"mode": ui_mode}},
+            "uid": "uid-1",
+        }
+        if mode is not None:
+            entry["mode"] = mode
+        return entry
+
+    def _envelope(node: dict) -> dict:
+        return {
+            "id": "mode-authority",
+            "source": {"id": "mode-authority"},
+            "requirements": {},
+            "nodes": {"1": node},
+            "edges": [],
+            "inputs": {},
+            "outputs": [],
+            "metadata": {},
+            "strict_types": False,
+        }
+
+    enabled = VibeWorkflow.from_envelope(
+        _envelope(_node(mode=NodeMode.ENABLED, ui_mode=4))
+    )
+    assert enabled.nodes["1"].mode is NodeMode.ENABLED
+    assert "1" in enabled.compile("api")
+
+    bypassed = VibeWorkflow.from_envelope(
+        _envelope(_node(mode="bypassed", ui_mode=0))
+    )
+    assert bypassed.nodes["1"].mode is NodeMode.BYPASSED
+    assert "1" not in bypassed.compile("api")
+
+    legacy_envelope = _envelope(_node(mode=None, ui_mode=4))
+    assert "mode" not in legacy_envelope["nodes"]["1"]
+    legacy = VibeWorkflow.from_envelope(legacy_envelope)
+    assert legacy.nodes["1"].mode is NodeMode.BYPASSED
+    assert "1" not in legacy.compile("api")
+
+
 def test_from_envelope_fails_closed_on_malformed_input() -> None:
     """from_envelope raises on malformed input; it never returns a partial graph."""
     from vibecomfy.workflow import VibeWorkflow

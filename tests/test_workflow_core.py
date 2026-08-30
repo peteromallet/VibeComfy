@@ -22,6 +22,7 @@ from vibecomfy.registry.library import load_workflow_reference, workflow_from_id
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.handles import Handle
 from vibecomfy.workflow import (
+    NodeMode,
     VibeEdge,
     VibeInput,
     VibeNode,
@@ -902,6 +903,43 @@ def test_node_mode_and_groups_survive_envelope_round_trip() -> None:
     assert restored.groups == wf.groups
 
 
+def test_semantic_node_mode_survives_envelope_and_json_round_trip() -> None:
+    """Python-authored NodeMode values are first-class envelope data.
+
+    ``to_envelope``'s dataclass walk emits the enum; JSON stores the semantic
+    string.  Decode must restore that field and must not consult stale
+    ``_ui.mode`` furniture when the first-class value is present.
+    """
+    bypassed = VibeWorkflow("semantic-bypass", WorkflowSource("semantic-bypass"))
+    bypassed.nodes["1"] = VibeNode(
+        "1", "LoadImage", inputs={"image": "a.png"}, uid="uid-1", mode=NodeMode.BYPASSED
+    )
+    envelope = bypassed.to_envelope()
+    assert envelope["nodes"]["1"]["mode"] is NodeMode.BYPASSED
+
+    restored = from_envelope(envelope)
+    assert restored.nodes["1"].mode is NodeMode.BYPASSED
+    assert "1" not in restored.compile("api")
+
+    raw = json.loads(json.dumps(envelope))
+    assert raw["nodes"]["1"]["mode"] == "bypassed"
+    from_json = from_envelope(raw)
+    assert from_json.nodes["1"].mode is NodeMode.BYPASSED
+    assert "1" not in from_json.compile("api")
+
+    conflict = VibeWorkflow("semantic-enabled", WorkflowSource("semantic-enabled"))
+    enabled = VibeNode(
+        "1", "LoadImage", inputs={"image": "a.png"}, uid="uid-1", mode=NodeMode.ENABLED
+    )
+    enabled.metadata["_ui"] = {"mode": 4}
+    conflict.nodes["1"] = enabled
+    conflict_raw = json.loads(json.dumps(conflict.to_envelope()))
+    assert conflict_raw["nodes"]["1"]["mode"] == "enabled"
+    conflict_restored = from_envelope(conflict_raw)
+    assert conflict_restored.nodes["1"].mode is NodeMode.ENABLED
+    assert "1" in conflict_restored.compile("api")
+
+
 def test_90a1d5_mode_distribution_and_compile_survive_p10() -> None:
     """P10 gate: the 90a1d5 envelope decodes 15 nodes with mode dist {4:9, 0:6};
     compile still emits 2 (bypass rewiring)."""
@@ -1125,9 +1163,7 @@ def test_compile_rewrites_edge_fed_set_get_nodes_to_direct_links() -> None:
 def test_compile_rewrites_set_get_source_through_bypassed_nodes() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "reference.png"})
-    bypassed = VibeNode("2", "ImageFilter", inputs={})
-    bypassed.metadata["_ui"] = {"mode": 4}
-    workflow.nodes["2"] = bypassed
+    workflow.nodes["2"] = VibeNode("2", "ImageFilter", inputs={}, mode=NodeMode.BYPASSED)
     workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "reference_image"})
     workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "reference_image"})
     workflow.nodes["5"] = VibeNode("5", "SaveImage", inputs={})
@@ -1139,6 +1175,31 @@ def test_compile_rewrites_set_get_source_through_bypassed_nodes() -> None:
 
     assert set(api) == {"1", "5"}
     assert api["5"]["inputs"]["images"] == ["1", 0]
+
+
+def test_stale_ui_mode_does_not_bypass_set_get_when_ir_mode_is_enabled() -> None:
+    """Hand-built ``_ui.mode`` furniture is not a compile authority.
+
+    Production ingest copies UI mode into the first-class field. A constructed
+    ``VibeNode`` defaults to ENABLED, so leftover LiteGraph furniture must not
+    drop the node or rewrite Set/Get around it.
+    """
+    workflow = VibeWorkflow("test", WorkflowSource("test"))
+    workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "reference.png"})
+    live = VibeNode("2", "ImageFilter", inputs={})
+    live.metadata["_ui"] = {"mode": 4}
+    workflow.nodes["2"] = live
+    workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "reference_image"})
+    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "reference_image"})
+    workflow.nodes["5"] = VibeNode("5", "SaveImage", inputs={})
+    workflow.connect("1.0", "2.image")
+    workflow.connect("2.0", "3.IMAGE")
+    workflow.connect("4.0", "5.images")
+
+    api = workflow.compile("api")
+
+    assert set(api) == {"1", "2", "5"}
+    assert api["5"]["inputs"]["images"] == ["2", 0]
 
 
 @pytest.mark.parametrize(

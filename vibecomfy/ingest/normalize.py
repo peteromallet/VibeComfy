@@ -854,6 +854,24 @@ def _node_mode_from_metadata(metadata: dict[str, Any]) -> NodeMode:
     return NodeMode.ENABLED
 
 
+def _decode_envelope_node_mode(
+    entry: dict[str, Any], metadata: dict[str, Any]
+) -> NodeMode | int:
+    """Restore first-class envelope ``mode``; consult furniture only if absent.
+
+    Integer wire values are preserved so corpus envelopes keep ``mode == 4``.
+    Semantic :class:`NodeMode` values from ``to_envelope``'s dataclass walk,
+    and their JSON strings (``"bypassed"``), are restored via
+    :func:`litegraph_to_mode` and stay authoritative over stale ``_ui.mode``.
+    """
+    entry_mode = entry.get("mode")
+    if isinstance(entry_mode, int):
+        return entry_mode
+    if entry_mode is not None:
+        return litegraph_to_mode(entry_mode)
+    return _node_mode_from_metadata(metadata)
+
+
 def _geometry_pair(value: Any) -> list[float] | None:
     """Return a detached finite numeric pair, or ``None`` when invalid/absent.
 
@@ -1071,10 +1089,7 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         # (written by to_envelope's dataclass walk), falling back to the legacy
         # ``_ui.mode`` / ``metadata["mode"]`` locations for old envelopes.
         # ``_ui`` stays verbatim so the emitter's furniture keeps re-emitting it.
-        entry_mode = entry.get("mode")
-        node_mode = (
-            entry_mode if isinstance(entry_mode, int) else _node_mode_from_metadata(node_metadata)
-        )
+        node_mode = _decode_envelope_node_mode(entry, node_metadata)
         node_pos = _decode_envelope_geometry(entry, node_metadata, "pos", node_id)
         node_size = _decode_envelope_geometry(entry, node_metadata, "size", node_id)
         workflow.nodes[str(key)] = VibeNode(
