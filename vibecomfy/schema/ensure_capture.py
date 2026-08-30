@@ -24,6 +24,7 @@ from vibecomfy.porting.object_info.serialize import (
     CacheIdentity,
     _read_existing_index,
     build_cache,
+    cache_publish_transaction,
     republish_cache_root,
 )
 
@@ -237,106 +238,110 @@ def persist_on_demand_pack(
     evidence_identity = f"on_demand:{extraction_rung}:{locked_commit}"
     cache_root = _cache_root(cache_dir)
 
-    # --- Tier guard: drop classes already covered at same-or-higher tier ------
-    skipped: list[str] = []
-    captured: dict[str, OrderedDict[str, Any]] = {}
-    for class_type, entry in sorted(entries.items()):
-        if capture_tier(cache_root, class_type) >= new_tier:
-            skipped.append(class_type)
-        else:
-            captured[class_type] = entry
-
-    if not captured:
-        return PersistResult(no_op=True, skipped_classes=skipped)
-
-    raw_dump = {ct: _to_raw_dump(entry) for ct, entry in captured.items()}
-
-    index_before = _read_existing_index(cache_root)
-
-    # --- build_cache with MERGE semantics ------------------------------------
     cache_root.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".json", dir=cache_root, prefix="on-demand-dump-")
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-            json.dump(raw_dump, fh, indent=2, sort_keys=True, ensure_ascii=False)
-        build_cache(
-            tmp_path,
-            f"{source_kind}-{sha7}",
-            cache_dir=cache_root,
-            identity=CacheIdentity(
-                pack_slug=pack_slug,
-                pack_version=f"{source_kind}-{sha7}",
-                git_commit=locked_commit,
-                evidence_identity=evidence_identity,
-                source_kind=source_kind,
-            ),
-            full_pack_refresh=False,
+    # Keep the tier read, merge, hygiene, provenance attestation, publication,
+    # and process-cache reset in one transaction.  ``build_cache`` and
+    # ``republish_cache_root`` re-enter this lock without taking another flock.
+    with cache_publish_transaction(cache_root):
+        # --- Tier guard: drop classes already covered at same-or-higher tier --
+        skipped: list[str] = []
+        captured: dict[str, OrderedDict[str, Any]] = {}
+        for class_type, entry in sorted(entries.items()):
+            if capture_tier(cache_root, class_type) >= new_tier:
+                skipped.append(class_type)
+            else:
+                captured[class_type] = entry
+
+        if not captured:
+            return PersistResult(no_op=True, skipped_classes=skipped)
+
+        raw_dump = {ct: _to_raw_dump(entry) for ct, entry in captured.items()}
+
+        index_before = _read_existing_index(cache_root)
+
+        # --- build_cache with MERGE semantics -------------------------------
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=".json", dir=cache_root, prefix="on-demand-dump-")
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                json.dump(raw_dump, fh, indent=2, sort_keys=True, ensure_ascii=False)
+            build_cache(
+                tmp_path,
+                f"{source_kind}-{sha7}",
+                cache_dir=cache_root,
+                identity=CacheIdentity(
+                    pack_slug=pack_slug,
+                    pack_version=f"{source_kind}-{sha7}",
+                    git_commit=locked_commit,
+                    evidence_identity=evidence_identity,
+                    source_kind=source_kind,
+                ),
+                full_pack_refresh=False,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        # --- Hygiene layer (a): strip non-newly-captured classes from file ---
+        # Classes already indexed into THIS same versioned file (a prior
+        # extract of the same pack at the same tier+commit) stay; stripping
+        # them would orphan their index rows.
+        filepath = cache_root / filename
+        pack_data = json.loads(filepath.read_text(encoding="utf-8"))
+        keep = set(captured) | {ct for ct, f in index_before.items() if f == filename}
+        stripped = OrderedDict((ct, e) for ct, e in sorted(pack_data.items()) if ct in keep)
+        filepath.write_text(
+            json.dumps(stripped, indent=2, sort_keys=True, ensure_ascii=False),
+            encoding="utf-8",
         )
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
-    # --- Hygiene layer (a): strip non-newly-captured classes from the file ---
-    # Classes already indexed into THIS same versioned file (a prior extract of
-    # the same pack at the same tier+commit) stay — stripping them would orphan
-    # their index rows. Everything else (merged in from other files) goes.
-    filepath = cache_root / filename
-    pack_data = json.loads(filepath.read_text(encoding="utf-8"))
-    keep = set(captured) | {ct for ct, f in index_before.items() if f == filename}
-    stripped = OrderedDict((ct, e) for ct, e in sorted(pack_data.items()) if ct in keep)
-    filepath.write_text(
-        json.dumps(stripped, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
-    )
+        # --- Hygiene layer (b): restore pre-existing index mappings ----------
+        index_path = cache_root / "index.json"
+        index: dict[str, Any] = {}
+        try:
+            loaded = json.loads(index_path.read_text(encoding="utf-8"))
+            index = loaded if isinstance(loaded, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            pass
+        for class_type, previous_file in index_before.items():
+            if class_type not in captured and index.get(class_type) == filename:
+                index[class_type] = previous_file
+        index_path.write_text(
+            json.dumps(index, indent=2, sort_keys=True, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
-    # --- Hygiene layer (b): restore pre-existing index mappings --------------
-    index_path = cache_root / "index.json"
-    index: dict[str, Any] = {}
-    try:
-        loaded = json.loads(index_path.read_text(encoding="utf-8"))
-        index = loaded if isinstance(loaded, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        pass
-    for class_type, previous_file in index_before.items():
-        if class_type not in captured and index.get(class_type) == filename:
-            index[class_type] = previous_file
-    index_path.write_text(
-        json.dumps(index, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
-    )
+        # --- Attest provenance -----------------------------------------------
+        from vibecomfy.commands.schemas import _write_provenance as _schemas_write
 
-    # --- Attest provenance ---------------------------------------------------
-    from vibecomfy.commands.schemas import _write_provenance as _schemas_write
+        provenance = _load_provenance(cache_root)
+        packs = provenance.get("packs")
+        if not isinstance(packs, dict):
+            packs = {}
+        row: dict[str, Any] = {
+            "pack": pack_slug,
+            "repo": repo,
+            "locked_commit": locked_commit,
+            "schema_sha256": hashlib.sha256(filepath.read_bytes()).hexdigest(),
+            "source_kind": source_kind,
+            "extraction_rung": extraction_rung,
+            "registry_pack_version": registry_pack_version,
+            "captured_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        }
+        if source is not None:
+            row["source"] = source
+        packs[filename] = row
+        provenance["packs"] = packs
+        provenance["class_count"] = len(index)
+        _schemas_write(provenance, cache_root)
+        # The hygiene pass edits the compatibility-root artifacts after
+        # build_cache's atomic publication. Recommit that final state so
+        # readers using CURRENT cannot observe the pre-hygiene generation.
+        republish_cache_root(cache_root)
 
-    provenance = _load_provenance(cache_root)
-    packs = provenance.get("packs")
-    if not isinstance(packs, dict):
-        packs = {}
-    row: dict[str, Any] = {
-        "pack": pack_slug,
-        "repo": repo,
-        "locked_commit": locked_commit,
-        "schema_sha256": hashlib.sha256(filepath.read_bytes()).hexdigest(),
-        "source_kind": source_kind,
-        "extraction_rung": extraction_rung,
-        "registry_pack_version": registry_pack_version,
-        "captured_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
-    }
-    if source is not None:
-        row["source"] = source
-    packs[filename] = row
-    provenance["packs"] = packs
-    provenance["class_count"] = len(index)
-    _schemas_write(provenance, cache_root)
-    # The hygiene pass edits the compatibility-root artifacts after
-    # build_cache's atomic publication. Recommit that final state so readers
-    # using CURRENT cannot observe the pre-hygiene merged pack generation.
-    republish_cache_root(cache_root)
-
-    reset_cache()
-    return PersistResult(
-        no_op=False,
-        filename=filename,
-        written_classes=sorted(captured),
-        skipped_classes=skipped,
-    )
+        reset_cache()
+        return PersistResult(
+            no_op=False,
+            filename=filename,
+            written_classes=sorted(captured),
+            skipped_classes=skipped,
+        )

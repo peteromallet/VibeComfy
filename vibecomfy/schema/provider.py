@@ -12,6 +12,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from vibecomfy.comfy_command import has_comfyui_runtime
 from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.server import comfy_server
+from vibecomfy.porting.object_info.generation import active_cache_root
 
 from .cache import (
     CACHE_METADATA_KEY,
@@ -541,7 +542,8 @@ class ObjectInfoIndexSchemaProvider:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()
-        self.index_path = self.root / "index.json"
+        self._active_root = self.root
+        self.index_path = self._active_root / "index.json"
         self._index: dict[str, str] | None = None
         self._file_cache: dict[str, dict[str, Any]] = {}
         self._schemas: dict[str, NodeSchema | None] = {}
@@ -563,8 +565,8 @@ class ObjectInfoIndexSchemaProvider:
             relative = PurePath(filename)
             if not filename or relative.is_absolute() or ".." in relative.parts:
                 raise ValueError("indexed pack filename must be relative and contain no '..'")
-            pack_path = (self.root / Path(filename)).resolve(strict=False)
-            pack_path.relative_to(self.root)
+            pack_path = (self._active_root / Path(filename)).resolve(strict=False)
+            pack_path.relative_to(self._active_root)
             return pack_path
         except (OSError, RuntimeError, ValueError) as exc:
             if isinstance(exc, ValueError) and str(exc).startswith("indexed pack filename"):
@@ -576,6 +578,11 @@ class ObjectInfoIndexSchemaProvider:
     def _load_index(self) -> dict[str, str]:
         if self._index is not None:
             return self._index
+        try:
+            self._active_root = active_cache_root(self.root)
+        except Exception as exc:  # noqa: BLE001 - preserve provider error boundary
+            raise SchemaProviderError(None, exc) from exc
+        self.index_path = self._active_root / "index.json"
         index_missing = False
         try:
             index_size = self.index_path.stat().st_size
@@ -670,7 +677,7 @@ class ObjectInfoIndexSchemaProvider:
             outputs=schema.outputs,
             widget_input_order=tuple(literal_order) if literal_order else (),
             source_provider="object_info_index",
-            source_cache_path=str(self.root / filename),
+            source_cache_path=str(self._active_root / filename),
             source_package=schema.pack,
             source_version=str(info.get("pack_version"))
             if isinstance(info.get("pack_version"), str)

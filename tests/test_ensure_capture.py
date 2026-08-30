@@ -9,7 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
+import threading
+import time
 from collections import OrderedDict
+from pathlib import Path
 
 import pytest
 
@@ -19,13 +25,16 @@ from vibecomfy.porting.object_info.consume import (
     reset_cache,
 )
 from vibecomfy.porting.object_info.serialize import CacheIdentity, build_cache
+from vibecomfy.porting.object_info.generation import validate_generation
 from vibecomfy.porting.object_info import consume as consume_module
+import vibecomfy.porting.object_info.serialize as serialize_module
 from vibecomfy.schema.ensure_capture import (
     capture_tier,
     missing_live_captures,
     persist_on_demand_pack,
 )
 import vibecomfy.commands.schemas as schemas_command
+import vibecomfy.schema.ensure_capture as ensure_capture_module
 
 
 COMMIT = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
@@ -304,3 +313,427 @@ def test_schemas_provenance_helpers_accept_explicit_root(tmp_path: Path) -> None
     target = tmp_path / "root"
     schemas_command._write_provenance({"class_count": 0}, target)
     assert json.loads((target / "provenance.json").read_text(encoding="utf-8")) == {"class_count": 0}
+
+
+def _assert_committed_capture(
+    cache_root: Path,
+    classes: set[str],
+    *,
+    expect_attestation: bool = True,
+) -> None:
+    """Check the reader-visible generation, rather than just root mirrors."""
+    marker = (cache_root / "CURRENT").read_text(encoding="utf-8").strip()
+    assert marker
+    generation = cache_root / "generations" / marker
+    manifest = validate_generation(generation)
+    assert manifest["generation"] == marker
+    index = json.loads((generation / "index.json").read_text(encoding="utf-8"))
+    provenance = json.loads((generation / "provenance.json").read_text(encoding="utf-8"))
+    filename = f"Pack@on_demand_static-{SHA7}.json"
+    assert set(index) >= classes
+    assert {index[class_type] for class_type in classes} == {filename}
+    provider = json.loads((generation / filename).read_text(encoding="utf-8"))
+    assert set(provider) >= classes
+    row = provenance["packs"][filename]
+    if expect_attestation:
+        assert row["locked_commit"] == COMMIT
+    assert row["schema_sha256"] == hashlib.sha256((cache_root / filename).read_bytes()).hexdigest()
+
+
+def test_persist_disjoint_threads_are_one_cache_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two same-filename writers cannot lose a class or publish mixed state."""
+    cache_root = tmp_path / "cache"
+    start = threading.Barrier(3)
+    active_lock = threading.Lock()
+    active = 0
+    peak_active = 0
+    original_to_raw_dump = ensure_capture_module._to_raw_dump
+
+    def slow_to_raw_dump(entry):
+        nonlocal active, peak_active
+        with active_lock:
+            active += 1
+            peak_active = max(peak_active, active)
+        try:
+            # This makes an unscoped read/merge transaction overlap
+            # deterministically; the repaired outer lock keeps it at one.
+            time.sleep(0.05)
+            return original_to_raw_dump(entry)
+        finally:
+            with active_lock:
+                active -= 1
+
+    monkeypatch.setattr(ensure_capture_module, "_to_raw_dump", slow_to_raw_dump)
+    results: list[object] = []
+    errors: list[BaseException] = []
+
+    def worker(class_type: str) -> None:
+        try:
+            start.wait(timeout=10)
+            results.append(_persist(cache_root, {class_type: _extract_entry(class_type)}))
+        except BaseException as exc:  # pragma: no cover - assertion below reports it
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(class_type,)) for class_type in ("First", "Second")]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=10)
+    for thread in threads:
+        thread.join(timeout=20)
+    assert not errors
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert peak_active == 1
+    _assert_committed_capture(cache_root, {"First", "Second"})
+
+
+def test_persist_disjoint_processes_preserve_committed_generation(tmp_path: Path) -> None:
+    """The outer flock also serializes independent processes on one cache."""
+    cache_root = tmp_path / "cache"
+    script = r'''
+import sys
+from collections import OrderedDict
+from vibecomfy.schema.ensure_capture import persist_on_demand_pack
+
+cache_root, class_type = sys.argv[1:]
+entry = OrderedDict([
+    ("pack", "Pack"),
+    ("python_module", "custom_nodes.Pack.nodes"),
+    ("category", "pack"),
+    ("name", class_type),
+    ("display_name", class_type),
+    ("description", ""),
+    ("inputs", {"required": {"value": ["INT", {"default": 1}]}}),
+    ("input_order", {"required": ["value"]}),
+    ("outputs", [{"type": "IMAGE", "name": "IMAGE", "is_list": False}]),
+    ("function", class_type.lower()),
+])
+persist_on_demand_pack(
+    pack_slug="Pack",
+    registry_pack_version="1.2.3",
+    repo="https://github.com/example/Pack",
+    locked_commit="a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+    extraction_rung="ast",
+    entries={class_type: entry},
+    cache_dir=cache_root,
+)
+'''
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", script, str(cache_root), class_type],
+            cwd=Path(__file__).resolve().parents[1],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for class_type in ("First", "Second")
+    ]
+    outputs = [process.communicate(timeout=30) for process in processes]
+    assert all(process.returncode == 0 for process in processes), outputs
+    _assert_committed_capture(cache_root, {"First", "Second"})
+
+
+def test_cache_transaction_unlock_fault_releases_thread_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OS unlock failures must not wedge later same-root writers."""
+    if serialize_module.fcntl is None:
+        pytest.skip("POSIX flock fault injection is not available")
+    real_flock = serialize_module.fcntl.flock
+    failed = False
+
+    def fail_once(file_descriptor, operation):
+        nonlocal failed
+        if operation == serialize_module.fcntl.LOCK_UN and not failed:
+            failed = True
+            raise OSError("unlock fault")
+        return real_flock(file_descriptor, operation)
+
+    monkeypatch.setattr(serialize_module.fcntl, "flock", fail_once)
+    cache_root = tmp_path / "cache"
+    with pytest.raises(OSError, match="unlock fault"):
+        with serialize_module.cache_publish_transaction(cache_root):
+            pass
+
+    finished = threading.Event()
+    errors: list[BaseException] = []
+
+    def retry() -> None:
+        try:
+            with serialize_module.cache_publish_transaction(cache_root):
+                pass
+        except BaseException as exc:  # pragma: no cover - assertion below reports it
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=retry)
+    thread.start()
+    assert finished.wait(timeout=10)
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert not errors
+
+
+def test_failed_compatibility_mirror_cannot_discard_current_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial root mirror is never accepted by a later republish."""
+    cache_root = tmp_path / "cache"
+    first = _persist(cache_root, {"First": _extract_entry("First")})
+    current_before = (cache_root / "CURRENT").read_text(encoding="utf-8")
+    real_atomic_replace = serialize_module._atomic_replace_text
+    failed = False
+
+    def fail_index_once(destination: Path, text: str) -> None:
+        nonlocal failed
+        if destination.name == "provenance.json" and not failed:
+            failed = True
+            raise OSError("mirror fault")
+        real_atomic_replace(destination, text)
+
+    monkeypatch.setattr(serialize_module, "_atomic_replace_text", fail_index_once)
+    with pytest.raises(OSError, match="mirror fault"):
+        _persist(cache_root, {"Second": _extract_entry("Second")})
+    assert (cache_root / "CURRENT").read_text(encoding="utf-8") == current_before
+    # Root index/pack files may already be a mixed compatibility mirror, but
+    # the standalone provider must read the committed CURRENT generation.
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    assert ObjectInfoIndexSchemaProvider(cache_root).get_schema("Second") is None
+
+    monkeypatch.setattr(serialize_module, "_atomic_replace_text", real_atomic_replace)
+    serialize_module.republish_cache_root(cache_root)
+    _assert_committed_capture(cache_root, {"First"})
+    assert first.filename == "Pack@on_demand_static-a1b2c3d.json"
+
+    # The same recovery must preserve a first-ever committed generation even
+    # when CURRENT had not been advanced before the mirror fault.
+    fresh_root = tmp_path / "fresh-cache"
+    failed = False
+    monkeypatch.setattr(serialize_module, "_atomic_replace_text", fail_index_once)
+    with pytest.raises(OSError, match="mirror fault"):
+        _persist(fresh_root, {"First": _extract_entry("First")})
+    monkeypatch.setattr(serialize_module, "_atomic_replace_text", real_atomic_replace)
+    serialize_module.republish_cache_root(fresh_root)
+    _assert_committed_capture(fresh_root, {"First"}, expect_attestation=False)
+
+
+def test_first_generation_marker_failure_is_recovered_by_republish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A committed generation remains discoverable if pending-marker I/O fails."""
+    cache_root = tmp_path / "cache"
+    real_atomic_write = serialize_module.atomic_write_text
+    failed = False
+
+    def fail_pending_marker(destination: Path, text: str) -> None:
+        nonlocal failed
+        if destination.name == ".object_info.mirror" and text.startswith("pending:") and not failed:
+            failed = True
+            raise OSError("pending marker fault")
+        real_atomic_write(destination, text)
+
+    monkeypatch.setattr(serialize_module, "atomic_write_text", fail_pending_marker)
+    with pytest.raises(OSError, match="pending marker fault"):
+        _persist(cache_root, {"First": _extract_entry("First")})
+    assert not (cache_root / "CURRENT").exists()
+    assert not (cache_root / ".object_info.mirror").exists()
+    assert list((cache_root / "generations").iterdir())
+
+    monkeypatch.setattr(serialize_module, "atomic_write_text", real_atomic_write)
+    serialize_module.republish_cache_root(cache_root)
+    _assert_committed_capture(cache_root, {"First"}, expect_attestation=False)
+
+
+def test_cache_transaction_process_fallback_serializes_subprocesses(tmp_path: Path) -> None:
+    """The no-fcntl path still excludes independent processes."""
+    cache_root = tmp_path / "cache"
+    script = r'''
+import sys
+import time
+from pathlib import Path
+import vibecomfy.porting.object_info.serialize as serialize
+
+serialize.fcntl = None
+root = Path(sys.argv[1])
+stamp = root / f"{sys.argv[2]}.txt"
+start = time.monotonic()
+with serialize.cache_publish_transaction(root):
+    entered = time.monotonic()
+    time.sleep(0.25)
+stamp.write_text(f"{start} {entered} {time.monotonic()}" )
+'''
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", script, str(cache_root), str(index)],
+            cwd=Path(__file__).resolve().parents[1],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for index in (1, 2)
+    ]
+    outputs = [process.communicate(timeout=30) for process in processes]
+    assert all(process.returncode == 0 for process in processes), outputs
+    intervals = [
+        tuple(float(value) for value in (cache_root / f"{index}.txt").read_text().split())
+        for index in (1, 2)
+    ]
+    first, second = intervals
+    assert first[1] >= second[2] or second[1] >= first[2]
+
+
+def test_cache_transaction_process_fallback_reclaims_crashed_owner(tmp_path: Path) -> None:
+    """A dead fallback owner is reclaimed, while live owners remain protected."""
+    cache_root = tmp_path / "cache"
+    crash_script = r'''
+import os
+import sys
+import vibecomfy.porting.object_info.serialize as serialize
+
+serialize.fcntl = None
+serialize.msvcrt = None
+with serialize.cache_publish_transaction(sys.argv[1]):
+    os._exit(0)
+'''
+    crashed = subprocess.run(
+        [sys.executable, "-c", crash_script, str(cache_root)],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert crashed.returncode == 0
+    owner_dir = cache_root / ".object_info.lock.d"
+    assert owner_dir.is_dir()
+    owner = json.loads((owner_dir / "owner.json").read_text(encoding="utf-8"))
+    assert owner["pid"] > 0
+    assert owner["start_token"]
+
+    recover_script = r'''
+import sys
+import vibecomfy.porting.object_info.serialize as serialize
+
+serialize.fcntl = None
+serialize.msvcrt = None
+with serialize.cache_publish_transaction(sys.argv[1]):
+    pass
+'''
+    recovered = subprocess.run(
+        [sys.executable, "-c", recover_script, str(cache_root)],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert recovered.returncode == 0, recovered.stderr
+    assert not owner_dir.exists()
+
+
+def test_fallback_owner_metadata_fails_closed_for_malformed_live_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed owner fields cannot authorize a live-lock reclaim."""
+    directory = tmp_path / ".object_info.lock.d"
+    directory.mkdir()
+    owner_path = directory / "owner.json"
+    now = time.time()
+    valid = {
+        "pid": os.getpid(),
+        "start_token": "a" * 32,
+        "acquired_at": now,
+        "lease_expires": now + 10,
+    }
+    malformed_records = [
+        {**valid, "pid": True},
+        {**valid, "pid": -1},
+        {**valid, "pid": 10**20},
+        {**valid, "pid": "123"},
+        {**valid, "start_token": "9" * 257},
+        {**valid, "start_token": ""},
+        {**valid, "start_token": "bogus"},
+        {**valid, "lease_expires": float("nan")},
+        {**valid, "lease_expires": float("inf")},
+        {**valid, "lease_expires": -1},
+        {**valid, "lease_expires": now + 10**9},
+        {**valid, "acquired_at": now + 10**9},
+    ]
+    for record in malformed_records:
+        owner_path.write_text(json.dumps(record), encoding="utf-8")
+        assert not serialize_module._fallback_lock_is_stale(directory)
+
+    owner_path.write_text("{not-json", encoding="utf-8")
+    assert not serialize_module._fallback_lock_is_stale(directory)
+
+    def no_pid_probe(_pid: int):
+        raise AssertionError("invalid PID reached os.kill probe")
+
+    monkeypatch.setattr(serialize_module, "_pid_is_alive", no_pid_probe)
+    owner_path.write_text(json.dumps({**valid, "pid": 10**20}), encoding="utf-8")
+    assert not serialize_module._fallback_lock_is_stale(directory)
+
+
+def test_fallback_owner_identity_distinguishes_dead_and_pid_reused_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / ".object_info.lock.d"
+    directory.mkdir()
+    now = time.time()
+    owner_path = directory / "owner.json"
+    owner_path.write_text(
+        json.dumps(
+            {
+                "pid": 1234,
+                "start_token": "a" * 32,
+                "acquired_at": now,
+                "lease_expires": now + 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(serialize_module, "_pid_is_alive", lambda _pid: False)
+    assert serialize_module._fallback_lock_is_stale(directory)
+
+    # A live PID remains protected even when its recorded token differs; the
+    # metadata could have been tampered with, and mismatch is not authenticated
+    # PID-reuse evidence.
+    monkeypatch.setattr(serialize_module, "_pid_is_alive", lambda _pid: True)
+    monkeypatch.setattr(serialize_module, "_process_start_token", lambda _pid: "b" * 32)
+    assert not serialize_module._fallback_lock_is_stale(directory)
+
+    # Fresh-boot /proc start tokens can be short; any nonempty digit token is
+    # valid, while the bounded length rejects pathological metadata.
+    owner_path.write_text(
+        json.dumps({
+            "pid": 1234,
+            "start_token": "1",
+            "acquired_at": now,
+            "lease_expires": now + 10,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(serialize_module, "_pid_is_alive", lambda _pid: False)
+    assert serialize_module._fallback_lock_is_stale(directory)
+
+    # A live owner with an unrecognized/tampered token remains protected.
+    owner_path.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "start_token": "bogus",
+                "acquired_at": now,
+                "lease_expires": now + 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert not serialize_module._fallback_lock_is_stale(directory)

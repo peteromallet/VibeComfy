@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import tempfile
+import threading
+import time
 import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -26,6 +29,11 @@ try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows uses the single-process fallback.
     fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX has fcntl instead.
+    msvcrt = None  # type: ignore[assignment]
 
 from vibecomfy.node_packs import compute_schema_hash
 from vibecomfy.porting.object_info.consume import (
@@ -40,6 +48,7 @@ from vibecomfy.porting.object_info.generation import (
     atomic_write_text,
     read_json,
     safe_cache_filename,
+    validate_generation,
 )
 from vibecomfy.errors import ObjectInfoCacheCorruptError
 
@@ -47,6 +56,38 @@ LEGACY_IMPORT_PACK_VERSION = "legacy-import"
 LEGACY_IMPORT_SOURCE_KIND = "legacy_object_info_import"
 _PACK_SLUG_ERROR = "pack_slug must be a single path-safe component"
 INDEX_PATH: Path = CACHE_DIR / "index.json"
+_MIRROR_STATE_FILE = ".object_info.mirror"
+_LOCK_TIMEOUT_SECONDS = 30.0
+_LOCK_OWNER_FILE = "owner.json"
+_MAX_OWNER_PID = 2**31 - 1
+_MAX_START_TOKEN_LENGTH = 256
+_PROCESS_START_TOKEN = uuid.uuid4().hex
+
+# ``flock`` protects writers across processes, but it is not sufficient as the
+# sole guard for callers in one process: each thread opens its own descriptor,
+# and a transaction also needs to cover the read/merge/post-processing phases
+# around publication.  Keep one re-entrant lock per cache root so threads and
+# nested internal helpers share the same serialization boundary.
+_CACHE_LOCKS_GUARD = threading.Lock()
+
+
+class _CacheLockState:
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.local = threading.local()
+
+
+_CACHE_LOCKS: dict[str, _CacheLockState] = {}
+
+
+def _cache_lock_state(cache_root: Path) -> _CacheLockState:
+    key = str(cache_root.resolve(strict=False))
+    with _CACHE_LOCKS_GUARD:
+        state = _CACHE_LOCKS.get(key)
+        if state is None:
+            state = _CacheLockState()
+            _CACHE_LOCKS[key] = state
+        return state
 
 # ---------------------------------------------------------------------------
 # public helpers
@@ -344,18 +385,270 @@ def _read_cache_state(
     return normalized_index, pack_files, provenance
 
 
-@contextmanager
-def _cache_publish_lock(cache_root: Path):
-    lock_path = cache_root / ".object_info.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "a+", encoding="utf-8") as lock:
+class _ProcessFileLock:
+    """Cross-process lock with POSIX, Windows, and portable fallbacks."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.path = root / ".object_info.lock"
+        self.file = None
+        self._directory_lock = False
+
+    def acquire(self) -> None:
         if fcntl is not None:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            self.file = open(self.path, "a+b")
+            try:
+                fcntl.flock(self.file.fileno(), fcntl.LOCK_EX)
+            except BaseException:
+                self.file.close()
+                self.file = None
+                raise
+            return
+        if msvcrt is not None:
+            self.file = open(self.path, "a+b")
+            try:
+                self.file.seek(0, os.SEEK_END)
+                if self.file.tell() == 0:
+                    self.file.write(b"0")
+                    self.file.flush()
+                deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+                while True:
+                    self.file.seek(0)
+                    try:
+                        msvcrt.locking(self.file.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError(f"timed out acquiring object_info cache lock: {self.path}")
+                        time.sleep(0.01)
+            except BaseException:
+                self.file.close()
+                self.file = None
+                raise
+            return
+
+        # This branch is used only on platforms without either native locking
+        # primitive (and by tests that intentionally disable fcntl).  mkdir is
+        # an atomic cross-process claim; the bounded wait avoids an unbounded
+        # wedge if a process died while holding the fallback lock.
+        directory = self.path.with_name(f"{self.path.name}.d")
+        deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                directory.mkdir()
+                self.path = directory
+                self._directory_lock = True
+                self._write_directory_owner()
+                return
+            except FileExistsError:
+                if _fallback_lock_is_stale(directory):
+                    _reclaim_fallback_lock(directory)
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        "timed out acquiring object_info cache lock; "
+                        f"owner is live or metadata is malformed: {directory}"
+                    )
+                time.sleep(0.01)
+
+    def _write_directory_owner(self) -> None:
+        owner_path = self.path / _LOCK_OWNER_FILE
+        fd, temporary_name = tempfile.mkstemp(prefix=".owner.", suffix=".tmp", dir=self.path)
+        temporary = Path(temporary_name)
+        try:
+            owner = {
+                "pid": os.getpid(),
+                "start_token": _process_start_token(os.getpid()),
+                "acquired_at": time.time(),
+                "lease_expires": time.time() + _LOCK_TIMEOUT_SECONDS,
+            }
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(owner, handle, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, owner_path)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            self.release()
+            raise
+
+    def release(self) -> None:
+        if self._directory_lock:
+            owner = self.path / _LOCK_OWNER_FILE
+            owner.unlink(missing_ok=True)
+            self.path.rmdir()
+            self._directory_lock = False
+            return
+        if self.file is None:
+            return
+        file = self.file
+        self.file = None
+        try:
+            if fcntl is not None:
+                fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+            elif msvcrt is not None:
+                file.seek(0)
+                msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            file.close()
+
+
+def _process_start_token(pid: int) -> str:
+    """Return a PID-reuse-resistant token when the platform exposes one."""
+    proc_stat = Path(f"/proc/{pid}/stat")
+    try:
+        raw = proc_stat.read_text(encoding="ascii")
+        closing_paren = raw.rfind(")")
+        fields = raw[closing_paren + 2 :].split()
+        return fields[19] if len(fields) > 19 else ""
+    except (OSError, UnicodeError, IndexError):
+        return _PROCESS_START_TOKEN if pid == os.getpid() else ""
+
+
+def _pid_is_alive(pid: int) -> bool | None:
+    if not isinstance(pid, int) or isinstance(pid, bool) or not 0 < pid <= _MAX_OWNER_PID:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (OSError, OverflowError, ValueError):
+        return None
+    return True
+
+
+def _valid_start_token(token: object) -> bool:
+    if not isinstance(token, str) or not token:
+        return False
+    if token.isdigit():
+        return len(token) <= _MAX_START_TOKEN_LENGTH
+    return len(token) == len(_PROCESS_START_TOKEN) and all(char in "0123456789abcdef" for char in token.lower())
+
+
+def _fallback_lock_is_stale(directory: Path) -> bool:
+    """Only reclaim a lock whose recorded owner is definitively gone/reused."""
+    owner_path = directory / _LOCK_OWNER_FILE
+    try:
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        if not isinstance(owner, dict):
+            return False
+        pid = owner["pid"]
+        token = owner["start_token"]
+        acquired_at = owner["acquired_at"]
+        lease_expires = owner["lease_expires"]
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or not 0 < pid <= _MAX_OWNER_PID
+            or not _valid_start_token(token)
+            or isinstance(acquired_at, bool)
+            or not isinstance(acquired_at, (int, float))
+            or not math.isfinite(acquired_at)
+            or isinstance(lease_expires, bool)
+            or not isinstance(lease_expires, (int, float))
+            or not math.isfinite(lease_expires)
+            or acquired_at < 0
+            or acquired_at > time.time() + _LOCK_TIMEOUT_SECONDS
+            or lease_expires < acquired_at
+            or lease_expires > time.time() + (_LOCK_TIMEOUT_SECONDS * 2)
+            or lease_expires > acquired_at + (_LOCK_TIMEOUT_SECONDS * 2)
+        ):
+            return False
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError):
+        # A live holder may be between mkdir and its first owner record. Never
+        # steal an unidentifiable lock; the bounded timeout reports it instead.
+        return False
+    alive = _pid_is_alive(pid)
+    if alive is None:
+        return False
+    if alive:
+        # A live PID proves that an owner may still be running.  A token
+        # mismatch can be caused by tampering, so it is never enough to steal
+        # the live process's lock without an authenticated OS primitive.
+        return False
+    return True
+
+
+def _reclaim_fallback_lock(directory: Path) -> None:
+    if directory.is_symlink() or not directory.is_dir():
+        return
+    tombstone = directory.with_name(f"{directory.name}.reclaim-{os.getpid()}-{uuid.uuid4().hex}")
+    try:
+        os.replace(directory, tombstone)
+    except FileNotFoundError:
+        return
+    shutil.rmtree(tombstone, ignore_errors=False)
+
+
+@contextmanager
+def cache_publish_transaction(cache_root: str | Path):
+    """Serialize one complete cache mutation for this root.
+
+    The per-root ``RLock`` covers concurrent threads in this process, while
+    the file lock covers other processes.  Nested serializer helpers re-enter
+    the same transaction without opening another descriptor (or attempting a
+    second ``flock``), so callers can safely keep the transaction open through
+    all read/merge/hygiene/provenance/publication work.
+    """
+    root = Path(cache_root)
+    root.mkdir(parents=True, exist_ok=True)
+    state = _cache_lock_state(root)
+    state.lock.acquire()
+    depth = getattr(state.local, "depth", 0)
+    process_lock = None
+    body_error = None
+    try:
+        if depth == 0:
+            process_lock = _ProcessFileLock(root)
+            process_lock.acquire()
+            state.local.process_lock = process_lock
+        state.local.depth = depth + 1
         try:
             yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except BaseException as exc:
+            body_error = exc
+    finally:
+        next_depth = getattr(state.local, "depth", 1) - 1
+        state.local.depth = next_depth
+        cleanup_errors = []
+        if next_depth == 0:
+            outer_process_lock = getattr(state.local, "process_lock", process_lock)
+            try:
+                if outer_process_lock is not None:
+                    outer_process_lock.release()
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+            try:
+                try:
+                    del state.local.process_lock
+                except AttributeError:
+                    pass
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+        try:
+            state.lock.release()
+        except BaseException as exc:
+            cleanup_errors.append(exc)
+        if body_error is not None:
+            if cleanup_errors:
+                raise BaseExceptionGroup(
+                    "object_info cache transaction body and cleanup failed",
+                    [body_error, *cleanup_errors],
+                )
+            raise body_error
+        if cleanup_errors:
+            if len(cleanup_errors) == 1:
+                raise cleanup_errors[0]
+            raise BaseExceptionGroup("object_info cache transaction cleanup failed", cleanup_errors)
+
+
+@contextmanager
+def _cache_publish_lock(cache_root: Path):
+    """Backward-compatible internal spelling for the full transaction lock."""
+    with cache_publish_transaction(cache_root):
+        yield
 
 
 def _publish_cache_state(
@@ -409,29 +702,109 @@ def _publish_cache_state(
         )
         committed = generations_root / generation
         os.replace(staging, committed)
-        atomic_write_text(cache_root / CURRENT_FILE, generation + "\n")
-        # Keep the old root layout readable to callers that inspect cache files
-        # directly.  Readers prefer CURRENT, so an interrupted mirror cannot
-        # expose a mixed generation through the supported API.
-        for filename in serialized:
+        # Keep the old root layout readable to legacy callers, but make each
+        # artifact replacement atomic and record mirror progress.  CURRENT is
+        # advanced only after every artifact is mirrored, so an interrupted
+        # mirror cannot make the new generation reader-visible.
+        atomic_write_text(cache_root / _MIRROR_STATE_FILE, f"pending:{generation}\n")
+        for filename, text in serialized.items():
             destination = cache_root / filename
             if destination.is_symlink():
                 raise ObjectInfoCacheCorruptError(
                     f"object_info cache compatibility artifact is symlinked: {destination}"
                 )
-            shutil.copyfile(committed / filename, destination)
+            _atomic_replace_text(destination, text)
+        atomic_write_text(cache_root / _MIRROR_STATE_FILE, generation + "\n")
+        atomic_write_text(cache_root / CURRENT_FILE, generation + "\n")
         return generation
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
 
+def _atomic_replace_text(destination: Path, text: str) -> None:
+    """Replace one compatibility artifact without exposing partial JSON."""
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _current_generation(cache_root: Path) -> str | None:
+    marker = cache_root / CURRENT_FILE
+    try:
+        generation = marker.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+    return generation or None
+
+
+def _mirror_matches_current(cache_root: Path) -> bool:
+    current = _current_generation(cache_root)
+    if current is None:
+        return False
+    try:
+        mirrored = (cache_root / _MIRROR_STATE_FILE).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return False
+    return mirrored == current
+
+
+def _republish_source_root(cache_root: Path) -> Path:
+    """Select a committed source when the compatibility mirror is uncertain."""
+    if _mirror_matches_current(cache_root):
+        return cache_root
+    current = _current_generation(cache_root)
+    if current is not None:
+        return active_cache_root(cache_root)
+    try:
+        mirror_state = (cache_root / _MIRROR_STATE_FILE).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        mirror_state = ""
+    pending = mirror_state.removeprefix("pending:")
+    if pending and pending != mirror_state:
+        generation_root = cache_root / GENERATIONS_DIR / pending
+        validate_generation(generation_root)
+        return generation_root
+    recovered = _latest_valid_generation(cache_root)
+    return recovered or cache_root
+
+
+def _latest_valid_generation(cache_root: Path) -> Path | None:
+    generations_root = cache_root / GENERATIONS_DIR
+    if generations_root.is_symlink() or not generations_root.is_dir():
+        return None
+    candidates = [path for path in generations_root.iterdir() if path.is_dir() and not path.is_symlink()]
+    candidates.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    for candidate in candidates:
+        try:
+            validate_generation(candidate)
+        except (OSError, ValueError, ObjectInfoCacheCorruptError):
+            continue
+        return candidate
+    return None
+
+
 def republish_cache_root(cache_dir: str | Path) -> str:
     """Commit externally edited legacy-root artifacts as one cache generation."""
     cache_root = Path(cache_dir)
     with _cache_publish_lock(cache_root):
+        # A failed/incomplete compatibility mirror must never become the
+        # authority for a subsequent republish.  Once CURRENT exists, the
+        # committed generation is authoritative unless the mirror explicitly
+        # confirms it is synchronized; this still permits intentional legacy
+        # root edits during the normal synchronized state.
+        source_root = _republish_source_root(cache_root)
         index, pack_files, provenance = _read_cache_state(
-            cache_root,
+            source_root,
             use_active_generation=False,
             validate_index_rows=False,
         )
