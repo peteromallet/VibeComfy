@@ -207,6 +207,15 @@ function _compareCanonicalKeys(left, right) {
   return 0;
 }
 
+function _setOwnDataProperty(target, key, value) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function _serializeCanonical(value, { ensureAscii }) {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => _serializeCanonical(entry, { ensureAscii })).join(",")}]`;
@@ -257,7 +266,7 @@ export function canonicalizeJsonLike(value) {
     });
     const result = /** @type {object} */ ({});
     for (const [key, val] of entries) {
-      result[key] = val;
+      _setOwnDataProperty(result, key, val);
     }
     return result;
   }
@@ -279,7 +288,7 @@ export function canonicalizeJsonLike(value) {
     const keys = Object.keys(value).sort();
     const result = /** @type {object} */ ({});
     for (const key of keys) {
-      result[String(key)] = canonicalizeJsonLike(value[key]);
+      _setOwnDataProperty(result, String(key), canonicalizeJsonLike(value[key]));
     }
     return result;
   }
@@ -423,7 +432,7 @@ function _normalizeNumericJs(value, finiteErrorCode, allowBool) {
   if (_isPlainObject(value)) {
     const result = /** @type {object} */ ({});
     for (const [key, entry] of Object.entries(value)) {
-      result[key] = _normalizeNumericJs(entry, finiteErrorCode, allowBool);
+      _setOwnDataProperty(result, key, _normalizeNumericJs(entry, finiteErrorCode, allowBool));
     }
     return result;
   }

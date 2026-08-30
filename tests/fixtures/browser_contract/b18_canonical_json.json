@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "name": "own-proto-key",
+      "value": {
+        "z": "café 漢字",
+        "__proto__": {
+          "polluted": true,
+          "nested": [null, false, 9007199254740991]
+        },
+        "alpha": 1,
+        "10": "ten",
+        "2": "two"
+      },
+      "canonical_ascii": "{\"10\":\"ten\",\"2\":\"two\",\"__proto__\":{\"nested\":[null,false,9007199254740991],\"polluted\":true},\"alpha\":1,\"z\":\"caf\\u00e9 \\u6f22\\u5b57\"}",
+      "canonical_utf8": "{\"10\":\"ten\",\"2\":\"two\",\"__proto__\":{\"nested\":[null,false,9007199254740991],\"polluted\":true},\"alpha\":1,\"z\":\"café 漢字\"}",
+      "ascii_sha256": "db954af4f6a9873ed06a486abb0f2a649aacbd19b10b7bada9f61d46b0fe3544",
+      "utf8_sha256": "31d0aaddd0e197d2b3ed0e300ede3f225dd5a31a59b44490898ab62874763403"
+    },
+    {
+      "name": "nested-proto-and-unicode",
+      "value": {
+        "outer": {
+          "😀": "emoji",
+          "z": "last",
+          "__proto__": ["kept", {"constructor": "data"}]
+        },
+        "array": [
+          {"__proto__": {"safe": "yes"}, "b": 2, "a": 1},
+          0,
+          1.5
+        ]
+      },
+      "canonical_ascii": "{\"array\":[{\"__proto__\":{\"safe\":\"yes\"},\"a\":1,\"b\":2},0,1.5],\"outer\":{\"__proto__\":[\"kept\",{\"constructor\":\"data\"}],\"z\":\"last\",\"\\ud83d\\ude00\":\"emoji\"}}",
+      "canonical_utf8": "{\"array\":[{\"__proto__\":{\"safe\":\"yes\"},\"a\":1,\"b\":2},0,1.5],\"outer\":{\"__proto__\":[\"kept\",{\"constructor\":\"data\"}],\"z\":\"last\",\"😀\":\"emoji\"}}",
+      "ascii_sha256": "6796c32108cbbd999cc0b1790790b8adee0a8bc27dc1ff8d6cd2a9f5d8914221",
+      "utf8_sha256": "6502d45abe585e14a7632315c3917f0d49ef1ee97b23142819ba0131608462fb"
+    }
+  ]
+}

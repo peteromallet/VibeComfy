@@ -10,6 +10,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
   sha256HexFromString,
+  canonicalizeContractNumeric,
 } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
 
 test("browser canonical hash authority does not import Node-only builtins", async () => {
@@ -683,4 +684,38 @@ test("round-trip: canonicalizeJsonLike of a plain object is JSON-parseable from 
   assert.deepEqual(parsed.entries["node-x"].pos, [10, 20]);
   assert.deepEqual(parsed.entries["node-x"].flags, { pinned: true });
   assert.equal(parsed.extra.scale, 1.5);
+});
+
+test("B18 canonical fixture preserves own __proto__ keys and matches Python bytes", async () => {
+  const fixture = JSON.parse(await readFile(
+    new URL("../fixtures/browser_contract/b18_canonical_json.json", import.meta.url),
+    "utf8",
+  ));
+
+  for (const entry of fixture.cases) {
+    const canonical = canonicalizeJsonLike(entry.value);
+    assert.equal(Object.getPrototypeOf(canonical), Object.prototype, entry.name);
+    const protoHolder = entry.name === "own-proto-key" ? canonical : canonical.outer;
+    assert.equal(Object.prototype.hasOwnProperty.call(protoHolder, "__proto__"), true, entry.name);
+    assert.deepEqual(protoHolder.__proto__, entry.name === "own-proto-key"
+      ? entry.value.__proto__
+      : entry.value.outer.__proto__, entry.name);
+    assert.equal(canonicalJsonString(entry.value), entry.canonical_ascii, entry.name);
+    assert.equal(canonicalSessionJsonString(entry.value), entry.canonical_utf8, entry.name);
+    assert.equal(sha256Hex(entry.value), entry.ascii_sha256, entry.name);
+    assert.equal(
+      sha256HexFromString(canonicalSessionJsonString(entry.value)),
+      entry.utf8_sha256,
+      entry.name,
+    );
+  }
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+test("B18 numeric normalization preserves own __proto__ keys", () => {
+  const value = JSON.parse('{"__proto__":{"n":1.0},"value":2.5}');
+  const normalized = canonicalizeContractNumeric(value, { finiteErrorCode: "non_finite" });
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized, "__proto__"), true);
+  assert.deepEqual(normalized.__proto__, { n: 1 });
+  assert.equal(Object.getPrototypeOf(normalized), Object.prototype);
 });
