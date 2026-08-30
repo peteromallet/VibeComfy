@@ -1124,6 +1124,7 @@ def _read_authoritative_turn_response(
     *,
     state: Mapping[str, Any] | None = None,
     keyed: bool | None = None,
+    expected_idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Read one turn response through the durable publication authority.
 
@@ -1161,6 +1162,11 @@ def _read_authoritative_turn_response(
             raise _publication_corrupt(
                 _response_publication_path(turn_dir),
                 "publication idempotency key does not match request",
+            )
+        if expected_idempotency_key is not None and publication_key != expected_idempotency_key:
+            raise _publication_corrupt(
+                _response_publication_path(turn_dir),
+                "publication idempotency key does not match requested key",
             )
         response = dict(publication["response"])
         response_path = turn_dir / "response.json"
@@ -1338,11 +1344,12 @@ def _existing_key_publication(
     *,
     session_root: Path,
     session_id: str,
+    state: Mapping[str, Any],
     existing: Mapping[str, Any],
     recovered: Mapping[str, Mapping[str, Any]],
     key: str,
 ) -> tuple[dict[str, Any], Mapping[str, Any]]:
-    """Read the immutable authority for an existing keyed record."""
+    """Read an existing keyed record through the authoritative turn reader."""
     authority_record = recovered.get(key, existing)
     turn_id = authority_record.get("turn_id")
     if not isinstance(turn_id, str) or not turn_id:
@@ -1356,15 +1363,18 @@ def _existing_key_publication(
             )
         )
     turn_dir = turn_dir_for(session_root, session_id, turn_id)
-    publication = _read_response_publication(turn_dir)
-    if publication is None:
-        raise DurableReadError(
-            DurableRead(
-                "unreadable",
-                path=_response_publication_path(turn_dir),
-                error="idempotency record claims a key but its response publication is absent",
-            )
-        )
+    idempotency_key = key.partition(":")[2]
+    response = _read_authoritative_turn_response(
+        turn_dir,
+        state=state,
+        keyed=True,
+        expected_idempotency_key=idempotency_key or None,
+    )
+    publication = {
+        **dict(authority_record),
+        "turn_id": turn_id,
+        "response": response,
+    }
     return publication, authority_record
 
 
@@ -3702,6 +3712,7 @@ def allocate_turn(
                 publication, authority_record = _existing_key_publication(
                     session_root=session_root,
                     session_id=session_id,
+                    state=state,
                     existing=existing,
                     recovered=recovered_publications,
                     key=key,
@@ -4326,6 +4337,7 @@ def record_idempotent_response(
                 publication, authority_record = _existing_key_publication(
                     session_root=session_root,
                     session_id=session_id,
+                    state=state,
                     existing=existing,
                     recovered=recovered_publications,
                     key=key,

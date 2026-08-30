@@ -89,6 +89,8 @@ def maybe_write_executor_only_durable_turn(
             "task": query_text,
             "session_id": session_id,
         }
+        if idempotency_key is not None:
+            request_artifact_payload["idempotency_key"] = idempotency_key
         pipeline_mode = getattr(request, "pipeline_mode", None)
         if isinstance(pipeline_mode, str):
             request_artifact_payload["pipeline_mode"] = pipeline_mode
