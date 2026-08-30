@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 import warnings
 
 import pytest
@@ -289,6 +290,97 @@ def test_ensure_plugins_loaded_is_idempotent_when_empty(tmp_path: Path, monkeypa
     extras.ensure_plugins_loaded()
     extras.ensure_plugins_loaded()
 
+    assert calls == 1
+
+
+def test_ensure_plugins_loaded_has_one_owner_under_concurrency(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    waiter_done = threading.Event()
+    calls = 0
+    errors: list[BaseException] = []
+    results: list[object] = []
+
+    def fake_load_plugins():
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(timeout=5)
+        return extras.plugin_api()
+
+    def run_ensure(done: threading.Event | None = None) -> None:
+        try:
+            results.append(extras.ensure_plugins_loaded())
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            if done is not None:
+                done.set()
+
+    monkeypatch.setattr(extras, "load_plugins", fake_load_plugins)
+    owner = threading.Thread(target=run_ensure)
+    waiter = threading.Thread(target=run_ensure, args=(waiter_done,))
+    owner.start()
+    assert entered.wait(timeout=5)
+    waiter.start()
+    assert not waiter_done.wait(timeout=0.05)
+    release.set()
+    owner.join(timeout=5)
+    waiter.join(timeout=5)
+
+    assert calls == 1
+    assert errors == []
+    assert results == [extras.plugin_api(), extras.plugin_api()]
+
+
+def test_ensure_plugins_loaded_failure_is_terminal_and_shared(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    waiter_done = threading.Event()
+    failure = RuntimeError("synthetic registration failure")
+    calls = 0
+    errors: list[BaseException] = []
+
+    def fake_load_plugins():
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(timeout=5)
+        extras.plugin_api().register_ready_root(tmp_path / "partially-registered")
+        raise failure
+
+    def run_ensure(done: threading.Event | None = None) -> None:
+        try:
+            extras.ensure_plugins_loaded()
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            if done is not None:
+                done.set()
+
+    monkeypatch.setattr(extras, "load_plugins", fake_load_plugins)
+    owner = threading.Thread(target=run_ensure)
+    waiter = threading.Thread(target=run_ensure, args=(waiter_done,))
+    owner.start()
+    assert entered.wait(timeout=5)
+    waiter.start()
+    assert not waiter_done.wait(timeout=0.05)
+    release.set()
+    owner.join(timeout=5)
+    waiter.join(timeout=5)
+
+    assert calls == 1
+    assert errors == [failure, failure]
+    assert extras.registered_ready_roots() == ((tmp_path / "partially-registered").resolve(),)
+    with pytest.raises(RuntimeError, match="synthetic registration failure") as repeated:
+        extras.ensure_plugins_loaded()
+    assert repeated.value is failure
     assert calls == 1
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,15 @@ from typing import Any
 PLUGIN_GROUP = "vibecomfy.plugins"
 PLUGIN_SUBDIRS = ("blocks", "patches", "ops", "recipes", "ready_templates")
 
-_LOADED = False
+_UNINITIALIZED = "uninitialized"
+_LOADING = "loading"
+_READY = "ready"
+_FAILED = "failed"
+
+_load_state = _UNINITIALIZED
+_load_error: BaseException | None = None
+_load_owner_thread: int | None = None
+_load_condition = threading.Condition(threading.RLock())
 _REGISTERED_READY_ROOTS: list[Path] = []
 
 
@@ -55,10 +64,41 @@ def registered_ready_roots() -> tuple[Path, ...]:
 
 
 def ensure_plugins_loaded() -> PluginAPI:
-    global _LOADED
-    if not _LOADED:
+    global _load_error, _load_owner_thread, _load_state
+    current_thread = threading.get_ident()
+    with _load_condition:
+        while True:
+            if _load_state == _READY:
+                return _API
+            if _load_state == _FAILED:
+                error = _load_error
+                if error is None:
+                    raise RuntimeError("plugin loading failed without a diagnostic")
+                raise error
+            if _load_state == _LOADING:
+                if _load_owner_thread == current_thread:
+                    raise RuntimeError("plugin loading is not reentrant")
+                _load_condition.wait()
+                continue
+            _load_state = _LOADING
+            _load_owner_thread = current_thread
+            break
+
+    try:
         load_plugins()
-        _LOADED = True
+    except BaseException as error:
+        with _load_condition:
+            _load_error = error
+            _load_owner_thread = None
+            _load_state = _FAILED
+            _load_condition.notify_all()
+        raise
+
+    with _load_condition:
+        _load_error = None
+        _load_owner_thread = None
+        _load_state = _READY
+        _load_condition.notify_all()
     return _API
 
 
@@ -102,9 +142,14 @@ def _entry_points() -> list[Any]:
 
 
 def _reset_for_tests() -> None:
-    global _LOADED
-    _LOADED = False
-    _REGISTERED_READY_ROOTS.clear()
+    global _load_error, _load_owner_thread, _load_state
+    with _load_condition:
+        if _load_state == _LOADING:
+            raise RuntimeError("cannot reset plugin loading while it is in progress")
+        _load_error = None
+        _load_owner_thread = None
+        _load_state = _UNINITIALIZED
+        _REGISTERED_READY_ROOTS.clear()
 
 
 __all__ = [
