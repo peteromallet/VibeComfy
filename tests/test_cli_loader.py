@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import vibecomfy.cli_loader as cli_loader
 from vibecomfy.cli_loader import load_workflow_any
 
 
@@ -48,6 +49,34 @@ def test_load_workflow_any_accepts_json_path(tmp_path: Path) -> None:
 
     assert workflow.id == "workflow"
     assert workflow.outputs[0].node_id == "1"
+
+
+@pytest.mark.parametrize("suffix", [".py", ".json"])
+def test_direct_file_loading_does_not_require_ready_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    path = tmp_path / f"workflow{suffix}"
+    if suffix == ".py":
+        path.write_text(
+            "from vibecomfy.workflow import VibeWorkflow, WorkflowSource\n\n"
+            "def build():\n"
+            "    return VibeWorkflow('direct', WorkflowSource('direct'))\n",
+            encoding="utf-8",
+        )
+    else:
+        path.write_text(
+            json.dumps({"1": {"class_type": "SaveImage", "inputs": {"images": "placeholder"}}}),
+            encoding="utf-8",
+        )
+
+    def unavailable() -> None:
+        raise RuntimeError("ready discovery unavailable")
+
+    monkeypatch.setattr(cli_loader, "ready_template_discovery", unavailable)
+
+    workflow = load_workflow_any(str(path))
+
+    assert workflow.id == ("direct" if suffix == ".py" else "workflow")
 
 
 def test_load_workflow_any_missing_id_raises_key_error() -> None:

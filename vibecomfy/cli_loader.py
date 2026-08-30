@@ -21,6 +21,10 @@ from vibecomfy.workflow import VibeWorkflow
 
 def load_workflow_any(path_or_id: str) -> VibeWorkflow:
     value = str(path_or_id)
+    direct_path = Path(value)
+    if direct_path.is_file() and direct_path.suffix.lower() in {".py", ".json"}:
+        return _load_workflow_path(direct_path)
+
     discovery = ready_template_discovery()
     ready_id = _ready_id_for(value, discovery)
     if ready_id is not None:
@@ -33,7 +37,11 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
             raise
         raise KeyError(f"Workflow id not found: {value}") from exc
 
-    suffix = Path(path).suffix.lower()
+    return _load_workflow_path(Path(path))
+
+
+def _load_workflow_path(path: Path) -> VibeWorkflow:
+    suffix = path.suffix.lower()
     if suffix == ".py":
         return load_scratchpad(path, provenance_override="user_confirmed")
     if suffix == ".json":

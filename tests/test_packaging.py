@@ -199,11 +199,44 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
     assert help_result.returncode == 0, help_result.stdout + help_result.stderr
     assert "usage: vibecomfy" in help_result.stdout
 
+    python_workflow = tmp_path / "direct.py"
+    python_workflow.write_text(
+        "from vibecomfy.workflow import VibeWorkflow, WorkflowSource\n\n"
+        "def build():\n"
+        "    return VibeWorkflow('wheel-python', WorkflowSource('wheel-python'))\n",
+        encoding="utf-8",
+    )
+    json_workflow = tmp_path / "direct.json"
+    json_workflow.write_text(
+        '{"1": {"class_type": "SaveImage", "inputs": {"images": "placeholder"}}}',
+        encoding="utf-8",
+    )
+    direct = subprocess.run(
+        [
+            str(venv_python),
+            "-c",
+            (
+                "import sys; from vibecomfy import load_workflow_any; "
+                "print(load_workflow_any(sys.argv[1]).id); "
+                "print(load_workflow_any(sys.argv[2]).id)"
+            ),
+            str(python_workflow),
+            str(json_workflow),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert direct.returncode == 0, direct.stdout + direct.stderr
+    assert direct.stdout.splitlines() == ["wheel-python", "direct"]
+
     corpus = subprocess.run(
         [
             str(venv_python),
             "-c",
-            "from vibecomfy.registry.ready import workflow_from_ready; workflow_from_ready('image/z_image')",
+            "from vibecomfy import load_workflow_any; load_workflow_any('image/z_image')",
         ],
         cwd=tmp_path,
         env=env,
