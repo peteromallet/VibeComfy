@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -122,6 +123,20 @@ def test_port_subcommand_help_is_discoverable(capsys: pytest.CaptureFixture[str]
     assert "--head-check-models" in convert_text
     assert "--runtime-object-info" in convert_text
     assert "--resolve-on-demand" in convert_text
+    assert "Human output is best-effort" in convert_text
+    assert "per-template failures" in convert_text
+    assert "--json exits nonzero" in convert_text
+    assert "row fails" in convert_text
+
+
+def test_port_convert_all_parser_accepts_omitted_workflow() -> None:
+    args = build_parser().parse_args(["port", "convert", "--all", "--dry-run", "--json"])
+
+    assert args.workflow is None
+    assert args.all is True
+    assert args.dry_run is True
+    assert args.json is True
+
 
 
 def test_port_export_ready_template_json_matches_compile(capsys: pytest.CaptureFixture[str]) -> None:
@@ -913,6 +928,352 @@ def test_port_convert_dry_run_diff_with_ready_template_shows_text(
         # Non-zero may happen if the ready template path can't be derived
         # Error output may be on stdout or stderr
         assert len(text) > 0, f"Expected some output, got empty. code={code}"
+
+
+def _convert_all_args(*, json_output: bool) -> argparse.Namespace:
+    return argparse.Namespace(
+        workflow="unused",
+        out=None,
+        all=True,
+        ready_id=None,
+        json=json_output,
+        dry_run=True,
+        diff=False,
+        head_check_models=False,
+        strict_ready_template=False,
+        runtime_object_info=False,
+        object_info_cache=None,
+        no_object_info_cache=False,
+        server_url=None,
+    )
+
+
+def _patch_convert_all_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    failing_ids: set[str] | None = None,
+    validation_by_id: dict[str, SimpleNamespace] | None = None,
+) -> tuple[Path, Path]:
+    good_path = tmp_path / "good.py"
+    bad_path = tmp_path / "bad.py"
+    good_path.write_text("GOOD = True\n", encoding="utf-8")
+    bad_path.write_text("BAD = True\n", encoding="utf-8")
+    failing_ids = failing_ids or set()
+    validation_by_id = validation_by_id or {}
+    snapshot = SimpleNamespace(
+        templates_list=[
+            {"id": "template/good", "path": str(good_path)},
+            {"id": "template/bad", "path": str(bad_path)},
+        ]
+    )
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(
+        port_commands,
+        "_build_conversion_provider",
+        lambda _args: object(),
+    )
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        template_id = "template/good" if workflow == str(good_path) else "template/bad"
+        if template_id in failing_ids:
+            raise ValueError("synthetic conversion failure")
+        return SimpleNamespace(
+            text=Path(workflow).read_text(encoding="utf-8"),
+            validation=validation_by_id.get(template_id, SimpleNamespace(parity_ok=True)),
+        )
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr("vibecomfy.commands.port._convert.port_convert_workflow", fake_convert)
+    return good_path, bad_path
+
+
+def test_port_convert_all_json_marks_parity_and_validation_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _patch_convert_all_fixture(
+        monkeypatch,
+        tmp_path,
+        validation_by_id={
+            "template/good": SimpleNamespace(
+                ok=True,
+                parity_ok=False,
+                parity_error="synthetic parity mismatch",
+            ),
+            "template/bad": SimpleNamespace(
+                ok=False,
+                parity_ok=True,
+                error="synthetic validation failure",
+            ),
+        },
+    )
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert code == 1
+    assert payload["status"] == "error"
+    assert payload["summary"]["ok_count"] == 0
+    assert payload["summary"]["error_count"] == 2
+    assert templates["template/good"]["status"] == "error"
+    assert templates["template/good"]["parity"] == "failed"
+    assert templates["template/good"]["error"] == {
+        "type": "ValidationError",
+        "message": "synthetic parity mismatch",
+    }
+    assert templates["template/bad"]["status"] == "error"
+    assert templates["template/bad"]["error"] == {
+        "type": "ValidationError",
+        "message": "synthetic validation failure",
+    }
+
+
+
+def test_port_convert_all_json_reports_template_failure_and_nonzero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _patch_convert_all_fixture(monkeypatch, tmp_path, failing_ids={"template/bad"})
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert code == 1
+    assert captured.err == ""
+    assert payload["status"] == "error"
+    assert payload["mode"] == "convert_all"
+    assert payload["dry_run"] is True
+    assert payload["summary"] == {
+        "template_count": 2,
+        "ok_count": 1,
+        "error_count": 1,
+        "changed_count": 0,
+    }
+    assert templates["template/good"]["status"] == "ok"
+    assert templates["template/bad"]["status"] == "error"
+    assert templates["template/bad"]["error"] == {
+        "type": "ValueError",
+        "message": "synthetic conversion failure",
+    }
+
+
+def test_port_convert_all_json_safe_aggregate_returns_zero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _patch_convert_all_fixture(monkeypatch, tmp_path)
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["status"] == "ok"
+    assert payload["summary"] == {
+        "template_count": 2,
+        "ok_count": 2,
+        "error_count": 0,
+        "changed_count": 0,
+    }
+    assert [item["status"] for item in payload["templates"]] == ["ok", "ok"]
+    assert all(item["error"] is None for item in payload["templates"])
+
+
+def test_port_convert_all_human_mode_keeps_line_output_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _patch_convert_all_fixture(monkeypatch, tmp_path, failing_ids={"template/bad"})
+
+    code = _cmd_port_convert(_convert_all_args(json_output=False))
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert captured.err == ""
+    assert "template/good: parity=ok LOC 1→1 (+0)" in captured.out
+    assert "template/bad: error: ValueError: synthetic conversion failure" in captured.out
+    assert not captured.out.lstrip().startswith("{")
+
+def test_port_convert_all_json_rejects_malformed_result_comparison(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    before_path = tmp_path / "before.py"
+    malformed_path = tmp_path / "malformed.py"
+    after_path = tmp_path / "after.py"
+    before_path.write_text("BEFORE = True\n", encoding="utf-8")
+    malformed_path.write_text("MALFORMED = True\n", encoding="utf-8")
+    after_path.write_text("AFTER = True\n", encoding="utf-8")
+    snapshot = SimpleNamespace(
+        templates_list=[
+            {"id": "template/before", "path": str(before_path)},
+            {"id": "template/malformed", "path": str(malformed_path)},
+            {"id": "template/after", "path": str(after_path)},
+        ]
+    )
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(
+        port_commands,
+        "_build_conversion_provider",
+        lambda _args: object(),
+    )
+
+    class MalformedComparison(str):
+        def __ne__(self, _other: object) -> object:
+            return object()
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        if workflow == str(malformed_path):
+            text: object = MalformedComparison("MALFORMED = True\n")
+        else:
+            text = Path(workflow).read_text(encoding="utf-8")
+        return SimpleNamespace(
+            text=text,
+            validation=SimpleNamespace(parity_ok=True),
+        )
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._convert.port_convert_workflow",
+        fake_convert,
+    )
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert code == 1
+    assert captured.err == ""
+    assert [item["id"] for item in payload["templates"]] == [
+        "template/before",
+        "template/malformed",
+        "template/after",
+    ]
+    assert payload["summary"] == {
+        "template_count": 3,
+        "ok_count": 2,
+        "error_count": 1,
+        "changed_count": 0,
+    }
+    assert type(payload["status"]) is str
+    assert type(payload["mode"]) is str
+    assert type(payload["dry_run"]) is bool
+    assert type(payload["templates"]) is list
+    assert all(
+        type(item["id"]) is str
+        and (item["path"] is None or type(item["path"]) is str)
+        and type(item["status"]) is str
+        and (item["parity"] is None or type(item["parity"]) is str)
+        and (item["original_loc"] is None or type(item["original_loc"]) is int)
+        and (item["emitted_loc"] is None or type(item["emitted_loc"]) is int)
+        and (item["line_count_delta"] is None or type(item["line_count_delta"]) is int)
+        and (item["changed"] is None or type(item["changed"]) is bool)
+        for item in payload["templates"]
+    )
+    assert all(type(value) is int for value in payload["summary"].values())
+    assert all(
+        item["error"] is None
+        or (
+            type(item["error"]) is dict
+            and type(item["error"]["type"]) is str
+            and type(item["error"]["message"]) is str
+        )
+        for item in payload["templates"]
+    )
+    assert templates["template/before"]["status"] == "ok"
+    assert templates["template/after"]["status"] == "ok"
+    assert templates["template/malformed"]["error"]["type"] == "TypeError"
+    assert "comparison must return bool" in templates["template/malformed"]["error"]["message"]
+
+
+def test_port_convert_all_json_preserves_good_rows_with_malformed_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    good_path, _ = _patch_convert_all_fixture(monkeypatch, tmp_path)
+    invalid_path = tmp_path / "invalid.py"
+    invalid_path.write_bytes(b"\xff\xfe")
+    snapshot = SimpleNamespace(
+        templates_list=[
+            {"id": "template/good", "path": str(good_path)},
+            {"id": "template/invalid", "path": str(invalid_path)},
+            {"id": "template/missing-path"},
+            {"path": str(good_path)},
+            {"id": "template/not-an-object", "path": str(good_path)},
+        ]
+    )
+    snapshot.templates_list[-1] = ["not", "a", "mapping"]
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: snapshot,
+    )
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert code == 1
+    assert payload["status"] == "error"
+    assert payload["summary"]["template_count"] == 5
+    assert templates["template/good"]["status"] == "ok"
+    assert templates["template/invalid"]["error"]["type"] == "UnicodeDecodeError"
+    assert templates["template/missing-path"]["path"] is None
+    assert templates["template/missing-path"]["error"]["type"] == "KeyError"
+    assert templates["<row-3>"]["error"]["type"] == "KeyError"
+    assert templates["<row-4>"]["error"]["type"] == "TypeError"
+
+
+def test_port_convert_all_json_rejects_missing_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _patch_convert_all_fixture(
+        monkeypatch,
+        tmp_path,
+        validation_by_id={"template/good": None},
+    )
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert code == 1
+    assert payload["status"] == "error"
+    assert payload["summary"]["ok_count"] == 1
+    assert payload["summary"]["error_count"] == 1
+    assert templates["template/good"]["status"] == "error"
+    assert templates["template/good"]["parity"] == "no-validation"
+    assert templates["template/good"]["error"] == {
+        "type": "ValidationError",
+        "message": "conversion produced no validation result",
+    }
+    assert templates["template/bad"]["status"] == "ok"
+
 
 def _write_flat_fixture_node_index(tmp_path: Path) -> None:
     """Write a node_index.json covering every node type in the flat fixture."""
@@ -1715,13 +2076,6 @@ def test_export_breadcrumb_auto_discovery(
     )
     assert code == 0, f"first export failed with code {code}"
 
-    # The default output path should now exist with a breadcrumb.
-    from vibecomfy.porting.emit.ui import default_output_path
-    default_out = default_output_path(
-        type("WF", (), {"nodes": {}, "edges": []})(), source_template="flat"
-    )
-    # Actually compute with the real workflow by importing it...
-    # The default output is out/ui_export/flat.json
     candidate = tmp_path / "out" / "ui_export" / "flat.json"
     assert candidate.exists(), f"Default output not found at {candidate}"
     candidate_data = json.loads(candidate.read_text(encoding="utf-8"))

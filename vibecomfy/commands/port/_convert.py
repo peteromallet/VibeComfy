@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -39,8 +41,11 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         if args.out:
             print("--all with --out is not supported. Use --dry-run --diff for corpus-wide preview.", file=sys.stderr)
             return 1
-        _run_convert_all(args)
-        return 0
+        return _run_convert_all(args)
+
+    if not getattr(args, "workflow", None):
+        print("workflow is required unless using --all.", file=sys.stderr)
+        return 1
 
     # --out is required for write mode
     if not args.out and not dry_run and not diff_mode:
@@ -180,53 +185,240 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_convert_all(args: argparse.Namespace) -> None:
-    """Run dry-run diff across all ready templates."""
+def _run_convert_all(args: argparse.Namespace) -> int:
+    """Run dry-run conversion across all ready templates.
+
+    Text output intentionally follows the historical line-oriented format.
+    JSON output is a single aggregate envelope so callers never have to parse
+    mixed per-template lines, and conversion failures are reflected in both
+    the envelope status and the process exit code.
+    """
     from vibecomfy.analysis.corpus import build_corpus_snapshot
     from vibecomfy.commands import port as _port
 
     snapshot = build_corpus_snapshot()
-    diff_mode = getattr(args, "diff", False)
+    diff_mode = getattr(args, "diff", False) is True
+    json_output = getattr(args, "json", False) is True
+    template_results: list[dict[str, Any]] = []
 
-    for tpl in snapshot.templates_list:
-        tpl_path = Path(tpl["path"])
-        if not tpl_path.is_file():
-            continue
+    def _safe_text(value: object, fallback: str | None) -> str | None:
+        if value is None:
+            return fallback
         try:
-            original = tpl_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
+            # ``str(value)`` may preserve a hostile ``str`` subclass when its
+            # ``__str__`` returns itself.  Call the builtin slot explicitly so
+            # envelope strings are exact builtin strings.
+            text = str.__str__(value) if isinstance(value, str) else str(value)
+            if type(text) is not str:
+                text = str.__str__(text)
+            return text if type(text) is str else fallback
+        except Exception:
+            return fallback
 
-        schema_provider = _port._build_conversion_provider(args)
+    def _strict_changed(result_text: object, original: str) -> bool:
         try:
-            loaded = load_port_source(str(tpl_path), schema_provider=schema_provider)
+            comparison = result_text != original
+        except Exception as exc:
+            raise TypeError("conversion result text comparison failed") from exc
+        if type(comparison) is not bool:
+            raise TypeError("conversion result text comparison must return bool")
+        return comparison
+
+    def _json_native(value: object) -> object:
+        """Normalize the aggregate boundary without trusting result objects."""
+        value_type = type(value)
+        if value is None or value_type in (bool, int, float, str):
+            return value
+        if isinstance(value, bool):
+            return bool(value)
+        if isinstance(value, int):
+            return int(value)
+        if isinstance(value, float):
+            return float(value)
+        if isinstance(value, str):
+            return _safe_text(value, "<unserializable>")
+        if isinstance(value, Mapping):
+            try:
+                items = value.items()
+                return {
+                    _safe_text(key, "<invalid-key>") or "<invalid-key>":
+                    _json_native(item)
+                    for key, item in items
+                }
+            except Exception:
+                return "<unserializable>"
+        if isinstance(value, (list, tuple)):
+            try:
+                return [_json_native(item) for item in value]
+            except Exception:
+                return ["<unserializable>"]
+        return _safe_text(value, "<unserializable>")
+
+    def failure_result(
+        template_id: object,
+        tpl_path: object,
+        exc: BaseException,
+        *,
+        fallback_id: str,
+    ) -> dict[str, Any]:
+        return {
+            "id": _safe_text(template_id, fallback_id),
+            "path": _safe_text(tpl_path, None),
+            "status": "error",
+            "parity": None,
+            "original_loc": None,
+            "emitted_loc": None,
+            "line_count_delta": None,
+            "changed": None,
+            "error": {
+                "type": _safe_text(type(exc).__name__, "Exception"),
+                "message": _safe_text(exc, "conversion failed"),
+            },
+        }
+
+    for row_index, tpl in enumerate(snapshot.templates_list):
+        fallback_id = f"<row-{row_index}>"
+        template_id: object = fallback_id
+        tpl_path: object = None
+        try:
+            if not isinstance(tpl, Mapping):
+                raise TypeError("template row must be an object")
+            raw_id = tpl.get("id")
+            if raw_id is None:
+                raise KeyError("id")
+            template_id = raw_id
+            raw_path = tpl.get("path")
+            if raw_path is None:
+                raise KeyError("path")
+            tpl_path = raw_path
+            source_path = Path(raw_path)
+            if not source_path.is_file():
+                raise FileNotFoundError(
+                    f"template source does not exist: {source_path}"
+                )
+            original = source_path.read_text(encoding="utf-8")
+            schema_provider = _port._build_conversion_provider(args)
+            loaded = load_port_source(
+                str(source_path),
+                schema_provider=schema_provider,
+            )
             result = port_convert_workflow(
                 loaded.workflow,
-                source_path=str(tpl_path),
+                source_path=str(source_path),
                 schema_provider=schema_provider,
                 raw_workflow=loaded.raw_workflow,
             )
-        except Exception as exc:
-            print(f"{tpl['id']}: error: {type(exc).__name__}: {exc}")
-            continue
 
-        parity = "ok" if result.validation and result.validation.parity_ok is True else (
-            "failed" if result.validation and result.validation.parity_ok is False else ("unknown" if result.validation else "no-validation")
-        )
-        original_loc = len([l for l in original.splitlines() if l.strip()])
-        emitted_loc = len([l for l in result.text.splitlines() if l.strip()])
-        delta = emitted_loc - original_loc
-
-        print(f"{tpl['id']}: parity={parity} LOC {original_loc}→{emitted_loc} ({'+' if delta >= 0 else ''}{delta})")
-
-        if diff_mode and result.text != original:
-            import difflib
-            diff_lines = difflib.unified_diff(
-                original.splitlines(keepends=True),
-                result.text.splitlines(keepends=True),
-                fromfile=str(tpl_path),
-                tofile=f"{tpl_path} (emitted)",
+            validation = result.validation
+            if validation is None:
+                parity = "no-validation"
+            elif validation.parity_ok is True:
+                parity = "ok"
+            elif validation.parity_ok is False:
+                parity = "failed"
+            else:
+                parity = "unknown"
+            validation_failed = validation is None or (
+                getattr(validation, "ok", True) is False
+                or getattr(validation, "parity_ok", None) is False
             )
-            diff_text = "".join(diff_lines)
-            if diff_text:
-                print(diff_text[:2000])  # Truncate per-template diff
+            original_loc = len([line for line in original.splitlines() if line.strip()])
+            emitted_loc = len([line for line in result.text.splitlines() if line.strip()])
+            delta = emitted_loc - original_loc
+            changed = _strict_changed(result.text, original)
+            template_status = "error" if validation_failed else "ok"
+            if validation is None:
+                validation_error = "conversion produced no validation result"
+            else:
+                validation_error = (
+                    getattr(validation, "error", None)
+                    or getattr(validation, "parity_error", None)
+                    or "conversion validation failed"
+                )
+
+            if json_output:
+                template_results.append(
+                    {
+                        "id": _safe_text(template_id, fallback_id),
+                        "path": _safe_text(tpl_path, None),
+                        "status": template_status,
+                        "parity": parity,
+                        "original_loc": original_loc,
+                        "emitted_loc": emitted_loc,
+                        "line_count_delta": delta,
+                        "changed": changed,
+                        "error": (
+                            {
+                                "type": "ValidationError",
+                                "message": _safe_text(
+                                    validation_error,
+                                    "conversion validation failed",
+                                ),
+                            }
+                            if validation_failed
+                            else None
+                        ),
+                    }
+                )
+            else:
+                display_id = _safe_text(template_id, fallback_id) or fallback_id
+                print(
+                    f"{display_id}: parity={parity} LOC "
+                    f"{original_loc}→{emitted_loc} "
+                    f"({'+' if delta >= 0 else ''}{delta})"
+                )
+
+                if diff_mode and changed:
+                    import difflib
+
+                    diff_lines = difflib.unified_diff(
+                        original.splitlines(keepends=True),
+                        result.text.splitlines(keepends=True),
+                        fromfile=str(source_path),
+                        tofile=f"{source_path} (emitted)",
+                    )
+                    diff_text = "".join(diff_lines)
+                    if diff_text:
+                        print(diff_text[:2000])  # Truncate per-template diff
+        except Exception as exc:
+            if json_output:
+                template_results.append(
+                    failure_result(
+                        template_id,
+                        tpl_path,
+                        exc,
+                        fallback_id=fallback_id,
+                    )
+                )
+            else:
+                display_id = _safe_text(template_id, fallback_id) or fallback_id
+                print(
+                    f"{display_id}: error: {type(exc).__name__}: "
+                    f"{_safe_text(exc, 'conversion failed')}"
+                )
+
+    if not json_output:
+        # Preserve the historical human-mode exit policy: all-mode was a
+        # best-effort report even when one template could not be converted.
+        return 0
+
+    error_count = sum(1 for item in template_results if item["status"] == "error")
+    template_count = len(template_results)
+    payload = {
+        "status": "error" if error_count else "ok",
+        "mode": "convert_all",
+        "dry_run": True,
+        "templates": template_results,
+        "summary": {
+            "template_count": template_count,
+            "ok_count": template_count - error_count,
+            "error_count": error_count,
+            "changed_count": sum(
+                1
+                for item in template_results
+                if item["status"] == "ok" and item["changed"] is True
+            ),
+        },
+    }
+    print(json.dumps(_json_native(payload), indent=2, sort_keys=True))
+    return 1 if error_count else 0
