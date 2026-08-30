@@ -11306,6 +11306,109 @@ def _make_state(**overrides: Any) -> AgentEditState:
     return AgentEditState(**defaults)
 
 
+def _granted_gates(session_id: str) -> TurnContext:
+    context = TurnContext(session_id=session_id, turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+    return context
+
+
+def _live_seed_edit_schema_provider() -> Any:
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    return ObjectInfoIndexSchemaProvider(
+        str(
+            Path(__file__).resolve().parents[1]
+            / "vibecomfy"
+            / "porting"
+            / "cache"
+            / "object_info"
+        )
+    )
+
+
+def _live_seed_edit_fixture() -> dict[str, Any]:
+    """Return the emit/pin candidate from a live ``EditSession`` seed write.
+
+    Hand-built ``widgets_values`` dicts cannot resolve named-field replay
+    (``field_resolution_unresolved:1.widgets_values``). The canonical proof
+    is ``tests/fixtures/agent_edit/flat.json`` with ``set_node_field(5.seed)``.
+    """
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp, op_to_dict
+    from vibecomfy.porting.edit.session import EditSession
+
+    original = json.loads(
+        (
+            Path(__file__).resolve().parent / "fixtures" / "agent_edit" / "flat.json"
+        ).read_text(encoding="utf-8")
+    )
+    provider = _live_seed_edit_schema_provider()
+    session = EditSession(json.loads(json.dumps(original)), schema_provider=provider)
+    matching = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "5", "seed"),
+        value=999,
+    )
+    result = session.apply_ops((matching,))
+    assert result.ok is True, result.reason
+    assert result.graph is not None
+    landed = result.landed_ops or (matching,)
+    return {
+        "original": original,
+        "candidate": result.graph,
+        "matching_op": landed[0],
+        "matching_op_dict": op_to_dict(landed[0]),
+        "stale_op": SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "5", "seed"),
+            value=12345,
+        ),
+        "schema_provider": provider,
+    }
+
+
+def _corrupt_first_link_target(graph: dict[str, Any]) -> dict[str, Any]:
+    """Copy *graph* and drop the first link's target node identity only."""
+    corrupted = json.loads(json.dumps(graph))
+    links = corrupted.get("links") or []
+    if not links:
+        raise AssertionError("seed-edit fixture has no links to corrupt")
+    first = links[0]
+    if isinstance(first, dict):
+        first.pop("target_id", None)
+        first.pop("target_node", None)
+        dest = first.get("to")
+        if isinstance(dest, dict):
+            for key in ("id", "node_id", "node", "uid"):
+                dest.pop(key, None)
+        else:
+            first.pop("to", None)
+            first.pop("target", None)
+    elif isinstance(first, list):
+        mutated = list(first)
+        if len(mutated) >= 6:
+            mutated[3] = None
+        elif len(mutated) >= 3:
+            mutated[2] = None
+        else:
+            raise AssertionError(f"cannot corrupt short link {mutated!r}")
+        links[0] = mutated
+    else:
+        raise AssertionError(f"unsupported link shape {type(first).__name__}")
+    return corrupted
+
+
+def _seed_edit_state(fixture: dict[str, Any], **overrides: Any) -> AgentEditState:
+    defaults: dict[str, Any] = {
+        "graph": fixture["original"],
+        "ui_payload": fixture["candidate"],
+        "route": "direct_edit",
+        "schema_provider": fixture["schema_provider"],
+    }
+    defaults.update(overrides)
+    return _make_state(**defaults)
+
+
 def test_public_candidate_gate_matches_semantic_projection_for_node_changes() -> None:
     from vibecomfy.comfy_nodes.agent._frag_response_contract import (
         _response_contract_candidate_present,
@@ -11507,36 +11610,16 @@ def test_dev_delta_order_only_change_is_not_applyable_without_replay_op() -> Non
 
 def test_dev_delta_valid_semantic_change_retains_accepted_delta() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
-    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
 
-    original = {
-        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
-        "links": [],
-    }
-    candidate = json.loads(json.dumps(original))
-    candidate["nodes"][0]["widgets_values"] = [2]
-    op = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "1", "widgets_values"),
-        value=[2],
+    fixture = _live_seed_edit_fixture()
+    state = _seed_edit_state(fixture, delta_ops=(fixture["matching_op"],))
+    response = _build_dev_success_response(
+        state, _granted_gates("delta-valid"), contract="delta"
     )
-    state = _make_state(
-        graph=original,
-        ui_payload=candidate,
-        route="direct_edit",
-        delta_ops=(op,),
-    )
-    context = TurnContext(session_id="delta-valid", turn_id="0001")
-    for gate_name in context.gate_results:
-        context.set_gate(gate_name, True)
-
-    response = _build_dev_success_response(state, context, contract="delta")
 
     assert response["candidate"] is not None
     assert response["graph_unchanged"] is False
-    assert response["accepted_batch"] == [
-        {"op": {"op": "set_node_field", "target": ["", "1", "widgets_values"], "value": [2]}}
-    ]
+    assert response["accepted_batch"] == [{"op": fixture["matching_op_dict"]}]
     assert response["agent_edit_protocol"] == "v2_delta"
     assert response["apply_eligibility"]["applyable"] is True
     assert response["outcome"]["kind"] == "candidate"
@@ -11583,34 +11666,27 @@ def test_batch_semantic_candidate_requires_effective_accepted_delta() -> None:
 def test_dev_delta_stale_ops_are_replay_bound_to_candidate() -> None:
     """A canonical-looking op for an older value cannot publish this candidate."""
     from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
-    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
 
-    original = {
-        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
-        "links": [],
-    }
-    candidate = json.loads(json.dumps(original))
-    candidate["nodes"][0]["widgets_values"] = [2]
-    stale = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "1", "widgets_values"),
-        value=[999],
+    fixture = _live_seed_edit_fixture()
+    matching = _build_dev_success_response(
+        _seed_edit_state(fixture, delta_ops=(fixture["matching_op"],)),
+        _granted_gates("delta-stale-control"),
+        contract="delta",
     )
-    state = _make_state(
-        graph=original,
-        ui_payload=candidate,
-        route="direct_edit",
-        delta_ops=(stale,),
-    )
-    context = TurnContext(session_id="delta-stale", turn_id="0001")
-    for gate_name in context.gate_results:
-        context.set_gate(gate_name, True)
+    assert matching["candidate"] is not None
+    assert matching["apply_eligibility"]["applyable"] is True
+    assert matching["agent_edit_protocol"] == "v2_delta"
 
-    response = _build_dev_success_response(state, context, contract="delta")
+    response = _build_dev_success_response(
+        _seed_edit_state(fixture, delta_ops=(fixture["stale_op"],)),
+        _granted_gates("delta-stale"),
+        contract="delta",
+    )
 
     assert response["candidate"] is None
     assert response["accepted_batch"] == []
     assert "agent_edit_protocol" not in response
+    assert response["no_candidate_reason"] == "candidate_hash_mismatch"
     assert response["apply_eligibility"]["applyable"] is False
     assert response["apply_allowed"] is False
     assert response["canvas_apply_allowed"] is False
@@ -11620,43 +11696,33 @@ def test_dev_delta_stale_ops_are_replay_bound_to_candidate() -> None:
 def test_dev_delta_rejects_changed_malformed_link() -> None:
     """An unrelated valid op cannot mask malformed changed-link evidence."""
     from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
-    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.executor.revision_evidence import changed_link_has_malformed_endpoints
 
-    original = {
-        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
-        "links": [
-            {
-                "id": 7,
-                "origin_id": 1,
-                "origin_slot": 0,
-                "target_id": 2,
-                "target_slot": 0,
-                "type": "IMAGE",
-            }
-        ],
-    }
-    candidate = json.loads(json.dumps(original))
-    candidate["links"][0].pop("target_id")
-    unrelated = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "1", "widgets_values"),
-        value=[1],
+    fixture = _live_seed_edit_fixture()
+    matching = _build_dev_success_response(
+        _seed_edit_state(fixture, delta_ops=(fixture["matching_op"],)),
+        _granted_gates("delta-malformed-control"),
+        contract="delta",
     )
-    state = _make_state(
-        graph=original,
-        ui_payload=candidate,
-        route="direct_edit",
-        delta_ops=(unrelated,),
-    )
-    context = TurnContext(session_id="delta-malformed-link", turn_id="0001")
-    for gate_name in context.gate_results:
-        context.set_gate(gate_name, True)
+    assert matching["candidate"] is not None
+    assert matching["apply_eligibility"]["applyable"] is True
 
-    response = _build_dev_success_response(state, context, contract="delta")
+    corrupted = _corrupt_first_link_target(fixture["candidate"])
+    assert changed_link_has_malformed_endpoints(fixture["original"], corrupted) is True
+    response = _build_dev_success_response(
+        _seed_edit_state(
+            fixture,
+            ui_payload=corrupted,
+            delta_ops=(fixture["matching_op"],),
+        ),
+        _granted_gates("delta-malformed-link"),
+        contract="delta",
+    )
 
     assert response["candidate"] is None
     assert response["accepted_batch"] == []
     assert "agent_edit_protocol" not in response
+    assert response["no_candidate_reason"] == "malformed_link"
     assert response["apply_eligibility"]["applyable"] is False
 
 
@@ -11667,54 +11733,81 @@ def test_batch_stale_accepted_statement_is_replay_bound(
     from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
 
-    original = {
-        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
-        "links": [],
-    }
-    candidate = json.loads(json.dumps(original))
-    candidate["nodes"][0]["widgets_values"] = [2]
-    stale_statement = {
-        "statement_index": 0,
-        "ok": True,
-        "landed": True,
-        "op": {
-            "op": "set_node_field",
-            "target": ["", "1", "widgets_values"],
-            "value": [999],
-        },
-    }
-    state = _make_state(
-        graph=original,
-        ui_payload=candidate,
-        route="direct_edit",
-        batch_exit_mode="done",
-        batch_turns=[{"statements": [stale_statement]}],
-        revision_evidence=RevisionEvidence(
-            scoped_diff=ScopedDiff(
-                changed_nodes=("1",),
-                diff_paths=("nodes.1.widgets_values.0",),
-                candidate_eligible=True,
-            ),
+    fixture = _live_seed_edit_fixture()
+    evidence = RevisionEvidence(
+        scoped_diff=ScopedDiff(
+            changed_nodes=("5",),
+            diff_paths=("nodes.5.widgets_values.0",),
             candidate_eligible=True,
         ),
+        candidate_eligible=True,
     )
+    admitted_ops: list[dict[str, Any]] = [dict(fixture["matching_op_dict"])]
     monkeypatch.setattr(
         agent_edit_module,
         "_validate_delta_evidence_for_apply",
         lambda *_args, **_kwargs: (
             True,
             {"delta_evidence_valid": True},
-            {"schema_version": "2.0.0", "ops": [stale_statement["op"]]},
+            {"schema_version": "2.0.0", "ops": list(admitted_ops)},
         ),
     )
 
+    matching = _build_batch_repl_response(
+        _seed_edit_state(
+            fixture,
+            batch_exit_mode="done",
+            batch_turns=[
+                {
+                    "statements": [
+                        {
+                            "statement_index": 0,
+                            "ok": True,
+                            "landed": True,
+                            "op": dict(fixture["matching_op_dict"]),
+                        }
+                    ]
+                }
+            ],
+            revision_evidence=evidence,
+        ),
+        _granted_gates("batch-stale-control"),
+    )
+    assert matching["candidate"] is not None
+    assert matching["apply_eligibility"]["applyable"] is True
+    assert matching["agent_edit_protocol"] == "v2_delta"
+
+    stale_op = {
+        "op": "set_node_field",
+        "target": ["", "5", "seed"],
+        "value": 12345,
+    }
+    admitted_ops[:] = [stale_op]
     response = _build_batch_repl_response(
-        state, TurnContext(session_id="batch-stale", turn_id="0001")
+        _seed_edit_state(
+            fixture,
+            batch_exit_mode="done",
+            batch_turns=[
+                {
+                    "statements": [
+                        {
+                            "statement_index": 0,
+                            "ok": True,
+                            "landed": True,
+                            "op": stale_op,
+                        }
+                    ]
+                }
+            ],
+            revision_evidence=evidence,
+        ),
+        _granted_gates("batch-stale"),
     )
 
     assert response["candidate"] is None
     assert response["accepted_batch"] == []
     assert "agent_edit_protocol" not in response
+    assert response["no_candidate_reason"] == "candidate_hash_mismatch"
     assert response["apply_eligibility"]["applyable"] is False
     assert response["apply_allowed"] is False
 
