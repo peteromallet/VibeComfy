@@ -26,6 +26,7 @@ from .contracts import (
     parse_target_node_type,
 )
 from .stage_contracts import NeedsInput
+from .evidence_pack import project_ledger_for_prompt
 
 LOGGER = logging.getLogger(__name__)
 
@@ -700,7 +701,10 @@ def build_reply_messages(
     if research_ledger:
         parts.append(
             "\nC1 research ledger (compact evidence handoff only):\n"
-            + json.dumps(research_ledger, sort_keys=True)
+            + json.dumps(
+                project_ledger_for_prompt(research_ledger),
+                sort_keys=True,
+            )
         )
     if research_summary:
         parts.append(f"\nResearch findings: {research_summary}")

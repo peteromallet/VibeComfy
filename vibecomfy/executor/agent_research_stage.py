@@ -30,18 +30,23 @@ backstop for slow in-flight provider/tool calls.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os as _os
 import re
 import time
 from dataclasses import dataclass
+from pathlib import Path as _Path
 from typing import Any, Callable, Mapping, Sequence
+from uuid import uuid4
 
 from .evidence_pack import (
     EvidenceArtifact,
     EvidenceLedger,
     EvidenceLedgerEntry,
     EvidencePack,
+    MAX_LEDGER_PROMPT_ENTRIES,
 )
 from .agent_backend import (
     _attach_model_turn_evidence,
@@ -99,9 +104,6 @@ TOOL_PHASE_DEADLINE_SECONDS = RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
 # attempt-2 resumes instead of redoing work. Nothing deterministic in
 # deliberation — the checkpoint only replays what the agent already fetched;
 # the agent still judges relevance on the next attempt.
-import os as _os
-from pathlib import Path as _Path
-
 _RESEARCH_CHECKPOINT_ENV = "VIBECOMFY_RESEARCH_CHECKPOINT_DIR"
 _RESEARCH_CHECKPOINT_TTL_SECONDS = float(_os.getenv("VIBECOMFY_RESEARCH_CHECKPOINT_TTL", "3600"))
 
@@ -116,45 +118,157 @@ def _research_checkpoint_dir() -> _Path | None:
     except Exception:
         return None
 
-def _research_checkpoint_path(session_id: str | None) -> _Path | None:
+def _checkpoint_identity(
+    *,
+    request_identity: str | Mapping[str, Any] | None,
+    route: str | None,
+    baseline_identity: str | Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], str] | None:
+    """Build the authority tuple for one research checkpoint.
+
+    A session is only a storage namespace.  It is deliberately absent from
+    this authority tuple so a session id cannot authorize replay across
+    requests, routes, or baselines.
+    """
+    if request_identity is None or baseline_identity is None or not route:
+        return None
+    identity = {
+        "request": request_identity,
+        "route": str(route),
+        "baseline": baseline_identity,
+    }
+    try:
+        encoded = json.dumps(
+            identity,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return identity, hashlib.sha256(encoded).hexdigest()
+
+
+def _research_checkpoint_path(
+    session_id: str | None,
+    *,
+    request_identity: str | Mapping[str, Any] | None = None,
+    route: str | None = None,
+    baseline_identity: str | Mapping[str, Any] | None = None,
+) -> _Path | None:
     base = _research_checkpoint_dir()
     if base is None or not session_id:
         return None
+    checkpoint_identity = _checkpoint_identity(
+        request_identity=request_identity,
+        route=route,
+        baseline_identity=baseline_identity,
+    )
+    if checkpoint_identity is None:
+        return None
+    _, identity_digest = checkpoint_identity
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(session_id))
-    return base / f"research_ckpt_{safe}.json"
+    return base / f"research_ckpt_{safe}_{identity_digest}.json"
 
-def _save_research_checkpoint(session_id: str | None, *, ledger_entries, artifacts) -> None:
-    path = _research_checkpoint_path(session_id)
+def _save_research_checkpoint(
+    session_id: str | None,
+    *,
+    request_identity: str | Mapping[str, Any] | None = None,
+    route: str | None = None,
+    baseline_identity: str | Mapping[str, Any] | None = None,
+    ledger_entries,
+    artifacts,
+) -> None:
+    path = _research_checkpoint_path(
+        session_id,
+        request_identity=request_identity,
+        route=route,
+        baseline_identity=baseline_identity,
+    )
     if path is None:
         return
+    tmp: _Path | None = None
     try:
-        import json, time
-        payload = {"ledger": [e.to_dict() for e in ledger_entries], "artifacts": {k: v.to_dict() for k, v in artifacts.items()}, "timestamp": time.time()}
-        tmp = path.with_suffix(".tmp")
+        identity = _checkpoint_identity(
+            request_identity=request_identity,
+            route=route,
+            baseline_identity=baseline_identity,
+        )
+        if identity is None:
+            return
+        identity_payload, identity_digest = identity
+        payload = {
+            "identity": identity_payload,
+            "identity_digest": identity_digest,
+            "ledger": [e.to_dict() for e in ledger_entries],
+            "artifacts": {k: v.to_dict() for k, v in artifacts.items()},
+            "timestamp": time.time(),
+        }
+        # Each writer publishes through its own temp name.  The identity hash
+        # gives different requests distinct durable targets; unique temp names
+        # also prevent a concurrent writer from clobbering publication itself.
+        tmp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
         tmp.replace(path)
     except Exception as exc:
-        import logging; logging.getLogger(__name__).debug("research checkpoint save failed: %s", exc)
+        LOGGER.debug("research checkpoint save failed: %s", exc)
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
 
-def _load_research_checkpoint(session_id):
-    path = _research_checkpoint_path(session_id)
+def _load_research_checkpoint(
+    session_id: str | None,
+    *,
+    request_identity: str | Mapping[str, Any] | None = None,
+    route: str | None = None,
+    baseline_identity: str | Mapping[str, Any] | None = None,
+):
+    path = _research_checkpoint_path(
+        session_id,
+        request_identity=request_identity,
+        route=route,
+        baseline_identity=baseline_identity,
+    )
     if path is None or not path.exists():
         return None
     try:
-        import json, time
         if time.time() - path.stat().st_mtime > _RESEARCH_CHECKPOINT_TTL_SECONDS:
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
+        expected_identity = _checkpoint_identity(
+            request_identity=request_identity,
+            route=route,
+            baseline_identity=baseline_identity,
+        )
+        if expected_identity is None or data.get("identity") != expected_identity[0]:
+            return None
+        if data.get("identity_digest") != expected_identity[1]:
+            return None
         from vibecomfy.executor.evidence_pack import EvidenceArtifact, EvidenceLedgerEntry
         entries = [EvidenceLedgerEntry.from_dict(e) for e in (data.get("ledger") or [])]
         arts = {k: EvidenceArtifact.from_dict(v) for k, v in (data.get("artifacts") or {}).items()}
         return entries, arts
     except Exception as exc:
-        import logging; logging.getLogger(__name__).debug("research checkpoint load failed: %s", exc)
+        LOGGER.debug("research checkpoint load failed: %s", exc)
         return None
 
-def _clear_research_checkpoint(session_id):
-    path = _research_checkpoint_path(session_id)
+def _clear_research_checkpoint(
+    session_id: str | None,
+    *,
+    request_identity: str | Mapping[str, Any] | None = None,
+    route: str | None = None,
+    baseline_identity: str | Mapping[str, Any] | None = None,
+):
+    path = _research_checkpoint_path(
+        session_id,
+        request_identity=request_identity,
+        route=route,
+        baseline_identity=baseline_identity,
+    )
     if path is None:
         return
     try:
@@ -168,6 +282,7 @@ _MAX_TURNS = MAX_RESEARCH_DECISION_TURNS
 # latency so the model sees an honest amount of time available for tool work.
 _DECISION_TURN_LATENCY_RESERVE_SECONDS = 30.0
 _MAX_DIGEST_CHARS = 4_000
+_MAX_DIGEST_ENTRIES = MAX_LEDGER_PROMPT_ENTRIES
 _MAX_JUDGMENT_CITATIONS = 8
 _MAX_CONCLUSION_PREVIEW_CHARS = 240
 _MAX_HIT_PREVIEW_CHARS = 140
@@ -1031,11 +1146,14 @@ def build_evidence_digest(
     status_lines: list[str] = []
     search_lines: list[str] = []
     seen_record_ids: set[str] = set()
-    for call in reversed(tool_calls):
+    # The model only needs the newest compact ledger window.  Full result
+    # bodies stay in artifacts and are never pulled into this prompt digest.
+    recent_tool_calls = tool_calls[-_MAX_DIGEST_ENTRIES:]
+    for call in reversed(recent_tool_calls):
         tool = str(call.get("tool") or "")
         status = str(call.get("status") or "")
         query = _bounded(call.get("query", ""), 120)
-        ids = [str(item) for item in (call.get("evidence_ids") or ())]
+        ids = [str(item) for item in (call.get("evidence_ids") or ())][:8]
         head = f"- {tool} → {status}"
         if query:
             head += f" ({query})"
@@ -1366,6 +1484,8 @@ def run_agent_research_stage(
     cache_root: Any = None,
     research_brief: str = "",
     session_id: str | None = None,
+    request_identity: str | Mapping[str, Any] | None = None,
+    baseline_identity: str | Mapping[str, Any] | None = None,
 ) -> tuple[AgentResearchTrace, EvidencePack]:
     """Run the C1 agent-owned tool-calling research loop.
 
@@ -1429,8 +1549,23 @@ def run_agent_research_stage(
     consecutive_hivemind_timeouts = 0
     fetched_requested_ids: set[str] = set()
     stop_reason = ""
-    # S4: checkpoint resume
-    _ckpt = _load_research_checkpoint(session_id)
+    checkpoint_kwargs = {
+        "request_identity": request_identity,
+        "route": route,
+        "baseline_identity": baseline_identity,
+    }
+
+    def _save_checkpoint() -> None:
+        _save_research_checkpoint(
+            session_id,
+            **checkpoint_kwargs,
+            ledger_entries=ledger_entries,
+            artifacts=artifacts,
+        )
+
+    # S4/B17: a session id is storage only; replay requires all identity
+    # dimensions of the request, route, and baseline.
+    _ckpt = _load_research_checkpoint(session_id, **checkpoint_kwargs)
     if _ckpt is not None:
         try:
             _ckpt_entries, _ckpt_arts = _ckpt
@@ -1501,7 +1636,7 @@ def run_agent_research_stage(
                 verdict="refine",
             )
         )
-        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+        _save_checkpoint()
 
     def _refusal_call(tool: str, query: str, message: str) -> None:
         # A refusal is itself an agent-visible decision: it enters the digest
@@ -1534,7 +1669,7 @@ def run_agent_research_stage(
                 verdict="refine",
             )
         )
-        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+        _save_checkpoint()
 
     def _finish_premature_turn(conclusion: str, message: str) -> None:
         # P1-c: a finish with zero citable evidence AND zero tool calls made is
@@ -1570,7 +1705,7 @@ def run_agent_research_stage(
                 verdict="refine",
             )
         )
-        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+        _save_checkpoint()
 
     def _record_exhaustion(decision: str, message: str) -> None:
         """Record a typed, compact terminal marker without inventing evidence."""
@@ -1583,27 +1718,48 @@ def run_agent_research_stage(
             )
         )
         warnings.append(message)
-        _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+        _save_checkpoint()
 
     current_question = question
 
     try:
-        _add_artifact(
-            EvidenceArtifact(
-                evidence_id=_QUESTION_ARTIFACT_ID,
-                kind="research_question",
-                body={"question": question, "route": route},
-                source="classify",
-            )
+        # Exact replay keeps the existing question marker instead of adding a
+        # duplicate to the resumed ledger.  A changed request should have a
+        # changed request_identity and therefore never reaches this branch.
+        question_artifact = artifacts.get(_QUESTION_ARTIFACT_ID)
+        question_body = (
+            question_artifact.body
+            if question_artifact is not None
+            and isinstance(question_artifact.body, Mapping)
+            else {}
         )
-        _add_entry(
-            EvidenceLedgerEntry(
-                decision=DECISION_QUESTION,
-                conclusion=question,
-                evidence_ids=(_QUESTION_ARTIFACT_ID,),
-                uncertainty="",
-            )
+        has_question_marker = any(
+            entry.decision == DECISION_QUESTION
+            and entry.conclusion == question
+            and _QUESTION_ARTIFACT_ID in entry.evidence_ids
+            for entry in ledger_entries
         )
+        if not (
+            has_question_marker
+            and question_body.get("question") == question
+            and question_body.get("route") == route
+        ):
+            _add_artifact(
+                EvidenceArtifact(
+                    evidence_id=_QUESTION_ARTIFACT_ID,
+                    kind="research_question",
+                    body={"question": question, "route": route},
+                    source="classify",
+                )
+            )
+            _add_entry(
+                EvidenceLedgerEntry(
+                    decision=DECISION_QUESTION,
+                    conclusion=question,
+                    evidence_ids=(_QUESTION_ARTIFACT_ID,),
+                    uncertainty="",
+                )
+            )
 
         turns_taken = 0
         agent_finished = False
@@ -1996,16 +2152,16 @@ def run_agent_research_stage(
             error += f" | raw response preview: {_bounded(raw_preview, 500)}"
         LOGGER.warning("agent research stage failed: %s", error)
         try:
-            _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+            _save_checkpoint()
         except Exception:
             pass
 
     if status == "ok" and final_verdict in {"enough", "refine"}:
         if final_verdict == "enough":
-            _clear_research_checkpoint(session_id)
+            _clear_research_checkpoint(session_id, **checkpoint_kwargs)
     elif status == "exhausted" and "deadline" in stop_reason:
         try:
-            _save_research_checkpoint(session_id, ledger_entries=ledger_entries, artifacts=artifacts)
+            _save_checkpoint()
         except Exception:
             pass
 

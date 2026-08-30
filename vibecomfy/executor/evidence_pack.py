@@ -17,6 +17,10 @@ from typing import Any, Mapping
 MAX_LEDGER_DECISION_CHARS = 1_000
 MAX_LEDGER_CONCLUSION_CHARS = 4_000
 MAX_LEDGER_UNCERTAINTY_CHARS = 2_000
+# Prompt consumers receive a deliberately smaller projection than the durable
+# ledger contract.  Full source bodies remain in EvidenceArtifact values.
+MAX_LEDGER_PROMPT_ENTRIES = 12
+MAX_LEDGER_PROMPT_CHARS = 6_000
 
 
 def _required_text(value: Any, field_name: str) -> str:
@@ -290,6 +294,61 @@ class EvidenceLedger:
         return cls(entries=payload["entries"])
 
 
+def project_ledger_for_prompt(
+    ledger: EvidenceLedger | Mapping[str, Any],
+    *,
+    max_entries: int = MAX_LEDGER_PROMPT_ENTRIES,
+    max_chars: int = MAX_LEDGER_PROMPT_CHARS,
+) -> dict[str, Any]:
+    """Return a bounded, body-free ledger projection for model prompts.
+
+    The durable ledger and its artifact store retain their complete typed
+    values.  This projection is only for prompt text: it keeps the newest
+    entries, caps each compact field, and then enforces a total serialized
+    size bound.
+    """
+    if max_entries <= 0 or max_chars <= 0:
+        return {"entries": []}
+    raw = ledger.to_dict() if isinstance(ledger, EvidenceLedger) else ledger
+    if not isinstance(raw, Mapping):
+        return {"entries": []}
+    raw_entries = raw.get("entries")
+    if not isinstance(raw_entries, (list, tuple)):
+        return {"entries": []}
+
+    projected: list[dict[str, Any]] = []
+    for raw_entry in raw_entries[-max_entries:]:
+        if not isinstance(raw_entry, Mapping):
+            continue
+        evidence_ids = raw_entry.get("evidence_ids")
+        ids = (
+            [str(item)[:120] for item in evidence_ids[:8]]
+            if isinstance(evidence_ids, (list, tuple))
+            else []
+        )
+        entry: dict[str, Any] = {
+            "decision": str(raw_entry.get("decision") or "?")[:160],
+            "conclusion": str(raw_entry.get("conclusion") or "")[:360],
+            "evidence_ids": ids,
+        }
+        uncertainty = raw_entry.get("uncertainty")
+        if uncertainty:
+            entry["uncertainty"] = str(uncertainty)[:160]
+        tool_status = raw_entry.get("tool_status")
+        if tool_status:
+            entry["tool_status"] = str(tool_status)[:64]
+        projected.append(entry)
+
+    result: dict[str, Any] = {"entries": projected}
+    # Keep the newest entries when the projection still exceeds its byte/char
+    # budget.  No artifact body is consulted or serialized here.
+    while projected and len(canonical_json(result)) > max_chars:
+        projected.pop(0)
+    if len(canonical_json(result)) > max_chars:
+        return {"entries": []}
+    return result
+
+
 def normalize_artifacts(value: Any) -> Mapping[str, EvidenceArtifact]:
     if not isinstance(value, Mapping):
         raise ValueError("`artifacts` must be an object keyed by evidence_id.")
@@ -359,6 +418,9 @@ __all__ = [
     "EvidencePack",
     "MAX_LEDGER_CONCLUSION_CHARS",
     "MAX_LEDGER_DECISION_CHARS",
+    "MAX_LEDGER_PROMPT_CHARS",
+    "MAX_LEDGER_PROMPT_ENTRIES",
     "MAX_LEDGER_UNCERTAINTY_CHARS",
     "canonical_json",
+    "project_ledger_for_prompt",
 ]

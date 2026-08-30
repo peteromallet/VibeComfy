@@ -10,12 +10,22 @@ resolved lazily at call time (marked with a T-038 late import comment).
 import difflib
 import re
 from typing import Any, Mapping
-from vibecomfy.comfy_nodes.agent.contracts import _ui_node_uid
 from vibecomfy.comfy_nodes.agent.provider import AgentTurnResult, BatchTurnResult
 
 from vibecomfy.porting.widgets.settings_contract import node_settings_for
 
 from vibecomfy.ingest.normalize import door_get_nodes
+from vibecomfy.executor.evidence_pack import (
+    MAX_LEDGER_PROMPT_CHARS,
+    MAX_LEDGER_PROMPT_ENTRIES,
+)
+
+
+def _compact_ledger_text(value: Any, max_chars: int) -> str:
+    text = str(value or "")
+    return text[:max_chars]
+
+
 def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult:
     python = response.get("python")
     message = response.get("message")
@@ -222,7 +232,8 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
     empty block — and in-loop records follow on later turns.
     """
     sections: list[str] = []
-    payload_records = _payload_research_ledger_records(state)
+    entry_limit = max(0, min(int(max_items), MAX_LEDGER_PROMPT_ENTRIES))
+    payload_records = _payload_research_ledger_records(state)[-entry_limit:]
     if payload_records:
         sections.append(
             "C1 research ledger (executor research stage; compact; entries + "
@@ -236,9 +247,11 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
             "Tool evidence ledger (compact; entries + evidence IDs only — "
             "already resolved; IDs are provenance labels, not callable "
             "handles; never repeat raw bodies):\n"
-            + "\n".join(tool_records[-max_items:])
+            + "\n".join(tool_records[-entry_limit:])
         )
-    return "\n\n".join(sections)
+    return _format_query_output(
+        "\n\n".join(sections), max_chars=MAX_LEDGER_PROMPT_CHARS
+    )
 
 
 def _payload_research_ledger_records(state: Any) -> list[str]:
@@ -264,11 +277,11 @@ def _payload_research_ledger_records(state: Any) -> list[str]:
     for entry in entries:
         if not isinstance(entry, Mapping):
             continue
-        decision = str(entry.get("decision") or "?")
-        conclusion = str(entry.get("conclusion") or "")
+        decision = _compact_ledger_text(entry.get("decision") or "?", 160)
+        conclusion = _compact_ledger_text(entry.get("conclusion") or "", 360)
         evidence_ids = entry.get("evidence_ids")
         evidence_text = (
-            ", ".join(str(item) for item in evidence_ids)
+            ", ".join(str(item)[:120] for item in evidence_ids[:8])
             if isinstance(evidence_ids, (list, tuple)) and evidence_ids
             else "(none)"
         )
@@ -305,11 +318,11 @@ def _tool_evidence_ledger_records(state: Any) -> list[str]:
                 # budget/deadline refusals: typed state is preserved but not
                 # repeated as a ledger record (nothing was gathered)
                 continue
-            decision = str(entry.get("decision") or tool_call)
-            conclusion = str(entry.get("conclusion") or "")
+            decision = _compact_ledger_text(entry.get("decision") or tool_call, 160)
+            conclusion = _compact_ledger_text(entry.get("conclusion") or "", 360)
             evidence_ids = entry.get("evidence_ids")
             evidence_text = (
-                ", ".join(str(item) for item in evidence_ids)
+                ", ".join(str(item)[:120] for item in evidence_ids[:8])
                 if isinstance(evidence_ids, (list, tuple)) and evidence_ids
                 else "(none)"
             )

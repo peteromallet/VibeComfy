@@ -1268,6 +1268,24 @@ def _run_agent_owned_research(
     brief = build_research_brief(plan=plan, request=request)
 
     brief = _research_brief_with_verbatim_query(brief, request)
+    # B17: research checkpoint authority is request/route/baseline scoped.
+    # Keep browser/live-canvas and credential concepts out of this owner; the
+    # research identity is only the request content relevant to this phase.
+    research_request_identity = _payload_hash(
+        {
+            "query": request.query,
+            "research_question": question,
+            "graph": request.graph,
+            "workflow_id": request.workflow_id,
+            "idempotency_key": request.idempotency_key,
+        }
+    )
+    if request.expected_baseline_graph_hash_present:
+        research_baseline_identity = request.expected_baseline_graph_hash or "none"
+    elif request.client_structural_graph_hash:
+        research_baseline_identity = request.client_structural_graph_hash
+    else:
+        research_baseline_identity = _payload_hash({"graph": request.graph})
     # Research-only routes get the same wall-clock budget the batch-REPL
     # research path uses (VIBECOMFY_RESEARCH_PHASE_DEADLINE, default 450s):
     # a research-only turn has no implement phase, and flash-class decision
@@ -1306,19 +1324,31 @@ def _run_agent_owned_research(
             research_brief=brief,
             spec=spec,
             session_id=request.session_id,
+            request_identity=research_request_identity,
+            baseline_identity=research_baseline_identity,
             **research_kwargs,
         )
     except TypeError as exc:
         # Keep injected/legacy stage doubles source-compatible while the
         # production stage receives its explicit deadline telemetry.
-        if "deadline_seconds" not in str(exc):
-            raise
-        trace, pack = run_agent_research_stage(
-            route=route,
-            question=question,
-            research_brief=brief,
-            spec=spec,
+        message = str(exc)
+        optional_research_keys = (
+            "deadline_seconds",
+            "session_id",
+            "request_identity",
+            "baseline_identity",
         )
+        if not any(key in message for key in optional_research_keys):
+            raise
+        retry_kwargs: dict[str, Any] = {
+            "route": route,
+            "question": question,
+            "research_brief": brief,
+            "spec": spec,
+        }
+        if "deadline_seconds" not in message:
+            retry_kwargs.update(research_kwargs)
+        trace, pack = run_agent_research_stage(**retry_kwargs)
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
         pack = EvidencePack(
