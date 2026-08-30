@@ -41,14 +41,14 @@ def test_load_workflow_any_accepts_scratchpad_path(tmp_path: Path) -> None:
 def test_load_workflow_any_accepts_json_path(tmp_path: Path) -> None:
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(
-        json.dumps({"1": {"class_type": "SaveImage", "inputs": {"images": "placeholder"}}}),
+        json.dumps({"1": {"class_type": "Integer", "inputs": {"value": 7}}}),
         encoding="utf-8",
     )
 
     workflow = load_workflow_any(str(workflow_path))
 
     assert workflow.id == "workflow"
-    assert workflow.outputs[0].node_id == "1"
+    assert workflow.nodes["1"].class_type == "Integer"
 
 
 @pytest.mark.parametrize("suffix", [".py", ".json"])
@@ -65,7 +65,7 @@ def test_direct_file_loading_does_not_require_ready_discovery(
         )
     else:
         path.write_text(
-            json.dumps({"1": {"class_type": "SaveImage", "inputs": {"images": "placeholder"}}}),
+            json.dumps({"1": {"class_type": "Integer", "inputs": {"value": 7}}}),
             encoding="utf-8",
         )
 

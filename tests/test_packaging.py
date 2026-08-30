@@ -208,7 +208,7 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
     )
     json_workflow = tmp_path / "direct.json"
     json_workflow.write_text(
-        '{"1": {"class_type": "SaveImage", "inputs": {"images": "placeholder"}}}',
+        '{"1": {"class_type": "Integer", "inputs": {"value": 7}}}',
         encoding="utf-8",
     )
     direct = subprocess.run(
