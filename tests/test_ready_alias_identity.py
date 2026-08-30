@@ -128,6 +128,51 @@ def test_cold_warm_and_indexed_listing_use_snapshot_paths(
     assert [(row["id"], row["path"]) for row in indexed] == [("image/Foo", str(candidate))]
 
 
+def test_indexed_listing_drops_zero_match_stale_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / "ready" / "image" / "actual.py"
+    stale_path = tmp_path / "stale" / "image" / "missing.py"
+    _write_template(candidate)
+    discovery = ready._discover_ready_templates(roots=[candidate.parents[1]])
+    monkeypatch.setattr(workflows_cmd, "TEMPLATE_INDEX_PATH", tmp_path / "template_index.json")
+    (tmp_path / "template_index.json").write_text(
+        json.dumps({"templates": [{"id": "image/missing", "path": str(stale_path)}]}),
+        encoding="utf-8",
+    )
+
+    rows, diagnostic = workflows_cmd._ready_rows_from_template_index(discovery)
+
+    assert diagnostic is None
+    assert rows == []
+    assert str(stale_path) not in json.dumps(rows)
+
+
+def test_indexed_listing_prefers_exact_physical_id_and_is_order_independent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upper = tmp_path / "upper" / "image" / "Foo.py"
+    lower = tmp_path / "lower" / "image" / "foo.py"
+    _write_template(upper)
+    _write_template(lower)
+    monkeypatch.setattr(workflows_cmd, "TEMPLATE_INDEX_PATH", tmp_path / "template_index.json")
+    (tmp_path / "template_index.json").write_text(
+        json.dumps({"templates": [{"id": "image/Foo", "path": "fabricated.py"}]}),
+        encoding="utf-8",
+    )
+
+    first, first_diagnostic = workflows_cmd._ready_rows_from_template_index(
+        ready._discover_ready_templates(roots=[upper.parents[1], lower.parents[1]])
+    )
+    second, second_diagnostic = workflows_cmd._ready_rows_from_template_index(
+        ready._discover_ready_templates(roots=[lower.parents[1], upper.parents[1]])
+    )
+
+    assert first_diagnostic is None and second_diagnostic is None
+    assert [(row["id"], row["path"]) for row in first] == [("image/Foo", str(upper))]
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
 def test_indexed_listing_reports_physical_collision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -146,6 +191,13 @@ def test_indexed_listing_reports_physical_collision(
     assert len(rows) == 1
     assert rows[0]["collision"] is True
     assert rows[0]["collision_candidates"] == sorted([str(upper), str(lower)])
+    assert "path" not in rows[0]
+
+    reversed_rows, reversed_diagnostic = workflows_cmd._ready_rows_from_template_index(
+        ready._discover_ready_templates(roots=[lower.parents[1], upper.parents[1]])
+    )
+    assert reversed_diagnostic is None
+    assert json.dumps(rows, sort_keys=True) == json.dumps(reversed_rows, sort_keys=True)
 
 
 def test_dynamic_listing_reports_collisions_without_raising(

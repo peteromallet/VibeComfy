@@ -121,17 +121,45 @@ def _ready_rows_from_template_index(
             }
         )
     if discovery is not None:
+        matched_rows: list[dict[str, Any]] = []
         for row in rows:
-            matches = discovery.by_lookup.get(_ready_lookup_key(str(row["id"])), ())
+            matches = _ready_index_matches(str(row["id"]), discovery)
+            if not matches:
+                # The physical snapshot is the listing authority.  An index
+                # row without a physical match is stale metadata, not a
+                # discoverable or executable ready template.
+                continue
             if len(matches) == 1:
                 record = matches[0]
                 row["id"] = record.template_id
                 row["path"] = str(record.path)
                 row["source_scope"] = record.source_scope
             elif matches:
+                row.pop("path", None)
                 row.update(_collision_details(str(row["id"]), matches))
+            matched_rows.append(row)
+        rows = matched_rows
     rows.sort(key=lambda row: _id_sort_key(str(row.get("id", ""))))
     return rows, None
+
+
+def _ready_index_matches(
+    template_id: str,
+    discovery: ReadyTemplateDiscovery,
+) -> tuple[Any, ...]:
+    """Resolve an indexed id against the physical snapshot's alias rules."""
+    query_id = _normalize_ready_template_id(template_id)
+    if "/" in query_id:
+        exact = discovery.by_id.get(query_id, ())
+        if exact:
+            return exact
+        return discovery.by_lookup.get(_ready_lookup_key(query_id), ())
+    lookup_key = _ready_lookup_key(query_id)
+    return tuple(
+        record
+        for record in discovery.records
+        if _ready_lookup_key(record.template_id.rsplit("/", 1)[-1]) == lookup_key
+    )
 
 
 def _template_index_diagnostic(
