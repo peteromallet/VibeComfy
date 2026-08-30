@@ -17,15 +17,13 @@ from vibecomfy.errors import CheckoutRequiredError
 @lru_cache(maxsize=1)
 def find_repo_root() -> Path:
     """Return the VibeComfy repository root, or explain how to get one."""
-    here = Path(__file__).resolve()
-    for candidate in (here, *here.parents):
-        pyproject = candidate / "pyproject.toml"
-        if not pyproject.is_file():
-            continue
+    candidate = Path(__file__).resolve().parents[1]
+    pyproject = candidate / "pyproject.toml"
+    if pyproject.is_file():
         try:
             project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
         except (OSError, tomllib.TOMLDecodeError):
-            continue
+            project = {}
         if isinstance(project, dict) and project.get("name") == "vibecomfy":
             return candidate
     raise CheckoutRequiredError(

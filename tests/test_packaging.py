@@ -114,7 +114,16 @@ def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Pat
     wheels = sorted(wheel_dir.glob("vibecomfy-*.whl"))
     assert len(wheels) == 1
 
-    venv_dir = root / "venv"
+    # Put the venv inside a checkout-shaped directory.  The installed package
+    # must still refuse checkout-only corpus access: its direct package-layout
+    # candidate is site-packages, not this ancestor checkout.
+    clone_dir = root / "clone"
+    clone_dir.mkdir()
+    (clone_dir / "pyproject.toml").write_text(
+        "[project]\nname = 'vibecomfy'\n",
+        encoding="utf-8",
+    )
+    venv_dir = clone_dir / ".venv"
     created = subprocess.run(
         [sys.executable, "-m", "venv", "--system-site-packages", str(venv_dir)],
         capture_output=True,
@@ -134,6 +143,26 @@ def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Pat
     return venv_python, wheels[0]
 
 
+def _install_wheel_in_venv(wheel: Path, venv_dir: Path) -> Path:
+    created = subprocess.run(
+        [sys.executable, "-m", "venv", "--system-site-packages", str(venv_dir)],
+        capture_output=True,
+        text=True,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    venv_python = venv_dir / "bin" / "python"
+    if os.name == "nt":
+        venv_python = venv_dir / "Scripts" / "python.exe"
+    installed = subprocess.run(
+        [str(venv_python), "-m", "pip", "install", "--no-deps", "--disable-pip-version-check", str(wheel)],
+        cwd=venv_dir.parent,
+        capture_output=True,
+        text=True,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    return venv_python
+
+
 @pytest.mark.timeout(180)
 def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
     installed_wheel: tuple[Path, Path],
@@ -146,7 +175,7 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
         [
             str(venv_python),
             "-c",
-            "import vibecomfy; from vibecomfy import VibeWorkflow, image, video; import vibecomfy.comfy_nodes; print(VibeWorkflow.__name__)",
+            "import vibecomfy; from vibecomfy import VibeWorkflow, image, video; import vibecomfy.comfy_nodes; print(vibecomfy.__file__); print(VibeWorkflow.__name__)",
         ],
         cwd=tmp_path,
         env=env,
@@ -155,6 +184,8 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
         timeout=120,
     )
     assert imports.returncode == 0, imports.stdout + imports.stderr
+    package_file = Path(imports.stdout.splitlines()[0]).resolve()
+    assert package_file.is_relative_to(venv_python.parents[1].resolve())
     assert "VibeWorkflow" in imports.stdout
 
     help_result = subprocess.run(
@@ -183,6 +214,39 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
     assert corpus.returncode != 0
     assert "git checkout" in corpus.stderr
     assert "pip install -e ." in corpus.stderr
+
+
+def test_wheel_does_not_trust_spoofed_ancestor_pyproject(
+    installed_wheel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    _installed_python, wheel = installed_wheel
+    spoofed_root = tmp_path / "spoofed-ancestor"
+    spoofed_root.mkdir()
+    (spoofed_root / "pyproject.toml").write_text(
+        "[project]\nname = 'vibecomfy'\n",
+        encoding="utf-8",
+    )
+    spoofed_python = _install_wheel_in_venv(wheel, spoofed_root / ".venv")
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+
+    result = subprocess.run(
+        [
+            str(spoofed_python),
+            "-c",
+            "import vibecomfy; from vibecomfy.utils import find_repo_root; print(vibecomfy.__file__); find_repo_root()",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode != 0
+    package_file = Path(result.stdout.splitlines()[0]).resolve()
+    assert package_file.is_relative_to(spoofed_python.parents[1].resolve())
+    assert "CheckoutRequiredError" in result.stderr
+    assert "git checkout" in result.stderr
 
 
 def test_wheel_metadata_keeps_arnold_under_agent_extra(installed_wheel: tuple[Path, Path]) -> None:
