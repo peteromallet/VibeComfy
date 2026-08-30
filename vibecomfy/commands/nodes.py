@@ -19,7 +19,14 @@ from vibecomfy.commands._index_files import IndexReadError, print_index_error, r
 from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.registry import load_workflow_reference
 from vibecomfy.registry.pack_resolver import PackResolverError, resolve_pack
-from vibecomfy.schema import SchemaIndexError, get_authoring_schema_provider, get_schema_provider, schemas_for, socket_types_compatible
+from vibecomfy.schema import (
+    SchemaIndexError,
+    SchemaProviderError,
+    get_authoring_schema_provider,
+    get_schema_provider,
+    schemas_for,
+    socket_types_compatible,
+)
 import vibecomfy.node_packs as node_packs_install
 from vibecomfy.node_packs import LockEntry, read_lockfile, write_lockfile
 from vibecomfy.porting.wrappers import codegen as _wrapper_codegen
@@ -123,8 +130,23 @@ def _schema_input_type(schema: object | None, input_name: str) -> str | None:
 
 def _compatible_socket_search(provider: object, socket_type: str, *, socket_role: str) -> dict[str, object]:
     schemas = schemas_for(provider) or {}
+    getter = getattr(provider, "get_schema", None) or getattr(provider, "get", None)
     matches: list[dict[str, object]] = []
     for class_type, schema in sorted(schemas.items()):
+        # Object-info index providers intentionally expose a listing-only
+        # ``schemas()`` surface: values are ``None`` until a consumer asks for
+        # one class.  Compatible-with is a real schema consumer, so focus-load
+        # each advertised class through the canonical getter.  A getter error
+        # is provider failure, not an absent class, and must remain typed.
+        if schema is None and callable(getter):
+            try:
+                schema = getter(class_type)
+            except SchemaProviderError:
+                raise
+            except Exception as exc:
+                raise SchemaProviderError(str(class_type), exc) from exc
+        if schema is None:
+            continue
         if socket_role == "input":
             for input_name, spec in (getattr(schema, "inputs", None) or {}).items():
                 candidate_type = getattr(spec, "type", None)

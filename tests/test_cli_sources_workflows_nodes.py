@@ -4,6 +4,7 @@ import argparse
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,8 @@ from vibecomfy.commands.nodes import (
 )
 from vibecomfy.node_packs import LockEntry
 from vibecomfy.registry.pack_resolver import PackRef, PackResolution
+from vibecomfy.registry.ready import ReadyTemplateDiscovery, ReadyTemplateRecord
+from vibecomfy.schema import SchemaProviderError
 from vibecomfy.commands.workflows import (
     _asset_metadata,
     build_onboarding_plan,
@@ -382,6 +385,55 @@ def test_nodes_compatible_with_output_mode_response_shape() -> None:
     assert isinstance(payload["classes"], list)
     assert payload["matches"]
     assert {"class_type", "socket", "socket_role", "socket_type"} <= set(payload["matches"][0])
+
+
+def test_nodes_compatible_with_focus_loads_listing_only_schemas() -> None:
+    class ListingOnlyProvider:
+        def schemas(self):
+            return {"Source": None, "Sink": None}
+
+        def get_schema(self, class_type: str):
+            if class_type == "Source":
+                return SimpleNamespace(
+                    inputs={},
+                    outputs=[SimpleNamespace(name="image", type="IMAGE")],
+                )
+            return SimpleNamespace(
+                inputs={"images": SimpleNamespace(type="IMAGE")},
+                outputs=[],
+            )
+
+    payload = nodes_cmd._compatible_socket_search(
+        ListingOnlyProvider(), "IMAGE", socket_role="input"
+    )
+
+    assert payload["compatible_count"] == 1
+    assert payload["classes"] == ["Sink"]
+
+
+def test_nodes_compatible_with_propagates_typed_listing_getter_failure() -> None:
+    class FailingProvider:
+        def schemas(self):
+            return {"Broken": None}
+
+        def get_schema(self, class_type: str):
+            raise SchemaProviderError(class_type, PermissionError("pack unreadable"))
+
+    with pytest.raises(SchemaProviderError, match="Broken"):
+        nodes_cmd._compatible_socket_search(
+            FailingProvider(), "IMAGE", socket_role="input"
+        )
+
+
+def test_nodes_compatible_with_rejects_malformed_schema_enumeration() -> None:
+    class MalformedProvider:
+        def schemas(self):
+            return ["not", "a", "mapping"]
+
+    with pytest.raises(SchemaProviderError, match="mapping"):
+        nodes_cmd._compatible_socket_search(
+            MalformedProvider(), "IMAGE", socket_role="output"
+        )
 
 
 def test_nodes_spec_uuid_reads_subgraph_json(
