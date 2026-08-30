@@ -345,15 +345,28 @@ def _node_field_signature(node: Any) -> tuple[Any, ...]:
     )
 
 
+def _subgraph_interface_signature(workflow: VibeWorkflow) -> tuple[Any, ...]:
+    """Return grammar-visible subgraph signatures in the editable quotient."""
+    from vibecomfy.porting.edit._diff import _subgraph_interfaces
+
+    interfaces = _subgraph_interfaces(workflow)
+    return tuple(
+        (str(subgraph_id), name, inputs, outputs)
+        for subgraph_id, (name, inputs, outputs) in sorted(interfaces.items())
+    )
+
+
 def editable_signature(
     workflow: VibeWorkflow,
 ) -> tuple[
     dict[str, tuple[Any, ...]],
     tuple[tuple[str, str, str, str], ...],
+    tuple[Any, ...],
 ]:
-    """Return UID-addressed nodes and a canonical edge multiset.
+    """Return the complete canonical editable quotient signature.
 
     Runtime link IDs, layout, and other emit furniture are deliberately absent.
+    Grammar-visible subgraph interfaces are included alongside nodes and edges.
     Every node and every edge endpoint must be identifiable; otherwise callers
     must fail closed rather than compare a partial quotient.
     """
@@ -362,7 +375,7 @@ def editable_signature(
         uid_by_id[str(node_id)]: _node_field_signature(node)
         for node_id, node in _node_items(workflow)
     }
-    return nodes, _edge_uid_records(workflow)
+    return nodes, _edge_uid_records(workflow), _subgraph_interface_signature(workflow)
 
 
 def verify_apply(
@@ -397,7 +410,6 @@ def verify_apply(
             "unverifiable_identity",
             (_editable_identity_diagnostic("post", exc),),
         )
-
     claimed_ops = tuple(landed_ops)
     diagnostics: list[CompactDiagnostic] = []
     admission_reason: str | None = None
@@ -567,8 +579,8 @@ def _replay_reconstruct_diagnostic(
 
     from collections import Counter
 
-    expected_nodes, expected_edges = expected
-    actual_nodes, actual_edges = actual
+    expected_nodes, expected_edges, expected_interfaces = expected
+    actual_nodes, actual_edges, actual_interfaces = actual
     expected_edge_counts = Counter(expected_edges)
     actual_edge_counts = Counter(actual_edges)
     return _diag(
@@ -586,6 +598,14 @@ def _replay_reconstruct_diagnostic(
                 ),
                 "only_in_replay": tuple(
                     sorted((actual_edge_counts - expected_edge_counts).elements())
+                ),
+            },
+            "subgraph_interface_delta": {
+                "only_in_post": tuple(
+                    item for item in expected_interfaces if item not in actual_interfaces
+                ),
+                "only_in_replay": tuple(
+                    item for item in actual_interfaces if item not in expected_interfaces
                 ),
             },
             "emit_path": "vibecomfy/porting/emit/ui.py:emit_ui_json",

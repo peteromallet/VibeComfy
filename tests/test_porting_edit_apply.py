@@ -780,6 +780,26 @@ def test_apply_batch_empty_delta_gate_is_atomic(monkeypatch) -> None:
     assert session.workflow == before
     assert session.working_ui == before_ui
 
+
+def test_apply_batch_subgraph_interface_is_a_replayable_delta() -> None:
+    """B13: interface-only edits are non-empty and may cross the apply gate."""
+    from vibecomfy.porting.edit.session import EditSession
+
+    session = EditSession(
+        {"last_node_id": 0, "last_link_id": 0, "nodes": [], "links": [], "groups": []}
+    )
+
+    result = session.apply_batch(
+        "subgraph_interface("
+        "name='Only', id='only', "
+        "inputs=(('in', 'IMAGE'),), outputs=(('out', 'IMAGE'),))\n"
+    )
+
+    assert result.ok is True
+    assert result.apply_eligible is True
+    assert len(session.history) == 1
+    assert session.done().ok is True
+
 def test_apply_batch_failed_interpretation_ineligible_gate_is_atomic(monkeypatch) -> None:
     """A failed interpretation cannot commit an ineligible candidate."""
     from vibecomfy.porting.edit import _interpret, apply_gate

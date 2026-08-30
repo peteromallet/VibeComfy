@@ -4561,7 +4561,7 @@ class TestDoneProofCoverageMatrix:
                     "properties": {"vibecomfy_uid": "dst"},
                 },
             ],
-            "links": [[1, 1, 0, 0, 2, "value"]],
+            "links": [[1, 1, 0, 2, 0, "value"]],
             "groups": [],
         }
         session = EditSession(raw, schema_provider=_TestSchemaProvider())
@@ -4673,7 +4673,7 @@ class TestDoneGateCSummary:
                 },
             ],
             "links": [
-                [1, 1, 0, 0, 3, "value"],
+                [1, 1, 0, 3, 0, "value"],
             ],
             "groups": [],
         }
