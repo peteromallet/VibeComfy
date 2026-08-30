@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts import runpod_e2e_matrix
 from scripts.runpod_matrix_plan import build_corpus_matrix_plan, format_ready_rows, format_rows
 from scripts.runpod_matrix_remote import (
@@ -164,6 +166,47 @@ def test_runpod_matrix_post_process_diagnoses_unusable_results(tmp_path: Path, c
         assert published[0]["diagnostic"]["kind"] == "aggregate"
 
     assert "results_invalid" not in capsys.readouterr().err
+
+
+def test_runpod_matrix_post_process_rejects_invalid_utf8_results(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifact"
+    results_path = artifact_root / "out" / "e2e" / "results.json"
+    results_path.parent.mkdir(parents=True)
+    results_path.write_bytes(b"\xff\xfe")
+
+    output_root = tmp_path / "published"
+    assert runpod_e2e_matrix._post_process_results(artifact_root, output_root) == 1
+    published = json.loads((output_root / "results.json").read_text(encoding="utf-8"))
+    assert published[0]["status"] == "results_invalid"
+    assert "could not read remote results" in published[0]["failure"]
+    assert not list(output_root.glob(".results.*"))
+
+
+@pytest.mark.parametrize("error", [PermissionError("denied"), RuntimeError("read bomb")])
+def test_runpod_matrix_post_process_rejects_unexpected_results_read_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    artifact_root = tmp_path / "artifact"
+    results_path = artifact_root / "out" / "e2e" / "results.json"
+    results_path.parent.mkdir(parents=True)
+    results_path.write_text("[]", encoding="utf-8")
+    real_read_text = Path.read_text
+
+    def failing_read(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == results_path:
+            raise error
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", failing_read)
+
+    output_root = tmp_path / "published"
+    assert runpod_e2e_matrix._post_process_results(artifact_root, output_root) == 1
+    published = json.loads((output_root / "results.json").read_text(encoding="utf-8"))
+    assert published[0]["status"] == "results_invalid"
+    assert "could not read remote results" in published[0]["failure"]
+    assert not list(output_root.glob(".results.*"))
 
 
 def test_runpod_matrix_post_process_rejects_non_string_nested_statuses(

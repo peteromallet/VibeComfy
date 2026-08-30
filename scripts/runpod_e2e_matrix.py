@@ -23,6 +23,7 @@ import json
 import os
 import shlex
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -691,15 +692,20 @@ def _post_process_results(artifact_root: Path | None, output_root: Path) -> int:
     remote_results_path = artifact_root / "out" / "e2e" / "results.json"
     try:
         decoded = json.loads(remote_results_path.read_text(encoding="utf-8"))
-    except OSError as exc:
+    except Exception as exc:
+        # Downloaded result bytes are untrusted.  Invalid UTF-8, permission
+        # failures, and unexpected filesystem/read exceptions all mean the
+        # aggregate is unavailable; never let one escape as a traceback or
+        # become a false green.
+        if isinstance(exc, json.JSONDecodeError):
+            reason = (
+                f"remote results at {remote_results_path} are not valid JSON: "
+                f"{exc.msg}"
+            )
+        else:
+            reason = f"could not read remote results at {remote_results_path}: {exc}"
         return _write_diagnostic_aggregate(
-            output_root,
-            f"could not read remote results at {remote_results_path}: {exc}",
-        )
-    except json.JSONDecodeError as exc:
-        return _write_diagnostic_aggregate(
-            output_root,
-            f"remote results at {remote_results_path} are not valid JSON: {exc.msg}",
+            output_root, reason
         )
 
     if not isinstance(decoded, list):
@@ -801,7 +807,29 @@ def _write_diagnostic_aggregate(output_root: Path, reason: str) -> int:
     ]
     output_results_path = output_root / "results.json"
     output_results_path.parent.mkdir(parents=True, exist_ok=True)
-    output_results_path.write_text(json.dumps(diagnostic, indent=2, sort_keys=True), encoding="utf-8")
+    payload = json.dumps(diagnostic, indent=2, sort_keys=True) + "\n"
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output_results_path.parent,
+            prefix=".results.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(payload)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, output_results_path)
+    except OSError:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
     print(f"Results written to {output_results_path}", flush=True)
     print("E2E summary: 0/1 ok", flush=True)
     print("E2E failures: 1 row(s)", flush=True)
