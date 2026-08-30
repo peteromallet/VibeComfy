@@ -50,8 +50,13 @@ from ._session_lock import (
 from . import _session_storage
 from . import _session_transaction_journal
 from ._session_storage import (
+    DurableRead,
+    DurableReadError,
+    DurableReadStatus,
     STATE_FILE_NAME as STATE_FILE_NAME,
     STATE_SCHEMA_VERSION as STATE_SCHEMA_VERSION,
+    load_json_result_impl,
+    read_state_result_impl,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -418,12 +423,22 @@ def _recover_session_for_workflow(
                 candidate = (request_stat.st_mtime_ns, session_id, turn_id)
                 if best is None or candidate > best:
                     best = candidate
-    except OSError:
-        return {"session_id": None, "turn_id": None}
+    except (OSError, UnicodeError) as exc:
+        raise DurableReadError(
+            DurableRead("unreadable", path=root, error=str(exc))
+        ) from exc
 
     if best is None:
         return {"session_id": None, "turn_id": None}
     return {"session_id": best[1], "turn_id": best[2]}
+
+
+def recover_session_for_workflow(
+    session_root: Path,
+    workflow_id: str,
+) -> dict[str, str | None]:
+    """Recover a workflow binding from canonical request artifacts."""
+    return _recover_session_for_workflow(session_root, workflow_id)
 
 
 # ── Durable orchestration-neutral thread transcript ────────────────────────
@@ -591,18 +606,35 @@ def _thread_load_unlocked(session_dir: Path, session_id: str) -> dict[str, Any] 
     state = _thread_default_state(session_id)
     try:
         with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
+            for line_number, line in enumerate(handle, start=1):
                 if not line.strip():
                     continue
                 try:
                     event = json.loads(line)
-                except json.JSONDecodeError:
-                    _LOGGER.warning("thread transcript: skipping corrupt line in %s", path)
-                    continue
-                if isinstance(event, Mapping):
-                    _thread_fold_event(state, event)
-    except OSError:
-        return None
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    raise _ThreadSessionError(
+                        "corrupt_transcript",
+                        f"thread transcript line {line_number} is invalid JSON",
+                        session_id=session_id,
+                        detail={"path": str(path), "line": line_number, "error": str(exc)},
+                    ) from exc
+                if not isinstance(event, Mapping):
+                    raise _ThreadSessionError(
+                        "corrupt_transcript",
+                        f"thread transcript line {line_number} is not an event object",
+                        session_id=session_id,
+                        detail={"path": str(path), "line": line_number},
+                    )
+                _thread_fold_event(state, event)
+    except _ThreadSessionError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise _ThreadSessionError(
+            "unreadable_transcript",
+            "thread transcript could not be read",
+            session_id=session_id,
+            detail={"path": str(path), "error": str(exc)},
+        ) from exc
     return state
 
 
@@ -652,8 +684,16 @@ def _thread_append_unlocked(
 
 
 def _thread_read_lease(session_dir: Path) -> dict[str, Any] | None:
-    payload = _load_json(_thread_lease_path(session_dir))
-    return payload if isinstance(payload, dict) else None
+    result = load_json_result_impl(_thread_lease_path(session_dir))
+    if result.status == "absent":
+        return None
+    if result.status != "valid":
+        raise _ThreadSessionError(
+            f"{result.status}_lease",
+            "thread message lease cannot be trusted",
+            detail={"path": str(_thread_lease_path(session_dir)), "error": result.error},
+        )
+    return result.value
 
 
 def _thread_lease_is_live(lease: Mapping[str, Any]) -> bool:
@@ -934,6 +974,11 @@ def _normalize_baseline_state(session_dir: Path, state: dict[str, Any]) -> dict[
 def read_state(session_dir: Path) -> dict[str, Any]:
     """Compatibility façade for normalized durable state reads."""
     return _session_storage.read_state_impl(session_dir)
+
+
+def read_state_result(session_dir: Path) -> DurableRead:
+    """Return typed state-read status without treating damage as absence."""
+    return read_state_result_impl(session_dir)
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -3860,9 +3905,9 @@ def record_idempotent_response(
         "operation": operation,
         "turn_id": turn_id,
     }
+    session_dir = session_dir_for(session_root, session_id)
     # Keyed edit path: persist turn state + idempotency record first,
     # then publish response.
-    session_dir = session_dir_for(session_root, session_id)
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         if scope == "edit" and turn_id is not None:
@@ -4540,6 +4585,11 @@ __all__ = [
     "payload_hash",
     "prepare_turn_transaction",
     "read_state",
+    "read_state_result",
+    "DurableRead",
+    "DurableReadError",
+    "DurableReadStatus",
+    "recover_session_for_workflow",
     "reconcile_turn_transactions",
     "record_idempotent_response",
     "rebaseline_session",

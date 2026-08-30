@@ -358,8 +358,12 @@ def test_read_drops_partial_trailing_line(tmp_path):
     with log.open("a", encoding="utf-8") as fh:
         fh.write('{"event_type":"finalized","receipt":')  # truncated
 
-    assert S.read_transaction_lifecycle(txn_dir) == []
-    assert S.latest_transaction_phase(txn_dir) is None
+    result = S.read_transaction_lifecycle_result(txn_dir)
+    assert result.status == "corrupt"
+    with pytest.raises(S.DurableReadError):
+        S.read_transaction_lifecycle(txn_dir)
+    with pytest.raises(S.DurableReadError):
+        S.latest_transaction_phase(txn_dir)
 
 
 def test_read_transaction_lifecycle_returns_empty_for_missing_dir(tmp_path):
@@ -379,8 +383,11 @@ def test_read_transaction_lifecycle_fails_closed_on_malformed_json_lines(tmp_pat
     # Inject garbage between valid lines.
     original = log.read_text(encoding="utf-8")
     log.write_text("not json at all\n" + original + "\n{broken\n", encoding="utf-8")
-    assert S.read_transaction_lifecycle(txn_dir) == []
-    assert S.latest_transaction_phase(txn_dir) is None
+    assert S.read_transaction_lifecycle_result(txn_dir).status == "corrupt"
+    with pytest.raises(S.DurableReadError):
+        S.read_transaction_lifecycle(txn_dir)
+    with pytest.raises(S.DurableReadError):
+        S.latest_transaction_phase(txn_dir)
 
 
 # ── Path safety ─────────────────────────────────────────────────────────────

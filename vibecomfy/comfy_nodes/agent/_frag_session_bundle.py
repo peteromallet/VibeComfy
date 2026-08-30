@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Mapping
-from vibecomfy.comfy_nodes.agent.session import session_dir_for
+from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, session_dir_for
 from ._frag_chat import _BUNDLE_MAX_FILE_BYTES, _BUNDLE_MAX_TOTAL_BYTES, _BUNDLE_TEXT_SUFFIXES, _json_safe
 from ._frag_state import LOGGER, _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS, _WARNED_LEGACY_CONTRACTS, _safe_session_id
 
@@ -56,18 +56,10 @@ def read_session_bundle(
     total = 0
     try:
         candidates = sorted(p for p in session_dir.rglob("*") if p.is_file())
-    except OSError as exc:
-        return {
-            "ok": True,
-            "exists": True,
-            "session_id": safe_id,
-            "session_path": str(session_dir),
-            "session_path_resolved": str(session_dir.resolve()),
-            "files": [],
-            "skipped": [{"name": "(walk)", "reason": f"walk_failed: {exc}"}],
-            "file_count": 0,
-            "total_bytes": 0,
-        }
+    except (OSError, UnicodeError) as exc:
+        raise DurableReadError(
+            DurableRead("unreadable", path=session_dir, error=str(exc))
+        ) from exc
 
     for path in candidates:
         try:
@@ -148,8 +140,10 @@ def read_session_json(
         turn_names: list[str] = sorted(
             [d.name for d in turns_dir.iterdir() if d.is_dir()],
         )
-    except OSError:
-        turn_names = []
+    except (OSError, UnicodeError) as exc:
+        raise DurableReadError(
+            DurableRead("unreadable", path=turns_dir, error=str(exc))
+        ) from exc
 
     turn_summaries: list[dict[str, Any]] = []
     all_messages: list[dict[str, Any]] = []
@@ -349,60 +343,9 @@ def _edit_lint_enabled() -> bool:
     return raw.strip().lower() not in {"0", "false", "off", "no"}
 
 
-def recover_session_for_workflow(
-    session_root: Path,
-    workflow_id: str,
-) -> dict[str, Any]:
-    """Return the most recent durable session submitted for a workflow.
-
-    The frontend uses this to rehydrate a completed turn after a workflow-tab
-    switch dropped the in-flight submit's scope→session binding.  The durable
-    store is keyed by session_id, so the client recovers that id from the one
-    thing it still knows: the workflow UUID it submits with (persisted as
-    ``workflow_id`` in each turn's request.json).  Returns
-    ``{"session_id": None}`` when no matching durable turn exists.
-    """
-    root = Path(session_root)
-    best: tuple[float, str, str] | None = None
-    if not root.is_dir():
-        return {"session_id": None}
-    try:
-        for session_dir in root.iterdir():
-            if not session_dir.is_dir():
-                continue
-            turns_dir = session_dir / "turns"
-            if not turns_dir.is_dir():
-                continue
-            for turn_dir in turns_dir.iterdir():
-                if not turn_dir.is_dir():
-                    continue
-                request_path = turn_dir / "request.json"
-                if not request_path.is_file():
-                    continue
-                try:
-                    request_payload = json.loads(
-                        request_path.read_text(encoding="utf-8")
-                    )
-                except (OSError, ValueError):
-                    continue
-                if request_payload.get("workflow_id") != workflow_id:
-                    continue
-                mtime = request_path.stat().st_mtime
-                if best is None or mtime > best[0]:
-                    best = (mtime, session_dir.name, turn_dir.name)
-    except OSError:
-        return {"session_id": None}
-    if best is None:
-        return {"session_id": None}
-    return {
-        "session_id": _safe_session_id(best[1]),
-        "turn_id": _safe_session_id(best[2]),
-    }
-
-
 __all__ = (
      "_agent_edit_batch_repl_enabled", "_agent_edit_contract",
      "_compact_diag_to_dict", "_edit_lint_enabled", "_port_issue_to_dict",
      "_warn_ignored_public_protocol_envs_once", "_warn_legacy_contract_once",
-     "read_session_bundle", "read_session_json", "recover_session_for_workflow",
+     "read_session_bundle", "read_session_json",
 )

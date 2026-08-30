@@ -417,4 +417,3 @@ def write_executor_only_chat_artifact(
             exc,
         )
 
-

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from vibecomfy.comfy_nodes.agent import session as S
 from vibecomfy.comfy_nodes.agent.session import (
     normalize_path_component,
     normalize_session_id,
@@ -283,6 +284,52 @@ class TestRecoverSessionForWorkflow:
 
         with pytest.raises(ValueError, match="workflow_id"):
             S._recover_session_for_workflow(tmp_path, "  ")
+
+    def test_enumeration_failure_is_not_an_empty_success(self, tmp_path: Path, monkeypatch):
+        workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+        tmp_path.mkdir(exist_ok=True)
+        original_iterdir = Path.iterdir
+
+        def fail_root(path: Path):
+            if path == tmp_path:
+                raise OSError("directory became unreadable")
+            return original_iterdir(path)
+
+        monkeypatch.setattr(Path, "iterdir", fail_root)
+        with pytest.raises(S.DurableReadError) as exc_info:
+            S._recover_session_for_workflow(tmp_path, workflow_id)
+        assert exc_info.value.status == "unreadable"
+
+
+class TestTypedDurableReads:
+    def test_state_read_distinguishes_absent_corrupt_and_unreadable(self, tmp_path: Path, monkeypatch):
+        session_dir = tmp_path / "session"
+        session_dir.mkdir()
+        assert S.read_state_result(session_dir).status == "absent"
+
+        state_path = session_dir / S.STATE_FILE_NAME
+        state_path.write_text("{broken", encoding="utf-8")
+        assert S.read_state_result(session_dir).status == "corrupt"
+        with pytest.raises(S.DurableReadError) as exc_info:
+            S.read_state(session_dir)
+        assert exc_info.value.status == "corrupt"
+
+        def unreadable(*args, **kwargs):
+            raise PermissionError("permission denied")
+
+        monkeypatch.setattr(Path, "read_text", unreadable)
+        assert S.read_state_result(session_dir).status == "unreadable"
+
+    def test_transcript_corruption_is_not_skipped(self, tmp_path: Path):
+        session_id = "thread-typed"
+        thread_dir = tmp_path / session_id
+        thread_dir.mkdir()
+        (thread_dir / S._THREAD_TRANSCRIPT_NAME).write_text(
+            '{"kind":"started","seq":1}\n{broken\n', encoding="utf-8"
+        )
+        with pytest.raises(S._ThreadSessionError) as exc_info:
+            S._thread_load_unlocked(thread_dir, session_id)
+        assert exc_info.value.kind == "corrupt_transcript"
 
 
 class TestDurableThreadStore:

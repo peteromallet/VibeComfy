@@ -1649,11 +1649,9 @@ def register_agent_edit_routes(app) -> None:
         normalize_session_id as _safe_session_id,
         prepare_turn_transaction as _session_prepare_turn_transaction,
         rebaseline_session,
+        recover_session_for_workflow,
         reconcile_turn_transactions as _session_reconcile_turn_transactions,
         rollback_turn_transaction as _session_rollback_turn_transaction,
-    )
-    from ._frag_session_bundle import (  # noqa: PLC0415
-        recover_session_for_workflow,
     )
     from .contracts import (
         FailureKind as _FK,

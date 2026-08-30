@@ -44,6 +44,8 @@ from .candidate_transaction import (
 # module-execution time); ``session`` is fully defined before its end-of-file
 # ``from ._artifact_store import *`` re-export, so the cycle never bites.
 from .session import (
+    DurableRead,
+    DurableReadError,
     TRANSACTION_FINALIZED_RECEIPT_NAME,
     TRANSACTION_ROLLBACK_RECEIPT_NAME,
 )
@@ -400,16 +402,11 @@ def _count_log_lines(path: Path) -> int:
 
 def _next_transaction_seq(transaction_dir: Path) -> int:
     """Return the next 1-based sequence number for a new lifecycle event."""
-    return _count_log_lines(_transaction_log_path(transaction_dir)) + 1
+    return len(read_transaction_lifecycle(transaction_dir)) + 1
 
 
-def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
-    """Read all lifecycle events from the authoritative log in append order.
-
-    Returns an empty list if the log is absent or any line/identity/sequence is
-    corrupt. Recovery must fail closed: skipping an interior event could turn a
-    partial transaction into an apparently valid terminal baseline.
-    """
+def read_transaction_lifecycle_result(transaction_dir: Path) -> DurableRead:
+    """Read lifecycle evidence with an explicit absent/valid/corrupt status."""
     log_path = _transaction_log_path(transaction_dir)
     events: list[dict[str, Any]] = []
     try:
@@ -420,16 +417,20 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
                     continue
                 try:
                     parsed = json.loads(raw)
-                except json.JSONDecodeError:
-                    return []
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    return DurableRead("corrupt", path=log_path, error=str(exc))
                 if not isinstance(parsed, dict):
-                    return []
+                    return DurableRead(
+                        "corrupt", path=log_path, error="lifecycle event must be an object"
+                    )
                 legacy_event_type = parsed.get("event_type")
                 canonical_event_type = canonical_transaction_state(
                     legacy_event_type
                 )
                 if not isinstance(canonical_event_type, str):
-                    return []
+                    return DurableRead(
+                        "corrupt", path=log_path, error="invalid lifecycle event type"
+                    )
                 if canonical_event_type != legacy_event_type:
                     parsed["legacy_event_type"] = legacy_event_type
                     parsed["event_type"] = canonical_event_type
@@ -439,11 +440,11 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
                         receipt["phase"] = canonical_event_type
                 events.append(parsed)
     except FileNotFoundError:
-        return []
-    except OSError:
-        return []
+        return DurableRead("absent", path=log_path)
+    except (OSError, UnicodeError) as exc:
+        return DurableRead("unreadable", path=log_path, error=str(exc))
     if not events:
-        return []
+        return DurableRead("valid", value=[], path=log_path)
     expected_turn = events[0].get("turn_id")
     expected_plan = events[0].get("plan_hash")
     expected_generation = events[0].get("generation")
@@ -452,7 +453,9 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
         or not isinstance(expected_plan, str)
         or not isinstance(expected_generation, int)
     ):
-        return []
+        return DurableRead(
+            "corrupt", path=log_path, error="lifecycle identity is incomplete"
+        )
     terminal_seen = False
     active_generation = expected_generation
     for expected_seq, event in enumerate(events, start=1):
@@ -473,7 +476,9 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
             or event.get("event_type") not in _TRANSACTION_VALID_EVENT_TYPES
             or terminal_seen
         ):
-            return []
+            return DurableRead(
+                "corrupt", path=log_path, error="lifecycle sequence or identity is invalid"
+            )
         if advances_generation:
             active_generation = generation
         terminal_seen = event.get("event_type") in {
@@ -484,8 +489,20 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
         }
     first_type = events[0].get("event_type")
     if first_type not in {"prepared", "discarded"}:
+        return DurableRead(
+            "corrupt", path=log_path, error="invalid lifecycle opening event"
+        )
+    return DurableRead("valid", value=events, path=log_path)
+
+
+def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
+    """Read lifecycle evidence, failing closed when an existing log is damaged."""
+    result = read_transaction_lifecycle_result(transaction_dir)
+    if result.status == "absent":
         return []
-    return events
+    if result.status != "valid":
+        raise DurableReadError(result)
+    return result.value
 
 
 def latest_transaction_event(transaction_dir: Path) -> dict[str, Any] | None:
@@ -765,6 +782,7 @@ __all__ = (
     "_transaction_log_path",
     "_count_log_lines",
     "_next_transaction_seq",
+    "read_transaction_lifecycle_result",
     "read_transaction_lifecycle",
     "latest_transaction_event",
     "latest_transaction_phase",

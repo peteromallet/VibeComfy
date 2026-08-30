@@ -6,6 +6,7 @@ import json
 import os
 import time
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from vibecomfy.ingest.normalize import door_get_nodes
@@ -15,6 +16,34 @@ from .contracts import DiagnosticRecord
 
 STATE_FILE_NAME = "session_state.json"
 STATE_SCHEMA_VERSION = 1
+
+DurableReadStatus = Literal["absent", "valid", "corrupt", "unreadable"]
+
+
+@dataclass(frozen=True)
+class DurableRead:
+    """Typed result for a persisted artifact read."""
+
+    status: DurableReadStatus
+    value: Any = None
+    path: Path | None = None
+    error: str | None = None
+
+
+class DurableReadError(RuntimeError):
+    """Raised when an existing durable artifact cannot be trusted."""
+
+    def __init__(self, read: DurableRead) -> None:
+        if read.status not in {"corrupt", "unreadable"}:
+            raise ValueError("DurableReadError requires a failed read")
+        self.status = read.status
+        self.path = read.path
+        self.error = read.error
+        super().__init__(
+            f"{read.status} durable artifact"
+            + (f" at {read.path}" if read.path is not None else "")
+            + (f": {read.error}" if read.error else "")
+        )
 
 
 def default_state_impl(*, schema_version: int) -> dict[str, Any]:
@@ -261,6 +290,15 @@ def normalize_baseline_state_impl(
 
 
 def read_state_impl(session_dir: Path) -> dict[str, Any]:
+    result = read_state_result_impl(session_dir)
+    if result.status == "absent":
+        return default_state_impl(schema_version=STATE_SCHEMA_VERSION)
+    if result.status != "valid":
+        raise DurableReadError(result)
+    return result.value
+
+
+def read_state_result_impl(session_dir: Path) -> DurableRead:
     from vibecomfy.comfy_nodes.agent.session import (
         STATE_FILE_NAME,
         STATE_SCHEMA_VERSION,
@@ -272,11 +310,19 @@ def read_state_impl(session_dir: Path) -> dict[str, Any]:
 
     path = session_dir / STATE_FILE_NAME
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return default_state()
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return DurableRead("absent", path=path)
+    except (OSError, UnicodeDecodeError) as exc:
+        return DurableRead("unreadable", path=path, error=str(exc))
+    try:
+        state = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return DurableRead("corrupt", path=path, error=str(exc))
     if not isinstance(state, dict):
-        return default_state()
+        return DurableRead(
+            "corrupt", path=path, error="session state must be a JSON object"
+        )
     merged = default_state()
     merged.update(state)
     if not isinstance(merged.get("turns"), dict):
@@ -310,15 +356,30 @@ def read_state_impl(session_dir: Path) -> dict[str, Any]:
         )
     _normalize_baseline_state(path.parent, merged)
     merged["schema_version"] = STATE_SCHEMA_VERSION
-    return merged
+    return DurableRead("valid", value=merged, path=path)
 
 
 def load_json_impl(path: Path) -> dict[str, Any] | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+    result = load_json_result_impl(path)
+    if result.status != "valid" or not isinstance(result.value, dict):
         return None
-    return data if isinstance(data, dict) else None
+    return result.value
+
+
+def load_json_result_impl(path: Path) -> DurableRead:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return DurableRead("absent", path=path)
+    except (OSError, UnicodeDecodeError) as exc:
+        return DurableRead("unreadable", path=path, error=str(exc))
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return DurableRead("corrupt", path=path, error=str(exc))
+    if not isinstance(data, dict):
+        return DurableRead("corrupt", path=path, error="JSON value must be an object")
+    return DurableRead("valid", value=data, path=path)
 
 
 def iter_turn_records_impl(

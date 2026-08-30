@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.candidate_transaction import classify_legacy_migration_v1
 from vibecomfy.comfy_nodes.agent.contracts import TurnContext, ensure_agent_edit_response_contract
-from vibecomfy.comfy_nodes.agent.session import REVIEWABLE_CANDIDATE_STATES, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, project_transaction_state, read_state, session_dir_for
+from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, REVIEWABLE_CANDIDATE_STATES, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, project_transaction_state, read_state, session_dir_for
 from vibecomfy.porting.edit.types import FieldChange
 from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _ops_from_accepted_batch, _safe_session_id
 
@@ -173,6 +173,8 @@ def _read_turn_response_payload(turn_dir: Path) -> dict[str, Any]:
 def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) -> dict[str, Any] | None:
     try:
         state = read_state(session_dir)
+    except DurableReadError:
+        raise
     except Exception:
         state = {}
     turns_state = state.get("turns") if isinstance(state, Mapping) else {}
@@ -344,6 +346,8 @@ def _latest_turn_lifecycle_payload(
     """
     try:
         state = read_state(session_dir)
+    except DurableReadError:
+        raise
     except Exception:
         return None
     turns_state = state.get("turns") if isinstance(state, Mapping) else None
@@ -652,6 +656,8 @@ def read_session_chat(
     session_exists = session_dir.is_dir()
     try:
         session_state = read_state(session_dir) if session_exists else {}
+    except DurableReadError:
+        raise
     except Exception:
         session_state = {}
     baseline_payload = {
@@ -685,8 +691,10 @@ def read_session_chat(
         turn_ids: list[str] = sorted(
             [d.name for d in turns_dir.iterdir() if d.is_dir()],
         )
-    except OSError:
-        turn_ids = []
+    except (OSError, UnicodeError) as exc:
+        raise DurableReadError(
+            DurableRead("unreadable", path=turns_dir, error=str(exc))
+        ) from exc
 
     all_messages: list[dict[str, Any]] = []
     latest_turn_id: str | None = None
