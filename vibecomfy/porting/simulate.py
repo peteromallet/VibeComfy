@@ -807,13 +807,9 @@ def simulate_rule(rule_spec: str, template_ids: list[str] | None = None, *, sche
         elif not transformed_admission.admitted:
             entry.update(status="unsupported", unsupported=transformed_admission.to_json(), parity_ok=None)
         else:
-            if not entry["changed"]:
-                # A byte-identical transform has no execution delta to test.
-                entry.update(status="ok", parity_ok=True, semantic_parity_ok=True, conversion_parity_ok=True)
-            else:
-                all_node_classes.update(original_admission.node_classes)
-                all_node_classes.update(transformed_admission.node_classes)
-                prepared.append((entry, path, original, transformed, original_admission, transformed_admission))
+            all_node_classes.update(original_admission.node_classes)
+            all_node_classes.update(transformed_admission.node_classes)
+            prepared.append((entry, path, original, transformed, original_admission, transformed_admission))
         entries.append(entry)
 
     try:

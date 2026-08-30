@@ -835,7 +835,22 @@ def test_port_lint_single_wf_renders_text(
 # ── port simulate ───────────────────────────────────────────────────────
 
 
-def test_port_simulate_drop_set_id_map_all_json(capsys: pytest.CaptureFixture[str]) -> None:
+def test_port_simulate_drop_set_id_map_all_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        port_simulate_cmd,
+        "simulate_rule",
+        lambda *args, **kwargs: simulate.SimulationResult(
+            rule_spec="drop_set_id_map=true",
+            templates_total=1,
+            templates_affected=0,
+            loc_delta_total=0,
+            parity_preserved=1,
+            parity_broken=0,
+            per_template=[{"status": "ok", "changed": False, "original_loc": 1, "loc_delta": 0}],
+        ),
+    )
     code = _cmd_port_simulate(
         argparse.Namespace(rule="drop_set_id_map=true", all=True, json=True)
     )
