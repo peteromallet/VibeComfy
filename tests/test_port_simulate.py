@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -267,6 +270,471 @@ def test_worker_transport_has_no_protocol_fd_in_argv_or_pass_fds(
     command, kwargs = observed[0]
     assert "--protocol-fd" not in command
     assert "pass_fds" not in kwargs
+    if os.name == "nt":
+        assert "creationflags" in kwargs
+    else:
+        assert kwargs["start_new_session"] is True
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="forked descendant regression requires POSIX")
+def test_simulation_timeout_kills_forked_descendant_and_returns_bounded(tmp_path: Path) -> None:
+    """A descendant holding captured pipes cannot defeat the timeout reap."""
+    marker = tmp_path / "descendant.pid"
+    command = [
+        sys.executable,
+        "-c",
+        f"""
+import os
+import time
+marker = {str(marker)!r}
+pid = os.fork()
+if pid == 0:
+    with open(marker, "w") as stream:
+        stream.write(str(os.getpid()))
+    time.sleep(30)
+    os._exit(0)
+time.sleep(30)
+""",
+    ]
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **simulate._simulation_process_kwargs(),
+    )
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            process.communicate(timeout=0.2)
+        deadline = time.monotonic() + 2
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists(), "forked descendant did not start"
+        descendant_pid = int(marker.read_text(encoding="utf-8"))
+        started = time.monotonic()
+        warning = simulate._terminate_simulation_process_tree(
+            process, owned_pgid=process.pid
+        )
+        assert warning is not None
+        assert "unverified" in warning
+        assert time.monotonic() - started < 2
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.kill(descendant_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("forked descendant survived process-group teardown")
+    finally:
+        if process.poll() is None:
+            simulate._terminate_simulation_process_tree(process, owned_pgid=process.pid)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="forked descendant regression requires POSIX")
+def test_detached_descendant_reports_incomplete_cleanup(tmp_path: Path) -> None:
+    """An escaped descendant cannot make teardown claim success."""
+    marker = tmp_path / "detached.pid"
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"""
+import os
+import time
+marker = {str(marker)!r}
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    with open(marker, "w") as stream:
+        stream.write(str(os.getpid()))
+    time.sleep(30)
+    os._exit(0)
+os._exit(0)
+""",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **simulate._simulation_process_kwargs(),
+    )
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            process.communicate(timeout=0.2)
+        deadline = time.monotonic() + 2
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists(), "detached descendant did not start"
+        warning = simulate._terminate_simulation_process_tree(
+            process, owned_pgid=process.pid
+        )
+        assert warning is not None
+        assert "unverified" in warning
+    finally:
+        if marker.exists():
+            try:
+                os.kill(int(marker.read_text(encoding="utf-8")), 9)
+            except ProcessLookupError:
+                pass
+
+
+def test_permission_error_is_reported_as_incomplete_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(simulate.os, "getpgid", lambda _pid: process.pid)
+
+    def deny(_pid: int, _signal: int) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(simulate.os, "killpg", deny)
+    warning = simulate._terminate_simulation_process_tree(
+        process, owned_pgid=process.pid
+    )  # type: ignore[arg-type]
+    assert warning is not None
+    assert "PermissionError" in warning
+
+
+def test_posix_signals_recorded_group_before_wait_or_poll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+
+        def poll(self) -> None:
+            raise AssertionError("poll must not precede group signaling")
+
+        def wait(self, timeout: float) -> int:
+            events.append("wait")
+            return 0
+
+    process = Process()
+    events: list[object] = []
+
+    def signal_group(pgid: int, signal_number: int) -> None:
+        events.append((pgid, signal_number))
+
+    monkeypatch.setattr(simulate.os, "killpg", signal_group)
+    warning = simulate._terminate_simulation_process_tree(
+        process, owned_pgid=777
+    )  # type: ignore[arg-type]
+    assert events[0] == (777, simulate.signal.SIGKILL)
+    assert events[1] == "wait"
+    assert "unverified" in (warning or "")
+
+
+def test_process_group_absence_is_explicitly_unverified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    def gone(_pgid: int, _signal_number: int) -> None:
+        raise ProcessLookupError("gone")
+
+    monkeypatch.setattr(simulate.os, "killpg", gone)
+    warning = simulate._terminate_simulation_process_tree(
+        Process(), owned_pgid=12345
+    )  # type: ignore[arg-type]
+    assert "already absent" in (warning or "")
+    assert "unverified" in (warning or "")
+
+
+def test_windows_uses_retained_handle_and_never_pid_taskkill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+        killed = False
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(simulate.os, "name", "nt")
+    monkeypatch.setattr(
+        simulate.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("PID-based taskkill is unsafe"),
+    )
+    warning = simulate._terminate_simulation_process_tree(
+        process, owned_pgid=None
+    )  # type: ignore[arg-type]
+    assert process.killed
+    assert "unverified" in (warning or "")
+
+
+def test_communicate_error_cleans_up_and_preserves_original_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+        waited = False
+
+        def communicate(self, timeout: float) -> tuple[bytes, bytes]:
+            raise OSError("pipe broke")
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> int:
+            self.waited = True
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(simulate.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(simulate.os, "getpgid", lambda _pid: process.pid)
+    monkeypatch.setattr(simulate.os, "killpg", lambda _pid, _signal: None)
+    with pytest.raises(OSError, match="pipe broke") as raised:
+        simulate._run_artifact_worker(tmp_path / "artifact.py", logical_path=tmp_path / "artifact.py")
+    assert process.waited
+    assert "unverified" in " ".join(getattr(raised.value, "__notes__", []))
+
+
+def test_nested_communicate_error_is_reported_after_bounded_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+        waited = False
+
+        def communicate(self, timeout: float) -> tuple[bytes, bytes]:
+            raise ValueError("broken protocol pipe")
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> int:
+            self.waited = True
+            return 0
+
+    process = Process()
+    payloads: list[dict[str, object]] = []
+    monkeypatch.setattr(simulate.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        simulate,
+        "_emit_worker_payload",
+        lambda payload, _fd: payloads.append(payload),
+    )
+    assert simulate._artifact_worker_main(
+        ["--_artifact-worker", str(tmp_path / "artifact.py")]
+    ) == 0
+    assert process.waited
+    assert payloads[0]["ok"] is False
+    assert "ValueError: broken protocol pipe" in str(payloads[0]["error"])
+
+
+def test_timeout_detail_requires_explicit_deadline_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(simulate._SIMULATION_DEADLINE_ENV, "ambient-value")
+    assert simulate._simulation_timeout_detail(None) == "worker timed out after 30s"
+    assert (
+        simulate._simulation_timeout_detail(None, simulation_deadline=123.0)
+        == "worker timed out before the simulation deadline"
+    )
+
+
+def test_outer_timeout_uses_remaining_absolute_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+        waited = False
+
+        def communicate(self, timeout: float) -> tuple[bytes, bytes]:
+            assert timeout < 0.05
+            raise subprocess.TimeoutExpired("worker", timeout)
+
+        def wait(self, timeout: float) -> int:
+            self.waited = True
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(simulate, "_WORKER_TIMEOUT", 0.1)
+
+    def slow_popen(*args: object, **kwargs: object) -> Process:
+        time.sleep(0.08)
+        return process
+
+    monkeypatch.setattr(simulate.subprocess, "Popen", slow_popen)
+    monkeypatch.setattr(simulate.os, "killpg", lambda _pgid, _signal: None)
+    with pytest.raises(simulate._ArtifactExecutionError, match="simulation deadline"):
+        simulate._run_artifact_worker(tmp_path / "artifact.py", logical_path=tmp_path / "artifact.py")
+    assert process.waited
+
+
+def test_outer_expired_budget_cleans_up_once_without_communicate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Stream:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        def close(self) -> None:
+            self.closed += 1
+
+    class Process:
+        pid = 12345
+
+        def __init__(self) -> None:
+            self.stdout = Stream()
+            self.stderr = Stream()
+            self.communicates = 0
+            self.waits = 0
+
+        def communicate(self, timeout: float) -> tuple[bytes, bytes]:
+            self.communicates += 1
+            raise AssertionError("communicate must not run after the budget expires")
+
+        def wait(self, timeout: float) -> int:
+            self.waits += 1
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(simulate, "_WORKER_TIMEOUT", 1.0)
+    monkeypatch.setattr(simulate.time, "monotonic", iter((10.0, 12.0)).__next__)
+    monkeypatch.setattr(simulate.subprocess, "Popen", lambda *args, **kwargs: process)
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        simulate.os,
+        "killpg",
+        lambda pgid, signal_number: killed.append((pgid, signal_number)),
+    )
+
+    with pytest.raises(simulate._ArtifactExecutionError, match="simulation deadline"):
+        simulate._run_artifact_worker(
+            tmp_path / "artifact.py", logical_path=tmp_path / "artifact.py"
+        )
+
+    assert process.communicates == 0
+    assert process.waits == 1
+    assert process.stdout.closed == 1
+    assert process.stderr.closed == 1
+    assert killed == [(process.pid, simulate.signal.SIGKILL)]
+
+
+def test_cleanup_wait_and_close_failures_are_accumulated() -> None:
+    class Stream:
+        def close(self) -> None:
+            raise ValueError("closefail")
+
+    class Process:
+        pid = 12345
+        stdout = Stream()
+        stderr = Stream()
+
+        def wait(self, timeout: float) -> int:
+            raise OSError("waitfail")
+
+    warning = simulate._terminate_simulation_process_tree(
+        Process(), owned_pgid=None
+    )  # type: ignore[arg-type]
+    assert warning is not None
+    assert "waitfail" in warning
+    assert warning.count("closefail") == 2
+
+
+def test_nested_timeout_payload_uses_stable_deadline_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Process:
+        pid = 12345
+        stdout = None
+        stderr = None
+        waited = False
+
+        def communicate(self, timeout: float) -> tuple[bytes, bytes]:
+            raise subprocess.TimeoutExpired("artifact", timeout)
+
+        def wait(self, timeout: float) -> int:
+            self.waited = True
+            return 0
+
+    process = Process()
+    payloads: list[dict[str, object]] = []
+    monkeypatch.setattr(simulate.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        simulate,
+        "_emit_worker_payload",
+        lambda payload, _fd: payloads.append(payload),
+    )
+    monkeypatch.setattr(simulate.os, "killpg", lambda _pgid, _signal: None)
+    monkeypatch.setenv(simulate._SIMULATION_DEADLINE_ENV, "123.0")
+    assert simulate._artifact_worker_main(
+        ["--_artifact-worker", str(tmp_path / "artifact.py")]
+    ) == 0
+    assert process.waited
+    assert "simulation deadline" in str(payloads[0]["error"])
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="forked descendant regression requires POSIX")
+def test_nested_simulation_timeout_kills_artifact_descendant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker and artifact-exec layers share one bounded deadline."""
+    marker = tmp_path / "artifact-descendant.pid"
+    source = tmp_path / "forking_artifact.py"
+    source.write_text(
+        f"""import os
+import time
+marker = {str(marker)!r}
+pid = os.fork()
+if pid == 0:
+    with open(marker, "w") as stream:
+        stream.write(str(os.getpid()))
+    time.sleep(30)
+    os._exit(0)
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+def build():
+    return VibeWorkflow(id="case", source=WorkflowSource(id="case"))
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(simulate, "_WORKER_TIMEOUT", 12)
+    started = time.monotonic()
+    with pytest.raises(simulate._ArtifactExecutionError, match="simulation deadline"):
+        simulate._run_artifact_worker(source, logical_path=source)
+    assert time.monotonic() - started < 14
+    descendant_pid = int(marker.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            os.kill(descendant_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("artifact descendant survived nested process-tree teardown")
 
 
 def test_logical_file_is_preserved_by_worker(tmp_path: Path) -> None:

@@ -13,10 +13,12 @@ import importlib
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -42,6 +44,9 @@ _PROTOCOL_LIMIT = 64 * 1024
 _WORKER_STDOUT_LIMIT = 16 * 1024
 _WORKER_STDERR_LIMIT = 16 * 1024
 _WORKER_TIMEOUT = 30
+_PROCESS_TERMINATION_GRACE = 0.5
+_PROCESS_REAP_TIMEOUT = 1.0
+_SIMULATION_DEADLINE_ENV = "VIBECOMFY_SIMULATION_DEADLINE"
 _ALLOWED_IMPORTED_NAMES: dict[str, frozenset[str]] = {
     "vibecomfy.templates": frozenset({"InputSpec", "ModelAsset", "ReadyMetadata", "new_workflow", "node"}),
     "vibecomfy.workflow": frozenset({"VibeWorkflow", "WorkflowSource"}),
@@ -628,6 +633,122 @@ def _worker_environment() -> dict[str, str]:
     return env
 
 
+def _simulation_process_kwargs() -> dict[str, Any]:
+    """Return process-isolation options for the current platform."""
+    if os.name == "nt":
+        # Keep a distinct console/process group for diagnostics.  Without a
+        # Job Object, descendants cannot be safely owned by PID on teardown.
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        return {"creationflags": flags} if flags else {}
+    return {"start_new_session": True}
+
+
+def _terminate_simulation_process_tree(
+    process: subprocess.Popen[bytes], *, owned_pgid: int | None
+) -> str | None:
+    """Terminate *process* and descendants, returning any cleanup warning.
+
+    The timeout path must not call ``communicate()`` after killing a direct
+    child: a descendant may still own one of the captured pipe fds.  We kill
+    the owned POSIX session/process group, or the direct Windows process via
+    its retained handle.  Reap only the direct child with a bound and close
+    the pipe handles explicitly.
+    """
+    warnings: list[str] = []
+    if os.name == "nt":
+        warnings.append(
+            "Windows descendant cleanup unverified (no owned Job Object); "
+            "only the direct process handle is terminated"
+        )
+        try:
+            process.kill()
+        except OSError as exc:
+            warnings.append(f"direct-process termination failed: {type(exc).__name__}: {exc}")
+    else:
+        warnings.append(
+            "POSIX descendant cleanup unverified; detached descendants may survive"
+        )
+        if owned_pgid is None:
+            warnings.append("owned process-group identity was not recorded")
+        else:
+            # The PGID is captured immediately after start_new_session=True.
+            # Signal it before any poll/wait can let the leader disappear and
+            # make the numeric PGID vulnerable to reuse.
+            try:
+                os.killpg(owned_pgid, signal.SIGKILL)
+            except ProcessLookupError as exc:
+                warnings.append(f"owned process group was already absent: {exc}")
+            except PermissionError as exc:
+                warnings.append(f"process-group SIGKILL failed: {type(exc).__name__}: {exc}")
+            except OSError as exc:
+                warnings.append(f"process-group SIGKILL failed: {type(exc).__name__}: {exc}")
+
+    try:
+        process.wait(timeout=_PROCESS_REAP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        warnings.append("direct child was not reaped within the cleanup bound")
+    except Exception as exc:
+        warnings.append(f"direct-child wait failed: {type(exc).__name__}: {exc}")
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception as exc:
+                warnings.append(f"pipe close failed: {type(exc).__name__}: {exc}")
+    return "; ".join(warnings) or None
+
+
+def _simulation_timeout_detail(
+    cleanup_warning: str | None, *, simulation_deadline: float | None = None
+) -> str:
+    if simulation_deadline is not None:
+        detail = "worker timed out before the simulation deadline"
+    else:
+        detail = f"worker timed out after {_WORKER_TIMEOUT}s"
+    if cleanup_warning:
+        detail += f"; process-tree cleanup incomplete: {cleanup_warning}"
+    return detail
+
+
+def _simulation_deadline_from_env() -> float | None:
+    raw_deadline = os.environ.get(_SIMULATION_DEADLINE_ENV)
+    if not raw_deadline:
+        return None
+    try:
+        return float(raw_deadline)
+    except ValueError:
+        return None
+
+
+def _simulation_child_timeout() -> float:
+    """Keep nested worker timeouts inside the parent simulation deadline."""
+    deadline = _simulation_deadline_from_env()
+    if deadline is None:
+        return _WORKER_TIMEOUT
+    # Leave enough time for process-group termination and direct-child reap so
+    # the outer worker can receive the typed timeout payload before its bound.
+    return max(
+        0.0,
+        min(
+            _WORKER_TIMEOUT,
+            deadline - time.monotonic() - _PROCESS_TERMINATION_GRACE - _PROCESS_REAP_TIMEOUT,
+        ),
+    )
+
+
+def _wait_for_owned_children() -> None:
+    """Keep the session leader alive while direct artifact children exist."""
+    if os.name == "nt":
+        return
+    while True:
+        try:
+            os.waitpid(-1, 0)
+        except ChildProcessError:
+            return
+        except InterruptedError:
+            continue
+
+
 def _run_artifact_worker(path: Path, *, logical_path: Path) -> dict[str, Any]:
     command = [
         sys.executable,
@@ -639,23 +760,46 @@ def _run_artifact_worker(path: Path, *, logical_path: Path) -> dict[str, Any]:
         str(logical_path),
     ]
     try:
+        simulation_deadline = time.monotonic() + _WORKER_TIMEOUT
+        worker_env = _worker_environment()
+        worker_env[_SIMULATION_DEADLINE_ENV] = str(simulation_deadline)
         process = subprocess.Popen(
             command,
             cwd=_artifact_source_root(path).parent,
-            env=_worker_environment(),
+            env=worker_env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             close_fds=True,
+            **_simulation_process_kwargs(),
         )
+        owned_pgid = process.pid if os.name != "nt" else None
     except OSError as exc:
         raise _ArtifactExecutionError("isolated artifact worker", f"{type(exc).__name__}: {exc}") from exc
+    remaining = simulation_deadline - time.monotonic()
+    if remaining <= 0:
+        cleanup_warning = _terminate_simulation_process_tree(process, owned_pgid=owned_pgid)
+        raise _ArtifactExecutionError(
+            "isolated artifact worker",
+            _simulation_timeout_detail(
+                cleanup_warning, simulation_deadline=simulation_deadline
+            ),
+        )
     try:
-        stdout, stderr = process.communicate(timeout=_WORKER_TIMEOUT)
+        stdout, stderr = process.communicate(timeout=remaining)
     except subprocess.TimeoutExpired as exc:
-        process.kill()
-        stdout, stderr = process.communicate()
-        raise _ArtifactExecutionError("isolated artifact worker", f"worker timed out after {_WORKER_TIMEOUT}s") from exc
+        cleanup_warning = _terminate_simulation_process_tree(process, owned_pgid=owned_pgid)
+        raise _ArtifactExecutionError(
+            "isolated artifact worker",
+            _simulation_timeout_detail(
+                cleanup_warning, simulation_deadline=simulation_deadline
+            ),
+        ) from exc
+    except Exception as exc:
+        cleanup_warning = _terminate_simulation_process_tree(process, owned_pgid=owned_pgid)
+        if cleanup_warning:
+            exc.add_note(f"process-tree cleanup incomplete: {cleanup_warning}")
+        raise
     if len(stdout) > _PROTOCOL_LIMIT:
         raise _ArtifactExecutionError("protocol", f"worker response exceeded {_PROTOCOL_LIMIT} bytes")
     if process.returncode != 0:
@@ -682,6 +826,7 @@ def _emit_worker_payload(payload: dict[str, Any], protocol_fd: int) -> None:
         encoded = json.dumps({"ok": False, "stage": "protocol", "error": f"worker payload exceeded {_PROTOCOL_LIMIT} bytes"}, separators=(",", ":")).encode("utf-8")
     if protocol_fd < 0:
         sys.stdout.buffer.write(encoded)
+        sys.stdout.buffer.flush()
         return
     written = 0
     while written < len(encoded):
@@ -722,6 +867,8 @@ def _artifact_execution_main(argv: list[str]) -> int:
     except Exception as exc:
         _emit_worker_payload({"ok": False, "stage": stage, "error": f"{type(exc).__name__}: {exc}"}, -1)
         return 0
+    finally:
+        _wait_for_owned_children()
 
 
 def _artifact_worker_main(argv: list[str]) -> int:
@@ -742,6 +889,8 @@ def _artifact_worker_main(argv: list[str]) -> int:
         "--logical-path",
         str(logical_path),
     ]
+    process: subprocess.Popen[bytes] | None = None
+    owned_pgid: int | None = None
     try:
         process = subprocess.Popen(
             command,
@@ -751,15 +900,32 @@ def _artifact_worker_main(argv: list[str]) -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             close_fds=True,
+            **_simulation_process_kwargs(),
         )
-        stdout, stderr = process.communicate(timeout=_WORKER_TIMEOUT)
+        owned_pgid = process.pid if os.name != "nt" else None
+        stdout, stderr = process.communicate(timeout=_simulation_child_timeout())
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.communicate()
-        _emit_worker_payload({"ok": False, "stage": "isolated artifact worker", "error": f"worker timed out after {_WORKER_TIMEOUT}s"}, -1)
+        assert process is not None
+        cleanup_warning = _terminate_simulation_process_tree(process, owned_pgid=owned_pgid)
+        _emit_worker_payload(
+            {
+                "ok": False,
+                "stage": "isolated artifact worker",
+                "error": _simulation_timeout_detail(
+                    cleanup_warning,
+                    simulation_deadline=_simulation_deadline_from_env(),
+                ),
+            },
+            -1,
+        )
         return 0
-    except OSError as exc:
-        _emit_worker_payload({"ok": False, "stage": "isolated artifact worker", "error": f"{type(exc).__name__}: {exc}"}, -1)
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        if process is not None:
+            cleanup_warning = _terminate_simulation_process_tree(process, owned_pgid=owned_pgid)
+            if cleanup_warning:
+                detail += f"; process-tree cleanup incomplete: {cleanup_warning}"
+        _emit_worker_payload({"ok": False, "stage": "isolated artifact worker", "error": detail}, -1)
         return 0
     if process.returncode != 0:
         detail = bytes(stderr[:_WORKER_STDERR_LIMIT]).decode("utf-8", errors="replace").strip()
