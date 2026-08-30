@@ -928,7 +928,7 @@ def test_port_simulate_unsupported_returns_refusal_status(
     assert payload["unsupported"] == 1
 
 
- def test_port_simulate_unsupported_human_output_is_not_success_framed(
+def test_port_simulate_unsupported_human_output_is_not_success_framed(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
