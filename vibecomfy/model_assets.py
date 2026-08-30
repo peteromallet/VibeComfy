@@ -75,10 +75,10 @@ def extract_from_raw_workflow(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
         return []
 
     entries: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for node in _iter_workflow_nodes(raw):
         for entry in _entries_from_node(node):
-            key = (entry["name"], entry["subdir"])
+            key = _asset_entry_key(entry)
             if key in seen:
                 continue
             seen.add(key)
@@ -130,13 +130,13 @@ def resolve_referenced_assets(
     entries = tuple(registry) if registry is not None else load_registry()
     resolved: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for reference in _referenced_model_values(workflow):
         asset = _asset_for_reference(reference, registry=entries)
         if asset is None:
             unresolved.append(_unresolved_asset_for_reference(reference))
             continue
-        key = (asset["name"], asset["subdir"])
+        key = _asset_entry_key(asset)
         if key in seen:
             continue
         seen.add(key)
@@ -158,6 +158,12 @@ def _literal_eval_with_constants(node: ast.AST, constants: Mapping[str, Any]) ->
     if isinstance(node, ast.Tuple):
         return tuple(_literal_eval_with_constants(element, constants) for element in node.elts)
     return ast.literal_eval(node)
+
+
+def _asset_entry_key(entry: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Deduplicate equivalent assets without erasing target_path presence."""
+    target_marker = repr(entry.get("target_path")) if "target_path" in entry else "<absent>"
+    return (str(entry["name"]), str(entry["subdir"]), target_marker)
 
 
 def _entries_from_node(node: Mapping[str, Any]) -> Iterable[dict[str, Any]]:
@@ -302,14 +308,14 @@ def _model_reference_type(value: str) -> str:
 
 def _normalise_requirement_entries(models: Iterable[Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for model in models:
         if not isinstance(model, Mapping):
             continue
         entry = _normalise_model_entry(model, class_type="")
         if entry is None:
             continue
-        key = (entry["name"], entry["subdir"])
+        key = _asset_entry_key(entry)
         if key in seen:
             continue
         seen.add(key)
@@ -328,9 +334,10 @@ def _normalise_model_entry(model: Any, *, class_type: str) -> dict[str, Any] | N
         return None
     subdir = _subdir_for_model(model, class_type=class_type, url=url)
     entry: dict[str, Any] = {"name": name, "url": _strip_download_true(url), "subdir": subdir}
-    target_path = model.get("target_path")
-    if isinstance(target_path, str) and target_path:
-        entry["target_path"] = target_path
+    if "target_path" in model:
+        # Preserve presence, including malformed values, so the fetch owner
+        # can reject them rather than silently falling back to subdir/name.
+        entry["target_path"] = model["target_path"]
     sha256 = model.get("sha256")
     if isinstance(sha256, str) and sha256:
         entry["sha256"] = sha256
@@ -345,13 +352,13 @@ def _normalise_model_entry(model: Any, *, class_type: str) -> dict[str, Any] | N
     return entry
 
 
-def _subdir_for_model(model: Mapping[str, Any], *, class_type: str, url: str) -> str:
-    directory = model.get("directory")
-    if isinstance(directory, str) and directory:
-        return directory
-    subdir = model.get("subdir")
-    if isinstance(subdir, str) and subdir:
-        return subdir
+def _subdir_for_model(model: Mapping[str, Any], *, class_type: str, url: str) -> Any:
+    # Preserve explicit presence, including malformed values, so the fetch
+    # owner can reject them rather than silently selecting another directory.
+    if "directory" in model:
+        return model["directory"]
+    if "subdir" in model:
+        return model["subdir"]
     split_subdir = _hf_split_files_subdir(url)
     if split_subdir is not None:
         return split_subdir

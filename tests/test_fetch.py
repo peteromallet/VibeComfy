@@ -217,6 +217,9 @@ def test_download_rejects_absolute_destination_fields_before_network(
         ("name", "../../../outside/model.safetensors"),
         ("target_path", r"custom_nodes\\pack\\model.safetensors"),
         ("subdir", "checkpoints/"),
+        ("target_path", "custom_nodes/pack/."),
+        ("subdir", "checkpoints/."),
+        ("name", "nested/."),
     ],
 )
 def test_download_rejects_traversal_ambiguous_and_empty_terminal_fields(
@@ -384,6 +387,21 @@ def test_local_path_accepts_ready_template_directory_alias(tmp_path: Path) -> No
         {"name": "model.safetensors", "directory": "diffusion_models"},
         root=tmp_path,
     ) == tmp_path / "diffusion_models" / "model.safetensors"
+
+
+@pytest.mark.parametrize("subdir", ["", None, 0])
+def test_local_path_rejects_explicit_malformed_subdir_without_directory_fallback(
+    subdir: object, tmp_path: Path
+) -> None:
+    with pytest.raises((KeyError, ValueError), match="model asset"):
+        fetch.local_path(
+            {
+                "name": "model.safetensors",
+                "subdir": subdir,
+                "directory": "vae",
+            },
+            root=tmp_path,
+        )
 
 
 def test_download_removes_tmp_after_stream_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

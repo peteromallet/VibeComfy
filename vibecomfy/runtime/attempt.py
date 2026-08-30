@@ -158,6 +158,8 @@ def _build_model_manifest(
             "expected_sha256": asset.get("sha256"),
             "actual_sha256": _compute_actual_sha256(asset, config=config),
         }
+        if "target_path" in asset:
+            entry["target_path"] = asset["target_path"]
         if asset.get("size_bytes") is not None:
             entry["size_bytes"] = asset["size_bytes"]
         if asset.get("hf_revision"):
@@ -198,11 +200,16 @@ def _compute_actual_sha256(asset: dict[str, Any], *, config: Any = None) -> str 
     if not isinstance(name, str) or not isinstance(subdir, str):
         return None
 
-    # Resolve the models root
+    # Use the fetch owner's two-root resolver so custom-node target_path
+    # assets do not drift back under models_root/subdir/name.
     from vibecomfy.runtime.model_policy import normalized_models_root
+    from vibecomfy.fetch import local_path
 
     models_root = Path(normalized_models_root())
-    candidate_path = models_root / subdir / name
+    try:
+        candidate_path = local_path(asset, root=models_root)
+    except (KeyError, ValueError, OSError):
+        return None
     if not candidate_path.is_file():
         return None
 

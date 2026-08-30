@@ -538,9 +538,11 @@ def _enrich_target(
 def _asset_metadata(entry: dict[str, str], *, models_root: Path) -> dict[str, Any]:
     name = entry["name"]
     subdir = entry.get("subdir") or entry.get("directory") or "checkpoints"
-    target_path = entry.get("target_path")
-    relative = Path(target_path) if target_path else Path(subdir) / name
-    expected = models_root / relative
+    expected = fetch_assets.local_path(entry, root=models_root)
+    if "target_path" in entry:
+        relative = Path(entry["target_path"])
+    else:
+        relative = Path(subdir) / name
     paths_checked = [str(expected)]
     present = expected.exists()
     remediation = None

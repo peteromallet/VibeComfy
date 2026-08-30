@@ -26,12 +26,35 @@ from vibecomfy.commands.nodes import (
 from vibecomfy.node_packs import LockEntry
 from vibecomfy.registry.pack_resolver import PackRef, PackResolution
 from vibecomfy.commands.workflows import (
+    _asset_metadata,
     build_onboarding_plan,
     _cmd_workflows_enrich_targets,
     _cmd_workflows_lens,
     _cmd_workflows_list,
     _cmd_workflows_source_info,
 )
+
+
+def test_workflow_asset_metadata_uses_fetch_target_path(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    models_root = checkout / "models"
+    destination = checkout / "custom_nodes" / "pack" / "ckpts" / "yolox.onnx"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"custom-node asset")
+
+    metadata = _asset_metadata(
+        {
+            "name": "yolox.onnx",
+            "url": "https://example.test/yolox.onnx",
+            "subdir": "checkpoints",
+            "target_path": "custom_nodes/pack/ckpts/yolox.onnx",
+        },
+        models_root=models_root,
+    )
+
+    assert metadata["expected_path"] == str(destination)
+    assert metadata["present"] is True
+    assert metadata["target_path"] == "custom_nodes/pack/ckpts/yolox.onnx"
 
 
 def test_workflows_list_reports_malformed_index_with_recovery_hint(

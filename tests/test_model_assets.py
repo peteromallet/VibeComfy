@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 
 from vibecomfy.errors import ModelAssetError
+import vibecomfy.fetch as fetch
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.model_assets import entries_from_scratchpad_path, extract_from_raw_workflow, resolve_referenced_assets
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
@@ -81,6 +83,66 @@ def test_extract_from_raw_workflow_normalises_model_metadata() -> None:
             "subdir": "diffusion_models",
         },
     ]
+
+
+@pytest.mark.parametrize("target_path", ["", None, 0, []])
+def test_raw_malformed_target_path_is_preserved_and_rejected_before_network(
+    target_path: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "properties": {
+                    "models": [
+                        {
+                            "name": "model.safetensors",
+                            "url": "https://example.test/model.safetensors",
+                            "target_path": target_path,
+                        }
+                    ]
+                },
+            }
+        ]
+    }
+    entry = extract_from_raw_workflow(raw)[0]
+    assert entry["target_path"] == target_path
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("malformed target_path must fail before network")
+        ),
+    )
+    with pytest.raises(ValueError, match="model asset target_path"):
+        fetch.download(entry, root=tmp_path / "models")
+
+
+@pytest.mark.parametrize("target_path", ["", None, 0, []])
+def test_scratchpad_malformed_target_path_is_preserved_and_rejected(
+    target_path: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    scratchpad = tmp_path / "scratch.py"
+    scratchpad.write_text(
+        "READY_REQUIREMENTS = {'models': [{"
+        "'name': 'model.safetensors', "
+        "'url': 'https://example.test/model.safetensors', "
+        f"'target_path': {target_path!r}"
+        "}] }\n",
+        encoding="utf-8",
+    )
+    entry = entries_from_scratchpad_path(scratchpad)[0]
+    assert entry["target_path"] == target_path
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("malformed target_path must fail before network")
+        ),
+    )
+    with pytest.raises(ValueError, match="model asset target_path"):
+        fetch.download(entry, root=tmp_path / "models")
 
 
 def test_extract_from_raw_workflow_recurses_nested_subgraphs() -> None:
@@ -334,6 +396,30 @@ def test_attempt_report_serializes_classified_model_references(monkeypatch: pyte
         assert manifest_by_node[node_id]["subdir"] == expected_subdir
         assert manifest_by_node[node_id]["expected_sha256"] is None
         assert manifest_by_node[node_id]["actual_sha256"] is None
+
+
+def test_attempt_hash_uses_fetch_target_path_and_not_models_subdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "checkout"
+    models_root = checkout / "models"
+    destination = checkout / "custom_nodes" / "pack" / "ckpts" / "yolox.onnx"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"custom-node asset")
+    decoy = models_root / "checkpoints" / "yolox.onnx"
+    decoy.parent.mkdir(parents=True)
+    decoy.write_bytes(b"models-root decoy")
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(models_root))
+
+    asset = {
+        "name": "yolox.onnx",
+        "subdir": "checkpoints",
+        "target_path": "custom_nodes/pack/ckpts/yolox.onnx",
+    }
+
+    assert runtime_attempt._compute_actual_sha256(asset) == hashlib.sha256(
+        b"custom-node asset"
+    ).hexdigest()
 
 
 def test_model_install_policy_only_requires_registry_or_authored_downloadables(

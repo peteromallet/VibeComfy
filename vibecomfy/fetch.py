@@ -65,6 +65,7 @@ def _relative_asset_path(value: Any, *, field: str) -> Path:
         or ".." in windows.parts
         or "\\" in value
         or value.endswith(("/", "\\"))
+        or value.rstrip("/").rsplit("/", 1)[-1] == "."
         or (not posix.parts and not windows.parts)
     ):
         raise ValueError(
@@ -94,14 +95,19 @@ def _destination_for_entry(
     base = Path(root) if root is not None else models_root()
     if not base.is_absolute():
         base = Path.cwd() / base
-    target_path = entry.get("target_path")
-    if target_path is not None:
+    if "target_path" in entry:
+        target_path = entry["target_path"]
         target = _relative_asset_path(target_path, field="target_path")
         authorized_root, destination = _authorized_destination(
             base.parent, target, field="target_path"
         )
         return authorized_root, destination, "target_path"
-    subdir = entry.get("subdir") or entry.get("directory")
+    if "subdir" in entry:
+        subdir = entry["subdir"]
+    elif "directory" in entry:
+        subdir = entry["directory"]
+    else:
+        subdir = None
     if not isinstance(subdir, str) or not subdir:
         raise KeyError("model asset entry requires 'subdir' or 'directory'")
     relative_subdir = _relative_asset_path(subdir, field="subdir")

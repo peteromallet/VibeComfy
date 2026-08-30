@@ -85,16 +85,25 @@ def _node_packs_from_requirements(workflow: VibeWorkflow):
 
 
 def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
-    from vibecomfy.model_assets import _looks_like_runtime_input, _normalise_requirement_entries, resolve_referenced_assets
+    from vibecomfy.model_assets import (
+        _asset_entry_key,
+        _looks_like_runtime_input,
+        _normalise_requirement_entries,
+        resolve_referenced_assets,
+    )
 
     def _norm(value: str) -> str:
         return value.replace("\\", "/")
+
+    def _entry_key(entry: Mapping[str, Any]) -> tuple[str, str, str]:
+        name, subdir, target_marker = _asset_entry_key(entry)
+        return _norm(name), _norm(subdir), target_marker
 
     raw_assets = workflow.metadata.get("model_assets", [])
     authored = _normalise_requirement_entries(raw_assets) if isinstance(raw_assets, list) else []
     resolved, unresolved = resolve_referenced_assets(workflow)
     authored_keys = {
-        (_norm(entry["name"]), _norm(entry["subdir"]))
+        _entry_key(entry)
         for entry in authored
         if isinstance(entry.get("name"), str) and isinstance(entry.get("subdir"), str)
     }
@@ -122,9 +131,14 @@ def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
             next_action=MODEL_DOCTOR_NEXT_ACTION,
         )
     entries: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for entry in [*authored, *resolved]:
-        key = (entry["name"], entry["subdir"])
+        key = _entry_key(entry)
+        if not isinstance(entry.get("name"), str) or not isinstance(entry.get("subdir"), str):
+            # Keep malformed authored metadata visible to the fetch owner;
+            # do not let a truthiness fallback or this merge hide it.
+            entries.append(entry)
+            continue
         if key not in authored_keys and f"{_norm(entry['subdir'])}/{_norm(entry['name'])}" in authored_paths:
             continue
         if key in seen:
