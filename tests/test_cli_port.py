@@ -1214,6 +1214,23 @@ def test_port_convert_all_json_safe_aggregate_returns_zero(
     assert all(item["error"] is None for item in payload["templates"])
 
 
+def test_port_convert_all_human_mode_keeps_line_output_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _patch_convert_all_fixture(monkeypatch, tmp_path, failing_ids={"template/bad"})
+
+    code = _cmd_port_convert(_convert_all_args(json_output=False))
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert captured.err == ""
+    assert "template/good: parity=ok LOC 1→1 (+0)" in captured.out
+    assert "template/bad: error: ValueError: synthetic conversion failure" in captured.out
+    assert not captured.out.lstrip().startswith("{")
+
+
 
 def test_port_convert_all_json_preserves_good_rows_with_malformed_sources(
     tmp_path: Path,
