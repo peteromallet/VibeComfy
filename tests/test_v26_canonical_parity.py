@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from tools import check_canonical_parity as parity
@@ -120,23 +121,22 @@ def test_canonical_parity_is_offline_by_default_even_with_authoring_opt_in(
     assert os.environ["VIBECOMFY_ON_DEMAND_SCHEMAS"] == "1"
 
 
-def test_canonical_parity_network_opt_in_preserves_provider_timeout_boundary(
+def test_canonical_parity_network_opt_in_propagates_schema_policy_env(
     monkeypatch, tmp_path: Path
 ) -> None:
-    from vibecomfy.schema import on_demand
-
     seen: list[str | None] = []
 
-    class CapturingProvider:
-        def __init__(self):
-            seen.append(os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS"))
+    original_policy = parity._parity_schema_policy
 
-        def get_schema(self, _class_type):
-            return None
+    @contextmanager
+    def capture_policy():
+        with original_policy():
+            seen.append(os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS"))
+            yield
 
     monkeypatch.setenv("VIBECOMFY_PARITY_NETWORK", "1")
     monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
-    monkeypatch.setattr(on_demand, "OnDemandInstallSchemaProvider", CapturingProvider)
+    monkeypatch.setattr(parity, "_parity_schema_policy", capture_policy)
     ready_root = _write_schema_probe_template(tmp_path)
 
     records, skipped = parity.collect_records_with_skips(ready_root)
