@@ -480,6 +480,121 @@ def test_stage_many_revalidates_direct_targets(
         stage_many((entry,), models_root=tmp_path / "models")
 
 
+def test_stage_entry_rolls_back_prior_direct_targets_on_later_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "hf" / "model.bin"
+    source.parent.mkdir()
+    source.write_bytes(b"model-bytes")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    bad = outside / "bad.bin"
+    bad.write_bytes(b"bad")
+    models = tmp_path / "models"
+    second = models / "checkpoints" / "second.bin"
+    second.parent.mkdir(parents=True)
+    second.symlink_to(bad)
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **_kwargs: str(source))
+    entry = ModelEntry(
+        id="rollback_direct",
+        source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
+        min_size=1,
+        targets=(
+            ModelTarget(node_pack="comfy_gguf", path="checkpoints/first.bin"),
+            ModelTarget(node_pack="comfy_gguf", path="checkpoints/second.bin"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="rollback_direct.*resolves outside models_root"):
+        stage_entry(entry, models_root=models)
+    assert not (models / "checkpoints" / "first.bin").exists()
+    assert second.is_symlink() and second.resolve() == bad.resolve()
+    assert bad.read_bytes() == b"bad"
+
+
+def test_stage_entry_rolls_back_target_when_alias_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "hf" / "model.bin"
+    source.parent.mkdir()
+    source.write_bytes(b"model-bytes")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    bad = outside / "bad.bin"
+    bad.write_bytes(b"bad")
+    models = tmp_path / "models"
+    alias = models / "checkpoints" / "alias.bin"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(bad)
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **_kwargs: str(source))
+    entry = ModelEntry(
+        id="rollback_alias",
+        source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
+        min_size=1,
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
+        aliases=("alias.bin",),
+    )
+
+    with pytest.raises(ValueError, match="rollback_alias.*resolves outside models_root"):
+        stage_entry(entry, models_root=models)
+    assert not (models / "checkpoints" / "model.bin").exists()
+    assert alias.is_symlink() and alias.resolve() == bad.resolve()
+    assert bad.read_bytes() == b"bad"
+
+
+def test_stage_composite_rolls_back_prior_files_on_later_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first_source = tmp_path / "hf" / "first.bin"
+    second_source = tmp_path / "hf" / "second.bin"
+    first_source.parent.mkdir()
+    first_source.write_bytes(b"first")
+    second_source.write_bytes(b"second")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    bad = outside / "bad.bin"
+    bad.write_bytes(b"bad")
+    models = tmp_path / "models"
+    second = models / "checkpoints" / "second.bin"
+    second.parent.mkdir(parents=True)
+    second.symlink_to(bad)
+    sources = iter((first_source, second_source))
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **_kwargs: str(next(sources)))
+    entry = ModelEntry(
+        id="rollback_composite",
+        source=ModelSource(kind="huggingface", repo="example/repo", revision="abc123"),
+        min_size=1,
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints"),),
+        files=(ModelFile(path="first.bin", min_size=1), ModelFile(path="second.bin", min_size=1)),
+    )
+
+    with pytest.raises(ValueError, match="rollback_composite.*resolves outside models_root"):
+        stage_entry(entry, models_root=models)
+    assert not (models / "checkpoints" / "first.bin").exists()
+    assert second.is_symlink() and second.resolve() == bad.resolve()
+    assert bad.read_bytes() == b"bad"
+
+
+@pytest.mark.parametrize("alias", ["nested/alias.bin", r"nested\\alias.bin"])
+def test_stage_entry_rejects_path_shaped_alias_before_download(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, alias: str
+) -> None:
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must reject before download")),
+    )
+    entry = ModelEntry(
+        id="path_alias",
+        source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
+        min_size=0,
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
+        aliases=(alias,),
+    )
+
+    with pytest.raises(ValueError, match="path_alias.*invalid alias"):
+        stage_entry(entry, models_root=tmp_path / "models")
+
+
 def test_stage_entry_rejects_preexisting_parent_and_final_symlink_escapes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -95,9 +95,22 @@ def load_registry(path: str | Path | None = None) -> tuple[ModelEntry, ...]:
 
 
 def stage_entry(entry: ModelEntry, *, models_root: Path) -> list[Path]:
+    created_paths: list[Path] = []
+    try:
+        return _stage_entry(entry, models_root=models_root, created_paths=created_paths)
+    except BaseException:
+        _rollback_created_paths(created_paths)
+        raise
+
+
+def _stage_entry(
+    entry: ModelEntry, *, models_root: Path, created_paths: list[Path]
+) -> list[Path]:
     _validate_staging_paths(entry, models_root=models_root)
     if entry.files:
-        return _stage_composite_entry(entry, models_root=models_root)
+        return _stage_composite_entry(
+            entry, models_root=models_root, created_paths=created_paths
+        )
     source = _existing_source(entry, models_root=models_root)
     if source is None:
         source = _download_source(entry, models_root=models_root)
@@ -115,32 +128,42 @@ def stage_entry(entry: ModelEntry, *, models_root: Path) -> list[Path]:
             )
             if _existing_target_satisfies(staged, entry):
                 staged_paths.append(staged)
-                staged_paths.extend(_stage_aliases(entry, source=staged, target=target, models_root=models_root))
+                staged_paths.extend(
+                    _stage_aliases(
+                        entry,
+                        source=staged,
+                        target=target,
+                        models_root=models_root,
+                        created_paths=created_paths,
+                    )
+                )
                 continue
             _check_collision(staged, source, entry.id)
             _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             staged.unlink()
-        created = False
         try:
             _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             os.link(source, staged)
-            created = True
+            created_paths.append(staged)
         except OSError:
             _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             os.symlink(source, staged)
-            created = True
-        try:
-            _validate_final_component(
-                staged, models_root=models_root, entry_id=entry.id, source=source, entry=entry
-            )
-            _check_size(staged, entry.min_size, entry.id)
-            _check_pins(staged, entry)
-        except (OSError, RuntimeError, ValueError):
-            if created and os.path.lexists(staged):
-                staged.unlink()
-            raise
+            created_paths.append(staged)
+        _validate_final_component(
+            staged, models_root=models_root, entry_id=entry.id, source=source, entry=entry
+        )
+        _check_size(staged, entry.min_size, entry.id)
+        _check_pins(staged, entry)
         staged_paths.append(staged)
-        staged_paths.extend(_stage_aliases(entry, source=staged, target=target, models_root=models_root))
+        staged_paths.extend(
+            _stage_aliases(
+                entry,
+                source=staged,
+                target=target,
+                models_root=models_root,
+                created_paths=created_paths,
+            )
+        )
     return staged_paths
 
 
@@ -156,7 +179,14 @@ def _existing_source(entry: ModelEntry, *, models_root: Path) -> Path | None:
     return None
 
 
-def _stage_aliases(entry: ModelEntry, *, source: Path, target: ModelTarget, models_root: Path) -> list[Path]:
+def _stage_aliases(
+    entry: ModelEntry,
+    *,
+    source: Path,
+    target: ModelTarget,
+    models_root: Path,
+    created_paths: list[Path],
+) -> list[Path]:
     if not entry.aliases:
         return []
     staged_aliases: list[Path] = []
@@ -164,8 +194,6 @@ def _stage_aliases(entry: ModelEntry, *, source: Path, target: ModelTarget, mode
         alias_path = _authorized_alias_path(
             target, alias, models_root=models_root, entry_id=entry.id
         )
-        if alias_path is None:
-            continue
         if os.path.lexists(alias_path):
             _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             _validate_final_component(
@@ -181,29 +209,23 @@ def _stage_aliases(entry: ModelEntry, *, source: Path, target: ModelTarget, mode
             _check_collision(alias_path, source, entry.id)
             _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             alias_path.unlink()
-        created = False
         try:
             _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             os.link(source, alias_path)
-            created = True
+            created_paths.append(alias_path)
         except OSError:
             _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             os.symlink(source, alias_path)
-            created = True
-        try:
-            _validate_final_component(
-                alias_path,
-                models_root=models_root,
-                entry_id=entry.id,
-                source=source,
-                entry=entry,
-            )
-            _check_size(alias_path, entry.min_size, entry.id)
-            _check_pins(alias_path, entry)
-        except (OSError, RuntimeError, ValueError):
-            if created and os.path.lexists(alias_path):
-                alias_path.unlink()
-            raise
+            created_paths.append(alias_path)
+        _validate_final_component(
+            alias_path,
+            models_root=models_root,
+            entry_id=entry.id,
+            source=source,
+            entry=entry,
+        )
+        _check_size(alias_path, entry.min_size, entry.id)
+        _check_pins(alias_path, entry)
         staged_aliases.append(alias_path)
     return staged_aliases
 
@@ -212,8 +234,19 @@ def stage_many(entries: Sequence[ModelEntry], *, models_root: Path, ids: Sequenc
     selected = _select_by_ids(entries, ids)
     for entry in selected:
         _validate_staging_paths(entry, models_root=models_root)
-    for entry in selected:
-        stage_entry(entry, models_root=models_root)
+    created_paths: list[Path] = []
+    try:
+        for entry in selected:
+            _stage_entry(entry, models_root=models_root, created_paths=created_paths)
+    except BaseException:
+        _rollback_created_paths(created_paths)
+        raise
+
+
+def _rollback_created_paths(created_paths: Sequence[Path]) -> None:
+    for path in reversed(created_paths):
+        if os.path.lexists(path):
+            path.unlink()
 
 
 def normalize_alias(value: str, *, registry: Sequence[ModelEntry] | None = None, node_pack: str | None = None) -> str | None:
@@ -531,12 +564,8 @@ def _authorized_target_path(
 
 def _authorized_alias_path(
     target: ModelTarget, alias: str, *, models_root: Path, entry_id: str
-) -> Path | None:
+) -> Path:
     _validate_target_path(target.path, entry_id=entry_id)
-    if not isinstance(alias, str):
-        _validate_alias(alias, entry_id=entry_id)
-    if "/" in alias or "\\" in alias:
-        return None
     _validate_alias(alias, entry_id=entry_id)
     relative = PurePosixPath(target.path).parent / alias
     return _authorized_staging_path(
@@ -607,7 +636,9 @@ def _download_model_file(entry: ModelEntry, file: ModelFile) -> Path:
     return Path(hf_hub_download(**kwargs)).resolve(strict=True)
 
 
-def _stage_composite_entry(entry: ModelEntry, *, models_root: Path) -> list[Path]:
+def _stage_composite_entry(
+    entry: ModelEntry, *, models_root: Path, created_paths: list[Path]
+) -> list[Path]:
     staged_paths: list[Path] = []
     for file in entry.files:
         source = _download_model_file(entry, file)
@@ -634,29 +665,23 @@ def _stage_composite_entry(entry: ModelEntry, *, models_root: Path) -> list[Path
                 _check_collision(staged, source, entry.id)
                 _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 staged.unlink()
-            created = False
             try:
                 _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 os.link(source, staged)
-                created = True
+                created_paths.append(staged)
             except OSError:
                 _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 os.symlink(source, staged)
-                created = True
-            try:
-                _validate_final_component(
-                    staged,
-                    models_root=models_root,
-                    entry_id=entry.id,
-                    source=source,
-                    entry=entry,
-                    file=file,
-                )
-                _check_model_file_pins(staged, entry=entry, file=file)
-            except (OSError, RuntimeError, ValueError):
-                if created and os.path.lexists(staged):
-                    staged.unlink()
-                raise
+                created_paths.append(staged)
+            _validate_final_component(
+                staged,
+                models_root=models_root,
+                entry_id=entry.id,
+                source=source,
+                entry=entry,
+                file=file,
+            )
+            _check_model_file_pins(staged, entry=entry, file=file)
             staged_paths.append(staged)
     return staged_paths
 
