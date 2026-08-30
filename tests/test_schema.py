@@ -3069,14 +3069,21 @@ def test_build_schema_witness_preserves_complete_frozen_snapshot_identity() -> N
     )
     # Byte/dict stable across construction AND across a late live resolution.
     assert witness_a == witness_b
-    assert witness_b["schema_snapshot"] == schema_snapshot_to_payload(snapshot)
+    expected_snapshot_payload = schema_snapshot_to_payload(snapshot)
+    assert witness_b["schema_snapshot"] == expected_snapshot_payload
     # Round-trip equality on ALL digest-bearing fields.
     assert schema_snapshot_from_payload(witness_b["schema_snapshot"]) == snapshot
     payload = witness_b["schema_snapshot"]
     assert payload["generation"] == snapshot.generation
     assert payload["content_digest"] == snapshot.content_digest
     # The unrelated ingress-surface schema is NOT dropped; missing stays.
-    assert witness_b["schemas"]["UnrelatedIngressNode"] == snapshot.schemas["UnrelatedIngressNode"]
+    # The witness is the JSON-safe serialization of the frozen snapshot, so
+    # compare against its canonical thawed payload rather than the snapshot's
+    # deeply immutable mappingproxy/tuple representation.
+    assert (
+        witness_b["schemas"]["UnrelatedIngressNode"]
+        == expected_snapshot_payload["schemas"]["UnrelatedIngressNode"]
+    )
     assert set(witness_b["schemas"]) == {"KnownPromptNode", "UnrelatedIngressNode"}
     assert witness_b["missing_class_types"] == ["MissingLateNode"]
     # A provider with no frozen snapshot at all still fails closed.
