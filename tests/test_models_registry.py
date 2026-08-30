@@ -387,6 +387,31 @@ def test_normalize_alias_hits_and_misses(tmp_path: Path) -> None:
     assert normalize_alias("unknown.bin", registry=entries) is None
 
 
+def test_shipped_registry_aliases_are_adjacent_and_staging_paths_prevalidate(
+    tmp_path: Path,
+) -> None:
+    entries = load_registry()
+
+    for entry in entries:
+        models_loader._validate_staging_paths(entry, models_root=tmp_path / "models")
+
+    expected_aliases = {
+        "wan_lightx2v_t2v_14b_v2_lora": (
+            "lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors",
+        ),
+        "wan2_1_1_3b_control_lora_tile": (
+            "wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors",
+        ),
+        "wan2_1_infinitetalk_single_q4_k_m": (
+            "Wan2_1-InfiniteTalk_Single_Q8.gguf",
+        ),
+        "wan2_1_i2v_14b_480p_q4_k_m_gguf": (
+            "wan2.1-i2v-14b-480p-Q8_0.gguf",
+        ),
+    }
+    assert {entry.id: entry.aliases for entry in entries if entry.id in expected_aliases} == expected_aliases
+
+
 def test_load_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
     text = _sample_registry(tmp_path / "models.yaml").read_text(encoding="utf-8")
     duplicate = text + "\n" + text.split("models:\n", 1)[1]

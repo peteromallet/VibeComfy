@@ -575,7 +575,7 @@ models:
       - node_pack: wan_wrapper
         path: loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors
     aliases:
-      - 'WanVideo\Lightx2v\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors'
+      - lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors
     tags: [phase:wan_wrapper]
 
   - id: wan_lightx2v_i2v_14b_480p_lora
@@ -613,7 +613,7 @@ models:
       - node_pack: wan_wrapper
         path: loras/WanVid/wan2.1-1.3b-control-lora-tile-v1.1_comfy.safetensors
     aliases:
-      - 'WanVid\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors'
+      - wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors
     tags: [phase:wan_wrapper]
 
   - id: wan2_2_ti2v_5b_depth_controlnet
@@ -638,8 +638,7 @@ models:
       - node_pack: wan_wrapper
         path: diffusion_models/WanVideo/InfiniteTalk/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q4_K_M.gguf
     aliases:
-      - 'WanVideo\InfiniteTalk\InfiniteTalk\Wan2_1-InfiniteTalk_Single_Q8.gguf'
-      - WanVideo/InfiniteTalk/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf
+      - Wan2_1-InfiniteTalk_Single_Q8.gguf
     tags: [phase:wan_wrapper]
 
   - id: wan2_1_i2v_14b_480p_q4_k_m_gguf
@@ -653,8 +652,7 @@ models:
       - node_pack: wan_wrapper
         path: diffusion_models/WanVideo/wan2.1-i2v-14b-480p-Q4_K_M.gguf
     aliases:
-      - 'WanVideo\wan2.1-i2v-14b-480p-Q8_0.gguf'
-      - WanVideo/wan2.1-i2v-14b-480p-Q8_0.gguf
+      - wan2.1-i2v-14b-480p-Q8_0.gguf
     tags: [phase:wan_wrapper]
 
   - id: melband_roformer_fp16
