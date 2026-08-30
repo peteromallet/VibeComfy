@@ -59,11 +59,11 @@ agent = [
 ]
 runpod-local = [
   "python-dotenv>=1.0",
-  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@v0.1.1",
+  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6",
 ]
 runpod-launch = [
   "python-dotenv>=1.0",
-  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@v0.1.1",
+  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6",
 ]
 intent = [
   # Optional extra for the intent-oracle gate (S3).  anthropic is needed for

@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import shutil
+import subprocess
+import sys
 import tarfile
 from collections import namedtuple
 from pathlib import Path
@@ -37,6 +40,37 @@ def test_default_upload_excludes_skip_bulky_local_state(tmp_path: Path) -> None:
     assert not runpod_runner.should_skip(included, root, runpod_runner.DEFAULT_UPLOAD_EXCLUDES)
     assert runpod_runner.should_skip(excluded, root, runpod_runner.DEFAULT_UPLOAD_EXCLUDES)
     assert runpod_runner.should_skip(pycache, root, runpod_runner.DEFAULT_UPLOAD_EXCLUDES)
+
+
+def test_runpod_lifecycle_dependency_api_imports_cleanly() -> None:
+    """The declared git dependency exposes every API imported by the wrapper."""
+    import runpod_lifecycle
+
+    dependency_src = Path(runpod_lifecycle.__file__).resolve().parents[1]
+    env = os.environ.copy()
+    # Do not inherit the wrapper's sibling-checkout override or an unrelated
+    # PYTHONPATH entry: this is intentionally a clean dependency import.
+    env.pop("VIBECOMFY_RUNPOD_LIFECYCLE_ROOT", None)
+    env["PYTHONPATH"] = str(dependency_src)
+    probe = (
+        "import inspect\n"
+        "import runpod_lifecycle as lifecycle\n"
+        "required = ('PodGuard', 'UploadHeartbeat', 'RunPodConfig', "
+        "'ship_and_run', 'ship_and_run_detached', 'ShipAndRunResult')\n"
+        "missing = [name for name in required if not hasattr(lifecycle, name)]\n"
+        "assert not missing, missing\n"
+        "assert 'local_root' in inspect.signature(lifecycle.ship_and_run_detached).parameters\n"
+        "from runpod_lifecycle.runner import DEFAULT_POLL_COMMAND_TEMPLATE, DEFAULT_POLL_EXIT_MARKER\n"
+        "assert '{poll_exit_marker}' in DEFAULT_POLL_COMMAND_TEMPLATE\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_build_upload_tarball_uses_excludes_and_custom_tmpdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,6 +279,47 @@ def test_lifecycle_snapshot_is_mutation_isolated(tmp_path: Path, monkeypatch: py
     finally:
         runpod_runner._cleanup_lifecycle_local_root(staging_root)
     assert not staging_root.exists()
+
+
+@pytest.mark.parametrize("alias_kind", ["alias", "dangling"])
+def test_bind_artifact_root_rejects_lexical_symlink_aliases(
+    tmp_path: Path, alias_kind: str
+) -> None:
+    staging_root = tmp_path / "staging"
+    expected = staging_root / "artifacts"
+    expected.mkdir(parents=True)
+    if alias_kind == "alias":
+        returned = staging_root / "alias"
+        returned.symlink_to(expected, target_is_directory=True)
+    else:
+        returned = staging_root / "dangling"
+        returned.symlink_to(staging_root / "missing", target_is_directory=True)
+
+    destination = tmp_path / "final"
+    assert runpod_runner._bind_artifact_root(
+        returned, destination, staging_root=staging_root
+    ) is None
+    assert not destination.exists()
+    assert returned.is_symlink()
+    assert expected.is_dir() and not expected.is_symlink()
+
+
+def test_bind_artifact_root_rejects_internal_symlink_tree(tmp_path: Path) -> None:
+    staging_root = tmp_path / "staging"
+    expected = staging_root / "artifacts"
+    expected.mkdir(parents=True)
+    target = tmp_path / "outside.txt"
+    target.write_text("must not be imported", encoding="utf-8")
+    (expected / "nested").mkdir()
+    (expected / "nested" / "alias.txt").symlink_to(target)
+
+    destination = tmp_path / "final"
+    assert runpod_runner._bind_artifact_root(
+        expected, destination, staging_root=staging_root
+    ) is None
+    assert not destination.exists()
+    assert expected.is_dir() and (expected / "nested" / "alias.txt").is_symlink()
+    assert target.read_text(encoding="utf-8") == "must not be imported"
 
 
 async def test_run_pod_detached_binds_unique_download_and_preserves_source(

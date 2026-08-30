@@ -100,21 +100,55 @@ def _bind_artifact_root(
     *,
     staging_root: Path,
 ) -> Path | None:
-    """Move this invocation's download to its unique final artifact root."""
+    """Move this invocation's download to its unique final artifact root.
+
+    The lifecycle currently has a fixed download destination of
+    ``local_root / "artifacts"``.  Treat that path as an ownership capability:
+    only its exact lexical spelling is accepted.  In particular, resolving a
+    path before comparing it would allow a symlink alias to pass the check and
+    then move the alias itself out of the staging tree.
+    """
     if artifact_root is None:
         return None
     source = Path(artifact_root)
     expected = staging_root / "artifacts"
-    try:
-        if source.resolve() != expected.resolve():
-            return None
-    except OSError:
+    if source != expected:
         return None
-    if not source.is_dir():
+    if staging_root.is_symlink() or not staging_root.is_dir():
+        return None
+    if source.is_symlink() or not source.is_dir():
+        return None
+    if _contains_symlink(source):
         return None
     destination.parent.mkdir(parents=True, exist_ok=True)
     source.replace(destination)
     return destination
+
+
+def _contains_symlink(root: Path) -> bool:
+    """Return whether *root* contains a symlink, including dangling links.
+
+    ``Path.rglob`` and ordinary ``is_file``/``is_dir`` checks can follow or
+    silently skip symlink aliases.  ``os.walk(..., followlinks=False)`` gives
+    us the complete entry list while keeping traversal inside the downloaded
+    tree; testing each entry with ``is_symlink`` catches both live and dangling
+    links before the tree is moved to its durable artifact location.
+    """
+    try:
+        for directory, child_dirs, child_files in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            for name in (*child_dirs, *child_files):
+                try:
+                    if (Path(directory) / name).is_symlink():
+                        return True
+                except OSError:
+                    # An inaccessible or concurrently removed entry cannot be
+                    # proven safe, so fail closed at the artifact boundary.
+                    return True
+    except OSError:
+        return True
+    return False
 
 
 def _runpod_config_kwargs() -> dict[str, Any]:

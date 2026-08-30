@@ -39,10 +39,15 @@ def test_runpod_dependencies_stay_out_of_core_metadata() -> None:
     assert "python-dotenv>=1.0" not in core_dependencies
     assert "python-dotenv>=1.0" in runpod_dependencies
     assert not any("file://" in dependency or "/Users/" in dependency for dependency in runpod_dependencies)
-    assert any(
-        dependency == "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@v0.1.1"
-        for dependency in runpod_dependencies
+    lifecycle_ref = (
+        "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@"
+        "14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6"
     )
+    assert runpod_dependencies == ["python-dotenv>=1.0", lifecycle_ref]
+    assert project["optional-dependencies"]["runpod-launch"] == [
+        "python-dotenv>=1.0",
+        lifecycle_ref,
+    ]
 
 
 def test_agent_extra_uses_validated_arnold_ref() -> None:

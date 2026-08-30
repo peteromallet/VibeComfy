@@ -5730,8 +5730,8 @@ wheels = [
 
 [[package]]
 name = "runpod-lifecycle"
-version = "0.1.1"
-source = { git = "https://github.com/banodoco/runpod-lifecycle.git?rev=v0.1.1#6684296ccd8a41e49f8c9918e49bf26212213bdc" }
+version = "0.3.0"
+source = { git = "https://github.com/banodoco/runpod-lifecycle.git?rev=14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6#14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6" }
 dependencies = [
     { name = "httpx" },
     { name = "paramiko" },
@@ -7169,8 +7169,8 @@ requires-dist = [
     { name = "python-dotenv", marker = "extra == 'runpod-launch'", specifier = ">=1.0" },
     { name = "python-dotenv", marker = "extra == 'runpod-local'", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6" },
-    { name = "runpod-lifecycle", marker = "extra == 'runpod-launch'", git = "https://github.com/banodoco/runpod-lifecycle.git?rev=v0.1.1" },
-    { name = "runpod-lifecycle", marker = "extra == 'runpod-local'", git = "https://github.com/banodoco/runpod-lifecycle.git?rev=v0.1.1" },
+    { name = "runpod-lifecycle", marker = "extra == 'runpod-launch'", git = "https://github.com/banodoco/runpod-lifecycle.git?rev=14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6" },
+    { name = "runpod-lifecycle", marker = "extra == 'runpod-local'", git = "https://github.com/banodoco/runpod-lifecycle.git?rev=14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6" },
     { name = "websockets", specifier = ">=12" },
 ]
 provides-extras = ["dev", "comfy", "png", "agent", "runpod-local", "runpod-launch", "intent"]
