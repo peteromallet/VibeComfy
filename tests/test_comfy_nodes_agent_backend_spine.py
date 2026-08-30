@@ -5741,10 +5741,13 @@ def test_runtime_readiness_reports_deepseek_key_presence(
         "ready": True,
         "backend": "arnold.pipelines.megaplan.agent.run_agent.AIAgent",
         "route": "openrouter",
+        "transport": "openrouter",
         "model": "deepseek-chat",
         "base_url": "https://openrouter.ai/api/v1",
+        "credential_present": True,
         "openrouter_key_present": True,
-        "reason": "OpenRouter key resolved; ready to run agent-edit turns.",
+        "deepseek_key_present": False,
+        "reason": "OPENROUTER_API_KEY resolved; ready to run agent-edit turns.",
     }
     assert status["ok"] is True
     assert status["ready"] is True

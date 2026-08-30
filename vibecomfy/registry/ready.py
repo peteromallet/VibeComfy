@@ -588,8 +588,17 @@ def _dynamic_ready_roots() -> list[Path]:
 
 
 def _roots_are_same(left: Path, right: Path) -> bool:
+    left_resolved = left.resolve()
+    right_resolved = right.resolve()
+    # NFC normalization handles equivalent Unicode spellings without turning
+    # the case-folded sort key into filesystem identity.  Case variants can
+    # be distinct roots on case-sensitive filesystems.
+    if unicodedata.normalize("NFC", str(left_resolved)) == unicodedata.normalize(
+        "NFC", str(right_resolved)
+    ):
+        return True
     try:
-        return left.resolve().samefile(right.resolve())
+        return left_resolved.samefile(right_resolved)
     except OSError:
         return False
 
@@ -630,22 +639,13 @@ def _dedupe_roots(roots: Iterable[Path]) -> list[Path]:
             (
                 index
                 for index, existing in enumerate(deduped)
-                if (
-                    existing.exists()
-                    and canonical.exists()
-                    and _roots_are_same(existing, canonical)
-                )
-                or (
-                    not existing.exists()
-                    and not canonical.exists()
-                    and str(existing) == str(canonical)
-                )
+                if _roots_are_same(existing, canonical)
             ),
             None,
         )
         if duplicate_index is None:
             deduped.append(canonical)
-        else:
+        elif not deduped[duplicate_index].exists():
             deduped[duplicate_index] = min(
                 deduped[duplicate_index],
                 canonical,

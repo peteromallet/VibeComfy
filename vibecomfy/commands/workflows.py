@@ -22,6 +22,7 @@ from vibecomfy.registry.ready import (
     _normalize_ready_template_id,
     _ready_candidates,
     _ready_lookup_key,
+    dynamic_ready_template_rows,
     ready_template_source_info,
     workflow_from_ready,
 )
@@ -29,6 +30,27 @@ from vibecomfy.runtime.session import _model_assets_from_workflow
 
 TEMPLATE_INDEX_PATH = Path("template_index.json")
 CONTRACT_SHAPE = "workflow_runtime_contract.v1.public_descriptors.v2"
+
+
+def _index_shares_discovery_scope(discovery: ReadyTemplateDiscovery | None) -> bool:
+    """Return whether the index and physical snapshot belong to one scope.
+
+    A caller may provide an index from an alternate workspace.  Reconcile it
+    against the physical snapshot only when their resolved paths overlap; an
+    unrelated external index remains usable metadata instead of being silently
+    discarded because this checkout cannot see its files.
+    """
+    if discovery is None:
+        return False
+    index_parent = TEMPLATE_INDEX_PATH.expanduser().resolve().parent
+    for root in discovery.roots:
+        root_resolved = root.expanduser().resolve()
+        if (
+            index_parent == root_resolved
+            or index_parent == root_resolved.parent
+        ):
+            return True
+    return False
 
 def _cmd_workflows_list(args: argparse.Namespace) -> int:
     rows = []
@@ -53,7 +75,16 @@ def _cmd_workflows_list(args: argparse.Namespace) -> int:
         if index_rows:
             rows = list(index_rows)
             if getattr(args, "include_dynamic", False):
-                rows.extend(_dynamic_ready_rows(set(), discovery=discovery))
+                rows.extend(
+                    [
+                        dict(
+                            row,
+                            public_inputs=row.get("public_inputs") or [],
+                            public_outputs=row.get("public_outputs") or [],
+                        )
+                        for row in dynamic_ready_template_rows(exclude_ids=set())
+                    ]
+                )
             rows = _mark_ready_listing_collisions(rows)
         else:
             rows = _ready_rows_without_index(discovery)
@@ -121,7 +152,7 @@ def _ready_rows_from_template_index(
                 "strict_ready_diagnostic_counts": item.get("strict_ready_diagnostic_counts") or {},
             }
         )
-    if discovery is not None:
+    if _index_shares_discovery_scope(discovery):
         matched_rows: list[dict[str, Any]] = []
         for row in rows:
             matches = _ready_candidates(str(row["id"]), discovery)
