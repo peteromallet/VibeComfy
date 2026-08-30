@@ -966,8 +966,8 @@ def _response_file_is_bounded(path: Path) -> bool:
     """Check the response artifact size before decoding it."""
     try:
         return path.stat().st_size <= _MAX_RESPONSE_BYTES
-    except OSError:
-        return False
+    except OSError as exc:
+        raise AssessmentArtifactError(f"could not inspect response artifact {path}") from exc
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -976,10 +976,17 @@ def _load_json(path: Path) -> dict[str, Any] | None:
         if not path.is_file():
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        # Secondary artifacts are still untrusted inputs.  Do not turn a
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as exc:
+        # Secondary artifacts are still untrusted inputs. Do not turn a
         # permission/read/decode failure into an absent-artifact fallback;
-        # the public assessor converts this into an undetermined publication.
+        # callers convert this typed availability failure into an
+        # undetermined issue while preserving any product failures.
         raise AssessmentArtifactError(f"could not read JSON artifact {path}") from exc
     if not isinstance(payload, dict):
         raise AssessmentArtifactError(f"JSON artifact {path} is not an object")
@@ -997,21 +1004,27 @@ def _load_response_json(
             return None, "missing"
         if not _response_file_is_bounded(path):
             return None, "malformed"
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(parsed, dict) or not _response_tree_is_bounded(parsed):
-            return None, "malformed"
-        if not _response_envelope_is_valid(
-            parsed,
-            allow_non_list_accepted_batch=allow_non_list_accepted_batch,
-        ):
-            return None, "malformed"
-        return _freeze_json(parsed), "valid"
-    except (OSError, UnicodeError, TypeError):
+        raw = path.read_text(encoding="utf-8")
+    except AssessmentArtifactError:
         return None, "unavailable"
-    except Exception:
-        # JSON parsing, validation, and snapshot construction all operate on
-        # hostile untrusted artifacts. Any exception is an unavailable
-        # assessment input, never an assessor crash or fallback.
+    except (OSError, UnicodeError):
+        return None, "unavailable"
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, RecursionError, TypeError):
+        # JSON decoding failures are malformed evidence. Do not catch broad
+        # Exception here: unexpected reader/decode logic must remain visible.
+        return None, "malformed"
+    if not isinstance(parsed, dict) or not _response_tree_is_bounded(parsed):
+        return None, "malformed"
+    if not _response_envelope_is_valid(
+        parsed,
+        allow_non_list_accepted_batch=allow_non_list_accepted_batch,
+    ):
+        return None, "malformed"
+    try:
+        return _freeze_json(parsed), "valid"
+    except TypeError:
         return None, "malformed"
 
 
@@ -1694,7 +1707,13 @@ def _structural_feature_evidence(
             if all(key):
                 reported[key] = raw_check
 
-    graph_nodes = _scenario_graph_nodes(output_dir, scenario)
+    try:
+        graph_nodes = _scenario_graph_nodes(output_dir, scenario)
+    except AssessmentArtifactError as exc:
+        return "undetermined", (
+            "source/original graph artifact could not be inspected; "
+            f"structural absence cannot be verified: {exc}"
+        )
     if graph_nodes is None:
         return "undetermined", (
             "source/original graph is unavailable; structural absence cannot "
@@ -1734,7 +1753,13 @@ def _structural_feature_evidence(
             check["member_kind"],
             check["member"],
         )
-        entry = _authoritative_schema_entry(check["class_type"])
+        try:
+            entry = _authoritative_schema_entry(check["class_type"])
+        except AssessmentArtifactError as exc:
+            return "undetermined", (
+                f"schema artifact could not be inspected for {check['class_type']!r}; "
+                f"structural absence cannot be verified: {exc}"
+            )
         if entry is None:
             return "undetermined", (
                 f"schema lookup error for {check['class_type']!r} in the "
@@ -2089,7 +2114,16 @@ def _assess_executed_research(
         isinstance(n_calls, int) and not isinstance(n_calls, bool) and n_calls > 0
     ) or (isinstance(attempts, list) and len(attempts) > 0)
 
-    payloads = _research_payloads(output_dir, response)
+    try:
+        payloads = _research_payloads(output_dir, response)
+    except AssessmentArtifactError as exc:
+        return [
+            {
+                "check": "ancillary_artifact_unavailable",
+                "severity": "undetermined",
+                "detail": f"assessor could not inspect an ancillary artifact: {exc}",
+            }
+        ]
     tool_calls = max(
         (
             int(payload.get("tool_calls_executed", 0))
@@ -2318,12 +2352,21 @@ def _assess_effective_edit_targets(
     if not targets:
         return []
 
-    original_ui = _load_ui_artifact(
-        output_dir, response, "original_ui", "original.ui.json"
-    )
-    candidate_ui = _load_ui_artifact(
-        output_dir, response, "candidate_ui", "candidate.ui.json"
-    )
+    try:
+        original_ui = _load_ui_artifact(
+            output_dir, response, "original_ui", "original.ui.json"
+        )
+        candidate_ui = _load_ui_artifact(
+            output_dir, response, "candidate_ui", "candidate.ui.json"
+        )
+    except AssessmentArtifactError as exc:
+        return [
+            {
+                "check": "ancillary_artifact_unavailable",
+                "severity": "undetermined",
+                "detail": f"assessor could not inspect an ancillary artifact: {exc}",
+            }
+        ]
     if original_ui is None or candidate_ui is None:
         return [
             {
@@ -2477,10 +2520,23 @@ def _assess_live_output_dir(
             output_dir / "response.json",
             allow_non_list_accepted_batch=True,
         )
-    impl_result = _load_json(output_dir / "implementation_result.json")
 
     issues: list[dict[str, Any]] = []
     judge_results: list[dict[str, Any]] = []
+    impl_result: dict[str, Any] | None = None
+    try:
+        impl_result = _load_json(output_dir / "implementation_result.json")
+    except AssessmentArtifactError as exc:
+        # Keep scoring determined product failures authoritative.  An
+        # unavailable ancillary artifact contributes an undetermined issue,
+        # but must not abort the remainder of the product assessment.
+        issues.append(
+            {
+                "check": "ancillary_artifact_unavailable",
+                "severity": "undetermined",
+                "detail": f"assessor could not inspect an ancillary artifact: {exc}",
+            }
+        )
     if response_state != "valid":
         details = {
             "missing": "response.json is missing; live execution evidence is incomplete.",
@@ -2919,6 +2975,7 @@ def _assess_live_output_dir(
                     "artifact_lineage_sidecar_unverified",
                 )
             ]
+        issues.extend(lineage_issues)
 
     # Semantic-answer judge runs for every D13 rubric scenario regardless
     # of edit expectation or response presence. Health controls are
@@ -2953,6 +3010,23 @@ def _assess_live_output_dir(
                     ),
                 }
             )
+
+    original_ui_path = output_dir / "original.ui.json"
+    final_ui_path = output_dir / "final.ui.json"
+    try:
+        ui_evidence = {
+            "original": original_ui_path.is_file(),
+            "final": final_ui_path.is_file(),
+        }
+    except OSError as exc:
+        issues.append(
+            {
+                "check": "ancillary_artifact_unavailable",
+                "severity": "undetermined",
+                "detail": f"assessor could not inspect an ancillary artifact: {exc}",
+            }
+        )
+        ui_evidence = {"original": False, "final": False}
 
     # Deduplicate while preserving order.
     seen: set[tuple[str, str, str]] = set()
@@ -2999,8 +3073,6 @@ def _assess_live_output_dir(
     else:
         outcome_class = None
 
-    original_ui_path = output_dir / "original.ui.json"
-    final_ui_path = output_dir / "final.ui.json"
     assessment = {
         "passed": verdict == "pass",
         "verdict": verdict,
@@ -3022,10 +3094,7 @@ def _assess_live_output_dir(
             "binding": lineage_assessment["binding"],
             "provenance": lineage_assessment["provenance"],
         },
-        "ui_evidence": {
-            "original": original_ui_path.is_file(),
-            "final": final_ui_path.is_file(),
-        },
+        "ui_evidence": ui_evidence,
     }
     return _publish_assessment(output_dir, assessment)
 
@@ -3063,59 +3132,9 @@ def _publish_assessment(output_dir: Path | str, assessment: dict[str, Any]) -> d
     return assessment
 
 
-def _publish_undetermined_artifact_assessment(
-    output_dir: Path | str,
-    scenario: Mapping[str, Any] | None,
-    error: Exception,
-) -> dict[str, Any]:
-    """Publish an honest result when an ancillary artifact is unavailable."""
-    try:
-        expect_graph_changed = scenario_expects_graph_changed(scenario or {})
-    except Exception:
-        expect_graph_changed = False
-    assessment = {
-        "passed": False,
-        "verdict": "undetermined",
-        "outcome_class": None,
-        "expect_graph_changed": expect_graph_changed,
-        "expected_outcome_kinds": [],
-        "allow_safe_refusal_outcome_kinds": [],
-        "issue_count": 1,
-        "error_count": 0,
-        "issues": [
-            {
-                "check": "ancillary_artifact_unavailable",
-                "severity": "undetermined",
-                "detail": f"assessor could not inspect an ancillary artifact: {error}",
-            }
-        ],
-        "judge_results": [],
-        "scenario_kind": _scenario_kind(scenario),
-        "excluded_from_semantic_product_rates": _excluded_from_semantic_product_rates(
-            scenario
-        ),
-        "artifact_lineage": {
-            "present": False,
-            "manifest_digest": None,
-            "binding": {},
-            "provenance": "unavailable",
-        },
-        "ui_evidence": {"original": False, "final": False},
-    }
-    return _publish_assessment(output_dir, assessment)
-
-
 def assess_live_output_dir(
     output_dir: Path | str,
     scenario: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Assess a run and publish undetermined on any ancillary access failure."""
-    try:
-        return _assess_live_output_dir(output_dir, scenario=scenario)
-    except AssessmentPublicationError:
-        raise
-    except Exception as exc:
-        # Artifact presence/read/decode/filesystem failures must not escape the
-        # assessor or silently turn into a missing-artifact fallback. Publish
-        # the undetermined result through the same atomic path as normal runs.
-        return _publish_undetermined_artifact_assessment(output_dir, scenario, exc)
+    """Assess a run, preserving scoring and typed ancillary failures."""
+    return _assess_live_output_dir(output_dir, scenario=scenario)

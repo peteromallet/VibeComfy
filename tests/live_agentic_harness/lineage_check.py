@@ -67,7 +67,13 @@ def _read_sidecar(output_dir: Path | str) -> Mapping[str, Any] | None:
         if not sidecar_path.is_file():
             return None
         loaded = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as exc:
         # A present but inaccessible sidecar is unavailable evidence, not an
         # absent sidecar that may be exempted by a no-edit lane.
         raise ArtifactLineageAccessError(

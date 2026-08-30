@@ -1512,6 +1512,130 @@ def test_apply_true_is_authoritative_without_assessment_flag(tmp_path: Path) -> 
     assert any(issue["check"] == "graph_changed" for issue in assessment["issues"])
 
 
+def _landed_edit_response() -> dict:
+    return {
+        "ok": True,
+        "graph_unchanged": False,
+        "route": "revise",
+        "outcome": {"kind": "candidate"},
+        "candidate_graph": {"1": {"class_type": "TestNode"}},
+        "change_details": {"landed_operation_count": 1},
+    }
+
+
+def test_assessor_logic_exception_is_not_mislabeled_as_artifact_outage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "response.json").write_text(
+        json.dumps(_landed_edit_response()), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        assessor_module,
+        "_canonical_route",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("route bug")),
+    )
+
+    with pytest.raises(RuntimeError, match="route bug"):
+        assess_live_output_dir(
+            tmp_path,
+            scenario={"apply": True, "assessment": {"skip_intent_judge": True}},
+        )
+
+
+def test_judge_exception_is_not_mislabeled_as_artifact_outage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "response.json").write_text(
+        json.dumps(_landed_edit_response()), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        assessor_module,
+        "judge_edit_intent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("judge bug")),
+    )
+
+    with pytest.raises(RuntimeError, match="judge bug"):
+        assess_live_output_dir(tmp_path, scenario={"apply": True})
+
+
+def test_ancillary_failure_does_not_demote_determined_product_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = {
+        "ok": True,
+        "graph_unchanged": True,
+        "route": "revise",
+        "outcome": {"kind": "noop"},
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    real_load_json = assessor_module._load_json
+
+    def unavailable_impl(path: Path):  # noqa: ANN001
+        if path.name == "implementation_result.json":
+            raise assessor_module.AssessmentArtifactError("impl unavailable")
+        return real_load_json(path)
+
+    monkeypatch.setattr(assessor_module, "_load_json", unavailable_impl)
+
+    assessment = assess_live_output_dir(tmp_path, scenario={"apply": True})
+
+    assert assessment["verdict"] == "fail"
+    checks = {issue["check"] for issue in assessment["issues"]}
+    assert "graph_changed" in checks
+    assert "ancillary_artifact_unavailable" in checks
+
+
+@pytest.mark.parametrize("sidecar_kind", ["missing", "non_object", "invalid_utf8", "stale", "fallback"])
+def test_landed_edit_sidecar_issues_cannot_pass(
+    tmp_path: Path, sidecar_kind: str
+) -> None:
+    response = _landed_edit_response()
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    if sidecar_kind == "non_object":
+        (tmp_path / "artifact_lineage.json").write_text("[]", encoding="utf-8")
+    elif sidecar_kind == "invalid_utf8":
+        (tmp_path / "artifact_lineage.json").write_bytes(b"\xff\xfe")
+    elif sidecar_kind in {"stale", "fallback"}:
+        _seed_lineage(tmp_path)
+        manifest = json.loads(
+            (tmp_path / "artifact_lineage.json").read_text(encoding="utf-8")
+        )
+        if sidecar_kind == "stale":
+            manifest["lineage"]["turn_id"] = "stale-turn"
+        else:
+            fallback_reasons = {
+                "accepted_delta": "no_accepted_operations",
+                "candidate": "no_candidate_built",
+                "replay_proof": "replay_not_run",
+            }
+            for row in manifest["rows"]:
+                reason = fallback_reasons.get(row["kind"])
+                if reason is not None:
+                    row.pop("digest", None)
+                    row["row_class"] = "fallback"
+                    row["reason"] = reason
+            response = json.loads(
+                (tmp_path / "response.json").read_text(encoding="utf-8")
+            )
+            response["report"]["executor"]["artifact_lineage"] = json.loads(
+                json.dumps(manifest)
+            )
+            (tmp_path / "response.json").write_text(
+                json.dumps(response), encoding="utf-8"
+            )
+        (tmp_path / "artifact_lineage.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"apply": True, "assessment": {"skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is False
+    assert assessment["verdict"] != "pass"
+
+
 def test_response_authored_plan_cannot_create_scenario_edit_obligation(
     tmp_path: Path,
 ) -> None:
@@ -1760,7 +1884,7 @@ def test_response_collection_and_string_bounds_fail_closed(
 
 
 @pytest.mark.parametrize("hook", ["validator", "freezer"])
-def test_response_loader_hostile_exceptions_are_undetermined(
+def test_response_loader_logic_exceptions_propagate(
     tmp_path: Path, monkeypatch, hook: str
 ) -> None:
     response = {
@@ -1784,10 +1908,8 @@ def test_response_loader_hostile_exceptions_are_undetermined(
 
         monkeypatch.setattr(assessor_module, "_freeze_json", hostile_freezer)
 
-    assessment = assess_live_output_dir(tmp_path)
-
-    assert assessment["verdict"] == "undetermined"
-    assert assessment["passed"] is False
+    with pytest.raises((RuntimeError, RecursionError), match="hostile"):
+        assess_live_output_dir(tmp_path)
 
 
 def _valid_candidate_transaction() -> dict:
