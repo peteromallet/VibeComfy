@@ -1229,6 +1229,15 @@ export const FEED_SOURCE_PRIORITY = Object.freeze({
   http: 1,
 });
 
+const FEED_KNOWN_STATUSES = new Set([
+  "progress",
+  "in_progress",
+  "done",
+  "clarify",
+  "budget_exhausted",
+  "error",
+]);
+
 /**
  * Reduce an activity feed (array of canonical activity states) with an
  * incoming update. Implements merge-semantics for active/latest turn state:
@@ -1239,14 +1248,13 @@ export const FEED_SOURCE_PRIORITY = Object.freeze({
  * - Rejects updates whose session_id does not match the feed's established
  *   session (unless the feed is empty — first bind).
  * - Prevents terminal→active regressions: if a feed entry for the same turn_id
- *   is terminal (done/clarify/error/budget_exhausted) and the incoming update
- *   is in_progress, the terminal entry is preserved and the update is rejected
- *   (unless the update source is 'http', which carries authoritative final
- *   state).
+ *   is terminal (done/clarify/error/budget_exhausted), an unrecognized status
+ *   is rejected and an incoming in_progress update preserves the terminal entry
+ *   unless the update source is 'http', which carries authoritative final state.
  * - Allows final HTTP batch-turn reconciliation to authoritatively replace
  *   websocket partial rows for the same session/turn without duplication.
- *   HTTP updates always replace matching entries and set the turn status to
- *   the authoritative value.
+ *   HTTP updates with known statuses always replace matching entries and set
+ *   the turn status to the authoritative value.
  *
  * @param {Array<object>|null} previous - frozen array of canonical activity states
  * @param {object|null} update - single canonical activity state (from deriveAgentActivityState)
@@ -1320,6 +1328,12 @@ export function reduceAgentActivityFeed(previous, update, options = {}) {
   if (existingIndex >= 0) {
     const existing = prevFeed[existingIndex];
     const existingStatus = asString(existing.status) || "unknown";
+
+    if (BATCH_TERMINAL_STATUSES.has(existingStatus) && !FEED_KNOWN_STATUSES.has(updateStatus)) {
+      // Preserve terminal state when an HTTP payload has an unrecognized,
+      // blank, or missing status. HTTP authority applies only to known states.
+      return prevFeed;
+    }
 
     if (BATCH_TERMINAL_STATUSES.has(existingStatus) && updateStatus === "in_progress") {
       // Terminal states cannot regress to active.
