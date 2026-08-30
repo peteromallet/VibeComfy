@@ -387,7 +387,7 @@ def iter_turn_records_impl(
     session_id: str,
 ) -> Iterator[DiagnosticRecord]:
     from vibecomfy.comfy_nodes.agent.session import (
-        _read_response_publication,
+        _read_authoritative_turn_response,
         _turn_directories,
         read_state,
     )
@@ -407,17 +407,7 @@ def iter_turn_records_impl(
 
     for turn_dir in turn_dirs:
         turn_id = turn_dir.name
-        publication = _read_response_publication(turn_dir)
-        if publication is not None:
-            response = dict(publication["response"])
-        else:
-            response_result = load_json_result_impl(turn_dir / "response.json")
-            if response_result.status == "absent":
-                response = {}
-            elif response_result.status != "valid":
-                raise DurableReadError(response_result)
-            else:
-                response = dict(response_result.value)
+        response = _read_authoritative_turn_response(turn_dir, state=state)
         request_result = load_json_result_impl(turn_dir / "request.json")
         if request_result.status == "absent":
             request = {}
@@ -512,23 +502,29 @@ def candidate_structural_hash_from_turn_dir_impl(
     session_dir: Path,
     turn_id: str,
 ) -> str | None:
-    from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
+    from vibecomfy.comfy_nodes.agent.session import (
+        _read_authoritative_turn_response,
+        read_state,
+        structural_graph_hash,
+    )
 
-    for filename in ("candidate.ui.json", "response.json"):
-        path = session_dir / "turns" / turn_id / filename
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        graph = (
-            payload.get("graph")
-            if filename == "response.json" and isinstance(payload, Mapping)
-            else payload
-        )
-        digest = structural_graph_hash(graph)
+    candidate_path = session_dir / "turns" / turn_id / "candidate.ui.json"
+    try:
+        candidate_payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        candidate_payload = None
+    if candidate_payload is not None:
+        digest = structural_graph_hash(candidate_payload)
         if isinstance(digest, str):
             return digest
-    return None
+
+    payload = _read_authoritative_turn_response(
+        session_dir / "turns" / turn_id,
+        state=read_state(session_dir),
+    )
+    graph = payload.get("graph") if isinstance(payload, Mapping) else payload
+    digest = structural_graph_hash(graph)
+    return digest if isinstance(digest, str) else None
 
 
 def write_state_atomic_impl(

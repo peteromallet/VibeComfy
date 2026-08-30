@@ -1094,6 +1094,105 @@ def _read_response_publication(turn_dir: Path) -> dict[str, Any] | None:
     return dict(payload)
 
 
+def _mapping_idempotency_key(payload: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+    key = payload.get("idempotency_key")
+    return key if isinstance(key, str) and key else None
+
+
+def _turn_has_idempotency_claim(
+    state: Mapping[str, Any] | None,
+    turn_id: str,
+) -> bool:
+    """Return whether durable state claims that *turn_id* was keyed."""
+    records = state.get("idempotency_records") if isinstance(state, Mapping) else None
+    if not isinstance(records, Mapping):
+        return False
+    return any(
+        isinstance(record, Mapping)
+        and isinstance(key, str)
+        and ":" in key
+        and key.rsplit(":", 1)[1]
+        and record.get("turn_id") == turn_id
+        for key, record in records.items()
+    )
+
+
+def _read_authoritative_turn_response(
+    turn_dir: Path,
+    *,
+    state: Mapping[str, Any] | None = None,
+    keyed: bool | None = None,
+) -> dict[str, Any]:
+    """Read one turn response through the durable publication authority.
+
+    Keyedness comes from durable request.json evidence first; publication and
+    session-state records may corroborate. ``response.json`` is only a
+    rebuildable projection for keyed turns. Genuine unkeyed legacy turns keep
+    their historical response fallback.
+    """
+    request_result = load_json_result_impl(turn_dir / "request.json")
+    publication = _read_response_publication(turn_dir)
+
+    if request_result.status in {"corrupt", "unreadable"}:
+        # Damaged request evidence must not collapse into unkeyed fallback.
+        raise DurableReadError(request_result)
+
+    request = request_result.value if request_result.status == "valid" else None
+    request_key = _mapping_idempotency_key(request if isinstance(request, Mapping) else None)
+    publication_key = _mapping_idempotency_key(
+        publication if isinstance(publication, Mapping) else None
+    )
+    state_claim = _turn_has_idempotency_claim(state, turn_dir.name)
+    keyed_claim = bool(keyed) or bool(request_key) or bool(publication_key) or state_claim
+
+    if request_result.status == "absent" and keyed_claim and publication is None:
+        raise DurableReadError(
+            DurableRead(
+                "unreadable",
+                path=turn_dir / "request.json",
+                error="keyed turn is missing request.json",
+            )
+        )
+
+    if publication is not None:
+        if request_key and publication_key != request_key:
+            raise _publication_corrupt(
+                _response_publication_path(turn_dir),
+                "publication idempotency key does not match request",
+            )
+        response = dict(publication["response"])
+        response_path = turn_dir / "response.json"
+        projection = load_json_result_impl(response_path)
+        if projection.status != "valid" or projection.value != response:
+            try:
+                _write_response_atomic(response_path, response)
+            except (OSError, ValueError, TypeError) as exc:
+                _LOGGER.warning(
+                    "response.json repair failed for turn %s (best-effort): %s",
+                    turn_dir.name,
+                    exc,
+                )
+        return response
+
+    if keyed_claim:
+        raise DurableReadError(
+            DurableRead(
+                "unreadable",
+                path=_response_publication_path(turn_dir),
+                error="keyed turn has no durable response publication",
+            )
+        )
+
+    response_result = load_json_result_impl(turn_dir / "response.json")
+    if response_result.status == "absent":
+        return {}
+    if response_result.status != "valid":
+        raise DurableReadError(response_result)
+    return dict(response_result.value)
+
+
 def _turn_directories(session_dir: Path) -> tuple[Path, ...]:
     """Return durable turn directories, failing closed on damaged walks."""
     turns_dir = session_dir / "turns"
@@ -1111,6 +1210,29 @@ def _turn_directories(session_dir: Path) -> tuple[Path, ...]:
         raise DurableReadError(
             DurableRead("unreadable", path=turns_dir, error=str(exc))
         ) from exc
+
+
+def _request_key_claims(session_dir: Path) -> dict[str, tuple[Path, str]]:
+    """Index valid request keys directly from durable turn artifacts."""
+    claims: dict[str, tuple[Path, str]] = {}
+    for turn_dir in _turn_directories(session_dir):
+        result = load_json_result_impl(turn_dir / "request.json")
+        if result.status == "absent":
+            continue
+        if result.status != "valid":
+            raise DurableReadError(result)
+        request = result.value
+        key = _mapping_idempotency_key(request if isinstance(request, Mapping) else None)
+        if key is None:
+            continue
+        prior = claims.get(key)
+        if prior is not None and prior[0] != turn_dir:
+            raise _publication_corrupt(
+                turn_dir / "request.json",
+                f"multiple requests claim idempotency key {key!r}",
+            )
+        claims[key] = (turn_dir, payload_hash(request))
+    return claims
 
 
 def _recover_response_publications(session_dir: Path) -> dict[str, dict[str, Any]]:
@@ -3038,14 +3160,38 @@ def _record_key(scope: OperationScope, idempotency_key: str | None) -> str | Non
     return f"{scope}:{idempotency_key}"
 
 
-def _load_response(path: str | None) -> dict[str, Any] | None:
+def _load_response(
+    path: str | None,
+    *,
+    state: Mapping[str, Any] | None = None,
+    turn_dir: Path | None = None,
+    keyed: bool = False,
+) -> dict[str, Any] | None:
+    """Load a stored response, using publication authority for turn projections."""
     if not path:
         return None
-    try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    response_path = Path(path)
+    if turn_dir is None and response_path.name == "response.json":
+        if response_path.parent.parent.name == "turns":
+            turn_dir = response_path.parent
+    if (
+        turn_dir is not None
+        and response_path.resolve() == (turn_dir / "response.json").resolve()
+    ):
+        return _read_authoritative_turn_response(
+            turn_dir, state=state, keyed=keyed
+        )
+
+    result = load_json_result_impl(response_path)
+    if result.status == "absent":
+        if keyed:
+            raise DurableReadError(
+                DurableRead("unreadable", path=response_path, error="keyed response is absent")
+            )
         return None
-    return payload if isinstance(payload, dict) else None
+    if result.status != "valid":
+        raise DurableReadError(result)
+    return dict(result.value)
 
 
 def _conflict_kind(scope: OperationScope) -> FailureKind:
@@ -3515,6 +3661,43 @@ def allocate_turn(
             write_state_atomic(session_dir, state)
         if key is not None:
             existing = state["idempotency_records"].get(key)
+            if not isinstance(existing, Mapping):
+                # request.json is durable turn evidence; session_state.json is
+                # not. Bind the occupied turn before minting a new directory.
+                request_claim = _request_key_claims(session_dir).get(idempotency_key)
+                if request_claim is not None:
+                    claimed_turn_dir, claimed_request_hash = request_claim
+                    context = TurnContext(
+                        session_id=session_id,
+                        turn_id=claimed_turn_dir.name,
+                        baseline_turn_id=state.get("baseline_turn_id"),
+                        idempotency_key=idempotency_key,
+                    )
+                    if claimed_request_hash != request_digest:
+                        failure = failure_envelope(
+                            _conflict_kind("edit"),
+                            "ingest",
+                            context,
+                            agent_failure_context={
+                                "explanation": "Idempotency key was reused with a different request hash.",
+                                "idempotency_key": idempotency_key,
+                                "existing_request_hash": claimed_request_hash,
+                                "request_hash": request_digest,
+                            },
+                        )
+                        return TurnAllocation(
+                            context=context,
+                            session_dir=session_dir,
+                            turn_dir=claimed_turn_dir,
+                            state=state,
+                            request_hash=request_digest,
+                            idempotency_record_key=key,
+                            conflict=IdempotencyConflict(failure=failure, record={}),
+                        )
+                    existing = {
+                        "turn_id": claimed_turn_dir.name,
+                        "request_hash": claimed_request_hash,
+                    }
             if isinstance(existing, Mapping):
                 publication, authority_record = _existing_key_publication(
                     session_root=session_root,
@@ -4240,6 +4423,9 @@ def accept_turn(
     try:
         with SessionStateLock(session_dir, timeout_seconds=DEFAULT_LOCK_TIMEOUT_SECONDS):
             state = read_state(session_dir)
+            turn_dir = turn_dir_for(session_root, session_id, turn_id)
+            if turn_dir.is_dir():
+                _read_authoritative_turn_response(turn_dir, state=state)
             turn_record = state["turns"].get(turn_id)
             if isinstance(turn_record, dict):
                 current_state = turn_record.get("state")
@@ -4383,6 +4569,9 @@ def _discard_v2_candidate_if_applicable(
     key = _record_key("reject", idempotency_key)
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
+        turn_dir = turn_dir_for(session_root, session_id, turn_id)
+        if turn_dir.is_dir():
+            _read_authoritative_turn_response(turn_dir, state=state)
         turn_record = state["turns"].get(turn_id)
         if not isinstance(turn_record, dict):
             return failure_envelope(
@@ -4413,7 +4602,12 @@ def _discard_v2_candidate_if_applicable(
             existing = state["idempotency_records"].get(key)
             if isinstance(existing, dict):
                 if existing.get("request_hash") == request_digest:
-                    response = _load_response(existing.get("response_path"))
+                    response = _load_response(
+                        existing.get("response_path"),
+                        state=state,
+                        turn_dir=turn_dir_for(session_root, session_id, turn_id),
+                        keyed=True,
+                    )
                     if response is not None:
                         return response
                 return failure_envelope(
@@ -4700,7 +4894,11 @@ def rebaseline_session(
             existing = state["idempotency_records"].get(key)
             if isinstance(existing, dict):
                 if existing.get("request_hash") == request_digest:
-                    response = _load_response(existing.get("response_path"))
+                    response = _load_response(
+                        existing.get("response_path"),
+                        state=state,
+                        keyed=True,
+                    )
                     if response is not None:
                         return response
                 return failure_envelope(

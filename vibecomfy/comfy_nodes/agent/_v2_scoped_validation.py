@@ -88,13 +88,17 @@ def _load_turn_request_graph(
 def _load_turn_response_payload(
     *, session_dir: Path, turn_id: str
 ) -> dict[str, Any] | None:
-    """Load the turn's ``response.json``."""
-    path = session_dir / "turns" / turn_id / "response.json"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, Mapping) else None
+    """Load the turn response through the durable publication authority."""
+    from vibecomfy.comfy_nodes.agent.session import (
+        _read_authoritative_turn_response,
+        read_state,
+    )
+
+    payload = _read_authoritative_turn_response(
+        session_dir / "turns" / turn_id,
+        state=read_state(session_dir),
+    )
+    return payload or None
 
 
 def _load_turn_candidate_graph(

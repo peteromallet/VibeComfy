@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.candidate_transaction import classify_legacy_migration_v1
 from vibecomfy.comfy_nodes.agent.contracts import TurnContext, ensure_agent_edit_response_contract
-from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, RESPONSE_PUBLICATION_FILE_NAME, REVIEWABLE_CANDIDATE_STATES, _read_response_publication, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, load_json_result_impl, project_transaction_state, read_state, session_dir_for
+from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, RESPONSE_PUBLICATION_FILE_NAME, REVIEWABLE_CANDIDATE_STATES, _read_authoritative_turn_response, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, load_json_result_impl, project_transaction_state, read_state, session_dir_for
 from vibecomfy.porting.edit.types import FieldChange
 from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _ops_from_accepted_batch, _safe_session_id
 
@@ -161,42 +161,13 @@ def _stamped_message_outcome(
     return dict(public_outcome) if isinstance(public_outcome, Mapping) else None
 
 
-def _turn_has_idempotency_claim(state: Mapping[str, Any], turn_id: str) -> bool:
-    records = state.get("idempotency_records")
-    if not isinstance(records, Mapping):
-        return False
-    return any(
-        isinstance(record, Mapping) and record.get("turn_id") == turn_id
-        for record in records.values()
-    )
-
-
 def _read_turn_response_payload(
     turn_dir: Path,
     *,
-    keyed: bool = False,
+    keyed: bool | None = None,
+    state: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    # response_publication.json is the immutable keyed replay authority. A
-    # damaged response.json is only a repairable projection when publication
-    # is valid; it must never hide a completed turn from chat reconstruction.
-    publication = _read_response_publication(turn_dir)
-    if publication is not None:
-        return dict(publication["response"])
-    if keyed:
-        raise DurableReadError(
-            DurableRead(
-                "unreadable",
-                path=turn_dir / RESPONSE_PUBLICATION_FILE_NAME,
-                error="idempotency record claims a key but its response publication is absent",
-            )
-        )
-    response_path = turn_dir / "response.json"
-    result = load_json_result_impl(response_path)
-    if result.status == "absent":
-        return {}
-    if result.status != "valid":
-        raise DurableReadError(result)
-    return dict(result.value)
+    return _read_authoritative_turn_response(turn_dir, state=state, keyed=keyed)
 
 
 def _authoritative_agent_text(response: Mapping[str, Any]) -> str:
@@ -277,14 +248,20 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
     if not isinstance(turns_state, Mapping):
         turns_state = {}
     for turn_id in reversed(turn_ids):
+        turn_dir = session_dir / "turns" / turn_id
         turn_state = turns_state.get(turn_id)
+        response = _read_turn_response_payload(turn_dir, state=state)
+        if not isinstance(turn_state, Mapping):
+            # State cache loss must not hide a still-published candidate.
+            response_outcome = _stamped_turn_response_outcome(response, stage="submit")
+            if response_outcome is not None and response_outcome.get("kind") == "candidate":
+                turn_state = {"state": "candidate"}
+            else:
+                continue
         if (
-            not isinstance(turn_state, Mapping)
-            or turn_state.get("state") not in REVIEWABLE_CANDIDATE_STATES
+            turn_state.get("state") not in REVIEWABLE_CANDIDATE_STATES
         ):
             continue
-        turn_dir = session_dir / "turns" / turn_id
-        response = _read_turn_response_payload(turn_dir)
         outcome = _stamped_turn_response_outcome(response, stage="submit")
         if outcome is None or outcome.get("kind") != "candidate":
             continue
@@ -800,8 +777,7 @@ def read_session_chat(
         turn_dir = turns_dir / turn_id
         chat_path = turn_dir / "chat.json"
         chat_record: dict[str, Any] | None = None
-        keyed = _turn_has_idempotency_claim(session_state, turn_id)
-        response = _read_turn_response_payload(turn_dir, keyed=keyed)
+        response = _read_turn_response_payload(turn_dir, state=session_state)
         publication_present = (turn_dir / RESPONSE_PUBLICATION_FILE_NAME).is_file()
         fallback_agent_outcome = _stamped_turn_response_outcome(response, stage="submit")
         request_path = turn_dir / "request.json"
@@ -831,29 +807,28 @@ def read_session_chat(
                 turn_id=turn_id,
             )
 
-        # Fall back to request.json + response.json.
+        # Fall back to request.json + the publication-aware response.
         if chat_record is None:
             request_path = turn_dir / "request.json"
             response_path = turn_dir / "response.json"
-            if request_path.is_file() and (
-                response_path.is_file()
-                or (turn_dir / "response_publication.json").is_file()
-                or response
-            ):
-                try:
-                    request = json.loads(request_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError) as exc:
-                    raise DurableReadError(
-                        DurableRead(
-                            "corrupt" if isinstance(exc, json.JSONDecodeError) else "unreadable",
-                            path=request_path,
-                            error=str(exc),
+            if response or response_path.is_file() or publication_present:
+                request: Mapping[str, Any] = {}
+                if request_path.is_file():
+                    try:
+                        parsed_request = json.loads(request_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        raise DurableReadError(
+                            DurableRead(
+                                "corrupt" if isinstance(exc, json.JSONDecodeError) else "unreadable",
+                                path=request_path,
+                                error=str(exc),
+                            )
+                        ) from exc
+                    if not isinstance(parsed_request, Mapping):
+                        raise DurableReadError(
+                            DurableRead("corrupt", path=request_path, error="request must be a JSON object")
                         )
-                    ) from exc
-                if not isinstance(request, Mapping):
-                    raise DurableReadError(
-                        DurableRead("corrupt", path=request_path, error="request must be a JSON object")
-                    )
+                    request = parsed_request
                 agent_text = _authoritative_agent_text(response)
                 chat_record = {
                     "session_id": safe_id,

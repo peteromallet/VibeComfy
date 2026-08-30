@@ -248,7 +248,11 @@ def load_bound_candidate_replay_evidence(
         content_hash,
         legacy_rendering_hash,
     )
-    from vibecomfy.comfy_nodes.agent.session import _load_json
+    from vibecomfy.comfy_nodes.agent.session import (
+        _load_json,
+        _read_authoritative_turn_response,
+        read_state,
+    )
 
     transaction, legacy_migration = load_candidate_transaction_with_migration(
         turn_dir, plan_hash
@@ -367,7 +371,10 @@ def load_bound_candidate_replay_evidence(
     if receipt.session_id != session_id or receipt.turn_id != turn_id:
         return None, "receipt_identity_mismatch"
 
-    response = _load_json(turn_dir / "response.json")
+    response = _read_authoritative_turn_response(
+        turn_dir,
+        state=read_state(turn_dir.parents[1]),
+    )
     if isinstance(response, Mapping):
         response_transaction = response.get("candidate_transaction")
         if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:

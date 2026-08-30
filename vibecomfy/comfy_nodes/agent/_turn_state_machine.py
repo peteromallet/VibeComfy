@@ -74,11 +74,15 @@ def _mutate_turn_state(
         _load_response,
         _now,
         _record_key,
+        _read_authoritative_turn_response,
+        _recover_response_publications,
+        _merge_recovered_publications,
         _set_baseline_authoritatively,
         _source_path_for_turn_baseline,
         payload_hash,
         read_state,
         session_dir_for,
+        turn_dir_for,
         structural_graph_hash,
         write_state_atomic,
     )
@@ -88,6 +92,14 @@ def _mutate_turn_state(
 
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
+        recovered_publications = _recover_response_publications(session_dir)
+        if _merge_recovered_publications(
+            state, recovered_publications, session_dir=session_dir
+        ):
+            write_state_atomic(session_dir, state)
+        turn_dir = turn_dir_for(session_root, session_id, turn_id)
+        if turn_dir.is_dir():
+            _read_authoritative_turn_response(turn_dir, state=state)
         context = TurnContext(
             session_id=session_id,
             turn_id=turn_id,
@@ -98,7 +110,12 @@ def _mutate_turn_state(
             existing = state["idempotency_records"].get(key)
             if isinstance(existing, dict):
                 if existing.get("request_hash") == request_digest:
-                    response = _load_response(existing.get("response_path"))
+                    response = _load_response(
+                        existing.get("response_path"),
+                        state=state,
+                        turn_dir=turn_dir_for(session_root, session_id, turn_id),
+                        keyed=True,
+                    )
                     if response is not None:
                         return response
                 return failure_envelope(

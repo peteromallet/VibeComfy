@@ -531,9 +531,9 @@ def handle_agent_edit(
         # candidate transaction. Return that exact published envelope to the
         # browser; returning the pre-publication draft made freshly-created
         # layout candidates look like legacy/read-only candidates until reload.
-        published_response = json.loads(
-            (turn_dir / "response.json").read_text(encoding="utf-8")
-        )
+        from vibecomfy.comfy_nodes.agent.session import _read_authoritative_turn_response
+
+        published_response = _read_authoritative_turn_response(turn_dir)
         return _validated_agent_edit_response(published_response, stage="submit")
 
     # Load session-local last-five conversation messages for prompt memory.
