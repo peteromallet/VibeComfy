@@ -29,6 +29,7 @@ from vibecomfy.executor.revision_evidence import (
     collect_topology_evidence,
     compute_scoped_diff,
     semantic_graph_hash,
+    semantic_graph_projection,
 )
 
 
@@ -43,6 +44,13 @@ def _make_simple_graph(*, nodes: list[dict] | None = None,
     return {
         "nodes": nodes or [],
         "links": links or [],
+    }
+
+
+def _idless_link(source_port: str, target_port: str) -> dict[str, Any]:
+    return {
+        "from": {"node_uid": "source", "port": source_port},
+        "to": {"node_uid": "sink", "port": target_port},
     }
 
 
@@ -291,6 +299,72 @@ def test_scoped_diff_and_public_projection_preserve_semantic_node_properties() -
     assert scoped.changed_nodes == ("1",)
     assert scoped.diff_paths == ("nodes.1.properties.backend_mode",)
     assert scoped.candidate_eligible is True
+
+
+def _scoped_link_diff(original: dict[str, Any], candidate: dict[str, Any]) -> Any:
+    return compute_scoped_diff(
+        original,
+        candidate,
+        topology=TopologyFindings(schema_available=True),
+        readiness=ReadinessReport(),
+        candidate_topology=TopologyFindings(schema_available=True),
+        candidate_readiness=ReadinessReport(),
+    )
+
+
+def test_semantic_projection_and_scoped_diff_preserve_link_order() -> None:
+    first = _idless_link("out-a", "in-a")
+    second = _idless_link("out-b", "in-b")
+    original = _make_simple_graph(links=[first, second])
+    candidate = _make_simple_graph(links=[second, first])
+
+    assert semantic_graph_projection(candidate)["links"] == [second, first]
+    assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
+    scoped = _scoped_link_diff(original, candidate)
+    assert scoped.has_diff is True
+    assert scoped.candidate_eligible is True
+    assert "links.order" in scoped.diff_paths
+
+
+def test_scoped_diff_preserves_duplicate_idless_link_addition() -> None:
+    link = _idless_link("out", "in")
+    original = _make_simple_graph(links=[link])
+    candidate = _make_simple_graph(links=[link, copy.deepcopy(link)])
+
+    scoped = _scoped_link_diff(original, candidate)
+    assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
+    assert scoped.has_diff is True
+    assert scoped.candidate_eligible is True
+    assert len(scoped.added_links) == 1
+    assert len(scoped.removed_links) == 0
+
+
+def test_scoped_diff_preserves_duplicate_idless_link_removal() -> None:
+    link = _idless_link("out", "in")
+    original = _make_simple_graph(links=[link, copy.deepcopy(link)])
+    candidate = _make_simple_graph(links=[link])
+
+    scoped = _scoped_link_diff(original, candidate)
+    assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
+    assert scoped.has_diff is True
+    assert scoped.candidate_eligible is True
+    assert len(scoped.added_links) == 0
+    assert len(scoped.removed_links) == 1
+
+
+def test_scoped_diff_preserves_duplicate_idless_link_reordering() -> None:
+    first = _idless_link("out-a", "in-a")
+    second = _idless_link("out-b", "in-b")
+    original = _make_simple_graph(links=[first, copy.deepcopy(first), second])
+    candidate = _make_simple_graph(links=[first, second, copy.deepcopy(first)])
+
+    scoped = _scoped_link_diff(original, candidate)
+    assert semantic_graph_hash(original) != semantic_graph_hash(candidate)
+    assert scoped.has_diff is True
+    assert scoped.candidate_eligible is True
+    assert scoped.added_links == ()
+    assert scoped.removed_links == ()
+    assert "links.order" in scoped.diff_paths
 
 
 def _graph_with_terminal_node() -> dict[str, Any]:

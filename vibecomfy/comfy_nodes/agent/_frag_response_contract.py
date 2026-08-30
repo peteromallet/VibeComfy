@@ -1919,11 +1919,18 @@ def _build_dev_success_response(
     contract: str,
 ) -> dict[str, Any]:
     from vibecomfy.comfy_nodes.agent.edit import (ApplyEligibility, LOGGER, TurnIdentity, TurnOutcome, _build_candidate_payload, _build_compatibility_response_fields, _build_precedent_semantic_check_entries, _canonical_agent_edit_route, _canonical_delta_ops_envelope_payload, _execution_plan_debug_fields, _execution_plan_response_fields, _execution_plan_task_satisfaction_entries, _has_enough_grounded_facts_for_dev_narrative, _json_safe, _legacy_narrative_debug_status, _narrate_final_message, _narrative_debug_fields, _plan_validation_allows_candidate, _prepare_narrative_artifact_paths, _record_narrative_artifacts, _record_post_edit_reorganisation_advisory, _response_artifacts_with_execution_plan, _route_blocks_apply, _route_change_focus_label, _sanitize_pure_clarify_response, _session_artifact_response_fields, _stage_snapshot_payloads, _sync_narrated_clarify_outcome, _v2_candidate_mutation_plan_fields, build_legacy_agent_edit_v1, derive_apply_eligibility, format_compact_plan_feedback, public_outcome_from_turn_outcome, success_envelope, turn_envelope)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.executor.revision_evidence import semantic_graph_hash
+    semantic_delta_graph_changed = (
+        isinstance(state.ui_payload, Mapping)
+        and isinstance(state.graph, Mapping)
+        and semantic_graph_hash(state.ui_payload) != semantic_graph_hash(state.graph)
+    )
+    delta_graph_noop = contract == "delta" and not semantic_delta_graph_changed
     turn_identity = TurnIdentity.from_context(context)
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     eligibility = derive_apply_eligibility(
         context,
-        has_candidate=plan_allows_candidate,
+        has_candidate=plan_allows_candidate and not delta_graph_noop,
         candidate_state="candidate",
     )
     # inspect and clarify routes cannot be Apply-eligible.
@@ -1946,6 +1953,9 @@ def _build_dev_success_response(
         internal_outcome = TurnOutcome.noop(
             reason=format_compact_plan_feedback(state.execution_plan, state.plan_evaluation)
         )
+    elif delta_graph_noop:
+        has_candidate = False
+        internal_outcome = TurnOutcome.noop(reason="No semantic graph changes.")
     else:
         has_candidate = True
         internal_outcome = TurnOutcome.edit()
@@ -1961,13 +1971,15 @@ def _build_dev_success_response(
     )
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
-    accepted_batch: list[dict[str, Any]] | None = None
+    accepted_batch: list[dict[str, Any]] | None = (
+        [] if contract == "delta" and not has_candidate else None
+    )
     if contract == "delta" and has_candidate:
         derived_ops = _canonical_delta_ops_envelope_payload(state.delta_ops)["ops"]
         accepted_batch = [{"op": dict(op)} for op in derived_ops if isinstance(op, Mapping)]
         accepted_ops_for_plan = [
             dict(item["op"])
-            for item in _effective_accepted_batch_statements(state)
+            for item in accepted_batch
             if isinstance(item.get("op"), Mapping)
         ]
     else:
@@ -2021,8 +2033,8 @@ def _build_dev_success_response(
         report=state.report,
         artifacts=_response_artifacts_with_execution_plan(state),
         apply_eligibility=eligibility,
-        canvas_apply_allowed=context.canvas_apply_allowed if plan_allows_candidate else False,
-        queue_allowed=context.queue_allowed if plan_allows_candidate else False,
+        canvas_apply_allowed=context.canvas_apply_allowed if has_candidate else False,
+        queue_allowed=context.queue_allowed if has_candidate else False,
     )
     response.update(compatibility_fields)
     response.update(_session_artifact_response_fields(state))
@@ -2065,6 +2077,9 @@ def _build_dev_success_response(
         response["accepted_batch"] = _json_safe(accepted_batch)
     if response.get("accepted_batch"):
         response["agent_edit_protocol"] = "v2_delta"
+    if delta_graph_noop:
+        response["graph_unchanged"] = True
+        response["no_candidate_reason"] = "no_changes"
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)

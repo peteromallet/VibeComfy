@@ -883,37 +883,36 @@ def compute_scoped_diff(
     )
 
     # ── 4. Link-level diff ──────────────────────────────────────────────
-    orig_links_raw = (
-        door_get_links(original_graph) if isinstance(original_graph, dict) else None
-    )
-    cand_links_raw = (
-        door_get_links(candidate_graph) if isinstance(candidate_graph, dict) else None
-    )
-
-    orig_links: list[dict] = (
-        [l for l in orig_links_raw if isinstance(l, (dict, list))]
-        if isinstance(orig_links_raw, list)
-        else []
-    )
-    cand_links: list[dict] = (
-        [l for l in cand_links_raw if isinstance(l, (dict, list))]
-        if isinstance(cand_links_raw, list)
-        else []
-    )
-
-    orig_link_ids = {_link_identity(l) for l in orig_links}
-    cand_link_ids = {_link_identity(l) for l in cand_links}
+    # Keep the exact frozen link sequence for both projection and diffing.
+    # Occurrence keys retain multiplicity for id-less links instead of
+    # collapsing parallel edges into one set member.
+    orig_links = list(_semantic_link_sequence(original_graph))
+    cand_links = list(_semantic_link_sequence(candidate_graph))
+    orig_link_entries = _link_occurrence_entries(orig_links)
+    cand_link_entries = _link_occurrence_entries(cand_links)
+    orig_link_map = {key: link for key, link in orig_link_entries}
+    cand_link_map = {key: link for key, link in cand_link_entries}
+    orig_link_ids = set(orig_link_map)
+    cand_link_ids = set(cand_link_map)
 
     added_link_ids = cand_link_ids - orig_link_ids
     removed_link_ids = orig_link_ids - cand_link_ids
 
-    # Changed links: same identity but different content.
+    # Changed links: same stable-id occurrence but different content.
     changed_link_ids: set[str] = set()
-    orig_link_map = {_link_identity(l): l for l in orig_links}
-    cand_link_map = {_link_identity(l): l for l in cand_links}
     for lid in orig_link_ids & cand_link_ids:
         if _link_content_hash(orig_link_map[lid]) != _link_content_hash(cand_link_map[lid]):
             changed_link_ids.add(lid)
+
+    # A pure reorder has no added/removed occurrences, but remains semantic
+    # because the projection deliberately preserves edge sequence.
+    orig_link_bases = [_link_diff_identity(link) for link in orig_links]
+    cand_link_bases = [_link_diff_identity(link) for link in cand_links]
+    link_order_changed = (
+        len(orig_links) == len(cand_links)
+        and _sequence_counts(orig_link_bases) == _sequence_counts(cand_link_bases)
+        and orig_link_bases != cand_link_bases
+    )
 
     # ── 5. Stable dot paths ─────────────────────────────────────────────
     diff_paths: list[str] = []
@@ -930,13 +929,18 @@ def compute_scoped_diff(
             f"nodes.{nid}.{path}"
             for path in _diff_value_paths(orig_node, cand_node)
         )
-    # Link-level paths
-    for lid in sorted(added_link_ids, key=_link_id_sort_key):
+    # Link-level paths.  Keep occurrence order for duplicate edges.
+    added_link_order = _ordered_link_ids(cand_link_entries, added_link_ids)
+    removed_link_order = _ordered_link_ids(orig_link_entries, removed_link_ids)
+    changed_link_order = _ordered_link_ids(orig_link_entries, changed_link_ids)
+    for lid in added_link_order:
         diff_paths.append(f"links.added.{lid}")
-    for lid in sorted(removed_link_ids, key=_link_id_sort_key):
+    for lid in removed_link_order:
         diff_paths.append(f"links.removed.{lid}")
-    for lid in sorted(changed_link_ids, key=_link_id_sort_key):
+    for lid in changed_link_order:
         diff_paths.append(f"links.changed.{lid}")
+    if link_order_changed:
+        diff_paths.append("links.order")
 
     # ── 6. Candidate eligibility blockers ───────────────────────────────
     has_readiness_blockers = (
@@ -1023,6 +1027,8 @@ def compute_scoped_diff(
         summary_parts.append(f"{len(added_link_ids)} added link(s)")
     if removed_link_ids:
         summary_parts.append(f"{len(removed_link_ids)} removed link(s)")
+    if link_order_changed:
+        summary_parts.append("link order changed")
     if not summary_parts:
         summary_parts.append("no changes detected")
     if eligibility_blockers:
@@ -1035,14 +1041,14 @@ def compute_scoped_diff(
         added_nodes=tuple(added_ids),
         removed_nodes=tuple(removed_ids),
         untouched_nodes=tuple(untouched_ids),
-        changed_links=tuple(sorted(changed_link_ids, key=_link_id_sort_key)),
+        changed_links=tuple(changed_link_order),
         added_links=tuple(
             _link_serializable(cand_link_map[lid])
-            for lid in sorted(added_link_ids, key=_link_id_sort_key)
+            for lid in added_link_order
         ),
         removed_links=tuple(
             _link_serializable(orig_link_map[lid])
-            for lid in sorted(removed_link_ids, key=_link_id_sort_key)
+            for lid in removed_link_order
         ),
         diff_paths=tuple(diff_paths),
         target_node_ids=normalized_targets,
@@ -1181,24 +1187,107 @@ def _diff_value_paths(before: Any, after: Any, prefix: str = "") -> tuple[str, .
     return (prefix or "value",)
 
 
-def _link_identity(link: dict | list) -> str:
-    """Return a stable identity string for *link* for set membership.
-
-    Uses link_id when available (both list and dict shapes), falling back
-    to a hash of the endpoint tuple.
-    """
-    if isinstance(link, list) and len(link) >= 1:
-        return f"link:{link[0]}"
+def _stable_link_id(link: dict | list) -> Any:
+    if isinstance(link, list):
+        return link[0] if link and link[0] is not None else None
     if isinstance(link, dict):
-        lid = link.get("id") or link.get("link_id")
-        if lid is not None:
-            return f"link:{lid}"
-        # Fallback: identity from endpoints.
-        origin = link.get("origin_id", "?")
-        target = link.get("target_id", "?")
-        return f"link:{origin}->{target}"
-    # Fallback: hash the whole thing.
-    return f"link:hash:{_link_content_hash(link)[:8]}"
+        for key in ("id", "link_id"):
+            if link.get(key) is not None:
+                return link[key]
+    return None
+
+
+def _link_endpoint_value(link: dict | list, side: str, field: str) -> Any:
+    if isinstance(link, list):
+        index = {
+            ("origin", "node"): 1,
+            ("origin", "slot"): 2,
+            ("target", "node"): 3,
+            ("target", "slot"): 4,
+        }.get((side, field))
+        return link[index] if index is not None and len(link) > index else None
+    if not isinstance(link, dict):
+        return None
+    direct_key = f"{side}_{field}"
+    if direct_key in link:
+        return link.get(direct_key)
+    endpoint = link.get("from" if side == "origin" else "to")
+    if not isinstance(endpoint, Mapping):
+        return None
+    if field == "node":
+        for key in ("node_uid", "node_id", "node", "id"):
+            if endpoint.get(key) is not None:
+                return endpoint[key]
+        return None
+    for key in ("port", "slot", "slot_index"):
+        if endpoint.get(key) is not None:
+            return endpoint[key]
+    return None
+
+
+def _link_identity(link: dict | list) -> str:
+    """Return a stable display identity for *link*.
+
+    Explicit link ids are authoritative.  Id-less endpoint links retain an
+    endpoint identity for readable diagnostics; diff matching adds content
+    identity so distinct parallel edges cannot collapse.
+    """
+    stable_id = _stable_link_id(link)
+    if stable_id is not None:
+        return f"link:{stable_id}"
+    origin = _link_endpoint_value(link, "origin", "node")
+    target = _link_endpoint_value(link, "target", "node")
+    return f"link:{origin if origin is not None else '?'}->{target if target is not None else '?'}"
+
+
+def _link_diff_identity(link: dict | list) -> str:
+    if _stable_link_id(link) is not None:
+        return _link_identity(link)
+    return f"{_link_identity(link)}:content:{_link_content_hash(link)[:16]}"
+
+
+def _link_occurrence_entries(
+    links: list[dict | list],
+) -> list[tuple[str, dict | list]]:
+    counts: dict[str, int] = {}
+    entries: list[tuple[str, dict | list]] = []
+    for link in links:
+        identity = _link_diff_identity(link)
+        occurrence = counts.get(identity, 0)
+        counts[identity] = occurrence + 1
+        key = identity if occurrence == 0 else f"{identity}#{occurrence}"
+        entries.append((key, link))
+    return entries
+
+
+def _ordered_link_ids(
+    entries: list[tuple[str, dict | list]],
+    selected: set[str],
+) -> list[str]:
+    return [key for key, _link in entries if key in selected]
+
+
+def _sequence_counts(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _semantic_link_sequence(
+    graph: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | list[Any], ...]:
+    """Return valid links in exact source order, preserving multiplicity."""
+    import copy
+
+    links_raw = door_get_links(graph) if isinstance(graph, dict) else None
+    if not isinstance(links_raw, list):
+        return ()
+    return tuple(
+        copy.deepcopy(link)
+        for link in links_raw
+        if isinstance(link, (dict, list))
+    )
 
 
 def _link_serializable(link: dict | list) -> dict[str, Any]:
@@ -1212,13 +1301,12 @@ def _link_serializable(link: dict | list) -> dict[str, Any]:
             "target_slot": link[4] if len(link) > 4 else None,
             "type": link[5] if len(link) > 5 else None,
         }
-    # dict shape
     return {
-        "link_id": link.get("id") or link.get("link_id"),
-        "origin_node": link.get("origin_id"),
-        "origin_slot": link.get("origin_slot"),
-        "target_node": link.get("target_id"),
-        "target_slot": link.get("target_slot"),
+        "link_id": _stable_link_id(link),
+        "origin_node": _link_endpoint_value(link, "origin", "node"),
+        "origin_slot": _link_endpoint_value(link, "origin", "slot"),
+        "target_node": _link_endpoint_value(link, "target", "node"),
+        "target_slot": _link_endpoint_value(link, "target", "slot"),
         "type": link.get("type"),
     }
 
@@ -1231,23 +1319,10 @@ def _node_id_sort_key(node_id: str) -> tuple[int, str]:
         return (1, node_id)
 
 
-def _link_id_sort_key(link_id: str) -> tuple[int, str]:
-    """Sort key for link identity strings that tries numeric parsing."""
-    # link_id format: "link:123" or "link:hash:abc123" or "link:1->2"
-    parts = link_id.split(":", 1)
-    if len(parts) == 2:
-        num_part = parts[1].split("->")[0].split(":")[0]
-        try:
-            return (0, str(int(num_part)).zfill(8))
-        except (ValueError, TypeError):
-            pass
-    return (1, link_id)
 
 
 def semantic_graph_projection(graph: dict[str, Any] | None) -> dict[str, Any]:
     """Return the shared graph projection used for semantic candidate gates."""
-    import copy
-
     nodes_raw = door_get_nodes(graph) if isinstance(graph, dict) else None
     nodes = [
         semantic_node_projection(node)
@@ -1261,18 +1336,7 @@ def semantic_graph_projection(graph: dict[str, Any] | None) -> dict[str, Any]:
         )
     )
 
-    links_raw = door_get_links(graph) if isinstance(graph, dict) else None
-    links = [
-        copy.deepcopy(link)
-        for link in links_raw
-        if isinstance(link, (dict, list))
-    ] if isinstance(links_raw, list) else []
-    links.sort(
-        key=lambda link: (
-            _link_id_sort_key(_link_identity(link)),
-            json.dumps(link, sort_keys=True, default=str),
-        )
-    )
+    links = list(_semantic_link_sequence(graph))
     return {"nodes": nodes, "links": links}
 
 

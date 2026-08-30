@@ -11411,6 +11411,70 @@ def test_no_candidate_response_withholds_landed_net_noop_batch(
     assert "agent_edit_protocol" not in response
 
 
+def test_dev_delta_empty_semantic_change_is_not_a_candidate() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+
+    graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    state = _make_state(
+        graph=graph,
+        ui_payload=json.loads(json.dumps(graph)),
+        route="direct_edit",
+        delta_ops=(),
+    )
+    context = TurnContext(session_id="delta-empty", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="delta")
+
+    assert response["candidate"] is None
+    assert response["graph_unchanged"] is True
+    assert response["accepted_batch"] == []
+    assert "agent_edit_protocol" not in response
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_allowed"] is False
+    assert response["canvas_apply_allowed"] is False
+    assert response["queue_allowed"] is False
+    assert response["outcome"]["kind"] == "noop"
+
+
+def test_dev_delta_valid_semantic_change_retains_accepted_delta() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    original = {
+        "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [1]}],
+        "links": [],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"] = [2]
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "1", "widgets_values"),
+        value=[2],
+    )
+    state = _make_state(
+        graph=original,
+        ui_payload=candidate,
+        route="direct_edit",
+        delta_ops=(op,),
+    )
+    context = TurnContext(session_id="delta-valid", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="delta")
+
+    assert response["candidate"] is not None
+    assert response["graph_unchanged"] is False
+    assert response["accepted_batch"] == [
+        {"op": {"op": "set_node_field", "target": ["", "1", "widgets_values"], "value": [2]}}
+    ]
+    assert response["agent_edit_protocol"] == "v2_delta"
+    assert response["apply_eligibility"]["applyable"] is True
+    assert response["outcome"]["kind"] == "candidate"
+
+
 def test_synthesize_message_empty_prose_with_valid_batch_fence() -> None:
     """Empty user_message with no outcome still produces a non-empty sentence."""
     state = _make_state(user_message="")
