@@ -1,5 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Worker } from "node:worker_threads";
+
+const TAB_WORKER_URL = new URL(
+  "./helpers/scope_resolver_tab_worker.mjs",
+  import.meta.url,
+);
+
+function runIsolatedTab(graph) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(TAB_WORKER_URL, { workerData: { graph } });
+    worker.once("message", (message) => {
+      if (message?.error) {
+        reject(new Error(message.error));
+        return;
+      }
+      resolve(message);
+    });
+    worker.once("error", reject);
+    worker.once("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`isolated tab worker exited with code ${code}`));
+      }
+    });
+  });
+}
 
 // ── Global mocks ──────────────────────────────────────────────────────────
 
@@ -595,52 +620,38 @@ test("workflow open simulation: same graph re-opened gets same scope", async () 
 // ── Tests: Duplicate-tab scope divergence ─────────────────────────────────
 
 test("duplicate-tab: same graph in different tabs gets different scope ids", async () => {
-  // Tab 1
-  resetStorage();
-  const mod1 = await loadResolver();
   const graph = baseGraph();
-  const r1 = mod1.captureInitialScopeId(graph);
-  const scope1 = r1.scopeId;
+  const [tab1, tab2] = await Promise.all([
+    runIsolatedTab(graph),
+    runIsolatedTab(graph),
+  ]);
 
-  // Simulate tab 2 by clearing sessionStorage (new tab gets fresh storage)
-  resetStorage();
-  const mod2 = await loadResolver();
-  const r2 = mod2.captureInitialScopeId(graph);
-  const scope2 = r2.scopeId;
-
-  // Different tabs → different scope ids (different tab nonces)
-  assert.notEqual(scope1, scope2);
+  // Real worker realms model browser tabs: each has independent module state
+  // and sessionStorage, so the tab nonces and scopes must diverge.
+  assert.notEqual(tab1.nonce, tab2.nonce);
+  assert.notEqual(tab1.first.scopeId, tab2.first.scopeId);
 
   // But fingerprints should be the same (same graph structure)
-  assert.equal(r1.fingerprint, r2.fingerprint);
+  assert.equal(tab1.first.fingerprint, tab2.first.fingerprint);
 });
 
 test("duplicate-tab: each tab maintains independent scope sessions", async () => {
-  // Tab 1
-  resetStorage();
-  const mod1 = await loadResolver();
   const graph = baseGraph();
-  const r1 = mod1.captureInitialScopeId(graph);
-  const scopeId1 = r1.scopeId;
+  const [tab1, tab2] = await Promise.all([
+    runIsolatedTab(graph),
+    runIsolatedTab(graph),
+  ]);
 
-  // Tab 1's scope is stable within its session (cache hit)
-  const r1b = mod1.captureInitialScopeId(graph);
-  assert.equal(r1b.scopeId, scopeId1);
-  assert.equal(r1b.isNew, false);
+  assert.notEqual(tab1.nonce, tab2.nonce);
+  assert.notEqual(tab1.first.scopeId, tab2.first.scopeId);
 
-  // Tab 2 (simulated by clearing sessionStorage and loading a fresh module)
-  resetStorage();
-  const mod2 = await loadResolver();
-  const r2 = mod2.captureInitialScopeId(graph);
-  const scopeId2 = r2.scopeId;
-
-  // Each tab has its own scope (different tab nonces)
-  assert.notEqual(scopeId1, scopeId2);
-
-  // Tab 2's scope is stable within its session
-  const r2b = mod2.captureInitialScopeId(graph);
-  assert.equal(r2b.scopeId, scopeId2);
-  assert.equal(r2b.isNew, false);
+  // Each realm gets a stable scope and session binding on repeated access.
+  for (const tab of [tab1, tab2]) {
+    assert.equal(tab.first.scopeId, tab.second.scopeId);
+    assert.equal(tab.first.isNew, true);
+    assert.equal(tab.second.isNew, false);
+    assert.equal(tab.sessionId, `session:${tab.nonce}`);
+  }
 });
 
 test("duplicate-tab: different fingerprints produce different scopes even with tab isolation", async () => {
