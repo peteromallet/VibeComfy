@@ -154,8 +154,26 @@ class RealizationWitness:
     object_info: ObjectInfoRealizationWitness
 
 
+@dataclass(frozen=True, slots=True)
+class _RealizationCacheEntry:
+    """A witness is authoritative only for the exact injected seam objects.
+
+    The signature keeps lookup cheap, but its integer callable identities are
+    only a routing hint.  Retaining the seam objects here makes the identity
+    comparison exact and prevents CPython from reusing an address while the
+    corresponding realization remains cached.  Values are intentionally not
+    hashed or compared, so unhashable callable objects and bound methods are
+    supported by the public injection seam.
+    """
+
+    witness: RealizationWitness
+    installer: Installer
+    introspector: Introspector | None
+    cache_writer: CacheWriter | None
+
+
 _REALIZED_SIGNATURES: set[tuple[object, ...]] = set()
-_REALIZATION_WITNESSES: dict[tuple[object, ...], RealizationWitness] = {}
+_REALIZATION_WITNESSES: dict[tuple[object, ...], _RealizationCacheEntry] = {}
 
 
 def ensure_env(
@@ -289,11 +307,20 @@ def ensure_env(
         install_batch=None,
         install_roots=install_roots,
     )
-    cached_witness = _REALIZATION_WITNESSES.get(realization_signature)
+    # Tests and embedders may reset the signature set directly.  Do not retain
+    # strong seam references in that case; otherwise the bounded owner cache
+    # would outlive the authority it describes.
+    if not _REALIZED_SIGNATURES and _REALIZATION_WITNESSES:
+        _REALIZATION_WITNESSES.clear()
+    cached_entry = _REALIZATION_WITNESSES.get(realization_signature)
+    cached_witness = cached_entry.witness if cached_entry is not None else None
     if (
         not failures
         and realization_signature in _REALIZED_SIGNATURES
-        and cached_witness is not None
+        and cached_entry is not None
+        and cached_entry.installer is installer
+        and cached_entry.introspector is introspector
+        and cached_entry.cache_writer is cache_writer
         and current_witness == cached_witness
         and _witness_is_cacheable(current_witness)
     ):
@@ -448,8 +475,13 @@ def ensure_env(
         )
         if _witness_is_cacheable(witness):
             _REALIZED_SIGNATURES.add(realization_signature)
-            _REALIZATION_WITNESSES[realization_signature] = witness
-            if len(_REALIZED_SIGNATURES) > 256:
+            _REALIZATION_WITNESSES[realization_signature] = _RealizationCacheEntry(
+                witness=witness,
+                installer=installer,
+                introspector=introspector,
+                cache_writer=cache_writer,
+            )
+            if len(_REALIZED_SIGNATURES) > 256 or len(_REALIZATION_WITNESSES) > 256:
                 _REALIZED_SIGNATURES.clear()
                 _REALIZATION_WITNESSES.clear()
     return EnsureEnvResult(

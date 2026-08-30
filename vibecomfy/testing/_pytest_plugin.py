@@ -7,18 +7,9 @@ the same file continue to collect normally.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption(
-        "--vibecomfy-snapshot-update",
-        action="store_true",
-        default=False,
-        help="Rewrite stale sibling <recipe>.snapshot.json files when running pytest.",
-    )
 
 
 def pytest_configure(config: pytest.Config) -> None:

@@ -259,6 +259,14 @@ export function resolvePythonExecutable(python, cwd = process.cwd()) {
   return python;
 }
 
+export function resolveProviderFixtureDir(configured = process.env.VIBECOMFY_FIXTURE_DIR, cwd = process.cwd()) {
+  const value = typeof configured === "string" ? configured.trim() : "";
+  return path.resolve(
+    cwd,
+    value || path.join(REPO_ROOT, "tests", "fixtures", "editor_sessions"),
+  );
+}
+
 async function exists(target) {
   try {
     await fs.access(target);
@@ -566,13 +574,13 @@ async function makeRuntimeRoot() {
   return runtimeRoot;
 }
 
-function spawnComfyUI({ comfyuiDir, python, port, runtimeRoot, comfyLog, replacements }) {
+function spawnComfyUI({ comfyuiDir, python, port, runtimeRoot, comfyLog, replacements, providerFixtureDir }) {
   const childEnv = { ...process.env };
   childEnv.PORT = String(port);
   childEnv.REPO_ROOT = REPO_ROOT;
   childEnv.PYTHONPATH = childEnv.PYTHONPATH ? `${REPO_ROOT}${path.delimiter}${childEnv.PYTHONPATH}` : REPO_ROOT;
   childEnv.VIBECOMFY_ARNOLD_RUNTIME_MODULE = "vibecomfy.comfy_nodes.agent.fixture_provider";
-  childEnv.VIBECOMFY_FIXTURE_DIR = childEnv.VIBECOMFY_FIXTURE_DIR || path.join(REPO_ROOT, "tests", "fixtures", "editor_sessions");
+  childEnv.VIBECOMFY_FIXTURE_DIR = providerFixtureDir;
   const outputDir = path.join(runtimeRoot, "output");
   const tempDir = path.join(runtimeRoot, "temp");
   const inputDir = path.join(runtimeRoot, "input");
@@ -806,10 +814,8 @@ export async function main(argv = process.argv.slice(2)) {
     await ensureCustomNodeLink(comfyuiDir);
 
     // Fail fast if the fixture-provider fixture tree is missing or corrupt.
-    const providerFixtureDir =
-      process.env.VIBECOMFY_FIXTURE_DIR ||
-      path.join(REPO_ROOT, "tests", "fixtures", "editor_sessions");
-    replacements.push([path.resolve(providerFixtureDir), "<provider-fixtures>"]);
+    const providerFixtureDir = resolveProviderFixtureDir();
+    replacements.push([providerFixtureDir, "<provider-fixtures>"]);
     await validateProviderFixtures(providerFixtureDir);
 
     if (!options.launcherOnly) {
@@ -826,7 +832,15 @@ export async function main(argv = process.argv.slice(2)) {
       }
     }
 
-    comfyChild = spawnComfyUI({ comfyuiDir, python: options.python, port, runtimeRoot, comfyLog, replacements });
+    comfyChild = spawnComfyUI({
+      comfyuiDir,
+      python: options.python,
+      port,
+      runtimeRoot,
+      comfyLog,
+      replacements,
+      providerFixtureDir,
+    });
     await waitForReadiness(baseUrl, options.readyTimeoutMs, comfyChild);
     log(`ComfyUI is ready at ${baseUrl}`);
 

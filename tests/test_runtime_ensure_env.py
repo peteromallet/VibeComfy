@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import gc
 import subprocess
 import shutil
+import weakref
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from vibecomfy.node_packs import CustomNodePack
@@ -1364,3 +1367,220 @@ def test_ensure_env_core_refresh_does_not_clobber_custom_pack_cache(monkeypatch,
     index = (cache_root / "index.json").read_text(encoding="utf-8")
     assert "ExamplePack@1.2.3.json" in index
     assert "comfy-core@runtime-core.json" in index
+
+
+def test_realization_cache_does_not_alias_replaced_seams_after_gc(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    monkeypatch.setattr(ensure_env_module, "_REALIZATION_WITNESSES", {})
+    monkeypatch.setattr(ensure_env_module, "_realization_signature", lambda *args, **kwargs: ("reused",))
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "IdentityPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root, "IdentityPackNode")
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    workflow = {"nodes": [{"id": 1, "type": "IdentityPackNode", "properties": {"cnr_id": "IdentityPack"}}]}
+    first_events: list[str] = []
+
+    def first_installer(packs):
+        first_events.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("IdentityPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def first_introspector(packs):
+        first_events.append("introspect")
+        return {"IdentityPackNode": {"python_module": "IdentityPack.nodes"}}
+
+    def first_cache_writer(payload):
+        first_events.append("cache")
+        return {"written": ["IdentityPack"]}
+
+    first_refs = tuple(weakref.ref(seam) for seam in (first_installer, first_introspector, first_cache_writer))
+    first = ensure_env(
+        workflow,
+        known_packs=(_pack("IdentityPack"),),
+        installer=first_installer,
+        introspector=first_introspector,
+        cache_writer=first_cache_writer,
+        install_roots=(install_root,),
+    )
+    del first_installer, first_introspector, first_cache_writer
+    gc.collect()
+    assert all(reference() is not None for reference in first_refs)
+
+    second_events: list[str] = []
+
+    def second_installer(packs):
+        second_events.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("IdentityPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def second_introspector(packs):
+        second_events.append("introspect")
+        return {"IdentityPackNode": {"python_module": "IdentityPack.nodes"}}
+
+    def second_cache_writer(payload):
+        second_events.append("cache")
+        return {"written": ["IdentityPack"]}
+
+    second = ensure_env(
+        workflow,
+        known_packs=(_pack("IdentityPack"),),
+        installer=second_installer,
+        introspector=second_introspector,
+        cache_writer=second_cache_writer,
+        install_roots=(install_root,),
+    )
+    assert first.ok and not first.noop
+    assert second.ok and not second.noop
+    assert first_events == ["install", "introspect", "cache"]
+    assert second_events == ["install", "introspect", "cache"]
+
+def test_realization_cache_accepts_unhashable_callable_and_stable_bound_method(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    monkeypatch.setattr(ensure_env_module, "_REALIZATION_WITNESSES", {})
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "CallablePack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root, "CallablePackNode")
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    workflow = {"nodes": [{"id": 1, "type": "CallablePackNode", "properties": {"cnr_id": "CallablePack"}}]}
+    events: list[str] = []
+
+    class UnhashableCallable:
+        __hash__ = None
+
+        def __init__(self, callback):
+            self.callback = callback
+
+        def __call__(self, *args, **kwargs):
+            return self.callback(*args, **kwargs)
+
+    installer = UnhashableCallable(
+        lambda packs, **kwargs: (
+            events.append("install")
+            or InstallBatchResult(
+                ok=True,
+                results=(InstallResult("CallablePack", "refreshed", head, None),),
+                preflight=PipPreflightResult(ok=True),
+            )
+        )
+    )
+    cache_writer = UnhashableCallable(
+        lambda payload: events.append("cache") or {"written": ["CallablePack"]}
+    )
+
+    class BoundIntrospector:
+        def inspect(self, packs):
+            events.append("introspect")
+            return {"CallablePackNode": {"python_module": "CallablePack.nodes"}}
+
+    introspector = BoundIntrospector().inspect
+    first = ensure_env(
+        workflow,
+        known_packs=(_pack("CallablePack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        install_roots=(install_root,),
+    )
+    second = ensure_env(
+        workflow,
+        known_packs=(_pack("CallablePack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        install_roots=(install_root,),
+    )
+    assert first.ok and not first.noop
+    assert second.ok and second.noop
+    assert events == ["install", "introspect", "cache"]
+
+def test_realization_cache_remains_consistent_under_concurrent_realizations(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    monkeypatch.setattr(ensure_env_module, "_REALIZATION_WITNESSES", {})
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "ConcurrentPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root, "ConcurrentPackNode")
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    workflow = {"nodes": [{"id": 1, "type": "ConcurrentPackNode", "properties": {"cnr_id": "ConcurrentPack"}}]}
+    events: list[str] = []
+
+    def installer(packs):
+        events.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("ConcurrentPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def introspector(packs):
+        events.append("introspect")
+        return {"ConcurrentPackNode": {"python_module": "ConcurrentPack.nodes"}}
+
+    def cache_writer(payload):
+        events.append("cache")
+        return {"written": ["ConcurrentPack"]}
+
+    kwargs = dict(
+        known_packs=(_pack("ConcurrentPack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        install_roots=(install_root,),
+    )
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = tuple(pool.map(lambda _unused: ensure_env(workflow, **kwargs), range(4)))
+    assert all(result.ok for result in results)
+    assert all(not result.failures for result in results)
+    final = ensure_env(workflow, **kwargs)
+    assert final.ok and final.noop
+
+
+def test_realization_cache_signature_reset_discards_retained_authority(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    monkeypatch.setattr(ensure_env_module, "_REALIZATION_WITNESSES", {})
+    install_root = tmp_path / "custom_nodes"
+    _pack_dir, head = _git_pack(install_root, "ResetPack")
+    cache_root = tmp_path / "object-info"
+    _authoritative_cache(cache_root, "ResetPackNode")
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    workflow = {"nodes": [{"id": 1, "type": "ResetPackNode", "properties": {"cnr_id": "ResetPack"}}]}
+    calls: list[str] = []
+
+    def installer(packs):
+        calls.append("install")
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("ResetPack", "refreshed", head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def introspector(packs):
+        calls.append("introspect")
+        return {"ResetPackNode": {"python_module": "ResetPack.nodes"}}
+
+    def cache_writer(payload):
+        calls.append("cache")
+        return {"written": ["ResetPack"]}
+
+    kwargs = dict(
+        known_packs=(_pack("ResetPack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        install_roots=(install_root,),
+    )
+    first = ensure_env(workflow, **kwargs)
+    ensure_env_module._REALIZED_SIGNATURES.clear()
+    second = ensure_env(workflow, **kwargs)
+    assert first.ok and second.ok
+    assert not second.noop
+    assert calls == ["install", "introspect", "cache", "install", "introspect", "cache"]
+    assert len(ensure_env_module._REALIZATION_WITNESSES) == 1

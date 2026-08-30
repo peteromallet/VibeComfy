@@ -4,11 +4,11 @@ Wire it up by setting the standard discovery env var::
 
     export VIBECOMFY_ARNOLD_RUNTIME_MODULE="vibecomfy.comfy_nodes.agent.fixture_provider"
 
-This module reads recorded agent-edit turns from
-``tests/fixtures/editor_sessions/`` (the repository root is resolved via the
-``REPO_ROOT`` environment variable, which is already set by the Playwright
-launcher in ``tests/e2e/run.mjs``).  It never touches ``out/editor_sessions/``
-and requires no provider API keys — every call is deterministic.
+This module reads recorded agent-edit turns from the fixture corpus selected by
+``VIBECOMFY_FIXTURE_DIR``.  When that variable is absent, it uses
+``REPO_ROOT/tests/fixtures/editor_sessions/`` and finally the source-checkout
+location derived from this file.  It never touches ``out/editor_sessions/`` and
+requires no provider API keys — every call is deterministic.
 
 Fixture resolution
 ------------------
@@ -25,9 +25,9 @@ consulting ``manifest.json``.  The resolution order is:
    ``task_preview`` fields in the manifest.
 4. **First-available fallback** — the first fixture in the manifest is used.
 
-When no fixture matches at all for an unforced/manual call (empty manifest or
-missing directory), a synthetic ``done()`` batch response is returned.  The
-response includes fixture provenance so harnesses can reject that fallback.
+When the selected corpus is missing or empty, every entry point refuses with a
+typed unavailable result.  The provider never reports readiness or fabricates
+a successful edit without a real fixture corpus.
 
 Contracts
 ---------
@@ -94,15 +94,28 @@ def _repo_root() -> Path:
     env_root = os.environ.get("REPO_ROOT")
     if env_root:
         return Path(env_root)
-    # Fallback: this file lives at vibecomfy/comfy_nodes/fixture_provider.py
-    return Path(__file__).resolve().parents[2]
+    # This file lives at vibecomfy/comfy_nodes/agent/fixture_provider.py.
+    return Path(__file__).resolve().parents[3]
 
 
 def _fixture_root() -> Path:
-    global _FIXTURE_ROOT
-    if _FIXTURE_ROOT is None:
-        _FIXTURE_ROOT = _repo_root() / "tests" / "fixtures" / "editor_sessions"
-    return _FIXTURE_ROOT
+    """Select the one fixture corpus used by validation and execution.
+
+    The environment is intentionally consulted on every call: test harnesses
+    and launcher processes can change it between imports.  An explicit fixture
+    directory must outrank both the private ``_FIXTURE_ROOT`` test override and
+    ``REPO_ROOT``; the private override then outranks ``REPO_ROOT`` for callers
+    that construct temporary corpora.
+    """
+    configured = os.environ.get("VIBECOMFY_FIXTURE_DIR", "").strip()
+    if configured:
+        return Path(configured)
+    if _FIXTURE_ROOT is not None:
+        return _FIXTURE_ROOT
+    repo_root = os.environ.get("REPO_ROOT", "").strip()
+    if repo_root:
+        return Path(repo_root) / "tests" / "fixtures" / "editor_sessions"
+    return _repo_root() / "tests" / "fixtures" / "editor_sessions"
 
 
 def _fixture_key_issue(key: Any) -> str | None:
@@ -190,7 +203,15 @@ def _load_manifest() -> dict[str, Any]:
     path = root / "manifest.json"
     try:
         loaded = _read_manifest_json()
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
+        _MANIFEST_ERROR = {
+            "kind": "fixture_unavailable",
+            "code": "fixture_root_missing",
+            "message": (
+                f"Fixture corpus {root} is missing or has no manifest at {path}; "
+                "configure VIBECOMFY_FIXTURE_DIR or REPO_ROOT."
+            ),
+        }
         _MANIFEST_CACHE = {}
         return _MANIFEST_CACHE
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
@@ -209,6 +230,12 @@ def _load_manifest() -> dict[str, Any]:
         }
         _MANIFEST_CACHE = {}
         return _MANIFEST_CACHE
+    if not loaded:
+        _MANIFEST_ERROR = {
+            "kind": "fixture_unavailable",
+            "code": "empty_manifest",
+            "message": f"Fixture corpus {root} has an empty manifest at {path}.",
+        }
     for key, entry in loaded.items():
         key_issue = _fixture_key_issue(key)
         if key_issue is not None:
@@ -592,17 +619,21 @@ def _resolve_fixture_result(
     4. First-available fallback.
 
     Forced selectors are authoritative: a missing or drifted selector returns a
-    typed error instead of silently choosing a different turn.  Unforced calls
-    retain the generic first-fixture/synthetic fallback for manual and demo use.
+    typed error instead of silently choosing a different turn.  An unavailable
+    corpus is also a typed refusal for unforced calls; it never becomes a
+    synthetic success.
     """
     manifest = _load_manifest()
     forced_scenario = os.environ.get("VIBECOMFY_FIXTURE_SCENARIO", "").strip()
     if _MANIFEST_ERROR is not None:
+        unavailable = _MANIFEST_ERROR.get("kind") == "fixture_unavailable"
         return FixtureResolution(
             content=None,
             fixture_key=None,
             fixture_session=forced_scenario or None,
-            match_kind="manifest_invalid",
+            match_kind=("forced_missing" if forced_scenario else "unavailable")
+            if unavailable
+            else "manifest_invalid",
             fallback_used=False,
             error={
                 **_MANIFEST_ERROR,
@@ -638,15 +669,6 @@ def _resolve_fixture_result(
                 message,
                 forced_scenario=forced_scenario or None,
             )
-    if not manifest:
-        return FixtureResolution(
-            content=_synthetic_response(task),
-            fixture_key=None,
-            fixture_session=None,
-            match_kind="synthetic",
-            fallback_used=True,
-        )
-
     # 1 — Hash match.  The task-only hash is authoritative, even when the
     # adapter did not provide conversation messages.
     task_hash = _compute_key(task, messages)
@@ -739,12 +761,21 @@ def _resolve_fixture_result(
             fallback_used=True,
         )
 
+    # A valid manifest should always provide a real fixture.  Keep this as a
+    # typed refusal in case a future loader filters every row unexpectedly.
     return FixtureResolution(
-        content=_synthetic_response(task),
+        content=None,
         fixture_key=None,
         fixture_session=None,
-        match_kind="synthetic",
-        fallback_used=True,
+        match_kind="unavailable",
+        fallback_used=False,
+        error=_fixture_error(
+            code="no_usable_fixtures",
+            message=f"Fixture corpus {_fixture_root()} has no usable fixtures.",
+            forced_scenario=None,
+            available_scenarios=[],
+            kind="fixture_unavailable",
+        ),
     )
 
 
@@ -777,7 +808,7 @@ def _delta_response(result: FixtureResolution, message: str) -> _FixtureDeltaRes
 
 
 def _synthetic_response(task: str) -> str:
-    """Return a minimal well-formed batch response when no fixture matches."""
+    """Legacy helper retained for import compatibility; never used for calls."""
     task_preview = task.strip()[:80] if task else "your request"
     return (
         f"I'll process {task_preview}.\n"

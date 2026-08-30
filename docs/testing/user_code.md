@@ -108,7 +108,9 @@ def test_compiles():
     return build()   # auto-wrapped with assert_compiles_cleanly
 ```
 
-Plain `test_*` functions in the same file collect normally. The `--vibecomfy-snapshot-update` flag rewrites stale sibling `.snapshot.json` files.
+Plain `test_*` functions in the same file collect normally. Snapshot writes are
+explicit: use `vibecomfy test snapshot ... --force` when a committed sidecar
+should be replaced.
 
 ## Where snapshots live
 

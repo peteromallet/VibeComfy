@@ -89,7 +89,7 @@ See `docs/release_notes/v2.8.0.md` for the full public migration guide. Key migr
 3. **Update extracted imports:**
    - Old: `from vibecomfy.workflow import _classify_helper`
    - New: `from vibecomfy._compile._helpers import classify_helper`
-4. **Snapshot regeneration:** `uv run pytest tests/test_snapshot_*.py --update-snapshots` (only when node ID changes are explained by gap-reuse behavior)
+4. **Snapshot regeneration:** `vibecomfy test snapshot ready_templates/<kind>/<ready-id>.py --force` (only when node ID changes are explained by gap-reuse behavior)
 
 ---
 

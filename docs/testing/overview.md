@@ -28,6 +28,11 @@ The repository contains hundreds of `test_*.py` files. The `make check` gate sel
 ## Snapshot regeneration
 
 - Script: `python -m tools.regenerate_snapshots`. Default mode is `--write`.
+- For an intentional curated-template update, run
+  `vibecomfy test snapshot ready_templates/<kind>/<ready-id>.py --force`.
+  User recipes use the same command with an explicit recipe path and write a
+  sibling `.snapshot.json`; pytest's historical snapshot-update option is not
+  part of the supported contract.
 - Modes:
   - `--check` — diff committed snapshots against current ready-template output; exit non-zero with a unified diff on drift.
   - `--write` (default) — atomically rewrite the snapshot JSON via `tmp file → os.fsync → Path.replace`.

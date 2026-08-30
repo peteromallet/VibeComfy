@@ -20,7 +20,13 @@ from vibecomfy.comfy_nodes.agent import fixture_provider
 
 def _fixture_root() -> Path:
     """Resolve the fixture root the same way the provider does."""
-    repo = os.environ.get("REPO_ROOT") or str(Path(__file__).resolve().parents[2])
+    repo = (
+        os.environ.get("VIBECOMFY_FIXTURE_DIR")
+        or os.environ.get("REPO_ROOT")
+        or str(Path(__file__).resolve().parents[2])
+    )
+    if os.environ.get("VIBECOMFY_FIXTURE_DIR"):
+        return Path(repo)
     return Path(repo) / "tests" / "fixtures" / "editor_sessions"
 
 
@@ -101,11 +107,11 @@ def test_readiness_accepts_none_model() -> None:
     assert result["model"] == "agent-edit"
 
 
-def test_readiness_works_when_fixture_tree_is_empty(
+def test_readiness_rejects_empty_fixture_tree(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """readiness() should still return ready=True when manifest is empty."""
+    """An empty corpus is unavailable, never a ready synthetic backend."""
     empty = tmp_path / "empty_sessions"
     empty.mkdir()
     (empty / "manifest.json").write_text("{}")
@@ -113,7 +119,10 @@ def test_readiness_works_when_fixture_tree_is_empty(
     monkeypatch.setattr(fixture_provider, "_MANIFEST_CACHE", None)
     monkeypatch.setattr(fixture_provider, "_CONTENT_CACHE", {})
     result = fixture_provider.readiness(route="arnold")
-    assert result["ready"] is True
+    assert result["ready"] is False
+    assert result["ok"] is False
+    assert result["error"]["kind"] == "fixture_unavailable"
+    assert result["error"]["code"] == "empty_manifest"
     assert result["fixture_count"] == 0
 
 
@@ -150,11 +159,11 @@ def test_run_agent_turn_returns_valid_envelope() -> None:
     assert len(inner["message"]) > 0
 
 
-def test_run_agent_turn_synthesizes_when_no_fixture_matches(
+def test_run_agent_turn_refuses_when_fixture_corpus_is_empty(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """When no fixture matches, a synthetic response is returned."""
+    """v1 refuses instead of manufacturing a successful response."""
     empty = tmp_path / "empty_sessions"
     empty.mkdir()
     (empty / "manifest.json").write_text("{}")
@@ -166,9 +175,9 @@ def test_run_agent_turn_synthesizes_when_no_fixture_matches(
         python_source="x = 1",
         route="arnold",
     )
-    inner = json.loads(result["content"])
-    assert inner["python"] == ""
-    assert "done()" not in inner["message"]  # prose only, no fence
+    assert "content" not in result
+    assert result["error"]["kind"] == "fixture_unavailable"
+    assert result["error"]["code"] == "empty_manifest"
 
 
 # ── run_agent_turn_delta ─────────────────────────────────────────────────────
@@ -191,7 +200,7 @@ def test_run_agent_turn_delta_returns_delta_and_message() -> None:
     assert result.audit_metadata["fixture"]["fallback_used"] is False
 
 
-def test_run_agent_turn_delta_synthesizes_when_no_fixture_matches(
+def test_run_agent_turn_delta_refuses_when_fixture_corpus_is_empty(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -207,8 +216,9 @@ def test_run_agent_turn_delta_synthesizes_when_no_fixture_matches(
         op_schema={},
         route="arnold",
     )
-    assert result["delta"] == []
-    assert len(result["message"]) > 0
+    assert "delta" not in result
+    assert result["error"]["kind"] == "fixture_unavailable"
+    assert result["error"]["code"] == "empty_manifest"
 
 
 # ── run_agent_turn_batch ─────────────────────────────────────────────────────
@@ -273,7 +283,7 @@ def test_run_agent_turn_batch_falls_back_to_first_fixture() -> None:
     assert result["fallback_used"] is True
 
 
-def test_run_agent_turn_batch_synthesizes_when_no_fixtures_exist(
+def test_run_agent_turn_batch_refuses_when_no_fixtures_exist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -287,14 +297,11 @@ def test_run_agent_turn_batch_synthesizes_when_no_fixtures_exist(
         task="anything",
         route="arnold",
     )
-    assert "```batch" in result["content"]
-    assert "done()" in result["content"]
-    assert result["fixture"] == {
-        "key": None,
-        "session": None,
-        "match_kind": "synthetic",
-        "fallback_used": True,
-    }
+    assert result["content"] == ""
+    assert result["fixture"]["match_kind"] == "unavailable"
+    assert result["fallback_used"] is False
+    assert result["error"]["kind"] == "fixture_unavailable"
+    assert result["error"]["code"] == "empty_manifest"
 
 
 # ── explicit missing-key errors ─────────────────────────────────────────────
@@ -947,19 +954,125 @@ def test_no_credentials_or_env_keys_required() -> None:
                 os.environ.pop(var, None)
 
 
-# ── REPO_ROOT fallback ──────────────────────────────────────────────────────
+# ── fixture-root authority ──────────────────────────────────────────────────
 
-def test_repo_root_fallback_uses_file_location() -> None:
-    """When REPO_ROOT is not set, the provider falls back to walking up from
-    __file__."""
-    saved = os.environ.pop("REPO_ROOT", None)
-    try:
-        # This should not crash — it resolves from __file__
-        root = fixture_provider._repo_root()
-        assert root.is_dir()
-    finally:
-        if saved is not None:
-            os.environ["REPO_ROOT"] = saved
+def test_repo_root_fallback_uses_checkout_fixture_corpus_from_neutral_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The source-checkout fallback is independent of CWD and package depth."""
+    monkeypatch.delenv("REPO_ROOT", raising=False)
+    monkeypatch.delenv("VIBECOMFY_FIXTURE_DIR", raising=False)
+    monkeypatch.chdir(Path("/tmp"))
+    root = fixture_provider._fixture_root()
+    assert root == Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "editor_sessions"
+    assert (root / "manifest.json").is_file()
+    manifest = fixture_provider._load_manifest()
+    assert len(manifest) > 0
+    result = fixture_provider.run_agent_turn_batch(
+        task="Bypass the video VAE decode node",
+        route="arnold",
+    )
+    assert result["fixture"]["key"]
+    assert result["fallback_used"] is False
+
+
+def test_explicit_fixture_dir_is_execution_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A valid custom corpus is the same corpus the launcher preflights."""
+    custom = tmp_path / "custom-fixtures"
+    _write_fixture(
+        custom,
+        key="custom-key",
+        task="custom authority",
+        content="custom authority\n```batch\ndone()\n```",
+    )
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(custom))
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path / "wrong-repo"))
+    _reset_fixture_caches(monkeypatch, custom)
+    assert fixture_provider._fixture_root() == custom
+    assert fixture_provider.readiness(route="arnold")["ready"] is True
+    result = fixture_provider.run_agent_turn_batch(task="custom authority", route="arnold")
+    assert result["fixture"]["key"] == "custom-key"
+    assert "custom authority" in result["content"]
+
+
+@pytest.mark.parametrize("corpus_kind", ["missing", "empty", "file"])
+def test_missing_or_empty_explicit_fixture_dir_is_typed_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    corpus_kind: str,
+) -> None:
+    root = tmp_path / corpus_kind
+    if corpus_kind == "empty":
+        root.mkdir()
+        (root / "manifest.json").write_text("{}")
+    elif corpus_kind == "file":
+        root.write_text("not a fixture directory")
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(root))
+    monkeypatch.delenv("REPO_ROOT", raising=False)
+    _reset_fixture_caches(monkeypatch, root)
+    status = fixture_provider.readiness(route="arnold")
+    assert status["ready"] is False
+    assert status["ok"] is False
+    assert status["error"]["kind"] == "fixture_unavailable"
+    assert status["error"]["code"] in {"fixture_root_missing", "empty_manifest"}
+    for call in (
+        lambda: fixture_provider.run_agent_turn(
+            task="anything", python_source="", route="arnold"
+        ),
+        lambda: fixture_provider.run_agent_turn_delta(
+            task="anything", projection="{}", op_schema={}, route="arnold"
+        ),
+        lambda: fixture_provider.run_agent_turn_batch(task="anything", route="arnold"),
+    ):
+        result = call()
+        assert result["error"]["kind"] == "fixture_unavailable"
+        assert result["fallback_used"] is False
+        assert "done()" not in str(result)
+
+
+def test_repo_root_is_used_when_custom_fixture_dir_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo_fixture = repo / "tests" / "fixtures" / "editor_sessions"
+    _write_fixture(repo_fixture, key="repo-key", task="repo authority")
+    custom = tmp_path / "custom"
+    _write_fixture(custom, key="custom-key", task="custom authority")
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(custom))
+    _reset_fixture_caches(monkeypatch, custom)
+    assert fixture_provider._fixture_root() == custom
+    monkeypatch.delenv("VIBECOMFY_FIXTURE_DIR")
+    _reset_fixture_caches(monkeypatch, repo_fixture)
+    assert fixture_provider._fixture_root() == repo_fixture
+    result = fixture_provider.run_agent_turn_batch(task="repo authority", route="arnold")
+    assert result["fixture"]["key"] == "repo-key"
+
+
+def test_blank_fixture_dir_uses_private_override_before_repo_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Blank environment values do not mask the test override or repo root."""
+    custom = tmp_path / "custom"
+    _write_fixture(custom, key="custom-key", task="custom authority")
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", "  \t")
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path / "wrong-repo"))
+    _reset_fixture_caches(monkeypatch, custom)
+    assert fixture_provider._fixture_root() == custom
+    result = fixture_provider.run_agent_turn_batch(task="custom authority", route="arnold")
+    assert result["fixture"]["key"] == "custom-key"
+
+    monkeypatch.setattr(fixture_provider, "_FIXTURE_ROOT", None)
+    monkeypatch.setattr(fixture_provider, "_MANIFEST_CACHE", None)
+    monkeypatch.setattr(fixture_provider, "_MANIFEST_CACHE_ROOT", None)
+    repo_fixture = tmp_path / "wrong-repo" / "tests" / "fixtures" / "editor_sessions"
+    _write_fixture(repo_fixture, key="repo-key", task="repo authority")
+    assert fixture_provider._fixture_root() == repo_fixture
 
 
 def test_repo_root_env_var_takes_priority(tmp_path: Path) -> None:

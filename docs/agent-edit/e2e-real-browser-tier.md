@@ -84,7 +84,7 @@ This single command:
 5. Optionally copies pre-seeded session fixtures into the ComfyUI runtime
    `out/editor_sessions/` directory.
 6. Spawns ComfyUI with `--cpu`, the allocated port, and
-   `VIBECOMFY_ARNOLD_RUNTIME_MODULE=vibecomfy.comfy_nodes.fixture_provider`.
+   `VIBECOMFY_ARNOLD_RUNTIME_MODULE=vibecomfy.comfy_nodes.agent.fixture_provider`.
 7. Polls `/vibecomfy/ping` and `/vibecomfy/agent/status?route=auto` until ready.
 8. Runs all Playwright specs in `tests/e2e/specs/` with one Chromium worker.
 9. Tears ComfyUI down on success, failure, timeout, or signal (SIGINT/SIGTERM).
@@ -132,7 +132,7 @@ node tests/e2e/run.mjs --comfyui-dir ~/other-comfy --ready-timeout-ms 180000
 | `PYBIN`                            | Python executable (overridden by `--python`)   |
 | `VIBECOMFY_FIXTURE_DIR`            | Fixture-provider fixture path (default: `tests/fixtures/editor_sessions/`) |
 | `VIBECOMFY_E2E_SESSION_FIXTURES`   | Session-seeding source tree (overridden by `--seed-sessions-dir`) |
-| `VIBECOMFY_ARNOLD_RUNTIME_MODULE`  | **Set automatically** by the launcher to `vibecomfy.comfy_nodes.fixture_provider` |
+| `VIBECOMFY_ARNOLD_RUNTIME_MODULE`  | **Set automatically** by the launcher to `vibecomfy.comfy_nodes.agent.fixture_provider` |
 | `REPO_ROOT`                        | **Set automatically** by the launcher for Python path resolution |
 | `BASE_URL`                         | **Set automatically** for Playwright config |
 
@@ -213,9 +213,10 @@ at runtime.**
 
 - Committed fixtures live under `tests/fixtures/editor_sessions/` (for the
   fixture provider) and `tests/fixtures/e2e_sessions/` (for session seeding).
-- The fixture provider resolves fixture paths relative to `REPO_ROOT` (set by
-  the launcher) joined with `tests/fixtures/editor_sessions/`.  It does not
-  look at `out/editor_sessions/`.
+- The fixture provider uses the exact `VIBECOMFY_FIXTURE_DIR` corpus validated
+  by the launcher.  Without it, it uses `REPO_ROOT` joined with
+  `tests/fixtures/editor_sessions/`, then its source-checkout fallback.  It
+  does not look at `out/editor_sessions/`.
 - When session fixtures are seeded, they are copied into the ComfyUI runtime's
   `out/editor_sessions/` directory inside the ComfyUI checkout — not into the
   repository.
@@ -242,7 +243,7 @@ developer's live ComfyUI `out/` directory.
     │  ComfyUI process                                     │
     │                                                      │
     │  VIBECOMFY_ARNOLD_RUNTIME_MODULE=                    │
-    │    vibecomfy.comfy_nodes.fixture_provider            │
+    │    vibecomfy.comfy_nodes.agent.fixture_provider      │
     │                                                      │
     │  ┌─────────────────────────────────────────────┐     │
     │  │  fixture_provider.py                        │     │
@@ -252,7 +253,7 @@ developer's live ComfyUI `out/` directory.
     │  │  - run_agent_turn_batch() → batch-repl prose│     │
     │  │                                             │     │
     │  │  Reads tests/fixtures/editor_sessions/      │     │
-    │  │  via REPO_ROOT env var                      │     │
+    │  │  via VIBECOMFY_FIXTURE_DIR (or REPO_ROOT)  │     │
     │  └─────────────────────────────────────────────┘     │
     └──────────┬──────────────────────────────────────────┘
                │ HTTP

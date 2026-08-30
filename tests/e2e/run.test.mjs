@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   LauncherFailure,
   pruneSuccessfulPlaywrightArtifacts,
+  resolveProviderFixtureDir,
   resolvePythonExecutable,
   runEntrypoint,
   sanitizeJsonArtifact,
@@ -117,6 +118,21 @@ test("launcher resolves a path-like Python executable before changing child cwd"
   );
   assert.equal(resolvePythonExecutable("python", invocationDir), "python");
   assert.equal(resolvePythonExecutable("/opt/python", invocationDir), "/opt/python");
+});
+
+test("launcher normalizes the provider fixture path before changing child cwd", () => {
+  const invocationDir = path.join(os.tmpdir(), "vibecomfy-fixture-invocation");
+  const childDir = path.join(invocationDir, "ComfyUI");
+  const configured = "fixtures/editor_sessions";
+  const normalized = resolveProviderFixtureDir(configured, invocationDir);
+  assert.equal(normalized, path.join(invocationDir, configured));
+  assert.notEqual(path.resolve(childDir, configured), normalized);
+  assert.equal(resolveProviderFixtureDir("   ", invocationDir), path.join(
+    path.resolve(new URL("../..", import.meta.url).pathname),
+    "tests",
+    "fixtures",
+    "editor_sessions",
+  ));
 });
 
 test("malformed fixtures fail before ComfyUI starts and retain launcher artifacts", async () => {
