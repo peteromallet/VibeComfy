@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import subprocess
 import sys
@@ -3000,3 +3001,245 @@ def test_port_convert_keep_virtual_wires_integration(tmp_path: Path) -> None:
     assert "SetNode" in text_keep, (
         "--keep-virtual-wires convert should contain SetNode literal"
     )
+
+
+@pytest.mark.parametrize(
+    "control_exception",
+    [SystemExit, KeyboardInterrupt, asyncio.CancelledError],
+    ids=["system-exit", "keyboard-interrupt", "cancelled"],
+)
+def test_port_convert_all_json_propagates_process_control_exceptions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    control_exception: type[BaseException],
+) -> None:
+    source_path = tmp_path / "control.py"
+    source_path.write_text("CONTROL = True\n", encoding="utf-8")
+    snapshot = SimpleNamespace(
+        templates_list=[{"id": "template/control", "path": str(source_path)}]
+    )
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        raise control_exception("must propagate")
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr("vibecomfy.commands.port._convert.port_convert_workflow", fake_convert)
+
+    with pytest.raises(control_exception, match="must propagate"):
+        _cmd_port_convert(_convert_all_args(json_output=True))
+
+
+def test_port_convert_all_json_rejects_hostile_or_oversized_result_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    before_path = tmp_path / "before.py"
+    hostile_path = tmp_path / "hostile.py"
+    oversized_path = tmp_path / "oversized.py"
+    after_path = tmp_path / "after.py"
+    for path, text in (
+        (before_path, "BEFORE = True\n"),
+        (hostile_path, "HOSTILE = True\n"),
+        (oversized_path, "OVERSIZED = True\n"),
+        (after_path, "AFTER = True\n"),
+    ):
+        path.write_text(text, encoding="utf-8")
+    snapshot = SimpleNamespace(
+        templates_list=[
+            {"id": "template/before", "path": str(before_path)},
+            {"id": "template/hostile", "path": str(hostile_path)},
+            {"id": "template/oversized", "path": str(oversized_path)},
+            {"id": "template/after", "path": str(after_path)},
+        ]
+    )
+    monkeypatch.setattr("vibecomfy.analysis.corpus.build_corpus_snapshot", lambda: snapshot)
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+
+    class HostileText(str):
+        def splitlines(self, *args: object, **kwargs: object) -> list[str]:
+            raise AssertionError("hostile splitlines was called")
+
+        def strip(self, *args: object, **kwargs: object) -> str:
+            raise AssertionError("hostile strip was called")
+
+        def __ne__(self, _other: object) -> object:
+            raise AssertionError("hostile comparison was called")
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        if workflow == str(hostile_path):
+            text: object = HostileText("HOSTILE = True\n")
+        elif workflow == str(oversized_path):
+            text = "x" * (port_convert_module._CONVERT_RESULT_MAX_CHARS + 1)
+        else:
+            text = Path(workflow).read_text(encoding="utf-8")
+        return SimpleNamespace(text=text, validation=SimpleNamespace(parity_ok=True))
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr("vibecomfy.commands.port._convert.port_convert_workflow", fake_convert)
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    templates = {item["id"]: item for item in payload["templates"]}
+
+    assert code == 1
+    assert captured.err == ""
+    assert [item["id"] for item in payload["templates"]] == [
+        "template/before",
+        "template/hostile",
+        "template/oversized",
+        "template/after",
+    ]
+    assert payload["summary"] == {
+        "template_count": 4,
+        "ok_count": 2,
+        "error_count": 2,
+        "changed_count": 0,
+    }
+    assert templates["template/before"]["status"] == "ok"
+    assert templates["template/after"]["status"] == "ok"
+    assert templates["template/hostile"]["status"] == "error"
+    assert templates["template/oversized"]["status"] == "error"
+    assert "exact builtin str" in templates["template/hostile"]["error"]["message"]
+    assert "exceeds" in templates["template/oversized"]["error"]["message"]
+
+
+def test_convert_all_json_normalization_is_bounded_and_preserves_native_values() -> None:
+    cyclic: list[object] = []
+    cyclic.append(cyclic)
+    deep: dict[str, object] = {}
+    deep_root = deep
+    for _ in range(port_convert_module._JSON_MAX_DEPTH + 10):
+        nested: dict[str, object] = {}
+        deep["nested"] = nested
+        deep = nested
+
+    class HostileMapping(dict[str, object]):
+        def items(self) -> object:
+            raise AssertionError("hostile mapping was iterated")
+
+    class HostileList(list[object]):
+        def __iter__(self) -> object:
+            raise AssertionError("hostile iterable was iterated")
+
+    native = {"bool": True, "int": 4, "float": 1.5, "list": [None, "ok"]}
+    assert port_convert_module._json_native(native) == native
+    assert port_convert_module._json_native(cyclic) == [port_convert_module._JSON_BAD_VALUE]
+    normalized_deep = port_convert_module._json_native(deep_root)
+    assert isinstance(normalized_deep, dict)
+    assert port_convert_module._JSON_BAD_VALUE in repr(normalized_deep)
+    json.dumps(normalized_deep)
+    assert port_convert_module._json_native([0] * (port_convert_module._JSON_MAX_ITEMS + 1)) == port_convert_module._JSON_BAD_VALUE
+    assert port_convert_module._json_native(HostileMapping(answer=42)) == port_convert_module._JSON_BAD_VALUE
+    assert port_convert_module._json_native(HostileList([42])) == port_convert_module._JSON_BAD_VALUE
+    assert port_convert_module._json_native("x" * (port_convert_module._JSON_MAX_STRING_CHARS + 1)) == port_convert_module._JSON_BAD_VALUE
+
+
+def test_convert_all_json_normalization_bounds_branching_builtin_tree() -> None:
+    tree: object = {"leaf": "ok"}
+    for _ in range(port_convert_module._JSON_MAX_DEPTH):
+        tree = {"left": tree, "right": tree}
+
+    normalized = port_convert_module._json_native(tree)
+
+    assert port_convert_module._JSON_BAD_VALUE in repr(normalized)
+    assert json.dumps(normalized)
+
+
+def test_convert_all_json_gives_each_mixed_row_a_fresh_budget() -> None:
+    hostile_row: list[object] = []
+    hostile_row.append(hostile_row)
+    rows = [
+        {"id": "hostile", "nested": hostile_row},
+        {"id": "good", "nested": {"value": "survives"}},
+    ]
+
+    normalized_rows = [port_convert_module._json_native(row) for row in rows]
+
+    assert normalized_rows[0] == {
+        "id": "hostile",
+        "nested": [port_convert_module._JSON_BAD_VALUE],
+    }
+    assert normalized_rows[1] == {
+        "id": "good",
+        "nested": {"value": "survives"},
+    }
+
+
+def test_port_convert_all_json_preserves_realistic_aggregate_cardinality(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    template_count = 64
+    templates = []
+    for index in range(template_count):
+        path = tmp_path / f"template-{index}.py"
+        path.write_text(f"TEMPLATE = {index}\n", encoding="utf-8")
+        templates.append({"id": f"template/{index:02d}", "path": str(path)})
+
+    monkeypatch.setattr("vibecomfy.analysis.corpus.build_corpus_snapshot", lambda: SimpleNamespace(templates_list=templates))
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(text=Path(workflow).read_text(encoding="utf-8"), validation=SimpleNamespace(parity_ok=True))
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr("vibecomfy.commands.port._convert.port_convert_workflow", fake_convert)
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["summary"] == {"template_count": 64, "ok_count": 64, "error_count": 0, "changed_count": 0}
+    assert [item["id"] for item in payload["templates"]] == [f"template/{index:02d}" for index in range(64)]
+
+
+def test_port_convert_all_json_preserves_larger_aggregate_cardinality(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    template_count = 129
+    templates = []
+    for index in range(template_count):
+        path = tmp_path / f"large-template-{index}.py"
+        path.write_text(f"TEMPLATE = {index}\n", encoding="utf-8")
+        templates.append({"id": f"template/{index:03d}", "path": str(path)})
+
+    monkeypatch.setattr("vibecomfy.analysis.corpus.build_corpus_snapshot", lambda: SimpleNamespace(templates_list=templates))
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(text=Path(workflow).read_text(encoding="utf-8"), validation=SimpleNamespace(parity_ok=True))
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr("vibecomfy.commands.port._convert.port_convert_workflow", fake_convert)
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["summary"] == {"template_count": 129, "ok_count": 129, "error_count": 0, "changed_count": 0}
+    assert len(payload["templates"]) == 129
+    assert [item["id"] for item in payload["templates"]] == [f"template/{index:03d}" for index in range(129)]
