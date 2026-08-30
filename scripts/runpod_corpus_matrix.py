@@ -29,8 +29,8 @@ EXCLUDE_DIRS = {
 def _legacy_or_registry_block(phase: str) -> str:
     if phase not in {"core", "gguf", "ltx", "wan_wrapper", "qwen_image"}:
         raise ValueError(f"unknown staging phase: {phase}")
-    return f"""
-if [ "${{VIBECOMFY_REGISTRY_LEGACY:-0}}" = "1" ]; then
+    return """
+if [ "${VIBECOMFY_REGISTRY_LEGACY:-0}" = "1" ]; then
 """
 
 
@@ -471,18 +471,34 @@ else
 "$PY" - <<'PY'
 from huggingface_hub import hf_hub_download
 from pathlib import Path
+import hashlib
 import os
 import shutil
 
 def materialize_model(repo, filename, targets, min_size):
-    path = Path(hf_hub_download(repo_id=repo, filename=filename)).resolve(strict=True)
+    pins = {{
+        ("Comfy-Org/flux2-dev", "split_files/vae/flux2-vae.safetensors"): {{
+            "revision": "ab9055628ea245000e610f2aa2c96f4746093546",
+            "size_bytes": 336_213_556,
+            "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+        }},
+    }}
+    pin = pins.get((repo, filename), {{}})
+    path = Path(hf_hub_download(repo_id=repo, filename=filename, **({{"revision": pin["revision"]}} if pin else {{}}))).resolve(strict=True)
     size = path.stat().st_size
     if size < min_size:
         raise RuntimeError(f"{{repo}}/{{filename}} resolved to {{path}} with only {{size}} bytes")
+    if pin and (size != pin["size_bytes"] or hashlib.sha256(path.read_bytes()).hexdigest() != pin["sha256"]):
+        raise RuntimeError(f"{{repo}}/{{filename}} does not match its pinned size or sha256")
     for target in targets:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() or target.is_symlink():
-            target.unlink()
+            try:
+                if target.stat().st_ino == path.stat().st_ino and target.stat().st_dev == path.stat().st_dev:
+                    continue
+            except OSError:
+                pass
+            raise RuntimeError(f"{{target}} already exists with a different source identity")
         try:
             os.link(path, target)
         except OSError:
@@ -547,18 +563,34 @@ PY
 "$PY" - <<'PY'
 from huggingface_hub import hf_hub_download
 from pathlib import Path
+import hashlib
 import os
 import shutil
 
 def materialize_model(repo, filename, targets, min_size):
-    path = Path(hf_hub_download(repo_id=repo, filename=filename)).resolve(strict=True)
+    pins = {{
+        ("Comfy-Org/vae-text-encorder-for-flux-klein-9b", "split_files/vae/flux2-vae.safetensors"): {{
+            "revision": "3f62d9d8ae1fec33c6e91453d5c712855b096b55",
+            "size_bytes": 336_211_292,
+            "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+        }},
+    }}
+    pin = pins.get((repo, filename), {{}})
+    path = Path(hf_hub_download(repo_id=repo, filename=filename, **({{"revision": pin["revision"]}} if pin else {{}}))).resolve(strict=True)
     size = path.stat().st_size
     if size < min_size:
         raise RuntimeError(f"{{repo}}/{{filename}} resolved to {{path}} with only {{size}} bytes")
+    if pin and (size != pin["size_bytes"] or hashlib.sha256(path.read_bytes()).hexdigest() != pin["sha256"]):
+        raise RuntimeError(f"{{repo}}/{{filename}} does not match its pinned size or sha256")
     for target in targets:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() or target.is_symlink():
-            target.unlink()
+            try:
+                if target.stat().st_ino == path.stat().st_ino and target.stat().st_dev == path.stat().st_dev:
+                    continue
+            except OSError:
+                pass
+            raise RuntimeError(f"{{target}} already exists with a different source identity")
         try:
             os.link(path, target)
         except OSError:
@@ -574,8 +606,8 @@ downloads = [
         Path("models/unet/flux-2-klein-9b-Q4_K_M.gguf"),
         Path("models/unet_gguf/flux-2-klein-9b-Q4_K_M.gguf"),
     ], 5_000_000_000),
-    ("Comfy-Org/flux2-klein-9B", "split_files/vae/flux2-vae.safetensors", [
-        Path("models/vae/flux2-vae.safetensors"),
+    ("Comfy-Org/vae-text-encorder-for-flux-klein-9b", "split_files/vae/flux2-vae.safetensors", [
+        Path("models/vae/flux2-klein-9b-vae.safetensors"),
     ], 100_000_000),
 ]
 for repo, filename, targets, min_size in downloads:

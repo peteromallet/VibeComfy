@@ -100,7 +100,11 @@ models:
       kind: huggingface
       repo: Comfy-Org/flux2-dev
       filename: split_files/vae/flux2-vae.safetensors
+      revision: ab9055628ea245000e610f2aa2c96f4746093546
     min_size: 100_000_000
+    size_bytes: 336_213_556
+    sha256: d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5
+    canonical_name: flux2-vae.safetensors
     targets:
       - node_pack: comfy_core
         path: vae/flux2-vae.safetensors
@@ -223,12 +227,16 @@ models:
   - id: flux2_vae_from_klein_9b
     source:
       kind: huggingface
-      repo: Comfy-Org/flux2-klein-9B
+      repo: Comfy-Org/vae-text-encorder-for-flux-klein-9b
       filename: split_files/vae/flux2-vae.safetensors
+      revision: 3f62d9d8ae1fec33c6e91453d5c712855b096b55
     min_size: 100_000_000
+    size_bytes: 336_211_292
+    sha256: 868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3
+    canonical_name: flux2-klein-9b-vae.safetensors
     targets:
       - node_pack: comfy_gguf
-        path: vae/flux2-vae.safetensors
+        path: vae/flux2-klein-9b-vae.safetensors
     tags: [phase:gguf]
 
   - id: ltx_2_3_22b_dev_fp8

@@ -365,6 +365,45 @@ def test_nested_target_does_not_guess_undeclared_basename() -> None:
     assert asset["name"] == "foo/bar.bin"
 
 
+def test_ensure_models_resolves_pinned_klein_9b_vae_to_unique_target_name() -> None:
+    entry = ModelEntry(
+        id="flux2_vae_from_klein_9b",
+        source=ModelSource(
+            kind="huggingface",
+            repo="Comfy-Org/vae-text-encorder-for-flux-klein-9b",
+            filename="split_files/vae/flux2-vae.safetensors",
+            revision="3f62d9d8ae1fec33c6e91453d5c712855b096b55",
+        ),
+        canonical_name="flux2-klein-9b-vae.safetensors",
+        min_size=100,
+        size_bytes=336_211_292,
+        sha256="868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+        targets=(ModelTarget("comfy_gguf", "vae/flux2-klein-9b-vae.safetensors"),),
+    )
+    registry = (entry,)
+    reference = {
+        "node_id": "1",
+        "class_type": "VAELoader",
+        "field": "vae_name",
+        "value": "flux2-klein-9b-vae.safetensors",
+        "subdir": "vae",
+    }
+
+    asset = _asset_for_reference(reference, registry=registry)
+
+    assert asset is not None
+    assert asset["name"] == "flux2-klein-9b-vae.safetensors"
+    assert asset["url"].endswith(
+        "/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/"
+        "3f62d9d8ae1fec33c6e91453d5c712855b096b55/"
+        "split_files/vae/flux2-vae.safetensors"
+    )
+    assert asset["hf_revision"] == "3f62d9d8ae1fec33c6e91453d5c712855b096b55"
+    assert asset["size_bytes"] == 336_211_292
+    assert asset["sha256"] == "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+    assert _asset_for_reference({**reference, "value": "flux2-vae.safetensors"}, registry=registry) is None
+
+
 def test_model_asset_install_policy_still_ignores_non_registry_url_and_path_values() -> None:
     workflow = VibeWorkflow("models", WorkflowSource("models"))
     workflow.nodes["1"] = VibeNode("1", "UNETLoader", inputs={"unet_name": "https://example.test/model.safetensors"})

@@ -30,9 +30,9 @@ def apply(workflow: VibeWorkflow) -> VibeWorkflow:
             or node.widgets.get("widget_0") == "full_encoder_small_decoder.safetensors"
         ):
             if "vae_name" in node.inputs:
-                node.inputs["vae_name"] = "flux2-vae.safetensors"
+                node.inputs["vae_name"] = "flux2-klein-9b-vae.safetensors"
             else:
-                node.widgets["widget_0"] = "flux2-vae.safetensors"
+                node.widgets["widget_0"] = "flux2-klein-9b-vae.safetensors"
     workflow.finalize_metadata()
     ensure_custom_nodes(workflow, ("ComfyUI-GGUF",))
     return workflow

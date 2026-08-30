@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 import errno
 import hashlib
+import os
 import re
+import socket
+import stat
 import warnings
 from pathlib import Path
 
@@ -379,6 +382,54 @@ def test_stage_entry_rejects_unrelated_existing_target(monkeypatch: pytest.Monke
         stage_entry(entry, models_root=tmp_path / "models")
 
 
+@pytest.mark.parametrize("kind", ["directory", "fifo", "socket"])
+def test_stage_entry_rejects_non_regular_existing_target_without_mutating_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"source")
+    models = tmp_path / "models"
+    target = models / "checkpoints/model.bin"
+    target.parent.mkdir(parents=True)
+    listener: socket.socket | None = None
+    if kind == "directory":
+        target.mkdir()
+    elif kind == "fifo":
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("FIFO is not supported on this platform")
+        os.mkfifo(target)
+    else:
+        if not hasattr(socket, "AF_UNIX"):
+            pytest.skip("Unix sockets are not supported on this platform")
+        listener = socket.socket(socket.AF_UNIX)
+        try:
+            listener.bind(str(target))
+        except OSError:
+            listener.close()
+            pytest.skip("Unix socket paths are not supported on this platform")
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **_kwargs: str(source))
+    entry = ModelEntry(
+        id=f"non_regular_{kind}",
+        source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
+        min_size=0,
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="regular file|overwrite unrelated"):
+            stage_entry(entry, models_root=models)
+        assert target.exists() or target.is_symlink()
+        if kind == "directory":
+            assert target.is_dir()
+        elif kind == "fifo":
+            assert stat.S_ISFIFO(target.stat().st_mode)
+        else:
+            assert stat.S_ISSOCK(target.stat().st_mode)
+    finally:
+        if listener is not None:
+            listener.close()
+
+
 def test_normalize_alias_hits_and_misses(tmp_path: Path) -> None:
     entries = load_registry(_sample_registry(tmp_path / "models.yaml"))
 
@@ -473,6 +524,221 @@ models:
         load_registry(registry)
 
 
+@pytest.mark.parametrize(
+    ("first", "second", "match"),
+    [
+        (
+            """
+    targets: [{node_pack: comfy_core, path: checkpoints/shared.bin}]
+""",
+            """
+    targets: [{node_pack: comfy_gguf, path: checkpoints/shared.bin}]
+""",
+            "checkpoints/shared.bin.*first.*second",
+        ),
+        (
+            """
+    targets: [{node_pack: comfy_core, path: checkpoints/owner.bin}]
+    aliases: [shared.bin]
+""",
+            """
+    targets: [{node_pack: comfy_gguf, path: checkpoints/shared.bin}]
+""",
+            "checkpoints/shared.bin.*first.*second",
+        ),
+        (
+            """
+    targets: [{node_pack: comfy_core, path: checkpoints}]
+    files: [{path: shared.bin}]
+""",
+            """
+    targets: [{node_pack: comfy_gguf, path: checkpoints/shared.bin}]
+""",
+            "checkpoints/shared.bin.*first.*second",
+        ),
+        (
+            """
+    targets: [{node_pack: comfy_core, path: Foo//bar.bin}]
+""",
+            """
+    targets: [{node_pack: comfy_gguf, path: foo/./bar.bin}]
+""",
+            "foo/bar.bin.*first.*second",
+        ),
+        (
+            """
+    targets: [{node_pack: comfy_core, path: Café/model.bin}]
+""",
+            """
+    targets: [{node_pack: comfy_gguf, path: cafe\u0301/MODEL.bin}]
+""",
+            "café/model.bin.*first.*second",
+        ),
+    ],
+)
+def test_load_registry_rejects_cross_entry_materialized_destination_collisions(
+    tmp_path: Path, first: str, second: str, match: str
+) -> None:
+    registry = _write_registry(
+        tmp_path / "models.yaml",
+        f"""
+models:
+  - id: first
+    source: {{kind: huggingface, repo: example/repo, filename: first, revision: test}}
+    min_size: 0
+{first}
+  - id: second
+    source: {{kind: huggingface, repo: example/repo, filename: second, revision: test}}
+    min_size: 0
+{second}
+""",
+    )
+    with pytest.raises(ValueError, match=match):
+        load_registry(registry)
+
+
+def test_lookup_only_alias_does_not_claim_a_materialized_destination(tmp_path: Path) -> None:
+    registry = _write_registry(
+        tmp_path / "models.yaml",
+        """
+models:
+  - id: lookup
+    source: {kind: url, url: https://example.test/lookup}
+    min_size: 0
+    targets: [{node_pack: comfy_core, path: checkpoints/lookup.bin}]
+    lookup_aliases: [checkpoints/shared.bin]
+  - id: materialized
+    source: {kind: url, url: https://example.test/materialized}
+    min_size: 0
+    targets: [{node_pack: comfy_gguf, path: checkpoints/shared.bin}]
+""",
+    )
+    entries = load_registry(registry)
+    assert [entry.id for entry in entries] == ["lookup", "materialized"]
+
+
+def test_shipped_flux2_vae_rows_have_distinct_exact_identity() -> None:
+    entries = {entry.id: entry for entry in load_registry()}
+    four_b = entries["flux2_vae_from_klein_4b"]
+    nine_b = entries["flux2_vae_from_klein_9b"]
+
+    assert (
+        four_b.source.repo,
+        four_b.source.filename,
+        four_b.source.revision,
+        four_b.size_bytes,
+        four_b.sha256,
+        four_b.canonical_name,
+        four_b.targets[0].path,
+    ) == (
+        "Comfy-Org/flux2-dev",
+        "split_files/vae/flux2-vae.safetensors",
+        "ab9055628ea245000e610f2aa2c96f4746093546",
+        336_213_556,
+        "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+        "flux2-vae.safetensors",
+        "vae/flux2-vae.safetensors",
+    )
+    assert (
+        nine_b.source.repo,
+        nine_b.source.filename,
+        nine_b.source.revision,
+        nine_b.size_bytes,
+        nine_b.sha256,
+        nine_b.canonical_name,
+        nine_b.targets[0].path,
+    ) == (
+        "Comfy-Org/vae-text-encorder-for-flux-klein-9b",
+        "split_files/vae/flux2-vae.safetensors",
+        "3f62d9d8ae1fec33c6e91453d5c712855b096b55",
+        336_211_292,
+        "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+        "flux2-klein-9b-vae.safetensors",
+        "vae/flux2-klein-9b-vae.safetensors",
+    )
+    assert canonical_filename(four_b.id, registry=tuple(entries.values())) == "flux2-vae.safetensors"
+    assert canonical_filename(nine_b.id, registry=tuple(entries.values())) == "flux2-klein-9b-vae.safetensors"
+    assert resolve_model_entry("flux2-vae.safetensors", registry=tuple(entries.values()), subdir="vae") is four_b
+
+
+@pytest.mark.parametrize("payload", [b"wrong-owner", b"unknown-large-file" * 10])
+def test_four_b_staging_preserves_preexisting_old_path_on_identity_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: bytes
+) -> None:
+    source = tmp_path / "hf" / "four-b.bin"
+    source.parent.mkdir()
+    source.write_bytes(b"four-b-payload")
+    old_path = tmp_path / "models" / "vae" / "flux2-vae.safetensors"
+    old_path.parent.mkdir(parents=True)
+    old_path.write_bytes(payload)
+    entry = ModelEntry(
+        id="flux2_vae_from_klein_4b",
+        source=ModelSource("huggingface", repo="Comfy-Org/flux2-dev", filename="split_files/vae/flux2-vae.safetensors", revision="four-b"),
+        min_size=1,
+        size_bytes=len(source.read_bytes()),
+        sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+        targets=(ModelTarget("comfy_core", "vae/flux2-vae.safetensors"),),
+    )
+    monkeypatch.setattr(models_loader, "_download_source", lambda *_args, **_kwargs: source)
+
+    with pytest.raises(RuntimeError, match="refusing to overwrite"):
+        stage_entry(entry, models_root=tmp_path / "models")
+    assert old_path.read_bytes() == payload
+
+
+def test_four_b_staging_reports_and_preserves_known_legacy_nine_b_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    legacy_payload = b"legacy-nine-b"
+    old_path = tmp_path / "models" / "vae" / "flux2-vae.safetensors"
+    old_path.parent.mkdir(parents=True)
+    old_path.write_bytes(legacy_payload)
+    entry = ModelEntry(
+        id="flux2_vae_from_klein_4b",
+        source=ModelSource("huggingface", repo="r", filename="four", revision="four"),
+        min_size=1,
+        targets=(ModelTarget("comfy_core", "vae/flux2-vae.safetensors"),),
+    )
+    monkeypatch.setattr(models_loader, "_FLUX2_9B_SIZE_BYTES", len(legacy_payload))
+    monkeypatch.setattr(models_loader, "_FLUX2_9B_SHA256", hashlib.sha256(legacy_payload).hexdigest())
+    monkeypatch.setattr(models_loader, "_download_source", lambda *_args, **_kwargs: pytest.fail("must fail before download"))
+
+    with pytest.raises(RuntimeError, match="matches the pinned 9B artifact.*move it"):
+        stage_entry(entry, models_root=tmp_path / "models")
+    assert old_path.read_bytes() == legacy_payload
+
+
+def test_staging_core_then_gguf_materializes_distinct_pinned_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    four_source = tmp_path / "four.bin"
+    nine_source = tmp_path / "nine.bin"
+    four_source.write_bytes(b"four-b")
+    nine_source.write_bytes(b"nine-b")
+    four = ModelEntry(
+        id="four",
+        source=ModelSource("huggingface", repo="r", filename="four", revision="four"),
+        min_size=1,
+        size_bytes=len(four_source.read_bytes()),
+        sha256=hashlib.sha256(four_source.read_bytes()).hexdigest(),
+        targets=(ModelTarget("comfy_core", "vae/flux2-vae.safetensors"),),
+    )
+    nine = ModelEntry(
+        id="nine",
+        source=ModelSource("huggingface", repo="r", filename="nine", revision="nine"),
+        min_size=1,
+        size_bytes=len(nine_source.read_bytes()),
+        sha256=hashlib.sha256(nine_source.read_bytes()).hexdigest(),
+        targets=(ModelTarget("comfy_gguf", "vae/flux2-klein-9b-vae.safetensors"),),
+    )
+    monkeypatch.setattr(models_loader, "_download_source", lambda entry, **_kwargs: four_source if entry.id == "four" else nine_source)
+
+    stage_many((four, nine), models_root=tmp_path / "models", ids=("four",))
+    stage_many((four, nine), models_root=tmp_path / "models", ids=("nine",))
+    assert (tmp_path / "models/vae/flux2-vae.safetensors").read_bytes() == b"four-b"
+    assert (tmp_path / "models/vae/flux2-klein-9b-vae.safetensors").read_bytes() == b"nine-b"
+
+
 def test_shipped_registry_declares_four_lookup_only_aliases() -> None:
     entries = load_registry()
     lookup_aliases = {alias for entry in entries for alias in entry.lookup_aliases}
@@ -520,7 +786,12 @@ def test_load_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
 
 def test_load_registry_rejects_duplicate_aliases(tmp_path: Path) -> None:
     text = _sample_registry(tmp_path / "models.yaml").read_text(encoding="utf-8")
-    second = text.split("models:\n", 1)[1].replace("id: sample", "id: second")
+    second = (
+        text.split("models:\n", 1)[1]
+        .replace("id: sample", "id: second")
+        .replace("checkpoints/model.bin", "checkpoints_second/model.bin")
+        .replace("diffusion_models/model.bin", "diffusion_models_second/model.bin")
+    )
     _write_registry(tmp_path / "models.yaml", text + "\n" + second)
 
     with pytest.raises(ValueError, match="duplicate alias"):

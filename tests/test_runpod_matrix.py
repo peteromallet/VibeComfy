@@ -34,7 +34,7 @@ def test_runpod_matrix_model_constants_match_registry_contract() -> None:
     assert LTX_AUDIO_VAE == "LTX23_audio_vae_bf16.safetensors"
     assert LTX_PREVIEW_VAE == "taeltx2_3.safetensors"
     assert GGUF_MODEL == "flux-2-klein-9b-Q4_K_M.gguf"
-    assert FLUX_VAE == "flux2-vae.safetensors"
+    assert FLUX_VAE == "flux2-klein-9b-vae.safetensors"
 
 
 def test_attention_profile_defaults_to_portable_sdpa() -> None:
@@ -1097,7 +1097,7 @@ def test_runpod_remote_patch_policy_handles_gguf() -> None:
 
     assert api["unet"]["class_type"] == "UnetLoaderGGUF"
     assert api["unet"]["inputs"]["unet_name"] == GGUF_MODEL
-    assert api["vae"]["inputs"]["vae_name"] == "flux2-vae.safetensors"
+    assert api["vae"]["inputs"]["vae_name"] == "flux2-klein-9b-vae.safetensors"
 
 
 def _ltx_api() -> dict[str, dict]:

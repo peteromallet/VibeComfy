@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import stat
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping, Sequence
@@ -33,6 +35,10 @@ NODE_PACK_ALIASES = {
 }
 DOCUMENTED_NODE_PACK_GAPS = frozenset({"ace_step", "comfy_core", "kijai_ltx"})
 CANONICAL_MODEL_NODE_PACKS = frozenset(NODE_PACK_ALIASES.values())
+_FLUX2_4B_ID = "flux2_vae_from_klein_4b"
+_FLUX2_4B_PATH = "vae/flux2-vae.safetensors"
+_FLUX2_9B_SIZE_BYTES = 336_211_292
+_FLUX2_9B_SHA256 = "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
 
 
 @dataclass(frozen=True)
@@ -123,6 +129,7 @@ def _stage_entry(
         staged.parent.mkdir(parents=True, exist_ok=True)
         _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
         if os.path.lexists(staged):
+            _reject_known_legacy_owner(entry, target=target, staged=staged)
             _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             _validate_final_component(
                 staged, models_root=models_root, entry_id=entry.id, source=source, entry=entry
@@ -140,8 +147,10 @@ def _stage_entry(
                 )
                 continue
             _check_collision(staged, source, entry.id)
-            _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
-            staged.unlink()
+            raise RuntimeError(
+                f"{entry.id}: refusing to replace existing target at {staged}; "
+                "move the existing file explicitly after verifying its source identity"
+            )
         try:
             _authorized_target_path(target, models_root=models_root, entry_id=entry.id)
             os.link(source, staged)
@@ -166,6 +175,22 @@ def _stage_entry(
             )
         )
     return staged_paths
+
+
+def _reject_known_legacy_owner(entry: ModelEntry, *, target: ModelTarget, staged: Path) -> None:
+    if entry.id != _FLUX2_4B_ID or target.path != _FLUX2_4B_PATH:
+        return
+    try:
+        if staged.stat().st_size != _FLUX2_9B_SIZE_BYTES:
+            return
+        digest = hashlib.sha256(staged.read_bytes()).hexdigest()
+    except (OSError, RuntimeError):
+        return
+    if digest.lower() == _FLUX2_9B_SHA256:
+        raise RuntimeError(
+            f"{entry.id}: legacy path {staged} matches the pinned 9B artifact; "
+            "move it to vae/flux2-klein-9b-vae.safetensors explicitly, then rerun staging"
+        )
 
 
 def _existing_source(entry: ModelEntry, *, models_root: Path) -> Path | None:
@@ -208,8 +233,10 @@ def _stage_aliases(
                 staged_aliases.append(alias_path)
                 continue
             _check_collision(alias_path, source, entry.id)
-            _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
-            alias_path.unlink()
+            raise RuntimeError(
+                f"{entry.id}: refusing to replace existing alias at {alias_path}; "
+                "move the existing file explicitly after verifying its source identity"
+            )
         try:
             _authorized_alias_path(target, alias, models_root=models_root, entry_id=entry.id)
             os.link(source, alias_path)
@@ -444,7 +471,45 @@ def _validate_registry(entries: Sequence[ModelEntry], *, registry_path: Path) ->
             _normalize_lookup_key(entry.canonical_name, entry_id=entry.id, field="canonical_name")
         for target in entry.targets:
             _validate_target_node_pack(target, entry_id=entry.id, registry_path=registry_path)
+    _validate_materialized_destinations(entries, registry_path=registry_path)
     _lookup_index(entries, registry_path=registry_path)
+
+
+def _validate_materialized_destinations(
+    entries: Sequence[ModelEntry], *, registry_path: Path
+) -> None:
+    """Reject cross-entry claims on the same portable materialized path."""
+    claims: dict[str, tuple[str, str, str]] = {}
+    for entry in entries:
+        for target in entry.targets:
+            paths: list[tuple[str, str]] = [(target.path, "target")]
+            if entry.files:
+                paths = [
+                    (str(PurePosixPath(target.path) / file.path), "composite child")
+                    for file in entry.files
+                ]
+            else:
+                paths.extend(
+                    (str(PurePosixPath(target.path).parent / alias), "materialized alias")
+                    for alias in entry.aliases
+                )
+            for path, claim_kind in paths:
+                normalized = _normalize_materialized_destination(path)
+                previous = claims.get(normalized)
+                if previous is not None and previous[0] != entry.id:
+                    previous_id, previous_kind, previous_path = previous
+                    raise ValueError(
+                        f"{registry_path}: materialized destination collision at {normalized!r} "
+                        f"(portable key {normalized!r}): {previous_id!r} "
+                        f"({previous_kind}, {previous_path!r}) and {entry.id!r} "
+                        f"({claim_kind}, {path!r})"
+                    )
+                claims[normalized] = (entry.id, claim_kind, path)
+
+
+def _normalize_materialized_destination(path: str) -> str:
+    normalized = str(PurePosixPath(path))
+    return unicodedata.normalize("NFC", normalized).casefold()
 
 
 def _normalize_lookup_key(
@@ -747,8 +812,10 @@ def _stage_composite_entry(
                     staged_paths.append(staged)
                     continue
                 _check_collision(staged, source, entry.id)
-                _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
-                staged.unlink()
+                raise RuntimeError(
+                    f"{entry.id}: refusing to replace existing composite child at {staged}; "
+                    "move the existing file explicitly after verifying its source identity"
+                )
             try:
                 _authorized_composite_path(target, file, models_root=models_root, entry_id=entry.id)
                 os.link(source, staged)
@@ -771,13 +838,11 @@ def _stage_composite_entry(
 
 
 def _check_collision(staged: Path, source: Path, entry_id: str) -> None:
-    if staged.is_symlink():
-        return
     try:
         if staged.stat().st_ino == source.stat().st_ino and staged.stat().st_dev == source.stat().st_dev:
             return
-    except FileNotFoundError:
-        return
+    except (FileNotFoundError, OSError):
+        pass
     raise RuntimeError(f"{entry_id}: refusing to overwrite unrelated existing file at {staged}")
 
 
@@ -803,12 +868,23 @@ def _existing_model_file_satisfies(staged: Path, *, entry: ModelEntry, file: Mod
 
 
 def _check_size(path: Path, min_size: int, entry_id: str) -> None:
+    _require_regular_file(path, entry_id)
     size = path.stat().st_size
     if size < min_size:
         raise RuntimeError(f"{entry_id}: {path} is too small ({size} bytes < {min_size} bytes)")
 
 
+def _require_regular_file(path: Path, entry_id: str) -> None:
+    try:
+        mode = path.stat().st_mode
+    except OSError as exc:
+        raise RuntimeError(f"{entry_id}: {path} could not be inspected safely") from exc
+    if not stat.S_ISREG(mode):
+        raise RuntimeError(f"{entry_id}: {path} is not a regular file")
+
+
 def _check_pins(path: Path, entry: ModelEntry) -> None:
+    _require_regular_file(path, entry.id)
     if entry.size_bytes is not None and path.stat().st_size != entry.size_bytes:
         raise RuntimeError(f"{entry.id}: {path} size {path.stat().st_size} does not match pinned size_bytes {entry.size_bytes}")
     if entry.sha256:
