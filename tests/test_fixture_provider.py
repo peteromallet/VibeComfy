@@ -1053,6 +1053,94 @@ def test_repo_root_is_used_when_custom_fixture_dir_is_unset(
     assert result["fixture"]["key"] == "repo-key"
 
 
+def test_warm_fixture_root_switch_uses_new_same_key_content_and_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Changing the public root invalidates key-only fixture caches."""
+    root_a = tmp_path / "corpus-a"
+    root_b = tmp_path / "corpus-b"
+    _write_fixture(
+        root_a,
+        key="shared-key",
+        task="shared task",
+        content="corpus A\n```batch\nfrom_a()\n```",
+        metadata={"corpus": "A"},
+    )
+    _write_fixture(
+        root_b,
+        key="shared-key",
+        task="shared task",
+        content="corpus B\n```batch\nfrom_b()\n```",
+        metadata={"corpus": "B"},
+    )
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(root_a))
+    _reset_fixture_caches(monkeypatch, root_a)
+    monkeypatch.setattr(fixture_provider, "_FIXTURE_ROOT", None)
+
+    first = fixture_provider.run_agent_turn_batch(task="shared task", route="arnold")
+    assert first["content"].startswith("corpus A")
+    assert fixture_provider._load_fixture_metadata("shared-key")["corpus"] == "A"
+
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(root_b))
+    second = fixture_provider.run_agent_turn_batch(task="shared task", route="arnold")
+    assert second["content"].startswith("corpus B")
+    assert second["fixture"]["key"] == "shared-key"
+    assert fixture_provider._load_fixture_metadata("shared-key")["corpus"] == "B"
+    assert fixture_provider._DOCUMENT_CACHE_ROOT == root_b
+    assert fixture_provider._MANIFEST_CACHE_ROOT == root_b
+
+
+@pytest.mark.parametrize(
+    ("corpus_kind", "expected_kind", "expected_code"),
+    [
+        ("missing", "fixture_unavailable", "fixture_root_missing"),
+        ("empty", "fixture_unavailable", "empty_manifest"),
+        ("malformed", "fixture_corruption", "manifest_unreadable"),
+    ],
+)
+def test_warm_fixture_then_invalid_root_refuses_without_stale_content(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    corpus_kind: str,
+    expected_kind: str,
+    expected_code: str,
+) -> None:
+    """A newly selected unusable root cannot replay the previous corpus."""
+    root_a = tmp_path / "corpus-a"
+    _write_fixture(
+        root_a,
+        key="shared-key",
+        task="shared task",
+        content="corpus A\n```batch\nfrom_a()\n```",
+        metadata={"corpus": "A"},
+    )
+    invalid = tmp_path / corpus_kind
+    if corpus_kind == "empty":
+        invalid.mkdir()
+        (invalid / "manifest.json").write_text("{}")
+    elif corpus_kind == "malformed":
+        invalid.mkdir()
+        (invalid / "manifest.json").write_text("not json")
+
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(root_a))
+    _reset_fixture_caches(monkeypatch, root_a)
+    monkeypatch.setattr(fixture_provider, "_FIXTURE_ROOT", None)
+    warm = fixture_provider.run_agent_turn_batch(task="shared task", route="arnold")
+    assert warm["content"].startswith("corpus A")
+
+    monkeypatch.setenv("VIBECOMFY_FIXTURE_DIR", str(invalid))
+    result = fixture_provider.run_agent_turn_batch(task="shared task", route="arnold")
+    assert result["content"] == ""
+    assert result["error"]["kind"] == expected_kind
+    assert result["error"]["code"] == expected_code
+    assert "corpus A" not in str(result)
+    assert fixture_provider._DOCUMENT_CACHE_ROOT == invalid
+    assert fixture_provider._MANIFEST_CACHE_ROOT == invalid
+    assert fixture_provider._CONTENT_CACHE == {}
+    assert fixture_provider._METADATA_CACHE == {}
+
+
 def test_blank_fixture_dir_uses_private_override_before_repo_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

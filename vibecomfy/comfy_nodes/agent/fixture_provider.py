@@ -180,14 +180,23 @@ def _read_manifest_json() -> Any:
             os.close(root_fd)
 
 
-def _load_fixture_document(key: str) -> Any:
-    global _DOCUMENT_CACHE_ROOT
+def _sync_fixture_root() -> Path:
+    """Invalidate all fixture-domain caches when corpus authority changes."""
+    global _DOCUMENT_CACHE_ROOT, _MANIFEST_CACHE, _MANIFEST_CACHE_ROOT, _MANIFEST_ERROR
     root = _fixture_root()
-    if _DOCUMENT_CACHE_ROOT != root:
+    if _DOCUMENT_CACHE_ROOT != root or _MANIFEST_CACHE_ROOT != root:
         _DOCUMENT_CACHE.clear()
         _CONTENT_CACHE.clear()
         _METADATA_CACHE.clear()
+        _MANIFEST_CACHE = None
+        _MANIFEST_ERROR = None
         _DOCUMENT_CACHE_ROOT = root
+        _MANIFEST_CACHE_ROOT = root
+    return root
+
+
+def _load_fixture_document(key: str) -> Any:
+    _sync_fixture_root()
     if key not in _DOCUMENT_CACHE:
         _DOCUMENT_CACHE[key] = _read_fixture_json(key, "fixture.json")
     return _DOCUMENT_CACHE[key]
@@ -195,7 +204,7 @@ def _load_fixture_document(key: str) -> Any:
 
 def _load_manifest() -> dict[str, Any]:
     global _MANIFEST_CACHE, _MANIFEST_ERROR, _MANIFEST_CACHE_ROOT
-    root = _fixture_root()
+    root = _sync_fixture_root()
     if _MANIFEST_CACHE is not None and _MANIFEST_CACHE_ROOT == root:
         return _MANIFEST_CACHE
     _MANIFEST_ERROR = None
@@ -305,6 +314,7 @@ def _compute_key(task: str, messages: Sequence[Mapping[str, Any]] | None = None)
 
 def _load_fixture_metadata(key: str) -> dict[str, Any] | None:
     """Load the committed ``fixture.json`` metadata used for hash matching."""
+    _sync_fixture_root()
     if key in _METADATA_CACHE:
         return _METADATA_CACHE[key]
     data = _load_fixture_document(key)
@@ -319,6 +329,7 @@ def _load_fixture_metadata(key: str) -> dict[str, Any] | None:
 
 def _load_fixture_content(key: str) -> Any:
     """Load raw fixture content for validation (with caching)."""
+    _sync_fixture_root()
     if key in _CONTENT_CACHE:
         return _CONTENT_CACHE[key]
     data = _load_fixture_document(key)
