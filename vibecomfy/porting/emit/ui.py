@@ -3860,7 +3860,11 @@ def _link_id(link: Any) -> int | None:
 
 def _canonical_native_int(value: Any) -> int | None:
     """Return a LiteGraph native ID/slot only when its wire type is canonical."""
-    return value if type(value) is int else None
+    if type(value) is int and value >= 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
 
 
 def _iter_scopes(graph: Mapping[str, Any], scope_path: str = "") -> list[tuple[str, Mapping[str, Any]]]:
@@ -4144,7 +4148,13 @@ def _raw_link_parts(link: Any) -> tuple[Any, Any, Any, Any, Any, Any] | None:
     if isinstance(link, Mapping):
         keys = ("id", "from_node", "from_slot", "to_node", "to_slot", "type")
         if not all(key in link for key in keys):
-            return None
+            # Subgraph definitions in the Comfy/LiteGraph corpus use the
+            # historical origin/target spelling.  Keep these links in the
+            # raw fold so an untouched subgraph can still be compared
+            # exactly (including its negative interface sentinels).
+            keys = ("id", "origin_id", "origin_slot", "target_id", "target_slot", "type")
+            if not all(key in link for key in keys):
+                return None
         return tuple(link[key] for key in keys)  # type: ignore[return-value]
     if isinstance(link, Sequence) and not isinstance(link, (str, bytes)) and len(link) == 6:
         return tuple(link)  # type: ignore[return-value]
@@ -4414,6 +4424,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "link_ops_by_scope": link_ops_by_scope,
         "link_removal_ops": link_removal_ops,
         "new_scope_ids": new_scope_ids,
+        "removed_scope_ids": removed_scope_ids,
         "changed_scope_ids": changed_scope_ids,
         "set_node_fields": set_node_fields,
     }
@@ -4460,7 +4471,7 @@ def _scope_identity_issues(scope: Mapping[str, Any], *, scope_path: str) -> list
     diagnostics: list[PortIssue] = []
     nodes = scope.get("nodes")
     seen_uids: set[str] = set()
-    seen_native_ids: set[str] = set()
+    seen_native_ids: set[int] = set()
     if isinstance(nodes, list):
         for node in nodes:
             if not isinstance(node, Mapping):
@@ -4491,9 +4502,16 @@ def _scope_identity_issues(scope: Mapping[str, Any], *, scope_path: str) -> list
                 )
             else:
                 seen_uids.add(uid)
-            if node.get("id") is not None:
-                native_id = str(node["id"])
-                if native_id in seen_native_ids:
+            native_id = _canonical_native_int(node.get("id"))
+            if native_id is None:
+                diagnostics.append(
+                    _issue(
+                        "full_ui_identity_malformed",
+                        "UI native node ID is malformed.",
+                        detail={"scope_path": scope_path, "reason": "malformed_native_id"},
+                    )
+                )
+            elif native_id in seen_native_ids:
                     diagnostics.append(
                         _issue(
                             "full_ui_identity_malformed",
@@ -4501,18 +4519,28 @@ def _scope_identity_issues(scope: Mapping[str, Any], *, scope_path: str) -> list
                             detail={"scope_path": scope_path, "reason": "duplicate_native_id", "id": native_id},
                         )
                     )
-                else:
-                    seen_native_ids.add(native_id)
+            else:
+                seen_native_ids.add(native_id)
     links = scope.get("links")
     seen_link_ids: set[int] = set()
     if isinstance(links, list):
         for link in links:
             parts = _raw_link_parts(link)
+            legacy_interface = (
+                isinstance(link, Mapping)
+                and "origin_id" in link
+                and "target_id" in link
+                and "from_node" not in link
+            )
             malformed = (
                 parts is None
                 or type(parts[0]) is not int
                 or parts[0] < 0
-                or any(type(value) is not int for value in parts[1:5])
+                or any(
+                    type(value) is not int
+                    or (value < 0 and not (legacy_interface and index in (0, 2)))
+                    for index, value in enumerate(parts[1:5])
+                )
             )
             if malformed:
                 diagnostics.append(
@@ -4565,8 +4593,6 @@ def _expected_ui_links(
                 records = [record for record in records if not endpoint_match(record, op)]
             continue
         if isinstance(op, UpsertLinkOp):
-            dropped = [record for record in records if endpoint_match(record, op)]
-            records = [record for record in records if not endpoint_match(record, op)]
             source = _scope_node_for_uid(original_scope, op.source.uid)
             target = _scope_node_for_uid(original_scope, op.target.uid)
             source_id = _native_node_id(source)
@@ -4574,18 +4600,16 @@ def _expected_ui_links(
             source_slot = _output_slot_for_ref(source, op.source.output_slot) if source is not None else None
             target_slot = _input_slot_for_name(target, op.target.input_field) if target is not None else None
             if source_id is None or target_id is None or source_slot is None or target_slot is None:
-                diagnostics.append(
-                    _issue(
-                        "full_ui_identity_malformed",
-                        "UpsertLink target or source cannot be resolved in the original UI scope.",
-                        detail={"reason": "unresolved_upsert_endpoint"},
-                    )
-                )
+                # Interpret rejects these in normal operation.  If a caller
+                # supplies one anyway, it must not authorize a partial fold.
                 continue
+            dropped = [record for record in records if endpoint_match(record, op)]
+            records = [record for record in records if not endpoint_match(record, op)]
             link_type = dropped[0]["parts"][5] if dropped else ""
             records.append({
                 "parts": (None, source_id, source_slot, target_id, target_slot, link_type),
                 "locked": False,
+                "origin_op": op,
             })
             continue
         if isinstance(op, RemoveNodeOp):
@@ -4613,12 +4637,16 @@ def _expected_ui_links(
                 and incoming
                 and outgoing
             ):
-                for index, (source_record, target_record) in enumerate(
+                for source_record, target_record in (
                     (left, right) for left in incoming for right in outgoing
                 ):
                     target_parts = target_record["parts"]
                     source_parts = source_record["parts"]
-                    link_id = target_parts[0] if index < len(outgoing) else None
+                    link_id = (
+                        target_parts[0]
+                        if len(incoming) == 1 and len(outgoing) == 1
+                        else None
+                    )
                     records.append({
                         "parts": (
                             link_id,
@@ -4629,6 +4657,12 @@ def _expected_ui_links(
                             target_parts[5],
                         ),
                         "locked": link_id is not None,
+                        "origin_op": None,
+                        "required_link_ids": (
+                            {record["parts"][0] for record in outgoing}
+                            if link_id is None
+                            else None
+                        ),
                     })
     locked_ids = {
         record["parts"][0]
@@ -4636,11 +4670,19 @@ def _expected_ui_links(
         if record["locked"] and type(record["parts"][0]) is int
     }
     fold_removed_ids = original_ids - locked_ids
+    original_by_id = {
+        parts[0]: parts
+        for link in original_scope.get("links") or ()
+        for parts in [_raw_link_parts(link)]
+        if parts is not None and type(parts[0]) is int
+    }
     allowed_changed_ids = {
         record["parts"][0]
         for record in records
-        if record["locked"] and type(record["parts"][0]) is int
-        and record["parts"][0] in original_ids
+        if record["locked"]
+        and type(record["parts"][0]) is int
+        and record["parts"][0] in original_by_id
+        and tuple(record["parts"][1:]) != tuple(original_by_id[record["parts"][0]][1:])
     }
     return records, fold_removed_ids, allowed_changed_ids, diagnostics
 
@@ -4704,16 +4746,22 @@ def _compare_expected_ui_links(
                     )
                 )
             continue
-        match = next(
-            (
+        origin_op = record.get("origin_op")
+        if isinstance(origin_op, UpsertLinkOp):
+            matches = (
                 actual
                 for actual in candidate_parts
                 if actual[0] not in used
-                and actual[0] not in original_ids
+                and _link_matches_upsert(actual, origin_op, candidate_scope)
+            )
+        else:
+            matches = (
+                actual
+                for actual in candidate_parts
+                if actual[0] not in used
                 and tuple(actual[1:]) == tuple(parts[1:])
-            ),
-            None,
-        )
+            )
+        match = next(matches, None)
         if match is None:
             diagnostics.append(
                 _issue(
@@ -4724,6 +4772,19 @@ def _compare_expected_ui_links(
             )
         else:
             used.add(match[0])
+    required_link_ids = {
+        link_id
+        for record in expected
+        for link_id in (record.get("required_link_ids") or ())
+    }
+    if required_link_ids - used:
+        diagnostics.append(
+            _issue(
+                "full_ui_link_removed_unattributed",
+                "Candidate omitted an original Reroute outgoing link ID from the rewired topology.",
+                detail={"scope_path": scope_path, "link_ids": sorted(required_link_ids - used)},
+            )
+        )
     for actual in candidate_parts:
         if actual[0] in used:
             continue

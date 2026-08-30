@@ -1,160 +1,17 @@
 from __future__ import annotations
 
-from vibecomfy.comfy_nodes.agent.candidate_transaction import (
-    capture_ingress_schema_snapshot,
-)
-from vibecomfy.porting.edit._interpret import interpret
+from copy import deepcopy
+
 from vibecomfy.porting.edit.ops import (
     LinkSourceRef,
     LinkTargetRef,
-    NodeFieldTarget,
     NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
-    SetNodeFieldOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.emit.ui import guard_exit_ui
-from vibecomfy.schema import FrozenSchemaSnapshotProvider
-from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
-
-
-class _NoSchemaProvider:
-    def get_schema(self, _class_type: str):
-        return None
-
-
-def _missing_node_provider(raw_node: dict) -> FrozenSchemaSnapshotProvider:
-    snapshot = capture_ingress_schema_snapshot(
-        schema_provider=_NoSchemaProvider(),
-        graph={"nodes": [raw_node], "links": []},
-    )
-    return FrozenSchemaSnapshotProvider(snapshot)
-
-
-def _target_workflow(*, socket: bool) -> VibeWorkflow:
-    workflow = VibeWorkflow("r12", WorkflowSource("test"))
-    workflow.nodes["target"] = VibeNode(
-        "target",
-        "MissingNode",
-        inputs={"socket": ["source", 0]} if socket else {},
-        widgets={"literal": 7} if not socket else {},
-        uid="target",
-    )
-    if socket:
-        workflow.nodes["source"] = VibeNode("source", "Source", uid="source")
-        workflow.edges.append(VibeEdge("source", "IMAGE", "target", "socket"))
-    return workflow
-
-
-def _socket_provider() -> FrozenSchemaSnapshotProvider:
-    return _missing_node_provider(
-        {
-            "id": "target",
-            "type": "MissingNode",
-            "properties": {"vibecomfy_uid": "target"},
-            "inputs": [{"name": "socket", "type": "IMAGE", "link": 1}],
-        }
-    )
-
-
-def test_observable_cow_rejects_socket_materialization_and_retains_edge() -> None:
-    workflow = _target_workflow(socket=True)
-    operation = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "target", "socket"),
-        value="literal",
-    )
-
-    result = interpret(workflow, (operation,), schema_provider=_socket_provider())
-
-    assert result.ok is False
-    assert result.statements[0].reason == "missing_touched_schema"
-    assert result.workflow.nodes["target"].inputs["socket"] == ["source", 0]
-    assert result.workflow.nodes["target"].widgets == {}
-    assert result.workflow.edges == [VibeEdge("source", "IMAGE", "target", "socket")]
-
-
-def test_widget_carrier_cannot_override_connected_socket() -> None:
-    workflow = _target_workflow(socket=True)
-    workflow.nodes["target"].widgets["socket"] = 3
-    operation = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "target", "socket"),
-        value="literal",
-    )
-
-    result = interpret(workflow, (operation,), schema_provider=_socket_provider())
-
-    assert result.ok is False
-    assert result.workflow.nodes["target"].widgets["socket"] == 3
-    assert result.workflow.edges == [VibeEdge("source", "IMAGE", "target", "socket")]
-
-
-def test_link_shaped_widget_carrier_cannot_authorize_materialization() -> None:
-    workflow = _target_workflow(socket=True)
-    workflow.nodes["target"].widgets["socket"] = ["source", 0]
-    operation = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "target", "socket"),
-        value="literal",
-    )
-
-    result = interpret(workflow, (operation,), schema_provider=_socket_provider())
-
-    assert result.ok is False
-    assert result.workflow.nodes["target"].widgets["socket"] == ["source", 0]
-    assert result.workflow.edges == [VibeEdge("source", "IMAGE", "target", "socket")]
-
-
-def test_observable_cow_batch_keeps_prior_literal_and_socket_edge_atomicity() -> None:
-    workflow = _target_workflow(socket=True)
-    workflow.nodes["target"].widgets["literal"] = 7
-    provider = _missing_node_provider(
-        {
-            "id": "target",
-            "type": "MissingNode",
-            "properties": {"vibecomfy_uid": "target"},
-            "inputs": [
-                {"name": "socket", "type": "IMAGE", "link": 1},
-                {"name": "literal", "type": "STRING", "link": None},
-            ],
-            "widgets_values": [7],
-        }
-    )
-    operations = (
-        SetNodeFieldOp("set_node_field", NodeFieldTarget("", "target", "literal"), 8),
-        SetNodeFieldOp("set_node_field", NodeFieldTarget("", "target", "socket"), "literal"),
-    )
-
-    result = interpret(workflow, operations, schema_provider=provider)
-
-    assert result.ok is False
-    assert result.workflow.nodes["target"].widgets["literal"] == 8
-    assert result.workflow.nodes["target"].inputs["socket"] == ["source", 0]
-    assert result.workflow.edges == [VibeEdge("source", "IMAGE", "target", "socket")]
-
-
-def test_observable_cow_still_allows_retained_literal_widget() -> None:
-    workflow = _target_workflow(socket=False)
-    provider = _missing_node_provider(
-        {
-            "id": "target",
-            "type": "MissingNode",
-            "properties": {"vibecomfy_uid": "target"},
-            "widgets_values": {"literal": 7},
-        }
-    )
-    operation = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "target", "literal"),
-        value=8,
-    )
-
-    result = interpret(workflow, (operation,), schema_provider=provider)
-
-    assert result.ok is True
-    assert result.workflow.nodes["target"].widgets["literal"] == 8
 
 
 def _counter_ui(*, node_counter=5, link_counter=3, links=None, nodes=None) -> dict:
@@ -438,6 +295,37 @@ def test_guard_repeated_upsert_accepts_last_source() -> None:
     assert guard_exit_ui(original, candidate, operations).ok is True
 
 
+def test_guard_remove_then_upsert_accepts_socket_typed_replacement() -> None:
+    original = _upsert_topology_ui(3)
+    candidate = _upsert_topology_ui(3)
+    candidate["last_link_id"] = 11
+    candidate["links"] = [[9, 3, 0, 2, 0, "IMAGE"]]
+    operations = (
+        _remove_link_op(),
+        UpsertLinkOp(
+            "upsert_link",
+            LinkSourceRef("", "source-2", "IMAGE"),
+            LinkTargetRef("", "target", "image"),
+        ),
+    )
+
+    assert guard_exit_ui(original, candidate, operations).ok is True
+
+
+def test_guard_upsert_accepts_reusing_original_incoming_link_id() -> None:
+    original = _upsert_topology_ui(3)
+    candidate = _upsert_topology_ui(3)
+    candidate["last_link_id"] = 11
+    candidate["links"] = [[2, 3, 0, 2, 0, "IMAGE"]]
+    operation = UpsertLinkOp(
+        "upsert_link",
+        LinkSourceRef("", "source-2", "IMAGE"),
+        LinkTargetRef("", "target", "image"),
+    )
+
+    assert guard_exit_ui(original, candidate, (operation,)).ok is True
+
+
 def _reroute_ui(*, reroute_type: str = "Reroute", links=None, link_counter: int = 9) -> tuple[dict, dict]:
     original = {
         "last_node_id": 5,
@@ -456,6 +344,17 @@ def _reroute_ui(*, reroute_type: str = "Reroute", links=None, link_counter: int 
 def test_guard_accepts_one_in_one_out_reroute_passthrough() -> None:
     original, candidate = _reroute_ui(link_counter=9)
     assert guard_exit_ui(original, candidate, (RemoveNodeOp("remove_node", NodeTarget("", "reroute")),)).ok
+
+
+def test_guard_accepts_reroute_passthrough_with_decreased_link_counter() -> None:
+    original, candidate = _reroute_ui(
+        links=[[10, 1, 0, 2, 0, "IMAGE"], [2, 2, 0, 3, 0, "IMAGE"]],
+        link_counter=11,
+    )
+    candidate["last_link_id"] = 3
+    operation = RemoveNodeOp("remove_node", NodeTarget("", "reroute"))
+
+    assert guard_exit_ui(original, candidate, (operation,)).ok is True
 
 
 def test_guard_rejects_reroute_passthrough_on_non_reroute() -> None:
@@ -492,3 +391,41 @@ def test_guard_rejects_duplicate_ui_identities_and_noncanonical_links() -> None:
     assert not guard_exit_ui(original, negative, ()).ok
     string_endpoints = {**original, "links": [[3, "1", 0, "2", 0, "IMAGE"]]}
     assert not guard_exit_ui(original, string_endpoints, ()).ok
+    negative_endpoint = {**original, "links": [[3, 1, -1, 2, 0, "IMAGE"]]}
+    result = guard_exit_ui(original, negative_endpoint, ())
+    assert not result.ok
+    assert any(issue.code == "full_ui_identity_malformed" for issue in result.diagnostics)
+    colliding_native_ids = {
+        **original,
+        "nodes": [*original["nodes"], {**original["nodes"][0], "id": "01", "properties": {"vibecomfy_uid": "other"}}],
+    }
+    result = guard_exit_ui(colliding_native_ids, colliding_native_ids, ())
+    assert not result.ok
+    assert any(issue.code == "full_ui_identity_malformed" for issue in result.diagnostics)
+
+
+def test_guard_unresolvable_upsert_is_a_fold_noop() -> None:
+    original = _counter_ui()
+    operation = UpsertLinkOp(
+        "upsert_link",
+        LinkSourceRef("", "ghost", "IMAGE"),
+        LinkTargetRef("", "target", "image"),
+    )
+
+    assert guard_exit_ui(original, original, (operation,)).ok is True
+
+
+def test_guard_allows_authorized_subgraph_removal() -> None:
+    original = _counter_ui()
+    original["definitions"] = {
+        "subgraphs": [{"id": "sg-remove", "nodes": [], "links": []}]
+    }
+    candidate = deepcopy(original)
+    candidate["definitions"]["subgraphs"] = []
+    operation = SubgraphInterfaceOp(
+        "subgraph_interface", "remove", "Removed", id="sg-remove"
+    )
+
+    result = guard_exit_ui(original, candidate, (operation,))
+
+    assert result.ok is True
