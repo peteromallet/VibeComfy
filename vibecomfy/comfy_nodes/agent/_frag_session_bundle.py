@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, session_dir_for
-from ._frag_chat import _BUNDLE_MAX_FILE_BYTES, _BUNDLE_MAX_TOTAL_BYTES, _BUNDLE_TEXT_SUFFIXES, _json_safe
+from ._frag_chat import _BUNDLE_MAX_FILE_BYTES, _BUNDLE_MAX_TOTAL_BYTES, _BUNDLE_TEXT_SUFFIXES, _json_safe, _read_turn_response_payload
 from ._frag_state import LOGGER, _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS, _WARNED_LEGACY_CONTRACTS, _safe_session_id
 
 def read_session_bundle(
@@ -165,6 +165,7 @@ def read_session_json(
         # Reuse the chat-reader logic for message extraction.
         chat_path = turn_dir / "chat.json"
         chat_record: dict[str, Any] | None = None
+        response = _read_turn_response_payload(turn_dir)
 
         if chat_path.is_file():
             try:
@@ -175,14 +176,25 @@ def read_session_json(
         if chat_record is None:
             request_path = turn_dir / "request.json"
             response_path = turn_dir / "response.json"
-            if request_path.is_file() and response_path.is_file():
+            if request_path.is_file() and (
+                response_path.is_file()
+                or (turn_dir / "response_publication.json").is_file()
+                or response
+            ):
                 try:
                     request = json.loads(request_path.read_text(encoding="utf-8"))
-                    response = json.loads(response_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    summary["error"] = "unreadable artifacts"
-                    turn_summaries.append(summary)
-                    continue
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise DurableReadError(
+                        DurableRead(
+                            "corrupt" if isinstance(exc, json.JSONDecodeError) else "unreadable",
+                            path=request_path,
+                            error=str(exc),
+                        )
+                    ) from exc
+                if not isinstance(request, Mapping):
+                    raise DurableReadError(
+                        DurableRead("corrupt", path=request_path, error="request must be a JSON object")
+                    )
                 agent_text: str = response.get("message", "")
                 if not isinstance(agent_text, str) or not agent_text.strip():
                     agent_text = "The agent edit turn completed."

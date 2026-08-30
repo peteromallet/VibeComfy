@@ -90,7 +90,7 @@ def maybe_write_executor_only_durable_turn(
             "session_id": session_id,
         }
         pipeline_mode = getattr(request, "pipeline_mode", None)
-        if pipeline_mode is not None:
+        if isinstance(pipeline_mode, str):
             request_artifact_payload["pipeline_mode"] = pipeline_mode
         if request_graph is not None:
             request_artifact_payload["graph"] = (
@@ -127,7 +127,10 @@ def maybe_write_executor_only_durable_turn(
                 )
             return replayed
         if allocation.conflict is not None:
-            return response
+            # The session allocation is the conflict authority. Returning the
+            # inbound executor success here would claim that conflicting work
+            # completed even though the durable session rejected it.
+            return allocation.conflict.failure.to_dict()
 
         context = allocation.context
         turn_dir = allocation.turn_dir

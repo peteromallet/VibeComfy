@@ -16,6 +16,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from vibecomfy.comfy_nodes.agent.session import DurableReadError
+
 _TURN_EVENT_BUFFER: contextvars.ContextVar[list[tuple[dict[str, Any], str | None]] | None] = (
     contextvars.ContextVar("vibecomfy_agent_edit_turn_event_buffer", default=None)
 )
@@ -226,8 +228,6 @@ def handle_agent_edit(
 ) -> dict[str, Any]:
     from vibecomfy.comfy_nodes.agent.edit import (AgentEditState, FailureKind, PROMPT_MEMORY_MESSAGES, StageResult, _SESSION_ROOT, _StageBlocked, _agent_edit_contract, _build_batch_repl_response, _canonical_agent_edit_route, _conversation_with_candidate_reference, _default_runtime_schema_provider, _failure_response, _hydrate_execution_plan_from_protocol_notes, _product_failure_response, _record, _run_batch_repl_product_path, _safe_session_id, _stage_audit, _validated_agent_edit_response, _write_turn_chat_artifact, _write_unknown_transition_audits, allocate_turn, classify_failure, failure_envelope, initialize_gates, read_session_chat, record_idempotent_response, write_allocation_failure_audit)  # T-039 late import: host namespace lookup; resolved at call time
     """Convert current UI JSON to Python, ask the agent to edit it, emit UI JSON."""
-    from vibecomfy.schema import get_schema_provider
-
     if not isinstance(payload, dict):
         failure = failure_envelope(
             FailureKind.MISSING_REQUIRED_FIELD,
@@ -550,8 +550,35 @@ def handle_agent_edit(
                     conversation_messages,
                     chat.get("latest_candidate"),
                 )
-        except Exception:
-            conversation_messages = None
+        except DurableReadError as exc:
+            # Chat history is durable input to batch REPL. A typed read
+            # failure must terminate this turn; continuing without history
+            # would silently change the agent's request context.
+            failure = classify_failure("chat", exc, context)
+            response = _validated_agent_edit_response(
+                _failure_response(state, context, failure, contract=contract),
+                stage="chat",
+            )
+            if context.idempotency_key is not None:
+                response["idempotency_key"] = context.idempotency_key
+            _write_turn_chat_artifact(state, context, response, contract)
+            record_idempotent_response(
+                session_root=root,
+                session_id=session_id,
+                scope="edit",
+                idempotency_key=(
+                    payload.get("idempotency_key")
+                    if isinstance(payload.get("idempotency_key"), str)
+                    else None
+                ),
+                request_hash=allocation.request_hash,
+                response=response,
+                response_path=turn_dir / "response.json",
+                operation="edit",
+                turn_id=context.turn_id,
+                schema_provider=_receipt_schema_provider(state, response),
+            )
+            return response
 
     try:
         state = _run_batch_repl_product_path(

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.candidate_transaction import classify_legacy_migration_v1
 from vibecomfy.comfy_nodes.agent.contracts import TurnContext, ensure_agent_edit_response_contract
-from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, REVIEWABLE_CANDIDATE_STATES, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, project_transaction_state, read_state, session_dir_for
+from vibecomfy.comfy_nodes.agent.session import DurableRead, DurableReadError, REVIEWABLE_CANDIDATE_STATES, _read_response_publication, _transaction_receipts_for_turn, load_candidate_transaction_with_migration, load_json_result_impl, project_transaction_state, read_state, session_dir_for
 from vibecomfy.porting.edit.types import FieldChange
 from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _ops_from_accepted_batch, _safe_session_id
 
@@ -162,12 +162,19 @@ def _stamped_message_outcome(
 
 
 def _read_turn_response_payload(turn_dir: Path) -> dict[str, Any]:
+    # response_publication.json is the immutable keyed replay authority. A
+    # damaged response.json is only a repairable projection when publication
+    # is valid; it must never hide a completed turn from chat reconstruction.
+    publication = _read_response_publication(turn_dir)
+    if publication is not None:
+        return dict(publication["response"])
     response_path = turn_dir / "response.json"
-    try:
-        response = json.loads(response_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    result = load_json_result_impl(response_path)
+    if result.status == "absent":
         return {}
-    return dict(response) if isinstance(response, Mapping) else {}
+    if result.status != "valid":
+        raise DurableReadError(result)
+    return dict(result.value)
 
 
 def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) -> dict[str, Any] | None:
@@ -727,12 +734,25 @@ def read_session_chat(
         if chat_record is None:
             request_path = turn_dir / "request.json"
             response_path = turn_dir / "response.json"
-            if request_path.is_file() and response_path.is_file():
+            if request_path.is_file() and (
+                response_path.is_file()
+                or (turn_dir / "response_publication.json").is_file()
+                or response
+            ):
                 try:
                     request = json.loads(request_path.read_text(encoding="utf-8"))
-                    response = json.loads(response_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue  # skip unrecoverable turn
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise DurableReadError(
+                        DurableRead(
+                            "corrupt" if isinstance(exc, json.JSONDecodeError) else "unreadable",
+                            path=request_path,
+                            error=str(exc),
+                        )
+                    ) from exc
+                if not isinstance(request, Mapping):
+                    raise DurableReadError(
+                        DurableRead("corrupt", path=request_path, error="request must be a JSON object")
+                    )
                 agent_text_raw = response.get("user_facing_message") or response.get("message", "")
                 agent_text: str = agent_text_raw if isinstance(agent_text_raw, str) else ""
                 if not agent_text.strip():

@@ -32,7 +32,7 @@ from vibecomfy.comfy_nodes.agent.contracts import (
     turn_envelope,
 )
 from vibecomfy.comfy_nodes.agent.session import (
-    allocate_turn,
+    DurableReadError,
     default_state,
     iter_turn_records,
     read_state,
@@ -246,31 +246,37 @@ def test_read_state_normalizes_empty_baseline(tmp_path: Path) -> None:
     assert isinstance(state["next_turn_index"], int)
 
 
-def test_read_state_returns_default_for_corrupt_json(tmp_path: Path) -> None:
+def test_read_state_raises_for_corrupt_json(tmp_path: Path) -> None:
     session_dir = tmp_path / "corrupt"
     session_dir.mkdir()
     (session_dir / "session_state.json").write_text("{not json", encoding="utf-8")
 
-    assert read_state(session_dir) == default_state()
+    with pytest.raises(DurableReadError) as exc_info:
+        read_state(session_dir)
+    assert exc_info.value.status == "corrupt"
 
 
-def test_read_state_returns_default_for_invalid_utf8(tmp_path: Path) -> None:
+def test_read_state_raises_for_invalid_utf8(tmp_path: Path) -> None:
     session_dir = tmp_path / "invalid-utf8"
     session_dir.mkdir()
     (session_dir / "session_state.json").write_bytes(b"\xff\xfe\xfa")
 
-    assert read_state(session_dir) == default_state()
+    with pytest.raises(DurableReadError) as exc_info:
+        read_state(session_dir)
+    assert exc_info.value.status == "unreadable"
 
 
-def test_read_state_returns_default_for_unreadable_state_path(tmp_path: Path) -> None:
+def test_read_state_raises_for_unreadable_state_path(tmp_path: Path) -> None:
     session_dir = tmp_path / "unreadable"
     (session_dir / "session_state.json").mkdir(parents=True)
 
-    assert read_state(session_dir) == default_state()
+    with pytest.raises(DurableReadError) as exc_info:
+        read_state(session_dir)
+    assert exc_info.value.status == "unreadable"
 
 
 @pytest.mark.parametrize("payload", [None, [], "state", 7])
-def test_read_state_returns_default_for_non_dict_json(
+def test_read_state_raises_for_non_dict_json(
     tmp_path: Path, payload: object
 ) -> None:
     session_dir = tmp_path / "non-dict"
@@ -279,7 +285,9 @@ def test_read_state_returns_default_for_non_dict_json(
         json.dumps(payload), encoding="utf-8"
     )
 
-    assert read_state(session_dir) == default_state()
+    with pytest.raises(DurableReadError) as exc_info:
+        read_state(session_dir)
+    assert exc_info.value.status == "corrupt"
 
 
 def test_read_state_normalizes_schema_mismatched_containers_and_indexes(

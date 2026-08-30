@@ -301,7 +301,8 @@ def normalize_path_component(
         constitute an absolute path when joined to a root.
     """
     if fallback_factory is None:
-        fallback_factory = lambda: uuid.uuid4().hex
+        def fallback_factory() -> str:
+            return uuid.uuid4().hex
 
     if not isinstance(value, str) or not value.strip():
         return fallback_factory()
@@ -1093,17 +1094,28 @@ def _read_response_publication(turn_dir: Path) -> dict[str, Any] | None:
     return dict(payload)
 
 
-def _recover_response_publications(session_dir: Path) -> dict[str, dict[str, Any]]:
-    """Rebuild keyed response records from complete publication artifacts."""
+def _turn_directories(session_dir: Path) -> tuple[Path, ...]:
+    """Return durable turn directories, failing closed on damaged walks."""
     turns_dir = session_dir / "turns"
-    if not turns_dir.is_dir():
-        return {}
     try:
-        turn_dirs = sorted(p for p in turns_dir.iterdir() if p.is_dir() and not p.is_symlink())
+        if not turns_dir.exists():
+            return ()
+        if not turns_dir.is_dir():
+            raise OSError("turns path is not a directory")
+        return tuple(
+            sorted(
+                p for p in turns_dir.iterdir() if p.is_dir() and not p.is_symlink()
+            )
+        )
     except (OSError, UnicodeError) as exc:
         raise DurableReadError(
             DurableRead("unreadable", path=turns_dir, error=str(exc))
         ) from exc
+
+
+def _recover_response_publications(session_dir: Path) -> dict[str, dict[str, Any]]:
+    """Rebuild keyed response records from complete publication artifacts."""
+    turn_dirs = _turn_directories(session_dir)
     recovered: dict[str, dict[str, Any]] = {}
     for turn_dir in turn_dirs:
         publication = _read_response_publication(turn_dir)
@@ -1136,10 +1148,15 @@ def _recover_response_publications(session_dir: Path) -> dict[str, dict[str, Any
 def _merge_recovered_publications(
     state: dict[str, Any],
     recovered: Mapping[str, Mapping[str, Any]],
+    *,
+    session_dir: Path | None = None,
 ) -> bool:
     records = state.setdefault("idempotency_records", {})
     if not isinstance(records, dict):
         state["idempotency_records"] = records = {}
+    turns = state.setdefault("turns", {})
+    if not isinstance(turns, dict):
+        state["turns"] = turns = {}
     changed = False
     for key, record in recovered.items():
         existing = records.get(key)
@@ -1149,7 +1166,84 @@ def _merge_recovered_publications(
         ):
             records[key] = dict(record)
             changed = True
+
+    # session_state.json is a reconstructible cache. Preserve every occupied
+    # numeric turn identity, including a turn that crashed before it could
+    # publish a response, so a later key can never reuse its directory.
+    occupied_turn_ids: set[str] = {
+        str(turn_id) for turn_id in turns if isinstance(turn_id, str)
+    }
+    if session_dir is not None:
+        turn_dirs = _turn_directories(session_dir)
+        occupied_turn_ids.update(path.name for path in turn_dirs)
+    publications_by_turn = {
+        str(record["turn_id"]): record
+        for record in recovered.values()
+        if isinstance(record.get("turn_id"), str)
+    }
+    for turn_id in sorted(occupied_turn_ids):
+        if isinstance(turns.get(turn_id), dict):
+            continue
+        publication = publications_by_turn.get(turn_id)
+        turns[turn_id] = {
+            "state": "candidate" if publication is not None else "unknown",
+            "created_at": (
+                publication.get("created_at", _now())
+                if publication is not None
+                else _now()
+            ),
+            **(
+                {}
+                if publication is not None
+                else {"unknown_reason": "state_cache_recovered_from_turn_directory"}
+            ),
+        }
+        changed = True
+
+    numeric_turn_ids = []
+    for turn_id in occupied_turn_ids:
+        if re.fullmatch(r"[0-9]+", turn_id):
+            numeric_turn_ids.append(int(turn_id))
+    if numeric_turn_ids:
+        next_turn_index = max(numeric_turn_ids) + 1
+        if not isinstance(state.get("next_turn_index"), int) or state["next_turn_index"] < next_turn_index:
+            state["next_turn_index"] = next_turn_index
+            changed = True
     return changed
+
+
+def _existing_key_publication(
+    *,
+    session_root: Path,
+    session_id: str,
+    existing: Mapping[str, Any],
+    recovered: Mapping[str, Mapping[str, Any]],
+    key: str,
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    """Read the immutable authority for an existing keyed record."""
+    authority_record = recovered.get(key, existing)
+    turn_id = authority_record.get("turn_id")
+    if not isinstance(turn_id, str) or not turn_id:
+        raise DurableReadError(
+            DurableRead(
+                "corrupt",
+                path=Path(str(existing.get("publication_path", "")))
+                if existing.get("publication_path")
+                else None,
+                error="idempotency record has no valid turn identity",
+            )
+        )
+    turn_dir = turn_dir_for(session_root, session_id, turn_id)
+    publication = _read_response_publication(turn_dir)
+    if publication is None:
+        raise DurableReadError(
+            DurableRead(
+                "unreadable",
+                path=_response_publication_path(turn_dir),
+                error="idempotency record claims a key but its response publication is absent",
+            )
+        )
+    return publication, authority_record
 
 
 # ── Index mutation primitives (operate on the in-memory state dict) ─────────
@@ -3394,6 +3488,10 @@ def allocate_turn(
     idempotency_request_hash: str | None = None,
     lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> TurnAllocation:
+    # Residual by design: the lock serializes allocation, but same-key callers
+    # can still both allocate before either caller has a response to publish.
+    # Closing that window requires a durable pending claim/single-flight
+    # protocol, which is outside this authority-successor scope.
     session_dir = session_dir_for(session_root, session_id)
     request_digest = (
         idempotency_request_hash
@@ -3411,44 +3509,41 @@ def allocate_turn(
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         recovered_publications = _recover_response_publications(session_dir)
-        if _merge_recovered_publications(state, recovered_publications):
+        if _merge_recovered_publications(
+            state, recovered_publications, session_dir=session_dir
+        ):
             write_state_atomic(session_dir, state)
         if key is not None:
             existing = state["idempotency_records"].get(key)
-            if isinstance(existing, dict):
+            if isinstance(existing, Mapping):
+                publication, authority_record = _existing_key_publication(
+                    session_root=session_root,
+                    session_id=session_id,
+                    existing=existing,
+                    recovered=recovered_publications,
+                    key=key,
+                )
+                turn_id = str(publication["turn_id"])
                 context = TurnContext(
                     session_id=session_id,
-                    turn_id=existing.get("turn_id"),
+                    turn_id=turn_id,
                     baseline_turn_id=state.get("baseline_turn_id"),
                     idempotency_key=idempotency_key,
                 )
-                if existing.get("request_hash") == request_digest:
-                    publication = _read_response_publication(
-                        turn_dir_for(session_root, session_id, str(context.turn_id))
+                if publication.get("request_hash") == request_digest:
+                    response = dict(publication["response"])
+                    _write_response_atomic(Path(str(publication["response_path"])), response)
+                    return TurnAllocation(
+                        context=context,
+                        session_dir=session_dir,
+                        turn_dir=turn_dir_for(session_root, session_id, turn_id),
+                        state=state,
+                        request_hash=request_digest,
+                        idempotency_record_key=key,
+                        replay=IdempotencyReplay(
+                            response=response, record=dict(authority_record)
+                        ),
                     )
-                    if publication is not None:
-                        response = dict(publication["response"])
-                        _write_response_atomic(Path(existing["response_path"]), response)
-                        return TurnAllocation(
-                            context=context,
-                            session_dir=session_dir,
-                            turn_dir=turn_dir_for(session_root, session_id, str(context.turn_id)),
-                            state=state,
-                            request_hash=request_digest,
-                            idempotency_record_key=key,
-                            replay=IdempotencyReplay(response=response, record=dict(existing)),
-                        )
-                    response = _load_response(existing.get("response_path"))
-                    if response is not None:
-                        return TurnAllocation(
-                            context=context,
-                            session_dir=session_dir,
-                            turn_dir=turn_dir_for(session_root, session_id, str(context.turn_id)),
-                            state=state,
-                            request_hash=request_digest,
-                            idempotency_record_key=key,
-                            replay=IdempotencyReplay(response=response, record=dict(existing)),
-                        )
                 failure = failure_envelope(
                     _conflict_kind("edit"),
                     "ingest",
@@ -3456,14 +3551,14 @@ def allocate_turn(
                     agent_failure_context={
                         "explanation": "Idempotency key was reused with a different request hash.",
                         "idempotency_key": idempotency_key,
-                        "existing_request_hash": existing.get("request_hash"),
+                        "existing_request_hash": publication.get("request_hash"),
                         "request_hash": request_digest,
                     },
                 )
                 return TurnAllocation(
                     context=context,
                     session_dir=session_dir,
-                    turn_dir=turn_dir_for(session_root, session_id, str(context.turn_id)),
+                    turn_dir=turn_dir_for(session_root, session_id, turn_id),
                     state=state,
                     request_hash=request_digest,
                     idempotency_record_key=key,
@@ -4038,31 +4133,27 @@ def record_idempotent_response(
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         recovered_publications = _recover_response_publications(session_dir)
-        if _merge_recovered_publications(state, recovered_publications):
+        if _merge_recovered_publications(
+            state, recovered_publications, session_dir=session_dir
+        ):
             write_state_atomic(session_dir, state)
         if key is not None:
             existing = state["idempotency_records"].get(key)
             if isinstance(existing, Mapping):
-                if existing.get("request_hash") != request_hash:
+                publication, authority_record = _existing_key_publication(
+                    session_root=session_root,
+                    session_id=session_id,
+                    existing=existing,
+                    recovered=recovered_publications,
+                    key=key,
+                )
+                if publication.get("request_hash") != request_hash:
                     raise ValueError("idempotency key was reused with a different request hash")
-                existing_response = _load_response(existing.get("response_path"))
-                if existing_response is None:
-                    publication = _read_response_publication(
-                        turn_dir_for(session_root, session_id, str(existing.get("turn_id")))
-                    )
-                    existing_response = dict(publication["response"]) if publication is not None else None
-                if existing_response is None:
-                    raise DurableReadError(
-                        DurableRead(
-                            "unreadable",
-                            path=Path(str(existing.get("response_path", response_path))),
-                            error="idempotency record has no recoverable response",
-                        )
-                    )
-                _write_response_atomic(Path(str(existing["response_path"])), existing_response)
+                existing_response = dict(publication["response"])
+                _write_response_atomic(Path(str(publication["response_path"])), existing_response)
                 response.clear()
                 response.update(existing_response)
-                return dict(existing)
+                return dict(authority_record)
         publication = _publish_response_authority(
             turn_dir=response_path.parent,
             scope=scope,

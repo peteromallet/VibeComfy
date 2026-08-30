@@ -386,28 +386,48 @@ def iter_turn_records_impl(
     session_root: Path | str,
     session_id: str,
 ) -> Iterator[DiagnosticRecord]:
-    from vibecomfy.comfy_nodes.agent.session import STATE_FILE_NAME, _load_json
+    from vibecomfy.comfy_nodes.agent.session import (
+        _read_response_publication,
+        _turn_directories,
+        read_state,
+    )
 
     session_dir = Path(session_root) / session_id
     if not session_dir.is_dir():
         return
 
-    state = _load_json(session_dir / STATE_FILE_NAME) or {}
+    state = read_state(session_dir)
     st_turns: dict[str, Any] = (
         state.get("turns") if isinstance(state.get("turns"), dict) else {}
     )
     baseline_turn_id = state.get("baseline_turn_id")
-    turns_dir = session_dir / "turns"
-    if not turns_dir.is_dir():
+    turn_dirs = _turn_directories(session_dir)
+    if not turn_dirs:
         return
 
-    for turn_dir in sorted(turns_dir.iterdir()):
-        if not turn_dir.is_dir():
-            continue
+    for turn_dir in turn_dirs:
         turn_id = turn_dir.name
-        response = _load_json(turn_dir / "response.json") or {}
-        request = _load_json(turn_dir / "request.json") or {}
+        publication = _read_response_publication(turn_dir)
+        if publication is not None:
+            response = dict(publication["response"])
+        else:
+            response_result = load_json_result_impl(turn_dir / "response.json")
+            if response_result.status == "absent":
+                response = {}
+            elif response_result.status != "valid":
+                raise DurableReadError(response_result)
+            else:
+                response = dict(response_result.value)
+        request_result = load_json_result_impl(turn_dir / "request.json")
+        if request_result.status == "absent":
+            request = {}
+        elif request_result.status != "valid":
+            raise DurableReadError(request_result)
+        else:
+            request = dict(request_result.value)
         life = st_turns.get(turn_id, {})
+        if not isinstance(life, Mapping):
+            life = {}
         gates = response.get("gates") or {}
         ok = response.get("ok")
         kind = response.get("kind")
