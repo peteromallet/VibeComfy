@@ -25,6 +25,7 @@ from vibecomfy.errors import (
     MODEL_DOCTOR_NEXT_ACTION,
     ModelAssetError,
     QueueError,
+    RuntimeConfigurationError,
     RuntimeNodeError,
     RuntimeStartupError,
     SchemaValidationError,
@@ -178,6 +179,31 @@ class PreparedPrompt(dict):
         self.normalization = normalization
 
 
+def _configuration_error(detail: str, exc: Exception | None = None) -> RuntimeConfigurationError:
+    error = RuntimeConfigurationError(
+        f"Invalid runtime session configuration: {detail}",
+        next_action="Fix the runtime configuration and retry.",
+    )
+    if exc is not None:
+        error.__cause__ = exc
+    return error
+
+
+def _resolve_runtime_path(value: str | Path | None, *, base: Path, field_name: str) -> Path:
+    if value is None:
+        return base
+    if not isinstance(value, (str, Path)):
+        raise _configuration_error(f"{field_name} must be a filesystem path")
+    raw = str(value).strip()
+    if not raw:
+        raise _configuration_error(f"{field_name} must not be empty")
+    path = Path(raw).expanduser()
+    # Preserve the operator's spelling for absolute paths (notably /tmp on
+    # macOS, where it is a symlink to /private/tmp).  Relative paths are
+    # anchored to the captured authority and then normalized.
+    return path if path.is_absolute() else (base / path).resolve()
+
+
 @dataclass(slots=True)
 class SessionConfig:
     memory_profile: MemoryProfile | None = None
@@ -189,18 +215,89 @@ class SessionConfig:
     auto_flush_vram_threshold_gb: float = 2.0
     port: int | None = None
     strict_drift: bool = False
+    # These are captured when the config is constructed.  Runtime paths must
+    # not silently follow a later process-wide chdir().  ``cwd`` is the
+    # subprocess working directory; ``runtime_root`` is the artifact/config
+    # authority.  They intentionally remain separate so callers can run a
+    # Comfy child from a different directory without moving VibeComfy output.
+    runtime_root: Path | str | None = None
+    cwd: Path | str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        try:
+            if self.memory_profile is not None:
+                self.memory_profile = MemoryProfile.parse(self.memory_profile)
+            if self.vram_policy not in {"auto", "high", "low", "normal"}:
+                raise ValueError("vram_policy must be auto, high, low, or normal")
+            if self.cache_policy not in {"smart", "classic", "none"} and not (
+                isinstance(self.cache_policy, str)
+                and self.cache_policy.startswith("lru:")
+                and self.cache_policy[4:].isdigit()
+                and int(self.cache_policy[4:]) >= 0
+            ):
+                raise ValueError("cache_policy must be smart, classic, none, or lru:N")
+            if self.warm_policy not in {"auto", "always", "never"}:
+                raise ValueError("warm_policy must be auto, always, or never")
+            if not isinstance(self.strict_drift, bool):
+                raise TypeError("strict_drift must be a boolean")
+            for field_name, value in (
+                ("disable_smart_memory", self.disable_smart_memory),
+            ):
+                if not isinstance(value, bool):
+                    raise TypeError(f"{field_name} must be a boolean")
+            if self.port is not None and (
+                isinstance(self.port, bool) or not isinstance(self.port, int)
+            ):
+                raise TypeError("port must be an integer or null")
+            for field_name, value in (
+                ("reserve_vram_gb", self.reserve_vram_gb),
+                ("auto_flush_vram_threshold_gb", self.auto_flush_vram_threshold_gb),
+            ):
+                if value is not None and (
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                ):
+                    raise TypeError(f"{field_name} must be a number or null")
+            if not isinstance(self.extra, dict):
+                raise TypeError("extra must be an object")
+
+            construction_cwd = Path.cwd().resolve()
+            root = _resolve_runtime_path(
+                self.runtime_root, base=construction_cwd, field_name="runtime_root"
+            )
+            process_cwd = _resolve_runtime_path(
+                self.cwd,
+                base=root,
+                field_name="cwd",
+            ) if self.cwd is not None else root
+            self.runtime_root = root
+            self.cwd = process_cwd
+            # The caller may retain and mutate its input mapping.  A shallow
+            # copy is enough here; process-start snapshots copy the values
+            # that can affect I/O separately.
+            self.extra = dict(self.extra)
+        except RuntimeConfigurationError:
+            raise
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
+            raise _configuration_error(str(exc), exc) from exc
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "SessionConfig":
-        kwargs, extra = _partition_comfy_config(values)
+        if not isinstance(values, dict):
+            raise _configuration_error("configuration must be a JSON object")
+        try:
+            kwargs, extra = _partition_comfy_config(values)
+        except RuntimeConfigurationError:
+            raise
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
+            raise _configuration_error(str(exc), exc) from exc
         return cls(**kwargs, extra=extra)
 
     @classmethod
     def from_workflow_metadata(cls, workflow: VibeWorkflow) -> "SessionConfig":
         values = workflow.metadata.get("comfy_configuration", {})
         if not isinstance(values, dict):
-            values = {}
+            raise _configuration_error("comfy_configuration must be a JSON object")
         return cls.from_dict(values)
 
 
@@ -241,8 +338,77 @@ class VibeSession(Protocol):
         ...
 
 
-def _allocate_request_root(prefix: str) -> tuple[str, Path]:
-    runs_root = Path("out/runs")
+@dataclass(frozen=True, slots=True)
+class _RuntimeConfigurationSnapshot:
+    """The dynamic configuration observed at one backend process boundary."""
+
+    values: dict[str, Any]
+    cwd: Path
+    use_sage_attention: bool
+
+
+_DYNAMIC_PATH_KEYS = {
+    "input_directory",
+    "output_directory",
+    "temp_directory",
+    "server_log_path",
+}
+
+
+def _read_environment_configuration() -> dict[str, Any]:
+    raw = os.environ.get("VIBECOMFY_COMFY_CONFIGURATION")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise _configuration_error("VIBECOMFY_COMFY_CONFIGURATION is not valid JSON", exc) from exc
+    if not isinstance(parsed, dict):
+        raise _configuration_error("VIBECOMFY_COMFY_CONFIGURATION must be a JSON object")
+    return parsed
+
+
+def _snapshot_runtime_configuration(config: SessionConfig) -> _RuntimeConfigurationSnapshot:
+    """Freeze env/config I/O inputs before an embedded or managed process starts."""
+    values = dict(config.extra)
+    values.update(_read_environment_configuration())
+    for key in _DYNAMIC_PATH_KEYS:
+        if key in values and values[key] is not None:
+            values[key] = str(
+                _resolve_runtime_path(values[key], base=config.cwd, field_name=key)
+            )
+    if "extra_model_paths_config" in values:
+        paths = values["extra_model_paths_config"]
+        if not isinstance(paths, list):
+            raise _configuration_error("extra_model_paths_config must be a list")
+        values["extra_model_paths_config"] = [
+            str(_resolve_runtime_path(path, base=config.cwd, field_name="extra_model_paths_config"))
+            for path in paths
+        ]
+
+    profile = (
+        os.environ.get("VIBECOMFY_ATTENTION_PROFILE")
+        or os.environ.get("REIGH_VIBECOMFY_ATTENTION_PROFILE")
+        or ""
+    )
+    use_sage_attention = bool(values.get("use_sage_attention")) or profile.strip().lower() in {
+        "sage",
+        "sageattn",
+        "sageattention",
+        "optimized",
+    }
+    return _RuntimeConfigurationSnapshot(
+        values=values,
+        cwd=config.cwd,
+        use_sage_attention=use_sage_attention,
+    )
+
+
+def _allocate_request_root(
+    prefix: str, *, config: SessionConfig | None = None
+) -> tuple[str, Path]:
+    runtime_root = config.runtime_root if config is not None else Path.cwd().resolve()
+    runs_root = Path(runtime_root) / "out/runs"
     runs_root.mkdir(parents=True, exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix=f"{prefix}-", dir=runs_root))
     return run_dir.name, run_dir
@@ -252,6 +418,7 @@ class EmbeddedSession:
     def __init__(self, config: SessionConfig | None = None) -> None:
         self.config = config or SessionConfig()
         self.last_fingerprint: tuple[Any, ...] | None = None
+        self._process_configuration: _RuntimeConfigurationSnapshot | None = None
         self._context: Any | None = None
         self._comfy: Any | None = None
         self._schema_provider: Any | None = None
@@ -268,10 +435,16 @@ class EmbeddedSession:
     async def start(self) -> None:
         if self._comfy is not None:
             return
+        process_configuration = _snapshot_runtime_configuration(self.config)
         from comfy.client.embedded_comfy_client import Comfy
 
-        self._context = Comfy(configuration=_embedded_configuration_for_session(self.config))
+        self._context = Comfy(
+            configuration=_embedded_configuration_for_session(
+                self.config, runtime_configuration=process_configuration
+            )
+        )
         self._comfy = await self._context.__aenter__()
+        self._process_configuration = process_configuration
 
     async def run(
         self,
@@ -390,7 +563,7 @@ class EmbeddedSession:
         await _maybe_flush_for_policy(self, fp)
         timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
 
-        run_id, run_dir = _allocate_request_root("run")
+        run_id, run_dir = _allocate_request_root("run", config=self.config)
         log_path = run_dir / "embedded.log"
 
         # Embedded backend: comfy_kitchen does not necessarily expose a server
@@ -425,6 +598,7 @@ class EmbeddedSession:
             prompt_id = normalize_prompt_id(queued)
             _set_watchdog_prompt_id(watchdog, prompt_id)
             timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
+            self.last_fingerprint = fp
             phase_start = time.monotonic()
             comfy_outputs = _decode_terminal_result(
                 queued,
@@ -434,7 +608,9 @@ class EmbeddedSession:
             )
             outputs = _collect_output_paths(
                 comfy_outputs,
-                output_directory=_configured_output_directory(self.config),
+                output_directory=_configured_output_directory(
+                    self.config, runtime_configuration=self._process_configuration
+                ),
             )
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             stop_reason = "completed"
@@ -481,10 +657,18 @@ class EmbeddedSession:
         await self._comfy.clear_cache()
 
     async def reconfigure(self, config: SessionConfig) -> Any:
-        self.config = config
         if self._comfy is None:
+            self.config = config
             return None
-        return await self._comfy.reconfigure(_embedded_configuration_for_session(config))
+        process_configuration = _snapshot_runtime_configuration(config)
+        result = await self._comfy.reconfigure(
+            _embedded_configuration_for_session(
+                config, runtime_configuration=process_configuration
+            )
+        )
+        self.config = config
+        self._process_configuration = process_configuration
+        return result
 
     async def stop(self, wait_for_inflight: bool = True) -> None:
         await _resolve_inflight_before_stop(self, wait_for_inflight)
@@ -499,6 +683,7 @@ class EmbeddedSession:
         finally:
             self._context = None
             self._comfy = None
+            self._process_configuration = None
 
     async def reload_for_nodepack_change(self, *, reason: str) -> None:
         if self._inflight_run is not None and not self._inflight_run.done():
@@ -516,6 +701,7 @@ class EmbeddedSession:
         self._schema_provider = None
         self._schema_warning_emitted = False
         self.last_fingerprint = None
+        self._process_configuration = None
         await self.start()
 
 
@@ -527,6 +713,7 @@ class ServerSession:
         self.url: str | None = None
         self.log_handle: Any | None = None
         self._argv = _comfy_server_argv(self.config)
+        self._process_configuration: _RuntimeConfigurationSnapshot | None = None
         self._schema_provider: Any | None = None
         self._schema_warning_emitted = False
         self._inflight_run: asyncio.Task[Any] | None = None
@@ -543,11 +730,16 @@ class ServerSession:
             return
         if self.process is not None:
             await self.stop()
+        process_configuration = _snapshot_runtime_configuration(self.config)
+        self._argv = _comfy_server_argv(
+            self.config, runtime_configuration=process_configuration
+        )
         self.process, self.url, self.log_handle = await _spawn_comfy_server(
             self.config,
-            log_path=self.config.extra.get("server_log_path"),
+            log_path=process_configuration.values.get("server_log_path"),
+            runtime_configuration=process_configuration,
         )
-        self._argv = _comfy_server_argv(self.config)
+        self._process_configuration = process_configuration
 
     async def run(
         self,
@@ -626,7 +818,7 @@ class ServerSession:
         await _maybe_flush_for_policy(self, fp)
         timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
 
-        run_id, run_dir = _allocate_request_root("run")
+        run_id, run_dir = _allocate_request_root("run", config=self.config)
         log_path = run_dir / "comfy.log"
 
         client_id = uuid.uuid4().hex
@@ -666,7 +858,9 @@ class ServerSession:
             comfy_outputs = _outputs_from_server_history(history, prompt_id)
             outputs = _collect_output_paths(
                 comfy_outputs,
-                output_directory=_configured_output_directory(self.config),
+                output_directory=_configured_output_directory(
+                    self.config, runtime_configuration=self._process_configuration
+                ),
             )
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             stop_reason = "completed"
@@ -714,8 +908,15 @@ class ServerSession:
         await ComfyClient(self.url).free(unload_models=True, free_memory=True)
 
     async def reconfigure(self, config: SessionConfig) -> bool:
-        new_argv = _comfy_server_argv(config)
-        if new_argv == self._argv:
+        process_configuration = _snapshot_runtime_configuration(config)
+        new_argv = _comfy_server_argv(
+            config, runtime_configuration=process_configuration
+        )
+        cwd_unchanged = (
+            self._process_configuration is None
+            or process_configuration.cwd == self._process_configuration.cwd
+        )
+        if new_argv == self._argv and cwd_unchanged:
             self.config = config
             return False
         await self.stop()
@@ -736,6 +937,7 @@ class ServerSession:
         self.process = None
         self.url = None
         self.log_handle = None
+        self._process_configuration = None
 
     async def reload_for_nodepack_change(self, *, reason: str) -> None:
         if self._inflight_run is not None and not self._inflight_run.done():
@@ -1290,6 +1492,9 @@ def _partition_comfy_config(values: dict[str, Any]) -> tuple[dict[str, Any], dic
         "reserve_vram_gb",
         "disable_smart_memory",
         "auto_flush_vram_threshold_gb",
+        "strict_drift",
+        "runtime_root",
+        "cwd",
     }
     kwargs: dict[str, Any] = {}
     extra: dict[str, Any] = {}
@@ -1985,23 +2190,28 @@ def _resolve_comfy_output_filename(value: dict[str, Any], output_directory: str 
     return str(Path(output_directory) / filename)
 
 
-def _configured_output_directory(config: SessionConfig | None) -> str | None:
-    values: dict[str, Any] = {}
-    if config is not None:
-        values.update(config.extra)
-    env_config = os.environ.get("VIBECOMFY_COMFY_CONFIGURATION")
-    if env_config:
-        try:
-            parsed = json.loads(env_config)
-        except json.JSONDecodeError:
-            parsed = {}
-        if isinstance(parsed, dict):
-            values.update(parsed)
+def _configured_output_directory(
+    config: SessionConfig | None,
+    *,
+    runtime_configuration: _RuntimeConfigurationSnapshot | None = None,
+) -> str | None:
+    if runtime_configuration is not None:
+        values = runtime_configuration.values
+    else:
+        values: dict[str, Any] = {}
+        if config is not None:
+            values.update(config.extra)
+        values.update(_read_environment_configuration())
     output_directory = values.get("output_directory")
     return str(output_directory) if output_directory else None
 
 
-def _embedded_configuration_for_session(config: SessionConfig) -> Configuration | None:
+def _embedded_configuration_for_session(
+    config: SessionConfig,
+    *,
+    runtime_configuration: _RuntimeConfigurationSnapshot | None = None,
+) -> Configuration | None:
+    runtime_configuration = runtime_configuration or _snapshot_runtime_configuration(config)
     values: dict[str, Any] = {}
     if config.port is not None:
         values["port"] = config.port
@@ -2018,16 +2228,10 @@ def _embedded_configuration_for_session(config: SessionConfig) -> Configuration 
     if config.disable_smart_memory:
         values["disable_smart_memory"] = True
 
-    values.update(config.extra)
-    if _env_requests_sage_attention() and "use_sage_attention" not in values:
+    values.update(runtime_configuration.values)
+    if runtime_configuration.use_sage_attention:
         values["use_sage_attention"] = True
-    env_config = os.environ.get("VIBECOMFY_COMFY_CONFIGURATION")
-    if env_config:
-        parsed = json.loads(env_config)
-        if not isinstance(parsed, dict):
-            raise ValueError("VIBECOMFY_COMFY_CONFIGURATION must be a JSON object")
-        values.update(parsed)
-    extra_model_paths = Path.cwd() / "extra_model_paths.yaml"
+    extra_model_paths = runtime_configuration.cwd / "extra_model_paths.yaml"
     if extra_model_paths.is_file():
         values.setdefault("extra_model_paths_config", [str(extra_model_paths)])
     if not values:
@@ -2053,7 +2257,13 @@ def _embedded_configuration(workflow: VibeWorkflow) -> Configuration | None:
     return _embedded_configuration_for_session(SessionConfig.from_workflow_metadata(workflow))
 
 
-def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
+def _comfy_server_argv(
+    config: SessionConfig,
+    *,
+    runtime_configuration: _RuntimeConfigurationSnapshot | None = None,
+) -> tuple[str, ...]:
+    runtime_configuration = runtime_configuration or _snapshot_runtime_configuration(config)
+    values = runtime_configuration.values
     argv = [*_comfyui_command(), "serve"]
     if config.vram_policy in {"high", "low", "normal"}:
         argv.append(f"--{config.vram_policy}vram")
@@ -2067,14 +2277,14 @@ def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
         argv.append("--cache-none")
     elif config.cache_policy.startswith("lru:"):
         argv.extend(["--cache-lru", config.cache_policy.split(":", 1)[1]])
-    if _config_requests_sage_attention(config):
+    if runtime_configuration.use_sage_attention:
         argv.append("--use-sage-attention")
     for key, flag in (
         ("input_directory", "--input-directory"),
         ("output_directory", "--output-directory"),
         ("temp_directory", "--temp-directory"),
     ):
-        value = config.extra.get(key)
+        value = values.get(key)
         if value:
             argv.extend([flag, str(value)])
     argv.extend(["--port", str(config.port or 8188)])
@@ -2097,15 +2307,22 @@ def _config_requests_sage_attention(config: SessionConfig) -> bool:
 
 
 async def _spawn_comfy_server(
-    config: SessionConfig, log_path: str | Path | None = None
+    config: SessionConfig,
+    log_path: str | Path | None = None,
+    *,
+    runtime_configuration: _RuntimeConfigurationSnapshot | None = None,
 ) -> tuple[asyncio.subprocess.Process, str, Any | None]:
+    runtime_configuration = runtime_configuration or _snapshot_runtime_configuration(config)
     ready_timeout_sec = _managed_ready_timeout_sec(config)
     _assert_managed_endpoint_available(config)
     log_handle = None
     if log_path:
+        log_path = _resolve_runtime_path(
+            log_path, base=config.runtime_root, field_name="server_log_path"
+        )
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         log_handle = Path(log_path).open("ab", buffering=0)
-    argv = _comfy_server_argv(config)
+    argv = _comfy_server_argv(config, runtime_configuration=runtime_configuration)
     if log_handle:
         log_handle.write(f"[vibecomfy] launching managed Comfy server: {json.dumps(list(argv))}\n".encode())
     env = os.environ.copy()
@@ -2117,6 +2334,7 @@ async def _spawn_comfy_server(
             stdout=log_handle or asyncio.subprocess.DEVNULL,
             stderr=log_handle or asyncio.subprocess.DEVNULL,
             env=env,
+            cwd=str(runtime_configuration.cwd),
         )
         managed_url = f"http://127.0.0.1:{config.port or 8188}"
         client = ComfyClient(managed_url)

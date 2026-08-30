@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from vibecomfy.errors import RuntimeConfigurationError
 from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.model_policy import normalized_models_root
 from vibecomfy.runtime.session import (
@@ -70,9 +71,18 @@ def _config_from_args(args: argparse.Namespace) -> dict[str, Any]:
 
 
 async def _daemon_main(args: argparse.Namespace) -> int:
-    config_dict = json.loads(args.config)
+    try:
+        config_dict = json.loads(args.config)
+    except json.JSONDecodeError as exc:
+        raise RuntimeConfigurationError(
+            "Invalid runtime session configuration: --config is not valid JSON",
+            next_action="Fix the runtime configuration and retry.",
+        ) from exc
     if not isinstance(config_dict, dict):
-        raise ValueError("--config must decode to a JSON object")
+        raise RuntimeConfigurationError(
+            "Invalid runtime session configuration: --config must decode to a JSON object",
+            next_action="Fix the runtime configuration and retry.",
+        )
     session = ServerSession(SessionConfig.from_dict(config_dict))
     session_dir = _session_dir(args.id)
     stop_event = asyncio.Event()

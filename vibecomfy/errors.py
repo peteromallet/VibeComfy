@@ -126,6 +126,10 @@ class RuntimeStartupError(VibeComfyError):
     """A managed runtime failed to start."""
 
 
+class RuntimeConfigurationError(RuntimeStartupError, ValueError):
+    """A runtime configuration is malformed and cannot be applied safely."""
+
+
 # ---------------------------------------------------------------------------
 # Agent-facing semantic subclasses
 #
@@ -275,6 +279,7 @@ __all__ = [
     "UnknownNodeSchemaError",
     # origin/main
     "NodePackInstallError",
+    "RuntimeConfigurationError",
     "RuntimeStartupError",
     "SessionBusyError",
     "SessionLifecycleError",

@@ -95,6 +95,8 @@ Run metadata keeps the legacy `outputs` list as resolved artifact paths. It also
 
 `SessionConfig` fields:
 
+- `runtime_root`: captured artifact/configuration root; relative paths resolve here
+- `cwd`: captured working directory for the managed Comfy child (defaults to `runtime_root`)
 - `vram_policy`: `auto`, `high`, `low`, or `normal`
 - `reserve_vram_gb`
 - `cache_policy`: `smart`, `classic`, `lru:N`, or `none`
@@ -102,9 +104,18 @@ Run metadata keeps the legacy `outputs` list as resolved artifact paths. It also
 - `warm_policy`: `auto`, `always`, or `never`
 - `auto_flush_vram_threshold_gb`
 - `port`
+- `strict_drift`: fail the run when the captured workflow has runtime drift
 - `extra`: raw HiddenSwitch configuration keys not represented by typed fields
 
 `EmbeddedSession` holds one `Comfy()` context across multiple `run()` calls. `ServerSession` holds one `comfyui serve` subprocess and uses HTTP for readiness, prompt queueing, and explicit flush.
+
+`runtime_root` and `cwd` are captured when `SessionConfig` is constructed, so a
+later process-wide `chdir()` cannot move artifacts or change the managed child’s
+working directory. Dynamic Comfy I/O settings from `extra` and
+`VIBECOMFY_COMFY_CONFIGURATION` are snapshotted when the backend starts and
+remain stable for that process lifetime. Malformed typed or JSON configuration
+raises `RuntimeConfigurationError` (also a `ValueError`) before the backend is
+started.
 
 ## Runtime Spawn Contract
 
