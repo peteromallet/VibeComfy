@@ -775,7 +775,7 @@ def active_session_metadata(id: str = "default") -> dict[str, Any] | None:
             try:
                 pid = int(pid_path.read_text(encoding="utf-8").strip())
                 os.kill(pid, 0)
-                _terminate_session_pid(pid)
+                _terminate_session_pid(pid, session_dir=session_dir)
             except (ProcessLookupError, PermissionError, OSError, ValueError):
                 pass
         _cleanup_session_files(session_dir)
@@ -861,6 +861,13 @@ def _session_ready(session_dir: Path) -> bool:
     if not url:
         return False
 
+    launch_marker = _read_launch_marker(session_dir)
+    if launch_marker is not None:
+        if launch_marker.get("pid") != pid or launch_marker.get("url") != url:
+            return False
+        if not isinstance(launch_marker.get("launch_token"), str):
+            return False
+
     # Check process is alive (PermissionError is inconclusive — fall through to HTTP check)
     try:
         os.kill(pid, 0)
@@ -871,14 +878,102 @@ def _session_ready(session_dir: Path) -> bool:
     except OSError:
         return False
 
+    if launch_marker is not None and not _session_ownership_verified(session_dir, pid):
+        return False
     return _session_url_healthy(url)
 
 
-def _terminate_session_pid(pid: int) -> None:
+def _read_launch_marker(session_dir: Path) -> dict[str, Any] | None:
+    try:
+        marker = json.loads((session_dir / "launch.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return marker if isinstance(marker, dict) else None
+
+
+def _process_start_identity(pid: int) -> str | None:
+    """Return an OS-provided process incarnation value, or fail closed."""
+    proc_stat = Path(f"/proc/{pid}/stat")
+    try:
+        raw = proc_stat.read_text(encoding="utf-8")
+    except OSError:
+        raw = ""
+    if raw:
+        closing_paren = raw.rfind(")")
+        fields = raw[closing_paren + 2 :].split() if closing_paren >= 0 else []
+        if len(fields) > 19:
+            return fields[19]
+
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "lstart="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _process_commandline(pid: int) -> tuple[str, ...] | None:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        raw = b""
+    if raw:
+        return tuple(part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part)
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = result.stdout.strip()
+    return (value,) if value else None
+
+
+def _session_ownership_verified(session_dir: Path, pid: int) -> bool:
+    marker = _read_launch_marker(session_dir)
+    if marker is None:
+        return False
+    try:
+        marker_pid = int((session_dir / "pid").read_text(encoding="utf-8").strip())
+        marker_url = (session_dir / "url").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return False
+    token = marker.get("launch_token")
+    start_identity = marker.get("process_start_identity")
+    if (
+        marker.get("pid") != pid
+        or marker_pid != pid
+        or marker.get("url") != marker_url
+        or not isinstance(token, str)
+        or not token
+    ):
+        return False
+    if not isinstance(start_identity, str) or not start_identity:
+        return False
+    if _process_start_identity(pid) != start_identity:
+        return False
+    commandline = _process_commandline(pid)
+    return commandline is not None and token in commandline
+
+
+def _terminate_session_pid(pid: int, *, session_dir: Path) -> bool:
+    if not _session_ownership_verified(session_dir, pid):
+        return False
     try:
         os.kill(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError):
-        return
+        return False
+    return True
 
 
 def current_source_revision() -> str | None:
@@ -905,11 +1000,29 @@ def current_source_revision() -> str | None:
 
 
 def _cleanup_session_files(session_dir: Path) -> None:
-    for name in ("pid", "url", "config.json", "source_revision"):
+    for name in ("pid", "url", "config.json", "source_revision", "launch.json"):
         try:
             (session_dir / name).unlink()
         except FileNotFoundError:
             pass
+
+
+def _write_launch_marker(
+    session_dir: Path,
+    *,
+    pid: int,
+    url: str,
+    launch_token: str,
+) -> None:
+    atomic_write_json(
+        session_dir / "launch.json",
+        {
+            "launch_token": launch_token,
+            "pid": pid,
+            "process_start_identity": _process_start_identity(pid),
+            "url": url,
+        },
+    )
 
 
 _MANAGED_STARTUP_NEXT_ACTION = (

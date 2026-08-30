@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,9 @@ from vibecomfy.runtime.session import (
     SessionConfig,
     _cleanup_session_files,
     _comfy_server_argv,
+    _session_ownership_verified,
     _session_ready,
+    _write_launch_marker,
     current_source_revision,
     find_active_session,
 )
@@ -91,6 +94,13 @@ async def _daemon_main(args: argparse.Namespace) -> int:
 
     try:
         await session.start()
+        launch_token = getattr(args, "launch_token", None) or uuid.uuid4().hex
+        _write_launch_marker(
+            session_dir,
+            pid=os.getpid(),
+            url=str(session.url),
+            launch_token=launch_token,
+        )
         (session_dir / "pid").write_text(str(os.getpid()), encoding="utf-8")
         (session_dir / "url").write_text(str(session.url), encoding="utf-8")
         (session_dir / "config.json").write_text(
@@ -109,12 +119,16 @@ async def _daemon_main(args: argparse.Namespace) -> int:
 
 def _cmd_session_start(args: argparse.Namespace) -> int:
     session_dir = _session_dir(args.id)
-    # Clear stale markers before spawning (shared readiness contract)
+    if find_active_session(args.id) is not None:
+        print(f"session {args.id}: already running; refusing duplicate start", file=sys.stderr)
+        return 1
+    # Clear only stale markers after duplicate ownership has been checked.
     _cleanup_session_files(session_dir)
     session_dir.mkdir(parents=True, exist_ok=True)
     config = _config_from_args(args)
     config.setdefault("server_log_path", str(session_dir / "comfy.log"))
     log_path = session_dir / "daemon.log"
+    launch_token = uuid.uuid4().hex
     cmd = [
         sys.executable,
         "-m",
@@ -122,6 +136,8 @@ def _cmd_session_start(args: argparse.Namespace) -> int:
         "--daemon",
         "--id",
         args.id,
+        "--launch-token",
+        launch_token,
         "--config",
         json.dumps(config),
     ]
@@ -169,6 +185,12 @@ def _cmd_session_stop(args: argparse.Namespace) -> int:
         return 0
     try:
         pid = int(pid_path.read_text(encoding="utf-8").strip())
+        if not _session_ownership_verified(session_dir, pid):
+            print(
+                f"session {args.id}: stop refused; launch ownership could not be verified",
+                file=sys.stderr,
+            )
+            return 1
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         _cleanup_session_files(session_dir)
@@ -182,10 +204,17 @@ def _cmd_session_stop(args: argparse.Namespace) -> int:
         if not pid_path.exists():
             print(f"session {args.id}: stopped")
             return 0
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            _cleanup_session_files(session_dir)
+            print(f"session {args.id}: stopped")
+            return 0
+        except OSError:
+            pass
         time.sleep(0.1)
-    _cleanup_session_files(session_dir)
-    print(f"session {args.id}: stop requested")
-    return 0
+    print(f"session {args.id}: stop timed out; markers retained", file=sys.stderr)
+    return 1
 
 
 def _cmd_session_list(args: argparse.Namespace) -> int:
@@ -261,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m vibecomfy.commands.session")
     parser.add_argument("--daemon", action="store_true")
     parser.add_argument("--id", default="default")
+    parser.add_argument("--launch-token")
     parser.add_argument("--config", default="{}")
     args = parser.parse_args(argv)
     if not args.daemon:

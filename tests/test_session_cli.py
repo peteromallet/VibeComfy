@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import signal
 from pathlib import Path
 from typing import Any
@@ -31,6 +30,17 @@ class FakePopen:
         (session_dir / "pid").write_text("4242", encoding="utf-8")
         (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
         (session_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        (session_dir / "launch.json").write_text(
+            json.dumps(
+                {
+                    "launch_token": self.cmd[self.cmd.index("--launch-token") + 1],
+                    "pid": 4242,
+                    "process_start_identity": "fake-start",
+                    "url": "http://127.0.0.1:8200",
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def poll(self):
         return self.returncode
@@ -77,6 +87,12 @@ def test_session_cli_start_list_flush_stop_flow(
     monkeypatch.setattr(session_cmd, "ComfyClient", FakeClient)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
     monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "fake-start")
+    monkeypatch.setattr(
+        session_module,
+        "_process_commandline",
+        lambda _pid: ("python", "--launch-token", FakePopen.started[0][FakePopen.started[0].index("--launch-token") + 1]),
+    )
     monkeypatch.setattr(session_cmd, "normalized_models_root", lambda: str(tmp_path / "ComfyUI/models"))
 
     start_args = argparse.Namespace(
@@ -128,6 +144,12 @@ def test_session_cli_start_persists_memory_profiles(
     monkeypatch.setattr(session_module.os, "kill", lambda pid, sig: None)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
     monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "fake-start")
+    monkeypatch.setattr(
+        session_module,
+        "_process_commandline",
+        lambda _pid: ("python", "--launch-token", FakePopen.started[-1][FakePopen.started[-1].index("--launch-token") + 1]),
+    )
     FakePopen.started = []
 
     for profile in range(1, 6):
@@ -162,6 +184,12 @@ def test_session_cli_start_without_memory_profile_leaves_config_unchanged(
     monkeypatch.setattr(session_module.os, "kill", lambda pid, sig: None)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
     monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "fake-start")
+    monkeypatch.setattr(
+        session_module,
+        "_process_commandline",
+        lambda _pid: ("python", "--launch-token", FakePopen.started[-1][FakePopen.started[-1].index("--launch-token") + 1]),
+    )
     FakePopen.started = []
     args = argparse.Namespace(
         id="default",
@@ -353,10 +381,128 @@ def test_find_active_session_rejects_dead_server_url(
     monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: False)
 
     assert find_active_session("default") is None
-    assert terminated == [4242]
+    # Legacy PID/URL/health markers do not authorize a signal.
+    assert terminated == []
     assert not (session_dir / "pid").exists()
     assert not (session_dir / "url").exists()
     assert not (session_dir / "config.json").exists()
+
+
+def test_session_cli_start_refuses_duplicate_without_clearing_markers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_dir = tmp_path / "out/sessions/default"
+    session_dir.mkdir(parents=True)
+    (session_dir / "pid").write_text("4242", encoding="utf-8")
+    (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+    (session_dir / "config.json").write_text("{}", encoding="utf-8")
+    (session_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "launch_token": "existing",
+                "pid": 4242,
+                "process_start_identity": "same-incarnation",
+                "url": "http://127.0.0.1:8200",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(session_module.os, "kill", lambda _pid, sig: None if sig == 0 else None)
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
+    monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "same-incarnation")
+    monkeypatch.setattr(session_module, "_process_commandline", lambda _pid: ("python", "existing"))
+    monkeypatch.setattr(session_cmd.subprocess, "Popen", lambda *_args, **_kwargs: pytest.fail("spawned duplicate"))
+
+    assert session_cmd._cmd_session_start(argparse.Namespace(id="default")) == 1
+    assert "refusing duplicate start" in capsys.readouterr().err
+    assert (session_dir / "pid").read_text(encoding="utf-8") == "4242"
+    assert (session_dir / "launch.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("marker_start", "current_start", "commandline"),
+    [
+        ("old-incarnation", "new-incarnation", ("python", "--launch-token", "owned")),
+        ("same-incarnation", "same-incarnation", ("foreign-server",)),
+    ],
+)
+def test_stale_or_foreign_marker_never_authorizes_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    marker_start: str,
+    current_start: str,
+    commandline: tuple[str, ...],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_dir = tmp_path / "out/sessions/default"
+    session_dir.mkdir(parents=True)
+    (session_dir / "pid").write_text("4242", encoding="utf-8")
+    (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+    (session_dir / "config.json").write_text("{}", encoding="utf-8")
+    (session_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "launch_token": "owned",
+                "pid": 4242,
+                "process_start_identity": marker_start,
+                "url": "http://127.0.0.1:8200",
+            }
+        ),
+        encoding="utf-8",
+    )
+    signals: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+
+    monkeypatch.setattr(session_module.os, "kill", fake_kill)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: current_start)
+    monkeypatch.setattr(session_module, "_process_commandline", lambda _pid: commandline)
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: False)
+    monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
+
+    assert find_active_session("default") is None
+    assert signals
+    assert all(sig == 0 for _pid, sig in signals)
+
+
+def test_session_cli_stop_timeout_is_nonzero_and_retains_markers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_dir = tmp_path / "out/sessions/default"
+    session_dir.mkdir(parents=True)
+    (session_dir / "pid").write_text("4242", encoding="utf-8")
+    (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+    (session_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "launch_token": "owned",
+                "pid": 4242,
+                "process_start_identity": "same-incarnation",
+                "url": "http://127.0.0.1:8200",
+            }
+        ),
+        encoding="utf-8",
+    )
+    signals: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+
+    monkeypatch.setattr(session_module.os, "kill", fake_kill)
+    monkeypatch.setattr(session_module, "_process_start_identity", lambda _pid: "same-incarnation")
+    monkeypatch.setattr(session_module, "_process_commandline", lambda _pid: ("python", "owned"))
+    monkeypatch.setattr(session_cmd.time, "sleep", lambda _seconds: None)
+
+    assert session_cmd._cmd_session_stop(argparse.Namespace(id="default")) == 1
+    assert signals[0] == (4242, signal.SIGTERM)
+    assert all(sig == signal.SIGTERM or sig == 0 for _pid, sig in signals)
+    assert (session_dir / "pid").exists()
+    assert (session_dir / "launch.json").exists()
+    assert "stop timed out; markers retained" in capsys.readouterr().err
 
 
 def test_find_active_session_healthy_daemon_survives_missing_source_revision(
