@@ -724,6 +724,9 @@ def test_sentinel_cleared_after_restore_full_success(tmp_path):
     from vibecomfy.node_packs import restore_pack, LockEntry
 
     install_root = tmp_path / "custom_nodes"
+    lockfile_path = tmp_path / "custom_nodes.lock"
+    repository_lockfile = Path("custom_nodes.lock")
+    repository_lockfile_bytes = repository_lockfile.read_bytes()
     install_dir = install_root / "ExamplePack"
     install_dir.mkdir(parents=True)
     sentinel_path = install_root / INSTALL_STATE_DIR / "ExamplePack.json"
@@ -734,7 +737,13 @@ def test_sentinel_cleared_after_restore_full_success(tmp_path):
 
     entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
 
-    result = restore_pack(entry, install_root=install_root, runner=runner)
+    result = restore_pack(
+        entry,
+        install_root=install_root,
+        lockfile_path=lockfile_path,
+        runner=runner,
+    )
 
     assert result.status == "refreshed"
     assert not sentinel_path.exists(), "sentinel should be cleared after successful restore"
+    assert repository_lockfile.read_bytes() == repository_lockfile_bytes
