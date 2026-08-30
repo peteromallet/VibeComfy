@@ -10460,9 +10460,11 @@ def test_response_durability_unkeyed_state_failure_prevents_response_json(
 def test_response_durability_keyed_state_failure_prevents_response_json(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """When write_state_atomic raises during a keyed edit, response.json
-    must never be published and the idempotency record must not be
-    durably persisted — the entire turn is rolled back."""
+    """A keyed response remains replayable after the state index write fails.
+
+    The immutable publication is the commit point; session state and
+    response.json are recoverable projections.
+    """
     root = tmp_path / "sessions"
     request = {"task": "keyed test", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
     allocation = allocate_turn(
@@ -10500,37 +10502,39 @@ def test_response_durability_keyed_state_failure_prevents_response_json(
             turn_id=str(allocation.context.turn_id),
         )
 
-    # response.json must NOT exist.
+    # The rebuildable projection is not published after the state write fails.
     assert not response_path.is_file(), (
         f"response.json at {response_path} must not exist after state-write failure"
     )
 
-    # The idempotency record must not be durably stored — a subsequent
-    # allocation with the same key must produce a new turn (not a replay
-    # or conflict referencing the failed attempt).
+    # The immutable publication is already durable and carries the complete
+    # replay authority despite the missing state-index record.
+    publication_path = allocation.turn_dir / "response_publication.json"
+    assert publication_path.is_file()
+    publication = json.loads(publication_path.read_text(encoding="utf-8"))
+    assert publication["idempotency_key"] == "durability-key-1"
+    assert publication["request_hash"] == allocation.request_hash
+    assert publication["response"] == response
+
+    # Allocation recovers the index from that publication and replays the
+    # original turn instead of allocating a second one.  It also rebuilds the
+    # response projection from immutable authority.
     replay_check = allocate_turn(
         session_root=root,
         session_id="s1",
         request_payload=request,
         idempotency_key="durability-key-1",
     )
-    assert replay_check.replay is None, (
-        "Idempotency replay must not be returned for a failed keyed response"
-    )
-    assert replay_check.conflict is None, (
-        "Idempotency conflict must not be returned for a failed keyed response"
-    )
-    # A fresh turn allocation succeeds — the key is available.
-    assert replay_check.context.turn_id is not None
+    assert replay_check.replay is not None
+    assert replay_check.replay.response == response
+    assert replay_check.context.turn_id == allocation.context.turn_id
+    assert json.loads(response_path.read_text(encoding="utf-8")) == response
 
 
 def test_response_durability_keyed_state_failure_preserves_idempotency_record_integrity(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """After a keyed state-write failure, the idempotency key must not be
-    partially recorded — a completely fresh allocation with that key must
-    produce a net-new turn (not a stale-state conflict against partial
-    state)."""
+    """A state-write failure preserves keyed replay and conflict semantics."""
     root = tmp_path / "sessions"
     request_a = {"task": "first attempt", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
     allocation = allocate_turn(
@@ -10568,9 +10572,17 @@ def test_response_durability_keyed_state_failure_preserves_idempotency_record_in
             turn_id=str(allocation.context.turn_id),
         )
 
-    # A second attempt with the same key but a different body must NOT
-    # see a conflict — because the first attempt's record was never
-    # durably persisted.
+    # The immutable publication retains the original key, request hash, and
+    # response hash even though the mutable state index write failed.
+    publication_path = allocation.turn_dir / "response_publication.json"
+    publication = json.loads(publication_path.read_text(encoding="utf-8"))
+    assert publication["idempotency_key"] == "integrity-key-2"
+    assert publication["request_hash"] == allocation.request_hash
+    assert publication["response_hash"] == payload_hash(response)
+    assert not response_path.is_file()
+
+    # A different request with the same key must conflict with the immutable
+    # original; it must not fork a second turn or overwrite its authority.
     request_b = {"task": "second attempt", "graph": {"nodes": [{"id": 3, "type": "CLIPTextEncode"}], "links": []}}
     second = allocate_turn(
         session_root=root,
@@ -10578,11 +10590,23 @@ def test_response_durability_keyed_state_failure_preserves_idempotency_record_in
         request_payload=request_b,
         idempotency_key="integrity-key-2",
     )
-    assert second.conflict is None, (
-        "No conflict expected — the failed first attempt must not leave a durable idempotency record"
-    )
+    assert second.conflict is not None
+    assert second.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
     assert second.replay is None
-    assert second.context.turn_id is not None
+    assert second.context.turn_id == allocation.context.turn_id
+    assert not (allocation.session_dir / "turns" / "0002").exists()
+
+    # The original request remains replayable after recovery has rebuilt the
+    # state index.
+    replay = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request_a,
+        idempotency_key="integrity-key-2",
+    )
+    assert replay.replay is not None
+    assert replay.replay.response == response
+    assert replay.context.turn_id == allocation.context.turn_id
 
 
 def test_response_durability_unkeyed_success_publishes_response_and_updates_state(

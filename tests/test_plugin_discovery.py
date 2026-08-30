@@ -218,7 +218,20 @@ def test_case_variant_registered_root_is_one_discovery_root(tmp_path: Path, monk
     monkeypatch.setattr(ready_registry, "_ready_roots", lambda: roots)
     monkeypatch.setattr(ready_registry, "_dynamic_ready_roots", lambda: roots)
 
-    assert roots == [root.resolve()]
+    # Case variants are aliases only when the filesystem resolves them to the
+    # same directory entry.  On a case-sensitive filesystem the variant is a
+    # distinct (currently missing) root and must remain distinct in the root
+    # identity set, even though it contributes no templates yet.
+    try:
+        case_variant_is_samefile = root.samefile(variant)
+    except OSError:
+        case_variant_is_samefile = False
+    if case_variant_is_samefile:
+        assert roots == [root.resolve()]
+    else:
+        assert roots == sorted(
+            [root.resolve(), variant.resolve()], key=ready_registry._path_sort_key
+        )
     assert ready_template_ids() == ["image/only"]
     assert workflow_from_ready("IMAGE/ONLY").metadata["ready_template"] == "image/only"
 
