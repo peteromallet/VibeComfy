@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
 import json
 import signal
+import struct
+import subprocess
+import sys
 from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
@@ -209,112 +213,197 @@ def test_session_cli_start_without_memory_profile_leaves_config_unchanged(
     assert "memory_profile" not in config
 
 
-def test_process_commandline_parses_darwin_ps_argv_with_quoted_spaces(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_read_bytes = Path.read_bytes
-    ps_calls: list[tuple[list[str], dict[str, Any]]] = []
+def _darwin_procargs2_fixture(
+    executable: bytes, argv: tuple[bytes, ...], *, padding: bytes = b"\0"
+) -> bytes:
+    return struct.pack("=i", len(argv)) + executable + b"\0" + padding + b"\0".join(argv) + b"\0ENV=value\0"
 
-    def fake_read_bytes(path: Path) -> bytes:
-        if path == Path("/proc/4242/cmdline"):
-            raise OSError("/proc unavailable on Darwin")
-        return original_read_bytes(path)
 
-    def fake_run(argv: list[str], **kwargs: Any) -> SimpleNamespace:
-        ps_calls.append((argv, kwargs))
-        return SimpleNamespace(
-            returncode=0,
-            stdout=(
-                "/usr/bin/python3 -m vibecomfy.commands.session --daemon "
-                "--launch-token owned-token --config "
-                "'{\"input_directory\": \"/tmp/input folder\"}'\n"
-            ),
-        )
-
-    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
-    monkeypatch.setattr(session_module.subprocess, "run", fake_run)
-
-    assert session_module._process_commandline(4242) == (
-        "/usr/bin/python3",
-        "-m",
-        "vibecomfy.commands.session",
-        "--daemon",
-        "--launch-token",
-        "owned-token",
-        "--config",
-        '{"input_directory": "/tmp/input folder"}',
+def test_parse_darwin_procargs2_returns_counted_argv() -> None:
+    raw = _darwin_procargs2_fixture(
+        b"/usr/bin/python3",
+        (b"/usr/bin/python3", b"-c", b"hello world", b"--launch-token", b"owned"),
     )
-    assert ps_calls and ps_calls[0][0] == ["ps", "-ww", "-p", "4242", "-o", "command="]
-    assert ps_calls[0][1]["timeout"] == 2
+    assert session_module._parse_darwin_procargs2(raw) == (
+        "/usr/bin/python3",
+        "-c",
+        "hello world",
+        "--launch-token",
+        "owned",
+    )
 
 
 @pytest.mark.parametrize(
-    "ps_output",
+    "raw",
     [
-        "python --launch-token 'unterminated\n",
-        "python --launch-token owned\nforeign-process\n",
-        "python --launch-token\n",
-        "python --launch-token owned --launch-token owned\n",
-        "python --launch-token owned\x00foreign-process\n",
+        b"",
+        struct.pack("=i", 0) + b"/bin/python\0\0/bin/python\0",
+        struct.pack("=i", -1) + b"/bin/python\0\0/bin/python\0",
+        struct.pack("=i", 2) + b"/bin/python\0\0/bin/python\0",
+        struct.pack("=i", 1) + b"/bin/python\0\0/bin/python",
+        struct.pack("=i", 1) + b"\0\0/bin/python\0",
+        struct.pack("=i", 1) + b"/bin/\xff\0\0/bin/python\0",
+        struct.pack("=i", 1) + b"/bin/python\0\0/bin/\xff\0",
     ],
 )
-def test_process_commandline_rejects_malformed_or_truncated_darwin_ps_output(
-    monkeypatch: pytest.MonkeyPatch, ps_output: str
-) -> None:
-    original_read_bytes = Path.read_bytes
-
-    def fake_read_bytes(path: Path) -> bytes:
-        if path == Path("/proc/4242/cmdline"):
-            raise OSError("/proc unavailable on Darwin")
-        return original_read_bytes(path)
-
-    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
-    monkeypatch.setattr(
-        session_module.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=ps_output),
-    )
-
-    assert session_module._process_commandline(4242) is None
+def test_parse_darwin_procargs2_rejects_malformed_fixtures(raw: bytes) -> None:
+    assert session_module._parse_darwin_procargs2(raw) is None
 
 
-@pytest.mark.parametrize("stdout", [None, b"python --launch-token owned\n", object()])
-def test_process_commandline_rejects_non_string_darwin_ps_output(
-    monkeypatch: pytest.MonkeyPatch, stdout: object
-) -> None:
-    monkeypatch.setattr(
-        Path,
-        "read_bytes",
-        lambda path: (_ for _ in ()).throw(OSError("/proc unavailable on Darwin"))
-        if path == Path("/proc/4242/cmdline")
-        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
-    )
-    monkeypatch.setattr(
-        session_module.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=stdout),
-    )
-
-    assert session_module._process_commandline(4242) is None
+def test_parse_darwin_procargs2_rejects_changed_size_fixture() -> None:
+    raw = _darwin_procargs2_fixture(b"/bin/python", (b"/bin/python",))
+    assert session_module._parse_darwin_procargs2(raw[:-1]) is None
 
 
-def test_process_commandline_rejects_darwin_ps_decode_failure(
+@pytest.mark.parametrize(
+    ("first_result", "second_result", "second_size"),
+    [
+        (-1, 0, None),
+        (0, -1, None),
+        (0, 0, -1),
+    ],
+)
+def test_darwin_sysctl_process_argv_fails_closed_on_errors_or_size_race(
     monkeypatch: pytest.MonkeyPatch,
+    first_result: int,
+    second_result: int,
+    second_size: int | None,
 ) -> None:
+    raw = _darwin_procargs2_fixture(b"/bin/python", (b"/bin/python",))
+
+    class FakeSysctl:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self, _mib: Any, _mib_len: int, oldp: Any, oldlenp: Any, *_args: Any) -> int:
+            self.calls += 1
+            if oldp is None:
+                oldlenp._obj.value = len(raw)
+                return first_result
+            oldlenp._obj.value = len(raw) if second_size is None else len(raw) + second_size
+            if second_result == 0:
+                ctypes.memmove(oldp, raw, len(raw))
+            return second_result
+
+    fake_sysctl = FakeSysctl()
     monkeypatch.setattr(
-        Path,
-        "read_bytes",
-        lambda path: (_ for _ in ()).throw(OSError("/proc unavailable on Darwin"))
-        if path == Path("/proc/4242/cmdline")
-        else (_ for _ in ()).throw(AssertionError(f"unexpected read: {path}")),
+        session_module.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(sysctl=fake_sysctl),
     )
 
-    def fail_decode(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
-        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    assert session_module._darwin_process_commandline(4242) is None
+    assert fake_sysctl.calls == (1 if first_result else 2)
 
-    monkeypatch.setattr(session_module.subprocess, "run", fail_decode)
 
-    assert session_module._process_commandline(4242) is None
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires Darwin KERN_PROCARGS2")
+def test_live_darwin_owned_child_has_exact_paired_argv(tmp_path: Path) -> None:
+    token = "b08-live-owned-token"
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", "--launch-token", token]
+    )
+    try:
+        commandline = session_module._process_commandline(child.pid)
+        assert commandline is not None
+        assert session_module._launch_token_is_exactly_paired(commandline, token)
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir()
+        (session_dir / "pid").write_text(str(child.pid), encoding="utf-8")
+        (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+        (session_dir / "launch.json").write_text(
+            json.dumps(
+                {
+                    "launch_token": token,
+                    "pid": child.pid,
+                    "process_start_identity": session_module._process_start_identity(child.pid),
+                    "url": "http://127.0.0.1:8200",
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert session_module._session_ownership_verified(session_dir, child.pid)
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "child_argv",
+    [
+        lambda token: [
+            sys.executable,
+            "-c",
+            f"import time; time.sleep(30) # --launch-token {token}",
+        ],
+        lambda token: [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+            f"--launch-token={token}",
+        ],
+    ],
+)
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires Darwin KERN_PROCARGS2")
+def test_live_darwin_embedded_or_equals_marker_refuses_ownership(
+    tmp_path: Path, child_argv: Any
+) -> None:
+    token = "b08-live-forged-token"
+    child = subprocess.Popen(child_argv(token))
+    try:
+        commandline = session_module._process_commandline(child.pid)
+        assert commandline is not None
+        assert not session_module._launch_token_is_exactly_paired(commandline, token)
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir()
+        (session_dir / "pid").write_text(str(child.pid), encoding="utf-8")
+        (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+        (session_dir / "launch.json").write_text(
+            json.dumps(
+                {
+                    "launch_token": token,
+                    "pid": child.pid,
+                    "process_start_identity": session_module._process_start_identity(child.pid),
+                    "url": "http://127.0.0.1:8200",
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert not session_module._session_ownership_verified(session_dir, child.pid)
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires Darwin KERN_PROCARGS2")
+def test_live_darwin_foreign_child_with_forged_marker_refuses_ownership(
+    tmp_path: Path,
+) -> None:
+    token = "b08-live-foreign-token"
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", "--launch-token", "different-token"]
+    )
+    try:
+        session_dir = tmp_path / "session"
+        session_dir.mkdir()
+        (session_dir / "pid").write_text(str(child.pid), encoding="utf-8")
+        (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
+        (session_dir / "launch.json").write_text(
+            json.dumps(
+                {
+                    "launch_token": token,
+                    "pid": child.pid,
+                    "process_start_identity": session_module._process_start_identity(child.pid),
+                    "url": "http://127.0.0.1:8200",
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert not session_module._session_ownership_verified(session_dir, child.pid)
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
 
 
 @pytest.mark.parametrize(

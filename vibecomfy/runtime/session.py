@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import hashlib
 import json
 import logging
 import os
-import shlex
 import signal
 import socket
+import struct
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -943,40 +945,105 @@ def _process_commandline(pid: int) -> tuple[str, ...] | None:
         ):
             return None
         return commandline
+    if sys.platform != "darwin":
+        return None
+    return _darwin_process_commandline(pid)
+
+
+_DARWIN_CTL_KERN = 1
+_DARWIN_KERN_PROCARGS2 = 49
+_DARWIN_PROCARGS2_MAX_SIZE = 16 * 1024 * 1024
+
+
+def _parse_darwin_procargs2(raw: bytes) -> tuple[str, ...] | None:
+    """Parse the counted argv prefix returned by Darwin ``KERN_PROCARGS2``."""
+    if type(raw) is not bytes or not raw or len(raw) > _DARWIN_PROCARGS2_MAX_SIZE:
+        return None
+    if len(raw) < 5 or not raw.endswith(b"\0"):
+        return None
+
     try:
-        result = subprocess.run(
-            ["ps", "-ww", "-p", str(pid), "-o", "command="],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
+        argc = struct.unpack_from("=i", raw, 0)[0]
+    except struct.error:
+        return None
+    if argc < 1 or argc > len(raw) - 4:
+        return None
+
+    executable_end = raw.find(b"\0", 4)
+    if executable_end <= 4:
+        return None
+    try:
+        raw[4:executable_end].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+    # Darwin places padding NULs between the executable path and argv[0].
+    cursor = executable_end + 1
+    while cursor < len(raw) and raw[cursor] == 0:
+        cursor += 1
+    if cursor >= len(raw):
+        return None
+
+    commandline: list[str] = []
+    for _ in range(argc):
+        argument_end = raw.find(b"\0", cursor)
+        if argument_end < 0:
+            return None
+        argument = raw[cursor:argument_end]
+        try:
+            commandline.append(argument.decode("utf-8"))
+        except UnicodeDecodeError:
+            return None
+        cursor = argument_end + 1
+    return tuple(commandline)
+
+
+def _darwin_process_commandline(pid: int) -> tuple[str, ...] | None:
+    if type(pid) is not int or pid <= 0 or pid > 2**31 - 1:
+        return None
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        sysctl = libc.sysctl
+        sysctl.argtypes = [
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_size_t),
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+        ]
+        sysctl.restype = ctypes.c_int
+        mib = (ctypes.c_int * 3)(
+            _DARWIN_CTL_KERN,
+            _DARWIN_KERN_PROCARGS2,
+            pid,
         )
-    except (OSError, subprocess.SubprocessError, UnicodeError):
-        return None
-    try:
-        returncode = result.returncode
-        output = result.stdout
-    except (AttributeError, TypeError):
-        return None
-    if type(returncode) is not int or returncode != 0:
-        return None
-    if type(output) is not str or not output or "\x00" in output or len(output.splitlines()) != 1:
-        return None
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in output):
-        return None
-    try:
-        commandline = tuple(shlex.split(output, comments=False, posix=True))
-    except ValueError:
-        return None
-    launch_flag_positions = [
-        index for index, argument in enumerate(commandline) if argument == "--launch-token"
-    ]
-    if launch_flag_positions and (
-        len(launch_flag_positions) != 1
-        or launch_flag_positions[0] + 1 >= len(commandline)
+        size = ctypes.c_size_t(0)
+        if sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:
+            return None
+        requested_size = size.value
+        if requested_size < 5 or requested_size > _DARWIN_PROCARGS2_MAX_SIZE:
+            return None
+
+        buffer = (ctypes.c_ubyte * requested_size)()
+        returned_size = ctypes.c_size_t(requested_size)
+        if sysctl(mib, 3, buffer, ctypes.byref(returned_size), None, 0) != 0:
+            return None
+        # A changed size means the process raced the two sysctl calls.  Do not
+        # parse a possibly truncated or mixed-generation process record.
+        if returned_size.value != requested_size:
+            return None
+        return _parse_darwin_procargs2(bytes(buffer))
+    except (
+        AttributeError,
+        MemoryError,
+        OSError,
+        OverflowError,
+        TypeError,
+        ValueError,
+        ctypes.ArgumentError,
     ):
         return None
-    return commandline or None
 
 
 def _launch_token_is_exactly_paired(commandline: tuple[str, ...], token: str) -> bool:
