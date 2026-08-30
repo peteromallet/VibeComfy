@@ -30,6 +30,7 @@ import asyncio
 import os
 import shutil
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -37,11 +38,9 @@ from typing import Any, Literal
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_ROOT = "/workspace/vibecomfy"
 MiB = 1024 * 1024
+VIBECOMFY_RUNPOD_DISK_SIZE_ENV = "VIBECOMFY_RUNPOD_DISK_SIZE_GB"
+VIBECOMFY_RUNPOD_CONTAINER_DISK_ENV = "VIBECOMFY_RUNPOD_CONTAINER_DISK_GB"
 
-# The lifecycle package currently downloads to ``local_root / "artifacts"``.
-# Keep that staging location empty, then atomically bind the completed download
-# to a run-unique path before exposing it to callers.
-SHARED_ARTIFACT_ROOT = ROOT / "artifacts"
 ARTIFACT_RUNS_ROOT = ROOT / "out" / "runpod_artifacts"
 
 DEFAULT_UPLOAD_EXCLUDES: set[str] = {
@@ -50,36 +49,74 @@ DEFAULT_UPLOAD_EXCLUDES: set[str] = {
     "node_modules", ".mypy_cache", ".ruff_cache", ".DS_Store",
 }
 
-VIBECOMFY_RUNPOD_DISK_SIZE_ENV = "VIBECOMFY_RUNPOD_DISK_SIZE_GB"
-VIBECOMFY_RUNPOD_CONTAINER_DISK_ENV = "VIBECOMFY_RUNPOD_CONTAINER_DISK_GB"
-
-
-def _remove_shared_artifact_root() -> None:
-    """Remove lifecycle's reusable download staging directory."""
-    if SHARED_ARTIFACT_ROOT.is_symlink() or SHARED_ARTIFACT_ROOT.is_file():
-        SHARED_ARTIFACT_ROOT.unlink()
-    elif SHARED_ARTIFACT_ROOT.is_dir():
-        shutil.rmtree(SHARED_ARTIFACT_ROOT)
-
 
 def _allocate_artifact_root() -> Path:
-    """Reserve a unique local root for this detached invocation."""
+    """Allocate a unique final artifact root for this detached invocation."""
     ARTIFACT_RUNS_ROOT.mkdir(parents=True, exist_ok=True)
     return ARTIFACT_RUNS_ROOT / uuid.uuid4().hex
 
 
-def _bind_artifact_root(artifact_root: Path | None, destination: Path) -> Path | None:
-    """Move a completed lifecycle download to its run-unique destination."""
+def _stage_lifecycle_local_root(exclude: set[str]) -> Path:
+    """Create an invocation-owned, mutation-isolated lifecycle root.
+
+    ``runpod-lifecycle`` uses one ``local_root`` for both upload and artifact
+    download. A private regular-file snapshot keeps that upload root isolated
+    from the source checkout and from every other invocation.
+    """
+    staging_root = Path(tempfile.mkdtemp(prefix=".vibecomfy-runpod-", dir=ROOT.parent))
+    staging_excludes = set(exclude) | {"artifacts"}
+
+    def _ignore(directory: str, names: list[str]) -> list[str]:
+        ignored: list[str] = []
+        directory_path = Path(directory)
+        for name in names:
+            source = directory_path / name
+            if should_skip(source, ROOT, staging_excludes):
+                ignored.append(name)
+        return ignored
+
+    try:
+        shutil.copytree(
+            ROOT,
+            staging_root,
+            copy_function=shutil.copy2,
+            ignore=_ignore,
+            dirs_exist_ok=True,
+        )
+    except BaseException:
+        shutil.rmtree(staging_root, ignore_errors=True)
+        raise
+    return staging_root
+
+
+def _cleanup_lifecycle_local_root(staging_root: Path) -> None:
+    """Remove only this invocation's private lifecycle staging root."""
+    shutil.rmtree(staging_root, ignore_errors=True)
+
+
+def _bind_artifact_root(
+    artifact_root: Path | None,
+    destination: Path,
+    *,
+    staging_root: Path,
+) -> Path | None:
+    """Move this invocation's download to its unique final artifact root."""
     if artifact_root is None:
         return None
     source = Path(artifact_root)
-    if source == destination:
-        return source if source.is_dir() else None
+    expected = staging_root / "artifacts"
+    try:
+        if source.resolve() != expected.resolve():
+            return None
+    except OSError:
+        return None
     if not source.is_dir():
         return None
     destination.parent.mkdir(parents=True, exist_ok=True)
     source.replace(destination)
     return destination
+
+
 def _runpod_config_kwargs() -> dict[str, Any]:
     config_kwargs: dict[str, Any] = {
         "storage_name": os.getenv("VIBECOMFY_RUNPOD_STORAGE", "Peter"),
@@ -271,29 +308,25 @@ async def run_pod_detached(
     poll_interval: int = 60,
     artifact_root_out: list[Path | None] | None = None,
 ) -> int:
-    """Launch a pod, ship *remote_script* detached, poll, download artifacts, and finalise.
+    """Launch, run, download, and finalise one isolated detached invocation.
 
-    The lifecycle owns the detached polling and exit-code propagation contract.
-    This wrapper only stages its fixed download location and binds the completed
-    result to a run-unique artifact root.
-
-    When supplied, ``artifact_root_out`` receives the exact run-unique artifact
-    root returned by this invocation, or ``None`` when no download completed.
+    The lifecycle package uses ``local_root / "artifacts"`` as its download
+    destination. This wrapper gives every call a private snapshot root, binds
+    only that root's returned download, and removes the snapshot in ``finally``
+    on success, error, or cancellation.
     """
     install_signal_handlers(asyncio.get_running_loop())
 
     _bridge_all_envs()
     config = RunPodConfig.from_env(**_runpod_config_kwargs())
-    artifact_root = _allocate_artifact_root()
-
-    # v0.3 of runpod-lifecycle always downloads to ROOT/"artifacts". Remove
-    # prior contents before the lifecycle can create/extract this run's archive.
-    _remove_shared_artifact_root()
+    staging_root = _stage_lifecycle_local_root(exclude)
     try:
+        artifact_root = _allocate_artifact_root()
+        current_artifact_root: Path | None = None
         result = await ship_and_run_detached(
             config,
             remote_script,
-            local_root=ROOT,
+            local_root=staging_root,
             remote_root=REMOTE_ROOT,
             exclude=exclude,
             upload_mode=upload_mode,
@@ -302,30 +335,29 @@ async def run_pod_detached(
             terminate_after_exec=True,
             poll_interval=poll_interval,
         )
-    except BaseException:
-        _remove_shared_artifact_root()
-        raise
-
-    current_artifact_root = _bind_artifact_root(result.artifact_root, artifact_root)
-    # Never leave a partial failed download available for a later invocation.
-    _remove_shared_artifact_root()
-    pod_id = getattr(result.pod, "id", None) if result.pod else None
-    if current_artifact_root is not None:
-        _finalize_artifacts(
-            current_artifact_root,
+        current_artifact_root = _bind_artifact_root(
+            result.artifact_root,
+            artifact_root,
+            staging_root=staging_root,
+        )
+        pod_id = getattr(result.pod, "id", None) if result.pod else None
+        if current_artifact_root is not None:
+            _finalize_artifacts(
+                current_artifact_root,
+                pod_id=pod_id,
+                exit_code=result.returncode,
+                terminated=result.terminated,
+                remote_command=_lifecycle_detached_remote_contract(),
+                upload=result.upload_info,
+            )
+        _print_detached_summary(
             pod_id=pod_id,
             exit_code=result.returncode,
             terminated=result.terminated,
-            remote_command=_lifecycle_detached_remote_contract(),
-            upload=result.upload_info,
+            artifact_root=current_artifact_root,
         )
-    _print_detached_summary(
-        pod_id=pod_id,
-        exit_code=result.returncode,
-        terminated=result.terminated,
-        artifact_root=current_artifact_root,
-    )
-    if artifact_root_out is not None:
-        artifact_root_out.append(current_artifact_root)
-
-    return result.returncode
+        if artifact_root_out is not None:
+            artifact_root_out.append(current_artifact_root)
+        return result.returncode
+    finally:
+        _cleanup_lifecycle_local_root(staging_root)

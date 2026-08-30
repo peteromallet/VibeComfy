@@ -229,31 +229,50 @@ async def test_run_pod_cancellation_returns_130_and_terminates(monkeypatch: pyte
     assert terminated == [True]
 
 
-async def test_run_pod_detached_binds_fresh_artifacts_and_discards_stale_shared_data(
+def test_lifecycle_snapshot_is_mutation_isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "repo"
+    source = root / "source.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("source", encoding="utf-8")
+    monkeypatch.setattr(runpod_runner, "ROOT", root)
+
+    staging_root = runpod_runner._stage_lifecycle_local_root(set())
+    try:
+        staged_source = staging_root / "source.txt"
+        assert staged_source.read_text(encoding="utf-8") == "source"
+        staged_source.write_text("lifecycle mutation", encoding="utf-8")
+        assert source.read_text(encoding="utf-8") == "source"
+    finally:
+        runpod_runner._cleanup_lifecycle_local_root(staging_root)
+    assert not staging_root.exists()
+
+
+async def test_run_pod_detached_binds_unique_download_and_preserves_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "repo"
-    shared_root = root / "artifacts"
+    source_artifact = root / "artifacts" / "out" / "e2e" / "results.json"
+    source_artifact.parent.mkdir(parents=True)
+    source_artifact.write_text('[{"status": "stale"}]', encoding="utf-8")
     runs_root = root / "out" / "runpod_artifacts"
-    stale_results = shared_root / "out" / "e2e" / "results.json"
-    stale_results.parent.mkdir(parents=True)
-    stale_results.write_text('[{"status": "stale"}]', encoding="utf-8")
 
     monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
     monkeypatch.setattr(runpod_runner, "ROOT", root)
-    monkeypatch.setattr(runpod_runner, "SHARED_ARTIFACT_ROOT", shared_root)
     monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", runs_root)
     monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
     finalized: list[Path] = []
+    staging_roots: list[Path] = []
 
-    async def fake_ship_and_run_detached(*_args, **_kwargs):
-        assert not stale_results.exists()
-        current_results = shared_root / "out" / "e2e" / "results.json"
+    async def fake_ship_and_run_detached(*_args, **kwargs):
+        local_root = Path(kwargs["local_root"])
+        staging_roots.append(local_root)
+        assert not (local_root / "artifacts" / "out" / "e2e" / "results.json").exists()
+        current_results = local_root / "artifacts" / "out" / "e2e" / "results.json"
         current_results.parent.mkdir(parents=True)
         current_results.write_text('[{"status": "current"}]', encoding="utf-8")
         return runpod_runner.ShipAndRunResult(
             returncode=0,
-            artifact_root=shared_root,
+            artifact_root=local_root / "artifacts",
             terminated=True,
         )
 
@@ -281,28 +300,159 @@ async def test_run_pod_detached_binds_fresh_artifacts_and_discards_stale_shared_
     assert len(bound) == 1
     assert bound[0] is not None
     assert bound[0].parent == runs_root
-    assert bound[0] != shared_root
     assert json.loads((bound[0] / "out" / "e2e" / "results.json").read_text()) == [
         {"status": "current"}
     ]
-    assert not shared_root.exists()
     assert finalized == bound
+    assert all(not staging_root.exists() for staging_root in staging_roots)
+    assert source_artifact.read_text(encoding="utf-8") == '[{"status": "stale"}]'
 
 
-async def test_run_pod_detached_publishes_none_without_finalizer_type_error(
+async def test_run_pod_detached_overlapping_invocations_keep_artifacts_owned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "repo"
+    source = root / "source.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("unchanged", encoding="utf-8")
+    runs_root = root / "out" / "runpod_artifacts"
+    first_ready = asyncio.Event()
+    second_written = asyncio.Event()
+    local_roots: dict[str, Path] = {}
+
     monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
     monkeypatch.setattr(runpod_runner, "ROOT", root)
-    monkeypatch.setattr(runpod_runner, "SHARED_ARTIFACT_ROOT", root / "artifacts")
-    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", root / "out" / "runpod_artifacts")
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", runs_root)
     monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
-    monkeypatch.setattr(
-        runpod_runner,
-        "ship_and_run_detached",
-        lambda *_args, **_kwargs: _return_result_without_artifacts(),
+
+    async def fake_ship_and_run_detached(*args, **kwargs):
+        label = args[1]
+        local_root = Path(kwargs["local_root"])
+        local_roots[label] = local_root
+        artifact_dir = local_root / "artifacts"
+        artifact_dir.mkdir()
+        (artifact_dir / "owner.txt").write_text(label, encoding="utf-8")
+        if label == "A":
+            first_ready.set()
+            await second_written.wait()
+        else:
+            await first_ready.wait()
+            second_written.set()
+            await asyncio.sleep(0)
+        return runpod_runner.ShipAndRunResult(
+            returncode=0,
+            artifact_root=artifact_dir,
+            terminated=True,
+        )
+
+    monkeypatch.setattr(runpod_runner, "ship_and_run_detached", fake_ship_and_run_detached)
+    monkeypatch.setattr(runpod_runner, "_finalize_artifacts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runpod_runner, "_print_detached_summary", lambda **_kwargs: None)
+
+    bound_a: list[Path | None] = []
+    bound_b: list[Path | None] = []
+    codes = await asyncio.gather(
+        runpod_runner.run_pod_detached(
+            "A",
+            name_prefix="test",
+            exclude=set(),
+            upload_mode="tarball",
+            timeout=1,
+            artifact_root_out=bound_a,
+        ),
+        runpod_runner.run_pod_detached(
+            "B",
+            name_prefix="test",
+            exclude=set(),
+            upload_mode="tarball",
+            timeout=1,
+            artifact_root_out=bound_b,
+        ),
     )
+
+    assert codes == [0, 0]
+    assert len(local_roots) == 2
+    assert local_roots["A"] != local_roots["B"]
+    assert bound_a[0] is not None and bound_b[0] is not None
+    assert bound_a[0] != bound_b[0]
+    assert (bound_a[0] / "owner.txt").read_text(encoding="utf-8") == "A"
+    assert (bound_b[0] / "owner.txt").read_text(encoding="utf-8") == "B"
+    assert all(not staging_root.exists() for staging_root in local_roots.values())
+    assert source.read_text(encoding="utf-8") == "unchanged"
+
+
+async def test_run_pod_detached_cleans_snapshot_on_lifecycle_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+    monkeypatch.setattr(runpod_runner, "ROOT", root)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", root / "out" / "runs")
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    staging_roots: list[Path] = []
+
+    async def fake_ship_and_run_detached(*_args, **kwargs):
+        staging_roots.append(Path(kwargs["local_root"]))
+        raise RuntimeError("offline lifecycle failure")
+
+    monkeypatch.setattr(runpod_runner, "ship_and_run_detached", fake_ship_and_run_detached)
+    with pytest.raises(RuntimeError, match="offline lifecycle failure"):
+        await runpod_runner.run_pod_detached(
+            "echo run",
+            name_prefix="test",
+            exclude=set(),
+            upload_mode="tarball",
+            timeout=1,
+        )
+    assert len(staging_roots) == 1
+    assert not staging_roots[0].exists()
+
+
+async def test_run_pod_detached_cleans_snapshot_on_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+    monkeypatch.setattr(runpod_runner, "ROOT", root)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", root / "out" / "runs")
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    staging_roots: list[Path] = []
+
+    async def fake_ship_and_run_detached(*_args, **kwargs):
+        staging_roots.append(Path(kwargs["local_root"]))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(runpod_runner, "ship_and_run_detached", fake_ship_and_run_detached)
+    with pytest.raises(asyncio.CancelledError):
+        await runpod_runner.run_pod_detached(
+            "echo run",
+            name_prefix="test",
+            exclude=set(),
+            upload_mode="tarball",
+            timeout=1,
+        )
+    assert len(staging_roots) == 1
+    assert not staging_roots[0].exists()
+
+
+async def test_run_pod_detached_publishes_none_and_cleans_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+    monkeypatch.setattr(runpod_runner, "ROOT", root)
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", root / "out" / "runs")
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    staging_roots: list[Path] = []
+
+    async def fake_ship_and_run_detached(*_args, **kwargs):
+        staging_roots.append(Path(kwargs["local_root"]))
+        return runpod_runner.ShipAndRunResult(returncode=124, artifact_root=None)
+
+    monkeypatch.setattr(runpod_runner, "ship_and_run_detached", fake_ship_and_run_detached)
     monkeypatch.setattr(
         runpod_runner,
         "_finalize_artifacts",
@@ -329,6 +479,8 @@ async def test_run_pod_detached_publishes_none_without_finalizer_type_error(
     )
     assert bound == [None]
     assert summaries == [None]
+    assert len(staging_roots) == 1
+    assert not staging_roots[0].exists()
 
 
 async def _return_result_without_artifacts() -> runpod_runner.ShipAndRunResult:
