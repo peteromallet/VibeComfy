@@ -87,7 +87,12 @@ def _has_symlink_component(path: Path) -> bool:
 
 
 def _ensure_real_directory(path: Path) -> bool:
-    """Create *path* if needed, requiring a real directory at every step."""
+    """Create *path* if needed, requiring a real directory at every step.
+
+    The frozen local-harness contract excludes concurrent same-user hostile
+    replacement of the directory or its ancestors.  Residual pathname TOCTOU
+    after the lexical recheck is accepted and non-blocking.
+    """
     path = Path(path)
     if not path.is_absolute() or _has_symlink_component(path):
         return False
@@ -115,8 +120,10 @@ def _destination_is_owned(
     if destination == publication_root:
         return False
     try:
-        destination.relative_to(publication_root)
+        relative_destination = destination.relative_to(publication_root)
     except ValueError:
+        return False
+    if any(part == ".." for part in relative_destination.parts):
         return False
     if _has_symlink_component(publication_root) or _has_symlink_component(destination.parent):
         return False
@@ -181,6 +188,11 @@ def _bind_artifact_root(
     only its exact lexical spelling is accepted.  In particular, resolving a
     path before comparing it would allow a symlink alias to pass the check and
     then move the alias itself out of the staging tree.
+
+    The frozen local-harness contract excludes concurrent same-user hostile
+    replacement of the publication root, destination parents, or staging
+    ancestors.  Residual pathname TOCTOU after lexical rechecks is accepted
+    and non-blocking.
     """
     if artifact_root is None:
         return None
@@ -191,6 +203,8 @@ def _bind_artifact_root(
     if staging_root.is_symlink() or not staging_root.is_dir():
         return None
     if source.is_symlink() or not source.is_dir():
+        return None
+    if _has_symlink_component(staging_root) or _has_symlink_component(source):
         return None
     if _contains_symlink(source):
         return None

@@ -307,6 +307,45 @@ def test_bind_artifact_root_rejects_lexical_symlink_aliases(
     assert returned.is_symlink()
     assert expected.is_dir() and not expected.is_symlink()
 
+def test_bind_artifact_root_rejects_symlinked_staging_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    staging_root = linked_parent / "staging"
+    expected = staging_root / "artifacts"
+    expected.mkdir(parents=True)
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
+
+    destination = publication_root / "final"
+    assert runpod_runner._bind_artifact_root(
+        expected, destination, staging_root=staging_root
+    ) is None
+    assert not destination.exists()
+    assert (real_parent / "staging" / "artifacts").is_dir()
+
+
+def test_bind_artifact_root_rejects_destination_parent_traversal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging_root = tmp_path / "staging"
+    expected = staging_root / "artifacts"
+    expected.mkdir(parents=True)
+    publication_root = tmp_path / "runs"
+    publication_root.mkdir()
+    monkeypatch.setattr(runpod_runner, "ARTIFACT_RUNS_ROOT", publication_root)
+
+    destination = publication_root / ".." / "outside"
+    assert runpod_runner._bind_artifact_root(
+        expected, destination, staging_root=staging_root
+    ) is None
+    assert not (tmp_path / "outside").exists()
+    assert expected.is_dir() and not expected.is_symlink()
+
 
 def test_bind_artifact_root_rejects_internal_symlink_tree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
