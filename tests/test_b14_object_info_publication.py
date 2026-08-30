@@ -11,7 +11,7 @@ from vibecomfy.commands import schemas as schemas_command
 import vibecomfy.porting.object_info.consume as consume
 import vibecomfy.porting.object_info.serialize as serialize
 from vibecomfy.errors import ObjectInfoCacheCorruptError
-from vibecomfy.porting.object_info.serialize import build_cache
+from vibecomfy.porting.object_info.serialize import CacheIdentity, build_cache
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 
 
@@ -206,6 +206,74 @@ def test_warm_consumer_tracks_later_generation_without_reset(
     assert consume.output_names("One") == ["IMAGE"]
     build_cache(_source(tmp_path / "two.json", "Two"), version="v2", cache_dir=cache)
     assert consume.output_names("Two") == ["IMAGE"]
+
+
+def test_identity_filename_scan_pins_index_to_scanned_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = tmp_path / "cache"
+    build_cache(_source(tmp_path / "one.json", "Old"), version="v1", cache_dir=cache)
+    _use_cache(monkeypatch, cache)
+    old_root = cache / "generations" / (cache / "CURRENT").read_text(encoding="utf-8").strip()
+    new_source = _source(tmp_path / "two.json", "New")
+    original_glob = Path.glob
+    published = False
+
+    def publish_after_scan(path: Path, pattern: str):
+        nonlocal published
+        result = original_glob(path, pattern)
+        if path == old_root and pattern == "*.json" and not published:
+            published = True
+            build_cache(new_source, version="v2", cache_dir=cache)
+        return result
+
+    monkeypatch.setattr(Path, "glob", publish_after_scan)
+    filenames = consume._all_pack_filenames()
+
+    assert published is True
+    assert filenames == ["custom_nodes.Pack@v1.json"]
+
+
+def test_identity_lookup_reads_packs_from_its_pinned_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = tmp_path / "cache"
+    old_source = _source(tmp_path / "old.json", "Old")
+    build_cache(
+        old_source,
+        version="v1",
+        cache_dir=cache,
+        identity=CacheIdentity(pack_slug="custom_nodes.Pack", pack_version="v1", git_commit="old"),
+        full_pack_refresh={"custom_nodes.Pack"},
+    )
+    _use_cache(monkeypatch, cache)
+    old_root = cache / "generations" / (cache / "CURRENT").read_text(encoding="utf-8").strip()
+    new_source = _source(tmp_path / "new.json", "New")
+    original_glob = Path.glob
+    published = False
+
+    def publish_after_scan(path: Path, pattern: str):
+        nonlocal published
+        result = original_glob(path, pattern)
+        if path == old_root and pattern == "*.json" and not published:
+            published = True
+            build_cache(
+                new_source,
+                version="v2",
+                cache_dir=cache,
+                identity=CacheIdentity(pack_slug="custom_nodes.Pack", pack_version="v2", git_commit="new"),
+                full_pack_refresh={"custom_nodes.Pack"},
+            )
+        return result
+
+    monkeypatch.setattr(Path, "glob", publish_after_scan)
+    entry = consume.get_class_by_identity(
+        "Old", pack_slug="custom_nodes.Pack", git_commit="old"
+    )
+
+    assert published is True
+    assert entry is not None
+    assert entry["git_commit"] == "old"
 
 
 def test_warm_index_provider_tracks_additions_removals_and_same_pack_bytes(

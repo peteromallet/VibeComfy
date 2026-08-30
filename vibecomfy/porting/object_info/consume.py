@@ -218,19 +218,7 @@ def _load_index() -> dict[str, str]:
             _sync_reader()
             if _index is None:
                 root = _reader_state["active"]
-                path = root / "index.json"
-                if not path.exists() and not path.is_symlink():
-                    _index = {}
-                else:
-                    data = read_json(root, "index.json")
-                    if not isinstance(data, dict):
-                        raise ObjectInfoCacheCorruptError(f"object_info index must be an object: {path}")
-                    _index = {
-                        class_type: filename for class_type, filename in data.items()
-                        if isinstance(class_type, str) and isinstance(filename, str) and safe_cache_filename(filename)
-                    }
-                    if len(_index) != len(data):
-                        raise ObjectInfoCacheCorruptError(f"unsafe object_info index row in {path}")
+                _index = _read_index_at_root(root)
             if not _sync_reader():
                 return _index
             if attempt:
@@ -238,17 +226,30 @@ def _load_index() -> dict[str, str]:
         return _index
 
 
+def _read_index_at_root(root: Path) -> dict[str, str]:
+    """Read one index without allowing publication to change its root."""
+    path = root / "index.json"
+    if not path.exists() and not path.is_symlink():
+        return {}
+    data = read_json(root, "index.json")
+    if not isinstance(data, dict):
+        raise ObjectInfoCacheCorruptError(f"object_info index must be an object: {path}")
+    normalized = {
+        class_type: filename for class_type, filename in data.items()
+        if isinstance(class_type, str) and isinstance(filename, str) and safe_cache_filename(filename)
+    }
+    if len(normalized) != len(data):
+        raise ObjectInfoCacheCorruptError(f"unsafe object_info index row in {path}")
+    return normalized
+
+
 def _load_pack(filename: str) -> dict[str, dict[str, Any]]:
     with _reader_lock:
         for attempt in range(2):
             _sync_reader()
             if filename not in _pack_cache:
-                if not safe_cache_filename(filename):
-                    raise ObjectInfoCacheCorruptError(f"unsafe object_info provider filename: {filename!r}")
                 root = _reader_state["active"]
-                data = read_json(root, filename)
-                if not isinstance(data, dict):
-                    raise ObjectInfoCacheCorruptError(f"object_info provider file must be an object: {root / filename}")
+                data = _read_pack_at_root(root, filename)
                 _pack_cache[filename] = data
                 _reader_state["pack_sigs"][filename] = cache_file_witness(root / filename)
             if not _sync_reader():
@@ -258,17 +259,34 @@ def _load_pack(filename: str) -> dict[str, dict[str, Any]]:
         return _pack_cache[filename]
 
 
-def _all_pack_filenames() -> list[str]:
-    with _reader_lock:
-        _sync_reader()
-        root = _reader_state["active"]
+def _read_pack_at_root(root: Path, filename: str) -> dict[str, dict[str, Any]]:
+    """Read one provider file from a caller-pinned active root."""
+    if not safe_cache_filename(filename):
+        raise ObjectInfoCacheCorruptError(f"unsafe object_info provider filename: {filename!r}")
+    data = read_json(root, filename)
+    if not isinstance(data, dict):
+        raise ObjectInfoCacheCorruptError(f"object_info provider file must be an object: {root / filename}")
+    return data
+
+
+def _pack_filenames_at_root(root: Path) -> list[str]:
     filenames = {
         str(path.name)
         for path in root.glob("*.json")
         if path.name not in {"index.json", "provenance.json", "manifest.json"}
     }
-    filenames.update(str(filename) for filename in _load_index().values())
+    filenames.update(str(filename) for filename in _read_index_at_root(root).values())
     return sorted(filenames)
+
+
+def _all_pack_filenames() -> list[str]:
+    with _reader_lock:
+        _sync_reader()
+        root = _reader_state["active"]
+        # Read the index from the captured immutable generation. Calling
+        # _load_index() here could observe a newly published CURRENT and pair
+        # that index with this old generation's glob result.
+        return _pack_filenames_at_root(root)
 
 
 def _resolve_class_type(class_type: str) -> dict[str, Any] | None:
@@ -314,15 +332,18 @@ def _identity_lookup_matches(
 ) -> list[tuple[str, dict[str, Any]]]:
     _identity_key(pack_slug, git_commit, evidence_identity)
     matches: list[tuple[str, dict[str, Any]]] = []
-    for filename in _all_pack_filenames():
-        entry = _load_pack(filename).get(class_type)
-        if isinstance(entry, dict) and _identity_matches(
-            entry,
-            pack_slug=pack_slug,
-            git_commit=git_commit,
-            evidence_identity=evidence_identity,
-        ):
-            matches.append((filename, entry))
+    with _reader_lock:
+        _sync_reader()
+        root = _reader_state["active"]
+        for filename in _pack_filenames_at_root(root):
+            entry = _read_pack_at_root(root, filename).get(class_type)
+            if isinstance(entry, dict) and _identity_matches(
+                entry,
+                pack_slug=pack_slug,
+                git_commit=git_commit,
+                evidence_identity=evidence_identity,
+            ):
+                matches.append((filename, entry))
     return matches
 
 
