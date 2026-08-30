@@ -191,6 +191,8 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
 # cannot inspect safely is preferable to invoking arbitrary container methods.
 _JSON_BAD_VALUE = "<unserializable>"
 _JSON_MAX_DEPTH = 32
+# This is a per-container cap.  It must not be shared across the aggregate:
+# the ready-template corpus is itself a legitimate list of many rows.
 _JSON_MAX_ITEMS = 512
 _JSON_MAX_STRING_CHARS = 4096
 _JSON_MAX_INT_BITS = 4096
@@ -244,8 +246,6 @@ def _json_native(
     *,
     _depth: int = 0,
     _seen: set[int] | None = None,
-    _remaining_items: list[int] | None = None,
-    _remaining_chars: list[int] | None = None,
 ) -> object:
     """Bound and sanitize values crossing the convert-all JSON boundary.
 
@@ -255,10 +255,6 @@ def _json_native(
     """
     if _seen is None:
         _seen = set()
-    if _remaining_items is None:
-        _remaining_items = [_JSON_MAX_ITEMS]
-    if _remaining_chars is None:
-        _remaining_chars = [_JSON_MAX_STRING_CHARS * _JSON_MAX_ITEMS]
 
     value_type = type(value)
     if value is None or value_type is bool:
@@ -268,22 +264,20 @@ def _json_native(
     if value_type is float:
         return value if math.isfinite(value) else _JSON_BAD_VALUE
     if value_type is str:
-        if len(value) > _JSON_MAX_STRING_CHARS or len(value) > _remaining_chars[0]:
+        if len(value) > _JSON_MAX_STRING_CHARS:
             return _JSON_BAD_VALUE
-        _remaining_chars[0] -= len(value)
         return value
 
     if _depth >= _JSON_MAX_DEPTH:
         return _JSON_BAD_VALUE
 
     if value_type is dict:
-        if id(value) in _seen or len(value) > _remaining_items[0]:
+        if id(value) in _seen or len(value) > _JSON_MAX_ITEMS:
             return _JSON_BAD_VALUE
         _seen.add(id(value))
         try:
             normalized: dict[str, object] = {}
             for key, item in value.items():
-                _remaining_items[0] -= 1
                 normalized_key = _json_key(key)
                 if normalized_key is None:
                     return _JSON_BAD_VALUE
@@ -291,28 +285,23 @@ def _json_native(
                     item,
                     _depth=_depth + 1,
                     _seen=_seen,
-                    _remaining_items=_remaining_items,
-                    _remaining_chars=_remaining_chars,
                 )
             return normalized
         finally:
             _seen.remove(id(value))
 
     if value_type in (list, tuple):
-        if id(value) in _seen or len(value) > _remaining_items[0]:
+        if id(value) in _seen or len(value) > _JSON_MAX_ITEMS:
             return _JSON_BAD_VALUE
         _seen.add(id(value))
         try:
             normalized_items: list[object] = []
             for item in value:
-                _remaining_items[0] -= 1
                 normalized_items.append(
                     _json_native(
                         item,
                         _depth=_depth + 1,
                         _seen=_seen,
-                        _remaining_items=_remaining_items,
-                        _remaining_chars=_remaining_chars,
                     )
                 )
             return normalized_items
@@ -488,7 +477,7 @@ def _run_convert_all(args: argparse.Namespace) -> int:
                     diff_text = "".join(diff_lines)
                     if diff_text:
                         print(diff_text[:2000])  # Truncate per-template diff
-        except BaseException as exc:
+        except Exception as exc:
             if json_output:
                 template_results.append(
                     failure_result(

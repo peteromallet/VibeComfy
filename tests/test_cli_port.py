@@ -1215,6 +1215,44 @@ def test_port_convert_all_json_safe_aggregate_returns_zero(
     assert all(item["error"] is None for item in payload["templates"])
 
 
+@pytest.mark.parametrize(
+    "control_exception",
+    [SystemExit, KeyboardInterrupt, asyncio.CancelledError],
+    ids=["system-exit", "keyboard-interrupt", "cancelled"],
+)
+def test_port_convert_all_json_propagates_process_control_exceptions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    control_exception: type[BaseException],
+) -> None:
+    source_path = tmp_path / "control.py"
+    source_path.write_text("CONTROL = True\n", encoding="utf-8")
+    snapshot = SimpleNamespace(
+        templates_list=[{"id": "template/control", "path": str(source_path)}]
+    )
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        raise control_exception("must propagate")
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._convert.port_convert_workflow",
+        fake_convert,
+    )
+
+    with pytest.raises(control_exception, match="must propagate"):
+        _cmd_port_convert(_convert_all_args(json_output=True))
+
+
 def test_port_convert_all_human_mode_keeps_line_output_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1330,6 +1368,65 @@ def test_port_convert_all_json_rejects_malformed_result_comparison(
     assert templates["template/after"]["status"] == "ok"
     assert templates["template/malformed"]["error"]["type"] == "TypeError"
     assert "exact builtin str" in templates["template/malformed"]["error"]["message"]
+
+
+def test_port_convert_all_json_preserves_realistic_aggregate_cardinality(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    template_count = 64
+    templates = []
+    for index in range(template_count):
+        path = tmp_path / f"template-{index}.py"
+        path.write_text(f"TEMPLATE = {index}\n", encoding="utf-8")
+        templates.append({"id": f"template/{index:02d}", "path": str(path)})
+
+    monkeypatch.setattr(
+        "vibecomfy.analysis.corpus.build_corpus_snapshot",
+        lambda: SimpleNamespace(templates_list=templates),
+    )
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda _args: object())
+
+    def fake_load(path: str, *, schema_provider: object) -> SimpleNamespace:
+        del schema_provider
+        return SimpleNamespace(workflow=path, raw_workflow={})
+
+    def fake_convert(workflow: str, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            text=Path(workflow).read_text(encoding="utf-8"),
+            validation=SimpleNamespace(parity_ok=True),
+        )
+
+    monkeypatch.setattr("vibecomfy.commands.port._convert.load_port_source", fake_load)
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._convert.port_convert_workflow",
+        fake_convert,
+    )
+
+    code = _cmd_port_convert(_convert_all_args(json_output=True))
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["summary"] == {
+        "template_count": template_count,
+        "ok_count": template_count,
+        "error_count": 0,
+        "changed_count": 0,
+    }
+    assert [item["id"] for item in payload["templates"]] == [
+        f"template/{index:02d}" for index in range(template_count)
+    ]
+    assert all(
+        item["status"] == "ok"
+        and item["parity"] == "ok"
+        and item["original_loc"] == 1
+        and item["emitted_loc"] == 1
+        and item["line_count_delta"] == 0
+        and item["changed"] is False
+        and item["error"] is None
+        for item in payload["templates"]
+    )
 
 
 def test_port_convert_all_json_preserves_good_rows_with_malformed_sources(
