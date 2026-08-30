@@ -145,6 +145,12 @@ installMocks();
 
 function mockFetch(handler) {
   globalThis.fetch = async (url, options) => {
+    if (String(url) === "/vibecomfy/security/csrf") {
+      return makeFetchResponse({
+        csrf_header: "X-VibeComfy-CSRF",
+        csrf_token: "agent-status-poller-test-csrf-capability-0001",
+      });
+    }
     const result = handler(url, options);
     if (typeof result === "function") return result(url, options);
     if (result instanceof Error) throw result;

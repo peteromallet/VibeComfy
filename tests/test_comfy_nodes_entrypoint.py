@@ -57,6 +57,12 @@ def test_comfy_nodes_ping_handler_defined_when_server_absent() -> None:
 def _reload_comfy_nodes_with_fake_server(monkeypatch):
     registered: dict[str, object] = {}
 
+    security_module = importlib.import_module("vibecomfy.comfy_nodes.http_security")
+    monkeypatch.setattr(security_module, "audit_runtime_route_table", lambda _routes: None)
+    monkeypatch.setattr(
+        security_module, "install_http_namespace_middleware", lambda _server: None
+    )
+
     class _Routes:
         def get(self, path):
             def _decorator(fn):

@@ -9919,12 +9919,9 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a code intent";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
 
     expandAgentBubbleDetails(harness.document.body);
-    for (let _gi = 0; _gi < 3 && !/editor-only intent node/.test(harness.textDump()); _gi += 1) {
-      globalThis.process.stderr.write("GSDUMP2_START\n" + harness.textDump() + "\nGSDUMP2_END\n");
-      await new Promise((r) => setTimeout(r, 5));
-    }
     await waitFor(() => /queueAllowed:\s*false/.test(harness.textDump()));
     const text = harness.textDump();
 
@@ -20724,6 +20721,7 @@ test("VibeComfy rehydrate attaches field_changes to chat messages with outcome.c
 test("VibeComfy agent bubble details stay collapsed by default and preserve expansion across submit-to-rehydrate replacement", async () => {
   const SESSION_ID = "session-bubble-refresh";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const DETAIL_URL = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(SESSION_ID)}`;
   const candidateGraph = {
     nodes: [
       { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
@@ -20872,6 +20870,14 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
           ],
         },
       },
+      [DETAIL_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          detail: "guarded detail payload",
+        },
+      },
     },
   });
 
@@ -20970,6 +20976,14 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     );
     assert.ok(toggles.some((node) => String(node.textContent || "").startsWith("\u25bc")), "expanded state must survive chat rehydrate");
     assert.match(harness.textDump(), /view response/);
+    const responseLink = chatRegion.querySelectorAll(
+      (node) => node.tagName === "A" && /view response/.test(String(node.textContent || "")),
+    )[0];
+    assert.ok(responseLink, "response detail control must be rendered");
+    assert.doesNotMatch(String(responseLink.href || ""), /session-json/, "guarded JSON must not be a navigation target");
+    responseLink.click();
+    await waitFor(() => harness.requests.some((entry) => entry.url === DETAIL_URL));
+    await waitFor(() => /guarded detail payload/.test(harness.textDump()));
     assert.match(harness.textDump(), /inputs\.filename_prefix changed/);
     for (const title of ["Turn", "Candidate"]) {
       const section = findBubbleDetailSectionByTitle(chatRegion, title);

@@ -7124,6 +7124,7 @@ comfy = [
     { name = "comfyui" },
 ]
 dev = [
+    { name = "aiohttp" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "pytest" },
@@ -7150,6 +7151,7 @@ runpod-local = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", marker = "extra == 'dev'", specifier = ">=3.9" },
     { name = "anthropic", marker = "extra == 'intent'", specifier = ">=0.40" },
     { name = "arnold", marker = "extra == 'agent'", git = "https://github.com/peteromallet/Arnold.git?rev=9d8b2a4af93ba764e7e82381656a8fffb3678cf7" },
     { name = "comfyui", marker = "extra == 'comfy'", specifier = "==0.26.0", index = "https://nodes.appmana.com/simple/" },

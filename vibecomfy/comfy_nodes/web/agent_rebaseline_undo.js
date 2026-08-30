@@ -3,6 +3,8 @@
 // vibecomfy_roundtrip.js. Lifecycle state and panel-owned preview caches remain
 // authoritative in the injected roundtrip/lifecycle seams.
 
+import { vibecomfyFetch } from "./http_security.js";
+
 export function createRebaselineUndoFlow(deps) {
   const {
     PANEL_STATE,
@@ -567,7 +569,7 @@ export function createRebaselineUndoFlow(deps) {
 
     let rejected;
     try {
-      const res = await fetch("/vibecomfy/agent-edit/reject", {
+      const res = await vibecomfyFetch("/vibecomfy/agent-edit/reject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(rejectBody),
@@ -722,7 +724,7 @@ export function createRebaselineUndoFlow(deps) {
           idempotency_key: idempotencyKey,
         };
 
-        const res = await fetch("/vibecomfy/agent-edit/rebaseline", {
+        const res = await vibecomfyFetch("/vibecomfy/agent-edit/rebaseline", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

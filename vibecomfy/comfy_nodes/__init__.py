@@ -234,19 +234,34 @@ if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":
             PromptServer.instance._vibecomfy_routes_registered = True
             _LOGGER.info("PromptServer imported; registering VibeComfy routes.")
 
-            @PromptServer.instance.routes.get("/vibecomfy/ping")
+            from .http_security import (
+                CSRF_BOOTSTRAP_PATH,
+                csrf_bootstrap_response,
+                install_http_namespace_middleware,
+                register_http_route,
+            )
+
+            @register_http_route(PromptServer.instance.routes, "GET", "/vibecomfy/ping")
             async def _vibecomfy_ping(request):  # type: ignore[no-untyped-def]
                 from aiohttp import web
 
                 return web.json_response({"status": "ok"})
 
-            @PromptServer.instance.routes.get("/vibecomfy/info")
+            @register_http_route(PromptServer.instance.routes, "GET", "/vibecomfy/info")
             async def _vibecomfy_info(request):  # type: ignore[no-untyped-def]
                 from aiohttp import web
 
                 return web.json_response(_info_payload())
 
+            @register_http_route(
+                PromptServer.instance.routes, "GET", CSRF_BOOTSTRAP_PATH
+            )
+            async def _vibecomfy_csrf_bootstrap(request):  # type: ignore[no-untyped-def]
+                return csrf_bootstrap_response()
+
             from .agent import routes  # noqa: F401
+
+            install_http_namespace_middleware(PromptServer.instance)
 
             _LOGGER.info("VibeComfy routes registered successfully.")
 

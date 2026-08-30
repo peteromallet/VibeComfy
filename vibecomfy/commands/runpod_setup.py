@@ -181,8 +181,6 @@ def comfy_serve_command(
         str(runtime_root / "cache" / "tmp"),
         "--user-directory",
         str(runtime_root / "user"),
-        "--enable-cors-header",
-        "*",
         "--enable-manager",
         "--lowvram",
         "--reserve-vram",

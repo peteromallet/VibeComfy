@@ -8,6 +8,7 @@ import {
   selectExecutionEvents,
   selectTranscriptMessages,
 } from "./agent_edit_response_contract.js";
+import { vibecomfyFetch } from "./http_security.js";
 //
 // T4 audit note: Diagnostics capture reads panel.state.sessionId, turnId,
 // chatSessionPath, and chatMessages directly.  These are lifecycle-store-owned
@@ -839,7 +840,7 @@ async function appendSessionBundleFiles(panel, files) {
   }
   let payload;
   try {
-    const res = await fetch(`/vibecomfy/agent-edit/session-bundle?session_id=${encodeURIComponent(sessionId)}`);
+    const res = await vibecomfyFetch(`/vibecomfy/agent-edit/session-bundle?session_id=${encodeURIComponent(sessionId)}`);
     if (!res.ok) {
       throw new Error(`session-bundle returned ${res.status}`);
     }
@@ -1344,7 +1345,7 @@ export async function submitRating(panel, options = {}) {
   }
 
   try {
-    const res = await fetch("/vibecomfy/agent-edit/rating", {
+    const res = await vibecomfyFetch("/vibecomfy/agent-edit/rating", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

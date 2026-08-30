@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "aiohttp>=3.9",
   "hypothesis>=6.100",
   "import-linter>=2.3",
   "pytest>=7",

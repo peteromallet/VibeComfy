@@ -35,6 +35,7 @@ import {
   commitTranscriptRehydrate,
 } from "./agent_lifecycle_commit.js";
 import { jsonClone as clonePlainData } from "./json_clone.js";
+import { vibecomfyFetch } from "./http_security.js";
 
 const LS_DEMO_PICKER_ENABLED = "vibecomfy_demo_picker_enabled";
 const SCENARIOS_ENDPOINT = "/vibecomfy/demo/scenarios";
@@ -375,7 +376,7 @@ export function installPreviewPicker(panel, options = {}) {
   }
 
   async function fetchScenarios() {
-    const res = await fetch(SCENARIOS_ENDPOINT);
+    const res = await vibecomfyFetch(SCENARIOS_ENDPOINT);
     if (!res.ok) {
       const error = new Error(`Failed to fetch demo scenarios: ${res.status}`);
       error.status = res.status;
@@ -392,7 +393,7 @@ export function installPreviewPicker(panel, options = {}) {
   }
 
   async function fetchScenario(id) {
-    const res = await fetch(`${SCENARIO_ENDPOINT}?id=${encodeURIComponent(id)}`);
+    const res = await vibecomfyFetch(`${SCENARIO_ENDPOINT}?id=${encodeURIComponent(id)}`);
     if (!res.ok) {
       throw new Error(`Failed to fetch scenario: ${res.status}`);
     }

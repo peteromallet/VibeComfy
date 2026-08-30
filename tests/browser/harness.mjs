@@ -64,6 +64,7 @@ export const STAGED_WEB_MODULES = [
   "mutation_materialization_v1.js",
   "legacy_migration_v1.js",
   "journal_durable_v1.js",
+  "http_security.js",
   "_intent_graph_receipt_core.mjs",
   "_prepared_plan_builder_v1.mjs",
 ];
@@ -1078,6 +1079,12 @@ export async function createBrowserHarness({
 
   const fetchImpl = async (url, options = {}) => {
     let key = String(url);
+    if (key === "/vibecomfy/security/csrf") {
+      return makeResponse(200, {
+        csrf_header: "X-VibeComfy-CSRF",
+        csrf_token: "browser-harness-process-csrf-capability-0001",
+      });
+    }
     const deferRequestLog = key.startsWith("/vibecomfy/agent-edit/chat?");
     const logRequest = () => {
       requests.push({

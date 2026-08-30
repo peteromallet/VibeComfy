@@ -122,4 +122,4 @@ echo "  openrouter key present: $([[ -n "${OPENROUTER_API_KEY:-}" ]] && echo yes
 echo
 
 cd "${COMFYUI_DIR}"
-exec "${PYBIN}" main.py --cpu --port "${PORT}" --enable-cors-header '*'
+exec "${PYBIN}" main.py --cpu --port "${PORT}"

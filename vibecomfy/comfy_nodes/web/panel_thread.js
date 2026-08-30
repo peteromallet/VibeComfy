@@ -15,6 +15,7 @@ import {
   selectTranscriptMessages,
 } from "./agent_edit_response_contract.js";
 import { routeStatusState } from "./agent_status_poller.js";
+import { vibecomfyFetch } from "./http_security.js";
 import {
   matchPipelineMode,
   PIPELINE_MODE_STORAGE_KEY,
@@ -1352,6 +1353,22 @@ export function renderRatingWidget(panel, msg, deps = {}) {
   return root;
 }
 
+export async function fetchResponseDetailJson(sessionId, deps = {}) {
+  const normalizedSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (!normalizedSessionId) {
+    throw new Error("Response detail is unavailable for this session.");
+  }
+  const fetchImpl = deps.fetch || vibecomfyFetch;
+  const response = await fetchImpl(
+    `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(normalizedSessionId)}`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    throw new Error(`Response detail request failed (${response.status}).`);
+  }
+  return response.json();
+}
+
 function appendTurnMeta(target, panel, message, snapshot = null, deps = {}) {
   const { appendTextLine, el } = deps;
   const turnId = typeof message?.turn_id === "string" && message.turn_id ? message.turn_id : snapshot?.turn_id;
@@ -1380,14 +1397,44 @@ function appendTurnMeta(target, panel, message, snapshot = null, deps = {}) {
 
   if (panel.state.chatDetailJsonPath && turnId) {
     const detailLink = el("a", "view response ->");
-    detailLink.href = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(panel.state.sessionId || "")}`;
-    detailLink.target = "_blank";
-    detailLink.rel = "noopener";
+    detailLink.href = "#";
+    detailLink.role = "button";
     Object.assign(detailLink.style, {
       color: "#9ed0ff",
       textDecoration: "none",
     });
+    const detailOutput = el("pre", "");
+    detailOutput.hidden = true;
+    Object.assign(detailOutput.style, {
+      maxHeight: "320px",
+      overflow: "auto",
+      whiteSpace: "pre-wrap",
+      overflowWrap: "anywhere",
+    });
+    detailLink.addEventListener("click", async (event) => {
+      event.preventDefault?.();
+      detailLink.textContent = "loading response...";
+      try {
+        const payload = await fetchResponseDetailJson(panel.state.sessionId || "");
+        const rendered = JSON.stringify(payload, null, 2);
+        const limit = 200000;
+        detailOutput.textContent = rendered.length > limit
+          ? `${rendered.slice(0, limit)}\n... response detail truncated ...`
+          : rendered;
+        detailOutput.hidden = false;
+        detailLink.textContent = "hide response";
+        detailLink.onclick = (toggleEvent) => {
+          toggleEvent.preventDefault?.();
+          detailOutput.hidden = !detailOutput.hidden;
+          detailLink.textContent = detailOutput.hidden ? "view response ->" : "hide response";
+        };
+      } catch (_error) {
+        detailLink.textContent = "response unavailable";
+        detailLink.title = "The guarded response detail could not be loaded.";
+      }
+    }, { once: true });
     target.appendChild(detailLink);
+    target.appendChild(detailOutput);
   }
 }
 

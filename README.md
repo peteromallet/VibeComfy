@@ -118,6 +118,11 @@ an install failure.
 
 The agent panel lets an agent edit a workflow from inside ComfyUI.
 
+Its guarded JSON routes default to trusted loopback access. Remote/LAN/RunPod
+access requires an explicit instance bearer capability; session ids are not
+credentials. See [HTTP authorization boundary](docs/agent-edit/http-authorization.md)
+before exposing ComfyUI beyond loopback.
+
 #### Practically this is how this looks
 
 The default workflow a fresh install loads is the z-image text-to-image graph.

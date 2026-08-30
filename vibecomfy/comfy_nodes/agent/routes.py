@@ -17,6 +17,7 @@ from typing import Any, Mapping
 from vibecomfy.ingest.normalize import door_get_nodes
 
 from . import _agentic_replay_service
+from ..http_security import register_http_route
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1684,7 +1685,7 @@ def register_agent_edit_routes(app) -> None:
             status=status,
         )
 
-    @app.routes.post("/vibecomfy/agent-edit")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit")
     async def _agent_edit_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1710,7 +1711,7 @@ def register_agent_edit_routes(app) -> None:
             return _web.json_response(result, status=400)
         return _web.json_response(result, status=status)
 
-    @app.routes.post("/vibecomfy/agent-executor")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-executor")
     async def _agent_executor_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1732,7 +1733,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(result, status=status)
 
-    @app.routes.post("/agent/edit")
+    @register_http_route(app.routes, "POST", "/agent/edit")
     async def _legacy_agent_edit_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1762,7 +1763,7 @@ def register_agent_edit_routes(app) -> None:
     # Deletion condition: remove when every live browser client posts directly
     # to /vibecomfy/agent-edit/finalize for V2 applyable turns for one full
     # release cycle (tracked via per-session accept_bridge_v2_count in session.py).
-    @app.routes.post("/vibecomfy/agent-edit/accept")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/accept")
     async def _agent_edit_accept_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1801,7 +1802,7 @@ def register_agent_edit_routes(app) -> None:
                 response.setdefault("bridge", bridge_meta)
         return _web.json_response(response)
 
-    @app.routes.post("/vibecomfy/agent-edit/prepare")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/prepare")
     async def _agent_edit_prepare_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1832,7 +1833,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.post("/vibecomfy/agent-edit/finalize")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/finalize")
     async def _agent_edit_finalize_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1863,7 +1864,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.post("/vibecomfy/agent-edit/rollback")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/rollback")
     async def _agent_edit_rollback_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1894,7 +1895,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.post("/vibecomfy/agent-edit/reconcile")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/reconcile")
     async def _agent_edit_reconcile_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1919,7 +1920,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.post("/vibecomfy/agent-edit/reject")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/reject")
     async def _agent_edit_reject_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1941,7 +1942,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.post("/vibecomfy/agent-edit/rebaseline")
+    @register_http_route(app.routes, "POST", "/vibecomfy/agent-edit/rebaseline")
     async def _agent_edit_rebaseline_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -1968,7 +1969,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.get("/vibecomfy/agent-edit/chat")
+    @register_http_route(app.routes, "GET", "/vibecomfy/agent-edit/chat")
     async def _agent_edit_chat_route(request):  # type: ignore[no-untyped-def]
         session_id = _session_id_from_query(request)
         max_messages = _coerce_chat_max_messages(request.query.get("max_messages"))
@@ -1987,7 +1988,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(public_chat_rehydrate_payload(result)))
 
-    @app.routes.get("/vibecomfy/agent-edit/recover")
+    @register_http_route(app.routes, "GET", "/vibecomfy/agent-edit/recover")
     async def _agent_edit_recover_route(request):  # type: ignore[no-untyped-def]
         workflow_id = request.query.get("workflow_id")
         if not isinstance(workflow_id, str) or not workflow_id.strip():
@@ -2009,7 +2010,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.get("/vibecomfy/agent-edit/session-bundle")
+    @register_http_route(app.routes, "GET", "/vibecomfy/agent-edit/session-bundle")
     async def _agent_edit_session_bundle_route(request):  # type: ignore[no-untyped-def]
         session_id = _session_id_from_query(request)
         try:
@@ -2026,7 +2027,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result))
 
-    @app.routes.get("/vibecomfy/agent-edit/session-json")
+    @register_http_route(app.routes, "GET", "/vibecomfy/agent-edit/session-json")
     async def _agent_edit_session_json_route(request):  # type: ignore[no-untyped-def]
         session_id = _session_id_from_query(request)
         try:
@@ -2043,7 +2044,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(public_session_json_payload(result)))
 
-    @app.routes.post("/vibecomfy/node-packs/install")
+    @register_http_route(app.routes, "POST", "/vibecomfy/node-packs/install")
     async def _node_pack_install_route(request):  # type: ignore[no-untyped-def]
         try:
             payload = await request.json()
@@ -2056,7 +2057,7 @@ def register_agent_edit_routes(app) -> None:
         status = 200 if result.get("ok") is True else 400
         return _web.json_response(_to_serializable(result), status=status)
 
-    @app.routes.get("/vibecomfy/demo/scenarios")
+    @register_http_route(app.routes, "GET", "/vibecomfy/demo/scenarios")
     async def _demo_scenarios_route(request):  # type: ignore[no-untyped-def]
         if os.environ.get("VIBECOMFY_DEMO_PICKER") != "1":
             return _web.json_response({"ok": False, "error": "Not found"}, status=404)
@@ -2070,7 +2071,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result), status=status)
 
-    @app.routes.get("/vibecomfy/demo/scenario")
+    @register_http_route(app.routes, "GET", "/vibecomfy/demo/scenario")
     async def _demo_scenario_route(request):  # type: ignore[no-untyped-def]
         if os.environ.get("VIBECOMFY_DEMO_PICKER") != "1":
             return _web.json_response({"ok": False, "error": "Not found"}, status=404)
@@ -2087,7 +2088,7 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result), status=status)
 
-    @app.routes.get("/vibecomfy/agentic-replay/runs")
+    @register_http_route(app.routes, "GET", "/vibecomfy/agentic-replay/runs")
     async def _agentic_replay_runs_route(request):  # type: ignore[no-untyped-def]
         try:
             result, status = await asyncio.to_thread(_list_agentic_replay_runs)
@@ -2099,7 +2100,9 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result), status=status)
 
-    @app.routes.get("/vibecomfy/agentic-replay/runs/{run_id}/tests")
+    @register_http_route(
+        app.routes, "GET", "/vibecomfy/agentic-replay/runs/{run_id}/tests"
+    )
     async def _agentic_replay_tests_route(request):  # type: ignore[no-untyped-def]
         run_id = request.match_info.get("run_id")
         if not isinstance(run_id, str) or not run_id.strip():
@@ -2114,7 +2117,11 @@ def register_agent_edit_routes(app) -> None:
             )
         return _web.json_response(_to_serializable(result), status=status)
 
-    @app.routes.get("/vibecomfy/agentic-replay/runs/{run_id}/tests/{test_id}")
+    @register_http_route(
+        app.routes,
+        "GET",
+        "/vibecomfy/agentic-replay/runs/{run_id}/tests/{test_id}",
+    )
     async def _agentic_replay_scenario_route(request):  # type: ignore[no-untyped-def]
         run_id = request.match_info.get("run_id")
         test_id = request.match_info.get("test_id")
@@ -2141,7 +2148,9 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
 
         _PromptServer = import_prompt_server()
 
-        @_PromptServer.instance.routes.post("/vibecomfy/roundtrip")
+        @register_http_route(
+            _PromptServer.instance.routes, "POST", "/vibecomfy/roundtrip"
+        )
         async def roundtrip_route(request):  # type: ignore[no-untyped-def]
             _LOGGER.info("/vibecomfy/roundtrip request")
             try:
@@ -2156,7 +2165,9 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
             return _web.json_response(result)
 
 
-        @_PromptServer.instance.routes.post("/vibecomfy/agent-edit/rating")
+        @register_http_route(
+            _PromptServer.instance.routes, "POST", "/vibecomfy/agent-edit/rating"
+        )
         async def agent_edit_rating_route(request):  # type: ignore[no-untyped-def]
             _LOGGER.info("/vibecomfy/agent-edit/rating request")
             try:
@@ -2173,7 +2184,9 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
             result, status = await asyncio.to_thread(_handle_vibecomfy_submit_rating, payload)
             return _web.json_response(result, status=status)
 
-        @_PromptServer.instance.routes.get("/vibecomfy/agent/status")
+        @register_http_route(
+            _PromptServer.instance.routes, "GET", "/vibecomfy/agent/status"
+        )
         async def agent_status_route(request):  # type: ignore[no-untyped-def]
             try:
                 payload = _handle_agent_status(dict(request.query))
@@ -2190,7 +2203,9 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
                     status=500,
                 )
 
-        @_PromptServer.instance.routes.post("/vibecomfy/agent/credentials")
+        @register_http_route(
+            _PromptServer.instance.routes, "POST", "/vibecomfy/agent/credentials"
+        )
         async def agent_credentials_route(request):  # type: ignore[no-untyped-def]
             _LOGGER.info("/vibecomfy/agent/credentials request")
             try:
@@ -2209,13 +2224,17 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
             result = _handle_agent_credentials(payload)
             return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
-        @_PromptServer.instance.routes.get("/vibecomfy/agent/settings")
+        @register_http_route(
+            _PromptServer.instance.routes, "GET", "/vibecomfy/agent/settings"
+        )
         async def agent_settings_get_route(request):  # type: ignore[no-untyped-def]
             _LOGGER.info("/vibecomfy/agent/settings GET request")
             result = _handle_agent_settings_get()
             return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
-        @_PromptServer.instance.routes.post("/vibecomfy/agent/settings")
+        @register_http_route(
+            _PromptServer.instance.routes, "POST", "/vibecomfy/agent/settings"
+        )
         async def agent_settings_post_route(request):  # type: ignore[no-untyped-def]
             _LOGGER.info("/vibecomfy/agent/settings POST request")
             try:
@@ -2234,7 +2253,11 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
             result = _handle_agent_settings_post(payload)
             return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
-        @_PromptServer.instance.routes.post("/vibecomfy/agent/research-contribution/run")
+        @register_http_route(
+            _PromptServer.instance.routes,
+            "POST",
+            "/vibecomfy/agent/research-contribution/run",
+        )
         async def agent_research_contribution_run_route(request):  # type: ignore[no-untyped-def]
             _LOGGER.info("/vibecomfy/agent/research-contribution/run request")
             try:

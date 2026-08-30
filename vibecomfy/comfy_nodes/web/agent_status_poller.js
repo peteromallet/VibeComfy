@@ -4,6 +4,8 @@
 // All monolith-local render/lifecycle callbacks are passed through explicit deps
 // injection; this module does NOT import from other vibecomfy web modules.
 
+import { vibecomfyFetch } from "./http_security.js";
+
 // ── Constants ───────────────────────────────────────────────────────────────
 
 export const ROUTE_STATUS_KIND = Object.freeze({
@@ -652,7 +654,7 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
     const statusUrl = buildStatusUrl(route, model);
     let res;
     try {
-      res = await fetch(statusUrl, { signal: deadline.signal });
+      res = await vibecomfyFetch(statusUrl, { signal: deadline.signal });
     } finally {
       deadline.clearDeadline();
     }
@@ -962,7 +964,7 @@ export function syncChooseEngineGate(panel, deps = {}) {
 
 export async function storeOpenRouterCredential(panel, apiKey, descriptor = null) {
   try {
-    const res = await fetch("/vibecomfy/agent/credentials", {
+    const res = await vibecomfyFetch("/vibecomfy/agent/credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider: "openrouter", api_key: apiKey }),
@@ -997,7 +999,7 @@ export async function refreshResearchContributionSetting(panel, deps = {}) {
     syncResearchContributionControl,
   } = deps;
   try {
-    const res = await fetch("/vibecomfy/agent/settings");
+    const res = await vibecomfyFetch("/vibecomfy/agent/settings");
     const result = await res.json();
     if (result?.ok === false) {
       throw new Error(result.user_facing_message || result.reason || "settings unavailable");
@@ -1046,7 +1048,7 @@ export async function saveResearchContributionSetting(panel, enabled, { trigger 
     renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
   }
   try {
-    const res = await fetch("/vibecomfy/agent/settings", {
+    const res = await vibecomfyFetch("/vibecomfy/agent/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ research_contribution_enabled: Boolean(enabled) }),

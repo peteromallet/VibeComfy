@@ -105,8 +105,14 @@ def _routes_module_ast() -> ast.Module:
 
 
 def _route_method(decorator: ast.expr) -> str | None:
-    """HTTP method for ``@app.routes.<method>(<path>)`` decorators."""
+    """HTTP method for legacy or central route decorators."""
     if not isinstance(decorator, ast.Call):
+        return None
+    if isinstance(decorator.func, ast.Name) and decorator.func.id == "register_http_route":
+        if len(decorator.args) >= 2:
+            method = decorator.args[1]
+            if isinstance(method, ast.Constant) and isinstance(method.value, str):
+                return method.value.lower()
         return None
     func = decorator.func
     if not isinstance(func, ast.Attribute) or func.attr not in {"post", "get"}:
@@ -119,7 +125,15 @@ def _route_method(decorator: ast.expr) -> str | None:
 def _route_path(decorator: ast.expr) -> str | None:
     if not isinstance(decorator, ast.Call) or not decorator.args:
         return None
-    arg = decorator.args[0]
+    arg_index = (
+        2
+        if isinstance(decorator.func, ast.Name)
+        and decorator.func.id == "register_http_route"
+        else 0
+    )
+    if len(decorator.args) <= arg_index:
+        return None
+    arg = decorator.args[arg_index]
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
         return arg.value
     return None

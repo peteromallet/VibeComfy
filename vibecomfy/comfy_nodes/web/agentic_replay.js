@@ -34,6 +34,7 @@ import {
   commitTranscriptRehydrate,
 } from "./agent_lifecycle_commit.js";
 import { jsonClone as clonePlainData } from "./json_clone.js";
+import { vibecomfyFetch } from "./http_security.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -801,7 +802,7 @@ export function installAgenticReplay(panel, options = {}) {
 
   async function fetchRuns() {
     try {
-      const res = await fetch(RUNS_ENDPOINT);
+      const res = await vibecomfyFetch(RUNS_ENDPOINT);
       if (!res.ok) {
         throw new Error(`Failed to fetch runs: ${res.status}`);
       }
@@ -819,7 +820,7 @@ export function installAgenticReplay(panel, options = {}) {
   async function fetchTests(runId) {
     try {
       const url = TESTS_ENDPOINT_TEMPLATE.replace("{run_id}", encodeURIComponent(runId));
-      const res = await fetch(url);
+      const res = await vibecomfyFetch(url);
       if (!res.ok) {
         throw new Error(`Failed to fetch tests: ${res.status}`);
       }
@@ -839,7 +840,7 @@ export function installAgenticReplay(panel, options = {}) {
       const url = SCENARIO_ENDPOINT_TEMPLATE
         .replace("{run_id}", encodeURIComponent(runId))
         .replace("{test_id}", encodeURIComponent(testId));
-      const res = await fetch(url);
+      const res = await vibecomfyFetch(url);
       if (!res.ok) {
         throw new Error(`Failed to fetch scenario: ${res.status}`);
       }

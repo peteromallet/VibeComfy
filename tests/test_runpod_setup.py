@@ -66,6 +66,8 @@ def test_comfy_serve_command_includes_runpod_public_flags(tmp_path: Path) -> Non
     assert str(runtime / "extra_model_paths.yaml") in command
     assert "--lowvram" in command
     assert "--reserve-vram" in command
+    assert "--enable-cors-header" not in command
+    assert "*" not in command
     assert "--highvram" not in command
     assert "--disable-dynamic-vram" not in command
 

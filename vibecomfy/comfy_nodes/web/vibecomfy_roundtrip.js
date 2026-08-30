@@ -152,6 +152,7 @@ import {
   projectionReferenceV1,
 } from "./projection_registry_v1.js";
 import { jsonClone as clonePlainData } from "./json_clone.js";
+import { vibecomfyFetch } from "./http_security.js";
 export {
   buildLayoutGraphProjection,
   buildStructuralGraphProjection,
@@ -4488,7 +4489,7 @@ async function _rehydrateChat(panel) {
       try {
         const activeWorkflowId = resolveActiveWorkflowUuid();
         if (activeWorkflowId) {
-          const recoverRes = await fetch(
+          const recoverRes = await vibecomfyFetch(
             `/vibecomfy/agent-edit/recover?workflow_id=${encodeURIComponent(activeWorkflowId)}`,
           );
           if (recoverRes.ok) {
@@ -4521,7 +4522,7 @@ async function _rehydrateChat(panel) {
 
   try {
     await nextMacrotask();
-    const res = await fetch(`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(savedId)}`);
+    const res = await vibecomfyFetch(`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(savedId)}`);
     if (!res.ok) {
       throw new Error(`Server returned ${res.status}`);
     }
@@ -7935,7 +7936,7 @@ async function refreshResearchContributionSetting(panel) {
 }
 
 async function triggerResearchContributionWorkflow(panel) {
-  const res = await fetch("/vibecomfy/agent/research-contribution/run", {
+  const res = await vibecomfyFetch("/vibecomfy/agent/research-contribution/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source: "agent_panel" }),
@@ -8102,7 +8103,7 @@ export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
   }
   if (obligations.nodePackInstallRequest) {
     fulfillNodePackInstallRequest(panel, obligations, {
-      fetch,
+      fetch: vibecomfyFetch,
       transition,
       fulfillLifecycleTransitionObligations,
       renderLifecycleTransition,
@@ -8641,7 +8642,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
             sessionIdOverride: retryContext.sessionId,
           });
           const res = await submitFlow.runSubmitFetchWithDeadline(
-            fetch("/vibecomfy/agent-executor", {
+            vibecomfyFetch("/vibecomfy/agent-executor", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),
@@ -9173,7 +9174,7 @@ function widgetReferenceNodeFor(uidOrId) {
 }
 
 async function postAgentLifecycleAction(endpoint, body, action) {
-  const response = await fetch(`/vibecomfy/agent-edit/${endpoint}`, {
+  const response = await vibecomfyFetch(`/vibecomfy/agent-edit/${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -9266,7 +9267,7 @@ async function openRoundtrip() {
   }
   let result;
   try {
-    const res = await fetch("/vibecomfy/roundtrip", {
+    const res = await vibecomfyFetch("/vibecomfy/roundtrip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ graph }),

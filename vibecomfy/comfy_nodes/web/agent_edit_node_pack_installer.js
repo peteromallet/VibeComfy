@@ -1,9 +1,11 @@
+import { vibecomfyFetch } from "./http_security.js";
+
 export async function fulfillNodePackInstallRequest(panel, obligations = {}, deps = {}) {
   const request = obligations.nodePackInstallRequest;
   if (!request || typeof request !== "object") {
     return;
   }
-  const fetchImpl = deps.fetch || globalThis.fetch;
+  const fetchImpl = deps.fetch || vibecomfyFetch;
   const transition = deps.transition;
   const fulfillLifecycleTransitionObligations = deps.fulfillLifecycleTransitionObligations;
   const renderLifecycleTransition = deps.renderLifecycleTransition;
