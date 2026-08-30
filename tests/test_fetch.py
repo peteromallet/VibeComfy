@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -162,6 +164,221 @@ def test_download_supports_repo_relative_target_path(monkeypatch: pytest.MonkeyP
     assert path.read_bytes() == b"aux"
 
 
+def test_download_supports_nested_destinations_and_relative_cwd_binding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cwd_a = tmp_path / "cwd-a"
+    cwd_b = tmp_path / "cwd-b"
+    cwd_a.mkdir()
+    cwd_b.mkdir()
+    monkeypatch.chdir(cwd_a)
+
+    class ChdirClient:
+        def stream(self, *_args, **_kwargs):
+            monkeypatch.chdir(cwd_b)
+            return fake_stream(FakeResponse())
+
+    path = fetch.download(
+        {
+            **ENTRY,
+            "subdir": "diffusion_models/WanVideo",
+            "name": "2_2/model.safetensors",
+        },
+        root=Path("models"),
+        client=ChdirClient(),
+    )
+    expected = cwd_a / "models/diffusion_models/WanVideo/2_2/model.safetensors"
+    assert path == expected
+    assert path.is_absolute() and path.read_bytes() == b"model-bytes"
+    assert not (cwd_b / "models").exists()
+
+
+@pytest.mark.parametrize("field", ["target_path", "subdir", "name"])
+def test_download_rejects_absolute_destination_fields_before_network(
+    field: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    outside = tmp_path / "outside" / "model.safetensors"
+    entry = {**ENTRY, field: str(outside)}
+
+    def unexpected_stream(*_args, **_kwargs):
+        raise AssertionError("unsafe destination must fail before opening network stream")
+
+    monkeypatch.setattr(fetch.httpx, "stream", unexpected_stream)
+    with pytest.raises(ValueError, match=rf"model asset {field} must be a relative path"):
+        fetch.download(entry, root=tmp_path / "checkout/models")
+    assert not outside.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("target_path", "../outside/model.safetensors"),
+        ("subdir", "../../outside"),
+        ("name", "../../../outside/model.safetensors"),
+        ("target_path", r"custom_nodes\\pack\\model.safetensors"),
+        ("subdir", "checkpoints/"),
+    ],
+)
+def test_download_rejects_traversal_ambiguous_and_empty_terminal_fields(
+    field: str, value: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    entry = {**ENTRY, field: value}
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unsafe destination must fail before opening network stream")
+        ),
+    )
+    with pytest.raises(ValueError, match=rf"model asset {field} must be a relative path"):
+        fetch.download(entry, root=tmp_path / "checkout/models")
+
+
+@pytest.mark.parametrize("target_path", [False, True])
+def test_download_rejects_preexisting_symlink_parent_escape_before_network(
+    target_path: bool, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    checkout = tmp_path / "checkout"
+    models = checkout / "models"
+    outside = tmp_path / "outside"
+    models.mkdir(parents=True)
+    outside.mkdir()
+    if target_path:
+        (checkout / "custom_nodes").symlink_to(outside, target_is_directory=True)
+        entry = {**ENTRY, "target_path": "custom_nodes/pack/model.safetensors"}
+    else:
+        (models / "checkpoints").symlink_to(outside, target_is_directory=True)
+        entry = ENTRY
+
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unsafe destination must fail before opening network stream")
+        ),
+    )
+    with pytest.raises(ValueError, match="resolves outside its authorized root"):
+        fetch.download(entry, root=models)
+    assert list(outside.iterdir()) == []
+
+
+def test_local_path_canonicalizes_in_root_symlink_alias(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    actual = models / "checkpoints"
+    actual.mkdir(parents=True)
+    (models / "alias").symlink_to(actual, target_is_directory=True)
+
+    path = fetch.local_path(
+        {**ENTRY, "subdir": "alias", "name": "model.safetensors"}, root=models
+    )
+    assert path == actual / "model.safetensors"
+    assert not path.is_symlink()
+
+
+def test_download_force_replaces_existing_canonical_destination(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    models = tmp_path / "models"
+    destination = models / "checkpoints/model.safetensors"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: fake_stream(FakeResponse(chunks=[b"new"])),
+    )
+
+    assert fetch.download(ENTRY, root=models, force=True) == destination
+    assert destination.read_bytes() == b"new"
+
+
+@pytest.mark.parametrize("mutation_stage", ["stream", "enter", "iter_bytes"])
+def test_download_rechecks_destination_after_parent_symlink_mutation(
+    mutation_stage: str, tmp_path: Path
+) -> None:
+    models = tmp_path / "models"
+    parent = models / "checkpoints"
+    detached = tmp_path / "detached-checkpoints"
+    outside = tmp_path / "outside"
+    parent.mkdir(parents=True)
+    outside.mkdir()
+    swapped = False
+
+    def swap_parent() -> None:
+        nonlocal swapped
+        if swapped:
+            return
+        parent.rename(detached)
+        parent.symlink_to(outside, target_is_directory=True)
+        swapped = True
+
+    class MutatingResponse(FakeResponse):
+        def iter_bytes(self):
+            yield b"partial"
+            if mutation_stage == "iter_bytes":
+                swap_parent()
+            yield b"remaining"
+
+    @contextmanager
+    def stream_context():
+        if mutation_stage == "enter":
+            swap_parent()
+        yield MutatingResponse()
+
+    class MutatingClient:
+        def stream(self, *_args, **_kwargs):
+            if mutation_stage == "stream":
+                swap_parent()
+            return stream_context()
+
+    with pytest.raises(ValueError, match="destination changed after authorization"):
+        fetch.download(ENTRY, root=models, client=MutatingClient())
+    assert list(outside.iterdir()) == []
+
+
+def test_download_does_not_follow_preexisting_destination_tmp_symlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    models = tmp_path / "models"
+    destination = models / "checkpoints/model.safetensors"
+    destination.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"do-not-overwrite")
+    tmp = destination.with_suffix(".safetensors.tmp")
+    tmp.symlink_to(outside)
+    monkeypatch.setattr(fetch.httpx, "stream", lambda *_args, **_kwargs: fake_stream(FakeResponse()))
+
+    path = fetch.download(ENTRY, root=models)
+    assert path == destination and destination.read_bytes() == b"model-bytes"
+    assert outside.read_bytes() == b"do-not-overwrite" and tmp.is_symlink()
+
+
+def test_concurrent_downloads_use_invocation_owned_temp_files(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    barrier = Barrier(2)
+
+    class ConcurrentResponse(FakeResponse):
+        def iter_bytes(self):
+            barrier.wait(timeout=5)
+            yield b"same-model-bytes"
+
+    class ConcurrentClient:
+        def stream(self, *_args, **_kwargs):
+            return fake_stream(ConcurrentResponse())
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(fetch.download, ENTRY, root=models, client=ConcurrentClient())
+            for _ in range(2)
+        ]
+        paths = [future.result(timeout=10) for future in futures]
+
+    destination = models / "checkpoints/model.safetensors"
+    assert paths == [destination, destination]
+    assert destination.read_bytes() == b"same-model-bytes"
+    assert list(destination.parent.glob(".vibecomfy-download-*.tmp")) == []
+
+
 def test_local_path_accepts_ready_template_directory_alias(tmp_path: Path) -> None:
     assert fetch.local_path(
         {"name": "model.safetensors", "directory": "diffusion_models"},
@@ -280,3 +497,19 @@ def test_download_many_continues_past_failure_and_raises_aggregate(
     assert "downloaded second.safetensors ->" in out
     assert (tmp_path / "checkpoints" / "first.safetensors").read_bytes() == b"ok"
     assert (tmp_path / "checkpoints" / "second.safetensors").read_bytes() == b"ok"
+
+
+def test_download_many_aggregates_malformed_destination_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path / "models"))
+    entries = [
+        {**ENTRY, "name": "good.safetensors"},
+        {**ENTRY, "name": "bad.safetensors", "target_path": "../outside.bin"},
+    ]
+    monkeypatch.setattr(fetch.httpx, "stream", lambda *_args, **_kwargs: fake_stream(FakeResponse()))
+
+    with pytest.raises(RuntimeError, match="1 failures"):
+        fetch.download_many(entries)
+    assert (tmp_path / "models/checkpoints/good.safetensors").read_bytes() == b"model-bytes"
+    assert not (tmp_path / "outside.bin").exists()

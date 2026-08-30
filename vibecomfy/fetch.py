@@ -1,9 +1,21 @@
+"""Model download resolution and verification.
+
+Destination authorization covers hostile/malformed metadata and pre-existing
+symlinks.  Concurrent same-user hostile filesystem mutation between the
+authorization and mutation rechecks is explicitly outside this owner's frozen
+threat model; descriptor-relative ``openat`` protection is not required here.
+"""
+
 from __future__ import annotations
 
-import os
-from pathlib import Path
-from typing import Any, Mapping
 import hashlib
+import os
+import stat
+import tempfile
+from collections.abc import Mapping
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any
+
 import httpx
 
 
@@ -38,18 +50,124 @@ def models_root() -> Path:
         return Path("ComfyUI/models")
 
 
-def local_path(entry: Mapping[str, Any], *, root: Path | None = None) -> Path:
-    base = root if root is not None else models_root()
+def _relative_asset_path(value: Any, *, field: str) -> Path:
+    """Reject platform-specific absolute paths and traversal before joining."""
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ValueError(f"model asset {field} must be a non-empty relative path")
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or bool(windows.root)
+        or ".." in posix.parts
+        or ".." in windows.parts
+        or "\\" in value
+        or value.endswith(("/", "\\"))
+        or (not posix.parts and not windows.parts)
+    ):
+        raise ValueError(
+            f"model asset {field} must be a relative path without '..' segments: {value!r}"
+        )
+    return Path(value)
+
+
+def _authorized_destination(root: Path, relative: Path, *, field: str) -> tuple[Path, Path]:
+    """Return a stable authorization root and destination after resolving symlinks."""
+    candidate = root / relative
+    try:
+        resolved_root = root.resolve(strict=False)
+        resolved_candidate = candidate.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"model asset {field} could not be resolved safely: {relative!s}") from exc
+    if resolved_candidate == resolved_root or not resolved_candidate.is_relative_to(resolved_root):
+        raise ValueError(
+            f"model asset {field} resolves outside its authorized root {resolved_root}: {relative!s}"
+        )
+    return resolved_root, resolved_candidate
+
+
+def _destination_for_entry(
+    entry: Mapping[str, Any], *, root: Path | None = None
+) -> tuple[Path, Path, str]:
+    base = Path(root) if root is not None else models_root()
+    if not base.is_absolute():
+        base = Path.cwd() / base
     target_path = entry.get("target_path")
-    if isinstance(target_path, str) and target_path:
-        target = Path(target_path)
-        if target.is_absolute():
-            return target
-        return base.parent / target
+    if target_path is not None:
+        target = _relative_asset_path(target_path, field="target_path")
+        authorized_root, destination = _authorized_destination(
+            base.parent, target, field="target_path"
+        )
+        return authorized_root, destination, "target_path"
     subdir = entry.get("subdir") or entry.get("directory")
     if not isinstance(subdir, str) or not subdir:
         raise KeyError("model asset entry requires 'subdir' or 'directory'")
-    return base / subdir / str(entry["name"])
+    relative_subdir = _relative_asset_path(subdir, field="subdir")
+    relative_name = _relative_asset_path(entry["name"], field="name")
+    authorized_root, destination = _authorized_destination(
+        base, relative_subdir / relative_name, field="subdir/name"
+    )
+    return authorized_root, destination, "subdir/name"
+
+
+def _assert_destination_stable(root: Path, destination: Path, *, field: str) -> None:
+    """Reject a destination whose resolution changed after authorization."""
+    try:
+        current = destination.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(
+            f"model asset {field} destination could not be re-authorized: {destination}"
+        ) from exc
+    if current != destination or not current.is_relative_to(root):
+        raise ValueError(
+            f"model asset {field} destination changed after authorization: "
+            f"expected {destination}, resolved {current}"
+        )
+
+
+def _temp_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        info = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        return None
+    return info.st_dev, info.st_ino
+
+
+def _unlink_owned_temp(path: Path | None, identity: tuple[int, int] | None) -> None:
+    if path is None or identity is None or _temp_identity(path) != identity:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _open_owned_temp(parent: Path) -> tuple[Path, Any, tuple[int, int]]:
+    fd, tmp_name = tempfile.mkstemp(prefix=".vibecomfy-download-", suffix=".tmp", dir=parent)
+    tmp = Path(tmp_name)
+    identity: tuple[int, int] | None = None
+    try:
+        opened = os.fstat(fd)
+        identity = (opened.st_dev, opened.st_ino)
+        handle = os.fdopen(fd, "wb")
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        _unlink_owned_temp(tmp, identity)
+        raise
+    assert identity is not None
+    return tmp, handle, identity
+
+
+def local_path(entry: Mapping[str, Any], *, root: Path | None = None) -> Path:
+    _authorized_root, destination, _field = _destination_for_entry(entry, root=root)
+    return destination
 
 
 def is_present(entry: Mapping[str, Any], *, root: Path | None = None) -> bool:
@@ -78,9 +196,9 @@ def verify(entry: Mapping[str, Any], path: Path | None = None, *, root: Path | N
 
 
 def download(entry: Mapping[str, Any], *, force: bool = False, client: Any = None, root: Path | None = None) -> Path:
-    path = local_path(entry, root=root)
+    authorized_root, path, destination_field = _destination_for_entry(entry, root=root)
     name = str(entry["name"])
-    if is_present(entry, root=root) and not force:
+    if path.is_file() and path.stat().st_size > 0 and not force:
         verify(entry, path, root=root)
         print(f"skipped {name}")
         return path
@@ -97,18 +215,27 @@ def download(entry: Mapping[str, Any], *, force: bool = False, client: Any = Non
         else httpx.stream("GET", url, follow_redirects=True, headers=headers, timeout=timeout)
     )
 
+    _assert_destination_stable(authorized_root, path, field=destination_field)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp: Path | None = None
+    tmp_identity: tuple[int, int] | None = None
     try:
         with stream_context as response:
             _raise_for_status(response.status_code, url)
-            with tmp.open("wb") as handle:
+            _assert_destination_stable(authorized_root, path, field=destination_field)
+            tmp, handle, tmp_identity = _open_owned_temp(path.parent)
+            with handle:
                 for chunk in response.iter_bytes():
                     if chunk:
                         handle.write(chunk)
+        _assert_destination_stable(authorized_root, path, field=destination_field)
+        if tmp is None or tmp_identity is None or _temp_identity(tmp) != tmp_identity:
+            raise RuntimeError("download temporary file changed before final replace")
+        _assert_destination_stable(authorized_root, path, field=destination_field)
         os.replace(tmp, path)
+        _assert_destination_stable(authorized_root, path, field=destination_field)
     except BaseException:
-        tmp.unlink(missing_ok=True)
+        _unlink_owned_temp(tmp, tmp_identity)
         raise
     verify(entry, path, root=root)
     return path
@@ -119,8 +246,8 @@ def download_many(entries: list[dict], *, force: bool = False) -> list[Path]:
     failures = 0
     for entry in entries:
         name = str(entry.get("name", "<unknown>"))
-        was_present = is_present(entry) and not force
         try:
+            was_present = is_present(entry) and not force
             path = download(entry, force=force)
         except Exception as exc:
             failures += 1
