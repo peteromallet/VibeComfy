@@ -976,6 +976,14 @@ def _candidate_assessment_response(**carrier: object) -> dict:
             "candidate_graph",
             {"vibecomfy_format_version": "1", "nodes": {"1": 1}},
         ),
+        ("candidate_graph", {"nodes": [{"id": 1}], "links": [["bad"]]}),
+        (
+            "candidate_graph",
+            {
+                "nodes": [{"id": 1}, {"id": 2}],
+                "links": [[1, 1, 0, 99, 0, "IMAGE"]],
+            },
+        ),
         ("candidate_graph", {}),
     ],
 )
