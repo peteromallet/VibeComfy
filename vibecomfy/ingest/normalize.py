@@ -75,13 +75,28 @@ def door_setdefault_widgets_values(node: Any, default: Any = None) -> Any:
 
 import warnings
 
-from vibecomfy._compile._graph import is_canonical_api_link
+from vibecomfy._compile._graph import is_api_link, is_canonical_api_link
 from vibecomfy.comfy_backend import check_comfy_compatibility, require_comfy_compatibility
 # vibecomfy.exec class type: mirrored as a literal to avoid a module-level import of
 # vibecomfy.comfy_nodes.exec_node, which would re-execute comfy_nodes/__init__ (route
 # registration side-effect) at boot and pull torch eagerly. Mirrors
 # vibecomfy.comfy_nodes.exec_node.EXEC_CLASS_TYPE (see agent_session.py for the same pattern).
 EXEC_CLASS_TYPE = "vibecomfy.exec"
+
+
+def _is_ingest_api_link(value: Any, node_ids: set[str]) -> bool:
+    """Accept legacy numeric-id API links only at the ingest boundary.
+
+    Older prompt exports use ``[1, 0]`` while current canonical API links use
+    ``["1", 0]``.  Once converted into IR, both have identical edge identity;
+    requiring the source id to name an existing node prevents ordinary
+    two-item widget literals from becoming edges accidentally.
+    """
+    if is_canonical_api_link(value):
+        return True
+    if not is_api_link(value, require_numeric_node_id=True, require_int_slot=True):
+        return False
+    return str(value[0]) in node_ids
 from vibecomfy.metadata import (
     OUTPUT_NODE_NAMES,
     _infer_requirements,
@@ -1464,7 +1479,10 @@ def _from_api_impl(
         widgets: dict[str, Any] = {}
         class_type = str(node.get("class_type", "Unknown"))
         for key, value in raw_inputs.items():
-            if input_provenance.get(key) != "widget" and is_canonical_api_link(value):
+            if (
+                input_provenance.get(key) != "widget"
+                and _is_ingest_api_link(value, {str(node_id) for node_id in api_workflow})
+            ):
                 continue
             if key.startswith("widget_") or _is_exec_widget_key(class_type, key):
                 widgets[key] = value
@@ -1569,7 +1587,10 @@ def _from_api_impl(
         if not isinstance(input_provenance, dict):
             input_provenance = {}
         for name, value in dict(node.get("inputs", {})).items():
-            if input_provenance.get(name) != "widget" and is_canonical_api_link(value):
+            if (
+                input_provenance.get(name) != "widget"
+                and _is_ingest_api_link(value, {str(node_id) for node_id in api_workflow})
+            ):
                 workflow.edges.append(VibeEdge(str(value[0]), str(value[1]), str(node_id), name))
 
     workflow.requirements = _infer_requirements(workflow)

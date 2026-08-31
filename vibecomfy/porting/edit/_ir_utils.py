@@ -48,7 +48,24 @@ def _has_frozen_name_row(
         return False
     uid = str(getattr(node, "uid", "") or "")
     node_id = str(getattr(node, "id", "") or "")
-    return uid in name_authority or node_id in name_authority
+    key = uid if uid in name_authority else node_id
+    if key not in name_authority:
+        return False
+    row = name_authority.get(key)
+    # A live authoring session may have captured an all-positional row for an
+    # opaque class while the shipped object-info authority can still provide a
+    # useful human field name.  Keep that authoring compatibility.  Receipt
+    # replay remains strict because its artifact-backed rows carry a stable
+    # source marker (or are checked by the frozen-domain gate).
+    if isinstance(row, (list, tuple)) and row and all(
+        value is None or (isinstance(value, str) and value.startswith("widget_"))
+        for value in row
+    ):
+        metadata = getattr(node, "metadata", None)
+        source = metadata.get("schema_source") if isinstance(metadata, Mapping) else None
+        if not isinstance(source, Mapping) or source.get("provider") == "unknown":
+            return False
+    return True
 
 
 def _write_compact_slot_mirrors(node: Any, index: int, value: Any) -> bool:

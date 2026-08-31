@@ -352,6 +352,13 @@ def _candidate_name_sources(
     if curated is not None:
         sources.append(("committed_widget_schema", _name_ui_control_slots(node, class_type, list(curated))))
 
+    # Legacy IndexTTS graphs sometimes serialize the opaque emitted control as
+    # one compact widget rather than the eight optional emotion sliders.  Keep
+    # that one-slot compatibility alias scoped to the legacy shape; real
+    # eight-slot nodes continue to use the artifact's explicit roster.
+    if class_type == "IndexTTSEmotionOptionsNode" and value_count == 1:
+        sources.append(("legacy_opaque_output_control", ["emotion_control"]))
+
     semantic_names = _semantic_names_for_count(class_type, value_count)
     if semantic_names:
         sources.append(("semantic_widget_names", semantic_names))

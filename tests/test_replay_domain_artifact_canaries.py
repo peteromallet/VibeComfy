@@ -167,9 +167,9 @@ def test_exact_artifacts_reject_frozen_witness_tamper_and_absence() -> None:
 
         tampered = dict(table)
         roster = list(tampered[uid])
-        # Duplicate one witness literal: it remains superficially shaped like
-        # a roster but cannot identify every positional slot uniquely.
-        roster[-1] = roster[0]
+        # Substitute one witness literal with a same-length, unique unrelated
+        # name: shape/uniqueness checks alone must not authenticate it.
+        roster[-1] = "tampered_unrelated"
         tampered[uid] = tuple(roster)
         tampered_receipt = verify_replay(
             pre,
