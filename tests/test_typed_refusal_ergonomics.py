@@ -123,7 +123,6 @@ def test_splitter_rejects_unknown_duplicate_and_nonterminal_refusal() -> None:
         'refuse(kind="clarify", message="x", feature_absences=[{"evidence_id":"id","feature":"x"}], evidence=["id"])',
         'refuse(kind="clarify", message="x", evidence=["id", "id"])',
         'refuse(kind="requires_custom_nodes", message="x", missing_classes=["MTCNN", "MTCNN"], evidence=["id"])',
-        'refuse(kind="clarify", message="x", evidence=[])',
         'refuse(kind="clarify", message="x", evidence=["id"])',
         'refuse(kind="clarify", message="x", evidence=["id"])\npython()',
     )
@@ -131,6 +130,16 @@ def test_splitter_rejects_unknown_duplicate_and_nonterminal_refusal() -> None:
         result = split_terminal_clarify(source)
         assert result.action is None
         assert result.message is None
+
+
+def test_clarify_refusal_allows_empty_optional_evidence() -> None:
+    action = split_terminal_clarify(
+        'refuse(kind="clarify", missing_classes=[], '
+        'feature_absences=[], evidence=[], message="Please load the workflow.")'
+    )
+    assert action.action == "refuse"
+    assert action.message == "Please load the workflow."
+    assert action.evidence == ()
 
 
 def test_direct_interpret_rejects_nonterminal_refusal() -> None:

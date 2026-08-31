@@ -528,7 +528,14 @@ def _validate_call(
                     value = None
                 if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in value):
                     invalid_fields.append(field)
-                elif field == "evidence" and not value:
+                # ``evidence`` is required and non-empty for a
+                # requires_custom_nodes refusal.  A clarify refusal may
+                # intentionally carry no evidence: it remains an
+                # unvalidated model-selected clarification until the
+                # authority layer proves a complete absence ledger.  Treat
+                # the empty optional list as valid syntax so a model cannot
+                # burn its entire retry budget on harmless serialization.
+                elif field == "evidence" and not value and kind == "requires_custom_nodes":
                     invalid_fields.append(field)
             feature_kw = next((item for item in node.keywords if item.arg == "feature_absences"), None)
             if feature_kw is not None:
