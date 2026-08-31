@@ -768,6 +768,16 @@ def _ir_output_slot_index(node: Any, output_slot: str | int) -> str:
         found = _find(base, casefold=True)
         if found is not None:
             return found
+        # ``unknown_N`` is the renderer's positional alias for an output row
+        # with no usable name/type evidence.  Reuse the canonical authority so
+        # only an evidence-backed row is projected into compile's numeric-only
+        # edge representation; invalid aliases remain visible to the compile
+        # oracle and fail closed there.
+        if base.casefold() == "unknown":
+            from vibecomfy.porting.edit._interpret import canonical_renderer_output
+
+            if canonical_renderer_output(node, output_slot) is not None:
+                return str(index)
     return output_slot
 
 

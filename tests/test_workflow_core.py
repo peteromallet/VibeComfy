@@ -1342,6 +1342,67 @@ def test_compile_raises_stable_code_for_missing_edge_endpoint() -> None:
     assert exc_info.value.detail["source_node_id"] == "missing"
 
 
+def test_compile_ready_projection_resolves_frozen_unknown_output_alias() -> None:
+    """A renderer-backed ``unknown_N`` projects to its positional slot."""
+    from vibecomfy.porting.edit._ir_utils import _compile_ready_workflow_copy
+
+    workflow = VibeWorkflow("unknown-output", WorkflowSource("unknown-output"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "MysterySource",
+        metadata={"_ui": {"outputs": [{}]}},
+    )
+    workflow.nodes["2"] = VibeNode("2", "Target", inputs={})
+    workflow.edges.append(VibeEdge("1", "unknown_0", "2", "value"))
+
+    compiled = _compile_ready_workflow_copy(workflow).compile("api")
+
+    assert compiled["2"]["inputs"]["value"] == ["1", 0]
+
+
+def test_compile_ready_projection_rejects_out_of_range_unknown_alias() -> None:
+    """An out-of-range ``unknown_N`` stays nonnumeric and fails closed."""
+    from vibecomfy.porting.edit._ir_utils import _compile_ready_workflow_copy
+
+    workflow = VibeWorkflow("unknown-output", WorkflowSource("unknown-output"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "MysterySource",
+        metadata={"_ui": {"outputs": [{}]}},
+    )
+    workflow.nodes["2"] = VibeNode("2", "Target", inputs={})
+    workflow.edges.append(VibeEdge("1", "unknown_1", "2", "value"))
+
+    with pytest.raises(WorkflowCompileError, match="non-numeric output slot"):
+        _compile_ready_workflow_copy(workflow).compile("api")
+
+
+def test_compile_ready_projection_preserves_interior_unknown_slot_index() -> None:
+    """A blank interior row owns its index; ``unknown_1`` must map to 1."""
+    from vibecomfy.porting.edit._ir_utils import _compile_ready_workflow_copy
+
+    workflow = VibeWorkflow("unknown-output", WorkflowSource("unknown-output"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "MysterySource",
+        metadata={
+            "_ui": {
+                "outputs": [
+                    {"name": "FRAME", "type": "IMAGE"},
+                    {},
+                    {"name": "CLIP", "type": "AUDIO"},
+                ]
+            }
+        },
+    )
+    workflow.nodes["2"] = VibeNode("2", "Target", inputs={})
+    workflow.edges.append(VibeEdge("1", "unknown_1", "2", "value"))
+
+    compiled = _compile_ready_workflow_copy(workflow).compile("api")
+
+    assert compiled["2"]["inputs"]["value"] == ["1", 1]
+
+
 def test_compile_ignores_stripped_intent_edge_when_target_has_literal_input() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "vibecomfy.loop")
