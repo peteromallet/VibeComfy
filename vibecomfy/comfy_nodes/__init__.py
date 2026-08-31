@@ -24,6 +24,7 @@ import logging
 import os
 import sys
 import hashlib
+import inspect
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -55,12 +56,54 @@ _INFO_CONTRACT_VERSION = 1
 
 _ROUTES_UNINITIALIZED = "uninitialized"
 _ROUTES_LOADING = "loading"
+_ROUTES_REGISTERED = "registered"
+_ROUTES_PENDING_AUDIT = "pending_audit"
 _ROUTES_READY = "ready"
 _ROUTES_FAILED = "failed"
+
+
+class _RouteRegistrationOwner:
+    """Shared route-init state stored on the PromptServer instance."""
+
+    def __init__(self) -> None:
+        self.condition = threading.Condition(threading.RLock())
+        self.state = _ROUTES_UNINITIALIZED
+        self.error: BaseException | None = None
+        self.owner_thread: int | None = None
+
+
 _route_state = _ROUTES_UNINITIALIZED
 _route_error: BaseException | None = None
 _route_owner_thread: int | None = None
 _route_condition = threading.Condition(threading.RLock())
+_route_local_owner = _RouteRegistrationOwner()
+
+
+def _mirror_route_owner(owner: _RouteRegistrationOwner) -> None:
+    """Keep legacy module diagnostics as a view, never as the authority."""
+    global _route_error, _route_owner_thread, _route_state
+    _route_state = owner.state
+    _route_error = owner.error
+    _route_owner_thread = owner.owner_thread
+
+
+def _route_registration_owner(instance: Any) -> _RouteRegistrationOwner:
+    """Return one owner shared by all loaders using this PromptServer."""
+    for host in (instance, getattr(instance, "app", None)):
+        if host is None:
+            continue
+        try:
+            attributes = vars(host)
+        except TypeError:
+            continue
+        owner = attributes.get("_vibecomfy_route_registration_owner")
+        if isinstance(owner, _RouteRegistrationOwner):
+            return owner
+        # dict.setdefault is the one atomic publication point needed when two
+        # alternate module loaders first see the same PromptServer instance.
+        candidate = _RouteRegistrationOwner()
+        return attributes.setdefault("_vibecomfy_route_registration_owner", candidate)
+    return _route_local_owner
 
 
 def _web_source_hash() -> str | None:
@@ -226,13 +269,66 @@ def _ensure_comfyui_root_on_path() -> None:
     _LOGGER.warning("Could not locate ComfyUI root (no server.py + nodes.py found).")
 
 
-def _register_routes_once() -> None:
+def _resolve_prompt_server_instance() -> Any:
     _ensure_comfyui_root_on_path()
     from ._server_compat import import_prompt_server
 
     global PromptServer
     PromptServer = import_prompt_server()
-    instance = PromptServer.instance
+    return PromptServer.instance
+
+
+def _mark_route_failed(
+    instance: Any,
+    owner: _RouteRegistrationOwner,
+    error: BaseException,
+) -> None:
+    with owner.condition:
+        owner.error = error
+        owner.owner_thread = None
+        owner.state = _ROUTES_FAILED
+        _mirror_route_owner(owner)
+        owner.condition.notify_all()
+    instance._vibecomfy_routes_registration_failed = True
+    instance._vibecomfy_routes_registration_error = error
+
+
+def _mark_route_ready(instance: Any, owner: _RouteRegistrationOwner) -> None:
+    with owner.condition:
+        owner.error = None
+        owner.owner_thread = None
+        owner.state = _ROUTES_READY
+        _mirror_route_owner(owner)
+        owner.condition.notify_all()
+    instance._vibecomfy_routes_registered = True
+
+
+def _bind_startup_audit(instance: Any, owner: _RouteRegistrationOwner) -> None:
+    """Make the existing startup audit the final route-init phase."""
+    app = getattr(instance, "app", None)
+    startup = getattr(app, "on_startup", None)
+    if startup is None or not startup:
+        raise RuntimeError("VibeComfy route registration did not install startup audit")
+    original_audit = startup[-1]
+
+    async def _tracked_audit(startup_app: Any) -> Any:
+        try:
+            result = original_audit(startup_app)
+            if inspect.isawaitable(result):
+                result = await result
+        except BaseException as error:
+            _mark_route_failed(instance, owner, error)
+            raise
+        _mark_route_ready(instance, owner)
+        return result
+
+    startup[-1] = _tracked_audit
+
+
+def _register_routes_once(
+    instance: Any,
+    owner: _RouteRegistrationOwner,
+) -> None:
 
     prior_error = getattr(instance, "_vibecomfy_routes_registration_error", None)
     if getattr(instance, "_vibecomfy_routes_registration_failed", False):
@@ -246,9 +342,12 @@ def _register_routes_once() -> None:
     # so a single marker there prevents duplicate aiohttp routes.
     if getattr(instance, "_vibecomfy_routes_registered", False):
         _LOGGER.info("VibeComfy routes already registered; skipping.")
+        with owner.condition:
+            if owner.state == _ROUTES_UNINITIALIZED:
+                owner.state = _ROUTES_READY
+                _mirror_route_owner(owner)
         return
 
-    instance._vibecomfy_routes_registered = True
     _LOGGER.info("PromptServer imported; registering VibeComfy routes.")
     try:
         from .http_security import (
@@ -279,36 +378,24 @@ def _register_routes_once() -> None:
         from .agent import routes  # noqa: F401
 
         install_http_namespace_middleware(instance)
+        with owner.condition:
+            owner.state = _ROUTES_REGISTERED
+            _mirror_route_owner(owner)
+        _bind_startup_audit(instance, owner)
+        with owner.condition:
+            owner.state = _ROUTES_PENDING_AUDIT
+            _mirror_route_owner(owner)
         _LOGGER.info("VibeComfy routes registered successfully.")
     except BaseException as error:
-        instance._vibecomfy_routes_registration_failed = True
-        instance._vibecomfy_routes_registration_error = error
+        _mark_route_failed(instance, owner, error)
         raise
 
 
 def _ensure_routes_registered() -> None:
     global _route_error, _route_owner_thread, _route_state
     current_thread = threading.get_ident()
-    with _route_condition:
-        while True:
-            if _route_state == _ROUTES_READY:
-                return
-            if _route_state == _ROUTES_FAILED:
-                error = _route_error
-                if error is None:
-                    raise RuntimeError("route registration failed without a diagnostic")
-                raise error
-            if _route_state == _ROUTES_LOADING:
-                if _route_owner_thread == current_thread:
-                    raise RuntimeError("route registration is not reentrant")
-                _route_condition.wait()
-                continue
-            _route_state = _ROUTES_LOADING
-            _route_owner_thread = current_thread
-            break
-
     try:
-        _register_routes_once()
+        instance = _resolve_prompt_server_instance()
     except BaseException as error:
         with _route_condition:
             _route_error = error
@@ -316,12 +403,49 @@ def _ensure_routes_registered() -> None:
             _route_state = _ROUTES_FAILED
             _route_condition.notify_all()
         raise
+    owner = _route_registration_owner(instance)
+    with owner.condition:
+        while True:
+            _mirror_route_owner(owner)
+            if owner.state in {
+                _ROUTES_REGISTERED,
+                _ROUTES_PENDING_AUDIT,
+                _ROUTES_READY,
+            }:
+                return
+            if owner.state == _ROUTES_FAILED:
+                error = owner.error
+                if error is None:
+                    raise RuntimeError("route registration failed without a diagnostic")
+                raise error
+            if owner.state == _ROUTES_LOADING:
+                if owner.owner_thread == current_thread:
+                    raise RuntimeError("route registration is not reentrant")
+                owner.condition.wait()
+                continue
+            owner.state = _ROUTES_LOADING
+            owner.owner_thread = current_thread
+            _mirror_route_owner(owner)
+            break
 
-    with _route_condition:
-        _route_error = None
-        _route_owner_thread = None
-        _route_state = _ROUTES_READY
-        _route_condition.notify_all()
+    try:
+        _register_routes_once(instance, owner)
+    except BaseException as error:
+        if owner.state != _ROUTES_FAILED:
+            _mark_route_failed(instance, owner, error)
+        raise
+
+    with owner.condition:
+        if owner.state == _ROUTES_LOADING:
+            error = RuntimeError(
+                "VibeComfy route registration completed without a startup audit"
+            )
+            _mark_route_failed(instance, owner, error)
+            raise error
+        else:
+            owner.owner_thread = None
+            _mirror_route_owner(owner)
+            owner.condition.notify_all()
 
 
 if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":

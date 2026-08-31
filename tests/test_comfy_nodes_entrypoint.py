@@ -16,11 +16,17 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _reset_route_state(module) -> None:
+def _reset_route_state(module, instance=None) -> None:
     with module._route_condition:
         module._route_state = module._ROUTES_UNINITIALIZED
         module._route_error = None
         module._route_owner_thread = None
+    if instance is not None:
+        owner = module._route_registration_owner(instance)
+        with owner.condition:
+            owner.state = module._ROUTES_UNINITIALIZED
+            owner.error = None
+            owner.owner_thread = None
 
 
 def test_entry_point_resolves_vibecomfy_in_comfyui_group() -> None:
@@ -64,13 +70,21 @@ def test_comfy_nodes_ping_handler_defined_when_server_absent() -> None:
     assert hasattr(mod, "NODE_CLASS_MAPPINGS")
 
 
-def _reload_comfy_nodes_with_fake_server(monkeypatch):
+def _reload_comfy_nodes_with_fake_server(monkeypatch, startup_audit_error=None):
     registered: dict[str, object] = {}
 
     security_module = importlib.import_module("vibecomfy.comfy_nodes.http_security")
     monkeypatch.setattr(security_module, "audit_runtime_route_table", lambda _routes: None)
+    def _install_middleware(server):
+        async def _audit(_app):
+            if startup_audit_error is not None:
+                raise startup_audit_error
+            return None
+
+        server.app.on_startup.append(_audit)
+
     monkeypatch.setattr(
-        security_module, "install_http_namespace_middleware", lambda _server: None
+        security_module, "install_http_namespace_middleware", _install_middleware
     )
 
     class _Routes:
@@ -88,7 +102,8 @@ def _reload_comfy_nodes_with_fake_server(monkeypatch):
     server_module = types.ModuleType("server")
     server_module.PromptServer = types.SimpleNamespace(
         instance=types.SimpleNamespace(
-            routes=_Routes(), app=types.SimpleNamespace(router=_Router())
+            routes=_Routes(),
+            app=types.SimpleNamespace(router=_Router(), on_startup=[]),
         )
     )
     aiohttp_module = types.ModuleType("aiohttp")
@@ -180,7 +195,9 @@ def test_comfy_nodes_info_route_keeps_success_when_git_facts_unavailable(
 
 def test_route_registration_has_one_owner_under_concurrency(monkeypatch) -> None:
     module = importlib.import_module("vibecomfy.comfy_nodes")
-    _reset_route_state(module)
+    instance = types.SimpleNamespace()
+    monkeypatch.setattr(module, "_resolve_prompt_server_instance", lambda: instance)
+    _reset_route_state(module, instance)
     entered = threading.Event()
     release = threading.Event()
     waiter_done = threading.Event()
@@ -188,11 +205,13 @@ def test_route_registration_has_one_owner_under_concurrency(monkeypatch) -> None
     errors: list[BaseException] = []
     results: list[object] = []
 
-    def register_once() -> None:
+    def register_once(_instance, _owner) -> None:
         nonlocal calls
         calls += 1
         entered.set()
         assert release.wait(timeout=5)
+        with _owner.condition:
+            _owner.state = module._ROUTES_READY
 
     def run_registration(done: threading.Event | None = None) -> None:
         try:
@@ -221,6 +240,107 @@ def test_route_registration_has_one_owner_under_concurrency(monkeypatch) -> None
     assert module._route_state == module._ROUTES_READY
 
 
+def test_route_registration_shares_owner_across_alternate_loaders(monkeypatch) -> None:
+    module_path = ROOT / "vibecomfy" / "comfy_nodes" / "__init__.py"
+    aliases = []
+    modules = []
+    for suffix in ("a", "b"):
+        name = f"_vibecomfy_route_loader_{suffix}"
+        spec = importlib.util.spec_from_file_location(name, module_path)
+        assert spec is not None and spec.loader is not None
+        alias = importlib.util.module_from_spec(spec)
+        alias.__package__ = "vibecomfy.comfy_nodes"
+        sys.modules[name] = alias
+        spec.loader.exec_module(alias)
+        aliases.append(name)
+        modules.append(alias)
+
+    try:
+        instance = types.SimpleNamespace()
+        entered = threading.Event()
+        release = threading.Event()
+        waiter_done = threading.Event()
+        calls: list[str] = []
+        errors: list[BaseException] = []
+
+        for alias in modules:
+            monkeypatch.setattr(
+                alias, "_resolve_prompt_server_instance", lambda instance=instance: instance
+            )
+
+        def register_once(_instance, _owner) -> None:
+            calls.append(threading.current_thread().name)
+            entered.set()
+            assert release.wait(timeout=5)
+            with _owner.condition:
+                _owner.state = modules[0]._ROUTES_READY
+
+        for alias in modules:
+            monkeypatch.setattr(alias, "_register_routes_once", register_once)
+
+        def run_registration(alias, done=None) -> None:
+            try:
+                alias._ensure_routes_registered()
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                if done is not None:
+                    done.set()
+
+        owner = threading.Thread(target=run_registration, args=(modules[0],), name="loader-a")
+        waiter = threading.Thread(
+            target=run_registration,
+            args=(modules[1], waiter_done),
+            name="loader-b",
+        )
+        owner.start()
+        assert entered.wait(timeout=5)
+        waiter.start()
+        assert not waiter_done.wait(timeout=0.05)
+        release.set()
+        owner.join(timeout=5)
+        waiter.join(timeout=5)
+
+        assert calls == ["loader-a"]
+        assert errors == []
+        assert modules[0]._route_state == modules[0]._ROUTES_READY
+        assert modules[1]._route_state == modules[1]._ROUTES_READY
+        assert modules[0]._route_registration_owner(instance) is modules[1]._route_registration_owner(instance)
+    finally:
+        for name in aliases:
+            sys.modules.pop(name, None)
+
+
+def test_route_registration_waits_for_startup_audit_before_ready(monkeypatch) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "0")
+    module, _registered = _reload_comfy_nodes_with_fake_server(monkeypatch)
+    instance = module.PromptServer.instance
+
+    assert module._route_state == module._ROUTES_PENDING_AUDIT
+    assert not getattr(instance, "_vibecomfy_routes_registered", False)
+    asyncio.run(instance.app.on_startup[-1](instance.app))
+    assert module._route_state == module._ROUTES_READY
+    assert instance._vibecomfy_routes_registered is True
+
+
+def test_route_registration_startup_audit_failure_is_terminal(monkeypatch) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "0")
+    failure = RuntimeError("synthetic startup audit failure")
+    module, _registered = _reload_comfy_nodes_with_fake_server(
+        monkeypatch, startup_audit_error=failure
+    )
+    instance = module.PromptServer.instance
+
+    assert module._route_state == module._ROUTES_PENDING_AUDIT
+    with pytest.raises(RuntimeError, match="synthetic startup audit failure") as exc_info:
+        asyncio.run(instance.app.on_startup[-1](instance.app))
+    assert exc_info.value is failure
+    assert module._route_state == module._ROUTES_FAILED
+    with pytest.raises(RuntimeError, match="synthetic startup audit failure") as repeated:
+        module._ensure_routes_registered()
+    assert repeated.value is failure
+
+
 @pytest.mark.parametrize(
     "phase",
     [
@@ -235,7 +355,9 @@ def test_route_registration_failure_at_each_phase_is_terminal(
     monkeypatch, phase: str
 ) -> None:
     module = importlib.import_module("vibecomfy.comfy_nodes")
-    _reset_route_state(module)
+    instance = types.SimpleNamespace()
+    monkeypatch.setattr(module, "_resolve_prompt_server_instance", lambda: instance)
+    _reset_route_state(module, instance)
     entered = threading.Event()
     release = threading.Event()
     waiter_done = threading.Event()
@@ -243,7 +365,7 @@ def test_route_registration_failure_at_each_phase_is_terminal(
     calls = 0
     errors: list[BaseException] = []
 
-    def register_once() -> None:
+    def register_once(_instance, _owner) -> None:
         nonlocal calls
         calls += 1
         entered.set()
