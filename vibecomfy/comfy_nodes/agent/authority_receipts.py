@@ -1495,6 +1495,7 @@ def stamp_response_with_authority(
         "accepted_batch_digest": receipt.accepted_batch_digest,
         "cumulative_delta_hash": receipt.cumulative_delta_hash,
         "candidate_hash": receipt.candidate_hash,
+        "authority_receipt_digest": authority_receipt_digest_v2(receipt),
         "schema_witness_hash": receipt.schema_witness_hash,
         "replay_ok": receipt.replay.replay_ok,
         "candidate_matches": receipt.replay.candidate_matches,

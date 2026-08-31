@@ -52,8 +52,8 @@ from vibecomfy.executor.contracts import (
     warning_detail_from_exception,
 )
 from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
-from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
-from vibecomfy.comfy_nodes.agent.session import payload_hash
+from vibecomfy.comfy_nodes.agent.candidate_transaction import candidate_transaction_identities_v2, content_hash
+from vibecomfy.comfy_nodes.agent.session import payload_hash, structural_graph_hash
 from vibecomfy.executor.prompts import (
     build_classify_messages,
     build_reply_messages,
@@ -1343,7 +1343,14 @@ class TestExecutorResult:
         transaction["turn_id"] = "t"
         transaction["candidate_authority"]["session_id"] = "s"
         transaction["candidate_authority"]["turn_id"] = "t"
+        transaction_id, candidate_id = candidate_transaction_identities_v2("s", "t", transaction["plan_hash"])
+        transaction["candidate_authority"]["transaction_id"] = transaction_id
+        transaction["candidate_authority"]["candidate_id"] = candidate_id
         transaction["hashes"]["candidate_graph_hash"] = payload_hash(graph)
+        transaction["hashes"]["candidate_structural_graph_hash"] = structural_graph_hash(graph)
+        transaction["hashes"]["submit_graph_hash"] = "a" * 64
+        transaction["hashes"]["authority_receipt_hash"] = "c" * 64
+        transaction["candidate_authority"]["authority_receipt_digest"] = "c" * 64
         digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": []}))
         payload = normalize_terminal_envelope({
             "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
@@ -1354,6 +1361,7 @@ class TestExecutorResult:
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "layout_structural_noop", "op_count": 0,
             },
+            "workflow_id": "123e4567-e89b-12d3-a456-426614174000",
             "candidate": {"graph": graph}, "candidate_transaction": transaction,
             "outcome": {"kind": "candidate"}, "apply_eligible": True,
         })
@@ -1372,6 +1380,7 @@ class TestExecutorResult:
             "links": [], "groups": [],
         }
         digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": []}))
+        workflow_id = "123e4567-e89b-12d3-a456-426614174000"
 
         def terminal(
             transaction: dict[str, object],
@@ -1386,7 +1395,9 @@ class TestExecutorResult:
                     "candidate_hash": receipt_candidate_hash, "accepted_batch_digest": digest,
                     "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                     "verification_kind": "layout_structural_noop", "op_count": 0,
+                    "authority_receipt_digest": "c" * 64,
                 },
+                "workflow_id": workflow_id,
                 "candidate": {"graph": graph}, "candidate_transaction": transaction,
                 "outcome": {"kind": "candidate"}, "apply_eligible": True,
             })
@@ -1397,7 +1408,14 @@ class TestExecutorResult:
             transaction["turn_id"] = "t"
             transaction["candidate_authority"]["session_id"] = "s"
             transaction["candidate_authority"]["turn_id"] = "t"
+            transaction_id, candidate_id = candidate_transaction_identities_v2("s", "t", transaction["plan_hash"])
+            transaction["candidate_authority"]["transaction_id"] = transaction_id
+            transaction["candidate_authority"]["candidate_id"] = candidate_id
             transaction["hashes"]["candidate_graph_hash"] = payload_hash(graph)
+            transaction["hashes"]["candidate_structural_graph_hash"] = structural_graph_hash(graph)
+            transaction["hashes"]["submit_graph_hash"] = "a" * 64
+            transaction["hashes"]["authority_receipt_hash"] = "c" * 64
+            transaction["candidate_authority"]["authority_receipt_digest"] = "c" * 64
             return transaction
 
         for mutate in (
@@ -1410,6 +1428,18 @@ class TestExecutorResult:
                 tx.update(turn_id="other"),
                 tx["candidate_authority"].update(turn_id="other"),
             ),
+            lambda tx: tx["candidate_authority"].update(candidate_id="forged"),
+            lambda tx: tx["candidate_authority"].update(transaction_id="forged"),
+            lambda tx: tx.update(plan_hash="other-plan"),
+            lambda tx: tx["candidate_authority"].update(plan_hash="other-plan"),
+            lambda tx: tx["candidate_authority"].update(workflow_id="123e4567-e89b-12d3-a456-426614174001"),
+            lambda tx: tx["authority"].update(replay_ok=False),
+            lambda tx: tx["authority"].update(candidate_matches=False),
+            lambda tx: tx["authority"].update(verification_kind="delta_replay"),
+            lambda tx: tx["candidate_authority"].update(authority_receipt_digest="d" * 64),
+            lambda tx: tx["hashes"].update(authority_receipt_hash="d" * 64),
+            lambda tx: tx["hashes"].update(candidate_structural_graph_hash="d" * 64),
+            lambda tx: tx["hashes"].update(submit_graph_hash="d" * 64),
         ):
             transaction = valid_transaction()
             mutate(transaction)
@@ -1436,7 +1466,9 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "layout_structural_noop", "op_count": 0,
+                "authority_receipt_digest": "c" * 64,
             },
+            "workflow_id": workflow_id,
             "candidate": {"graph": graph}, "candidate_transaction": first,
             "candidateTransaction": second, "outcome": {"kind": "candidate"},
             "apply_eligible": True,

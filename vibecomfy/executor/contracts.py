@@ -792,6 +792,10 @@ def _canonical_terminal_aliases(
     if receipt_candidate_hash is not None and receipt_candidate_hash != computed_candidate_hash:
         return False, "candidate_hash_receipt_mismatch", accepted_batch, dict(payload)
 
+    receipt = payload.get("authority_receipt")
+    receipt_values = _receipt_parts(receipt)
+    receipt_summary = receipt_values[0]
+
     eligibility_booleans = (
         "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
         "applyAllowed", "canvasApplyAllowed", "queueAllowed",
@@ -814,6 +818,8 @@ def _canonical_terminal_aliases(
     for transaction in transaction_values:
         hashes = transaction.get("hashes")
         plan = transaction.get("plan")
+        candidate_authority = transaction.get("candidate_authority")
+        authority = transaction.get("authority")
         transaction_hash = hashes.get("candidate_graph_hash") if isinstance(hashes, Mapping) else None
         transaction_batch = plan.get("accepted_batch") if isinstance(plan, Mapping) else None
         if (
@@ -828,6 +834,68 @@ def _canonical_terminal_aliases(
                 expected = _receipt_value(payload.get("authority_receipt"), identity)
             if transaction.get(identity) != expected:
                 return False, f"candidate_transaction_{identity}_mismatch", accepted_batch, dict(payload)
+            if not isinstance(candidate_authority, Mapping) or candidate_authority.get(identity) != transaction.get(identity):
+                return False, f"candidate_authority_{identity}_mismatch", accepted_batch, dict(payload)
+        if (
+            not isinstance(candidate_authority, Mapping)
+            or candidate_authority.get("plan_hash") != transaction.get("plan_hash")
+            or not isinstance(authority, Mapping)
+        ):
+            return False, "candidate_transaction_authority_mismatch", accepted_batch, dict(payload)
+        try:
+            from vibecomfy.comfy_nodes.agent.candidate_transaction import candidate_transaction_identities_v2
+
+            expected_transaction_id, expected_candidate_id = candidate_transaction_identities_v2(
+                transaction.get("session_id"),
+                transaction.get("turn_id"),
+                transaction.get("plan_hash"),
+            )
+        except Exception:  # pragma: no cover - defensive validation boundary
+            return False, "candidate_transaction_identity_unavailable", accepted_batch, dict(payload)
+        if (
+            candidate_authority.get("transaction_id") != expected_transaction_id
+            or candidate_authority.get("candidate_id") != expected_candidate_id
+        ):
+            return False, "candidate_transaction_identity_mismatch", accepted_batch, dict(payload)
+        if receipt_summary is not None:
+            for key in ("replay_ok", "candidate_matches", "verification_kind"):
+                if authority.get(key) != _receipt_value(receipt, key):
+                    return False, f"candidate_transaction_{key}_mismatch", accepted_batch, dict(payload)
+            for key in ("contract_version", "schema_version"):
+                nested_key = "authority_receipt_contract_version" if key == "contract_version" else "authority_receipt_delta_schema"
+                if candidate_authority.get(nested_key) != receipt_summary.get(key):
+                    return False, f"candidate_transaction_receipt_{key}_mismatch", accepted_batch, dict(payload)
+            if candidate_authority.get("operation_family") != (
+                "layout" if _receipt_value(receipt, "verification_kind") == "layout_structural_noop" else "structural"
+            ):
+                return False, "candidate_transaction_operation_family_mismatch", accepted_batch, dict(payload)
+            if hashes.get("submit_graph_hash") != receipt_summary.get("submit_graph_hash"):
+                return False, "candidate_transaction_submit_hash_mismatch", accepted_batch, dict(payload)
+            receipt_digests = [
+                receipt_summary[key]
+                for key in ("authority_receipt_digest", "authority_receipt_hash", "receipt_digest")
+                if key in receipt_summary
+            ]
+            if receipt_digests and any(
+                digest != hashes.get("authority_receipt_hash") for digest in receipt_digests
+            ):
+                return False, "candidate_transaction_receipt_digest_mismatch", accepted_batch, dict(payload)
+        try:
+            from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
+
+            expected_structural_hash = structural_graph_hash(candidate_graph)
+        except Exception:  # pragma: no cover - defensive validation boundary
+            return False, "candidate_structural_hash_unavailable", accepted_batch, dict(payload)
+        if hashes.get("candidate_structural_graph_hash") != expected_structural_hash:
+            return False, "candidate_transaction_structural_hash_mismatch", accepted_batch, dict(payload)
+        if candidate_authority.get("authority_receipt_digest") != hashes.get("authority_receipt_hash"):
+            return False, "candidate_transaction_receipt_digest_mismatch", accepted_batch, dict(payload)
+        for key in ("workflow_id",):
+            expected = payload.get(key)
+            if expected is None and receipt_summary is not None:
+                expected = receipt_summary.get(key)
+            if expected is not None and candidate_authority.get(key) != expected:
+                return False, f"candidate_transaction_{key}_mismatch", accepted_batch, dict(payload)
         if accepted_batch is None:
             accepted_batch = transaction_batch
         elif accepted_batch != transaction_batch:

@@ -44,7 +44,8 @@ import {
   readObligationArtifacts,
   isNonApplyableClarify,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js";
-import { sha256Hex } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import { sha256Hex, sha256HexFromString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import { structuralGraphProjectionJson } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 
 const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
@@ -2704,10 +2705,18 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
     sessionId: "s",
     turnId: "t",
     planHash: "plan-v2",
+    family: "layout",
+    verificationKind: "layout_structural_noop",
   });
+  const identitySeed = "s:t:plan-v2";
+  transaction.candidate_authority.transaction_id = sha256HexFromString(`${identitySeed}:transaction`);
+  transaction.candidate_authority.candidate_id = sha256HexFromString(`${identitySeed}:candidate`);
   transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+  transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+  transaction.hashes.submit_graph_hash = "a".repeat(64);
   const acceptedBatch = [];
   const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
   const normalized = normalizeAgentEditResponse({
     ok: true,
     route: "revise",
@@ -2716,6 +2725,7 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
     turn_id: "t",
     candidate: { graph },
     candidate_transaction: transaction,
+    workflow_id: workflowId,
     outcome: { kind: "candidate" },
     apply_eligible: true,
     authority_receipt: {
@@ -2725,6 +2735,7 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
       turn_id: "t",
       submit_graph_hash: "a".repeat(64),
       candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "c".repeat(64),
       accepted_batch_digest: deltaDigest,
       cumulative_delta_hash: deltaDigest,
       replay_ok: true,
@@ -2742,6 +2753,7 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
 test("browser binds transaction hash and identity and rejects conflicting aliases", () => {
   const graph = { nodes: [], links: [] };
   const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: [] }));
+  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
   const baseReceipt = {
     contract_version: "authority_receipt_v2",
     schema_version: "2.0.0",
@@ -2749,6 +2761,7 @@ test("browser binds transaction hash and identity and rejects conflicting aliase
     turn_id: "t",
     submit_graph_hash: "a".repeat(64),
     candidate_hash: sha256Hex(graph),
+    authority_receipt_digest: "c".repeat(64),
     accepted_batch_digest: deltaDigest,
     cumulative_delta_hash: deltaDigest,
     replay_ok: true,
@@ -2761,8 +2774,15 @@ test("browser binds transaction hash and identity and rejects conflicting aliase
       sessionId: "s",
       turnId: "t",
       planHash: "plan-v2",
+      family: "layout",
+      verificationKind: "layout_structural_noop",
     });
+    const identitySeed = "s:t:plan-v2";
+    transaction.candidate_authority.transaction_id = sha256HexFromString(`${identitySeed}:transaction`);
+    transaction.candidate_authority.candidate_id = sha256HexFromString(`${identitySeed}:candidate`);
     transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+    transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+    transaction.hashes.submit_graph_hash = "a".repeat(64);
     return transaction;
   };
   const normalize = (transaction, aliases = {}, receipt = baseReceipt) => normalizeAgentEditResponse({
@@ -2773,13 +2793,14 @@ test("browser binds transaction hash and identity and rejects conflicting aliase
     turn_id: "t",
     candidate: { graph },
     candidate_transaction: transaction,
+    workflow_id: workflowId,
     outcome: { kind: "candidate" },
     apply_eligible: true,
     authority_receipt: receipt,
     ...aliases,
   });
 
-  for (const mutate of [
+  for (const [index, mutate] of [
     (transaction) => { transaction.hashes.candidate_graph_hash = "f".repeat(64); },
     (transaction) => {
       transaction.session_id = "other";
@@ -2789,13 +2810,25 @@ test("browser binds transaction hash and identity and rejects conflicting aliase
       transaction.turn_id = "other";
       transaction.candidate_authority.turn_id = "other";
     },
-  ]) {
+    (transaction) => { transaction.candidate_authority.candidate_id = "forged"; },
+    (transaction) => { transaction.candidate_authority.transaction_id = "forged"; },
+    (transaction) => { transaction.plan_hash = "other-plan"; },
+    (transaction) => { transaction.candidate_authority.plan_hash = "other-plan"; },
+    (transaction) => { transaction.candidate_authority.workflow_id = "123e4567-e89b-12d3-a456-426614174001"; },
+    (transaction) => { transaction.authority.replay_ok = false; },
+    (transaction) => { transaction.authority.candidate_matches = false; },
+    (transaction) => { transaction.authority.verification_kind = "delta_replay"; },
+    (transaction) => { transaction.candidate_authority.authority_receipt_digest = "d".repeat(64); },
+    (transaction) => { transaction.hashes.authority_receipt_hash = "d".repeat(64); },
+    (transaction) => { transaction.hashes.candidate_structural_graph_hash = "d".repeat(64); },
+    (transaction) => { transaction.hashes.submit_graph_hash = "d".repeat(64); },
+  ].entries()) {
     const transaction = validTransaction();
     mutate(transaction);
     const normalized = normalize(transaction);
-    assert.equal(normalized.terminalState, "undetermined");
-    assert.equal(normalized.candidateGraph, null);
-    assert.equal(normalized.applyEligible, false);
+    assert.equal(normalized.terminalState, "undetermined", `mutation ${index}`);
+    assert.equal(normalized.candidateGraph, null, `mutation ${index}`);
+    assert.equal(normalized.applyEligible, false, `mutation ${index}`);
   }
 
   const receiptMismatch = normalize(validTransaction(), {}, {
@@ -2807,12 +2840,12 @@ test("browser binds transaction hash and identity and rejects conflicting aliase
   assert.equal(receiptMismatch.applyEligible, false);
 
   const first = validTransaction();
-  const second = makeValidCandidateTransactionV2({
-    sessionId: "s",
-    turnId: "t",
-    planHash: "other-plan",
-  });
-  second.hashes.candidate_graph_hash = sha256Hex(graph);
+  const second = structuredClone(first);
+  second.plan_hash = "other-plan";
+  second.candidate_authority.plan_hash = "other-plan";
+  const otherIdentitySeed = "s:t:other-plan";
+  second.candidate_authority.transaction_id = sha256HexFromString(`${otherIdentitySeed}:transaction`);
+  second.candidate_authority.candidate_id = sha256HexFromString(`${otherIdentitySeed}:candidate`);
   const conflicting = normalize(first, {
     candidate_transaction: first,
     candidateTransaction: second,

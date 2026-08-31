@@ -716,11 +716,58 @@ function canonicalTerminalAliases(raw, candidateGraph) {
     }
   }
   for (const transaction of transactionValues) {
+    const candidateAuthority = transaction.candidate_authority;
+    const authority = transaction.authority;
     for (const identity of ["session_id", "turn_id"]) {
       const expected = raw[identity] ?? raw.authority_receipt?.[identity];
-      if (transaction[identity] !== expected) {
+      if (transaction[identity] !== expected || !isObject(candidateAuthority)
+        || candidateAuthority[identity] !== transaction[identity]) {
         return { valid: false, reason: `candidate_transaction_${identity}_mismatch`, acceptedBatch, raw };
       }
+    }
+    if (!isObject(candidateAuthority) || !isObject(authority)
+      || candidateAuthority.plan_hash !== transaction.plan_hash) {
+      return { valid: false, reason: "candidate_transaction_authority_mismatch", acceptedBatch, raw };
+    }
+    const identitySeed = `${transaction.session_id}:${transaction.turn_id}:${transaction.plan_hash}`;
+    const expectedTransactionId = sha256HexFromString(`${identitySeed}:transaction`);
+    const expectedCandidateId = sha256HexFromString(`${identitySeed}:candidate`);
+    if (candidateAuthority.transaction_id !== expectedTransactionId
+      || candidateAuthority.candidate_id !== expectedCandidateId) {
+      return { valid: false, reason: "candidate_transaction_identity_mismatch", acceptedBatch, raw };
+    }
+    const receipt = raw.authority_receipt;
+    if (isObject(receipt)) {
+      for (const key of ["replay_ok", "candidate_matches", "verification_kind"]) {
+        if (authority[key] !== receipt[key]) {
+          return { valid: false, reason: `candidate_transaction_${key}_mismatch`, acceptedBatch, raw };
+        }
+      }
+      if (candidateAuthority.authority_receipt_contract_version !== receipt.contract_version
+        || candidateAuthority.authority_receipt_delta_schema !== receipt.schema_version) {
+        return { valid: false, reason: "candidate_transaction_receipt_contract_mismatch", acceptedBatch, raw };
+      }
+      const expectedFamily = receipt.verification_kind === "layout_structural_noop" ? "layout" : "structural";
+      if (candidateAuthority.operation_family !== expectedFamily
+        || transaction.hashes?.submit_graph_hash !== receipt.submit_graph_hash) {
+        return { valid: false, reason: "candidate_transaction_receipt_binding_mismatch", acceptedBatch, raw };
+      }
+      const receiptDigest = receipt.authority_receipt_digest
+        ?? receipt.authority_receipt_hash
+        ?? receipt.receipt_digest;
+      if (receiptDigest != null && transaction.hashes?.authority_receipt_hash !== receiptDigest) {
+        return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
+      }
+      const expectedWorkflowId = raw.workflow_id ?? receipt.workflow_id;
+      if (expectedWorkflowId != null && candidateAuthority.workflow_id !== expectedWorkflowId) {
+        return { valid: false, reason: "candidate_transaction_workflow_id_mismatch", acceptedBatch, raw };
+      }
+    }
+    if (transaction.hashes?.candidate_structural_graph_hash !== structuralGraphHash(candidateGraph)) {
+      return { valid: false, reason: "candidate_transaction_structural_hash_mismatch", acceptedBatch, raw };
+    }
+    if (candidateAuthority.authority_receipt_digest !== transaction.hashes?.authority_receipt_hash) {
+      return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
     }
     const transactionBatch = transaction?.plan?.accepted_batch;
     if (!Array.isArray(transactionBatch)) {
