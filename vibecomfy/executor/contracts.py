@@ -617,7 +617,7 @@ _ALLOWED_TASKS = frozenset({
 _ROUTE_DESCRIPTIONS: dict[str, str] = {
     "clarify": "ask a clarifying question when load-bearing information is missing.",
     "respond": "answer directly from existing context without research or editing.",
-    "inspect": "explain or analyze the current graph without outside research or editing.",
+    "inspect": "explain or analyze the current graph without editing; a declared answer-only lane may gather bounded evidence.",
     "research": "research workflows, nodes, or techniques, then answer without editing.",
     "requires_custom_nodes": "return that the requested edit cannot be safely authored from current evidence without applying graph changes.",
     "revise": "edit the current graph using local context only.",
@@ -862,7 +862,9 @@ class ClassifyDecision:
         route_booleans = {
             "clarify": (False, False),
             "respond": (False, False),
-            "inspect": (False, False),
+            # Inspect is always non-editing, but an explicitly declared
+            # answer-only lane may carry bounded research affordance.
+            "inspect": (self.research, False),
             "research": (True, False),
             "revise": (False, True),
             "adapt": (True, True),

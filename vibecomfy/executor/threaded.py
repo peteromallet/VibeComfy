@@ -96,6 +96,10 @@ class ThreadedKernel:
     implementation_landed_edit: Callable[[ImplementationResult | None], bool]
     no_candidate_reason: Callable[[ImplementationResult | None], str | None]
     run_inspect_reply: Callable[..., str] | None = None
+    # Optional bounded research callback for answer-only turns.  Keeping it
+    # optional preserves lightweight injected kernels and makes the no-edit
+    # contract independent of research availability.
+    run_research: Callable[..., Any] | None = None
 
 
 _LOOKUP_UNAVAILABLE = object()
@@ -190,7 +194,10 @@ def _open_adapt_plan(request: ExecutorRequest) -> ClassifyDecision:
 
 def _inspect_answer_plan(request: ExecutorRequest) -> ClassifyDecision:
     return ClassifyDecision(
-        research=False,
+        # answer_only forbids mutation, not evidence gathering.  The caller's
+        # declared lane therefore gets a bounded research opportunity while
+        # remaining non-editing.
+        research=True,
         implement=False,
         reply=True,
         route="inspect",
@@ -200,8 +207,9 @@ def _inspect_answer_plan(request: ExecutorRequest) -> ClassifyDecision:
         plan_summary=(
             "Declared answer-only interaction (interaction_mode="
             "answer_only): answer the user without producing a graph "
-            "edit. Inspect the attached graph, cite what is actually "
-            "there, and respond; no implement phase will run. "
+            "edit. Inspect the attached graph, optionally gather bounded "
+            "evidence when useful, cite what is actually there, and respond; "
+            "no implement phase will run. "
             + _graph_attached_note(request)
         ),
         research_goal=request.query,
@@ -216,7 +224,8 @@ def coerce_declared_interaction_lane(
     """Honor caller-declared interaction contracts without query-text inference.
 
     Typed refusal stays implement-capable even under ``answer_only``.
-    Bare ``answer_only`` explain/advice turns take the inspect lane.
+    Bare ``answer_only`` explain/advice turns take the non-editing inspect
+    lane, which may run bounded research.
     Staged diagnostics classified as bare ``respond`` under ``answer_only``
     are lifted to inspect.
     """
@@ -498,6 +507,7 @@ def run_threaded_executor(
         )
         return Report(
             plan=plan,
+            research=research_result,
             implementation=implementation,
             deepseek_usage=usage,
             deepseek_est_cost_usd=est_cost,
@@ -521,9 +531,13 @@ def run_threaded_executor(
         return result
 
     inspect_only = plan.effective_route == "inspect"
+    research_result: Any = None
     phase = "reply" if inspect_only else "execute"
     try:
-        spec = kernel.resolve_spec(request.profile, phase)
+        spec = kernel.resolve_spec(
+            request.profile,
+            "research" if inspect_only and plan.research and kernel.run_research else phase,
+        )
     except Exception as exc:
         failure = host_ports.classify_failure("profile", exc)
         return finish(ExecutorResult.failure(
@@ -534,6 +548,55 @@ def run_threaded_executor(
         ))
 
     bounded_request, _budget = _bounded_request(request)
+    if inspect_only and plan.research and kernel.run_research is not None:
+        kernel.emit_phase(
+            bounded_request,
+            executor_id=executor_id,
+            phase="research",
+            status="start",
+            client_id=client_id,
+        )
+        try:
+            research_result = kernel.run_research(
+                bounded_request,
+                spec,
+                plan=plan,
+            )
+        except Exception as exc:
+            kernel.emit_phase(
+                bounded_request,
+                executor_id=executor_id,
+                phase="research",
+                status="error",
+                client_id=client_id,
+            )
+            failure_kind = str(getattr(exc, "failure_kind", "ValidationError"))
+            return finish(ExecutorResult.failure(
+                kind=failure_kind,
+                stage="research",
+                message=str(exc),
+                report=build_report(),
+            ))
+        kernel.emit_phase(
+            bounded_request,
+            executor_id=executor_id,
+            phase="research",
+            status="done",
+            client_id=client_id,
+        )
+        # Research and reply use distinct profile stages.  Resolve the reply
+        # selector only after research has completed so the bounded callback
+        # cannot accidentally consume the reply provider configuration.
+        try:
+            spec = kernel.resolve_spec(request.profile, "reply")
+        except Exception as exc:
+            failure = host_ports.classify_failure("profile", exc)
+            return finish(ExecutorResult.failure(
+                kind=_failure_kind(failure),
+                stage="profile",
+                message=str(getattr(failure, "user_facing_message", exc)),
+                report=build_report(),
+            ))
     kernel.emit_phase(
         bounded_request,
         executor_id=executor_id,
@@ -555,6 +618,7 @@ def run_threaded_executor(
                 spec,
                 plan=plan,
                 host_ports=host_ports,
+                research_result=research_result,
             )
         except Exception as exc:
             kernel.emit_phase(

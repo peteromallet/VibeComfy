@@ -29,6 +29,10 @@ class WidgetEvidence:
     index: int
     value: Any
     name: str | None = None
+    # Schema-resolved kind (int/float/string/bool/enum/unknown).  ``None``
+    # means the field itself is not authoritative; callers must not promote an
+    # opaque positional widget into a named setting.
+    field_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,32 @@ class NodeEvidence:
         object.__setattr__(self, "input_slots", tuple(self.input_slots))
         object.__setattr__(self, "output_slots", tuple(self.output_slots))
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "class_type": self.class_type,
+            "title": self.title,
+            "type_name": self.type_name,
+            "mode": self.mode,
+            "widgets": [
+                {
+                    "field": widget.name,
+                    "type": widget.field_type or "unknown",
+                    "widget_index": widget.index,
+                    "value": widget.value,
+                }
+                for widget in self.widgets
+            ],
+            "input_slots": [
+                {"name": slot.name, "link_id": slot.link_id}
+                for slot in self.input_slots
+            ],
+            "output_slots": [
+                {"name": slot.name, "link_ids": list(slot.link_ids)}
+                for slot in self.output_slots
+            ],
+        }
+
 
 @dataclass(frozen=True)
 class EdgeEvidence:
@@ -95,6 +125,24 @@ class GraphEvidence:
     def __post_init__(self) -> None:
         object.__setattr__(self, "nodes", tuple(self.nodes))
         object.__setattr__(self, "edges", tuple(self.edges))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the exact structured facts safe to hand to a reply model."""
+        return {
+            "node_count": self.node_count,
+            "nodes": [node.to_dict() for node in self.nodes],
+            "edges": [
+                {
+                    "link_id": edge.link_id,
+                    "origin_node": edge.origin_node,
+                    "origin_slot": edge.origin_slot,
+                    "target_node": edge.target_node,
+                    "target_slot": edge.target_slot,
+                    "link_type": edge.link_type,
+                }
+                for edge in self.edges
+            ],
+        }
 
 
 # ── link normalisation ───────────────────────────────────────────────────────
@@ -273,6 +321,17 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
             return None
         return name
 
+    field_types: dict[int, str] = {}
+    try:
+        from vibecomfy.porting.widgets.settings_contract import node_settings_for
+
+        settings = node_settings_for(node)
+        field_types = {field.slot_index: field.kind for field in settings.fields}
+    except Exception:
+        # Missing schema is itself meaningful; retain values as unknown rather
+        # than guessing a type from their Python representation.
+        field_types = {}
+
     raw = node.raw_widgets
     values = getattr(raw, "values", None)
     resolution = compact_widget_names_for_node(node)
@@ -284,6 +343,7 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
                     resolution.names[index] if index < len(resolution.names) else None
                 ),
                 value=value,
+                field_type=field_types.get(index),
             )
             for index, value in enumerate(values)
         )
@@ -303,6 +363,7 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
                     index=index,
                     name=_named_or_none(resolved_name),
                     value=widgets[name],
+                    field_type=field_types.get(index),
                 )
             )
     inputs = node.inputs
@@ -312,7 +373,14 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
             value = inputs[name]
             if isinstance(value, (dict, list, tuple)):
                 continue
-            named.append(WidgetEvidence(index=base + offset, name=str(name), value=value))
+            named.append(
+                WidgetEvidence(
+                    index=base + offset,
+                    name=str(name),
+                    value=value,
+                    field_type=field_types.get(base + offset),
+                )
+            )
     return tuple(named)
 
 
@@ -1004,7 +1072,10 @@ def _render_key_nodes_section(
             widget_strs: list[str] = []
             for w in node.widgets:
                 if w.name:
-                    widget_strs.append(f"{w.name}={_format_widget_value(w.value)}")
+                    type_note = f" [type={w.field_type or 'unknown'}, widget_index={w.index}]"
+                    widget_strs.append(
+                        f"{w.name}={_format_widget_value(w.value)}{type_note}"
+                    )
                 else:
                     widget_strs.append(
                         f"widget_{w.index}={_format_opaque_value(w.value)}"

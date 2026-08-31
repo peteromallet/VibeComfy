@@ -183,6 +183,10 @@ class EvidenceLedgerEntry:
     evidence_ids: tuple[str, ...]
     uncertainty: str
     tool_status: str | None = None
+    # Claim-scoped attribution.  Keys are short, human-readable claim labels
+    # and values are the durable artifact ids that support each claim.  This
+    # is additive so old ledgers keep their byte-compatible shape.
+    claim_provenance: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.tool_status is not None:
@@ -215,6 +219,15 @@ class EvidenceLedgerEntry:
                 allow_empty=True,
             ),
         )
+        if not isinstance(self.claim_provenance, Mapping):
+            raise ValueError("`claim_provenance` must be an object.")
+        provenance: dict[str, tuple[str, ...]] = {}
+        for claim, evidence_ids in self.claim_provenance.items():
+            claim_text = _required_text(claim, "claim_provenance key")
+            provenance[claim_text] = _text_tuple(
+                evidence_ids, f"claim_provenance[{claim_text!r}]"
+            )
+        object.__setattr__(self, "claim_provenance", MappingProxyType(provenance))
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -227,6 +240,11 @@ class EvidenceLedgerEntry:
         # keep the exact legacy serialized shape.
         if self.tool_status is not None:
             payload["tool_status"] = self.tool_status
+        if self.claim_provenance:
+            payload["claim_provenance"] = {
+                claim: list(evidence_ids)
+                for claim, evidence_ids in self.claim_provenance.items()
+            }
         return payload
 
     @classmethod
@@ -236,7 +254,7 @@ class EvidenceLedgerEntry:
         _check_keys(
             payload,
             required=frozenset({"decision", "conclusion", "evidence_ids", "uncertainty"}),
-            optional=frozenset({"tool_status"}),
+            optional=frozenset({"tool_status", "claim_provenance"}),
             contract="EvidenceLedgerEntry",
         )
         return cls(
@@ -245,6 +263,7 @@ class EvidenceLedgerEntry:
             evidence_ids=payload["evidence_ids"],
             uncertainty=payload["uncertainty"],
             tool_status=payload.get("tool_status"),
+            claim_provenance=payload.get("claim_provenance", {}),
         )
 
 
@@ -266,11 +285,27 @@ class EvidenceLedger:
 
     @property
     def evidence_ids(self) -> tuple[str, ...]:
-        return tuple(
+        direct = tuple(
             evidence_id
             for entry in self.entries
             for evidence_id in entry.evidence_ids
         )
+        attributed = tuple(
+            evidence_id
+            for entry in self.entries
+            for evidence_ids in entry.claim_provenance.values()
+            for evidence_id in evidence_ids
+        )
+        return direct + attributed
+
+    @property
+    def claim_provenance(self) -> dict[str, tuple[str, ...]]:
+        """Return claim labels mapped to their durable supporting artifacts."""
+        result: dict[str, tuple[str, ...]] = {}
+        for entry in self.entries:
+            for claim, evidence_ids in entry.claim_provenance.items():
+                result[claim] = evidence_ids
+        return result
 
     def validate_references(self, available_evidence_ids: set[str] | frozenset[str]) -> None:
         unresolved = sorted(set(self.evidence_ids) - set(available_evidence_ids))
@@ -342,10 +377,36 @@ def project_ledger_for_prompt(
     result: dict[str, Any] = {"entries": projected}
     # Keep the newest entries when the projection still exceeds its byte/char
     # budget.  No artifact body is consulted or serialized here.
+    newest_before_trim = projected[-1] if projected else None
+    truncated = False
     while projected and len(canonical_json(result)) > max_chars:
         projected.pop(0)
-    if len(canonical_json(result)) > max_chars:
-        return {"entries": []}
+        truncated = True
+    if len(canonical_json(result)) > max_chars or (
+        not projected and newest_before_trim is not None and truncated
+    ):
+        # A very small caller budget must not erase the evidence ledger. Keep
+        # the newest entry and resynthesise its fields into a minimal bounded
+        # record.  Artifact bodies remain durable in the pack; this is only a
+        # prompt projection.
+        newest = projected[-1] if projected else (newest_before_trim or {
+            "decision": "evidence_overflow",
+            "conclusion": "Evidence retained in durable artifacts.",
+            "evidence_ids": [],
+        })
+        minimal: dict[str, Any] = {
+            "decision": str(newest.get("decision") or "evidence_overflow")[:32],
+            "conclusion": "Evidence retained in durable artifacts.",
+            "evidence_ids": list(newest.get("evidence_ids") or [])[:1],
+        }
+        # A 1-character bound cannot hold a valid JSON object; return the
+        # smallest honest projection available instead of pretending the
+        # ledger was empty. Normal production bounds are ample for this.
+        result = {"entries": [minimal], "truncated": True}
+        if len(canonical_json(result)) > max_chars:
+            result = {"entries": [minimal]}
+    elif truncated:
+        result["truncated"] = True
     return result
 
 

@@ -521,9 +521,10 @@ _REPLY_SYSTEM = (
     "Route-aware behavior: for route=\"clarify\", ask the clarifying question "
     "plainly and do not imply work has run; for route=\"respond\", answer from "
     "existing context only; for route=\"inspect\", explain the current graph "
-    "from inspection evidence only; for route=\"research\", answer from the "
-    "supplied research memo plus the attached graph and your own knowledge "
-    "without implying an edit; for route=\"revise\", describe the concrete "
+    "from inspection evidence and any supplied bounded research evidence; for "
+    "route=\"research\", answer from the supplied research memo plus the "
+    "attached graph, and clearly label any general-knowledge context as "
+    "unverified; without implying an edit; for route=\"revise\", describe the concrete "
     "graph edit; for route=\"reorganise\", describe the layout cleanup without "
     "implying semantic workflow changes; for route=\"adapt\", explain how the "
     "researched precedent informed the edit (or, when no edit was made, why "
@@ -534,7 +535,8 @@ _REPLY_SYSTEM = (
     "that are absent from that memo, and never relay the memo verbatim — "
     "answer the user's question in your own words. When the memo records no "
     "external evidence (research_attempt=never/empty), answer directly from "
-    "the attached workflow graph and general knowledge — the reply must "
+    "the attached workflow graph; optional general-knowledge context must be "
+    "clearly labeled unverified — the reply must "
     "NEVER say that no supported conclusion was produced.\n"
     "- When a research memo includes durable trace fields, interpret them "
     "literally: research_status=exhausted means the agent stopped before a "
@@ -592,8 +594,8 @@ _REPLY_SYSTEM = (
     "outcome never gates the reply: when research gathered no evidence "
     "(research_attempt=never/empty) or only search-hit leads "
     "(research_attempt=thin), answer from the attached workflow graph and "
-    "your own knowledge, and say plainly that outside sources were not found "
-    "rather than presenting non-results as findings.\n"
+    "label any additional general knowledge as unverified; say plainly that "
+    "outside sources were not found rather than presenting non-results as findings.\n"
     "- When research produced zero on-topic evidence (for example Hivemind "
     "returned off-topic or failed results), say so explicitly in the reply "
     "instead of presenting those non-results as findings; make claims only "
@@ -621,6 +623,8 @@ def build_reply_messages(
     candidate_present: bool = False,
     interaction_mode: str | None = None,
     research_attempt: str | None = None,
+    graph_facts: Mapping[str, Any] | None = None,
+    claim_provenance: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the reply phase.
 
@@ -672,6 +676,13 @@ def build_reply_messages(
     if effective_route:
         parts.append(f"\nActive route: {effective_route}"
                      + (f", task: {effective_task}" if effective_task else ""))
+    if graph_facts:
+        parts.append(
+            "\nExact graph facts (authoritative structured evidence; every "
+            "connectivity claim must resolve to a listed link_id and every "
+            "setting claim to a listed field/type/widget_index):\n"
+            + json.dumps(graph_facts, sort_keys=True)
+        )
     if plan is not None:
         parts.append(f"\nExecutor plan: {plan.plan_summary or 'completed'}")
     if interaction_mode == "answer_only":
@@ -705,6 +716,12 @@ def build_reply_messages(
                 project_ledger_for_prompt(research_ledger),
                 sort_keys=True,
             )
+        )
+    if claim_provenance:
+        parts.append(
+            "\nClaim provenance (each claim label maps to resolvable evidence "
+            "artifact IDs; do not cite anything else):\n"
+            + json.dumps(claim_provenance, sort_keys=True)
         )
     if research_summary:
         parts.append(f"\nResearch findings: {research_summary}")

@@ -910,6 +910,8 @@ def build_agent_research_messages(
         "the tradeoffs you weighed.\n"
         "- On research-only routes, your synthesis becomes the user-facing "
         "answer.\n"
+        "- On answer-only inspect routes, your synthesis is optional context "
+        "for the no-edit reply; it never authorizes a graph mutation.\n"
         "Rules:\n"
         "- Call a tool to gather evidence; the tool result will be returned in "
         "the next digest. Choose the query and the tool yourself.\n"
@@ -946,7 +948,9 @@ def build_agent_research_messages(
         '{"action": "call", "tool": "<name>", "args": {<tool arguments>}} — '
         "gather more evidence, or\n"
         '{"action": "finish", "conclusion": string, "evidence_ids": [string, ...], '
-        '"uncertainty": string} — the evidence answers the question.'
+        '"uncertainty": string, "claim_provenance": {claim: [evidence_id, ...]} } '
+        '— the evidence answers the question. Claim provenance is optional; '
+        'when present every id must be returned by a tool.'
     )
     user_lines = [
         f"Research question: {question}",
@@ -1878,6 +1882,30 @@ def run_agent_research_stage(
                 agent_finished = True
                 conclusion = _clean_text(decision.get("conclusion"))
                 uncertainty = _clean_text(decision.get("uncertainty"))
+                claim_provenance: dict[str, tuple[str, ...]] = {}
+                raw_provenance = decision.get("claim_provenance")
+                if isinstance(raw_provenance, Mapping):
+                    for raw_claim, raw_ids in raw_provenance.items():
+                        if not isinstance(raw_claim, str) or not raw_claim.strip():
+                            continue
+                        resolved_ids: list[str] = []
+                        if isinstance(raw_ids, (list, tuple)):
+                            for raw_id in raw_ids:
+                                candidate_id = str(raw_id)
+                                if candidate_id in artifacts:
+                                    resolved_ids.append(candidate_id)
+                                elif candidate_id.startswith(_HIVEMIND_EVIDENCE_ID_PREFIX):
+                                    alias = "hivemind_get:" + candidate_id.removeprefix(
+                                        _HIVEMIND_EVIDENCE_ID_PREFIX
+                                    )
+                                    if alias in artifacts:
+                                        resolved_ids.append(alias)
+                        if resolved_ids:
+                            claim_provenance[raw_claim.strip()] = tuple(
+                                dict.fromkeys(resolved_ids)
+                            )
+                if not claim_provenance and cited:
+                    claim_provenance = {"conclusion": cited}
                 refine_question = decision.get("refine_question")
                 refine_question_text = _clean_text(refine_question)
                 enough = not bool(refine_question_text)
@@ -1888,6 +1916,7 @@ def run_agent_research_stage(
                         conclusion=conclusion or "synthesis produced no conclusion",
                         evidence_ids=cited,
                         uncertainty=uncertainty,
+                        claim_provenance=claim_provenance,
                     )
                 )
                 _add_entry(
@@ -1915,6 +1944,10 @@ def run_agent_research_stage(
                             "conclusion": conclusion,
                             "evidence_ids": list(cited),
                             "uncertainty": uncertainty,
+                            "claim_provenance": {
+                                claim: list(ids)
+                                for claim, ids in claim_provenance.items()
+                            },
                             "enough": enough,
                             "refine_question": refine_question_text or None,
                         },

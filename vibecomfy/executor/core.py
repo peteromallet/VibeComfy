@@ -18,7 +18,7 @@ import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 from vibecomfy.executor.profiler import (
@@ -241,7 +241,7 @@ _ROUTE_BEHAVIORS = MappingProxyType({
         route="inspect",
         needs_research=False,
         needs_implement=False,
-        plan_summary="Inspect the graph without editing or outside research.",
+        plan_summary="Inspect the graph without editing; declared answer-only turns may gather bounded research.",
         clears_result_graph=True,
         reply_uses_graph_inspection=True,
         can_produce_candidate=False,
@@ -319,7 +319,13 @@ def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
 
 def _should_research(plan: ClassifyDecision) -> bool:
     """Determine if the research phase should run for *plan*."""
-    return _route_behavior(plan).needs_research
+    behavior = _route_behavior(plan)
+    # answer_only's inspect lane can request bounded evidence while retaining
+    # its no-edit route.  Ordinary classifier-selected inspect plans remain
+    # research-free unless they explicitly carry this capability.
+    return behavior.needs_research or (
+        behavior.route == "inspect" and bool(plan.research)
+    )
 
 
 def _should_implement(plan: ClassifyDecision) -> bool:
@@ -935,6 +941,11 @@ class AgentResearchResult:
         return self.trace.summary
 
     @property
+    def claim_provenance(self) -> dict[str, tuple[str, ...]]:
+        """Claim-scoped artifact ids for the reply handoff."""
+        return self.ledger.claim_provenance
+
+    @property
     def research_attempt(self) -> str:
         """Typed attempt (never/empty/thin/grounded) derived from the ledger.
 
@@ -995,6 +1006,10 @@ class AgentResearchResult:
         # field the threaded carrier exposes (entries are tiny judgments; no
         # source bodies, iterations, or artifact packs).
         payload["ledger"] = self.ledger.to_dict()
+        if self.claim_provenance:
+            payload["claim_provenance"] = {
+                claim: list(ids) for claim, ids in self.claim_provenance.items()
+            }
         return payload
 
 def _source_policy_entries(
@@ -1015,6 +1030,7 @@ def _research_decision_memo(
     diagnostics: tuple[dict[str, Any], ...],
     attempt: str = RESEARCH_ATTEMPT_NEVER,
     artifacts: Mapping[str, Any] | None = None,
+    claim_provenance: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     inspected = [
         evidence_id
@@ -1036,18 +1052,20 @@ def _research_decision_memo(
     if attempt == RESEARCH_ATTEMPT_NEVER:
         conclusion = (
             "No evidence tools were called; no external evidence was gathered. "
-            "Answer from the attached workflow graph and general knowledge."
+            "Answer from the attached workflow graph; label any general knowledge "
+            "as unverified."
         )
     elif attempt == RESEARCH_ATTEMPT_EMPTY:
         conclusion = (
             "Evidence tools were called but returned no evidence; no external "
-            "evidence was gathered. Answer from the attached workflow graph "
-            "and general knowledge."
+            "evidence was gathered. Answer from the attached workflow graph; "
+            "label any general knowledge as unverified."
         )
     else:
         conclusion = trace.summary or (
             "No external evidence was gathered by the research stage; "
-            "answer from the attached workflow graph and general knowledge."
+            "answer from the attached workflow graph and label any general "
+            "knowledge as unverified."
         )
     warning_lines = list(trace.warnings)
     evidence_preview = _research_evidence_preview(
@@ -1066,8 +1084,8 @@ def _research_decision_memo(
                 RESEARCH_ATTEMPT_GROUNDED,
             }
             else (
-                "Answer from the attached graph and general knowledge; "
-                "no external evidence was gathered."
+                "Answer from the attached graph; label any general knowledge "
+                "as unverified; no external evidence was gathered."
                 if attempt in {RESEARCH_ATTEMPT_NEVER, RESEARCH_ATTEMPT_EMPTY}
                 else "Refine the unresolved research question before acting on this conclusion."
             )
@@ -1077,7 +1095,16 @@ def _research_decision_memo(
         "tool_calls_executed": trace.executed_tool_calls,
         "evidence_artifacts": trace.evidence_artifact_count,
         "evidence_preview": evidence_preview,
+        # Keep the claim-to-artifact relation alongside the flat citation list
+        # so the reply can resolve exactly which fetched record supports a
+        # material statement.
     }
+    if claim_provenance:
+        memo["claim_provenance"] = {
+            str(claim): list(ids) for claim, ids in claim_provenance.items()
+        }
+    elif trace.citations:
+        memo["claim_provenance"] = {"conclusion": list(trace.citations)}
     # R4d: a FAILED stage (e.g. an unparseable model decision) must expose the
     # actual error so the reply stage reports the real cause — never a
     # fabricated "ran out of time" (observed: malformed decision ValueError,
@@ -1317,38 +1344,40 @@ def _run_agent_owned_research(
     research_kwargs: dict[str, float] = {}
     if deadline_seconds is not None:
         research_kwargs["deadline_seconds"] = deadline_seconds
-    try:
-        trace, pack = run_agent_research_stage(
-            route=route,
-            question=question,
-            research_brief=brief,
-            spec=spec,
-            session_id=request.session_id,
-            request_identity=research_request_identity,
-            baseline_identity=research_baseline_identity,
-            **research_kwargs,
-        )
-    except TypeError as exc:
-        # Keep injected/legacy stage doubles source-compatible while the
-        # production stage receives its explicit deadline telemetry.
-        message = str(exc)
-        optional_research_keys = (
-            "deadline_seconds",
-            "session_id",
-            "request_identity",
-            "baseline_identity",
-        )
-        if not any(key in message for key in optional_research_keys):
-            raise
-        retry_kwargs: dict[str, Any] = {
-            "route": route,
-            "question": question,
-            "research_brief": brief,
-            "spec": spec,
-        }
-        if "deadline_seconds" not in message:
-            retry_kwargs.update(research_kwargs)
-        trace, pack = run_agent_research_stage(**retry_kwargs)
+    # Keep injected/legacy stage doubles source-compatible while the
+    # production stage receives its identity/deadline telemetry.  Remove only
+    # the optional key named by the TypeError, retrying until the double's
+    # supported surface is reached; never swallow a TypeError from inside the
+    # actual research stage.
+    research_call_kwargs: dict[str, Any] = {
+        "route": route,
+        "question": question,
+        "research_brief": brief,
+        "spec": spec,
+        "session_id": request.session_id,
+        "request_identity": research_request_identity,
+        "baseline_identity": research_baseline_identity,
+        **research_kwargs,
+    }
+    optional_research_keys = (
+        "deadline_seconds",
+        "session_id",
+        "request_identity",
+        "baseline_identity",
+    )
+    while True:
+        try:
+            trace, pack = run_agent_research_stage(**research_call_kwargs)
+            break
+        except TypeError as exc:
+            message = str(exc)
+            rejected_key = next(
+                (key for key in optional_research_keys if key in research_call_kwargs and key in message),
+                None,
+            )
+            if rejected_key is None:
+                raise
+            research_call_kwargs.pop(rejected_key, None)
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
         pack = EvidencePack(
@@ -1362,8 +1391,9 @@ def _run_agent_owned_research(
             diagnostics=diagnostics,
             attempt=attempt,
             artifacts=pack.artifacts,
+            claim_provenance=pack.ledger.claim_provenance,
         )
-        if route == "research"
+        if route in {"research", "inspect"}
         else None
     )
     return AgentResearchResult(
@@ -2689,6 +2719,15 @@ def _run_reply(
         if route_behavior.reply_uses_graph_inspection
         else _render_graph_text(effective_graph, delta=delta_ops)
     )
+    graph_facts: Mapping[str, Any] | None = None
+    if effective_graph is not None:
+        try:
+            graph_facts = inspect_graph(effective_graph).to_dict()
+        except Exception:
+            # The rendered inspection remains the fallback; never let an
+            # optional evidence projection turn a valid no-edit reply into a
+            # failure.
+            graph_facts = None
 
     effective_route = _canonical_route_for_plan(plan)
     effective_task = plan.effective_task
@@ -2700,18 +2739,18 @@ def _run_reply(
     research_memo = (
         dict(research_result.decision_memo)
         if research_result is not None
-        and effective_route == "research"
+        and effective_route in {"research", "inspect"}
         and research_result.decision_memo is not None
         else None
     )
     research_ledger = (
         research_result.ledger.to_dict()
-        if research_result is not None and effective_route == "adapt"
+        if research_result is not None and effective_route in {"adapt", "inspect"}
         else None
     )
     research_attempt = (
         research_result.research_attempt
-        if research_result is not None and effective_route in {"research", "adapt"}
+        if research_result is not None and effective_route in {"research", "adapt", "inspect"}
         else None
     )
 
@@ -2729,6 +2768,10 @@ def _run_reply(
             "implementation_message": implementation_message,
             "graph_summary": graph_summary,
             "graph_inspection": graph_inspection,
+            "graph_facts": graph_facts,
+            "claim_provenance": (
+                research_result.claim_provenance if research_result is not None else None
+            ),
             "effective_route": effective_route,
             "effective_task": effective_task,
             "candidate_present": candidate_present,
@@ -2743,6 +2786,7 @@ def _run_reply(
             "effective_route", "effective_task",
             "candidate_present", "interaction_mode", "research_attempt",
             "landed_edit", "real_node_ids",
+            "graph_facts", "claim_provenance",
         )
         while True:
             try:
@@ -2880,6 +2924,7 @@ def _run_inspect_reply(
     spec: AgentSpecShape,
     *,
     plan: ClassifyDecision,
+    research_result: AgentResearchResult | None = None,
     host_ports: ExecutorHostPorts | None = None,
 ) -> str:
     """Run the shared graph-inspection reply surface for either driver."""
@@ -2889,6 +2934,7 @@ def _run_inspect_reply(
         spec,
         plan=plan,
         effective_graph=request.graph,
+        research_result=research_result,
         graph_inspection=render_inspect_markdown(evidence),
         host_ports=host_ports,
     )
@@ -3227,10 +3273,7 @@ def _run_staged_executor(
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
     retry_skips_research = bool(os.environ.get(_RESEARCH_HANG_RETRY_SKIP_ENV))
-    if (
-        _canonical_route_for_plan(plan) in {"research", "adapt"}
-        and not retry_skips_research
-    ):
+    if _should_research(plan) and not retry_skips_research:
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
@@ -3701,6 +3744,9 @@ def run_executor(
         implementation_landed_edit=_implementation_landed_edit,
         no_candidate_reason=_no_candidate_reason,
         run_inspect_reply=_run_inspect_reply,
+        run_research=lambda req, research_spec, *, plan: _run_agent_owned_research(
+            req, research_spec, plan=plan
+        ),
     )
     return run_threaded_executor(
         request,
