@@ -182,6 +182,55 @@ def test_typed_projection_rejects_duplicate_node_identities(projection: str) -> 
     assert caught.value.code == "duplicate_identity"
 
 
+@pytest.mark.parametrize("projection", ["structural_v1", "layout_v1"])
+def test_typed_projection_uses_shared_validation_precedence(projection: str) -> None:
+    duplicate = {
+        "nodes": [
+            {"vibecomfy_uid": "same", "type": "Vendor.Custom"},
+            {"vibecomfy_uid": "same", "type": "Vendor.Other"},
+        ],
+        "links": [],
+        "groups": [],
+    }
+    duplicate["links" if projection == "structural_v1" else "groups"] = {}
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(duplicate, projection)
+    assert caught.value.code == "malformed_graph"
+
+    unsupported_duplicate = {
+        "nodes": [
+            {"vibecomfy_uid": "same", "type": "Vendor.Custom", "future": 1},
+            {"vibecomfy_uid": "same", "type": "Vendor.Other"},
+        ],
+        "links": [],
+        "groups": [],
+    }
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(unsupported_duplicate, projection)
+    assert caught.value.code == "duplicate_identity"
+
+
+def test_typed_projection_canonicalizes_numeric_native_ids_like_browser() -> None:
+    graph = {
+        "nodes": [
+            {"id": 7, "vibecomfy_uid": "first", "type": "Vendor.Custom"},
+            {"id": 7.0, "vibecomfy_uid": "second", "type": "Vendor.Custom"},
+        ],
+        "links": [],
+    }
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(graph, "structural_v1")
+    assert caught.value.code == "duplicate_identity"
+
+    boolean_id = {
+        "nodes": [{"id": True, "vibecomfy_uid": "bool", "type": "Vendor.Custom"}],
+        "links": [],
+    }
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(boolean_id, "structural_v1")
+    assert caught.value.code == "non_canonical_number"
+
+
 def test_typed_projection_preserves_unknown_custom_node_types_and_fields() -> None:
     graph = {
         "nodes": [{

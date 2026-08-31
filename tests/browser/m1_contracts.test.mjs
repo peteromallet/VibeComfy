@@ -149,6 +149,55 @@ test("typed projections reject duplicate stable and native node identities", () 
     );
   }
 });
+test("typed projections use shared validation precedence and numeric IDs", () => {
+  for (const projection of ["structural_v1", "layout_v1"]) {
+    const duplicate = {
+      nodes: [
+        { vibecomfy_uid: "same", type: "Vendor.Custom" },
+        { vibecomfy_uid: "same", type: "Vendor.Other" },
+      ],
+      links: [], groups: [],
+    };
+    duplicate[projection === "structural_v1" ? "links" : "groups"] = {};
+    assert.throws(
+      () => projectGraphV1(duplicate, projection),
+      (error) => error.code === "malformed_graph",
+    );
+
+    const unsupportedDuplicate = {
+      nodes: [
+        { vibecomfy_uid: "same", type: "Vendor.Custom", future: 1 },
+        { vibecomfy_uid: "same", type: "Vendor.Other" },
+      ],
+      links: [], groups: [],
+    };
+    assert.throws(
+      () => projectGraphV1(unsupportedDuplicate, projection),
+      (error) => error.code === "duplicate_identity",
+    );
+  }
+
+  const numericDuplicate = {
+    nodes: [
+      { id: 7, vibecomfy_uid: "first", type: "Vendor.Custom" },
+      { id: 7.0, vibecomfy_uid: "second", type: "Vendor.Custom" },
+    ],
+    links: [],
+  };
+  assert.throws(
+    () => projectGraphV1(numericDuplicate, "structural_v1"),
+    (error) => error.code === "duplicate_identity",
+  );
+
+  const booleanId = {
+    nodes: [{ id: true, vibecomfy_uid: "bool", type: "Vendor.Custom" }],
+    links: [],
+  };
+  assert.throws(
+    () => projectGraphV1(booleanId, "structural_v1"),
+    (error) => error.code === "non_canonical_number",
+  );
+});
 test("typed projection preserves unknown custom node types and fields", () => {
   const graph = {
     nodes: [{

@@ -127,7 +127,7 @@ def _native_port_name(node: Mapping[str, Any], direction: str, slot: Any) -> str
 
 def _graph_link_identities(graph: Mapping[str, Any], nodes: list[Any]) -> list[dict[str, Any]]:
     by_native_id = {
-        str(node.get("id")): node
+        _native_node_identity_key(node.get("id")): node
         for node in nodes
         if isinstance(node, Mapping) and node.get("id") is not None
     }
@@ -143,8 +143,13 @@ def _graph_link_identities(graph: Mapping[str, Any], nodes: list[Any]) -> list[d
             target_id, target_slot = link.get("target_id"), link.get("target_slot")
         else:
             raise ContractError("link must be a stable endpoint object or native six-tuple", "malformed_link")
-        origin = by_native_id.get(str(origin_id))
-        target = by_native_id.get(str(target_id))
+        try:
+            origin_key = _native_node_identity_key(origin_id)
+            target_key = _native_node_identity_key(target_id)
+        except ContractError:
+            origin_key = target_key = "<invalid-native-id>"
+        origin = by_native_id.get(origin_key)
+        target = by_native_id.get(target_key)
         if not isinstance(origin, Mapping) or not isinstance(target, Mapping):
             raise ContractError("native link endpoint cannot be resolved", "malformed_link")
         result.append({
@@ -178,23 +183,34 @@ def _widgets(node: Mapping[str, Any]) -> Any:
 
 def _sort(values: list[Any]) -> list[Any]: return sorted(values, key=canonical_json)
 
+def _native_node_identity_key(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        raise ContractError("Native node id must not be boolean", "non_canonical_number")
+    if isinstance(value, (int, float)):
+        normalized = canonicalize_contract_numeric(
+            value,
+            finite_error_code="non_finite_number",
+        )
+        return canonical_json(normalized)
+    raise ContractError("Native node id must be a string or number", "malformed_graph")
+
 def _validate_projection_node_identities(nodes: list[Any]) -> None:
     """Reject ambiguous node identities before resolving native link endpoints."""
     stable_uids: set[str] = set()
     native_ids: set[str] = set()
     for raw_node in nodes:
-        node = _supported(
-            "node",
-            raw_node,
-            raw_node.get("type") if isinstance(raw_node, Mapping) else None,
-        )
+        if not isinstance(raw_node, Mapping):
+            raise ContractError("node must be an object", "malformed_graph")
+        node = raw_node
         uid = node_identity_v1(node)
         if uid in stable_uids:
             raise ContractError("Duplicate stable node identity", "duplicate_identity")
         stable_uids.add(uid)
         native_id = node.get("id")
         if native_id is not None:
-            native_key = str(native_id)
+            native_key = _native_node_identity_key(native_id)
             if native_key in native_ids:
                 raise ContractError("Duplicate native node identity", "duplicate_identity")
             native_ids.add(native_key)
@@ -205,6 +221,12 @@ def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
     assert_forward_projection_v1(projection); graph = assert_root_graph_v1(graph)
     nodes = door_get_nodes(graph, [])
     if not isinstance(nodes, list): raise ContractError("nodes must be a list", "malformed_graph")
+    if projection == "structural_v1":
+        links = door_get_links(graph, [])
+        if not isinstance(links, list): raise ContractError("links must be a list", "malformed_graph")
+    else:
+        groups = graph.get("groups", [])
+        if not isinstance(groups, list): raise ContractError("groups must be a list", "malformed_graph")
     _validate_projection_node_identities(nodes)
     if projection == "structural_v1":
         result_nodes = []
@@ -213,11 +235,7 @@ def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
             result = {"uid": node_identity_v1(node), "type": node.get("type") if isinstance(node.get("type"), str) else None, "mode": node.get("mode", 0) if node.get("mode") is not None else 0, "fields": node.get("fields") if node.get("fields") is not None else {}, "widgets_values": _widgets(node)}
             if node.get("extensions") is not None: result["extensions"] = node["extensions"]
             result_nodes.append(result)
-        links = door_get_links(graph, [])
-        if not isinstance(links, list): raise ContractError("links must be a list", "malformed_graph")
         return {"projection": projection, "nodes": _sort(result_nodes), "links": _sort(_graph_link_identities(graph, nodes))}
-    groups = graph.get("groups", [])
-    if not isinstance(groups, list): raise ContractError("groups must be a list", "malformed_graph")
     result_nodes = []
     for node in nodes:
         node = _supported("node", node, node.get("type") if isinstance(node, Mapping) else None)

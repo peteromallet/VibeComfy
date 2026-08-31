@@ -9,6 +9,7 @@ import {
   canonicalSessionJsonString,
   compareCanonicalSessionJson,
   sha256Hex,
+  canonicalizeContractNumeric,
 } from "./canonical_hash.js";
 import { LAYOUT_VERIFICATION_PROJECTION } from "./layout_verification_contract.js";
 import { assertRootGraphV1 } from "./root_scope_v1.js";
@@ -277,7 +278,7 @@ function nativePortName(node, direction, slot, preferredName) {
 function graphLinkIdentitiesV1(graph, nodes) {
   const byNativeId = new Map();
   for (const node of nodes) {
-    if (node?.id != null) byNativeId.set(String(node.id), node);
+    if (node?.id != null) byNativeId.set(nativeNodeIdentityKey(node.id), node);
   }
   return (Array.isArray(graph.links) ? graph.links : []).map((link) => {
     if (link && !Array.isArray(link) && link.from && link.to) return linkIdentityV1(link);
@@ -297,8 +298,14 @@ function graphLinkIdentitiesV1(graph, nodes) {
       error.code = "malformed_link";
       throw error;
     }
-    const origin = byNativeId.get(String(originId));
-    const target = byNativeId.get(String(targetId));
+    let origin;
+    let target;
+    try {
+      origin = byNativeId.get(nativeNodeIdentityKey(originId));
+      target = byNativeId.get(nativeNodeIdentityKey(targetId));
+    } catch (_error) {
+      origin = target = null;
+    }
     return {
       from: {
         node_uid: nodeIdentityV1(origin),
@@ -438,6 +445,19 @@ function projectionMalformedGraph(message) {
   return error;
 }
 
+function nativeNodeIdentityKey(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean") {
+    const error = new Error("Native node id must not be boolean.");
+    error.code = "non_canonical_number";
+    throw error;
+  }
+  if (typeof value === "number") {
+    return String(canonicalizeContractNumeric(value));
+  }
+  throw projectionMalformedGraph("Native node id must be a string or number.");
+}
+
 function validateProjectionContainers(graph, projection) {
   const nodes = Object.hasOwn(graph, "nodes") ? graph.nodes : [];
   if (!Array.isArray(nodes)) throw projectionMalformedGraph("nodes must be a list.");
@@ -467,7 +487,7 @@ function validateProjectionNodeIdentities(nodes) {
     }
     stableUids.add(uid);
     if (node.id != null) {
-      const nativeId = String(node.id);
+      const nativeId = nativeNodeIdentityKey(node.id);
       if (nativeIds.has(nativeId)) {
         const error = new Error("Duplicate native node identity.");
         error.code = "duplicate_identity";
