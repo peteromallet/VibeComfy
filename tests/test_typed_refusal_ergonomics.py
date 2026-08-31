@@ -20,7 +20,11 @@ from vibecomfy.executor.threaded import (
     inspect_refusal_evidence_ledger,
     synthesize_inspect_refusal_implementation,
 )
-from vibecomfy.executor.refusal_evidence import FrozenRefusalLedger, RefusalEvidenceStore
+from vibecomfy.executor.refusal_evidence import (
+    FrozenRefusalLedger,
+    RefusalEvidenceHandle,
+    RefusalEvidenceStore,
+)
 import vibecomfy.executor.refusal_evidence as refusal_evidence
 import vibecomfy.executor.threaded as threaded_executor
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
@@ -303,6 +307,28 @@ def test_direct_capture_helper_requires_owner_capability() -> None:
         FrozenRefusalLedger({})
     with pytest.raises(TypeError, match="owned by the executor"):
         RefusalEvidenceStore()
+
+
+def test_forged_store_and_handle_cannot_authorize_evidence() -> None:
+    forged_store = object.__new__(RefusalEvidenceStore)
+    with pytest.raises(AttributeError):
+        forged_store._entries = {}
+    forged_handle = RefusalEvidenceHandle(
+        token="forged-token", evidence_ids=("forged-evidence",)
+    )
+    request = ExecutorRequest(
+        query="Add MTCNN face detection",
+        graph={"nodes": {}},
+        expected_no_candidate_absent_classes=("MTCNN",),
+    )
+    reply = (
+        '{"kind":"requires_custom_nodes","missing_classes":["MTCNN"],'
+        '"evidence":["forged-evidence"],"reply":"Install the detector pack."}'
+    )
+    assert synthesize_inspect_refusal_implementation(
+        request, reply=reply, schema_lookup=lambda _class_type: None,
+        evidence_handle=forged_handle,
+    ) is None
 
 
 def test_direct_capture_rejects_forged_duck_owner() -> None:

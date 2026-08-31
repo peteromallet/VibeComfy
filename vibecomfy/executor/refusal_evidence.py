@@ -201,7 +201,6 @@ class RefusalEvidenceHandle(Mapping[str, Mapping[str, Any]]):
 
     token: str
     evidence_ids: tuple[str, ...]
-    _store: "RefusalEvidenceStore"
 
     def _bundle(self) -> RefusalEvidenceBundle | None:
         return resolve_refusal_evidence_handle(self)
@@ -229,38 +228,52 @@ class RefusalEvidenceHandle(Mapping[str, Mapping[str, Any]]):
 class RefusalEvidenceStore:
     """Executor-owned registry; entries are addressed only by opaque handles."""
 
+    __slots__ = ("__weakref__",)
+
     def __init__(self) -> None:
         raise TypeError("RefusalEvidenceStore is owned by the executor capture path")
 
-    def _capture(
-        self, bundle: RefusalEvidenceBundle, capability: object
-    ) -> RefusalEvidenceHandle:
-        if getattr(self, "_capture_capability", None) is not capability:
-            raise TypeError("evidence store capture requires the trusted executor")
+def _make_refusal_evidence_registry() -> tuple[
+    Any, Any
+]:
+    """Create the private capture/resolve closures for executor evidence."""
+    # Keep the exact store identities strongly alive for the duration of the
+    # executor process.  The registry, not any public object field, is the
+    # authority witness for a handle.
+    stores: dict[int, RefusalEvidenceStore] = {}
+    entries: dict[int, dict[str, RefusalEvidenceBundle]] = {}
+
+    def capture(bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle:
+        store = object.__new__(RefusalEvidenceStore)
+        store_identity = id(store)
+        stores[store_identity] = store
         token = secrets.token_urlsafe(32)
-        self._entries[token] = bundle
+        entries[store_identity] = {token: bundle}
         return RefusalEvidenceHandle(
             token=token,
             evidence_ids=tuple(bundle.records),
-            _store=self,
         )
 
-    def _resolve(self, handle: RefusalEvidenceHandle) -> RefusalEvidenceBundle | None:
-        if type(handle) is not RefusalEvidenceHandle or handle._store is not self:
+    def resolve(handle: RefusalEvidenceHandle) -> RefusalEvidenceBundle | None:
+        if type(handle) is not RefusalEvidenceHandle:
             return None
-        return self._entries.get(handle.token)
+        for store_identity in stores:
+            bundle = entries.get(store_identity, {}).get(handle.token)
+            if bundle is not None and handle.evidence_ids == tuple(bundle.records):
+                return bundle
+        return None
+
+    return capture, resolve
+
+
+_capture_refusal_evidence, _resolve_refusal_evidence = _make_refusal_evidence_registry()
 
 
 def resolve_refusal_evidence_handle(
     handle: RefusalEvidenceHandle,
 ) -> RefusalEvidenceBundle | None:
-    """Resolve only handles issued by their exact owning store."""
-    if type(handle) is not RefusalEvidenceHandle:
-        return None
-    store = handle._store
-    if type(store) is not RefusalEvidenceStore:
-        return None
-    return store._resolve(handle)
+    """Resolve only handles issued by the trusted executor capture closure."""
+    return _resolve_refusal_evidence(handle)
 
 
 def frozen_ledger_matches_authority(
