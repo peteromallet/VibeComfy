@@ -219,6 +219,22 @@ def test_research_egress_redacts_escaped_quote_secret_without_suffix_leak() -> N
     assert "PW" not in safe["query"]
 
 
+def test_research_egress_redacts_scalar_workflow_and_body_markers() -> None:
+    for query, secret in (
+        ('workflow="SECRETWORKFLOW"', "SECRETWORKFLOW"),
+        ('body="TOPSECRET_BODY"', "TOPSECRET_BODY"),
+        ("workflow: SECRETWORKFLOW", "SECRETWORKFLOW"),
+        ("body=TOPSECRET_BODY", "TOPSECRET_BODY"),
+    ):
+        redacted = _safe_research_args("hivemind_search", {"query": query})["query"]
+        assert secret not in redacted
+        assert "redacted structured payload" in redacted
+    benign = _safe_research_args(
+        "hivemind_search", {"query": "the workflow is useful for comparison"}
+    )["query"]
+    assert benign == "the workflow is useful for comparison"
+
+
 def test_reply_provenance_requires_body_support_and_claim_coverage() -> None:
     fetched = EvidenceArtifact(
         evidence_id="hivemind_record:1",

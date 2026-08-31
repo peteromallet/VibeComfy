@@ -594,7 +594,29 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
             while start < len(value) and value[start].isspace():
                 start += 1
             if start >= len(value) or value[start] not in "{[":
-                value = value[: match.start()] + "[redacted structured payload]" + value[match.end():]
+                # Scalar markers are sensitive too (e.g. workflow="…" or
+                # body: TOPSECRET). Consume the complete quoted value with
+                # JSON escape handling, or the complete unquoted token; do
+                # not leave the marker's payload suffix on the wire.
+                end = start
+                quote = value[start] if start < len(value) and value[start] in {"\"", "'"} else None
+                if quote is not None:
+                    end += 1
+                    escaped = False
+                    while end < len(value):
+                        char = value[end]
+                        if escaped:
+                            escaped = False
+                        elif char == "\\":
+                            escaped = True
+                        elif char == quote:
+                            end += 1
+                            break
+                        end += 1
+                else:
+                    while end < len(value) and value[end] not in ",;}\n\r\t ":
+                        end += 1
+                value = value[: match.start()] + "[redacted structured payload]" + value[end:]
                 continue
             end = balanced_end(start)
             if end is None:
