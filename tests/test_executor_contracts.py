@@ -1372,6 +1372,80 @@ class TestExecutorResult:
         assert payload["candidate"]["graph"] == graph
         assert payload["accepted_batch"] == []
 
+    def test_terminal_normalizer_binds_layout_postcondition_and_graph_hash(self) -> None:
+        from tests.test_candidate_transaction_layout_contract import _transaction
+        from vibecomfy.comfy_nodes.agent.projection_registry_v1 import layout_graph_hash_compat
+
+        graph = {
+            "nodes": [{
+                "vibecomfy_uid": "node-1", "type": "PreviewImage",
+                "pos": [300, 100], "size": [200, 100],
+            }],
+            "links": [], "groups": [],
+        }
+        workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+
+        def terminal(transaction: dict[str, object]) -> dict[str, object]:
+            return normalize_terminal_envelope({
+                "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+                "authority_receipt": {
+                    "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                    "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                    "candidate_hash": payload_hash(graph),
+                    "accepted_batch_digest": content_hash(derived_accepted_delta_envelope({"accepted_batch": []})),
+                    "cumulative_delta_hash": content_hash(derived_accepted_delta_envelope({"accepted_batch": []})),
+                    "replay_ok": True, "candidate_matches": True,
+                    "verification_kind": "layout_structural_noop", "op_count": 0,
+                    "authority_receipt_digest": "c" * 64,
+                },
+                "workflow_id": workflow_id,
+                "candidate": {"graph": graph}, "candidate_transaction": transaction,
+                "outcome": {"kind": "candidate"}, "apply_eligible": True,
+            })
+
+        valid = _transaction()
+        valid["session_id"] = "s"
+        valid["turn_id"] = "t"
+        valid["candidate_authority"]["session_id"] = "s"
+        valid["candidate_authority"]["turn_id"] = "t"
+        valid["hashes"]["candidate_graph_hash"] = payload_hash(graph)
+        valid["hashes"]["candidate_structural_graph_hash"] = structural_graph_hash(graph)
+        valid["hashes"]["submit_graph_hash"] = "a" * 64
+        valid["hashes"]["authority_receipt_hash"] = "c" * 64
+        valid["candidate_authority"]["authority_receipt_digest"] = "c" * 64
+        valid["candidate_authority"]["transaction_id"], valid["candidate_authority"]["candidate_id"] = (
+            candidate_transaction_identities_v2("s", "t", valid["plan_hash"])
+        )
+        layout_hash = layout_graph_hash_compat(graph)
+        assert layout_hash is not None
+        valid["hashes"]["candidate_layout_graph_hash"] = layout_hash
+        valid["authority"]["layout_verification"] = {
+            "contract_version": "layout_verification_v1",
+            "projection": "browser_layout_v1",
+            "candidate_layout_graph_hash": layout_hash,
+        }
+
+        normalized = terminal(valid)
+        assert normalized["terminal_state"] == "applied"
+        assert normalized["apply_eligible"] is True
+
+        forged_postcondition = copy.deepcopy(valid)
+        forged_postcondition["candidate_authority"]["postcondition"] = (
+            forged_postcondition["candidate_authority"]["precondition"]
+        )
+        normalized = terminal(forged_postcondition)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+
+        forged_layout = copy.deepcopy(valid)
+        forged_layout["hashes"]["candidate_layout_graph_hash"] = "f" * 64
+        forged_layout["authority"]["layout_verification"]["candidate_layout_graph_hash"] = "f" * 64
+        normalized = terminal(forged_layout)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+
     def test_terminal_normalizer_binds_transaction_hash_and_identity(self) -> None:
         from tests.test_candidate_transaction_layout_contract import _transaction
 

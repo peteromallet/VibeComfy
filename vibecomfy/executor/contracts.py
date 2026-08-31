@@ -849,6 +849,29 @@ def _canonical_terminal_aliases(
         ):
             return False, "candidate_transaction_authority_mismatch", accepted_batch, dict(payload)
         try:
+            from vibecomfy.comfy_nodes.agent.projection_registry_v1 import projection_reference_v1
+
+            projection = (
+                "layout_v1"
+                if candidate_authority.get("operation_family") == "layout"
+                else "structural_v1"
+            )
+            expected_postcondition = projection_reference_v1(candidate_graph, projection)
+        except Exception:  # pragma: no cover - defensive projection boundary
+            return False, "candidate_transaction_postcondition_unavailable", accepted_batch, dict(payload)
+        postcondition = candidate_authority.get("postcondition")
+        if (
+            not isinstance(postcondition, Mapping)
+            or postcondition.get("kind") != expected_postcondition["kind"]
+            or postcondition.get("projection") != expected_postcondition["projection"]
+            or postcondition.get("digest") != expected_postcondition["digest"]
+            or (
+                "canonical" in postcondition
+                and postcondition.get("canonical") != expected_postcondition["canonical"]
+            )
+        ):
+            return False, "candidate_transaction_postcondition_mismatch", accepted_batch, dict(payload)
+        try:
             from vibecomfy.comfy_nodes.agent.candidate_transaction import candidate_transaction_identities_v2
 
             expected_transaction_id, expected_candidate_id = candidate_transaction_identities_v2(
@@ -889,6 +912,30 @@ def _canonical_terminal_aliases(
             return False, "candidate_transaction_structural_hash_mismatch", accepted_batch, dict(payload)
         if candidate_authority.get("authority_receipt_digest") != hashes.get("authority_receipt_hash"):
             return False, "candidate_transaction_receipt_digest_mismatch", accepted_batch, dict(payload)
+        if candidate_authority.get("operation_family") == "layout":
+            layout_hash = hashes.get("candidate_layout_graph_hash")
+            layout_verification = authority.get("layout_verification")
+            if layout_hash is not None or layout_verification is not None:
+                try:
+                    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import layout_graph_hash_compat
+
+                    expected_layout_hash = layout_graph_hash_compat(candidate_graph)
+                except Exception:  # pragma: no cover - defensive layout boundary
+                    expected_layout_hash = None
+                if (
+                    expected_layout_hash is None
+                    or (layout_hash is not None and layout_hash != expected_layout_hash)
+                    or (
+                        layout_verification is not None
+                        and (
+                            not isinstance(layout_verification, Mapping)
+                            or layout_verification.get("contract_version") != "layout_verification_v1"
+                            or layout_verification.get("projection") != "browser_layout_v1"
+                            or layout_verification.get("candidate_layout_graph_hash") != expected_layout_hash
+                        )
+                    )
+                ):
+                    return False, "candidate_transaction_layout_hash_mismatch", accepted_batch, dict(payload)
         for key in ("workflow_id",):
             expected = payload.get(key)
             if expected is None and receipt_summary is not None:

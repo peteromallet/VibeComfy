@@ -11,7 +11,11 @@ import {
   readDeltaEnvelope,
 } from "./agent_edit_response_contract_generated.js";
 import { canonicalJsonString, sha256Hex, sha256HexFromString } from "./canonical_hash.js";
-import { structuralGraphProjectionJson } from "./projection_registry_v1.js";
+import {
+  buildLayoutGraphProjection,
+  projectionReferenceV1,
+  structuralGraphProjectionJson,
+} from "./projection_registry_v1.js";
 
 const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "clarify",
@@ -735,6 +739,30 @@ function canonicalTerminalAliases(raw, candidateGraph) {
       || candidateAuthority.plan_hash !== transaction.plan_hash) {
       return { valid: false, reason: "candidate_transaction_authority_mismatch", acceptedBatch, raw };
     }
+    const projection = candidateAuthority.operation_family === "layout" ? "layout_v1" : "structural_v1";
+    let expectedPostcondition;
+    try {
+      expectedPostcondition = projectionReferenceV1(candidateGraph, projection);
+    } catch (_error) {
+      return { valid: false, reason: "candidate_transaction_postcondition_unavailable", acceptedBatch, raw };
+    }
+    const postcondition = candidateAuthority.postcondition;
+    let postconditionCanonicalMatches = true;
+    if (isObject(postcondition) && Object.hasOwn(postcondition, "canonical")) {
+      try {
+        postconditionCanonicalMatches = canonicalJsonString(postcondition.canonical)
+          === canonicalJsonString(expectedPostcondition.canonical);
+      } catch (_error) {
+        postconditionCanonicalMatches = false;
+      }
+    }
+    if (!isObject(postcondition)
+      || postcondition.kind !== expectedPostcondition.kind
+      || postcondition.projection !== expectedPostcondition.projection
+      || postcondition.digest !== expectedPostcondition.digest
+      || !postconditionCanonicalMatches) {
+      return { valid: false, reason: "candidate_transaction_postcondition_mismatch", acceptedBatch, raw };
+    }
     const identitySeed = `${transaction.session_id}:${transaction.turn_id}:${transaction.plan_hash}`;
     const expectedTransactionId = sha256HexFromString(`${identitySeed}:transaction`);
     const expectedCandidateId = sha256HexFromString(`${identitySeed}:candidate`);
@@ -771,6 +799,26 @@ function canonicalTerminalAliases(raw, candidateGraph) {
     }
     if (candidateAuthority.authority_receipt_digest !== transaction.hashes?.authority_receipt_hash) {
       return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
+    }
+    if (candidateAuthority.operation_family === "layout") {
+      const layoutHash = transaction.hashes?.candidate_layout_graph_hash;
+      const layoutVerification = authority.layout_verification;
+      if (layoutHash != null || layoutVerification != null) {
+        let expectedLayoutHash;
+        try {
+          expectedLayoutHash = sha256Hex(buildLayoutGraphProjection(candidateGraph));
+        } catch (_error) {
+          expectedLayoutHash = null;
+        }
+        if (expectedLayoutHash == null
+          || (layoutHash != null && layoutHash !== expectedLayoutHash)
+          || (layoutVerification != null && (!isObject(layoutVerification)
+            || layoutVerification.contract_version !== "layout_verification_v1"
+            || layoutVerification.projection !== "browser_layout_v1"
+            || layoutVerification.candidate_layout_graph_hash !== expectedLayoutHash))) {
+          return { valid: false, reason: "candidate_transaction_layout_hash_mismatch", acceptedBatch, raw };
+        }
+      }
     }
     const transactionBatch = transaction?.plan?.accepted_batch;
     if (!Array.isArray(transactionBatch)) {

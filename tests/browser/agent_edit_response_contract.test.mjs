@@ -45,7 +45,10 @@ import {
   isNonApplyableClarify,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js";
 import { sha256Hex, sha256HexFromString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
-import { structuralGraphProjectionJson } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import {
+  buildLayoutGraphProjection,
+  structuralGraphProjectionJson,
+} from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 
 const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
@@ -2716,6 +2719,7 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
   transaction.hashes.candidate_graph_hash = sha256Hex(graph);
   transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
   transaction.hashes.submit_graph_hash = "a".repeat(64);
+  transaction.hashes.candidate_layout_graph_hash = sha256Hex(buildLayoutGraphProjection(graph));
   const acceptedBatch = [];
   const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
   const workflowId = "123e4567-e89b-12d3-a456-426614174000";
@@ -2750,6 +2754,86 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
   assert.ok(normalized.candidateTransaction);
   assert.equal(normalized.applyEligible, true);
   assert.deepEqual(normalized.raw.accepted_batch, acceptedBatch);
+});
+
+test("browser binds layout postcondition and graph hash to the published candidate", () => {
+  const preconditionGraph = {
+    nodes: [{ id: 1, vibecomfy_uid: "node-1", type: "PreviewImage", pos: [0, 0], size: [200, 100] }],
+    links: [],
+  };
+  const graph = {
+    nodes: [{ id: 1, vibecomfy_uid: "node-1", type: "PreviewImage", pos: [300, 100], size: [200, 100] }],
+    links: [],
+  };
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "layout-plan",
+    family: "layout",
+    verificationKind: "layout_structural_noop",
+    preconditionGraph,
+    postconditionGraph: graph,
+  });
+  const identitySeed = "s:t:layout-plan";
+  transaction.candidate_authority.transaction_id = sha256HexFromString(`${identitySeed}:transaction`);
+  transaction.candidate_authority.candidate_id = sha256HexFromString(`${identitySeed}:candidate`);
+  transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+  transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+  transaction.hashes.submit_graph_hash = "a".repeat(64);
+  const layoutHash = sha256Hex(buildLayoutGraphProjection(graph));
+  transaction.hashes.candidate_layout_graph_hash = layoutHash;
+  transaction.authority.layout_verification = {
+    contract_version: "layout_verification_v1",
+    projection: "browser_layout_v1",
+    candidate_layout_graph_hash: layoutHash,
+  };
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: [] }));
+  const base = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    workflow_id: "123e4567-e89b-12d3-a456-426614174000",
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "c".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      op_count: 0,
+    },
+  };
+  const valid = normalizeAgentEditResponse(structuredClone(base));
+  assert.equal(valid.terminalState, "applied");
+  assert.equal(valid.applyEligible, true);
+
+  const forgedPostcondition = structuredClone(base);
+  forgedPostcondition.candidate_transaction.candidate_authority.postcondition =
+    forgedPostcondition.candidate_transaction.candidate_authority.precondition;
+  let normalized = normalizeAgentEditResponse(forgedPostcondition);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const forgedLayout = structuredClone(base);
+  forgedLayout.candidate_transaction.hashes.candidate_layout_graph_hash = "f".repeat(64);
+  forgedLayout.candidate_transaction.authority.layout_verification.candidate_layout_graph_hash = "f".repeat(64);
+  normalized = normalizeAgentEditResponse(forgedLayout);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
 });
 
 test("browser binds transaction hash and identity and rejects conflicting aliases", () => {
