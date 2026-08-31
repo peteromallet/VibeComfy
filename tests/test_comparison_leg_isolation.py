@@ -46,10 +46,25 @@ def test_run_leg_from_spec_executes_and_persists_summary(
 ) -> None:
     seen: list[dict[str, Any]] = []
 
-    def fake_run_mode(scenario, *, mode, locked_input_sha256, output_base, tag, transport):
+    def fake_run_mode(
+        scenario,
+        *,
+        mode,
+        locked_input_sha256,
+        output_base,
+        tag,
+        transport,
+        judge_route,
+        judge_model,
+    ):
         seen.append({"scenario_id": scenario["id"], "mode": mode})
         return {"scenario_id": scenario["id"], "pipeline_mode": mode, "status": "success"}
 
+    monkeypatch.setattr(
+        comparator,
+        "require_judge_readiness",
+        lambda config: {"ready": True, "model": config.model},
+    )
     monkeypatch.setattr(comparator, "_run_mode", fake_run_mode)
     spec_path = tmp_path / "spec.json"
     out_path = tmp_path / "out.json"
@@ -67,6 +82,10 @@ def test_run_leg_from_spec_executes_and_persists_summary(
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["ok"] is True
     assert payload["summary"]["scenario_id"] == "my-scenario"
+    assert payload["summary"]["judge_config"] == {
+        "route": "deepseek",
+        "model": "deepseek-v4-pro",
+    }
     assert seen == [{"scenario_id": "my-scenario", "mode": "staged"}]
 
 
