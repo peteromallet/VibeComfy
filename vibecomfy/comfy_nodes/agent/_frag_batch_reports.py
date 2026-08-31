@@ -210,6 +210,16 @@ def _format_batch_report(
                 extras.append(detail_text)
         if statement.teaching_hint:
             extras.append(f"hint: {statement.teaching_hint}")
+        if isinstance(statement.detail, Mapping):
+            absence_evidence = statement.detail.get("absence_evidence")
+            if isinstance(absence_evidence, (list, tuple)):
+                ids = [
+                    str(item.get("evidence_id"))
+                    for item in absence_evidence
+                    if isinstance(item, Mapping) and item.get("evidence_id")
+                ]
+                if ids:
+                    extras.append(f"authority evidence IDs: [{', '.join(ids)}]")
         if extras:
             line += f" ({'; '.join(extras)})"
         statement_lines.append(line)
@@ -267,6 +277,56 @@ def _format_batch_report(
         )
     lines = [summary, *statement_lines, query_only_note, *diagnostic_lines]
     return "\n".join(line for line in lines if line)
+
+
+def _format_refusal_authority_context(
+    batch_result: Any, *, graph: Any, schema_provider: Any
+) -> str:
+    """Render canonical refusal IDs for the next model turn."""
+    from vibecomfy.executor.refusal_evidence import (
+        class_absence_record,
+        feature_absence_record,
+    )
+
+    records: dict[str, dict[str, Any]] = {}
+    for statement in getattr(batch_result, "statements", ()):
+        detail = getattr(statement, "detail", None)
+        if not isinstance(detail, Mapping):
+            continue
+        for class_type in detail.get("missing_classes", ()) or ():
+            if isinstance(class_type, str) and class_type.strip():
+                record = class_absence_record(graph, schema_provider, class_type.strip())
+                records[record["evidence_id"]] = record
+        for feature in detail.get("feature_absences", ()) or ():
+            if not isinstance(feature, Mapping):
+                continue
+            for check in feature.get("checks", ()) or ():
+                if not isinstance(check, Mapping):
+                    continue
+                class_type = str(check.get("class_type") or "").strip()
+                member_kind = str(check.get("member_kind") or "").strip()
+                member = str(check.get("member") or "").strip()
+                if not class_type or not member_kind or not member:
+                    continue
+                record = feature_absence_record(
+                    graph,
+                    schema_provider,
+                    class_type=class_type,
+                    member_kind=member_kind,
+                    member=member,
+                    available_members=[],
+                )
+                records[record["evidence_id"]] = record
+    if not records:
+        return ""
+    return (
+        "Frozen refusal authority ledger (cite the exact complete ID set):\n"
+        + "\n".join(
+            f"- {record['evidence_id']}: {record['kind']} "
+            f"class={record['class_type']} authority_digest={record['authority_digest']}"
+            for record in records.values()
+        )
+    )
 
 
 def _cap_diagnostic_detail(detail: dict[str, Any]) -> dict[str, Any]:
@@ -469,6 +529,12 @@ def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...]
         return None
     call = node.value
     assert isinstance(call, ast.Call)
+    allowed = {"kind", "missing_classes", "feature_absences", "evidence", "message", "question"}
+    names = [keyword.arg for keyword in call.keywords]
+    if any(name not in allowed for name in names) or len(names) != len(set(names)):
+        return None
+    if names.count("kind") != 1 or (names.count("message") + names.count("question")) != 1:
+        return None
     kind = _literal_keyword(call, "kind")
     message = _literal_keyword(call, "message")
     if message is None:
@@ -489,6 +555,10 @@ def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...]
     if not isinstance(evidence, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in evidence):
         return None
     if not isinstance(features, (list, tuple)) or not all(isinstance(item, dict) for item in features):
+        return None
+    if not isinstance(evidence, (list, tuple)) or not evidence:
+        return None
+    if kind == "requires_custom_nodes" and not classes:
         return None
     return (
         kind,
@@ -594,6 +664,21 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
 
     call = terminal.value
     assert isinstance(call, ast.Call)
+    if is_refusal:
+        # The splitter is a pre-parse convenience layer, not a second grammar.
+        # Re-run the canonical parser so unknown/duplicate fields and refusal
+        # sequence errors cannot be laundered by stripping the terminal first.
+        from vibecomfy.porting.edit._parse import _parse_and_validate_batch
+
+        validated = _parse_and_validate_batch(
+            batch,
+            max_batch_bytes=1_000_000,
+            max_statements=1_000,
+            max_expanded_statements=10_000,
+            max_for_iterations=1_000,
+        )
+        if validated.diagnostics:
+            return TerminalClarifySplit(batch=batch, message=None)
     refusal_payload = _terminal_refusal_payload(terminal) if is_refusal else None
     if is_refusal and refusal_payload is None:
         return TerminalClarifySplit(batch=batch, message=None)
@@ -949,7 +1034,8 @@ __all__ = (
      "_compact_diag_with_capped_detail", "_contains_clarify_call",
      "_decode_clarify_literal", "_duplicate_search_cycle_feedback",
      "_extract_clarify_message", "_extract_search_signatures", "_format_batch_report",
-     "_format_batch_report_json", "_format_diagnostic_detail_text", "_is_done_expr",
+     "_format_batch_report_json", "_format_refusal_authority_context",
+     "_format_diagnostic_detail_text", "_is_done_expr",
      "_is_terminal_clarify_expr", "_lint_diag_with_capped_detail",
      "_offset_from_ast_position", "_re", "_split_terminal_clarify_line_regex",
      "split_terminal_clarify",

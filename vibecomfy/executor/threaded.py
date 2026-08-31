@@ -9,6 +9,7 @@ host. There is no threaded session store and no classifier call.
 from __future__ import annotations
 
 import logging
+import json
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -26,6 +27,11 @@ from .contracts import (
     Report,
     coerce_model_attempts,
     validate_reply_change_claims,
+)
+from .refusal_evidence import (
+    class_absence_record,
+    evidence_record_matches_authority,
+    validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
 
@@ -328,19 +334,23 @@ def inspect_named_runtime_absences(
     for name in declared:
         if name not in candidates:
             candidates.append(name)
-    for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
-        if token in candidates:
-            continue
-        folded = re.sub(r"[^a-z0-9]", "", token.lower())
-        if folded in _GENERIC_DOMAIN_TOKENS:
-            continue
-        if token[0].isupper() and any(ch.islower() for ch in token[1:]):
-            candidates.append(token)
-    present = _graph_class_types(request.graph)
+    # Benchmark/production callers provide the exact expected set.  Do not
+    # manufacture a secret set from sentence-initial capitalization; that set
+    # was never shown to the model and cannot be a complete ledger.
+    if not declared:
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
+            if token in candidates:
+                continue
+            folded = re.sub(r"[^a-z0-9]", "", token.lower())
+            if folded in _GENERIC_DOMAIN_TOKENS:
+                continue
+            if token[0].isupper() and any(ch.islower() for ch in token[1:]):
+                candidates.append(token)
+    present = {item.casefold() for item in _graph_class_types(request.graph)}
     lookup = schema_lookup or _default_schema_lookup
     missing: list[str] = []
     for name in candidates:
-        if name in present:
+        if name.casefold() in present:
             continue
         if name not in declared and not _query_names_class(query, name):
             continue
@@ -355,6 +365,23 @@ def inspect_named_runtime_absences(
     return tuple(missing)
 
 
+def inspect_refusal_evidence_ledger(
+    request: ExecutorRequest,
+    *,
+    schema_lookup: Callable[[str], Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Freeze the exact class-absence ledger shown to the threaded model."""
+    return {
+        record["evidence_id"]: record
+        for class_type in inspect_named_runtime_absences(
+            request, schema_lookup=schema_lookup
+        )
+        for record in (
+            class_absence_record(request.graph, schema_lookup, class_type),
+        )
+    }
+
+
 def synthesize_inspect_refusal_implementation(
     request: ExecutorRequest,
     *,
@@ -367,7 +394,12 @@ def synthesize_inspect_refusal_implementation(
     inspect reply, or a generic/no-op-shaped reply, is never promoted.  The
     model must emit the typed JSON refusal and cite the complete absence set.
     """
-    missing = inspect_named_runtime_absences(request, schema_lookup=schema_lookup)
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=schema_lookup)
+    missing = tuple(
+        str(record.get("class_type"))
+        for record in ledger.values()
+        if record.get("kind") == "class_absence"
+    )
     if not missing:
         return None
     from vibecomfy.executor.prompts import parse_reply_payload
@@ -375,12 +407,48 @@ def synthesize_inspect_refusal_implementation(
     try:
         payload = parse_reply_payload(reply)
     except (TypeError, ValueError):
-        return None
-    if not payload.is_typed_refusal or not payload.evidence:
-        return None
-    claimed = tuple(payload.missing_classes)
-    if set(claimed) != set(missing) or len(claimed) != len(missing):
-        return None
+        payload = None
+    raw_object: Mapping[str, Any] | None = None
+    if str(reply).lstrip().startswith("{"):
+        try:
+            candidate = json.loads(str(reply))
+        except (TypeError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict):
+            raw_object = candidate
+    allowed_fields = {
+        "kind", "missing_classes", "feature_absences", "evidence",
+        "reply", "message", "question", "clarification_question",
+    }
+    strict_shape_ok = raw_object is None or not (
+        set(raw_object) - allowed_fields
+        or not isinstance(raw_object.get("evidence", []), list)
+        or not all(isinstance(item, str) and item.strip() for item in raw_object.get("evidence", []))
+        or len(set(raw_object.get("evidence", []))) != len(raw_object.get("evidence", []))
+        or raw_object.get("feature_absences", []) not in ([], None)
+    )
+    typed_payload = bool(
+        payload
+        and payload.is_typed_refusal
+        and payload.evidence
+        and strict_shape_ok
+    )
+    claimed = tuple(payload.missing_classes) if payload is not None else ()
+    records = validate_evidence_ids(payload.evidence, ledger) if typed_payload else None
+    valid = bool(
+        typed_payload
+        and records is not None
+        and {item.casefold() for item in claimed}
+        == {item.casefold() for item in missing}
+        and len(claimed) == len(missing)
+        and {
+            str(record.get("class_type")).casefold() for record in records
+        } == {item.casefold() for item in missing}
+        and all(
+            evidence_record_matches_authority(record, request.graph, schema_lookup)
+            for record in (records or ())
+        )
+    )
     from vibecomfy.comfy_nodes.agent.contracts import (
         missing_runtime_classes_from_report,
         promote_requires_custom_nodes_outcome,
@@ -390,18 +458,30 @@ def synthesize_inspect_refusal_implementation(
         "authoring_blocker": {
             "reason": "named_class_absent_from_schema",
             "missing_runtime_classes": list(missing),
+            "absence_evidence": list(ledger.values()),
+            "evidence_refs": list(ledger),
         },
         "graph_unchanged": True,
     }
-    outcome = {"kind": payload.kind, "message": payload.text}
-    if payload.kind == "requires_custom_nodes":
+    outcome = {"kind": payload.kind, "message": payload.text} if valid and payload is not None else {"kind": "noop", "message": "The refusal could not be authorized from the frozen evidence ledger."}
+    if valid and payload is not None and payload.kind == "requires_custom_nodes":
         outcome = promote_requires_custom_nodes_outcome(
             outcome,
             missing_classes=missing_runtime_classes_from_report(blocker_report),
         )
-    outcome["evidence"] = list(payload.evidence)
+    if valid and payload is not None:
+        outcome["evidence"] = list(payload.evidence)
+    else:
+        blocker_report["authoring_blocker"]["refusal_validation"] = {
+            "authorized": False,
+            "reason": "invalid_or_missing_bound_evidence",
+        }
     return ImplementationResult(
-        message=reply,
+        message=(
+            payload.text
+            if payload is not None and (valid or not str(reply).lstrip().startswith("{"))
+            else "The requested refusal could not be authorized from the frozen runtime evidence."
+        ),
         durable_response={
             "outcome": outcome,
             "graph_unchanged": True,
@@ -601,7 +681,7 @@ def run_threaded_executor(
         return finish(ExecutorResult.success(
             report=build_report(implementation),
             graph=None,
-            reply=reply,
+            reply=implementation.message if implementation is not None else reply,
         ))
 
     try:
@@ -779,6 +859,7 @@ __all__ = [
     "ThreadedPurposeBudget",
     "coerce_declared_interaction_lane",
     "inspect_named_runtime_absences",
+    "inspect_refusal_evidence_ledger",
     "run_threaded_executor",
     "synthesize_inspect_refusal_implementation",
     "typed_refusal_contract",

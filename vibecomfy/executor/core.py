@@ -2884,6 +2884,19 @@ def _run_inspect_reply(
 ) -> str:
     """Run the shared graph-inspection reply surface for either driver."""
     evidence = inspect_graph(request.graph)
+    from .threaded import inspect_refusal_evidence_ledger
+
+    refusal_ledger = inspect_refusal_evidence_ledger(request)
+    if refusal_ledger:
+        evidence = (
+            evidence
+            + "\n\nTyped refusal authority ledger (cite exact IDs only):\n"
+            + "\n".join(
+                f"- {record['evidence_id']}: class_absence {record['class_type']} "
+                f"authority_digest={record['authority_digest']}"
+                for record in refusal_ledger.values()
+            )
+        )
     return _run_reply(
         request,
         spec,

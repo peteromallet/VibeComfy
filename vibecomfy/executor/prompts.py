@@ -510,10 +510,12 @@ _REPLY_SYSTEM = (
     "clients you MAY instead return a single JSON object with a \"reply\" "
     "string key; plain prose is preferred.)  When the request cannot be "
     "safely authored from current evidence, emit a typed refusal JSON "
-    "object instead of untyped prose: {\"kind\": \"requires_custom_nodes\", "
-    "\"missing_classes\": [\"ClassName\"], \"reply\": \"...\"}. Ground every "
-    "missing class in the inspection/graph evidence. Do not emit an untyped "
-    "noop for a groundable refusal.\n\n"
+    "object instead of untyped prose: {\"kind\": \"requires_custom_nodes\" or \"clarify\", "
+    "\"missing_classes\": [\"ClassName\"], \"feature_absences\": [{\"evidence_id\": \"refusal:v1:...\"}], "
+    "\"evidence\": [\"refusal:v1:...\"], "
+    "\"reply\": \"...\"}. Evidence must be copied exactly from the frozen "
+    "authority ledger shown in context; do not invent, duplicate, or omit IDs. "
+    "Do not emit an untyped noop for a groundable refusal.\n\n"
     "Rules:\n"
     "- Acknowledge what was done (if anything).\n"
     "- Be concrete: mention node names, template names, or parameter values "
@@ -1158,7 +1160,9 @@ def _typed_refusal_evidence_from_mapping(parsed: Mapping[str, Any]) -> tuple[str
     if isinstance(raw, str) and raw.strip():
         return (raw.strip(),)
     if isinstance(raw, (list, tuple)):
-        return tuple(str(item).strip() for item in raw if str(item).strip())
+        if not all(isinstance(item, str) and item.strip() for item in raw):
+            return ()
+        return tuple(item.strip() for item in raw)
     return ()
 
 

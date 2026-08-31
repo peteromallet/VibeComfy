@@ -297,7 +297,7 @@ FORBIDDEN_ASSIGN_ATTRS: dict[str, str] = {
     for attr in form.assign_attrs
 }
 
-QUERY_CALL_NAMES: frozenset[str] = frozenset({"python", "research", "search"}) | frozenset(
+QUERY_CALL_NAMES: frozenset[str] = frozenset({"python", "research", "search", "schema_check"}) | frozenset(
     AGENT_TOOL_CALL_NAMES
 )
 CONTROL_CALL_NAMES: frozenset[str] = frozenset({"done", "refuse"})

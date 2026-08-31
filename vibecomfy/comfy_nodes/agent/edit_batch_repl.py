@@ -134,6 +134,7 @@ class EditBatchReplDeps:
     _format_available_node_names: Any  # host: _frag_batch_memory
     _format_batch_report: Any  # host: _frag_batch_reports
     _format_batch_report_json: Any  # host: _frag_batch_reports
+    _format_refusal_authority_context: Any  # host: _frag_batch_reports
     _format_node_variable_index: Any  # host: _frag_batch_memory
     _format_research_brief_for_prompt: Any  # host: _frag_state
     _hydrate_research_precedent_node_schemas: Any  # host: _frag_research
@@ -1500,7 +1501,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 "queue_blockers": [],
             }
             if refusal_action:
-                state.report["typed_refusal_action"] = {
+                state.report["unvalidated_refusal_action"] = {
                     "kind": state.batch_refusal_kind,
                     "missing_classes": list(state.batch_refusal_missing_classes),
                     "feature_absences": list(state.batch_refusal_feature_absences),
@@ -1724,6 +1725,11 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_dropped_count=lint_dropped_count,
                 lint_diagnostics=lint_diag_dicts,
             )
+            report_text += deps._format_refusal_authority_context(
+                batch_result,
+                graph=state.graph,
+                schema_provider=state.schema_provider,
+            )
             # Duplicate-query cycle guard (Part C): detect when the agent re-emits
             # an identical search() on consecutive turns after the prior search
             # landed nothing.  Reads the PRIOR turn's search record
@@ -1827,7 +1833,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 turn_record["clarification_required"] = True
                 turn_record["clarification_message"] = clarify_message
             if refusal_action:
-                turn_record["typed_refusal_action"] = {
+                turn_record["unvalidated_refusal_action"] = {
                     "kind": state.batch_refusal_kind,
                     "missing_classes": list(state.batch_refusal_missing_classes),
                     "feature_absences": list(state.batch_refusal_feature_absences),
