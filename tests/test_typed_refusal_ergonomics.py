@@ -343,6 +343,15 @@ def test_removed_bundle_capture_seam_cannot_mint_authority() -> None:
         getattr(refusal_evidence, "_capture_refusal_evidence")(forged_bundle)
 
 
+def test_executor_capture_state_does_not_expose_mutable_entries() -> None:
+    state = threaded_executor._ExecutorRefusalEvidenceState(
+        ExecutorRequest(graph={"nodes": {}}, query="inspect")
+    )
+    assert not hasattr(state, "_entries")
+    with pytest.raises(AttributeError):
+        state._entries = {}  # type: ignore[attr-defined]
+
+
 def test_direct_capture_rejects_forged_duck_owner() -> None:
     class DuckOwner:
         def _capture_capability(self) -> object:

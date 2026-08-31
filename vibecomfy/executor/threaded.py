@@ -482,6 +482,8 @@ def inspect_named_runtime_absences(
 class _ExecutorRefusalEvidenceState:
     """Trusted per-turn capture state bound to one graph and schema source."""
 
+    __slots__ = ("_request", "_provider", "_capture_handle", "_resolve_handle")
+
     def __init__(
         self,
         request: ExecutorRequest,
@@ -501,18 +503,22 @@ class _ExecutorRefusalEvidenceState:
                 return None
             return bundle
 
-        self._entries = entries
         self._resolve_handle = resolve_handle
 
+        def capture_handle() -> RefusalEvidenceHandle:
+            bundle = _collect_refusal_evidence_bundle(self._request, self._provider)
+            token = secrets.token_urlsafe(32)
+            entries[token] = bundle
+            handle = object.__new__(RefusalEvidenceHandle)
+            object.__setattr__(handle, "token", token)
+            object.__setattr__(handle, "evidence_ids", tuple(bundle.records))
+            object.__setattr__(handle, "_resolver", self._resolve_handle)
+            return handle
+
+        self._capture_handle = capture_handle
+
     def capture(self) -> RefusalEvidenceHandle:
-        bundle = _collect_refusal_evidence_bundle(self._request, self._provider)
-        token = secrets.token_urlsafe(32)
-        self._entries[token] = bundle
-        handle = object.__new__(RefusalEvidenceHandle)
-        object.__setattr__(handle, "token", token)
-        object.__setattr__(handle, "evidence_ids", tuple(bundle.records))
-        object.__setattr__(handle, "_resolver", self._resolve_handle)
-        return handle
+        return self._capture_handle()
 
 
 def inspect_refusal_evidence_ledger(
