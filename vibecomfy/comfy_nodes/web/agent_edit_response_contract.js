@@ -9,7 +9,8 @@ import {
   FAILURE_HINT_KEYS,
   readDeltaEnvelope,
 } from "./agent_edit_response_contract_generated.js";
-import { sha256Hex } from "./canonical_hash.js";
+import { canonicalJsonString, sha256Hex, sha256HexFromString } from "./canonical_hash.js";
+import { structuralGraphProjectionJson } from "./projection_registry_v1.js";
 
 const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "clarify",
@@ -604,15 +605,36 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
 function candidateGraphCarriersAgree(raw, candidateGraph) {
   if (!isObject(candidateGraph)) return false;
   const carriers = [];
-  if (isObject(raw.candidate?.graph)) carriers.push(raw.candidate.graph);
+  if (Object.hasOwn(raw, "candidate") && !isObject(raw.candidate)) return false;
+  if (isObject(raw.candidate) && Object.hasOwn(raw.candidate, "graph")) {
+    if (!isObject(raw.candidate.graph)) return false;
+    carriers.push(raw.candidate.graph);
+  }
   for (const key of ["graph", "candidate_graph", "candidateGraph"]) {
-    if (isObject(raw[key])) carriers.push(raw[key]);
+    if (Object.hasOwn(raw, key)) {
+      if (!isObject(raw[key])) return false;
+      carriers.push(raw[key]);
+    }
   }
   for (const key of ["candidate_transaction", "candidateTransaction"]) {
-    if (isObject(raw[key]?.graph)) carriers.push(raw[key].graph);
+    if (Object.hasOwn(raw, key)) {
+      if (!isObject(raw[key])) return false;
+      if (Object.hasOwn(raw[key], "graph")) {
+        if (!isObject(raw[key].graph)) return false;
+        carriers.push(raw[key].graph);
+      }
+    }
   }
   const expected = sha256Hex(candidateGraph);
   return carriers.every((graph) => sha256Hex(graph) === expected);
+}
+
+function structuralGraphHash(candidateGraph) {
+  try {
+    return sha256HexFromString(structuralGraphProjectionJson(candidateGraph));
+  } catch (_error) {
+    return null;
+  }
 }
 
 function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
@@ -644,11 +666,23 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
     && (!raw.session_id || raw.session_id === receipt.session_id)
     && (!raw.turn_id || raw.turn_id === receipt.turn_id);
   const deltaEnvelope = readDeltaEnvelope(raw);
+  const hasAcceptedBatch = Object.hasOwn(raw, "accepted_batch");
+  const hasAcceptedBatchAlias = Object.hasOwn(raw, "acceptedBatch");
+  const acceptedBatchAliasesAgree = !hasAcceptedBatchAlias
+    || (hasAcceptedBatch && (() => {
+      try {
+        return canonicalJsonString(raw.accepted_batch) === canonicalJsonString(raw.acceptedBatch);
+      } catch (_error) {
+        return false;
+      }
+    })());
   const opCount = replay?.op_count;
   const layoutNoop = replay?.verification_kind === "layout_structural_noop";
   const deltaCoherent = layoutNoop
-    ? (!Array.isArray(raw.accepted_batch) || raw.accepted_batch.length === 0)
+    ? (acceptedBatchAliasesAgree
+      && (!Array.isArray(raw.accepted_batch) || raw.accepted_batch.length === 0))
     : Number.isInteger(opCount) && opCount > 0
+      && acceptedBatchAliasesAgree
       && Array.isArray(raw.accepted_batch) && raw.accepted_batch.length > 0
       && isObject(deltaEnvelope)
       && hash(receipt?.cumulative_delta_hash)
@@ -672,12 +706,19 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
       && isObject(candidateGraph)
       && candidateGraphCarriersAgree(raw, candidateGraph)
       && sha256Hex(candidateGraph) === receipt.candidate_hash
-      && (!raw.candidate_graph_hash || raw.candidate_graph_hash === receipt.candidate_hash)
-      && (!raw.candidateGraphHash || raw.candidateGraphHash === receipt.candidate_hash)
-      && (!raw.candidate_graph_hash || !raw.candidateGraphHash
+      && (!Object.hasOwn(raw, "candidate_graph_hash")
+        || raw.candidate_graph_hash === receipt.candidate_hash)
+      && (!Object.hasOwn(raw, "candidateGraphHash")
+        || raw.candidateGraphHash === receipt.candidate_hash)
+      && (!Object.hasOwn(raw, "candidate_graph_hash") || !Object.hasOwn(raw, "candidateGraphHash")
         || raw.candidate_graph_hash === raw.candidateGraphHash)
-      && (!raw.candidate_structural_graph_hash || !raw.candidateStructuralGraphHash
+      && (!Object.hasOwn(raw, "candidate_structural_graph_hash")
+        || !Object.hasOwn(raw, "candidateStructuralGraphHash")
         || raw.candidate_structural_graph_hash === raw.candidateStructuralGraphHash)
+      && (!Object.hasOwn(raw, "candidate_structural_graph_hash")
+        || raw.candidate_structural_graph_hash === structuralGraphHash(candidateGraph))
+      && (!Object.hasOwn(raw, "candidateStructuralGraphHash")
+        || raw.candidateStructuralGraphHash === structuralGraphHash(candidateGraph))
       && (!replay?.persisted_candidate_hash
         || replay.persisted_candidate_hash === receipt.candidate_hash)
       && (!replay?.recomputed_candidate_hash

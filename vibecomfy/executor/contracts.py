@@ -707,6 +707,29 @@ def _receipt_contradiction(receipt: Any) -> str | None:
     return None
 
 
+def _graph_carriers_well_formed(payload: Mapping[str, Any]) -> bool:
+    """Reject malformed product carriers before selecting a candidate graph."""
+    candidate = payload.get("candidate")
+    if "candidate" in payload and not isinstance(candidate, Mapping):
+        return False
+    if isinstance(candidate, Mapping) and "graph" in candidate:
+        if not isinstance(candidate.get("graph"), Mapping):
+            return False
+
+    for key in ("graph", "candidate_graph", "candidateGraph"):
+        if key in payload and not isinstance(payload.get(key), Mapping):
+            return False
+    for key in ("candidate_transaction", "candidateTransaction"):
+        if key not in payload:
+            continue
+        transaction = payload.get(key)
+        if not isinstance(transaction, Mapping):
+            return False
+        if "graph" in transaction and not isinstance(transaction.get("graph"), Mapping):
+            return False
+    return True
+
+
 def _receipt_is_authoritative(
     payload: Mapping[str, Any],
     candidate_graph: Any,
@@ -764,15 +787,14 @@ def _receipt_is_authoritative(
         computed_candidate_hash = payload_hash(candidate_graph)
         graph_carriers: list[Mapping[str, Any]] = []
         candidate_envelope = payload.get("candidate")
-        if isinstance(candidate_envelope, Mapping) and isinstance(candidate_envelope.get("graph"), Mapping):
+        if isinstance(candidate_envelope, Mapping) and "graph" in candidate_envelope:
             graph_carriers.append(candidate_envelope["graph"])
         for key in ("graph", "candidate_graph", "candidateGraph"):
-            value = payload.get(key)
-            if isinstance(value, Mapping):
-                graph_carriers.append(value)
+            if key in payload:
+                graph_carriers.append(payload[key])
         for key in ("candidate_transaction", "candidateTransaction"):
             transaction = payload.get(key)
-            if isinstance(transaction, Mapping) and isinstance(transaction.get("graph"), Mapping):
+            if isinstance(transaction, Mapping) and "graph" in transaction:
                 graph_carriers.append(transaction["graph"])
         if any(payload_hash(graph) != computed_candidate_hash for graph in graph_carriers):
             return False, "conflicting_candidate_graph_carriers"
@@ -891,6 +913,11 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
     candidate = normalized.get("candidate")
     candidate_graph = candidate.get("graph") if isinstance(candidate, Mapping) else normalized.get("graph")
     accepted_batch = normalized.get("accepted_batch")
+    accepted_batch_alias_conflict = (
+        "acceptedBatch" in normalized
+        and "accepted_batch" in normalized
+        and normalized.get("acceptedBatch") != accepted_batch
+    )
 
     if state is None and (replay_ok is False or candidate_matches is False):
         state = "authority_rejected"
@@ -916,6 +943,8 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
                 and normalized[key].get("applyable") is not True
                 for key in ("eligibility", "apply_eligibility")
             )
+            or not _graph_carriers_well_formed(normalized)
+            or accepted_batch_alias_conflict
         )
         bound, reason = (
             (False, "invalid_outcome_or_eligibility")
@@ -939,6 +968,10 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
             normalized["canvas_apply_allowed"] = True
             normalized["queue_allowed"] = True
             normalized["graph_unchanged"] = False
+            # The canonical public terminal binds one delta spelling.  Equal
+            # compatibility aliases are harmless internally but must not be
+            # republished as a second, unbound authority carrier.
+            normalized.pop("acceptedBatch", None)
             return normalized
 
     # Every non-applied state is explicit and product-free.  Preserve the
