@@ -432,11 +432,59 @@ function sortByCanonicalProjectionJson(items) {
   });
 }
 
+function projectionMalformedGraph(message) {
+  const error = new Error(message);
+  error.code = "malformed_graph";
+  return error;
+}
+
+function validateProjectionContainers(graph, projection) {
+  const nodes = Object.hasOwn(graph, "nodes") ? graph.nodes : [];
+  if (!Array.isArray(nodes)) throw projectionMalformedGraph("nodes must be a list.");
+  if (projection === "structural_v1") {
+    const links = Object.hasOwn(graph, "links") ? graph.links : [];
+    if (!Array.isArray(links)) throw projectionMalformedGraph("links must be a list.");
+  }
+  if (projection === "layout_v1") {
+    const groups = Object.hasOwn(graph, "groups") ? graph.groups : [];
+    if (!Array.isArray(groups)) throw projectionMalformedGraph("groups must be a list.");
+  }
+  return nodes;
+}
+
+function validateProjectionNodeIdentities(nodes) {
+  const stableUids = new Set();
+  const nativeIds = new Set();
+  for (const node of nodes) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) {
+      throw projectionMalformedGraph("node must be an object.");
+    }
+    const uid = nodeIdentityV1(node);
+    if (stableUids.has(uid)) {
+      const error = new Error("Duplicate stable node identity.");
+      error.code = "duplicate_identity";
+      throw error;
+    }
+    stableUids.add(uid);
+    if (node.id != null) {
+      const nativeId = String(node.id);
+      if (nativeIds.has(nativeId)) {
+        const error = new Error("Duplicate native node identity.");
+        error.code = "duplicate_identity";
+        throw error;
+      }
+      nativeIds.add(nativeId);
+    }
+  }
+}
+
 export function projectGraphV1(graph, projection) {
   projectionSpecV1(projection);
   assertForwardProjectionV1(projection);
   assertRootGraphV1(graph);
-  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  if (Array.isArray(graph)) throw projectionMalformedGraph("graph must be an object.");
+  const nodes = validateProjectionContainers(graph, projection);
+  validateProjectionNodeIdentities(nodes);
   if (projection === "structural_v1") {
     return {
       projection,

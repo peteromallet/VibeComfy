@@ -178,12 +178,34 @@ def _widgets(node: Mapping[str, Any]) -> Any:
 
 def _sort(values: list[Any]) -> list[Any]: return sorted(values, key=canonical_json)
 
+def _validate_projection_node_identities(nodes: list[Any]) -> None:
+    """Reject ambiguous node identities before resolving native link endpoints."""
+    stable_uids: set[str] = set()
+    native_ids: set[str] = set()
+    for raw_node in nodes:
+        node = _supported(
+            "node",
+            raw_node,
+            raw_node.get("type") if isinstance(raw_node, Mapping) else None,
+        )
+        uid = node_identity_v1(node)
+        if uid in stable_uids:
+            raise ContractError("Duplicate stable node identity", "duplicate_identity")
+        stable_uids.add(uid)
+        native_id = node.get("id")
+        if native_id is not None:
+            native_key = str(native_id)
+            if native_key in native_ids:
+                raise ContractError("Duplicate native node identity", "duplicate_identity")
+            native_ids.add(native_key)
+
 def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
     # Historical v1 candidate projection.  Not product graph authority and
     # not a Law-5 door; V2 authority is candidate_transaction_v2.
     assert_forward_projection_v1(projection); graph = assert_root_graph_v1(graph)
     nodes = door_get_nodes(graph, [])
     if not isinstance(nodes, list): raise ContractError("nodes must be a list", "malformed_graph")
+    _validate_projection_node_identities(nodes)
     if projection == "structural_v1":
         result_nodes = []
         for node in nodes:

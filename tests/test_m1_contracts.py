@@ -135,6 +135,73 @@ def test_shared_m1_golden_projection_corpus() -> None:
         assert projection_reference_v1(case["graph"], case["projection"])["digest"] == case["digest"]
 
 
+@pytest.mark.parametrize(
+    ("projection", "field"),
+    [
+        ("structural_v1", "nodes"),
+        ("structural_v1", "links"),
+        ("layout_v1", "nodes"),
+        ("layout_v1", "groups"),
+    ],
+)
+@pytest.mark.parametrize("malformed", [None, {}])
+def test_typed_projection_rejects_malformed_graph_containers(
+    projection: str, field: str, malformed: object
+) -> None:
+    graph: dict[str, object] = {"nodes": [], "links": [], "groups": []}
+    graph[field] = malformed
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(graph, projection)
+    assert caught.value.code == "malformed_graph"
+
+
+@pytest.mark.parametrize("projection", ["structural_v1", "layout_v1"])
+def test_typed_projection_rejects_duplicate_node_identities(projection: str) -> None:
+    duplicate_uid = {
+        "nodes": [
+            {"vibecomfy_uid": "same", "type": "Vendor.Custom"},
+            {"vibecomfy_uid": "same", "type": "Vendor.Other"},
+        ],
+        "links": [],
+        "groups": [],
+    }
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(duplicate_uid, projection)
+    assert caught.value.code == "duplicate_identity"
+
+    duplicate_native_id = {
+        "nodes": [
+            {"id": 7, "vibecomfy_uid": "first", "type": "Vendor.Custom"},
+            {"id": "7", "vibecomfy_uid": "second", "type": "Vendor.Custom"},
+        ],
+        "links": [],
+        "groups": [],
+    }
+    with pytest.raises(ContractError) as caught:
+        project_graph_v1(duplicate_native_id, projection)
+    assert caught.value.code == "duplicate_identity"
+
+
+def test_typed_projection_preserves_unknown_custom_node_types_and_fields() -> None:
+    graph = {
+        "nodes": [{
+            "vibecomfy_uid": "custom-1",
+            "type": "Vendor.CustomNode",
+            "fields": {"vendor_payload": {"opaque": True}},
+            "widgets_values": {"vendor_choice": "future-mode"},
+        }],
+        "links": [],
+    }
+    projected = project_graph_v1(graph, "structural_v1")
+    assert projected["nodes"] == [{
+        "uid": "custom-1",
+        "type": "Vendor.CustomNode",
+        "mode": 0,
+        "fields": {"vendor_payload": {"opaque": True}},
+        "widgets_values": {"vendor_choice": "future-mode"},
+    }]
+
+
 def test_native_projection_normalizes_host_ui_metadata_and_zero_widget_encodings() -> None:
     graph = json.loads(json.dumps(CORPUS["projection_cases"][0]["graph"]))
     graph["nodes"][0]["showAdvanced"] = True

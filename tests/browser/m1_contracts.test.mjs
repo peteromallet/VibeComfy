@@ -105,6 +105,68 @@ test("M1 browser and Python consume one golden projection corpus", () => {
     assert.equal(projectionReferenceV1(item.graph, item.projection).digest, item.digest);
   }
 });
+test("typed projections reject malformed graph containers", () => {
+  const cases = [
+    ["structural_v1", "nodes"],
+    ["structural_v1", "links"],
+    ["layout_v1", "nodes"],
+    ["layout_v1", "groups"],
+  ];
+  for (const [projection, field] of cases) {
+    for (const malformed of [null, {}]) {
+      const graph = { nodes: [], links: [], groups: [], [field]: malformed };
+      assert.throws(
+        () => projectGraphV1(graph, projection),
+        (error) => error.code === "malformed_graph",
+      );
+    }
+  }
+});
+test("typed projections reject duplicate stable and native node identities", () => {
+  for (const projection of ["structural_v1", "layout_v1"]) {
+    const duplicateUid = {
+      nodes: [
+        { vibecomfy_uid: "same", type: "Vendor.Custom" },
+        { vibecomfy_uid: "same", type: "Vendor.Other" },
+      ],
+      links: [], groups: [],
+    };
+    assert.throws(
+      () => projectGraphV1(duplicateUid, projection),
+      (error) => error.code === "duplicate_identity",
+    );
+
+    const duplicateNativeId = {
+      nodes: [
+        { id: 7, vibecomfy_uid: "first", type: "Vendor.Custom" },
+        { id: "7", vibecomfy_uid: "second", type: "Vendor.Custom" },
+      ],
+      links: [], groups: [],
+    };
+    assert.throws(
+      () => projectGraphV1(duplicateNativeId, projection),
+      (error) => error.code === "duplicate_identity",
+    );
+  }
+});
+test("typed projection preserves unknown custom node types and fields", () => {
+  const graph = {
+    nodes: [{
+      vibecomfy_uid: "custom-1",
+      type: "Vendor.CustomNode",
+      fields: { vendor_payload: { opaque: true } },
+      widgets_values: { vendor_choice: "future-mode" },
+    }],
+    links: [],
+  };
+  assert.deepEqual(projectGraphV1(graph, "structural_v1").nodes, [{
+    uid: "custom-1",
+    type: "Vendor.CustomNode",
+    mode: 0,
+    fields: { vendor_payload: { opaque: true } },
+    widgets_values: { vendor_choice: "future-mode" },
+  }]);
+});
 test("native advanced-widget visibility is excluded from typed projections", () => {
   const graph = structuredClone(corpus.projection_cases[0].graph);
   graph.nodes[0].showAdvanced = true;
