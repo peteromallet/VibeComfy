@@ -849,13 +849,25 @@ def _canonical_terminal_aliases(
         ):
             return False, "candidate_transaction_authority_mismatch", accepted_batch, dict(payload)
         try:
-            from vibecomfy.comfy_nodes.agent.projection_registry_v1 import projection_reference_v1
+            from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+                assert_projection_reference_v1,
+                projection_reference_v1,
+            )
 
             projection = (
                 "layout_v1"
                 if candidate_authority.get("operation_family") == "layout"
                 else "structural_v1"
             )
+            precondition = candidate_authority.get("precondition")
+            if (
+                not isinstance(precondition, Mapping)
+                or "canonical" not in precondition
+                or not isinstance(precondition.get("compatibility_digest"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", precondition["compatibility_digest"])
+            ):
+                return False, "candidate_transaction_precondition_mismatch", accepted_batch, dict(payload)
+            assert_projection_reference_v1(precondition, projection)
             expected_postcondition = projection_reference_v1(candidate_graph, projection)
         except Exception:  # pragma: no cover - defensive projection boundary
             return False, "candidate_transaction_postcondition_unavailable", accepted_batch, dict(payload)
@@ -936,6 +948,30 @@ def _canonical_terminal_aliases(
                     )
                 ):
                     return False, "candidate_transaction_layout_hash_mismatch", accepted_batch, dict(payload)
+            structural_witness = candidate_authority.get("structural_witness")
+            try:
+                if not isinstance(structural_witness, Mapping) or "canonical" not in structural_witness:
+                    raise ValueError("missing structural witness canonical projection")
+                assert_projection_reference_v1(structural_witness, "structural_v1")
+                expected_structural_postcondition = projection_reference_v1(
+                    candidate_graph, "structural_v1"
+                )
+            except Exception:  # pragma: no cover - defensive projection boundary
+                return False, "candidate_transaction_structural_witness_mismatch", accepted_batch, dict(payload)
+            if (
+                structural_witness.get("digest") != expected_structural_postcondition["digest"]
+                or structural_witness.get("canonical")
+                != expected_structural_postcondition["canonical"]
+                or structural_witness.get("precondition_digest") != structural_witness["digest"]
+                or structural_witness.get("postcondition_digest") != structural_witness["digest"]
+                or structural_witness.get("compatibility_digest")
+                != precondition.get("compatibility_digest")
+                or hashes.get("submit_structural_graph_hash")
+                != precondition.get("compatibility_digest")
+            ):
+                return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
+        elif hashes.get("submit_structural_graph_hash") != precondition.get("compatibility_digest"):
+            return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
         for key in ("workflow_id",):
             expected = payload.get(key)
             if expected is None and receipt_summary is not None:

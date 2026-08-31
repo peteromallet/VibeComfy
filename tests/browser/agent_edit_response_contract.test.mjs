@@ -2827,10 +2827,25 @@ test("browser binds layout postcondition and graph hash to the published candida
   assert.equal(normalized.applyEligible, false);
   assert.equal(normalized.candidateGraph, null);
 
+  const forgedPrecondition = structuredClone(base);
+  forgedPrecondition.candidate_transaction.candidate_authority.precondition =
+    forgedPrecondition.candidate_transaction.candidate_authority.postcondition;
+  normalized = normalizeAgentEditResponse(forgedPrecondition);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
   const forgedLayout = structuredClone(base);
   forgedLayout.candidate_transaction.hashes.candidate_layout_graph_hash = "f".repeat(64);
   forgedLayout.candidate_transaction.authority.layout_verification.candidate_layout_graph_hash = "f".repeat(64);
   normalized = normalizeAgentEditResponse(forgedLayout);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const forgedSubmit = structuredClone(base);
+  forgedSubmit.candidate_transaction.hashes.submit_structural_graph_hash = "f".repeat(64);
+  normalized = normalizeAgentEditResponse(forgedSubmit);
   assert.equal(normalized.terminalState, "undetermined");
   assert.equal(normalized.applyEligible, false);
   assert.equal(normalized.candidateGraph, null);

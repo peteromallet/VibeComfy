@@ -1350,6 +1350,9 @@ class TestExecutorResult:
         transaction["candidate_authority"]["candidate_id"] = candidate_id
         transaction["hashes"]["candidate_graph_hash"] = payload_hash(graph)
         transaction["hashes"]["candidate_structural_graph_hash"] = structural_graph_hash(graph)
+        transaction["hashes"]["submit_structural_graph_hash"] = (
+            transaction["candidate_authority"]["precondition"]["compatibility_digest"]
+        )
         transaction["hashes"]["submit_graph_hash"] = "a" * 64
         transaction["hashes"]["authority_receipt_hash"] = "c" * 64
         transaction["candidate_authority"]["authority_receipt_digest"] = "c" * 64
@@ -1410,6 +1413,9 @@ class TestExecutorResult:
         valid["candidate_authority"]["turn_id"] = "t"
         valid["hashes"]["candidate_graph_hash"] = payload_hash(graph)
         valid["hashes"]["candidate_structural_graph_hash"] = structural_graph_hash(graph)
+        valid["hashes"]["submit_structural_graph_hash"] = (
+            valid["candidate_authority"]["precondition"]["compatibility_digest"]
+        )
         valid["hashes"]["submit_graph_hash"] = "a" * 64
         valid["hashes"]["authority_receipt_hash"] = "c" * 64
         valid["candidate_authority"]["authority_receipt_digest"] = "c" * 64
@@ -1438,10 +1444,26 @@ class TestExecutorResult:
         assert normalized["ok"] is False
         assert normalized["apply_eligible"] is False
 
+        forged_precondition = copy.deepcopy(valid)
+        forged_precondition["candidate_authority"]["precondition"] = (
+            forged_precondition["candidate_authority"]["postcondition"]
+        )
+        normalized = terminal(forged_precondition)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+
         forged_layout = copy.deepcopy(valid)
         forged_layout["hashes"]["candidate_layout_graph_hash"] = "f" * 64
         forged_layout["authority"]["layout_verification"]["candidate_layout_graph_hash"] = "f" * 64
         normalized = terminal(forged_layout)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+
+        forged_submit = copy.deepcopy(valid)
+        forged_submit["hashes"]["submit_structural_graph_hash"] = "f" * 64
+        normalized = terminal(forged_submit)
         assert normalized["terminal_state"] == "undetermined"
         assert normalized["ok"] is False
         assert normalized["apply_eligible"] is False
@@ -1490,6 +1512,9 @@ class TestExecutorResult:
             transaction["candidate_authority"]["candidate_id"] = candidate_id
             transaction["hashes"]["candidate_graph_hash"] = payload_hash(graph)
             transaction["hashes"]["candidate_structural_graph_hash"] = structural_graph_hash(graph)
+            transaction["hashes"]["submit_structural_graph_hash"] = (
+                transaction["candidate_authority"]["precondition"]["compatibility_digest"]
+            )
             transaction["hashes"]["submit_graph_hash"] = "a" * 64
             transaction["hashes"]["authority_receipt_hash"] = "c" * 64
             transaction["candidate_authority"]["authority_receipt_digest"] = "c" * 64
