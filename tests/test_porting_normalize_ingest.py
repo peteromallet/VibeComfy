@@ -688,6 +688,107 @@ def test_comfy_converter_lenient_skew_falls_back_offline_without_converter_exec(
     assert "1" in result
 
 
+@pytest.mark.parametrize(
+    "bad_node",
+    [
+        {},
+        {"id": None},
+        {"id": True},
+        {"id": 1.0},
+        {"id": "  "},
+    ],
+)
+def test_raw_ui_node_identity_rejected_before_offline_normalization(
+    bad_node: dict[str, object],
+) -> None:
+    raw = {"nodes": [bad_node], "links": []}
+
+    with pytest.raises(ValueError, match=r"node 0: .*id"):
+        normalize_to_api(raw, use_comfy_converter=False)
+
+
+def test_raw_ui_node_identity_rejected_before_live_converter() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from vibecomfy.comfy_backend import ComfyCompatibility
+
+    converter = MagicMock(return_value={})
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = converter
+    compatible = ComfyCompatibility(
+        ok=True,
+        reason_code="ok",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "expected", "version": None},
+        safe_families=[],
+    )
+    raw = {
+        "nodes": [{"id": 1, "type": "SaveImage"}, {"id": "1", "type": "SaveImage"}],
+        "links": [],
+    }
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "comfy": MagicMock(),
+            "comfy.component_model": MagicMock(),
+            "comfy.component_model.workflow_convert": fake_module,
+        },
+    ), patch(
+        "vibecomfy.ingest.normalize.check_comfy_compatibility",
+        return_value=compatible,
+    ):
+        with pytest.raises(ValueError, match="duplicate canonical id '1'"):
+            normalize_to_api(raw)
+
+    converter.assert_not_called()
+
+
+def test_raw_ui_node_identity_accepts_integer_and_string_ids_on_both_paths() -> None:
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "SaveImage", "inputs": [], "widgets_values": []},
+            {"id": "named", "type": "SaveImage", "inputs": [], "widgets_values": []},
+        ],
+        "links": [],
+    }
+
+    offline = normalize_to_api(raw, use_comfy_converter=False)
+    assert set(offline) == {"1", "named"}
+
+    from unittest.mock import MagicMock, patch
+
+    from vibecomfy.comfy_backend import ComfyCompatibility
+
+    converted = {
+        "1": {"class_type": "SaveImage", "inputs": {}},
+        "named": {"class_type": "SaveImage", "inputs": {}},
+    }
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = MagicMock(return_value=deepcopy(converted))
+    compatible = ComfyCompatibility(
+        ok=True,
+        reason_code="ok",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "expected", "version": None},
+        safe_families=[],
+    )
+    with patch.dict(
+        "sys.modules",
+        {
+            "comfy": MagicMock(),
+            "comfy.component_model": MagicMock(),
+            "comfy.component_model.workflow_convert": fake_module,
+        },
+    ), patch(
+        "vibecomfy.ingest.normalize.check_comfy_compatibility",
+        return_value=compatible,
+    ):
+        live = normalize_to_api(raw)
+
+    assert set(live) == {"1", "named"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # B02-C1 — lossless rich-envelope decode (serialized Vibe → IR → canonical UI)
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -512,6 +512,7 @@ def _ui_graph_to_api(
     comfy_converter_strict: bool = True,
 ) -> dict[str, Any]:
     """LiteGraph list-nodes → Comfy prompt dict. Does not sniff shape."""
+    _validate_raw_ui_node_identities(raw)
     if use_comfy_converter:
         try:
             from comfy.component_model.workflow_convert import convert_ui_to_api
@@ -809,6 +810,32 @@ def _has_unknown_widget_inputs(api: dict[str, Any]) -> bool:
         if isinstance(inputs, dict) and "UNKNOWN" in inputs:
             return True
     return False
+
+
+def _validate_raw_ui_node_identities(raw: Mapping[str, Any]) -> None:
+    """Reject ambiguous LiteGraph node identities before any path converts them."""
+    nodes = raw.get("nodes")
+    if not isinstance(nodes, list):
+        return
+    seen: dict[str, int] = {}
+    for index, node in enumerate(nodes):
+        if not isinstance(node, Mapping):
+            raise ValueError(f"node {index}: must be a mapping with an id")
+        if "id" not in node:
+            raise ValueError(f"node {index}: id is required")
+        node_id = node["id"]
+        if isinstance(node_id, bool) or not isinstance(node_id, (int, str)):
+            raise ValueError(f"node {index}: id must be an integer or string")
+        if isinstance(node_id, str) and not node_id.strip():
+            raise ValueError(f"node {index}: id must be a nonblank string")
+        canonical_id = str(node_id)
+        prior_index = seen.get(canonical_id)
+        if prior_index is not None:
+            raise ValueError(
+                f"node {index}: duplicate canonical id {canonical_id!r} "
+                f"(already used by node {prior_index})"
+            )
+        seen[canonical_id] = index
 
 
 def _vibe_string_list(value: Any, label: str) -> list[str]:
@@ -1961,4 +1988,3 @@ def _resolve_subgraph_primitive(
         if _subgraph_link_origin_id(item) != node_id and _subgraph_link_target_id(item) != node_id
     ]
     return True
-
