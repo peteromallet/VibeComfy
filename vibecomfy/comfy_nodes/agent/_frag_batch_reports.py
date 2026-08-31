@@ -564,9 +564,19 @@ def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...]
         return None
     if len({item["evidence_id"] for item in features}) != len(features):
         return None
-    if not isinstance(evidence, (list, tuple)) or not evidence:
+    # ``clarify`` is allowed to carry an empty optional evidence list.  The
+    # authority gate below still requires evidence before promoting a typed
+    # refusal, so this only prevents a harmless serialization mismatch from
+    # consuming the batch retry budget.
+    if not isinstance(evidence, (list, tuple)) or (
+        not evidence and kind == "requires_custom_nodes"
+    ):
         return None
-    if not classes and not features:
+    # A clarify action with no claims/evidence is a plain request for the
+    # missing user input.  Keep rejecting evidence-only payloads: without a
+    # named class or feature claim they cannot become an authority-backed
+    # refusal, and accepting them would hide a malformed typed action.
+    if not classes and not features and evidence:
         return None
     if kind == "requires_custom_nodes" and not classes:
         return None
