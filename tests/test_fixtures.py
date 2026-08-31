@@ -11,6 +11,19 @@ import pytest
 from vibecomfy.testing import smoke_fixtures as fixtures
 
 
+def _require_regeneration_dependencies_if_fallback_needed() -> None:
+    """Guard only tests that exercise synthetic media regeneration.
+
+    A checkout carrying all committed media can copy without optional media
+    packages.  A sparse/asset-less checkout takes the fallback path, which
+    intentionally requires PyAV and Pillow.
+    """
+    if all((fixtures.FIXTURE_ROOT / name).is_file() for name in fixtures.SMOKE_FIXTURES):
+        return
+    pytest.importorskip("av", reason="fixture fallback requires the optional PyAV dependency")
+    pytest.importorskip("PIL", reason="fixture fallback requires the optional Pillow dependency")
+
+
 def _require_committed_corpus() -> None:
     if not all((fixtures.FIXTURE_ROOT / name).is_file() for name in fixtures.SMOKE_FIXTURES):
         pytest.skip("source checkout has no committed smoke-fixture corpus")
@@ -119,6 +132,7 @@ def test_committed_guide_videos_have_audio_stream(name: str) -> None:
 
 
 def test_copy_smoke_fixtures_copies_all(tmp_path: Path) -> None:
+    _require_regeneration_dependencies_if_fallback_needed()
     written = fixtures.copy_smoke_fixtures(tmp_path)
     names = {p.name for p in written}
     for expected in fixtures.SMOKE_FIXTURES:
@@ -212,6 +226,7 @@ def test_cli_list_smoke(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_cli_copy_smoke(tmp_path: Path) -> None:
+    _require_regeneration_dependencies_if_fallback_needed()
     rc = fixtures._main(["copy", "--target", str(tmp_path)])
     assert rc == 0
     for name in fixtures.SMOKE_FIXTURES:

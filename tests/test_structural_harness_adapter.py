@@ -13,9 +13,9 @@ from tests.harness_common import (
     MODEL_BEHAVIOR_SCRIPTED,
     STATUS_SUCCESS,
 )
-from tests.structural_harness.adapter import VibeComfyProjectAdapter
-
 sisypy = pytest.importorskip("sisypy")
+
+from tests.structural_harness.adapter import VibeComfyProjectAdapter  # noqa: E402
 
 
 def _scenario(name: str = "image to video") -> sisypy.Scenario:

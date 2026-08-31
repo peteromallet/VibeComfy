@@ -326,6 +326,7 @@ def test_faking_structural_chain_writes_plausible_narrative_but_no_evidence_anch
 
 def _load_recovery_scenario():
     """Helper to load the recovery scenario YAML via the Sisypy loader."""
+    pytest.importorskip("sisypy", reason="scenario contract tests require the optional Sisypy sibling package")
     # sisypy lives in a sibling workspace: ~/Documents/reigh-workspace/sisypy
     sisypy_path = Path.home() / "Documents" / "reigh-workspace" / "sisypy"
     if str(sisypy_path) not in sys.path:
@@ -514,6 +515,7 @@ def _brief_path(slug: str) -> Path:
 
 def _load_scenario_yaml(slug: str):
     """Load a single scenario YAML via the Sisypy loader."""
+    pytest.importorskip("sisypy", reason="scenario contract tests require the optional Sisypy sibling package")
     sisypy_path = Path.home() / "Documents" / "reigh-workspace" / "sisypy"
     if str(sisypy_path) not in sys.path:
         sys.path.insert(0, str(sisypy_path))
@@ -531,6 +533,7 @@ def _load_scenario_yaml(slug: str):
 
 def _load_hyphenated_scenario_yaml(slug: str):
     """Load a single scenario YAML whose filename matches the slug."""
+    pytest.importorskip("sisypy", reason="scenario contract tests require the optional Sisypy sibling package")
     sisypy_path = Path.home() / "Documents" / "reigh-workspace" / "sisypy"
     if str(sisypy_path) not in sys.path:
         sys.path.insert(0, str(sisypy_path))

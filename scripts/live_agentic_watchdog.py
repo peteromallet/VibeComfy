@@ -68,27 +68,26 @@ from pathlib import Path
 from typing import Any
 
 # --- Arnold (installed in the VibeComfy venv via the [agent] extra) ----------
-# Use the installed-package import convention; never point PYTHONPATH at the
-# local Arnold checkout (its arnold_pipelines/ would shadow this package).
-from arnold.agent.adapters.codex import CodexAdapter
-from arnold.agent.contracts import AgentRequest
-
+# Keep the pure digest/control-file helpers importable without the optional
+# agent runtime.  The live boundary below reports a clear prerequisite error.
 try:
-    from arnold.pipelines.megaplan.watchdog.log import log_event, setup_logging
-    from arnold.pipelines.megaplan.watchdog.retry import (
-        RetryCapExceeded,
-        RetryLoop,
-        RetryOutcome,
-    )
+    from arnold.agent.adapters.codex import CodexAdapter
+    from arnold.agent.contracts import AgentRequest
 except ModuleNotFoundError as exc:
-    if exc.name != "arnold.pipelines.megaplan":
+    if exc.name != "arnold" and not str(exc.name or "").startswith("arnold.agent"):
         raise
+    CodexAdapter = None  # type: ignore[assignment,misc]
+    AgentRequest = None  # type: ignore[assignment,misc]
+    _ARNOLD_AGENT_IMPORT_ERROR: ModuleNotFoundError | None = exc
+else:
+    _ARNOLD_AGENT_IMPORT_ERROR = None
 
+if _ARNOLD_AGENT_IMPORT_ERROR is not None:
     MEGAPLAN_WATCHDOG_AVAILABLE = False
-    _MEGAPLAN_WATCHDOG_IMPORT_ERROR = exc
+    _MEGAPLAN_WATCHDOG_IMPORT_ERROR = _ARNOLD_AGENT_IMPORT_ERROR
 
     class RetryCapExceeded(RuntimeError):
-        """Compatibility type for the unavailable optional watchdog package."""
+        """Compatibility type for the unavailable optional agent runtime."""
 
     class RetryOutcome:
         RESOLVED = "resolved"
@@ -107,8 +106,42 @@ except ModuleNotFoundError as exc:
         logging.basicConfig(level=logging.INFO)
         return logging.getLogger("live_agentic_watchdog")
 else:
-    MEGAPLAN_WATCHDOG_AVAILABLE = True
-    _MEGAPLAN_WATCHDOG_IMPORT_ERROR = None
+    try:
+        from arnold.pipelines.megaplan.watchdog.log import log_event, setup_logging
+        from arnold.pipelines.megaplan.watchdog.retry import (
+            RetryCapExceeded,
+            RetryLoop,
+            RetryOutcome,
+        )
+    except ModuleNotFoundError as exc:
+        if exc.name != "arnold.pipelines.megaplan":
+            raise
+
+        MEGAPLAN_WATCHDOG_AVAILABLE = False
+        _MEGAPLAN_WATCHDOG_IMPORT_ERROR = exc
+
+        class RetryCapExceeded(RuntimeError):
+            """Compatibility type for the unavailable optional watchdog package."""
+
+        class RetryOutcome:
+            RESOLVED = "resolved"
+            UNRESOLVED = "unresolved"
+
+        class RetryLoop:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError(
+                    "live agentic watchdog requires arnold.pipelines.megaplan"
+                ) from _MEGAPLAN_WATCHDOG_IMPORT_ERROR
+
+        def log_event(logger: Any, event: str, **fields: Any) -> None:
+            logger.info("%s %s", event, fields)
+
+        def setup_logging(*, log_path: Path) -> Any:
+            logging.basicConfig(level=logging.INFO)
+            return logging.getLogger("live_agentic_watchdog")
+    else:
+        MEGAPLAN_WATCHDOG_AVAILABLE = True
+        _MEGAPLAN_WATCHDOG_IMPORT_ERROR = None
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIOS_DIR = "tests/live_agentic_harness/scenarios"
@@ -677,6 +710,10 @@ def build_codex_brief(
 # --------------------------------------------------------------------------- #
 def invoke_codex(brief: str, model: str, effort: str, timeout: int,
                  out_path: Path, logger: Any, round_num: int) -> dict[str, Any]:
+    if AgentRequest is None or CodexAdapter is None:
+        raise RuntimeError(
+            "live agentic watchdog requires the optional Arnold agent runtime"
+        ) from _ARNOLD_AGENT_IMPORT_ERROR
     req = AgentRequest(
         agent="codex",
         mode="revise",           # telemetry label only; oneshot uses a fixed step
@@ -1027,6 +1064,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if _ARNOLD_AGENT_IMPORT_ERROR is not None:
+        print(
+            "ERROR: live agentic watchdog requires the optional Arnold agent runtime; "
+            "install the [agent] extra",
+            file=sys.stderr,
+        )
+        return 2
     if not MEGAPLAN_WATCHDOG_AVAILABLE:
         print(
             "SKIPPED: live agentic watchdog requires optional "

@@ -74,6 +74,15 @@ def test_build_digest_all_pass_says_nothing_to_fix():
     assert "Movement" not in out  # no prev_results
 
 
+def test_main_missing_arnold_reports_prerequisite_error(monkeypatch, capsys):
+    """The live command fails clearly while pure helpers remain importable."""
+    missing = ModuleNotFoundError("No module named 'arnold'", name="arnold")
+    monkeypatch.setattr(w, "_ARNOLD_AGENT_IMPORT_ERROR", missing)
+
+    assert w.main(["--dry-codex"]) == 2
+    assert "optional Arnold agent runtime" in capsys.readouterr().err
+
+
 def test_build_digest_surfaces_intent_judge_and_sorts_by_signal():
     low = _scenario("low", False, issues=[{"check": "graph_unchanged", "severity": "error", "detail": "x"}])
     high = _scenario("high", False, issues=[

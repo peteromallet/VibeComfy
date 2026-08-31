@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("sisypy", reason="structural harness tests require the optional Sisypy sibling package")
+
 from tests.harness_common import OUTCOME_FAILED, OUTCOME_FAKE_NO_OP, OUTCOME_PASSED
 
 _HARNESS_RUNNER = Path(__file__).resolve().parents[2] / "tests" / "structural_harness" / "runner.py"

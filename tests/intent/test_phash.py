@@ -114,6 +114,10 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 
+pytest.importorskip(
+    "PIL",
+    reason="pHash calibration tests require the optional [intent] Pillow dependency",
+)
 from vibecomfy.intent.render_diff import phash_distance, calibrate_threshold
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "_phash_samples"

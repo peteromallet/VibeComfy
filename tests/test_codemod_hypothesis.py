@@ -17,6 +17,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+pytest.importorskip(
+    "hypothesis",
+    reason="codemod property tests require the Hypothesis development dependency",
+)
 from hypothesis import HealthCheck, given, settings, strategies as st
 import importlib.util
 
