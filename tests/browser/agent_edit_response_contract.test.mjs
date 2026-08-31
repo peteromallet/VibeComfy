@@ -2439,3 +2439,77 @@ test("browser projection demotes an applied terminal with an unbound receipt", (
   assert.equal(normalized.outcome.kind, "error");
   assert.equal(normalized.applyEligible, false);
 });
+
+test("browser projection rejects replay-derived candidate hash and error contradictions", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: [{ op: { op: "set_node_field" } }],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: "0".repeat(64),
+      accepted_batch_digest: "1".repeat(64),
+      cumulative_delta_hash: "1".repeat(64),
+      replay_ok: true,
+      candidate_matches: true,
+      replay: {
+        replay_ok: true,
+        candidate_matches: true,
+        verification_kind: "delta_replay",
+        op_count: 1,
+        error: "tampered",
+        persisted_candidate_hash: "b".repeat(64),
+        recomputed_candidate_hash: "b".repeat(64),
+      },
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+});
+
+test("browser projection rejects camelCase hash and conflicting graph carriers", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const otherGraph = { nodes: [{ id: 2 }], links: [] };
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    graph: otherGraph,
+    candidateGraphHash: "b".repeat(64),
+    accepted_batch: [{ op: { op: "set_node_field" } }],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: "0".repeat(64),
+      accepted_batch_digest: "1".repeat(64),
+      cumulative_delta_hash: "1".repeat(64),
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+});

@@ -694,6 +694,8 @@ def _receipt_contradiction(receipt: Any) -> str | None:
     summary, replay = _receipt_parts(receipt)
     if summary is None or replay is None:
         return None
+    if "error" in replay and "replay_error" in summary and replay.get("error") != summary.get("replay_error"):
+        return "receipt_replay_error_contradiction"
     for key in (
         "replay_ok", "candidate_matches", "replay_error", "op_count",
         "verification_kind", "persisted_candidate_hash", "recomputed_candidate_hash",
@@ -730,6 +732,7 @@ def _receipt_is_authoritative(
         return False, "candidate_mismatch"
     if _receipt_value(receipt, "replay_error") not in (None, ""):
         return False, "replay_error"
+    _summary, replay = _receipt_parts(receipt)
     if summary.get("contract_version") != "authority_receipt_v2":
         return False, "receipt_contract_mismatch"
     if summary.get("schema_version") != "2.0.0":
@@ -759,13 +762,54 @@ def _receipt_is_authoritative(
         from vibecomfy.comfy_nodes.agent.session import payload_hash
 
         computed_candidate_hash = payload_hash(candidate_graph)
+        graph_carriers: list[Mapping[str, Any]] = []
+        candidate_envelope = payload.get("candidate")
+        if isinstance(candidate_envelope, Mapping) and isinstance(candidate_envelope.get("graph"), Mapping):
+            graph_carriers.append(candidate_envelope["graph"])
+        for key in ("graph", "candidate_graph", "candidateGraph"):
+            value = payload.get(key)
+            if isinstance(value, Mapping):
+                graph_carriers.append(value)
+        for key in ("candidate_transaction", "candidateTransaction"):
+            transaction = payload.get(key)
+            if isinstance(transaction, Mapping) and isinstance(transaction.get("graph"), Mapping):
+                graph_carriers.append(transaction["graph"])
+        if any(payload_hash(graph) != computed_candidate_hash for graph in graph_carriers):
+            return False, "conflicting_candidate_graph_carriers"
     except Exception:  # pragma: no cover - defensive import/hash boundary
         return False, "candidate_hash_unavailable"
     if computed_candidate_hash != summary.get("candidate_hash"):
         return False, "candidate_hash_mismatch"
-    declared_hash = payload.get("candidate_graph_hash")
-    if declared_hash is not None and declared_hash != computed_candidate_hash:
+    declared_hashes = {
+        key: payload.get(key)
+        for key in ("candidate_graph_hash", "candidateGraphHash")
+        if payload.get(key) is not None
+    }
+    if any(value != computed_candidate_hash for value in declared_hashes.values()):
         return False, "candidate_graph_hash_mismatch"
+    structural_hashes = {
+        key: payload.get(key)
+        for key in ("candidate_structural_graph_hash", "candidateStructuralGraphHash")
+        if payload.get(key) is not None
+    }
+    if structural_hashes:
+        try:
+            from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
+
+            computed_structural_hash = structural_graph_hash(candidate_graph)
+        except Exception:  # pragma: no cover - defensive import/hash boundary
+            return False, "candidate_structural_hash_unavailable"
+        if any(value != computed_structural_hash for value in structural_hashes.values()):
+            return False, "candidate_structural_graph_hash_mismatch"
+
+    if isinstance(replay, Mapping):
+        nested_error = replay.get("error")
+        if nested_error not in (None, ""):
+            return False, "replay_error"
+        for key in ("persisted_candidate_hash", "recomputed_candidate_hash"):
+            value = replay.get(key)
+            if value != summary.get("candidate_hash"):
+                return False, f"replay_{key}_mismatch"
 
     verification_kind = _receipt_value(receipt, "verification_kind")
     op_count = _receipt_value(receipt, "op_count")

@@ -601,6 +601,20 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
   };
 }
 
+function candidateGraphCarriersAgree(raw, candidateGraph) {
+  if (!isObject(candidateGraph)) return false;
+  const carriers = [];
+  if (isObject(raw.candidate?.graph)) carriers.push(raw.candidate.graph);
+  for (const key of ["graph", "candidate_graph", "candidateGraph"]) {
+    if (isObject(raw[key])) carriers.push(raw[key]);
+  }
+  for (const key of ["candidate_transaction", "candidateTransaction"]) {
+    if (isObject(raw[key]?.graph)) carriers.push(raw[key].graph);
+  }
+  const expected = sha256Hex(candidateGraph);
+  return carriers.every((graph) => sha256Hex(graph) === expected);
+}
+
 function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
   const hasTerminal = Object.prototype.hasOwnProperty.call(raw, "terminal_state");
   if (!hasTerminal) {
@@ -620,6 +634,9 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
       "persisted_candidate_hash", "recomputed_candidate_hash", "candidate_hash",
       "cumulative_delta_hash", "accepted_batch_digest", "session_id", "turn_id"]
       .every((key) => !(key in receipt) || !(key in replay) || receipt[key] === replay[key])
+    : true;
+  const replayErrorAgree = receipt && replay
+    ? !("error" in replay) || !("replay_error" in receipt) || replay.error === receipt.replay_error
     : true;
   const identityBound = receipt
     && typeof receipt.session_id === "string" && receipt.session_id
@@ -650,10 +667,21 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
       && !replay?.error
       && typeof replay?.verification_kind === "string"
       && receiptCopiesAgree
+      && replayErrorAgree
       && identityBound
       && isObject(candidateGraph)
+      && candidateGraphCarriersAgree(raw, candidateGraph)
       && sha256Hex(candidateGraph) === receipt.candidate_hash
       && (!raw.candidate_graph_hash || raw.candidate_graph_hash === receipt.candidate_hash)
+      && (!raw.candidateGraphHash || raw.candidateGraphHash === receipt.candidate_hash)
+      && (!raw.candidate_graph_hash || !raw.candidateGraphHash
+        || raw.candidate_graph_hash === raw.candidateGraphHash)
+      && (!raw.candidate_structural_graph_hash || !raw.candidateStructuralGraphHash
+        || raw.candidate_structural_graph_hash === raw.candidateStructuralGraphHash)
+      && (!replay?.persisted_candidate_hash
+        || replay.persisted_candidate_hash === receipt.candidate_hash)
+      && (!replay?.recomputed_candidate_hash
+        || replay.recomputed_candidate_hash === receipt.candidate_hash)
       && deltaCoherent
     );
   if (terminalState === "applied" && !receiptValid) {
