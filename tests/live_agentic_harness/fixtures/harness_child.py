@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -54,14 +55,71 @@ def _summary(scenario_id: str) -> dict:
     }
 
 
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _write_probe(path: Path) -> None:
+    _write_json_atomic(
+        path,
+        {
+            "pid": os.getpid(),
+            "ppid": os.getppid(),
+            "pgid": os.getpgid(0) if hasattr(os, "getpgid") else None,
+            "cwd": os.getcwd(),
+            "module_name": __name__,
+            "argv": list(sys.argv),
+            "vibecomfy_modules": sorted(
+                name
+                for name in sys.modules
+                if name == "vibecomfy" or name.startswith("vibecomfy.")
+            ),
+            "env": {
+                key: os.environ.get(key)
+                for key in (
+                    "VIBECOMFY_TRANSPORT",
+                    "VIBECOMFY_OPENROUTER_BASE_URL",
+                    "VIBECOMFY_FORCE_MODEL",
+                    "VIBECOMFY_HEADLESS",
+                    "OPENROUTER_API_KEY",
+                    "DEEPSEEK_API_KEY",
+                )
+            },
+        },
+    )
+
+
+def _spawn_stdio_holder(pid_file: Path | None, seconds: float) -> int:
+    holder = subprocess.Popen(
+        [sys.executable, "-c", f"import time; time.sleep({seconds!r})"],
+        stdin=subprocess.DEVNULL,
+    )
+    if pid_file is not None:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        with pid_file.open("a", encoding="utf-8") as fh:
+            fh.write(f"{holder.pid}\n")
+            fh.flush()
+    return holder.pid
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--single-out", required=True)
     parser.add_argument("--scenario-id", default="fixture")
+    parser.add_argument("--probe", default=None)
+    parser.add_argument("--pid-file", default=None)
+    parser.add_argument("--hold-seconds", type=float, default=60.0)
+    parser.add_argument("--exit-code", type=int, default=0)
     parser.add_argument("--write-summary", action="store_true")
     parser.add_argument("--hold-stdio", action="store_true")
     parser.add_argument("--hang-after-summary", action="store_true")
     args = parser.parse_args()
+
+    if args.probe:
+        _write_probe(Path(args.probe))
 
     if args.write_summary:
         out = Path(args.single_out)
@@ -75,15 +133,13 @@ def main() -> int:
         # Grandchild inherits our stdout/stderr fds (regular temp files under
         # the new runner; captured pipes under the old one) and holds them open
         # well past our exit. We exit immediately.
-        subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(60)"],
-            stdin=subprocess.DEVNULL,
-        )
-        return 0
+        _spawn_stdio_holder(Path(args.pid_file) if args.pid_file else None, args.hold_seconds)
+        return args.exit_code
 
     if args.hang_after_summary:
+        _spawn_stdio_holder(Path(args.pid_file) if args.pid_file else None, args.hold_seconds)
         time.sleep(3600)
-    return 0
+    return args.exit_code
 
 
 if __name__ == "__main__":
