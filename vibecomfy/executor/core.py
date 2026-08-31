@@ -18,7 +18,7 @@ import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 from vibecomfy.executor.profiler import (
@@ -241,7 +241,7 @@ _ROUTE_BEHAVIORS = MappingProxyType({
         route="inspect",
         needs_research=False,
         needs_implement=False,
-        plan_summary="Inspect the graph without editing or outside research.",
+        plan_summary="Inspect the graph without editing; declared answer-only turns may gather bounded research.",
         clears_result_graph=True,
         reply_uses_graph_inspection=True,
         can_produce_candidate=False,
@@ -317,13 +317,22 @@ def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
     return _ROUTE_BEHAVIORS[_canonical_route_for_plan(plan)]
 
 
-def _should_research(plan: ClassifyDecision) -> bool:
+def _should_research(plan: ClassifyDecision, request: ExecutorRequest | None = None) -> bool:
     """Determine if the research phase should run for *plan*."""
-    return _route_behavior(plan).needs_research
+    behavior = _route_behavior(plan)
+    # Inspect is research-free by default. A caller may explicitly require
+    # bounded evidence without changing the canonical inspect route.
+    return behavior.needs_research or (
+        behavior.route == "inspect"
+        and request is not None
+        and request.research_required
+    )
 
 
-def _should_implement(plan: ClassifyDecision) -> bool:
+def _should_implement(plan: ClassifyDecision, request: ExecutorRequest | None = None) -> bool:
     """Determine if the implement phase should run for *plan*."""
+    if request is not None and request.interaction_mode == "answer_only":
+        return False
     return _route_behavior(plan).needs_implement
 
 
@@ -935,6 +944,11 @@ class AgentResearchResult:
         return self.trace.summary
 
     @property
+    def claim_provenance(self) -> dict[str, tuple[str, ...]]:
+        """Claim-scoped artifact ids for the reply handoff."""
+        return self.ledger.claim_provenance
+
+    @property
     def research_attempt(self) -> str:
         """Typed attempt (never/empty/thin/grounded) derived from the ledger.
 
@@ -987,14 +1001,20 @@ class AgentResearchResult:
         # subset; counts may differ between modes, field presence may not).
         payload["citations"] = list(trace.citations)[:12]
         if self.decision_memo is not None:
-            # Research-only exposes the bounded C5 memo, never source bodies,
-            # iterations, or the full C1 artifact pack.
+            # Research-only exposes the bounded C5 memo; full source bodies
+            # are carried separately below in the durable evidence pack.
             payload.update(dict(self.decision_memo))
         # The compact handoff ledger is exposed on BOTH routes: research-only
         # keeps its bounded C5 memo AND now carries the same compact ledger
-        # field the threaded carrier exposes (entries are tiny judgments; no
-        # source bodies, iterations, or artifact packs).
+        # field the threaded carrier exposes (entries are tiny judgments).
         payload["ledger"] = self.ledger.to_dict()
+        # Durable serialization carries the resolver, not only citation IDs;
+        # prompt projections remain body-free and bounded.
+        payload["evidence_pack"] = self.evidence_pack.to_dict()
+        if self.claim_provenance:
+            payload["claim_provenance"] = {
+                claim: list(ids) for claim, ids in self.claim_provenance.items()
+            }
         return payload
 
 def _source_policy_entries(
@@ -1015,6 +1035,7 @@ def _research_decision_memo(
     diagnostics: tuple[dict[str, Any], ...],
     attempt: str = RESEARCH_ATTEMPT_NEVER,
     artifacts: Mapping[str, Any] | None = None,
+    claim_provenance: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     inspected = [
         evidence_id
@@ -1036,18 +1057,20 @@ def _research_decision_memo(
     if attempt == RESEARCH_ATTEMPT_NEVER:
         conclusion = (
             "No evidence tools were called; no external evidence was gathered. "
-            "Answer from the attached workflow graph and general knowledge."
+            "Answer from the attached workflow graph; label any general knowledge "
+            "as unverified."
         )
     elif attempt == RESEARCH_ATTEMPT_EMPTY:
         conclusion = (
             "Evidence tools were called but returned no evidence; no external "
-            "evidence was gathered. Answer from the attached workflow graph "
-            "and general knowledge."
+            "evidence was gathered. Answer from the attached workflow graph; "
+            "label any general knowledge as unverified."
         )
     else:
         conclusion = trace.summary or (
             "No external evidence was gathered by the research stage; "
-            "answer from the attached workflow graph and general knowledge."
+            "answer from the attached workflow graph and label any general "
+            "knowledge as unverified."
         )
     warning_lines = list(trace.warnings)
     evidence_preview = _research_evidence_preview(
@@ -1066,8 +1089,8 @@ def _research_decision_memo(
                 RESEARCH_ATTEMPT_GROUNDED,
             }
             else (
-                "Answer from the attached graph and general knowledge; "
-                "no external evidence was gathered."
+                "Answer from the attached graph; label any general knowledge "
+                "as unverified; no external evidence was gathered."
                 if attempt in {RESEARCH_ATTEMPT_NEVER, RESEARCH_ATTEMPT_EMPTY}
                 else "Refine the unresolved research question before acting on this conclusion."
             )
@@ -1077,7 +1100,24 @@ def _research_decision_memo(
         "tool_calls_executed": trace.executed_tool_calls,
         "evidence_artifacts": trace.evidence_artifact_count,
         "evidence_preview": evidence_preview,
+        # Keep the claim-to-artifact relation alongside the flat citation list
+        # so the reply can resolve exactly which fetched record supports a
+        # material statement.
     }
+    if claim_provenance:
+        memo["claim_provenance"] = {
+            str(claim): list(ids) for claim, ids in claim_provenance.items()
+        }
+    elif trace.citations and artifacts:
+        fetched = [
+            evidence_id
+            for evidence_id in trace.citations
+            if evidence_id in artifacts
+            and getattr(artifacts[evidence_id], "kind", "")
+            in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+        ]
+        if fetched:
+            memo["claim_provenance"] = {"conclusion": fetched[:6]}
     # R4d: a FAILED stage (e.g. an unparseable model decision) must expose the
     # actual error so the reply stage reports the real cause — never a
     # fabricated "ran out of time" (observed: malformed decision ValueError,
@@ -1317,38 +1357,42 @@ def _run_agent_owned_research(
     research_kwargs: dict[str, float] = {}
     if deadline_seconds is not None:
         research_kwargs["deadline_seconds"] = deadline_seconds
-    try:
-        trace, pack = run_agent_research_stage(
-            route=route,
-            question=question,
-            research_brief=brief,
-            spec=spec,
-            session_id=request.session_id,
-            request_identity=research_request_identity,
-            baseline_identity=research_baseline_identity,
-            **research_kwargs,
-        )
-    except TypeError as exc:
-        # Keep injected/legacy stage doubles source-compatible while the
-        # production stage receives its explicit deadline telemetry.
-        message = str(exc)
-        optional_research_keys = (
-            "deadline_seconds",
-            "session_id",
-            "request_identity",
-            "baseline_identity",
-        )
-        if not any(key in message for key in optional_research_keys):
-            raise
-        retry_kwargs: dict[str, Any] = {
-            "route": route,
-            "question": question,
-            "research_brief": brief,
-            "spec": spec,
-        }
-        if "deadline_seconds" not in message:
-            retry_kwargs.update(research_kwargs)
-        trace, pack = run_agent_research_stage(**retry_kwargs)
+    # Keep injected/legacy stage doubles source-compatible while the
+    # production stage receives its identity/deadline telemetry.  Remove only
+    # the optional key named by the TypeError, retrying until the double's
+    # supported surface is reached; never swallow a TypeError from inside the
+    # actual research stage.
+    research_call_kwargs: dict[str, Any] = {
+        "route": route,
+        "question": question,
+        "research_brief": brief,
+        "spec": spec,
+        "session_id": request.session_id,
+        "request_identity": research_request_identity,
+        "baseline_identity": research_baseline_identity,
+        "allow_empty_finish": route == "inspect",
+        **research_kwargs,
+    }
+    optional_research_keys = (
+        "deadline_seconds",
+        "session_id",
+        "request_identity",
+        "baseline_identity",
+        "allow_empty_finish",
+    )
+    while True:
+        try:
+            trace, pack = run_agent_research_stage(**research_call_kwargs)
+            break
+        except TypeError as exc:
+            message = str(exc)
+            rejected_key = next(
+                (key for key in optional_research_keys if key in research_call_kwargs and key in message),
+                None,
+            )
+            if rejected_key is None:
+                raise
+            research_call_kwargs.pop(rejected_key, None)
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
         pack = EvidencePack(
@@ -1362,8 +1406,9 @@ def _run_agent_owned_research(
             diagnostics=diagnostics,
             attempt=attempt,
             artifacts=pack.artifacts,
+            claim_provenance=pack.ledger.claim_provenance,
         )
-        if route == "research"
+        if route in {"research", "inspect"}
         else None
     )
     return AgentResearchResult(
@@ -1727,13 +1772,20 @@ def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) ->
     """
     from vibecomfy.porting.edit.checkpoint import TERMINAL_STATE_NO_CANDIDATE
 
+    outcome = result.get("outcome")
+    outcome_kind = outcome.get("kind") if isinstance(outcome, dict) else None
+    no_candidate_reason = result.get("no_candidate_reason")
+    if (
+        outcome_kind == "noop"
+        and no_candidate_reason == "no_changes"
+        and result.get("graph_unchanged") is True
+        and result.get("apply_eligible") is True
+    ):
+        return True
     terminal_state = _implementation_response_typed_terminal(result)
     if terminal_state is not None:
         return terminal_state == TERMINAL_STATE_NO_CANDIDATE
 
-    outcome = result.get("outcome")
-    outcome_kind = outcome.get("kind") if isinstance(outcome, dict) else None
-    no_candidate_reason = result.get("no_candidate_reason")
     if no_candidate_reason == "authority_replay_mismatch":
         return False
     if no_candidate_reason in {
@@ -1746,6 +1798,10 @@ def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) ->
     if no_candidate_reason in {
         "route_not_applyable",
         "no_graph",
+        "no_changes",
+        "no_accepted_delta",
+        "unrepresentable_delta",
+        "unrepresentable_link_order",
         "unknown_route",
         "no_candidate",
     }:
@@ -2612,6 +2668,220 @@ def _ground_reply_node_ids(reply: str, graph: dict[str, Any] | None) -> str:
     return "".join(out)
 
 
+_EVIDENCE_CITE_RE = re.compile(r"\[([A-Za-z0-9_.:-]+)\]")
+_CURRENT_CLAIM_RE = re.compile(
+    r"\b(current|latest|today|now|pricing|price|cost|supports?|available|capabilit(?:y|ies)|version)\b",
+    re.IGNORECASE,
+)
+_PROVENANCE_STOPWORDS = frozenset(
+    "the a an and or but is are was were be been this that with from for to of "
+    "in on by as it its we you your can may does do not only about into what "
+    "which workflow graph system record fetched evidence claim supports support".split()
+)
+
+
+def _artifact_body_text(value: Any) -> str:
+    """Flatten a durable artifact body for conservative claim binding."""
+    if isinstance(value, Mapping):
+        return " ".join(
+            f"{key} {_artifact_body_text(item)}" for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return " ".join(_artifact_body_text(item) for item in value)
+    return str(value or "")
+
+
+def _claim_terms(value: str) -> set[str]:
+    return {
+        token.casefold()
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}", value)
+        if token.casefold() not in _PROVENANCE_STOPWORDS
+    }
+
+
+def _artifact_supports_claim(claim: str, artifact: Any) -> bool:
+    body_terms = _claim_terms(_artifact_body_text(getattr(artifact, "body", artifact)))
+    claim_terms = _claim_terms(claim)
+    if not claim_terms or not body_terms:
+        return False
+    overlap = claim_terms & body_terms
+    # Require the distinctive subject and at least one predicate/detail term;
+    # a fetched-but-unrelated record must never authorize a citation.
+    required = 1 if len(claim_terms) == 1 else min(2, len(claim_terms))
+    return len(overlap) >= required
+
+
+def _reply_claim_clauses(sentence: str) -> list[str]:
+    """Split one reply sentence into independently attributable claims."""
+    clauses = [part.strip() for part in re.split(
+        r"\s+(?:and|but|while|yet)\s+|\s*;\s*", sentence, flags=re.I
+    ) if part.strip()]
+    return clauses or [sentence.strip()]
+
+
+_GRAPH_GENERIC_TERMS = frozenset(
+    "graph workflow node nodes link links widget widgets field fields connection "
+    "connections contains contain support supports supported has have uses use "
+    "shows lists includes include is are the a an this that with and or of type "
+    "to from in on by for".split()
+)
+
+
+def _graph_witness_terms(graph: Mapping[str, Any]) -> set[str]:
+    """Collect concrete node/link/field witnesses from the authoritative graph."""
+    witnesses: set[str] = set()
+
+    def add(value: Any) -> None:
+        if value is None or isinstance(value, bool):
+            return
+        if isinstance(value, (str, int, float)):
+            witnesses.add(str(value).casefold())
+
+    counts = (graph.get("node_count"), graph.get("edge_count"))
+    number_words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+    for count in counts:
+        add(count)
+        if isinstance(count, int) and 0 <= count < len(number_words):
+            add(number_words[count])
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+    if isinstance(nodes, (list, tuple)):
+        add(len(nodes))
+        if len(nodes) < len(number_words):
+            add(number_words[len(nodes)])
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            for key in ("node_id", "id", "uid", "class_type", "title", "type_name", "name", "mode"):
+                add(node.get(key))
+            for field in ("inputs", "widgets", "fields"):
+                values = node.get(field)
+                if isinstance(values, Mapping):
+                    for name, item in values.items():
+                        add(name)
+                        add(item.get("value") if isinstance(item, Mapping) else item)
+                elif isinstance(values, (list, tuple)):
+                    for item in values:
+                        if isinstance(item, Mapping):
+                            for key in ("field", "name", "value", "type", "widget_index"):
+                                add(item.get(key))
+    if isinstance(edges, (list, tuple)):
+        add(len(edges))
+        if len(edges) < len(number_words):
+            add(number_words[len(edges)])
+        for edge in edges:
+            if isinstance(edge, Mapping):
+                for key in ("link_id", "id", "origin_node", "target_node", "origin_slot", "target_slot"):
+                    add(edge.get(key))
+    return witnesses
+
+
+def _graph_supports_claim(claim: str, graph: Mapping[str, Any] | None) -> bool:
+    """Require every concrete graph claim term to resolve to a graph witness."""
+    if not isinstance(graph, Mapping):
+        return False
+    claim_terms = {
+        token.strip(".,;()[]{}").casefold()
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", claim)
+        if token.strip(".,;()[]{}").casefold() not in _GRAPH_GENERIC_TERMS
+    }
+    if not claim_terms:
+        return False
+    return claim_terms.issubset(_graph_witness_terms(graph))
+
+
+def _validated_claim_provenance(
+    research_result: AgentResearchResult | None,
+) -> dict[str, tuple[str, ...]]:
+    if research_result is None:
+        return {}
+    artifacts = research_result.evidence_pack.artifacts
+    fetched = {
+        evidence_id: artifact
+        for evidence_id, artifact in artifacts.items()
+        if artifact.kind in {
+            "hivemind_record", "web_search_result", "registry_resolution", "node_schema"
+        }
+    }
+    validated: dict[str, tuple[str, ...]] = {}
+    for claim, ids in research_result.claim_provenance.items():
+        accepted = tuple(
+            evidence_id
+            for evidence_id in ids
+            if evidence_id in fetched and _artifact_supports_claim(claim, fetched[evidence_id])
+        )
+        if accepted:
+            validated[claim] = accepted[:4]
+    return validated
+
+
+def _validate_reply_provenance(
+    reply: str,
+    research_result: AgentResearchResult | None,
+    graph: Mapping[str, Any] | None = None,
+) -> str:
+    """Repair model citations and qualify unsupported material claims.
+
+    The model may suggest bindings, but only the durable evidence pack can
+    authorize them. Unknown/search-hit-only citations are removed; current or
+    capability claims without a fetched durable artifact are explicitly
+    qualified instead of being presented as facts.
+    """
+    if research_result is None or not reply:
+        return reply
+    artifacts = research_result.evidence_pack.artifacts
+    fetched_ids = {
+        evidence_id
+        for evidence_id, artifact in artifacts.items()
+        if artifact.kind in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+    }
+    cited = {match.group(1) for match in _EVIDENCE_CITE_RE.finditer(reply)}
+    invalid = cited - set(artifacts)
+    for evidence_id in invalid:
+        reply = reply.replace(f"[{evidence_id}]", "")
+    sentences = re.split(r"(?<=[.!?])\s+", reply)
+    repaired: list[str] = []
+    for sentence in sentences:
+        sentence_ids = {
+            match.group(1) for match in _EVIDENCE_CITE_RE.finditer(sentence)
+        }
+        valid_fetched = sentence_ids.intersection(fetched_ids)
+        citation_free = re.sub(r"\s*\[[A-Za-z0-9_.:-]+\]", "", sentence).strip()
+        clauses = _reply_claim_clauses(citation_free)
+        repaired_clauses: list[str] = []
+        for clause in clauses:
+            supported = {
+                evidence_id
+                for evidence_id in valid_fetched
+                if _artifact_supports_claim(clause, artifacts[evidence_id])
+            }
+            graph_grounded = _graph_supports_claim(clause, graph)
+            material = bool(_claim_terms(clause)) and not clause.lstrip().startswith(
+                ("?", "I don't know", "I cannot verify")
+            )
+            if supported:
+                # Re-attach only IDs that support this specific clause. A
+                # supported clause must not authorize its mixed neighbour.
+                clause = clause.rstrip() + " " + " ".join(
+                    f"[{evidence_id}]" for evidence_id in sorted(supported)
+                )
+            elif material and not graph_grounded:
+                if "unverified" not in clause.casefold():
+                    clause = clause.rstrip() + (
+                        " (This claim is unverified from the available fetched evidence.)"
+                    )
+            repaired_clauses.append(clause)
+        # Keep conjunction semantics readable while retaining per-clause
+        # attribution; punctuation from the original sentence stays on the
+        # final clause.
+        if len(repaired_clauses) > 1:
+            sentence = " and ".join(repaired_clauses)
+        else:
+            sentence = repaired_clauses[0] if repaired_clauses else sentence
+        repaired.append(sentence)
+    return " ".join(repaired).strip()
+
+
 def _enforce_reply_grounding(
     reply: str,
     *,
@@ -2689,6 +2959,15 @@ def _run_reply(
         if route_behavior.reply_uses_graph_inspection
         else _render_graph_text(effective_graph, delta=delta_ops)
     )
+    graph_facts: Mapping[str, Any] | None = None
+    if effective_graph is not None:
+        try:
+            graph_facts = inspect_graph(effective_graph).to_dict()
+        except Exception:
+            # The rendered inspection remains the fallback; never let an
+            # optional evidence projection turn a valid no-edit reply into a
+            # failure.
+            graph_facts = None
 
     effective_route = _canonical_route_for_plan(plan)
     effective_task = plan.effective_task
@@ -2700,18 +2979,18 @@ def _run_reply(
     research_memo = (
         dict(research_result.decision_memo)
         if research_result is not None
-        and effective_route == "research"
+        and effective_route in {"research", "inspect"}
         and research_result.decision_memo is not None
         else None
     )
     research_ledger = (
         research_result.ledger.to_dict()
-        if research_result is not None and effective_route == "adapt"
+        if research_result is not None and effective_route in {"adapt", "inspect"}
         else None
     )
     research_attempt = (
         research_result.research_attempt
-        if research_result is not None and effective_route in {"research", "adapt"}
+        if research_result is not None and effective_route in {"research", "adapt", "inspect"}
         else None
     )
 
@@ -2729,6 +3008,11 @@ def _run_reply(
             "implementation_message": implementation_message,
             "graph_summary": graph_summary,
             "graph_inspection": graph_inspection,
+            "graph_facts": graph_facts,
+            "claim_provenance": (
+                _validated_claim_provenance(research_result)
+                if research_result is not None else None
+            ),
             "effective_route": effective_route,
             "effective_task": effective_task,
             "candidate_present": candidate_present,
@@ -2743,6 +3027,7 @@ def _run_reply(
             "effective_route", "effective_task",
             "candidate_present", "interaction_mode", "research_attempt",
             "landed_edit", "real_node_ids",
+            "graph_facts", "claim_provenance",
         )
         while True:
             try:
@@ -2808,6 +3093,9 @@ def _run_reply(
                 message=failure.user_facing_message,
                 failure_envelope=failure,
             )
+        # Provenance is checked after model deliberation and before terminal
+        # grounding; durable artifact IDs are the only citation authority.
+        reply = _validate_reply_provenance(reply, research_result, effective_graph)
         # Fidelity + node-id grounding consumes the one closed-checkpoint
         # projection. This is not a second projector. A projection-time
         # exception after a durable applied product is row 6: keep applied.
@@ -2880,6 +3168,7 @@ def _run_inspect_reply(
     spec: AgentSpecShape,
     *,
     plan: ClassifyDecision,
+    research_result: AgentResearchResult | None = None,
     host_ports: ExecutorHostPorts | None = None,
 ) -> str:
     """Run the shared graph-inspection reply surface for either driver."""
@@ -2889,6 +3178,7 @@ def _run_inspect_reply(
         spec,
         plan=plan,
         effective_graph=request.graph,
+        research_result=research_result,
         graph_inspection=render_inspect_markdown(evidence),
         host_ports=host_ports,
     )
@@ -3227,22 +3517,34 @@ def _run_staged_executor(
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
     retry_skips_research = bool(os.environ.get(_RESEARCH_HANG_RETRY_SKIP_ENV))
-    if (
-        _canonical_route_for_plan(plan) in {"research", "adapt"}
-        and not retry_skips_research
-    ):
+    if _should_research(plan, request) and not retry_skips_research:
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
-            classify = ports.classify_failure
-            failure = classify("profile", exc)
-            return _finish(ExecutorResult.failure(
-                kind=failure.kind.value,
-                stage="profile",
-                message=failure.user_facing_message,
-                report=_build_report(plan=plan),
-            ))
-        else:
+            # An answer-only inspect request may explicitly ask for research,
+            # but research is an evidence affordance rather than a prerequisite
+            # for replying. A missing optional profile degrades to a reply;
+            # mutation/research routes retain their fail-closed profile error.
+            if plan.effective_route == "inspect":
+                _emit_executor_phase_event(
+                    request,
+                    executor_id=executor_id,
+                    phase="research",
+                    status="error",
+                    client_id=client_id,
+                )
+                LOGGER.warning("optional inspect research profile unavailable: %s", exc)
+                research_spec = None
+            else:
+                classify = ports.classify_failure
+                failure = classify("profile", exc)
+                return _finish(ExecutorResult.failure(
+                    kind=failure.kind.value,
+                    stage="profile",
+                    message=failure.user_facing_message,
+                    report=_build_report(plan=plan),
+                ))
+        if research_spec is not None:
             _emit_executor_phase_event(
                 request,
                 executor_id=executor_id,
@@ -3304,7 +3606,7 @@ def _run_staged_executor(
         )
 
     # ── Phase 3: implement (optional) ────────────────────────────────────
-    if _should_implement(plan):
+    if _should_implement(plan, request):
         try:
             implement_spec = _resolve_spec(request.profile, "implement")
         except Exception as exc:
@@ -3701,6 +4003,9 @@ def run_executor(
         implementation_landed_edit=_implementation_landed_edit,
         no_candidate_reason=_no_candidate_reason,
         run_inspect_reply=_run_inspect_reply,
+        run_research=lambda req, research_spec, *, plan: _run_agent_owned_research(
+            req, research_spec, plan=plan
+        ),
     )
     return run_threaded_executor(
         request,

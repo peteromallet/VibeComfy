@@ -618,7 +618,7 @@ _ALLOWED_TASKS = frozenset({
 _ROUTE_DESCRIPTIONS: dict[str, str] = {
     "clarify": "ask a clarifying question when load-bearing information is missing.",
     "respond": "answer directly from existing context without research or editing.",
-    "inspect": "explain or analyze the current graph without outside research or editing.",
+    "inspect": "explain or analyze the current graph without editing; a declared answer-only lane may gather bounded evidence.",
     "research": "research workflows, nodes, or techniques, then answer without editing.",
     "requires_custom_nodes": "return that the requested edit cannot be safely authored from current evidence without applying graph changes.",
     "revise": "edit the current graph using local context only.",
@@ -1467,6 +1467,9 @@ class ClassifyDecision:
 
     # ── legacy boolean gates ─────────────────────────────────────────────
     research: bool = False
+    # Capability metadata only; unlike ``research`` this does not select a
+    # research route or alter legacy route/task derivation.
+    research_available: bool = False
     implement: bool = False
     reply: bool = True
     effort: str = "low"
@@ -1513,6 +1516,9 @@ class ClassifyDecision:
         route_booleans = {
             "clarify": (False, False),
             "respond": (False, False),
+            # Inspect is always non-editing. Research availability is a
+            # separate capability so legacy route parsing cannot silently
+            # turn ``research=true`` into a research task.
             "inspect": (False, False),
             "research": (True, False),
             "revise": (False, True),
@@ -1587,6 +1593,8 @@ class ClassifyDecision:
         # Emit metadata fields only when non-empty.
         if self.research_goal:
             result["research_goal"] = self.research_goal
+        if self.research_available:
+            result["research_available"] = True
         if self.search_directions:
             result["search_directions"] = list(self.search_directions)
         if self.source_preferences:
@@ -1743,6 +1751,9 @@ class ExecutorRequest:
     # ``apply``: that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Explicit opt-in for an answer-only research phase.  Research is an
+    # affordance, never a mandatory latency/failure dependency of inspection.
+    research_required: bool = False
     # Explicit assessment contract from headless/live-agentic callers.  When
     # True, classify must choose an applyable edit route.
     expect_graph_changed: bool | None = None
@@ -1774,6 +1785,8 @@ class ExecutorRequest:
             )
         if not isinstance(self.network, bool):
             raise ValueError("ExecutorRequest `network` must be a boolean.")
+        if not isinstance(self.research_required, bool):
+            raise ValueError("ExecutorRequest `research_required` must be a boolean.")
         if self.expect_graph_changed is not None and not isinstance(
             self.expect_graph_changed, bool
         ):
@@ -1840,6 +1853,8 @@ class ExecutorRequest:
             payload["on_demand_schemas"] = self.on_demand_schemas
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.research_required:
+            payload["research_required"] = True
         if self.expect_graph_changed is not None:
             payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
@@ -1932,6 +1947,9 @@ class ExecutorRequest:
             raise ValueError(
                 "ExecutorRequest `interaction_mode` must be a string or null."
             )
+        research_required = payload.get("research_required", False)
+        if not isinstance(research_required, bool):
+            raise ValueError("ExecutorRequest `research_required` must be a boolean.")
         expect_graph_changed = payload.get("expect_graph_changed")
         if expect_graph_changed is not None and not isinstance(expect_graph_changed, bool):
             raise ValueError(
@@ -1960,6 +1978,7 @@ class ExecutorRequest:
             expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
             on_demand_schemas=on_demand_schemas,
             interaction_mode=interaction_mode,
+            research_required=research_required,
             expect_graph_changed=expect_graph_changed,
             max_batches=max_batches,
             pipeline_mode=pipeline_mode,
@@ -2925,6 +2944,70 @@ _DURABLE_EXECUTED_TOOL_STATUSES = frozenset({
 })
 _MAX_DURABLE_LEDGER_ENTRIES = 12
 _MAX_DURABLE_LEDGER_CONCLUSION_CHARS = 240
+_MAX_DURABLE_EVIDENCE_ARTIFACTS = 48
+
+
+def _durable_research_artifacts(durable: Mapping[str, Any]) -> dict[str, Any]:
+    """Recover full host-native research bodies before public compaction.
+
+    The threaded host historically retained only IDs in its compact ledger.
+    Newer hosts may attach an evidence pack at the root or on each typed tool
+    statement; accept both shapes so a durable citation always has a body that
+    can be resolved after reload. Unknown presentation fields are ignored.
+    """
+    candidates: list[Any] = [durable.get("evidence_pack")]
+    findings = durable.get("research_findings")
+    if isinstance(findings, Mapping):
+        candidates.append(findings.get("evidence_pack"))
+    turns = durable.get("batch_turns")
+    if isinstance(turns, (list, tuple)):
+        for turn in turns:
+            if not isinstance(turn, Mapping):
+                continue
+            statements = turn.get("statements")
+            if not isinstance(statements, (list, tuple)):
+                continue
+            for statement in statements:
+                if not isinstance(statement, Mapping):
+                    continue
+                detail = statement.get("detail")
+                if isinstance(detail, Mapping):
+                    candidates.extend(
+                        detail.get(key)
+                        for key in ("evidence_pack", "evidence_artifacts", "artifacts")
+                    )
+    artifacts: dict[str, Any] = {}
+    for candidate in candidates:
+        if isinstance(candidate, Mapping) and isinstance(candidate.get("artifacts"), Mapping):
+            candidate = candidate["artifacts"]
+        if isinstance(candidate, Mapping):
+            items = candidate.items()
+        elif isinstance(candidate, (list, tuple)):
+            items = (
+                (item.get("evidence_id"), item)
+                for item in candidate
+                if isinstance(item, Mapping)
+            )
+        else:
+            continue
+        for evidence_id, raw_artifact in items:
+            if len(artifacts) >= _MAX_DURABLE_EVIDENCE_ARTIFACTS:
+                break
+            if not isinstance(evidence_id, str) or not evidence_id.strip():
+                continue
+            if not isinstance(raw_artifact, Mapping):
+                continue
+            body = raw_artifact.get("body")
+            if body is None:
+                continue
+            artifacts[evidence_id.strip()] = {
+                "evidence_id": evidence_id.strip(),
+                "kind": str(raw_artifact.get("kind") or "research"),
+                "body": _thaw_jsonish(body),
+                "source": _thaw_jsonish(raw_artifact.get("source")),
+                "metadata": _thaw_jsonish(raw_artifact.get("metadata") or {}),
+            }
+    return artifacts
 
 
 def _durable_research_ledger(
@@ -3090,7 +3173,7 @@ def _durable_research_evidence(
     )
     diagnostics.extend(policy_diagnostics)
 
-    return {
+    projected = {
         "mode": "agent_owned",
         "route": "research",
         "research_attempt": research_attempt,
@@ -3108,6 +3191,15 @@ def _durable_research_evidence(
         "sources": sources,
         "warnings": warnings,
     }
+    durable_artifacts = _durable_research_artifacts(durable)
+    if durable_artifacts:
+        # Keep the compact ledger for prompt/report display, but retain the
+        # complete body map for citation resolution and durable replay.
+        projected["evidence_pack"] = {
+            "artifacts": durable_artifacts,
+            "ledger": projected["ledger"],
+        }
+    return projected
 
 
 def _durable_research_budget(findings: Mapping[str, Any]) -> dict[str, Any]:

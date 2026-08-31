@@ -70,14 +70,13 @@ def _d813fe_request(**overrides: Any) -> ExecutorRequest:
     return ExecutorRequest(**payload)
 
 
-def test_d813fe_typed_refusal_stays_implement_capable() -> None:
-    """d813fe both legs: expected_no_candidate must not ride the inspect lane."""
+def test_d813fe_typed_refusal_remains_non_editing_in_answer_only() -> None:
+    """Typed refusal metadata cannot override the answer-only authority."""
     plan = _threaded_plan(_d813fe_request())
     assert typed_refusal_contract(_d813fe_request()) is True
-    assert plan.effective_route == "adapt"
-    assert plan.implement is True
-    assert plan.research is True
-    assert plan.intent == "edit"
+    assert plan.effective_route == "inspect"
+    assert plan.implement is False
+    assert plan.research is False
 
 
 def test_explain_answer_only_without_typed_refusal_uses_inspect() -> None:
@@ -116,7 +115,7 @@ def test_673197_staged_respond_is_lifted_to_inspect() -> None:
     assert plan.route != "respond"
 
 
-def test_typed_refusal_inspect_classification_is_promoted_to_adapt() -> None:
+def test_typed_refusal_inspect_classification_stays_inspect_in_answer_only() -> None:
     classified = ClassifyDecision(
         research=False,
         implement=False,
@@ -126,8 +125,8 @@ def test_typed_refusal_inspect_classification_is_promoted_to_adapt() -> None:
         intent="explain_graph",
     )
     plan = coerce_declared_interaction_lane(_d813fe_request(), classified)
-    assert plan.effective_route == "adapt"
-    assert plan.implement is True
+    assert plan.effective_route == "inspect"
+    assert plan.implement is False
 
 
 def test_inspect_synthesizes_missing_runtime_classes_for_named_absence() -> None:

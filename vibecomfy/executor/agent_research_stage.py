@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os as _os
 import re
 import time
@@ -47,6 +48,7 @@ from .evidence_pack import (
     EvidenceLedgerEntry,
     EvidencePack,
     MAX_LEDGER_PROMPT_ENTRIES,
+    MAX_LEDGER_CONCLUSION_CHARS,
 )
 from .agent_backend import (
     _attach_model_turn_evidence,
@@ -467,6 +469,210 @@ def _bounded(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+_EGRESS_SECRET_RE = re.compile(
+    r"(?is)[\"']?\b(api[_ -]?key|access[_ -]?key|authorization|auth|bearer|token|"
+    r"password|secret|credential|cookie|session|private[_ -]?key|ssh[_ -]?key)\b"
+    r"[\"']?\s*[:=]\s*(?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
+)
+_EGRESS_SECRET_KEY_RE = re.compile(
+    r"(?is)[\"']?(?:api[_ -]?key|access[_ -]?key|authorization|auth|bearer|token|"
+    r"password|secret|credential|cookie|session|private[_ -]?key|ssh[_ -]?key)"
+    r"[\"']?\s*[:=]\s*"
+)
+_EGRESS_WORKFLOW_RE = re.compile(
+    r"(?is)\b(?:workflow|graph|payload|body|request)\b\s*[:=]\s*(?:\{.*?\}|\[.*?\])"
+)
+_EGRESS_WORKFLOW_JSON_RE = re.compile(
+    r'(?is)(?:"(?:nodes|links|class_type|inputs|widgets_values)"\s*:\s*)\{.*?\}'
+)
+_RESEARCH_ARG_LIMITS = {
+    "query": 512,
+    "evidence_id": 512,
+    "node_class": 256,
+    "timeout": 30.0,
+}
+
+
+def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
+    """Bound and redact model-controlled egress before any tool call."""
+    allowed = {
+        "hivemind_search": {"query", "filters", "cursor", "limit", "timeout"},
+        "hivemind_get": {"evidence_id", "timeout"},
+        "registry_lookup": {"node_class"},
+    }.get(tool, set())
+
+    def _redact(value: str) -> str:
+        # Tool queries are untrusted model text.  Strip credentials first,
+        # then workflow/graph payloads even when they are embedded in prose;
+        # no raw graph or secret can cross the egress seam by hiding in a
+        # query string.
+        def redact_secret_values(text: str) -> str:
+            """Redact quoted/unquoted secret values with JSON escape support."""
+            output: list[str] = []
+            cursor = 0
+            while True:
+                match = _EGRESS_SECRET_KEY_RE.search(text, cursor)
+                if match is None:
+                    output.append(text[cursor:])
+                    break
+                output.append(text[cursor:match.start()])
+                start = match.end()
+                if start >= len(text):
+                    output.append("<redacted-secret>")
+                    break
+                quote = text[start] if text[start] in {"\"", "'"} else None
+                end = start
+                if quote is not None:
+                    end += 1
+                    escaped = False
+                    while end < len(text):
+                        char = text[end]
+                        if escaped:
+                            escaped = False
+                        elif char == "\\":
+                            escaped = True
+                        elif char == quote:
+                            end += 1
+                            break
+                        end += 1
+                else:
+                    end = start
+                    while end < len(text) and text[end] not in ",;}\n\r\t ":
+                        end += 1
+                    # Authorization: Bearer <token> is one secret value, even
+                    # though the unquoted representation contains a space.
+                    if text[start:end].casefold() == "bearer":
+                        while end < len(text) and text[end].isspace():
+                            end += 1
+                        while end < len(text) and text[end] not in ",;}\n\r\t ":
+                            end += 1
+                output.append("<redacted-secret>")
+                cursor = end
+            return "".join(output)
+
+        value = redact_secret_values(value)
+
+        def balanced_end(start: int) -> int | None:
+            opener = value[start]
+            closer = "}" if opener == "{" else "]"
+            depth = 0
+            quoted: str | None = None
+            escaped = False
+            for index in range(start, len(value)):
+                char = value[index]
+                if quoted is not None:
+                    if escaped:
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == quoted:
+                        quoted = None
+                    continue
+                if char in {"\"", "'"}:
+                    quoted = char
+                elif char == opener:
+                    depth += 1
+                elif char == closer:
+                    depth -= 1
+                    if depth == 0:
+                        return index + 1
+            return None
+
+        # Replace complete balanced values after workflow/graph/payload keys;
+        # this handles nested arrays/objects and never leaves a tail behind.
+        marker = re.compile(
+            r"(?is)(?:\b(?:workflow|graph|payload|body|request)\b|"
+            r"[\"'](?:workflow|graph|payload|body|request)[\"'])\s*[:=]"
+        )
+        while True:
+            match = marker.search(value)
+            if match is None:
+                break
+            start = match.end()
+            while start < len(value) and value[start].isspace():
+                start += 1
+            if start >= len(value) or value[start] not in "{[":
+                # Scalar markers are sensitive too (e.g. workflow="…" or
+                # body: TOPSECRET). Consume the complete quoted value with
+                # JSON escape handling, or the complete unquoted token; do
+                # not leave the marker's payload suffix on the wire.
+                end = start
+                quote = value[start] if start < len(value) and value[start] in {"\"", "'"} else None
+                if quote is not None:
+                    end += 1
+                    escaped = False
+                    while end < len(value):
+                        char = value[end]
+                        if escaped:
+                            escaped = False
+                        elif char == "\\":
+                            escaped = True
+                        elif char == quote:
+                            end += 1
+                            break
+                        end += 1
+                else:
+                    while end < len(value) and value[end] not in ",;}\n\r\t ":
+                        end += 1
+                value = value[: match.start()] + "[redacted structured payload]" + value[end:]
+                continue
+            end = balanced_end(start)
+            if end is None:
+                value = value[: match.start()] + "[redacted structured payload]"
+                break
+            value = value[: match.start()] + "[redacted structured payload]" + value[end:]
+
+        # A quoted JSON object may omit the word workflow but still expose a
+        # graph-shaped payload. Redact its enclosing balanced object.
+        graph_key = re.compile(
+            r"(?is)[\"'](?:nodes|links|class_type|inputs|widgets_values)[\"']\s*:"
+        )
+        while True:
+            match = graph_key.search(value)
+            if match is None:
+                break
+            start = value.rfind("{", 0, match.start())
+            end = balanced_end(start) if start >= 0 else None
+            if end is None:
+                value = value[: max(0, start)] + "[redacted graph payload]"
+                break
+            value = value[:start] + "[redacted graph payload]" + value[end:]
+        return " ".join(value.split())
+
+    safe: dict[str, Any] = {}
+    for key, value in args.items():
+        if key not in allowed or key.casefold() in {"body", "graph", "workflow", "secret"}:
+            continue
+        if key in {"query", "evidence_id", "node_class"}:
+            if not isinstance(value, str):
+                continue
+            text = _redact(value.strip())
+            safe[key] = text[:_RESEARCH_ARG_LIMITS[key]]
+        elif key == "timeout":
+            try:
+                timeout = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(timeout) or timeout <= 0:
+                continue
+            safe[key] = min(timeout, _RESEARCH_ARG_LIMITS[key])
+        elif key == "limit":
+            try:
+                safe[key] = max(1, min(int(value), 20))
+            except (TypeError, ValueError):
+                continue
+        elif key == "cursor":
+            if isinstance(value, str):
+                safe[key] = value[:512]
+        elif key == "filters" and isinstance(value, Mapping):
+            safe["filters"] = {
+                str(filter_key): _redact(str(filter_value))[:256]
+                for filter_key, filter_value in value.items()
+                if str(filter_key) in {"source_type", "model_family", "capability", "node_class", "channel", "author", "date_from", "date_to", "has_workflow", "sort"}
+            }
+    return safe
 
 
 def _served_record_preview(view: Any, body: Mapping[str, Any]) -> str:
@@ -910,6 +1116,8 @@ def build_agent_research_messages(
         "the tradeoffs you weighed.\n"
         "- On research-only routes, your synthesis becomes the user-facing "
         "answer.\n"
+        "- On answer-only inspect routes, your synthesis is optional context "
+        "for the no-edit reply; it never authorizes a graph mutation.\n"
         "Rules:\n"
         "- Call a tool to gather evidence; the tool result will be returned in "
         "the next digest. Choose the query and the tool yourself.\n"
@@ -946,7 +1154,9 @@ def build_agent_research_messages(
         '{"action": "call", "tool": "<name>", "args": {<tool arguments>}} — '
         "gather more evidence, or\n"
         '{"action": "finish", "conclusion": string, "evidence_ids": [string, ...], '
-        '"uncertainty": string} — the evidence answers the question.'
+        '"uncertainty": string, "claim_provenance": {claim: [evidence_id, ...]} } '
+        '— the evidence answers the question. Claim provenance is optional; '
+        'when present every id must be returned by a tool.'
     )
     user_lines = [
         f"Research question: {question}",
@@ -1486,6 +1696,7 @@ def run_agent_research_stage(
     session_id: str | None = None,
     request_identity: str | Mapping[str, Any] | None = None,
     baseline_identity: str | Mapping[str, Any] | None = None,
+    allow_empty_finish: bool = False,
 ) -> tuple[AgentResearchTrace, EvidencePack]:
     """Run the C1 agent-owned tool-calling research loop.
 
@@ -1847,7 +2058,7 @@ def run_agent_research_stage(
                     citation.startswith("hivemind_get:")
                     for citation in citable_citations
                 )
-                if not citable_citations and tool_calls_made == 0:
+                if not allow_empty_finish and not citable_citations and tool_calls_made == 0:
                     _finish_premature_turn(
                         conclusion=_clean_text(decision.get("conclusion")),
                         message=(
@@ -1864,7 +2075,7 @@ def run_agent_research_stage(
                     citation.startswith("hivemind_get:")
                     for citation in citable_citations
                 )
-                if fetched_requested_ids and not fetched_cited:
+                if not allow_empty_finish and fetched_requested_ids and not fetched_cited:
                     _finish_premature_turn(
                         conclusion=_clean_text(decision.get("conclusion")),
                         message=(
@@ -1878,16 +2089,81 @@ def run_agent_research_stage(
                 agent_finished = True
                 conclusion = _clean_text(decision.get("conclusion"))
                 uncertainty = _clean_text(decision.get("uncertainty"))
+                claim_provenance: dict[str, tuple[str, ...]] = {}
+                raw_provenance = decision.get("claim_provenance")
+                if isinstance(raw_provenance, Mapping):
+                    for raw_claim, raw_ids in raw_provenance.items():
+                        if not isinstance(raw_claim, str) or not raw_claim.strip():
+                            continue
+                        resolved_ids: list[str] = []
+                        if isinstance(raw_ids, (list, tuple)):
+                            for raw_id in raw_ids:
+                                candidate_id = str(raw_id)
+                                if (
+                                    candidate_id in artifacts
+                                    and artifacts[candidate_id].kind
+                                    in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+                                ):
+                                    resolved_ids.append(candidate_id)
+                                elif candidate_id.startswith(_HIVEMIND_EVIDENCE_ID_PREFIX):
+                                    alias = "hivemind_get:" + candidate_id.removeprefix(
+                                        _HIVEMIND_EVIDENCE_ID_PREFIX
+                                    )
+                                    if (
+                                        alias in artifacts
+                                        and artifacts[alias].kind
+                                        in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+                                    ):
+                                        resolved_ids.append(alias)
+                        if resolved_ids:
+                            claim_provenance[raw_claim.strip()] = tuple(
+                                dict.fromkeys(resolved_ids)
+                            )
+                if not claim_provenance and cited:
+                    fetched_ids = tuple(
+                        evidence_id
+                        for evidence_id in cited
+                        if evidence_id in artifacts
+                        and artifacts[evidence_id].kind
+                        in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+                    )
+                    if fetched_ids:
+                        claim_provenance = {"conclusion": fetched_ids}
                 refine_question = decision.get("refine_question")
                 refine_question_text = _clean_text(refine_question)
                 enough = not bool(refine_question_text)
 
+                # Preserve the complete model synthesis as a durable artifact;
+                # the ledger carries only a bounded projection. This keeps a
+                # 4,001+ character answer from poisoning the whole stage.
+                synthesis_id = "research_synthesis:" + hashlib.sha256(
+                    conclusion.encode("utf-8")
+                ).hexdigest()[:24]
+                _add_artifact(EvidenceArtifact(
+                    evidence_id=synthesis_id,
+                    kind="research_synthesis",
+                    body={
+                        "conclusion": conclusion,
+                        "uncertainty": uncertainty,
+                        "evidence_ids": list(cited),
+                        "claim_provenance": {
+                            claim: list(ids)
+                            for claim, ids in claim_provenance.items()
+                        },
+                    },
+                    source="research_agent",
+                ))
+                compact_conclusion = _bounded(
+                    conclusion or "synthesis produced no conclusion",
+                    MAX_LEDGER_CONCLUSION_CHARS,
+                )
                 _add_entry(
                     EvidenceLedgerEntry(
                         decision=DECISION_SYNTHESIZE,
-                        conclusion=conclusion or "synthesis produced no conclusion",
-                        evidence_ids=cited,
+                        conclusion=compact_conclusion,
+                        evidence_ids=tuple(dict.fromkeys((*cited, synthesis_id))),
                         uncertainty=uncertainty,
+                        claim_provenance=claim_provenance,
                     )
                 )
                 _add_entry(
@@ -1915,6 +2191,10 @@ def run_agent_research_stage(
                             "conclusion": conclusion,
                             "evidence_ids": list(cited),
                             "uncertainty": uncertainty,
+                            "claim_provenance": {
+                                claim: list(ids)
+                                for claim, ids in claim_provenance.items()
+                            },
                             "enough": enough,
                             "refine_question": refine_question_text or None,
                         },
@@ -1931,6 +2211,7 @@ def run_agent_research_stage(
 
             tool = str(decision.get("tool") or "")
             args = decision.get("args") if isinstance(decision.get("args"), Mapping) else {}
+            args = _safe_research_args(tool, args)
             if tool not in RESEARCH_ALLOWED_TOOLS:
                 _refusal_call(
                     tool or "unknown_tool",

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import json
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, Mapping
 
 from vibecomfy.executor.profiler import new_profile_id, profiler_span, short_text
 
@@ -325,6 +325,8 @@ def run_reply_turn(
     candidate_present: bool = False,
     interaction_mode: str | None = None,
     research_attempt: str | None = None,
+    graph_facts: Mapping[str, Any] | None = None,
+    claim_provenance: Mapping[str, Any] | None = None,
     landed_edit: bool | None = None,
     real_node_ids: tuple[str, ...] | None = None,
 ) -> str:
@@ -392,6 +394,8 @@ def run_reply_turn(
         candidate_present=candidate_present,
         interaction_mode=interaction_mode,
         research_attempt=research_attempt,
+        graph_facts=graph_facts,
+        claim_provenance=claim_provenance,
     )
     # Reply grounding facts (v5-batch-3 #3 / v5-batch-4 #1): the model gets a
     # deterministic statement of what actually happened so it cannot infer a

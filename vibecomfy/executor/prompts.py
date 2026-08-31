@@ -521,9 +521,10 @@ _REPLY_SYSTEM = (
     "Route-aware behavior: for route=\"clarify\", ask the clarifying question "
     "plainly and do not imply work has run; for route=\"respond\", answer from "
     "existing context only; for route=\"inspect\", explain the current graph "
-    "from inspection evidence only; for route=\"research\", answer from the "
-    "supplied research memo plus the attached graph and your own knowledge "
-    "without implying an edit; for route=\"revise\", describe the concrete "
+    "from inspection evidence and any supplied bounded research evidence; for "
+    "route=\"research\", answer from the supplied research memo plus the "
+    "attached graph, and clearly label any general-knowledge context as "
+    "unverified; without implying an edit; for route=\"revise\", describe the concrete "
     "graph edit; for route=\"reorganise\", describe the layout cleanup without "
     "implying semantic workflow changes; for route=\"adapt\", explain how the "
     "researched precedent informed the edit (or, when no edit was made, why "
@@ -534,7 +535,8 @@ _REPLY_SYSTEM = (
     "that are absent from that memo, and never relay the memo verbatim — "
     "answer the user's question in your own words. When the memo records no "
     "external evidence (research_attempt=never/empty), answer directly from "
-    "the attached workflow graph and general knowledge — the reply must "
+    "the attached workflow graph; optional general-knowledge context must be "
+    "clearly labeled unverified — the reply must "
     "NEVER say that no supported conclusion was produced.\n"
     "- When a research memo includes durable trace fields, interpret them "
     "literally: research_status=exhausted means the agent stopped before a "
@@ -592,14 +594,148 @@ _REPLY_SYSTEM = (
     "outcome never gates the reply: when research gathered no evidence "
     "(research_attempt=never/empty) or only search-hit leads "
     "(research_attempt=thin), answer from the attached workflow graph and "
-    "your own knowledge, and say plainly that outside sources were not found "
-    "rather than presenting non-results as findings.\n"
+    "label any additional general knowledge as unverified; say plainly that "
+    "outside sources were not found rather than presenting non-results as findings.\n"
     "- When research produced zero on-topic evidence (for example Hivemind "
     "returned off-topic or failed results), say so explicitly in the reply "
     "instead of presenting those non-results as findings; make claims only "
     "from the workflow IR and the evidence actually provided, never from the "
     "off-topic research records.\n"
 )
+
+
+_MAX_REPLY_GRAPH_NODES = 48
+_MAX_REPLY_GRAPH_EDGES = 96
+_MAX_REPLY_CONTEXT_CHARS = 12000
+_MAX_REPLY_PROVENANCE_CLAIMS = 24
+_MAX_REPLY_PROVENANCE_IDS = 4
+_MAX_REPLY_PROVENANCE_ID_CHARS = 160
+_MAX_REPLY_PROVENANCE_CHARS = 5000
+_MAX_REPLY_CONTEXT_CHARS = 32000
+_MAX_REPLY_MEMO_CHARS = 6000
+
+
+def _bounded_graph_facts(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep one deterministic, bounded graph-authority projection."""
+    nodes = value.get("nodes") if isinstance(value.get("nodes"), (list, tuple)) else ()
+    edges = value.get("edges") if isinstance(value.get("edges"), (list, tuple)) else ()
+    result: dict[str, Any] = {
+        "node_count": value.get("node_count", len(nodes)),
+        "nodes": list(nodes[:_MAX_REPLY_GRAPH_NODES]),
+        "edges": list(edges[:_MAX_REPLY_GRAPH_EDGES]),
+    }
+    result["truncated"] = len(nodes) > _MAX_REPLY_GRAPH_NODES or len(edges) > _MAX_REPLY_GRAPH_EDGES
+    encoded = json.dumps(result, sort_keys=True, ensure_ascii=False)
+    if len(encoded) > _MAX_REPLY_CONTEXT_CHARS:
+        # Keep exact node identity/type facts while dropping bulky values.
+        result["nodes"] = [
+            {
+                key: str(node.get(key))[:256]
+                for key in ("node_id", "class_type", "title", "type_name", "mode")
+                if key in node
+            }
+            for node in result["nodes"] if isinstance(node, Mapping)
+        ]
+        result["edges"] = list(result["edges"][:48])
+        result["truncated"] = True
+    return result
+
+
+def _bounded_claim_provenance(value: Mapping[str, Any]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    total_chars = 2
+    for claim, raw_ids in list(value.items())[:_MAX_REPLY_PROVENANCE_CLAIMS]:
+        if not isinstance(claim, str) or not claim.strip():
+            continue
+        ids = raw_ids if isinstance(raw_ids, (list, tuple)) else ()
+        deduped = list(
+            dict.fromkeys(
+                str(item).strip()[:_MAX_REPLY_PROVENANCE_ID_CHARS]
+                for item in ids
+                if str(item).strip()
+            )
+        )
+        if deduped:
+            claim_text = claim.strip()[:160]
+            kept: list[str] = []
+            for evidence_id in deduped[:_MAX_REPLY_PROVENANCE_IDS]:
+                addition = len(claim_text) + len(evidence_id) + 8
+                if total_chars + addition > _MAX_REPLY_PROVENANCE_CHARS:
+                    break
+                kept.append(evidence_id)
+                total_chars += addition
+            if kept:
+                result[claim_text] = kept
+    return result
+
+
+def _memo_without_provenance(value: Mapping[str, Any]) -> dict[str, Any]:
+    def bound(item: Any, depth: int = 0) -> Any:
+        if depth > 3:
+            return _compact_text(item, 256)
+        if isinstance(item, str):
+            return item[:1000]
+        if isinstance(item, Mapping):
+            return {
+                str(key)[:120]: bound(value, depth + 1)
+                for key, value in list(item.items())[:24]
+                if str(key) != "claim_provenance"
+            }
+        if isinstance(item, (list, tuple)):
+            return [bound(value, depth + 1) for value in item[:16]]
+        return item
+
+    memo = {key: bound(item) for key, item in value.items() if key != "claim_provenance"}
+    encoded = json.dumps(memo, sort_keys=True, ensure_ascii=False)
+    if len(encoded) <= _MAX_REPLY_MEMO_CHARS:
+        return memo
+    # Keep keys and the beginning of each value. This is a projection of the
+    # memo only; durable evidence remains in the research artifacts/ledger.
+    compact: dict[str, Any] = {}
+    for key, item in memo.items():
+        candidate = {**compact, str(key)[:120]: _compact_text(item, 320)}
+        if len(json.dumps(candidate, sort_keys=True, ensure_ascii=False)) > _MAX_REPLY_MEMO_CHARS:
+            break
+        compact = candidate
+    compact["_truncated"] = True
+    return compact
+
+
+def _compact_text(value: Any, limit: int) -> str:
+    text = str(value or "")
+    return text if len(text) <= limit else text[: max(0, limit - 18)].rstrip() + "… [truncated]"
+
+
+def _bound_reply_context(parts: list[str]) -> str:
+    """Bound the actual serialized reply context after all projections.
+
+    Per-field caps are useful but insufficient when independently bounded
+    graph, memo, ledger, and provenance blocks are combined. Preserve the
+    request and authority blocks first, then spend the remaining budget on
+    explanatory context with an explicit marker.
+    """
+    bounded: list[str] = []
+    for index, part in enumerate(parts):
+        if index == 0:
+            limit = 6000
+        elif "Exact graph facts" in part:
+            limit = 12000
+        elif "Claim provenance" in part:
+            limit = 5000
+        elif "C1 research ledger" in part:
+            limit = 6500
+        elif "C5 research decision memo" in part:
+            limit = _MAX_REPLY_MEMO_CHARS + 100
+        else:
+            limit = 2500
+        bounded.append(_compact_text(part, limit))
+    content = "\n".join(bounded)
+    if len(content) <= _MAX_REPLY_CONTEXT_CHARS:
+        return content
+    # Deterministic final guard. The first sections contain the user request
+    # and graph authority; trim only trailing context and retain a marker.
+    marker = "\n[reply context truncated; consult durable evidence artifacts for full bodies]"
+    return content[: _MAX_REPLY_CONTEXT_CHARS - len(marker)].rstrip() + marker
 
 
 def build_reply_messages(
@@ -621,6 +757,8 @@ def build_reply_messages(
     candidate_present: bool = False,
     interaction_mode: str | None = None,
     research_attempt: str | None = None,
+    graph_facts: Mapping[str, Any] | None = None,
+    claim_provenance: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the reply phase.
 
@@ -652,7 +790,7 @@ def build_reply_messages(
     *candidate_present* indicates whether a graph edit candidate was produced.
     """
     parts = [f"User request:\n{query}"]
-    if graph_inspection:
+    if graph_inspection and not graph_facts:
         parts.append(
             "\nGraph inspection (cite what is actually in the graph — the "
             "workflow IR below is the authoritative source of node ids, widget "
@@ -662,7 +800,7 @@ def build_reply_messages(
             "or connections that are not listed):\n"
             f"{graph_inspection}"
         )
-    elif graph_summary:
+    elif graph_summary and not graph_facts:
         parts.append(
             "\nAttached workflow graph (the authoritative source of node ids, "
             "widget values, and link ids — cite link ids and widget "
@@ -672,6 +810,13 @@ def build_reply_messages(
     if effective_route:
         parts.append(f"\nActive route: {effective_route}"
                      + (f", task: {effective_task}" if effective_task else ""))
+    if graph_facts:
+        parts.append(
+            "\nExact graph facts (authoritative structured evidence; every "
+            "connectivity claim must resolve to a listed link_id and every "
+            "setting claim to a listed field/type/widget_index):\n"
+            + json.dumps(_bounded_graph_facts(graph_facts), sort_keys=True)
+        )
     if plan is not None:
         parts.append(f"\nExecutor plan: {plan.plan_summary or 'completed'}")
     if interaction_mode == "answer_only":
@@ -696,7 +841,7 @@ def build_reply_messages(
         parts.append(
             "\nC5 research decision memo (evidence you may cite from for this "
             "reply — answer the user's question in your own words, do not "
-            f"relay the memo verbatim):\n{json.dumps(research_memo, sort_keys=True)}"
+            f"relay the memo verbatim):\n{json.dumps(_memo_without_provenance(research_memo), sort_keys=True)}"
         )
     if research_ledger:
         parts.append(
@@ -705,6 +850,12 @@ def build_reply_messages(
                 project_ledger_for_prompt(research_ledger),
                 sort_keys=True,
             )
+        )
+    if claim_provenance:
+        parts.append(
+            "\nClaim provenance (each claim label maps to resolvable evidence "
+            "artifact IDs; do not cite anything else):\n"
+            + json.dumps(_bounded_claim_provenance(claim_provenance), sort_keys=True)
         )
     if research_summary:
         parts.append(f"\nResearch findings: {research_summary}")
@@ -780,7 +931,7 @@ def build_reply_messages(
             )
     return [
         {"role": "system", "content": _REPLY_SYSTEM},
-        {"role": "user", "content": "\n".join(parts)},
+        {"role": "user", "content": _bound_reply_context(parts)},
     ]
 
 
@@ -879,6 +1030,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
             f"{sorted(str(key) for key in parsed.keys())}."
         )
     research = parsed.get("research")
+    research_available = parsed.get("research_available", False)
     implement = parsed.get("implement")
     reply = parsed.get("reply")
     effort = parsed.get("effort")
@@ -902,6 +1054,8 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     # Coerce booleans; missing keys default to sensible values.
     if not isinstance(research, bool):
         research = bool(research)
+    if not isinstance(research_available, bool):
+        research_available = False
     if not isinstance(implement, bool):
         implement = bool(implement)
     if not isinstance(reply, bool):
@@ -978,6 +1132,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
 
     decision = ClassifyDecision(
         research=research,
+        research_available=research_available,
         implement=implement,
         reply=reply,
         effort=effort,
