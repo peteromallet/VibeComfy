@@ -795,6 +795,12 @@ def _canonical_terminal_aliases(
     receipt = payload.get("authority_receipt")
     receipt_values = _receipt_parts(receipt)
     receipt_summary = receipt_values[0]
+    if (
+        receipt_summary is None
+        or not isinstance(receipt_summary.get("authority_receipt_digest"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", receipt_summary["authority_receipt_digest"])
+    ):
+        return False, "missing_or_invalid_authority_receipt_digest", accepted_batch, dict(payload)
 
     eligibility_booleans = (
         "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
@@ -871,14 +877,7 @@ def _canonical_terminal_aliases(
                 return False, "candidate_transaction_operation_family_mismatch", accepted_batch, dict(payload)
             if hashes.get("submit_graph_hash") != receipt_summary.get("submit_graph_hash"):
                 return False, "candidate_transaction_submit_hash_mismatch", accepted_batch, dict(payload)
-            receipt_digests = [
-                receipt_summary[key]
-                for key in ("authority_receipt_digest", "authority_receipt_hash", "receipt_digest")
-                if key in receipt_summary
-            ]
-            if receipt_digests and any(
-                digest != hashes.get("authority_receipt_hash") for digest in receipt_digests
-            ):
+            if hashes.get("authority_receipt_hash") != receipt_summary["authority_receipt_digest"]:
                 return False, "candidate_transaction_receipt_digest_mismatch", accepted_batch, dict(payload)
         try:
             from vibecomfy.comfy_nodes.agent.session import structural_graph_hash

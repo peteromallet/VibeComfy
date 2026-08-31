@@ -1270,6 +1270,7 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "delta_replay", "op_count": 1,
+                "authority_receipt_digest": "a" * 64,
             },
             "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
             "acceptedBatch": [{"op": {"op": "forged"}}],
@@ -1313,6 +1314,7 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "delta_replay", "op_count": 1,
+                "authority_receipt_digest": "a" * 64,
             },
             "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
             "outcome": {"kind": "candidate"}, "apply_eligible": True,
@@ -1360,6 +1362,7 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "layout_structural_noop", "op_count": 0,
+                "authority_receipt_digest": "c" * 64,
             },
             "workflow_id": "123e4567-e89b-12d3-a456-426614174000",
             "candidate": {"graph": graph}, "candidate_transaction": transaction,
@@ -1489,6 +1492,7 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "delta_replay", "op_count": 1,
+                "authority_receipt_digest": "a" * 64,
             },
             "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
             "outcome": {"kind": "candidate"}, "apply_eligible": True,
@@ -1496,6 +1500,46 @@ class TestExecutorResult:
         assert payload["terminal_state"] == "undetermined"
         assert "candidate" not in payload
         assert payload["apply_eligible"] is False
+
+    def test_applied_terminal_requires_bound_authority_receipt_digest_without_transaction(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        base = {
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "delta_replay", "op_count": 1,
+                "authority_receipt_digest": "a" * 64,
+            },
+            "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
+        }
+        valid = normalize_terminal_envelope(copy.deepcopy(base))
+        assert valid["terminal_state"] == "applied"
+        assert valid["apply_eligible"] is True
+        assert valid["authority_receipt"]["authority_receipt_digest"] == "a" * 64
+
+        malformed_values = (None, 1, "ABC", "x", "a" * 63, "a" * 65)
+        for malformed in malformed_values:
+            candidate = copy.deepcopy(base)
+            candidate["authority_receipt"]["authority_receipt_digest"] = malformed
+            normalized = normalize_terminal_envelope(candidate)
+            assert normalized["terminal_state"] == "undetermined"
+            assert normalized["ok"] is False
+            assert normalized["apply_eligible"] is False
+            assert "candidate" not in normalized
+
+        omitted = copy.deepcopy(base)
+        omitted["authority_receipt"].pop("authority_receipt_digest")
+        normalized = normalize_terminal_envelope(omitted)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+        assert "candidate" not in normalized
 
     def test_terminal_alias_matrix_accepts_only_bound_accepted_batch_alias(self) -> None:
         graph = {"nodes": [{"id": 1}], "links": []}
@@ -1509,6 +1553,7 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "delta_replay", "op_count": 1,
+                "authority_receipt_digest": "a" * 64,
             },
             "candidate": {"graph": graph}, "acceptedBatch": accepted_batch,
             "outcome": {"kind": "candidate"}, "apply_eligible": True,
@@ -1533,6 +1578,7 @@ class TestExecutorResult:
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "delta_replay", "op_count": 1,
+                "authority_receipt_digest": "a" * 64,
             },
             "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
             "outcome": {"kind": "candidate"}, "apply_eligible": True,
@@ -1632,6 +1678,7 @@ class TestExecutorResult:
                 "candidate_hash": graph_digest,
                 "accepted_batch_digest": delta_digest,
                 "cumulative_delta_hash": delta_digest,
+                "authority_receipt_digest": "a" * 64,
                 "replay_ok": True,
                 "candidate_matches": True,
                 "verification_kind": "delta_replay",

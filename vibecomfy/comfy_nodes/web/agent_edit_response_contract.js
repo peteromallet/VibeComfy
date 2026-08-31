@@ -679,6 +679,12 @@ function canonicalTerminalAliases(raw, candidateGraph) {
   if (!candidateGraphCarriersAgree(raw, candidateGraph)) {
     return { valid: false, reason: "malformed_or_conflicting_product_carrier", acceptedBatch: null, raw };
   }
+  const receipt = raw.authority_receipt;
+  if (!isObject(receipt)
+    || typeof receipt.authority_receipt_digest !== "string"
+    || !/^[0-9a-f]{64}$/.test(receipt.authority_receipt_digest)) {
+    return { valid: false, reason: "missing_or_invalid_authority_receipt_digest", acceptedBatch: null, raw };
+  }
   const candidateHash = sha256Hex(candidateGraph);
   for (const key of ["candidate_hash", "candidateHash"]) {
     if (Object.hasOwn(raw, key) && raw[key] !== candidateHash) {
@@ -752,10 +758,7 @@ function canonicalTerminalAliases(raw, candidateGraph) {
         || transaction.hashes?.submit_graph_hash !== receipt.submit_graph_hash) {
         return { valid: false, reason: "candidate_transaction_receipt_binding_mismatch", acceptedBatch, raw };
       }
-      const receiptDigest = receipt.authority_receipt_digest
-        ?? receipt.authority_receipt_hash
-        ?? receipt.receipt_digest;
-      if (receiptDigest != null && transaction.hashes?.authority_receipt_hash !== receiptDigest) {
+      if (transaction.hashes?.authority_receipt_hash !== receipt.authority_receipt_digest) {
         return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
       }
       const expectedWorkflowId = raw.workflow_id ?? receipt.workflow_id;

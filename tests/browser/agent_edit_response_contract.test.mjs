@@ -2595,6 +2595,7 @@ test("browser projection rejects a conflicting acceptedBatch alias", () => {
       turn_id: "t",
       submit_graph_hash: "a".repeat(64),
       candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "a".repeat(64),
       accepted_batch_digest: deltaDigest,
       cumulative_delta_hash: deltaDigest,
       replay_ok: true,
@@ -2634,6 +2635,7 @@ test("browser projection validates structural graph hash aliases against the gra
       turn_id: "t",
       submit_graph_hash: "a".repeat(64),
       candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "a".repeat(64),
       accepted_batch_digest: deltaDigest,
       cumulative_delta_hash: deltaDigest,
       replay_ok: true,
@@ -2889,6 +2891,60 @@ test("browser terminal rejects non-hex receipt hash shapes", () => {
   assert.equal(normalized.applyEligible, false);
 });
 
+test("browser applied terminal requires a bound authority receipt digest without transaction", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const base = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+      authority_receipt_digest: "a".repeat(64),
+    },
+  };
+  const valid = normalizeAgentEditResponse(structuredClone(base));
+  assert.equal(valid.terminalState, "applied");
+  assert.equal(valid.applyEligible, true);
+  assert.equal(valid.raw.authority_receipt.authority_receipt_digest, "a".repeat(64));
+
+  for (const malformed of [null, 1, "ABC", "x", "a".repeat(63), "a".repeat(65)]) {
+    const payload = structuredClone(base);
+    payload.authority_receipt.authority_receipt_digest = malformed;
+    const normalized = normalizeAgentEditResponse(payload);
+    assert.equal(normalized.terminalState, "undetermined");
+    assert.equal(normalized.applyEligible, false);
+    assert.equal(normalized.candidateGraph, null);
+    assert.equal(normalized.outcome.kind, "error");
+  }
+
+  const omitted = structuredClone(base);
+  delete omitted.authority_receipt.authority_receipt_digest;
+  const normalized = normalizeAgentEditResponse(omitted);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.outcome.kind, "error");
+});
+
 test("browser terminal alias matrix binds acceptedBatch alone and scrubs nested products", () => {
   const graph = { nodes: [{ id: 1 }], links: [] };
   const acceptedBatch = [{ op: { op: "set_node_field" } }];
@@ -2913,6 +2969,7 @@ test("browser terminal alias matrix binds acceptedBatch alone and scrubs nested 
       turn_id: "t",
       submit_graph_hash: "a".repeat(64),
       candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "a".repeat(64),
       accepted_batch_digest: deltaDigest,
       cumulative_delta_hash: deltaDigest,
       replay_ok: true,
