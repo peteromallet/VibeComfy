@@ -436,9 +436,6 @@ def _durable_projection_fallback(
     the one closed-checkpoint projection (row 6 keeps ``applied``).
     """
     if projection is not None:
-        projected = getattr(projection, "reply", None)
-        if isinstance(projected, str) and projected:
-            return projected
         landed = getattr(projection, "terminal_state", None) == "applied"
         reason = getattr(projection, "reason", reason)
         accepted = getattr(projection, "accepted_delta", ()) or ()
@@ -540,13 +537,31 @@ def run_threaded_executor(
             phase,
         )
     except Exception as exc:
-        failure = host_ports.classify_failure("profile", exc)
-        return finish(ExecutorResult.failure(
-            kind=_failure_kind(failure),
-            stage="profile",
-            message=str(getattr(failure, "user_facing_message", exc)),
-            report=build_report(),
-        ))
+        if research_requested and phase == "research":
+            # Research is optional even when explicitly requested: an absent
+            # research profile must not prevent the answer-only reply. Resolve
+            # the reply profile and continue without an evidence result.
+            LOGGER.warning("optional threaded research profile unavailable: %s", exc)
+            research_requested = False
+            phase = "reply"
+            try:
+                spec = kernel.resolve_spec(request.profile, "reply")
+            except Exception:
+                failure = host_ports.classify_failure("profile", exc)
+                return finish(ExecutorResult.failure(
+                    kind=_failure_kind(failure),
+                    stage="profile",
+                    message=str(getattr(failure, "user_facing_message", exc)),
+                    report=build_report(),
+                ))
+        else:
+            failure = host_ports.classify_failure("profile", exc)
+            return finish(ExecutorResult.failure(
+                kind=_failure_kind(failure),
+                stage="profile",
+                message=str(getattr(failure, "user_facing_message", exc)),
+                report=build_report(),
+            ))
 
     bounded_request, _budget = _bounded_request(request)
     if research_requested and kernel.run_research is not None:
@@ -722,7 +737,15 @@ def run_threaded_executor(
             )
             projection = None
     if getattr(projection, "graph", None) is not None and getattr(projection, "terminal_state", None) == "applied":
-        graph = projection.graph
+        projected_graph = projection.graph
+        # Preserve the host's graph object when the closed checkpoint did not
+        # alter its value. Some integrations intentionally use identity as a
+        # compatibility signal for an unchanged in-memory canvas.
+        graph = (
+            implementation.graph
+            if implementation.graph is not None and projected_graph == implementation.graph
+            else projected_graph
+        )
     elif getattr(projection, "terminal_state", None) != "applied":
         # Non-applied rows: original graph remains authoritative; do not
         # publish a rejected candidate as the product graph.

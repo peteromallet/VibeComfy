@@ -609,6 +609,10 @@ _MAX_REPLY_GRAPH_EDGES = 96
 _MAX_REPLY_CONTEXT_CHARS = 12000
 _MAX_REPLY_PROVENANCE_CLAIMS = 24
 _MAX_REPLY_PROVENANCE_IDS = 4
+_MAX_REPLY_PROVENANCE_ID_CHARS = 160
+_MAX_REPLY_PROVENANCE_CHARS = 5000
+_MAX_REPLY_CONTEXT_CHARS = 32000
+_MAX_REPLY_MEMO_CHARS = 6000
 
 
 def _bounded_graph_facts(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -626,7 +630,7 @@ def _bounded_graph_facts(value: Mapping[str, Any]) -> dict[str, Any]:
         # Keep exact node identity/type facts while dropping bulky values.
         result["nodes"] = [
             {
-                key: node.get(key)
+                key: str(node.get(key))[:256]
                 for key in ("node_id", "class_type", "title", "type_name", "mode")
                 if key in node
             }
@@ -639,18 +643,99 @@ def _bounded_graph_facts(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def _bounded_claim_provenance(value: Mapping[str, Any]) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
+    total_chars = 2
     for claim, raw_ids in list(value.items())[:_MAX_REPLY_PROVENANCE_CLAIMS]:
         if not isinstance(claim, str) or not claim.strip():
             continue
         ids = raw_ids if isinstance(raw_ids, (list, tuple)) else ()
-        deduped = list(dict.fromkeys(str(item) for item in ids if str(item).strip()))
+        deduped = list(
+            dict.fromkeys(
+                str(item).strip()[:_MAX_REPLY_PROVENANCE_ID_CHARS]
+                for item in ids
+                if str(item).strip()
+            )
+        )
         if deduped:
-            result[claim.strip()[:160]] = deduped[:_MAX_REPLY_PROVENANCE_IDS]
+            claim_text = claim.strip()[:160]
+            kept: list[str] = []
+            for evidence_id in deduped[:_MAX_REPLY_PROVENANCE_IDS]:
+                addition = len(claim_text) + len(evidence_id) + 8
+                if total_chars + addition > _MAX_REPLY_PROVENANCE_CHARS:
+                    break
+                kept.append(evidence_id)
+                total_chars += addition
+            if kept:
+                result[claim_text] = kept
     return result
 
 
 def _memo_without_provenance(value: Mapping[str, Any]) -> dict[str, Any]:
-    return {key: item for key, item in value.items() if key != "claim_provenance"}
+    def bound(item: Any, depth: int = 0) -> Any:
+        if depth > 3:
+            return _compact_text(item, 256)
+        if isinstance(item, str):
+            return item[:1000]
+        if isinstance(item, Mapping):
+            return {
+                str(key)[:120]: bound(value, depth + 1)
+                for key, value in list(item.items())[:24]
+                if str(key) != "claim_provenance"
+            }
+        if isinstance(item, (list, tuple)):
+            return [bound(value, depth + 1) for value in item[:16]]
+        return item
+
+    memo = {key: bound(item) for key, item in value.items() if key != "claim_provenance"}
+    encoded = json.dumps(memo, sort_keys=True, ensure_ascii=False)
+    if len(encoded) <= _MAX_REPLY_MEMO_CHARS:
+        return memo
+    # Keep keys and the beginning of each value. This is a projection of the
+    # memo only; durable evidence remains in the research artifacts/ledger.
+    compact: dict[str, Any] = {}
+    for key, item in memo.items():
+        candidate = {**compact, str(key)[:120]: _compact_text(item, 320)}
+        if len(json.dumps(candidate, sort_keys=True, ensure_ascii=False)) > _MAX_REPLY_MEMO_CHARS:
+            break
+        compact = candidate
+    compact["_truncated"] = True
+    return compact
+
+
+def _compact_text(value: Any, limit: int) -> str:
+    text = str(value or "")
+    return text if len(text) <= limit else text[: max(0, limit - 18)].rstrip() + "… [truncated]"
+
+
+def _bound_reply_context(parts: list[str]) -> str:
+    """Bound the actual serialized reply context after all projections.
+
+    Per-field caps are useful but insufficient when independently bounded
+    graph, memo, ledger, and provenance blocks are combined. Preserve the
+    request and authority blocks first, then spend the remaining budget on
+    explanatory context with an explicit marker.
+    """
+    bounded: list[str] = []
+    for index, part in enumerate(parts):
+        if index == 0:
+            limit = 6000
+        elif "Exact graph facts" in part:
+            limit = 12000
+        elif "Claim provenance" in part:
+            limit = 5000
+        elif "C1 research ledger" in part:
+            limit = 6500
+        elif "C5 research decision memo" in part:
+            limit = _MAX_REPLY_MEMO_CHARS + 100
+        else:
+            limit = 2500
+        bounded.append(_compact_text(part, limit))
+    content = "\n".join(bounded)
+    if len(content) <= _MAX_REPLY_CONTEXT_CHARS:
+        return content
+    # Deterministic final guard. The first sections contain the user request
+    # and graph authority; trim only trailing context and retain a marker.
+    marker = "\n[reply context truncated; consult durable evidence artifacts for full bodies]"
+    return content[: _MAX_REPLY_CONTEXT_CHARS - len(marker)].rstrip() + marker
 
 
 def build_reply_messages(
@@ -846,7 +931,7 @@ def build_reply_messages(
             )
     return [
         {"role": "system", "content": _REPLY_SYSTEM},
-        {"role": "user", "content": "\n".join(parts)},
+        {"role": "user", "content": _bound_reply_context(parts)},
     ]
 
 

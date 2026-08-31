@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -549,7 +550,12 @@ def hivemind_search(
             "limit_invalid",
             f"`limit` must be an integer between 1 and {_HIVEMIND_TOOL_MAX_LIMIT}.",
         )
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or timeout <= 0
+    ):
         return _invalid(
             HIVE_MIND_SEARCH_TOOL,
             "timeout_invalid",
@@ -674,7 +680,12 @@ def hivemind_get(
             "`evidence_id` must look like hivemind:<table>:<row_id> for a "
             "known Hivemind table.",
         )
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or timeout <= 0
+    ):
         return _invalid(
             HIVE_MIND_GET_TOOL,
             "timeout_invalid",

@@ -2673,11 +2673,73 @@ _CURRENT_CLAIM_RE = re.compile(
     r"\b(current|latest|today|now|pricing|price|cost|supports?|available|capabilit(?:y|ies)|version)\b",
     re.IGNORECASE,
 )
+_PROVENANCE_STOPWORDS = frozenset(
+    "the a an and or but is are was were be been this that with from for to of "
+    "in on by as it its we you your can may does do not only about into what "
+    "which workflow graph system record fetched evidence claim supports support".split()
+)
+
+
+def _artifact_body_text(value: Any) -> str:
+    """Flatten a durable artifact body for conservative claim binding."""
+    if isinstance(value, Mapping):
+        return " ".join(
+            f"{key} {_artifact_body_text(item)}" for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return " ".join(_artifact_body_text(item) for item in value)
+    return str(value or "")
+
+
+def _claim_terms(value: str) -> set[str]:
+    return {
+        token.casefold()
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}", value)
+        if token.casefold() not in _PROVENANCE_STOPWORDS
+    }
+
+
+def _artifact_supports_claim(claim: str, artifact: Any) -> bool:
+    body_terms = _claim_terms(_artifact_body_text(getattr(artifact, "body", artifact)))
+    claim_terms = _claim_terms(claim)
+    if not claim_terms or not body_terms:
+        return False
+    overlap = claim_terms & body_terms
+    # Require the distinctive subject and at least one predicate/detail term;
+    # a fetched-but-unrelated record must never authorize a citation.
+    required = 1 if len(claim_terms) == 1 else min(2, len(claim_terms))
+    return len(overlap) >= required
+
+
+def _validated_claim_provenance(
+    research_result: AgentResearchResult | None,
+) -> dict[str, tuple[str, ...]]:
+    if research_result is None:
+        return {}
+    artifacts = research_result.evidence_pack.artifacts
+    fetched = {
+        evidence_id: artifact
+        for evidence_id, artifact in artifacts.items()
+        if artifact.kind in {
+            "hivemind_record", "web_search_result", "registry_resolution", "node_schema"
+        }
+    }
+    validated: dict[str, tuple[str, ...]] = {}
+    for claim, ids in research_result.claim_provenance.items():
+        accepted = tuple(
+            evidence_id
+            for evidence_id in ids
+            if evidence_id in fetched and _artifact_supports_claim(claim, fetched[evidence_id])
+        )
+        if accepted:
+            validated[claim] = accepted[:4]
+    return validated
 
 
 def _validate_reply_provenance(
     reply: str,
     research_result: AgentResearchResult | None,
+    graph: Mapping[str, Any] | None = None,
 ) -> str:
     """Repair model citations and qualify unsupported material claims.
 
@@ -2701,15 +2763,34 @@ def _validate_reply_provenance(
     sentences = re.split(r"(?<=[.!?])\s+", reply)
     repaired: list[str] = []
     for sentence in sentences:
-        if _CURRENT_CLAIM_RE.search(sentence):
-            sentence_ids = {
+        sentence_ids = {
                 match.group(1)
                 for match in _EVIDENCE_CITE_RE.finditer(sentence)
             }
-            if not sentence_ids.intersection(fetched_ids):
-                sentence = (
-                    sentence.rstrip()
-                    + " (This time-sensitive claim is unverified from the available fetched evidence.)"
+        valid_fetched = sentence_ids.intersection(fetched_ids)
+        supported = {
+            evidence_id
+            for evidence_id in valid_fetched
+            if _artifact_supports_claim(sentence, artifacts[evidence_id])
+        }
+        # A citation is a claim binding, not proof of support merely because
+        # the record was fetched. Remove unrelated/unsupported references.
+        if sentence_ids and not supported:
+            sentence = re.sub(r"\s*\[[A-Za-z0-9_.:-]+\]", "", sentence)
+        graph_grounded = bool(graph) and bool(
+            re.search(r"\b(graph|workflow|node|link|widget|connection)\b", sentence, re.I)
+        )
+        material = bool(_claim_terms(sentence)) and not sentence.lstrip().startswith(("?", "I don't know", "I cannot verify"))
+        if material and not supported and not graph_grounded:
+            qualifier = (
+                " (This claim is unverified from the available fetched evidence.)"
+            )
+            if "unverified" not in sentence.casefold():
+                sentence = sentence.rstrip() + qualifier
+        elif _CURRENT_CLAIM_RE.search(sentence) and not supported and not graph_grounded:
+            if "unverified" not in sentence.casefold():
+                sentence = sentence.rstrip() + (
+                    " (This time-sensitive claim is unverified from the available fetched evidence.)"
                 )
         repaired.append(sentence)
     return " ".join(repaired).strip()
@@ -2843,7 +2924,8 @@ def _run_reply(
             "graph_inspection": graph_inspection,
             "graph_facts": graph_facts,
             "claim_provenance": (
-                research_result.claim_provenance if research_result is not None else None
+                _validated_claim_provenance(research_result)
+                if research_result is not None else None
             ),
             "effective_route": effective_route,
             "effective_task": effective_task,
@@ -2927,7 +3009,7 @@ def _run_reply(
             )
         # Provenance is checked after model deliberation and before terminal
         # grounding; durable artifact IDs are the only citation authority.
-        reply = _validate_reply_provenance(reply, research_result)
+        reply = _validate_reply_provenance(reply, research_result, effective_graph)
         # Fidelity + node-id grounding consumes the one closed-checkpoint
         # projection. This is not a second projector. A projection-time
         # exception after a durable applied product is row 6: keep applied.
@@ -3353,15 +3435,30 @@ def _run_staged_executor(
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
-            classify = ports.classify_failure
-            failure = classify("profile", exc)
-            return _finish(ExecutorResult.failure(
-                kind=failure.kind.value,
-                stage="profile",
-                message=failure.user_facing_message,
-                report=_build_report(plan=plan),
-            ))
-        else:
+            # An answer-only inspect request may explicitly ask for research,
+            # but research is an evidence affordance rather than a prerequisite
+            # for replying. A missing optional profile degrades to a reply;
+            # mutation/research routes retain their fail-closed profile error.
+            if plan.effective_route == "inspect":
+                _emit_executor_phase_event(
+                    request,
+                    executor_id=executor_id,
+                    phase="research",
+                    status="error",
+                    client_id=client_id,
+                )
+                LOGGER.warning("optional inspect research profile unavailable: %s", exc)
+                research_spec = None
+            else:
+                classify = ports.classify_failure
+                failure = classify("profile", exc)
+                return _finish(ExecutorResult.failure(
+                    kind=failure.kind.value,
+                    stage="profile",
+                    message=failure.user_facing_message,
+                    report=_build_report(plan=plan),
+                ))
+        if research_spec is not None:
             _emit_executor_phase_event(
                 request,
                 executor_id=executor_id,

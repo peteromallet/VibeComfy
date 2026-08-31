@@ -2293,6 +2293,70 @@ _DURABLE_EXECUTED_TOOL_STATUSES = frozenset({
 })
 _MAX_DURABLE_LEDGER_ENTRIES = 12
 _MAX_DURABLE_LEDGER_CONCLUSION_CHARS = 240
+_MAX_DURABLE_EVIDENCE_ARTIFACTS = 48
+
+
+def _durable_research_artifacts(durable: Mapping[str, Any]) -> dict[str, Any]:
+    """Recover full host-native research bodies before public compaction.
+
+    The threaded host historically retained only IDs in its compact ledger.
+    Newer hosts may attach an evidence pack at the root or on each typed tool
+    statement; accept both shapes so a durable citation always has a body that
+    can be resolved after reload. Unknown presentation fields are ignored.
+    """
+    candidates: list[Any] = [durable.get("evidence_pack")]
+    findings = durable.get("research_findings")
+    if isinstance(findings, Mapping):
+        candidates.append(findings.get("evidence_pack"))
+    turns = durable.get("batch_turns")
+    if isinstance(turns, (list, tuple)):
+        for turn in turns:
+            if not isinstance(turn, Mapping):
+                continue
+            statements = turn.get("statements")
+            if not isinstance(statements, (list, tuple)):
+                continue
+            for statement in statements:
+                if not isinstance(statement, Mapping):
+                    continue
+                detail = statement.get("detail")
+                if isinstance(detail, Mapping):
+                    candidates.extend(
+                        detail.get(key)
+                        for key in ("evidence_pack", "evidence_artifacts", "artifacts")
+                    )
+    artifacts: dict[str, Any] = {}
+    for candidate in candidates:
+        if isinstance(candidate, Mapping) and isinstance(candidate.get("artifacts"), Mapping):
+            candidate = candidate["artifacts"]
+        if isinstance(candidate, Mapping):
+            items = candidate.items()
+        elif isinstance(candidate, (list, tuple)):
+            items = (
+                (item.get("evidence_id"), item)
+                for item in candidate
+                if isinstance(item, Mapping)
+            )
+        else:
+            continue
+        for evidence_id, raw_artifact in items:
+            if len(artifacts) >= _MAX_DURABLE_EVIDENCE_ARTIFACTS:
+                break
+            if not isinstance(evidence_id, str) or not evidence_id.strip():
+                continue
+            if not isinstance(raw_artifact, Mapping):
+                continue
+            body = raw_artifact.get("body")
+            if body is None:
+                continue
+            artifacts[evidence_id.strip()] = {
+                "evidence_id": evidence_id.strip(),
+                "kind": str(raw_artifact.get("kind") or "research"),
+                "body": _thaw_jsonish(body),
+                "source": _thaw_jsonish(raw_artifact.get("source")),
+                "metadata": _thaw_jsonish(raw_artifact.get("metadata") or {}),
+            }
+    return artifacts
 
 
 def _durable_research_ledger(
@@ -2458,7 +2522,7 @@ def _durable_research_evidence(
     )
     diagnostics.extend(policy_diagnostics)
 
-    return {
+    projected = {
         "mode": "agent_owned",
         "route": "research",
         "research_attempt": research_attempt,
@@ -2476,6 +2540,15 @@ def _durable_research_evidence(
         "sources": sources,
         "warnings": warnings,
     }
+    durable_artifacts = _durable_research_artifacts(durable)
+    if durable_artifacts:
+        # Keep the compact ledger for prompt/report display, but retain the
+        # complete body map for citation resolution and durable replay.
+        projected["evidence_pack"] = {
+            "artifacts": durable_artifacts,
+            "ledger": projected["ledger"],
+        }
+    return projected
 
 
 def _durable_research_budget(findings: Mapping[str, Any]) -> dict[str, Any]:

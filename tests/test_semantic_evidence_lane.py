@@ -17,6 +17,12 @@ from vibecomfy.executor.core import AgentResearchResult, _validate_reply_provena
 from vibecomfy.executor.agent_research_stage import AgentResearchTrace, run_agent_research_stage
 from vibecomfy.executor.graph_inspection import inspect_workflow
 from vibecomfy.executor.hivemind_tools import hivemind_get, hivemind_search
+from vibecomfy.executor.agent_research_stage import _safe_research_args
+from vibecomfy.executor.contracts import (
+    ClassifyDecision,
+    ImplementationResult,
+    _durable_research_evidence,
+)
 from vibecomfy.executor.tool_contracts import ToolStatus
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
@@ -179,6 +185,133 @@ def test_research_egress_rejects_oversized_query_and_timeout() -> None:
     timeout_result = hivemind_get("hivemind:messages:1", timeout=31)
     assert query_result.status is ToolStatus.INVALID_REQUEST
     assert timeout_result.status is ToolStatus.INVALID_REQUEST
+
+
+def test_research_egress_rejects_nonfinite_timeout_and_redacts_embedded_payloads() -> None:
+    import math
+
+    safe = _safe_research_args(
+        "hivemind_search",
+        {
+            "query": (
+                "find workflow= {\"nodes\": [{\"class_type\": \"SecretNode\"}]} "
+                "with api_key=abc123 and Authorization: Bearer supersecret"
+            ),
+            "timeout": "NaN",
+        },
+    )
+    assert "timeout" not in safe
+    assert "SecretNode" not in safe["query"]
+    assert "abc123" not in safe["query"]
+    assert "supersecret" not in safe["query"]
+    assert not any(isinstance(value, float) and not math.isfinite(value) for value in safe.values())
+    assert hivemind_search("q", timeout=float("nan")).status is ToolStatus.INVALID_REQUEST
+    assert hivemind_get("hivemind:messages:1", timeout=float("inf")).status is ToolStatus.INVALID_REQUEST
+
+
+def test_reply_provenance_requires_body_support_and_claim_coverage() -> None:
+    fetched = EvidenceArtifact(
+        evidence_id="hivemind_record:1",
+        kind="hivemind_record",
+        body={"body": "The record discusses a blue sampler with 20 steps."},
+    )
+    pack = EvidencePack(
+        artifacts={fetched.evidence_id: fetched},
+        ledger=EvidenceLedger(entries=()),
+    )
+    trace = AgentResearchTrace(
+        route="inspect", question="q", iterations=(), status="ok",
+        final_verdict="enough", summary="", citations=(), uncertainty="",
+        elapsed_seconds=0.0,
+    )
+    result = AgentResearchResult(route="inspect", trace=trace, evidence_pack=pack)
+    unsupported = _validate_reply_provenance(
+        "The system currently supports feature X [hivemind_record:1].", result
+    )
+    assert "[hivemind_record:1]" not in unsupported
+    assert "unverified" in unsupported
+    supported = _validate_reply_provenance(
+        "The record discusses a blue sampler with 20 steps [hivemind_record:1].", result
+    )
+    assert "unverified" not in supported
+
+
+def test_reply_prompt_bounds_actual_combined_context_and_identifier_length() -> None:
+    messages = build_reply_messages(
+        "answer " + "q" * 10000,
+        research_memo={"summary": "m" * 100000, "sources": ["s" * 100000]},
+        claim_provenance={"claim " + str(index): ["evidence:" + "x" * 10000] for index in range(24)},
+        graph_facts={
+            "nodes": [{"node_id": index, "class_type": "N", "title": "t" * 10000} for index in range(48)],
+            "edges": [{"link_id": index, "origin_node": 1, "target_node": 2} for index in range(96)],
+        },
+    )
+    content = messages[1]["content"]
+    assert len(content) <= 32000
+    assert "evidence:" in content
+    assert "x" * 1000 not in content
+
+
+def test_threaded_missing_research_profile_degrades_to_reply() -> None:
+    from vibecomfy.executor.contracts import ExecutorHostPorts, ExecutorRequest
+    from vibecomfy.executor.profiles import AgentSpecShape
+    from vibecomfy.executor.threaded import ThreadedKernel, run_threaded_executor
+
+    phases: list[str] = []
+
+    def resolve(_profile: str | None, stage: str) -> AgentSpecShape:
+        phases.append(stage)
+        if stage == "research":
+            raise LookupError("research profile unavailable")
+        return AgentSpecShape("hermes", "model", "low")
+
+    kernel = ThreadedKernel(
+        resolve_spec=resolve,
+        run_implement=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("edit")),
+        emit_phase=lambda *_args, **kwargs: None,
+        enforce_reply_grounding=lambda reply, **_kwargs: reply,
+        accepted_delta_ops=lambda _implementation: (),
+        implementation_landed_edit=lambda _implementation: False,
+        no_candidate_reason=lambda _implementation: None,
+        run_inspect_reply=lambda *_args, **_kwargs: "Reply without research.",
+        run_research=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    ports = ExecutorHostPorts(
+        handle_agent_edit=lambda *_args, **_kwargs: {},
+        payload_hash=lambda payload: "hash",
+        classify_failure=lambda *_args, **_kwargs: type("Failure", (), {"kind": type("K", (), {"value": "ValidationError"})(), "user_facing_message": "failure"})(),
+        failure_envelope=lambda *_args, **_kwargs: None,
+        begin_deepseek_usage_capture=lambda: None,
+        snapshot_deepseek_usage_capture=lambda: ({}, True),
+        end_deepseek_usage_capture=lambda _token: None,
+        begin_model_attempt_capture=lambda: None,
+        snapshot_model_attempt_capture=lambda: (),
+        end_model_attempt_capture=lambda _token: None,
+    )
+    result = run_threaded_executor(
+        ExecutorRequest(query="explain", interaction_mode="answer_only", research_required=True),
+        kernel=kernel, host_ports=ports, executor_id="test",
+    )
+    assert result.ok
+    assert phases == ["research", "reply"]
+
+
+def test_threaded_durable_projection_retains_full_artifact_body() -> None:
+    implementation = ImplementationResult(
+        durable_response={
+            "research_findings": {"sources": [], "summary": "s", "warnings": []},
+            "batch_turns": [{"statements": [{"detail": {
+                "tool_call": "hivemind_get", "tool_status": "ok",
+                "evidence_artifacts": [{
+                    "evidence_id": "hivemind_record:1", "kind": "hivemind_record",
+                    "body": {"body": "complete fetched record body"},
+                }],
+                "ledger_entry": {"decision": "get", "conclusion": "fetched", "evidence_ids": ["hivemind_record:1"]},
+            }}]}],
+        }
+    )
+    projected = _durable_research_evidence(implementation, ClassifyDecision(route="research", research=True))
+    assert projected["evidence_pack"]["artifacts"]["hivemind_record:1"]["body"]["body"] == "complete fetched record body"
 
 
 def test_answer_only_research_callback_cannot_produce_edit() -> None:

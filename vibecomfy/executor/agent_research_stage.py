@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os as _os
 import re
 import time
@@ -471,7 +472,15 @@ def _bounded(text: str, limit: int) -> str:
 
 
 _EGRESS_SECRET_RE = re.compile(
-    r"(?i)\b(api[_ -]?key|token|password|secret|credential)\b\s*[:=]\s*[^\s,;]+"
+    r"(?is)\b(api[_ -]?key|access[_ -]?key|authorization|auth|bearer|token|"
+    r"password|secret|credential|cookie|session|private[_ -]?key|ssh[_ -]?key)\b"
+    r"\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"
+)
+_EGRESS_WORKFLOW_RE = re.compile(
+    r"(?is)\b(?:workflow|graph|payload|body|request)\b\s*[:=]\s*(?:\{.*?\}|\[.*?\])"
+)
+_EGRESS_WORKFLOW_JSON_RE = re.compile(
+    r'(?is)(?:"(?:nodes|links|class_type|inputs|widgets_values)"\s*:\s*)\{.*?\}'
 )
 _RESEARCH_ARG_LIMITS = {
     "query": 512,
@@ -488,6 +497,17 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
         "hivemind_get": {"evidence_id", "timeout"},
         "registry_lookup": {"node_class"},
     }.get(tool, set())
+
+    def _redact(value: str) -> str:
+        # Tool queries are untrusted model text.  Strip credentials first,
+        # then workflow/graph payloads even when they are embedded in prose;
+        # no raw graph or secret can cross the egress seam by hiding in a
+        # query string.
+        value = _EGRESS_SECRET_RE.sub(r"\1=<redacted>", value)
+        value = _EGRESS_WORKFLOW_RE.sub("[redacted structured payload]", value)
+        value = _EGRESS_WORKFLOW_JSON_RE.sub("[redacted workflow payload]", value)
+        return " ".join(value.split())
+
     safe: dict[str, Any] = {}
     for key, value in args.items():
         if key not in allowed or key.casefold() in {"body", "graph", "workflow", "secret"}:
@@ -495,13 +515,16 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
         if key in {"query", "evidence_id", "node_class"}:
             if not isinstance(value, str):
                 continue
-            text = _EGRESS_SECRET_RE.sub(r"\1=<redacted>", value.strip())
+            text = _redact(value.strip())
             safe[key] = text[:_RESEARCH_ARG_LIMITS[key]]
         elif key == "timeout":
             try:
-                safe[key] = min(float(value), _RESEARCH_ARG_LIMITS[key])
+                timeout = float(value)
             except (TypeError, ValueError):
                 continue
+            if not math.isfinite(timeout) or timeout <= 0:
+                continue
+            safe[key] = min(timeout, _RESEARCH_ARG_LIMITS[key])
         elif key == "limit":
             try:
                 safe[key] = max(1, min(int(value), 20))
@@ -512,9 +535,7 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
                 safe[key] = value[:512]
         elif key == "filters" and isinstance(value, Mapping):
             safe["filters"] = {
-                str(filter_key): _EGRESS_SECRET_RE.sub(
-                    r"\1=<redacted>", str(filter_value)
-                )[:256]
+                str(filter_key): _redact(str(filter_value))[:256]
                 for filter_key, filter_value in value.items()
                 if str(filter_key) in {"source_type", "model_family", "capability", "node_class", "channel", "author", "date_from", "date_to", "has_workflow", "sort"}
             }
