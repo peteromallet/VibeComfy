@@ -1488,10 +1488,14 @@ def stamp_response_with_authority(
     stamped["authority_receipt"] = {
         "contract_version": receipt.contract_version,
         "schema_version": receipt.schema_version,
+        "session_id": receipt.session_id,
+        "turn_id": receipt.turn_id,
         "submit_graph_hash": receipt.submit_graph_hash,
         "submit_graph_bytes_sha256": receipt.submit_graph_bytes_sha256,
+        "accepted_batch_digest": receipt.accepted_batch_digest,
         "cumulative_delta_hash": receipt.cumulative_delta_hash,
         "candidate_hash": receipt.candidate_hash,
+        "schema_witness_hash": receipt.schema_witness_hash,
         "replay_ok": receipt.replay.replay_ok,
         "candidate_matches": receipt.replay.candidate_matches,
         "replay_error": receipt.replay.error,
@@ -1524,6 +1528,27 @@ def stamp_response_with_authority(
         ):
             stamped.pop(key, None)
         stamped["graph_unchanged"] = True
+
+    def _capture_rejected_product() -> None:
+        """Move every product spelling to audit before public scrubbing."""
+        rejected: dict[str, Any] = {"state": "rejected"}
+        for key in (
+            "candidate", "graph", "candidate_graph", "candidate_transaction",
+            "accepted_batch", "candidate_hash", "candidate_graph_hash",
+            "candidate_structural_graph_hash",
+        ):
+            value = stamped.get(key)
+            if _candidate_payload_has_content(value) or (
+                key == "accepted_batch" and isinstance(value, (list, tuple)) and value
+            ):
+                rejected[key] = value
+        if len(rejected) > 1:
+            candidate = rejected.get("candidate")
+            if isinstance(candidate, Mapping) and "graph" in candidate:
+                rejected.setdefault("graph", candidate["graph"])
+            audit = dict(stamped.get("audit") or {}) if isinstance(stamped.get("audit"), Mapping) else {}
+            audit["rejected_candidate"] = rejected
+            stamped["audit"] = audit
     missing_touched = (
         tuple(
             item
@@ -1701,23 +1726,7 @@ def stamp_response_with_authority(
             "next_action": "none",
             "graph_unchanged": True,
         }
-        candidate = stamped.get("candidate")
-        rejected_candidate = None
-        if isinstance(candidate, Mapping):
-            rejected_candidate = dict(candidate)
-            rejected_candidate["state"] = "rejected"
-        elif stamped.get("graph") is not None or stamped.get("accepted_batch") is not None:
-            rejected_candidate = {
-                "graph": dict(stamped["graph"]) if isinstance(stamped.get("graph"), Mapping) else stamped.get("graph"),
-                "accepted_batch": list(stamped["accepted_batch"])
-                if isinstance(stamped.get("accepted_batch"), (list, tuple))
-                else stamped.get("accepted_batch"),
-                "state": "rejected",
-            }
-        audit = dict(stamped.get("audit") or {}) if isinstance(stamped.get("audit"), Mapping) else {}
-        if rejected_candidate is not None:
-            audit["rejected_candidate"] = rejected_candidate
-        stamped["audit"] = audit
+        _capture_rejected_product()
         # Row 4: rejected product is audit-only. Public keys must not carry it.
         _strip_public_product_carriers()
 
@@ -1823,11 +1832,7 @@ def stamp_response_with_authority(
             reason="no_accepted_batch",
             evidence_refs=("authority_receipt",),
         )
-        candidate = stamped.get("candidate")
-        if _candidate_payload_has_content(candidate):
-            audit = dict(stamped.get("audit") or {}) if isinstance(stamped.get("audit"), Mapping) else {}
-            audit["rejected_candidate"] = dict(candidate) if isinstance(candidate, Mapping) else candidate
-            stamped["audit"] = audit
+        _capture_rejected_product()
         _strip_public_product_carriers()
 
     # A receipt that claims a clean replay but has no public candidate is a

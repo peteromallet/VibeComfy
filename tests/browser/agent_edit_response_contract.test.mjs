@@ -1427,6 +1427,9 @@ const CURATED_PROJECTION_FIELDS = [
   "candidateGraph",
   "candidate",
   "candidateGraphHash",
+  "terminalState",
+  "terminalReason",
+  "authorityReceipt",
   "eligibility",
   "turnIdentity",
   "stageSnapshots",
@@ -2370,4 +2373,53 @@ test("normalizeAgentEditResponse surfaces idempotency key from turn identity", (
   const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
   assert.equal(readIdempotencyKey(normalized.raw), "idem-durable-001");
   assert.equal(normalized.turnIdentity?.idempotencyKey, "idem-durable-001");
+});
+
+test("terminal authority rejection remains typed and non-applyable in browser projection", () => {
+  const normalized = normalizeAgentEditResponse({
+    ok: false,
+    route: "revise",
+    terminal_state: "authority_rejected",
+    terminal_reason: "authority_replay_mismatch",
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      replay_ok: false,
+      candidate_matches: false,
+      candidate_hash: "rejected-hash",
+    },
+    candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
+    candidate_graph: { nodes: [{ id: 1 }], links: [] },
+    apply_eligible: true,
+    apply_allowed: true,
+    canvas_apply_allowed: true,
+    queue_allowed: true,
+    outcome: { kind: "candidate" },
+  }, { endpoint: "/submit" });
+
+  assert.equal(normalized.terminalState, "authority_rejected");
+  assert.equal(normalized.terminalReason, "authority_replay_mismatch");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.candidate, null);
+  assert.equal(normalized.outcome.kind, "error");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.eligibility.applyable, false);
+  assert.equal(normalized.authorityReceipt.candidate_hash, "rejected-hash");
+});
+
+test("browser projection demotes an applied terminal with an unbound receipt", () => {
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
+    accepted_batch: [{ op: { op: "set_node_field" } }],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: { replay_ok: true, candidate_matches: true },
+  }, { endpoint: "/submit" });
+
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.outcome.kind, "error");
+  assert.equal(normalized.applyEligible, false);
 });

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
@@ -649,6 +650,227 @@ _NO_CANDIDATE_REASONS = frozenset({
     "unknown_route",
     "authority_replay_mismatch",
 })
+
+# Terminal states are deliberately closed-world.  A new or misspelled state
+# must never inherit the candidate fields from the implementation phase.
+_TERMINAL_STATES = frozenset({
+    "applied", "no_op", "no_candidate", "clarify", "authority_rejected",
+    "infra_failure", "undetermined",
+})
+_NON_APPLIED_TERMINAL_STATES = frozenset(_TERMINAL_STATES - {"applied"})
+_PRODUCT_KEYS = frozenset({
+    "candidate", "candidate_graph", "candidate_transaction", "graph",
+    "accepted_batch", "accepted_delta", "delta", "candidate_hash",
+    "candidate_graph_hash", "candidate_structural_graph_hash",
+})
+_ELIGIBILITY_KEYS = frozenset({
+    "apply_eligible", "applyEligibility", "apply_eligibility", "eligibility",
+    "apply_allowed", "applyAllowed", "canvas_apply_allowed",
+    "canvasApplyAllowed", "queue_allowed", "queueAllowed",
+})
+
+
+def _receipt_parts(receipt: Any) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
+    """Return the summary and replay blocks without trusting either one."""
+    if not isinstance(receipt, Mapping):
+        return None, None
+    replay = receipt.get("replay")
+    return receipt, replay if isinstance(replay, Mapping) else None
+
+
+def _receipt_value(receipt: Any, key: str) -> Any:
+    summary, replay = _receipt_parts(receipt)
+    if replay is not None and key in replay:
+        return replay.get(key)
+    return summary.get(key) if summary is not None else None
+
+
+def _receipt_is_authoritative(
+    payload: Mapping[str, Any],
+    candidate_graph: Any,
+    accepted_batch: Any,
+) -> tuple[bool, str]:
+    """Validate the *binding* needed for public applied publication.
+
+    The receipt's two replay booleans are necessary but not sufficient.  This
+    gate binds the receipt to its contract, turn identity, exact candidate
+    bytes, and the accepted delta digest.  It intentionally accepts a compact
+    receipt summary as long as all binding fields are present.
+    """
+    receipt = payload.get("authority_receipt")
+    summary, _replay = _receipt_parts(receipt)
+    if summary is None:
+        return False, "missing_authority_receipt"
+    if _receipt_value(receipt, "replay_ok") is not True:
+        return False, "replay_not_ok"
+    if _receipt_value(receipt, "candidate_matches") is not True:
+        return False, "candidate_mismatch"
+    if _receipt_value(receipt, "replay_error") not in (None, ""):
+        return False, "replay_error"
+    if summary.get("contract_version") != "authority_receipt_v2":
+        return False, "receipt_contract_mismatch"
+    if not isinstance(summary.get("schema_version"), str) or not summary.get("schema_version"):
+        return False, "receipt_schema_missing"
+
+    for key in ("submit_graph_hash", "candidate_hash", "cumulative_delta_hash"):
+        value = summary.get(key)
+        if not isinstance(value, str) or len(value) != 64:
+            return False, f"receipt_{key}_missing"
+    accepted_digest = summary.get("accepted_batch_digest")
+    if accepted_digest != summary.get("cumulative_delta_hash"):
+        return False, "receipt_delta_digest_mismatch"
+
+    # A receipt from another turn is evidence, not authority for this turn.
+    for identity in ("session_id", "turn_id"):
+        expected = payload.get(identity)
+        recorded = summary.get(identity)
+        if expected is not None and (not isinstance(recorded, str) or recorded != expected):
+            return False, f"receipt_{identity}_mismatch"
+
+    if not isinstance(candidate_graph, Mapping) or not candidate_graph:
+        return False, "missing_candidate_graph"
+    try:
+        from vibecomfy.comfy_nodes.agent.session import payload_hash
+
+        computed_candidate_hash = payload_hash(candidate_graph)
+    except Exception:  # pragma: no cover - defensive import/hash boundary
+        return False, "candidate_hash_unavailable"
+    if computed_candidate_hash != summary.get("candidate_hash"):
+        return False, "candidate_hash_mismatch"
+    declared_hash = payload.get("candidate_graph_hash")
+    if declared_hash is not None and declared_hash != computed_candidate_hash:
+        return False, "candidate_graph_hash_mismatch"
+
+    verification_kind = _receipt_value(receipt, "verification_kind")
+    op_count = _receipt_value(receipt, "op_count")
+    if verification_kind not in {"delta_replay", "layout_structural_noop"}:
+        return False, "verification_kind_missing"
+    if not isinstance(op_count, int) or isinstance(op_count, bool) or op_count < 0:
+        return False, "invalid_op_count"
+    if verification_kind != "layout_structural_noop" and op_count > 0:
+        if not isinstance(accepted_batch, list) or not accepted_batch:
+            return False, "accepted_delta_missing"
+        # The durable batch is represented as the canonical delta envelope;
+        # compare its semantic digest to the receipt rather than trusting a
+        # copied free-form field.
+        try:
+            from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+            from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+
+            actual_delta = content_hash(
+                derived_accepted_delta_envelope({"accepted_batch": accepted_batch})
+            )
+        except Exception:  # pragma: no cover - malformed boundary data
+            return False, "accepted_delta_hash_unavailable"
+        if actual_delta != summary.get("cumulative_delta_hash"):
+            return False, "accepted_delta_digest_mismatch"
+    elif verification_kind == "layout_structural_noop" and accepted_batch not in (None, [], ()):
+        return False, "layout_noop_has_delta"
+    return True, "ok"
+
+
+def _scrub_non_applied(value: Any, *, in_audit: bool = False) -> Any:
+    """Remove product carriers recursively while retaining audit evidence."""
+    if isinstance(value, list):
+        return [_scrub_non_applied(item, in_audit=in_audit) for item in value]
+    if not isinstance(value, Mapping):
+        return value
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        if not in_audit and (key_text in _PRODUCT_KEYS or key_text.startswith("candidate_")):
+            continue
+        if key_text in _ELIGIBILITY_KEYS:
+            # Preserve the spelling, but never a stale truthy value.
+            cleaned[key_text] = False if key_text not in {"eligibility", "apply_eligibility"} else {
+                "applyable": False,
+                "reason": "terminal_not_applyable",
+            }
+            continue
+        # Receipt fields are cryptographic evidence, even when a candidate
+        # was rejected; do not recurse into the receipt and erase its hash.
+        if key_text == "authority_receipt":
+            cleaned[key_text] = item
+        else:
+            cleaned[key_text] = _scrub_non_applied(item, in_audit=in_audit or key_text == "audit")
+    return cleaned
+
+
+def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Make one total, typed, atomic public terminal envelope.
+
+    This function is shared by executor and HTTP serialization boundaries so
+    no caller can accidentally republish an implementation candidate after a
+    rejected, malformed, or incoherent terminal.
+    """
+    normalized = deepcopy(dict(payload))
+    explicit = normalized.get("terminal_state")
+    has_terminal = explicit is not None
+    if has_terminal and explicit not in _TERMINAL_STATES:
+        normalized["terminal_state"] = "undetermined"
+        normalized["terminal_reason"] = "unknown_terminal_state"
+        explicit = "undetermined"
+    state = explicit
+    receipt = normalized.get("authority_receipt")
+    replay_ok = _receipt_value(receipt, "replay_ok")
+    candidate_matches = _receipt_value(receipt, "candidate_matches")
+    candidate = normalized.get("candidate")
+    candidate_graph = candidate.get("graph") if isinstance(candidate, Mapping) else normalized.get("graph")
+    accepted_batch = normalized.get("accepted_batch")
+
+    if state is None and (replay_ok is False or candidate_matches is False):
+        state = "authority_rejected"
+        normalized["terminal_state"] = state
+        normalized["terminal_reason"] = "authority_replay_mismatch"
+        has_terminal = True
+    if not has_terminal:
+        # Legacy non-durable responses retain their established projection.
+        return normalized
+
+    if state == "applied":
+        bound, reason = _receipt_is_authoritative(normalized, candidate_graph, accepted_batch)
+        if not bound:
+            state = "undetermined"
+            normalized["terminal_state"] = state
+            normalized["terminal_reason"] = f"incoherent_applied_terminal:{reason}"
+        else:
+            normalized["ok"] = True
+            existing_outcome = normalized.get("outcome")
+            normalized["outcome"] = {
+                **(existing_outcome if isinstance(existing_outcome, Mapping) else {}),
+                "kind": "candidate",
+                "graph_unchanged": False,
+            }
+            normalized["apply_eligible"] = True
+            normalized["apply_allowed"] = True
+            normalized["canvas_apply_allowed"] = True
+            normalized["queue_allowed"] = True
+            normalized["graph_unchanged"] = False
+            return normalized
+
+    # Every non-applied state is explicit and product-free.  Preserve the
+    # receipt summary and audit subtree, but scrub all implementation/report
+    # aliases including nested ``failure``/``evidence`` carriers.
+    if state not in _NON_APPLIED_TERMINAL_STATES:
+        state = "undetermined"
+        normalized["terminal_state"] = state
+        normalized["terminal_reason"] = "invalid_terminal_state"
+    normalized = _scrub_non_applied(normalized)
+    normalized["terminal_state"] = state
+    normalized.setdefault("terminal_reason", state)
+    normalized["graph_unchanged"] = True
+    normalized["apply_eligible"] = False
+    normalized["apply_allowed"] = False
+    normalized["canvas_apply_allowed"] = False
+    normalized["queue_allowed"] = False
+    normalized["ok"] = state in {"no_op", "no_candidate", "clarify"}
+    outcome_kind = "clarify" if state == "clarify" else "noop" if state in {"no_op", "no_candidate"} else "error"
+    outcome = normalized.get("outcome")
+    if not isinstance(outcome, Mapping) or outcome.get("kind") not in {outcome_kind}:
+        normalized["outcome"] = {"kind": outcome_kind, "graph_unchanged": True}
+    else:
+        normalized["outcome"] = {**outcome, "kind": outcome_kind, "graph_unchanged": True}
+    return normalized
 
 _TASK_DESCRIPTIONS: dict[str, str] = {
     "edit_graph": "modify the current graph.",
@@ -2502,6 +2724,14 @@ class AgentTurnResult:
     candidate: dict[str, Any] | None = None
     no_candidate_reason: str | None = None
     disposition: str = ""
+    terminal_state: str | None = None
+    terminal_reason: str | None = None
+    authority_receipt: Mapping[str, Any] | None = None
+    accepted_batch: tuple[dict[str, Any], ...] = ()
+    session_id: str | None = None
+    turn_id: str | None = None
+    accepted_delta_ids: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # An empty route is the truthful "no classification decision" sentinel
@@ -2531,7 +2761,7 @@ class AgentTurnResult:
         return self.route in _APPLY_ELIGIBLE_ROUTES and self.candidate is not None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "route": self.route,
             "reply": self.reply,
             "evidence": self.evidence.to_dict(),
@@ -2539,6 +2769,23 @@ class AgentTurnResult:
             "apply_eligible": self.apply_eligible,
             "no_candidate_reason": self.no_candidate_reason,
         }
+        if self.terminal_state is not None:
+            payload["terminal_state"] = self.terminal_state
+        if self.terminal_reason is not None:
+            payload["terminal_reason"] = self.terminal_reason
+        if self.authority_receipt is not None:
+            payload["authority_receipt"] = _thaw_jsonish(self.authority_receipt)
+        if self.accepted_batch:
+            payload["accepted_batch"] = _thaw_jsonish(self.accepted_batch)
+        if self.session_id is not None:
+            payload["session_id"] = self.session_id
+        if self.turn_id is not None:
+            payload["turn_id"] = self.turn_id
+        if self.accepted_delta_ids:
+            payload["accepted_delta_ids"] = list(self.accepted_delta_ids)
+        if self.evidence_refs:
+            payload["evidence_refs"] = list(self.evidence_refs)
+        return normalize_terminal_envelope(payload)
 
     @classmethod
     def from_executor_result(cls, result: "ExecutorResult") -> "AgentTurnResult":
@@ -2678,6 +2925,38 @@ class AgentTurnResult:
             candidate=candidate,
             no_candidate_reason=reason,
             disposition=disposition,
+            terminal_state=terminal_state if isinstance(terminal_state, str) else None,
+            terminal_reason=(
+                durable.get("terminal_reason")
+                if isinstance(durable, Mapping) and isinstance(durable.get("terminal_reason"), str)
+                else None
+            ),
+            authority_receipt=(
+                receipt if isinstance(receipt, Mapping) else None
+            ),
+            accepted_batch=tuple(
+                _thaw_jsonish(item)
+                for item in (durable.get("accepted_batch", ()) if isinstance(durable, Mapping) else ())
+                if isinstance(item, Mapping)
+            ),
+            session_id=(
+                durable.get("session_id")
+                if isinstance(durable, Mapping) and isinstance(durable.get("session_id"), str)
+                else None
+            ),
+            turn_id=(
+                durable.get("turn_id")
+                if isinstance(durable, Mapping) and isinstance(durable.get("turn_id"), str)
+                else None
+            ),
+            accepted_delta_ids=tuple(
+                item for item in (durable.get("accepted_delta_ids", ()) if isinstance(durable, Mapping) else ())
+                if isinstance(item, str)
+            ),
+            evidence_refs=tuple(
+                item for item in (durable.get("evidence_refs", ()) if isinstance(durable, Mapping) else ())
+                if isinstance(item, str)
+            ),
         )
 
 
@@ -2950,7 +3229,7 @@ class ExecutorResult:
             payload["failure_stage"] = self.failure_stage
         if self.failure_message is not None:
             payload["failure_message"] = self.failure_message
-        return payload
+        return normalize_terminal_envelope(payload)
 
     @classmethod
     def success(

@@ -127,6 +127,40 @@ def test_serialize_executor_result_strips_non_applyable_response_fields() -> Non
         assert forbidden_key not in serialized
 
 
+def test_serialize_terminal_preserves_receipt_and_false_non_applyability() -> None:
+    payload = {
+        "ok": True,
+        "route": "revise",
+        "terminal_state": "authority_rejected",
+        "terminal_reason": "authority_replay_mismatch",
+        "authority_receipt": {
+            "contract_version": "authority_receipt_v2",
+            "replay_ok": False,
+            "candidate_matches": False,
+            "candidate_hash": "rejected-hash",
+        },
+        "candidate": {"graph": {"nodes": [{"id": 1}]}},
+        "candidate_graph": {"nodes": [{"id": 1}]},
+        "accepted_batch": [{"op": "set_node_field"}],
+        "apply_eligible": True,
+        "apply_eligibility": {"applyable": True},
+        "eligibility": {"applyable": True},
+        "apply_allowed": True,
+        "canvas_apply_allowed": True,
+        "queue_allowed": True,
+        "report": {"failure": {"candidate_transaction": {"graph": {"nodes": []}}}},
+    }
+    serialized = serialize_executor_result(payload)
+    assert serialized["terminal_state"] == "authority_rejected"
+    assert serialized["authority_receipt"]["candidate_hash"] == "rejected-hash"
+    assert serialized["apply_eligible"] is False
+    assert serialized["apply_allowed"] is False
+    assert serialized["eligibility"]["applyable"] is False
+    for key in ("candidate", "candidate_graph", "accepted_batch"):
+        assert key not in serialized
+    assert "candidate_transaction" not in serialized["report"]["failure"]
+
+
 def test_routes_executor_serializer_matches_extracted_helper(monkeypatch) -> None:
     monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
     from vibecomfy.comfy_nodes.agent import routes

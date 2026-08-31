@@ -21,6 +21,14 @@ const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
 
 const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";
 
+const TERMINAL_STATES = Object.freeze(new Set([
+  "applied", "no_op", "no_candidate", "clarify", "authority_rejected",
+  "infra_failure", "undetermined",
+]));
+const NON_APPLIED_TERMINAL_STATES = Object.freeze(new Set([
+  "no_op", "no_candidate", "clarify", "authority_rejected", "infra_failure", "undetermined",
+]));
+
 /** Whitelist of engine diagnostic detail keys safe for normalized browser
  * diagnostics. Raw debug, provider payloads, and internal trace keys stay
  * behind explicit debug surfaces and are never included here. */
@@ -591,6 +599,56 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
   };
 }
 
+function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
+  const hasTerminal = Object.prototype.hasOwnProperty.call(raw, "terminal_state");
+  if (!hasTerminal) {
+    return { terminalState: null, terminalReason: null, outcome, candidateGraph, eligibility };
+  }
+  let terminalState = asString(raw.terminal_state);
+  let terminalReason = asString(raw.terminal_reason);
+  const receipt = isObject(raw.authority_receipt) ? deep_plain(raw.authority_receipt) : null;
+  if (!TERMINAL_STATES.has(terminalState)) {
+    terminalState = "undetermined";
+    terminalReason = "unknown_terminal_state";
+  }
+  const replay = isObject(receipt?.replay) ? receipt.replay : receipt;
+  const receiptValid = terminalState !== "applied"
+    || (
+      receipt
+      && receipt.contract_version === "authority_receipt_v2"
+      && typeof receipt.schema_version === "string"
+      && typeof receipt.submit_graph_hash === "string"
+      && typeof receipt.candidate_hash === "string"
+      && typeof receipt.cumulative_delta_hash === "string"
+      && receipt.accepted_batch_digest === receipt.cumulative_delta_hash
+      && replay?.replay_ok === true
+      && replay?.candidate_matches === true
+      && typeof replay?.verification_kind === "string"
+      && isObject(candidateGraph)
+    );
+  if (terminalState === "applied" && !receiptValid) {
+    terminalState = "undetermined";
+    terminalReason = "incoherent_applied_terminal";
+  }
+  if (NON_APPLIED_TERMINAL_STATES.has(terminalState)) {
+    const kind = terminalState === "clarify" ? "clarify"
+      : terminalState === "no_op" || terminalState === "no_candidate" ? "noop" : "error";
+    const nextOutcome = kind === "clarify"
+      ? { kind: "clarify", ...clarificationPayload(raw.reply || raw.message) }
+      : kind === "noop"
+        ? { kind: "noop", reason: terminalReason || terminalState }
+        : { kind: "error", failureKind: "ValidationError", stage: "terminal" };
+    return {
+      terminalState,
+      terminalReason,
+      outcome: nextOutcome,
+      candidateGraph: null,
+      eligibility: { applyable: false, reason: terminalReason || terminalState },
+    };
+  }
+  return { terminalState, terminalReason, outcome, candidateGraph, eligibility };
+}
+
 function normalizeTurnIdentityPayload(identity) {
   if (!isObject(identity)) {
     return null;
@@ -904,9 +962,13 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
         );
       })();
 
-  const candidateGraph = normalizeCandidateGraph(raw, outcome);
+  let candidateGraph = normalizeCandidateGraph(raw, outcome);
   const transactionBoundary = classifyCandidateTransactionBoundary(raw);
-  const eligibility = normalizeEligibility(raw, candidateGraph);
+  let eligibility = normalizeEligibility(raw, candidateGraph);
+  const terminal = normalizeTerminalContract(raw, outcome, candidateGraph, eligibility);
+  candidateGraph = terminal.candidateGraph;
+  eligibility = terminal.eligibility;
+  const normalizedOutcome = terminal.outcome;
   const rawRebaselineRecovery = extractRebaselineRecovery(raw);
 
   // SD2: Applyable means durable. A candidate missing both session_id and
@@ -939,7 +1001,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
       asString(raw.agentEditProtocol) || asString(raw.agent_edit_protocol),
     reply: asString(raw.reply) || asString(raw.message),
     evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? deep_plain(raw.evidence) : null,
-    outcome,
+    outcome: normalizedOutcome,
     customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
     runtimeDependencies:
       Array.isArray(raw.runtimeDependencies)
@@ -956,6 +1018,9 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     candidateGraphHash:
       asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
     eligibility,
+    terminalState: terminal.terminalState,
+    terminalReason: terminal.terminalReason,
+    authorityReceipt: isObject(raw.authority_receipt) ? deep_plain(raw.authority_receipt) : null,
     turnIdentity: null,
     stageSnapshots: Array.isArray(raw.stageSnapshots)
       ? raw.stageSnapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
@@ -969,21 +1034,29 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     fieldChanges: readRawFieldChanges(raw),
     diagnostics: normalizeDiagnostics(raw),
     applyEligible:
-      asBooleanOrNull(raw.applyEligible)
-      ?? asBooleanOrNull(raw.apply_eligible)
-      ?? (eligibility ? eligibility.applyable === true : null),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.applyEligible)
+          ?? asBooleanOrNull(raw.apply_eligible)
+          ?? (eligibility ? eligibility.applyable === true : null),
     noCandidateReason:
       asString(raw.noCandidateReason) || asString(raw.no_candidate_reason),
     applyAllowed:
-      asBooleanOrNull(raw.applyAllowed)
-      ?? asBooleanOrNull(raw.apply_allowed)
-      ?? asBooleanOrNull(raw.apply_eligible),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.applyAllowed)
+          ?? asBooleanOrNull(raw.apply_allowed)
+          ?? asBooleanOrNull(raw.apply_eligible),
     canvasApplyAllowed:
-      asBooleanOrNull(raw.canvasApplyAllowed)
-      ?? asBooleanOrNull(raw.canvas_apply_allowed)
-      ?? asBooleanOrNull(raw.apply_eligible),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.canvasApplyAllowed)
+          ?? asBooleanOrNull(raw.canvas_apply_allowed)
+          ?? asBooleanOrNull(raw.apply_eligible),
     queueAllowed:
-      asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
     graphUnchanged:
       asBooleanOrNull(raw.graphUnchanged) ?? asBooleanOrNull(raw.graph_unchanged),
     report: isObject(raw.report) ? deep_plain(raw.report) : null,

@@ -46,9 +46,13 @@ from vibecomfy.executor.contracts import (
     adaptation_plan_actionability_payload,
     build_topology_manifest,
     format_route_options_for_prompt,
+    normalize_terminal_envelope,
     redact_model_preview,
     warning_detail_from_exception,
 )
+from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+from vibecomfy.comfy_nodes.agent.session import payload_hash
 from vibecomfy.executor.prompts import (
     build_classify_messages,
     build_reply_messages,
@@ -996,6 +1000,88 @@ class TestAgentTurnResult:
 
 
 class TestExecutorResult:
+    def test_terminal_normalizer_scrubs_unknown_nested_product_carriers(self) -> None:
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "terminal_state": "future_state",
+            "terminal_reason": "untrusted",
+            "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+            "candidate": {"graph": {"nodes": [{"id": 1}]}},
+            "accepted_batch": [{"op": "set_node_field"}],
+            "candidate_graph_hash": "candidate-hash",
+            "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+            "report": {"failure": {"candidate_transaction": {"graph": {"nodes": []}}}},
+            "evidence": {"implementation": {"graph": {"nodes": []}}},
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert payload["outcome"]["kind"] == "error"
+        assert payload["apply_eligible"] is False
+        assert payload["graph_unchanged"] is True
+        for key in ("candidate", "graph", "accepted_batch", "candidate_graph_hash"):
+            assert key not in payload
+        assert "candidate_transaction" not in payload["report"]["failure"]
+        assert "graph" not in payload["evidence"]["implementation"]
+
+    def test_terminal_normalizer_rejects_receipt_boolean_only_and_hash_mismatch(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "terminal_state": "applied",
+            "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+            "candidate": {"graph": graph},
+            "accepted_batch": [{"op": {"op": "set_node_field"}}],
+            "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert payload["outcome"]["kind"] == "error"
+        assert "candidate" not in payload
+
+    def test_terminal_normalizer_contradictory_rejection_cannot_keep_candidate_outcome(self) -> None:
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "terminal_state": "authority_rejected",
+            "authority_receipt": {"replay_ok": False, "candidate_matches": False},
+            "outcome": {"kind": "candidate", "changes": [{"uid": "n1"}]},
+            "candidate": {"graph": {"nodes": [{"id": 1}]}},
+            "failure": {"candidate_graph": {"nodes": [{"id": 1}]}},
+            "apply_eligible": True,
+        })
+        assert payload["ok"] is False
+        assert payload["outcome"]["kind"] == "error"
+        assert payload["apply_eligible"] is False
+        assert "candidate" not in payload
+        assert "candidate_graph" not in payload["failure"]
+
+    @pytest.mark.parametrize(
+        "terminal_state",
+        ("authority_rejected", "infra_failure", "no_candidate", "no_op", "clarify", "undetermined"),
+    )
+    def test_terminal_negative_matrix_is_product_free(self, terminal_state: str) -> None:
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "terminal_state": terminal_state,
+            "candidate": {"graph": {"nodes": [{"id": 1}]}},
+            "graph": {"nodes": [{"id": 1}]},
+            "accepted_batch": [{"op": "edit"}],
+            "candidate_hash": "hash",
+            "candidate_graph_hash": "hash",
+            "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+            "apply_eligibility": {"applyable": True},
+        })
+        assert payload["terminal_state"] == terminal_state
+        assert payload["apply_eligible"] is False
+        assert payload["graph_unchanged"] is True
+        assert payload["ok"] is (terminal_state in {"no_op", "no_candidate", "clarify"})
+        assert payload["outcome"]["kind"] in {"noop", "clarify", "error"}
+        assert all(key not in payload for key in (
+            "candidate", "graph", "accepted_batch", "candidate_hash", "candidate_graph_hash",
+        ))
+
     def test_durable_rejected_terminal_is_atomic_and_audit_only(self) -> None:
         original = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
         durable = {
@@ -1043,11 +1129,31 @@ class TestExecutorResult:
 
     def test_durable_applied_terminal_requires_matching_receipt(self) -> None:
         graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field", "target": ["", "1", "steps"], "value": 20}}]
+        delta_digest = content_hash(
+            derived_accepted_delta_envelope({"accepted_batch": accepted_batch})
+        )
+        graph_digest = payload_hash(graph)
         durable = {
+            "session_id": "session-1",
+            "turn_id": "turn-1",
             "terminal_state": "applied",
-            "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2",
+                "schema_version": "2.0.0",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "submit_graph_hash": "a" * 64,
+                "candidate_hash": graph_digest,
+                "accepted_batch_digest": delta_digest,
+                "cumulative_delta_hash": delta_digest,
+                "replay_ok": True,
+                "candidate_matches": True,
+                "verification_kind": "delta_replay",
+                "op_count": 1,
+            },
             "graph": graph,
-            "accepted_batch": [{"op": "set_node_field"}],
+            "accepted_batch": accepted_batch,
             "outcome": {"kind": "candidate"},
             "apply_eligible": True,
         }
@@ -1062,8 +1168,12 @@ class TestExecutorResult:
         payload = result.to_dict()
 
         assert payload["terminal_state"] == "applied"
-        assert payload["candidate"] == {"graph": graph}
-        assert payload["accepted_batch"] == [{"op": "set_node_field"}]
+        assert payload["candidate"] == {
+            "graph": graph,
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        }
+        assert payload["accepted_batch"] == accepted_batch
         assert payload["authority_receipt"]["candidate_matches"] is True
         assert payload["apply_eligible"] is True
 
