@@ -1,0 +1,12 @@
+{
+  "3": {
+    "class_type": "llama_cpp_parameters",
+    "inputs": {
+      "max_tokens": 1024,
+      "temperature": 0.8
+    },
+    "_ui": {
+      "widgets_values": [1024, 0.8]
+    }
+  }
+}

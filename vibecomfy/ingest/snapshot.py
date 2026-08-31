@@ -117,6 +117,60 @@ def _capture_widget_names(
     """
     from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 
+    # API/envelope nodes can carry the same literal vector twice: as named
+    # ``inputs``/``widgets`` and as positional ``raw_widgets.values`` retained
+    # from the UI door.  This is an exact identity witness, not a schema guess.
+    # Prefer it before consulting object-info: schema-opaque custom nodes may
+    # have stale/nearby ambient entries (the LLaMA ``max_tokens``/``top_k``
+    # collision), and re-deriving the roster there makes an otherwise valid
+    # one-field edit look like a node remove/add plus link churn on replay.
+    raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+    if not isinstance(raw_values, list):
+        metadata = getattr(node, "metadata", None)
+        raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+        raw_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
+    if isinstance(raw_values, list) and raw_values:
+        linked_names = {
+            str(name)
+            for name, _source in incoming.get(node_id, [])
+            if name is not None
+        }
+        literal_names: list[str] = []
+        for channel in (
+            getattr(node, "widgets", None),
+            getattr(node, "inputs", None),
+        ):
+            if not isinstance(channel, Mapping):
+                continue
+            for name, value in channel.items():
+                name = str(name)
+                if name in linked_names or name.startswith("widget_"):
+                    continue
+                if isinstance(value, (list, tuple)) and len(value) == 2:
+                    continue
+                if name not in literal_names:
+                    literal_names.append(name)
+        # A ``None`` literal can also be an unbound socket in an API carrier;
+        # without a schema witness it is not safe to claim that name for a
+        # positional widget slot. Let the ordinary resolver handle that
+        # ambiguous shape instead of manufacturing a cross-carrier identity.
+        literal_values = [
+            value
+            for channel in (
+                getattr(node, "widgets", None),
+                getattr(node, "inputs", None),
+            )
+            if isinstance(channel, Mapping)
+            for name, value in channel.items()
+            if str(name) in literal_names
+        ]
+        if (
+            len(literal_names) == len(raw_values)
+            and len(literal_values) == len(literal_names)
+            and all(value is not None for value in literal_values)
+        ):
+            return tuple(literal_names)
+
     linked_inputs = frozenset(str(to_input) for to_input, _ in incoming.get(node_id, []))
     try:
         resolution = compact_widget_names_for_node(
