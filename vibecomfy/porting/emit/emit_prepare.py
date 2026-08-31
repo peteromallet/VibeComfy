@@ -19,10 +19,7 @@ from typing import Any, Mapping
 
 from vibecomfy.errors import ConversionParityError
 from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES, VALUE_HELPER_CLASS_TYPES
-from vibecomfy.porting.emit.emit_constants import (
-    UI_ONLY_CLASS_TYPES,
-    _ui_widget_aliases,
-)
+from vibecomfy.porting.emit.emit_constants import UI_ONLY_CLASS_TYPES
 from vibecomfy.porting.emit.emit_kwargs import (
     _is_link,
     _safe_var,
@@ -458,7 +455,6 @@ def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -
 
 def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
     from vibecomfy.identity.codec import encode_slot_names, to_python_identifier
-    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 
     workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
@@ -551,6 +547,12 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
                 and str(key) not in primitive_aliases
             )
         )
+        # ``widget_N`` and its resolved semantic name are aliases for one
+        # compact slot.  Keep the first occurrence in the channel roster so
+        # ``encode_slot_names`` cannot turn an alias collision into
+        # ``prompt_2`` (and so the side-channel order remains one field per
+        # logical widget).
+        raw_fields = list(dict.fromkeys(raw_fields))
         input_aliases = encode_slot_names(raw_fields)
 
         kwargs: list[tuple[str, str, str]] = []
@@ -576,9 +578,19 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         widget_channel_names: list[str] = []
         for raw_name, value in sorted(node.widgets.items(), key=lambda item: str(item[0])):
             original_key = str(raw_name)
-            if original_key in edge_fields or original_key in primitive_aliases:
-                continue
+            # Resolve the positional carrier before deciding whether it is a
+            # duplicate.  A UI/API round-trip can retain both
+            # ``inputs["prompt"]`` and ``widgets["widget_0"]`` for the same
+            # compact slot.  Comparing the raw keys misses that alias and
+            # emits duplicate Python kwargs (``prompt=...`` twice), with the
+            # stale carrier winning when the source is lowered again.
             named_key = _positional_to_named.get(original_key, original_key)
+            if (
+                original_key in primitive_aliases
+                or named_key in edge_fields
+                or named_key in node.inputs
+            ):
+                continue
             alias = input_aliases.get(named_key) or to_python_identifier(named_key)
             kwargs.append((alias, _format_value(value, elide_strings_over=None), named_key))
             widget_channel_names.append(named_key)

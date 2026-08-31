@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import ast
 import copy
 import json
 from pathlib import Path
 
-
-_R5_FIXTURES = Path(__file__).parent / "fixtures" / "workflow_execution_spine_r5"
 
 from vibecomfy.comfy_nodes.agent.authority_receipts import (
     _response_claims_applyable,
@@ -16,6 +15,9 @@ from vibecomfy.comfy_nodes.agent.authority_receipts import (
 from vibecomfy.porting.edit.ops import canonical_op_to_dict
 from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+
+_R5_FIXTURES = Path(__file__).parent / "fixtures" / "workflow_execution_spine_r5"
 
 
 class _Provider:
@@ -125,6 +127,71 @@ def test_qwen_positional_assignment_seals_named_delta_and_frozen_replay_succeeds
     assert receipt.replay.replay_ok is True
     assert receipt.replay.candidate_matches is True
     assert receipt.is_applyable is True
+
+
+def test_set_node_field_lowers_mixed_qwen_widget_alias_once_and_changes_candidate() -> None:
+    """A UI/API mixed node must not lower one prompt slot twice.
+
+    Some cloud Qwen payloads retain both the named ``prompt`` input and its
+    positional ``widget_0`` carrier.  The field edit is one logical change;
+    lowering it must update both retained aliases and emit one Python kwarg.
+    """
+    from vibecomfy.porting.edit._ir_utils import apply_edit_cow
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
+    from vibecomfy.porting.emit.ui import emit_ui_json
+    from vibecomfy.workflow import RawWidgetPayload, VibeNode, VibeWorkflow, WorkflowSource
+
+    class_type = "TextEncodeQwenImageEditPlus"
+    provider = _Provider(
+        {
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack="ComfyUI-QwenImageWrapper",
+                inputs={"prompt": InputSpec(type="STRING", required=True)},
+                outputs=[],
+            )
+        }
+    )
+    workflow = VibeWorkflow("qwen-mixed-widget", WorkflowSource("test"))
+    workflow.nodes["133"] = VibeNode(
+        id="133",
+        class_type=class_type,
+        uid="133",
+        inputs={"prompt": "old"},
+        widgets={"widget_0": "old"},
+        raw_widgets=RawWidgetPayload(
+            values=["old"],
+            shape="list",
+            source="ui.widgets_values",
+            has_dict_rows=False,
+            length=1,
+        ),
+        metadata={"_ui": {"id": 133, "type": class_type, "widgets_values": ["old"]}},
+    )
+
+    edited = apply_edit_cow(
+        workflow,
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "133", "prompt"),
+            value="new",
+        ),
+        schema_provider=provider,
+    )
+    node = edited.nodes["133"]
+    assert node.inputs["prompt"] == "new"
+    assert node.widgets["widget_0"] == "new"
+
+    source = emit_agent_edit_python(edited)
+    call = next(item for item in ast.walk(ast.parse(source)) if isinstance(item, ast.Call))
+    assert [keyword.arg for keyword in call.keywords if keyword.arg is not None] == ["prompt"]
+    assert "prompt_2" not in source
+    assert "prompt='new'" in source
+
+    candidate = emit_ui_json(edited, schema_provider=provider)
+    assert candidate is not None
+    assert candidate["nodes"][0]["widgets_values"] == ["new"]
 
 
 def test_r5_tts_schema_remains_visible_from_an_isolated_fixture_copy(
