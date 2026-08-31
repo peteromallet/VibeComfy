@@ -1680,6 +1680,95 @@ def _corpus_template_ids() -> list[str]:
     ]
 
 
+def _require_corpus_progress(
+    template_ids: list[str],
+    *,
+    processed: int | None,
+    failures: list[str],
+    check_name: str,
+) -> None:
+    """Require a real corpus run while distinguishing an absent corpus.
+
+    A sparse or wheel-like checkout may intentionally omit the source-only
+    ready-template corpus.  That is visible as a skip.  Once discovery finds
+    ids, however, a sweep that processes none of them is a real failure and
+    must retain every per-template load/emit error for diagnosis.
+    """
+    discovered = len(template_ids)
+    failed = len(failures)
+    if discovered == 0:
+        pytest.skip(
+            f"{check_name}: ready-template corpus unavailable "
+            f"(discovered=0, processed=0, failed=0); "
+            "run this gate from a checkout containing ready_templates/"
+        )
+    if processed is None:
+        return
+
+    summary = (
+        f"{check_name}: discovered={discovered}, "
+        f"processed={processed}, failed={failed}"
+    )
+    if processed == 0:
+        details = "\n".join(failures) or "(no per-template error was captured)"
+        pytest.fail(f"{summary}; all discovered templates failed:\n{details}")
+
+    print(f"\n{summary}")
+    if failures:
+        print(f"{check_name} per-template failures:")
+        for failure in failures:
+            print(f"  {failure}")
+
+
+def test_corpus_progress_skips_when_corpus_is_absent() -> None:
+    """An intentionally corpus-less checkout is visible, never a pass."""
+    with pytest.raises(pytest.skip.Exception, match="discovered=0, processed=0"):
+        _require_corpus_progress(
+            [], processed=0, failures=[], check_name="layout policy"
+        )
+
+
+def test_corpus_progress_fails_when_every_discovered_template_fails() -> None:
+    """Discovered ids with no successful load/emit are a truthful failure."""
+    errors = [
+        "image/a: load error (ValueError: malformed)",
+        "video/b: emit error (RuntimeError: unsupported)",
+    ]
+    with pytest.raises(pytest.fail.Exception, match="all discovered templates failed") as exc:
+        _require_corpus_progress(
+            ["image/a", "video/b"],
+            processed=0,
+            failures=errors,
+            check_name="layout policy",
+        )
+    assert all(error in str(exc.value) for error in errors)
+
+
+def test_corpus_progress_reports_partial_success_and_failure(capsys) -> None:
+    """A partial sweep proceeds but keeps counts and error detail visible."""
+    error = "video/b: load error (ValueError: malformed)"
+    _require_corpus_progress(
+        ["image/a", "video/b"],
+        processed=1,
+        failures=[error],
+        check_name="layout policy",
+    )
+    output = capsys.readouterr().out
+    assert "discovered=2, processed=1, failed=1" in output
+    assert error in output
+
+
+def test_corpus_progress_accepts_normal_complete_sweep(capsys) -> None:
+    """A non-empty, fully processed corpus follows the normal gate path."""
+    _require_corpus_progress(
+        ["image/a", "video/b"],
+        processed=2,
+        failures=[],
+        check_name="layout policy",
+    )
+    assert "discovered=2, processed=2, failed=0" in capsys.readouterr().out
+
+
 class TestCorpusWideInvariants:
     """T9: corpus-wide no-overlap and determinism gates.
 
@@ -1699,20 +1788,33 @@ class TestCorpusWideInvariants:
 
         preview_hints = frozenset(_PREVIEW_CLASS_HINTS)
         failures: list[str] = []
-        skipped: list[str] = []
+        processing_failures: list[str] = []
+        template_ids = _corpus_template_ids()
+        _require_corpus_progress(
+            template_ids,
+            processed=None,
+            failures=[],
+            check_name="layout overlap corpus sweep",
+        )
+        processed = 0
 
-        for tid in _corpus_template_ids():
+        for tid in template_ids:
             try:
                 wf = load_workflow_any(tid)
             except Exception as exc:
-                skipped.append(f"{tid}: load error ({type(exc).__name__}: {exc})")
+                processing_failures.append(
+                    f"{tid}: load error ({type(exc).__name__}: {exc})"
+                )
                 continue
 
             try:
                 envelope = emit_ui_json(wf)
             except Exception as exc:
-                skipped.append(f"{tid}: emit error ({type(exc).__name__}: {exc})")
+                processing_failures.append(
+                    f"{tid}: emit error ({type(exc).__name__}: {exc})"
+                )
                 continue
+            processed += 1
 
             nodes = envelope.get("nodes", [])
             bboxes: list[tuple[str, str, float, float, float, float]] = []
@@ -1744,11 +1846,12 @@ class TestCorpusWideInvariants:
                             )
                         failures.append(detail)
 
-        # Report skipped templates for diagnosis but don't fail on them.
-        if skipped:
-            print(f"\nSkipped {len(skipped)} template(s) during corpus sweep:")
-            for s in skipped:
-                print(f"  {s}")
+        _require_corpus_progress(
+            template_ids,
+            processed=processed,
+            failures=processing_failures,
+            check_name="layout overlap corpus sweep",
+        )
 
         assert not failures, (
             f"{len(failures)} overlap violation(s) across corpus:\n"
@@ -1764,31 +1867,46 @@ class TestCorpusWideInvariants:
         from vibecomfy.porting.emit.ui import emit_ui_json
 
         mismatches: list[str] = []
-        skipped: list[str] = []
+        processing_failures: list[str] = []
+        template_ids = _corpus_template_ids()
+        _require_corpus_progress(
+            template_ids,
+            processed=None,
+            failures=[],
+            check_name="layout determinism corpus sweep",
+        )
+        processed = 0
 
-        for tid in _corpus_template_ids():
+        for tid in template_ids:
             try:
                 wf = load_workflow_any(tid)
             except Exception as exc:
-                skipped.append(f"{tid}: load error ({type(exc).__name__}: {exc})")
+                processing_failures.append(
+                    f"{tid}: load error ({type(exc).__name__}: {exc})"
+                )
                 continue
 
             try:
                 first = _json.dumps(emit_ui_json(wf), sort_keys=True)
                 second = _json.dumps(emit_ui_json(wf), sort_keys=True)
             except Exception as exc:
-                skipped.append(f"{tid}: emit error ({type(exc).__name__}: {exc})")
+                processing_failures.append(
+                    f"{tid}: emit error ({type(exc).__name__}: {exc})"
+                )
                 continue
+            processed += 1
 
             if first != second:
                 mismatches.append(
                     f"{tid}: len(first)={len(first)} len(second)={len(second)}"
                 )
 
-        if skipped:
-            print(f"\nSkipped {len(skipped)} template(s) during determinism sweep:")
-            for s in skipped:
-                print(f"  {s}")
+        _require_corpus_progress(
+            template_ids,
+            processed=processed,
+            failures=processing_failures,
+            check_name="layout determinism corpus sweep",
+        )
 
         assert not mismatches, (
             f"{len(mismatches)} determinism mismatch(es) across corpus:\n"
