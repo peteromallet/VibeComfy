@@ -91,6 +91,51 @@ def _write_compact_slot_mirrors(node: Any, index: int, value: Any) -> bool:
     return wrote
 
 
+def _write_named_slot_aliases(
+    node: Any,
+    index: int,
+    value: Any,
+    *,
+    schema_provider: Any = None,
+    name_authority: Mapping[str, Sequence[str | None]] | None = None,
+    strict_name_authority: bool = False,
+) -> bool:
+    """Keep named and positional literal carriers for one slot in sync.
+
+    Mixed UI/API ingest can retain both ``inputs["prompt"]`` and a
+    positional (or named) widget carrier for the same compact slot.  They are
+    aliases of one editable field, not two independent values.  Updating only
+    the first channel leaves a stale value for the agent-edit emitter to
+    lower later.  Link payloads remain edge-owned and are deliberately not
+    overwritten here.
+    """
+    resolution = compact_widget_names_for_node(
+        node,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+        strict_name_authority=strict_name_authority,
+    )
+    names = {f"widget_{index}"}
+    if index < len(resolution.names):
+        name = resolution.names[index]
+        if isinstance(name, str) and name and not name.startswith("widget_"):
+            names.add(name)
+    wrote = False
+    for channel_name in ("inputs", "widgets"):
+        channel = getattr(node, channel_name, None)
+        if not isinstance(channel, Mapping):
+            continue
+        for name in names:
+            if name not in channel:
+                continue
+            current = channel[name]
+            if isinstance(current, (list, tuple)) and len(current) == 2:
+                continue
+            channel[name] = value
+            wrote = True
+    return wrote
+
+
 def _apply_primitive_widget_alias_write(
     node: Any,
     field: str,
@@ -971,6 +1016,14 @@ def apply_edit_cow(
         )
         if slot_index is not None:
             _write_compact_slot_mirrors(node, slot_index, op.value)
+            _write_named_slot_aliases(
+                node,
+                slot_index,
+                op.value,
+                schema_provider=schema_provider,
+                name_authority=name_authority,
+                strict_name_authority=_has_frozen_name_row(node, name_authority),
+            )
         # A literal assignment is also the explicit unlink operation for a
         # widget-backed input.  The retained IR has one edge authority, so
         # remove the incoming edge before materializing the literal value.
