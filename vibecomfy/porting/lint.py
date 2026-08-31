@@ -473,50 +473,18 @@ def _class_has_typed_wrapper(class_type: str) -> bool:
     return class_type in _TYPED_WRAPPER_CLASSES
 
 
-def _import_block_submodules_lint() -> None:
-    """Import all block submodules so @block decorators register them."""
-    _BLOCK_MODULES = (
-        "vibecomfy.blocks.loaders",
-        "vibecomfy.blocks.sampling",
-        "vibecomfy.blocks.encoding",
-        "vibecomfy.blocks.decode",
-        "vibecomfy.blocks.latent",
-        "vibecomfy.blocks.save",
-        "vibecomfy.blocks.video",
-        "vibecomfy.blocks.subgraph",
-    )
-    for module_name in _BLOCK_MODULES:
-        try:
-            import importlib as _il
-            _il.import_module(module_name)
-        except Exception:
-            pass
-
-
 def _build_typed_wrapper_set() -> frozenset[str]:
     """Build set of class_types that have typed wrapper blocks."""
     try:
-        _import_block_submodules_lint()
+        from vibecomfy.blocks._wrapper_discovery import (
+            extract_typed_wrapper_class_types,
+            import_block_submodules,
+        )
+
+        import_block_submodules()
         from vibecomfy.blocks import registered_blocks
-        import inspect
-
-        wrapper_classes: set[str] = set()
         blocks = dict(registered_blocks())
-
-        for block_fn in blocks.values():
-            try:
-                source = inspect.getsource(block_fn)
-                for match in re.finditer(
-                    r'add_block_node\s*\([^)]*?["\']([A-Za-z_][A-Za-z0-9_]*)["\']',
-                    source,
-                ):
-                    ct = match.group(1)
-                    if ct not in ("vibecomfy",):
-                        wrapper_classes.add(ct)
-            except (OSError, TypeError):
-                pass
-
-        return frozenset(wrapper_classes)
+        return extract_typed_wrapper_class_types(blocks)
     except Exception:
         return frozenset()
 

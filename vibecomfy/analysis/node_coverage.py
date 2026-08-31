@@ -13,7 +13,6 @@ workflow against three sources to determine coverage status:
 
 from __future__ import annotations
 
-import importlib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -179,26 +178,10 @@ def _is_core_comfy_class(class_type: str) -> bool:
 
 
 def _import_block_submodules() -> None:
-    """Import all :mod:`vibecomfy.blocks` submodules so ``@block`` decorators register them.
+    """Compatibility shim for the shared lazy block-module importer."""
+    from vibecomfy.blocks._wrapper_discovery import import_block_submodules
 
-    Without this, :func:`registered_blocks` returns an empty mapping and
-    ``typed_wrapper`` detection fails.
-    """
-    _BLOCK_MODULES = (
-        "vibecomfy.blocks.loaders",
-        "vibecomfy.blocks.sampling",
-        "vibecomfy.blocks.encoding",
-        "vibecomfy.blocks.decode",
-        "vibecomfy.blocks.latent",
-        "vibecomfy.blocks.save",
-        "vibecomfy.blocks.video",
-        "vibecomfy.blocks.subgraph",
-    )
-    for module_name in _BLOCK_MODULES:
-        try:
-            importlib.import_module(module_name)
-        except Exception:
-            pass
+    import_block_submodules()
 
 
 def _build_typed_wrapper_set() -> frozenset[str]:
@@ -208,36 +191,17 @@ def _build_typed_wrapper_set() -> frozenset[str]:
     each block function looking for ``add_block_node`` calls to extract
     the class_type strings.
     """
-    # Import all block submodules so the @block decorators register them
     _import_block_submodules()
-
-    wrapper_classes: set[str] = set()
     try:
         blocks = dict(registered_blocks())
     except Exception:
         return frozenset()
 
-    for block_fn in blocks.values():
-        # Inspect the function for add_block_node calls
-        try:
-            # Try to get source and parse for class_type args
-            import inspect
+    from vibecomfy.blocks._wrapper_discovery import extract_typed_wrapper_class_types
 
-            source = inspect.getsource(block_fn)
-            import re
-
-            # Match add_block_node(..., "ClassName", ...) patterns
-            for match in re.finditer(
-                r'add_block_node\s*\([^)]*?["\']([A-Za-z_][A-Za-z0-9_]*)["\']',
-                source,
-            ):
-                class_type = match.group(1)
-                if class_type != "vibecomfy":  # skip module names
-                    wrapper_classes.add(class_type)
-        except (OSError, TypeError):
-            pass
-
-    return frozenset(wrapper_classes)
+    # Keep extraction outside the narrow registry try: unexpected inspection
+    # errors must retain coverage's existing propagation behavior.
+    return extract_typed_wrapper_class_types(blocks)
 
 
 def _infer_pack(
