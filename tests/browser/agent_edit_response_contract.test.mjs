@@ -2740,6 +2740,7 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
       session_id: "s",
       turn_id: "t",
       submit_graph_hash: "a".repeat(64),
+      submit_structural_graph_hash: transaction.hashes.submit_structural_graph_hash,
       candidate_hash: sha256Hex(graph),
       authority_receipt_digest: "c".repeat(64),
       accepted_batch_digest: deltaDigest,
@@ -2805,6 +2806,7 @@ test("browser binds layout postcondition and graph hash to the published candida
       session_id: "s",
       turn_id: "t",
       submit_graph_hash: "a".repeat(64),
+      submit_structural_graph_hash: transaction.hashes.submit_structural_graph_hash,
       candidate_hash: sha256Hex(graph),
       authority_receipt_digest: "c".repeat(64),
       accepted_batch_digest: deltaDigest,
@@ -2818,6 +2820,9 @@ test("browser binds layout postcondition and graph hash to the published candida
   const valid = normalizeAgentEditResponse(structuredClone(base));
   assert.equal(valid.terminalState, "applied");
   assert.equal(valid.applyEligible, true);
+  const sourceBound = normalizeAgentEditResponse(structuredClone(base), { sourceGraph: preconditionGraph });
+  assert.equal(sourceBound.terminalState, "applied");
+  assert.equal(sourceBound.applyEligible, true);
 
   const forgedPostcondition = structuredClone(base);
   forgedPostcondition.candidate_transaction.candidate_authority.postcondition =
@@ -2831,6 +2836,25 @@ test("browser binds layout postcondition and graph hash to the published candida
   forgedPrecondition.candidate_transaction.candidate_authority.precondition =
     forgedPrecondition.candidate_transaction.candidate_authority.postcondition;
   normalized = normalizeAgentEditResponse(forgedPrecondition);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const coordinated = structuredClone(base);
+  coordinated.candidate_transaction.candidate_authority.precondition = {
+    ...coordinated.candidate_transaction.candidate_authority.postcondition,
+    compatibility_digest: "d".repeat(64),
+  };
+  coordinated.candidate_transaction.candidate_authority.structural_witness.compatibility_digest = "d".repeat(64);
+  coordinated.candidate_transaction.hashes.submit_structural_graph_hash = "d".repeat(64);
+  normalized = normalizeAgentEditResponse(coordinated);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const coordinatedWithForgedReceipt = structuredClone(coordinated);
+  coordinatedWithForgedReceipt.authority_receipt.submit_structural_graph_hash = "d".repeat(64);
+  normalized = normalizeAgentEditResponse(coordinatedWithForgedReceipt, { sourceGraph: preconditionGraph });
   assert.equal(normalized.terminalState, "undetermined");
   assert.equal(normalized.applyEligible, false);
   assert.equal(normalized.candidateGraph, null);

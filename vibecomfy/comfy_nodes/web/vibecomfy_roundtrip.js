@@ -8664,7 +8664,11 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           }
           const rawResult = await res.json();
           try {
-            result = normalizeAgentEditResponse(rawResult, { endpoint: "submit", allowLegacy: true });
+            result = normalizeAgentEditResponse(rawResult, {
+              endpoint: "submit",
+              allowLegacy: true,
+              sourceGraph: snapshot.graph,
+            });
           } catch (error) {
             if (res.ok) {
               throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {

@@ -678,7 +678,7 @@ function scrubAppliedNestedTerminalProducts(raw) {
   return cleaned;
 }
 
-function canonicalTerminalAliases(raw, candidateGraph) {
+function canonicalTerminalAliases(raw, candidateGraph, sourceStructuralHash = null) {
   if (!candidateGraphCarriersAgree(raw, candidateGraph)) {
     return { valid: false, reason: "malformed_or_conflicting_product_carrier", acceptedBatch: null, raw };
   }
@@ -738,7 +738,14 @@ function canonicalTerminalAliases(raw, candidateGraph) {
       || candidateAuthority.plan_hash !== transaction.plan_hash) {
       return { valid: false, reason: "candidate_transaction_authority_mismatch", acceptedBatch, raw };
     }
-    const projectionBinding = validateTerminalTransactionProjectionBinding(transaction, candidateGraph);
+    const projectionBinding = validateTerminalTransactionProjectionBinding(
+      transaction,
+      candidateGraph,
+      // A source graph supplied by the submit owner is trusted ingress
+      // context; the receipt summary is the durable fallback used when
+      // rehydrating a response without the live source graph.
+      { sourceStructuralHash: sourceStructuralHash || receipt.submit_structural_graph_hash },
+    );
     if (!projectionBinding.valid) {
       return { valid: false, reason: projectionBinding.reason, acceptedBatch, raw };
     }
@@ -749,26 +756,26 @@ function canonicalTerminalAliases(raw, candidateGraph) {
       || candidateAuthority.candidate_id !== expectedCandidateId) {
       return { valid: false, reason: "candidate_transaction_identity_mismatch", acceptedBatch, raw };
     }
-    const receipt = raw.authority_receipt;
-    if (isObject(receipt)) {
+    const transactionReceipt = raw.authority_receipt;
+    if (isObject(transactionReceipt)) {
       for (const key of ["replay_ok", "candidate_matches", "verification_kind"]) {
-        if (authority[key] !== receipt[key]) {
+        if (authority[key] !== transactionReceipt[key]) {
           return { valid: false, reason: `candidate_transaction_${key}_mismatch`, acceptedBatch, raw };
         }
       }
-      if (candidateAuthority.authority_receipt_contract_version !== receipt.contract_version
-        || candidateAuthority.authority_receipt_delta_schema !== receipt.schema_version) {
+      if (candidateAuthority.authority_receipt_contract_version !== transactionReceipt.contract_version
+        || candidateAuthority.authority_receipt_delta_schema !== transactionReceipt.schema_version) {
         return { valid: false, reason: "candidate_transaction_receipt_contract_mismatch", acceptedBatch, raw };
       }
-      const expectedFamily = receipt.verification_kind === "layout_structural_noop" ? "layout" : "structural";
+      const expectedFamily = transactionReceipt.verification_kind === "layout_structural_noop" ? "layout" : "structural";
       if (candidateAuthority.operation_family !== expectedFamily
-        || transaction.hashes?.submit_graph_hash !== receipt.submit_graph_hash) {
+        || transaction.hashes?.submit_graph_hash !== transactionReceipt.submit_graph_hash) {
         return { valid: false, reason: "candidate_transaction_receipt_binding_mismatch", acceptedBatch, raw };
       }
-      if (transaction.hashes?.authority_receipt_hash !== receipt.authority_receipt_digest) {
+      if (transaction.hashes?.authority_receipt_hash !== transactionReceipt.authority_receipt_digest) {
         return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
       }
-      const expectedWorkflowId = raw.workflow_id ?? receipt.workflow_id;
+      const expectedWorkflowId = raw.workflow_id ?? transactionReceipt.workflow_id;
       if (expectedWorkflowId != null && candidateAuthority.workflow_id !== expectedWorkflowId) {
         return { valid: false, reason: "candidate_transaction_workflow_id_mismatch", acceptedBatch, raw };
       }
@@ -859,7 +866,7 @@ function structuralGraphHash(candidateGraph) {
   }
 }
 
-function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
+function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility, sourceStructuralHash = null) {
   const hasTerminal = Object.prototype.hasOwnProperty.call(raw, "terminal_state");
   if (!hasTerminal) {
     return { terminalState: null, terminalReason: null, outcome, candidateGraph, eligibility };
@@ -888,7 +895,7 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
     && (!raw.session_id || raw.session_id === receipt.session_id)
     && (!raw.turn_id || raw.turn_id === receipt.turn_id);
   const aliases = terminalState === "applied"
-    ? canonicalTerminalAliases(raw, candidateGraph)
+    ? canonicalTerminalAliases(raw, candidateGraph, sourceStructuralHash)
     : { valid: true, reason: "ok", acceptedBatch: raw.accepted_batch, raw };
   const canonicalRaw = aliases.raw;
   const deltaEnvelope = readDeltaEnvelope(canonicalRaw);
@@ -1265,7 +1272,10 @@ function normalizeDiagnostics(raw) {
   return collected.length ? collected : null;
 }
 
-export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy = true } = {}) {
+export function normalizeAgentEditResponse(
+  raw,
+  { endpoint = null, allowLegacy = true, sourceGraph = null } = {},
+) {
   if (raw?.[NORMALIZED_RESPONSE_MARKER] === true) {
     return raw;
   }
@@ -1288,7 +1298,14 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
   let candidateGraph = normalizeCandidateGraph(raw, outcome);
   const transactionBoundary = classifyCandidateTransactionBoundary(raw);
   let eligibility = normalizeEligibility(raw, candidateGraph);
-  const terminal = normalizeTerminalContract(raw, outcome, candidateGraph, eligibility);
+  const sourceStructuralHash = isObject(sourceGraph) ? structuralGraphHash(sourceGraph) : null;
+  const terminal = normalizeTerminalContract(
+    raw,
+    outcome,
+    candidateGraph,
+    eligibility,
+    sourceStructuralHash,
+  );
   candidateGraph = terminal.candidateGraph;
   eligibility = terminal.eligibility;
   const normalizedOutcome = terminal.outcome;

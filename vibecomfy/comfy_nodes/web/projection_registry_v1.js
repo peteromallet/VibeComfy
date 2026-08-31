@@ -603,7 +603,11 @@ function projectionReferenceMatches(actual, expected, { requireCanonical = false
  * layout transaction's structural precondition witness).  Layout hashes are
  * compatibility projections and are recomputed from the published graph.
  */
-export function validateTerminalTransactionProjectionBinding(transaction, candidateGraph) {
+export function validateTerminalTransactionProjectionBinding(
+  transaction,
+  candidateGraph,
+  { sourceStructuralHash } = {},
+) {
   if (!transaction || typeof transaction !== "object" || Array.isArray(transaction)
     || !candidateGraph || typeof candidateGraph !== "object" || Array.isArray(candidateGraph)) {
     return { valid: false, reason: "invalid_terminal_projection_boundary" };
@@ -615,6 +619,9 @@ export function validateTerminalTransactionProjectionBinding(transaction, candid
     || !hashes || typeof hashes !== "object" || Array.isArray(hashes)
     || !authority || typeof authority !== "object" || Array.isArray(authority)) {
     return { valid: false, reason: "invalid_terminal_projection_boundary" };
+  }
+  if (typeof sourceStructuralHash !== "string" || !/^[0-9a-f]{64}$/.test(sourceStructuralHash)) {
+    return { valid: false, reason: "missing_or_invalid_submit_structural_authority" };
   }
   const projection = candidateAuthority.operation_family === "layout" ? "layout_v1" : "structural_v1";
   let expectedPostcondition;
@@ -659,7 +666,9 @@ export function validateTerminalTransactionProjectionBinding(transaction, candid
   }
   if (typeof expectedSubmitStructuralHash !== "string"
     || !/^[0-9a-f]{64}$/.test(expectedSubmitStructuralHash)
-    || hashes.submit_structural_graph_hash !== expectedSubmitStructuralHash) {
+    || hashes.submit_structural_graph_hash !== expectedSubmitStructuralHash
+    || expectedSubmitStructuralHash !== sourceStructuralHash
+    || hashes.submit_structural_graph_hash !== sourceStructuralHash) {
     return { valid: false, reason: "candidate_transaction_submit_structural_hash_mismatch" };
   }
 

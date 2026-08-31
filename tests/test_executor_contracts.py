@@ -1362,6 +1362,7 @@ class TestExecutorResult:
             "authority_receipt": {
                 "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
                 "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "submit_structural_graph_hash": transaction["hashes"]["submit_structural_graph_hash"],
                 "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
                 "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                 "verification_kind": "layout_structural_noop", "op_count": 0,
@@ -1387,6 +1388,7 @@ class TestExecutorResult:
             "links": [], "groups": [],
         }
         workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+        source_structural_hash = _transaction()["hashes"]["submit_structural_graph_hash"]
 
         def terminal(transaction: dict[str, object]) -> dict[str, object]:
             return normalize_terminal_envelope({
@@ -1394,6 +1396,7 @@ class TestExecutorResult:
                 "authority_receipt": {
                     "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
                     "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                    "submit_structural_graph_hash": source_structural_hash,
                     "candidate_hash": payload_hash(graph),
                     "accepted_batch_digest": content_hash(derived_accepted_delta_envelope({"accepted_batch": []})),
                     "cumulative_delta_hash": content_hash(derived_accepted_delta_envelope({"accepted_batch": []})),
@@ -1453,6 +1456,19 @@ class TestExecutorResult:
         assert normalized["ok"] is False
         assert normalized["apply_eligible"] is False
 
+        coordinated = copy.deepcopy(valid)
+        coordinated_precondition = copy.deepcopy(
+            coordinated["candidate_authority"]["postcondition"]
+        )
+        coordinated_precondition["compatibility_digest"] = "d" * 64
+        coordinated["candidate_authority"]["precondition"] = coordinated_precondition
+        coordinated["candidate_authority"]["structural_witness"]["compatibility_digest"] = "d" * 64
+        coordinated["hashes"]["submit_structural_graph_hash"] = "d" * 64
+        normalized = terminal(coordinated)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+
         forged_layout = copy.deepcopy(valid)
         forged_layout["hashes"]["candidate_layout_graph_hash"] = "f" * 64
         forged_layout["authority"]["layout_verification"]["candidate_layout_graph_hash"] = "f" * 64
@@ -1480,6 +1496,7 @@ class TestExecutorResult:
         }
         digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": []}))
         workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+        source_structural_hash = _transaction()["hashes"]["submit_structural_graph_hash"]
 
         def terminal(
             transaction: dict[str, object],
@@ -1491,6 +1508,7 @@ class TestExecutorResult:
                 "authority_receipt": {
                     "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
                     "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                    "submit_structural_graph_hash": source_structural_hash,
                     "candidate_hash": receipt_candidate_hash, "accepted_batch_digest": digest,
                     "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
                     "verification_kind": "layout_structural_noop", "op_count": 0,

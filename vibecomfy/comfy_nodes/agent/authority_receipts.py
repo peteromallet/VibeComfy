@@ -158,6 +158,8 @@ class AuthorityReceipt:
         session_id: Session identifier.
         turn_id: Turn identifier.
         submit_graph_hash: Hash of the submit graph (canonical JSON).
+        submit_structural_graph_hash: Independently stamped compatibility
+            projection hash of the original submit graph.
         submit_graph_bytes_sha256: SHA-256 of the canonical submit graph bytes.
         accepted_batch_digest: Hash of the sole durable Δ (accepted_batch).
         cumulative_delta_hash: Same digest; reference to accepted_batch, not ops.
@@ -180,6 +182,9 @@ class AuthorityReceipt:
     replay: ReplayReceipt
     response_metadata: ResponseMetadataHashes
     created_at: str
+    # The source-bound structural authority is stamped at ingress and is
+    # intentionally separate from any candidate transaction claim.
+    submit_structural_graph_hash: str | None = None
     contract_version: str = field(
         default=AUTHORITY_RECEIPT_CONTRACT_VERSION,
         init=False,
@@ -192,6 +197,7 @@ class AuthorityReceipt:
             "session_id": self.session_id,
             "turn_id": self.turn_id,
             "submit_graph_hash": self.submit_graph_hash,
+            "submit_structural_graph_hash": self.submit_structural_graph_hash,
             "submit_graph_bytes_sha256": self.submit_graph_bytes_sha256,
             "accepted_batch_digest": self.accepted_batch_digest,
             "cumulative_delta_hash": self.cumulative_delta_hash,
@@ -238,6 +244,7 @@ class AuthorityReceipt:
             replay=replay,
             response_metadata=meta,
             created_at=data.get("created_at", ""),
+            submit_structural_graph_hash=data.get("submit_structural_graph_hash"),
         )
         object.__setattr__(
             receipt,
@@ -259,6 +266,8 @@ class AuthorityReceipt:
             and isinstance(digest, str)
             and len(digest) == 64
             and self.cumulative_delta_hash == digest
+            and isinstance(self.submit_structural_graph_hash, str)
+            and _HEX64_RE.fullmatch(self.submit_structural_graph_hash)
             and witness_ok
             and self.schema_witness_hash == self.schema_witness.get("witness_hash")
             and self.replay.replay_ok
@@ -313,6 +322,7 @@ def validate_authority_receipt_v2(raw: Mapping[str, Any]) -> AuthorityReceipt:
             raise AuthorityReceiptValidationError(f"missing_{identity_field}")
     required_hashes = (
         "submit_graph_hash",
+        "submit_structural_graph_hash",
         "submit_graph_bytes_sha256",
         "accepted_batch_digest",
         "cumulative_delta_hash",
@@ -1232,6 +1242,9 @@ def build_authority_receipt(
     )
 
     submit_graph_hash = payload_hash(submit_graph) if submit_graph is not None else None
+    submit_structural_graph_hash = (
+        structural_graph_hash(submit_graph) if submit_graph is not None else None
+    )
     submit_bytes = canonical_json_bytes(submit_graph) if submit_graph is not None else None
     submit_graph_bytes_sha256 = (
         hashlib.sha256(submit_bytes).hexdigest() if submit_bytes is not None else None
@@ -1259,6 +1272,7 @@ def build_authority_receipt(
         session_id=session_id,
         turn_id=turn_id,
         submit_graph_hash=submit_graph_hash,
+        submit_structural_graph_hash=submit_structural_graph_hash,
         submit_graph_bytes_sha256=submit_graph_bytes_sha256,
         accepted_batch_digest=cumulative_delta_hash,
         cumulative_delta_hash=cumulative_delta_hash,
@@ -1491,6 +1505,7 @@ def stamp_response_with_authority(
         "session_id": receipt.session_id,
         "turn_id": receipt.turn_id,
         "submit_graph_hash": receipt.submit_graph_hash,
+        "submit_structural_graph_hash": receipt.submit_structural_graph_hash,
         "submit_graph_bytes_sha256": receipt.submit_graph_bytes_sha256,
         "accepted_batch_digest": receipt.accepted_batch_digest,
         "cumulative_delta_hash": receipt.cumulative_delta_hash,

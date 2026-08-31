@@ -823,6 +823,13 @@ def _canonical_terminal_aliases(
 
     for transaction in transaction_values:
         hashes = transaction.get("hashes")
+        if (
+            not isinstance(receipt_summary.get("submit_structural_graph_hash"), str)
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", receipt_summary["submit_structural_graph_hash"]
+            )
+        ):
+            return False, "missing_or_invalid_submit_structural_authority", accepted_batch, dict(payload)
         plan = transaction.get("plan")
         candidate_authority = transaction.get("candidate_authority")
         authority = transaction.get("authority")
@@ -971,6 +978,13 @@ def _canonical_terminal_aliases(
             ):
                 return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
         elif hashes.get("submit_structural_graph_hash") != precondition.get("compatibility_digest"):
+            return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
+        if (
+            precondition.get("compatibility_digest")
+            != receipt_summary.get("submit_structural_graph_hash")
+            or hashes.get("submit_structural_graph_hash")
+            != receipt_summary.get("submit_structural_graph_hash")
+        ):
             return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
         for key in ("workflow_id",):
             expected = payload.get(key)
