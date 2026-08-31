@@ -622,11 +622,106 @@ function candidateGraphCarriersAgree(raw, candidateGraph) {
       if (Object.hasOwn(raw[key], "graph")) {
         if (!isObject(raw[key].graph)) return false;
         carriers.push(raw[key].graph);
+      } else {
+        return false;
       }
     }
   }
   const expected = sha256Hex(candidateGraph);
   return carriers.every((graph) => sha256Hex(graph) === expected);
+}
+
+const TERMINAL_PRODUCT_KEYS = new Set([
+  "candidate", "candidate_graph", "candidate_transaction", "graph",
+  "accepted_batch", "accepted_delta", "delta", "candidate_hash",
+  "candidate_graph_hash", "candidate_structural_graph_hash",
+  "candidateGraph", "candidateTransaction", "acceptedBatch", "candidateHash",
+  "candidateGraphHash", "candidateStructuralGraphHash", "acceptedDelta",
+]);
+
+function scrubNestedTerminalProducts(value) {
+  if (Array.isArray(value)) return value.map(scrubNestedTerminalProducts);
+  if (!isObject(value)) return value;
+  const cleaned = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "authority_receipt") {
+      cleaned[key] = item;
+    } else if (TERMINAL_PRODUCT_KEYS.has(key) || key.startsWith("candidate_")) {
+      continue;
+    } else {
+      cleaned[key] = scrubNestedTerminalProducts(item);
+    }
+  }
+  return cleaned;
+}
+
+function scrubAppliedNestedTerminalProducts(raw) {
+  const cleaned = { ...raw };
+  for (const key of ["report", "evidence", "failure"]) {
+    if (Object.hasOwn(cleaned, key)) {
+      cleaned[key] = scrubNestedTerminalProducts(cleaned[key]);
+    }
+  }
+  return cleaned;
+}
+
+function canonicalTerminalAliases(raw, candidateGraph) {
+  if (!candidateGraphCarriersAgree(raw, candidateGraph)) {
+    return { valid: false, reason: "malformed_or_conflicting_product_carrier", acceptedBatch: null, raw };
+  }
+  const candidateHash = sha256Hex(candidateGraph);
+  for (const key of ["candidate_hash", "candidateHash"]) {
+    if (Object.hasOwn(raw, key) && raw[key] !== candidateHash) {
+      return { valid: false, reason: "candidate_hash_alias_mismatch", acceptedBatch: null, raw };
+    }
+  }
+
+  const hasAcceptedBatch = Object.hasOwn(raw, "accepted_batch");
+  const hasAcceptedBatchAlias = Object.hasOwn(raw, "acceptedBatch");
+  const acceptedBatch = hasAcceptedBatch ? raw.accepted_batch : raw.acceptedBatch;
+  if (hasAcceptedBatchAlias && !Array.isArray(acceptedBatch)) {
+    return { valid: false, reason: "malformed_accepted_batch_alias", acceptedBatch, raw };
+  }
+  if (hasAcceptedBatchAlias && hasAcceptedBatch) {
+    try {
+      if (canonicalJsonString(raw.accepted_batch) !== canonicalJsonString(raw.acceptedBatch)) {
+        return { valid: false, reason: "accepted_batch_alias_mismatch", acceptedBatch, raw };
+      }
+    } catch (_error) {
+      return { valid: false, reason: "accepted_batch_alias_mismatch", acceptedBatch, raw };
+    }
+  }
+
+  const deltaAliases = ["accepted_delta", "acceptedDelta", "delta"]
+    .filter((key) => Object.hasOwn(raw, key))
+    .map((key) => raw[key]);
+  const expectedBatch = Array.isArray(acceptedBatch) ? acceptedBatch : [];
+  const expectedOps = expectedBatch
+    .filter((statement) => isObject(statement) && isObject(statement.op))
+    .map((statement) => statement.op);
+  for (const alias of deltaAliases) {
+    let matches = false;
+    try {
+      matches = canonicalJsonString(alias) === canonicalJsonString(expectedBatch)
+        || canonicalJsonString(alias) === canonicalJsonString(expectedOps)
+        || canonicalJsonString(alias) === canonicalJsonString({ schema_version: "2.0.0", ops: expectedOps });
+    } catch (_error) {
+      matches = false;
+    }
+    if (!matches) {
+      return { valid: false, reason: "accepted_delta_alias_mismatch", acceptedBatch, raw };
+    }
+  }
+
+  const canonicalRaw = scrubAppliedNestedTerminalProducts(raw);
+  for (const key of ["candidate_hash", "candidateHash", "accepted_delta", "acceptedDelta", "delta"]) {
+    delete canonicalRaw[key];
+  }
+  if (hasAcceptedBatchAlias) {
+    canonicalRaw.accepted_batch = acceptedBatch;
+    delete canonicalRaw.acceptedBatch;
+  }
+  return { valid: true, reason: "ok", acceptedBatch, raw: canonicalRaw };
 }
 
 function structuralGraphHash(candidateGraph) {
@@ -665,25 +760,18 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
     && typeof receipt.turn_id === "string" && receipt.turn_id
     && (!raw.session_id || raw.session_id === receipt.session_id)
     && (!raw.turn_id || raw.turn_id === receipt.turn_id);
-  const deltaEnvelope = readDeltaEnvelope(raw);
-  const hasAcceptedBatch = Object.hasOwn(raw, "accepted_batch");
-  const hasAcceptedBatchAlias = Object.hasOwn(raw, "acceptedBatch");
-  const acceptedBatchAliasesAgree = !hasAcceptedBatchAlias
-    || (hasAcceptedBatch && (() => {
-      try {
-        return canonicalJsonString(raw.accepted_batch) === canonicalJsonString(raw.acceptedBatch);
-      } catch (_error) {
-        return false;
-      }
-    })());
+  const aliases = terminalState === "applied"
+    ? canonicalTerminalAliases(raw, candidateGraph)
+    : { valid: true, reason: "ok", acceptedBatch: raw.accepted_batch, raw };
+  const canonicalRaw = aliases.raw;
+  const deltaEnvelope = readDeltaEnvelope(canonicalRaw);
+  const acceptedBatch = aliases.acceptedBatch;
   const opCount = replay?.op_count;
   const layoutNoop = replay?.verification_kind === "layout_structural_noop";
   const deltaCoherent = layoutNoop
-    ? (acceptedBatchAliasesAgree
-      && (!Array.isArray(raw.accepted_batch) || raw.accepted_batch.length === 0))
+    ? (acceptedBatch == null || (Array.isArray(acceptedBatch) && acceptedBatch.length === 0))
     : Number.isInteger(opCount) && opCount > 0
-      && acceptedBatchAliasesAgree
-      && Array.isArray(raw.accepted_batch) && raw.accepted_batch.length > 0
+      && Array.isArray(acceptedBatch) && acceptedBatch.length > 0
       && isObject(deltaEnvelope)
       && hash(receipt?.cumulative_delta_hash)
       && receipt.cumulative_delta_hash === sha256Hex(deltaEnvelope);
@@ -700,6 +788,7 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
       && replay?.candidate_matches === true
       && !replay?.error
       && typeof replay?.verification_kind === "string"
+      && aliases.valid
       && receiptCopiesAgree
       && replayErrorAgree
       && identityBound
@@ -745,7 +834,14 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
       eligibility: { applyable: false, reason: terminalReason || terminalState },
     };
   }
-  return { terminalState, terminalReason, outcome, candidateGraph, eligibility };
+  return {
+    terminalState,
+    terminalReason,
+    outcome,
+    candidateGraph,
+    eligibility,
+    raw: terminalState === "applied" ? canonicalRaw : raw,
+  };
 }
 
 function normalizeTurnIdentityPayload(identity) {
@@ -1068,6 +1164,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
   candidateGraph = terminal.candidateGraph;
   eligibility = terminal.eligibility;
   const normalizedOutcome = terminal.outcome;
+  const publicRaw = terminal.raw || raw;
   const rawRebaselineRecovery = extractRebaselineRecovery(raw);
 
   // SD2: Applyable means durable. A candidate missing both session_id and
@@ -1090,7 +1187,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
 
   const normalized = {
     [NORMALIZED_RESPONSE_MARKER]: true,
-    raw,
+    raw: publicRaw,
     endpoint,
     ok: asBooleanOrNull(raw.ok),
     exists: asBooleanOrNull(raw.exists),
@@ -1099,7 +1196,8 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     agentEditProtocol:
       asString(raw.agentEditProtocol) || asString(raw.agent_edit_protocol),
     reply: asString(raw.reply) || asString(raw.message),
-    evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? deep_plain(raw.evidence) : null,
+    evidence: isObject(publicRaw.evidence) || Array.isArray(publicRaw.evidence)
+      ? deep_plain(publicRaw.evidence) : null,
     outcome: normalizedOutcome,
     customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
     runtimeDependencies:

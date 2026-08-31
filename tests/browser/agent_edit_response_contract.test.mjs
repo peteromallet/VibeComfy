@@ -2631,3 +2631,91 @@ test("browser projection validates structural graph hash aliases against the gra
   assert.equal(normalized.candidateGraph, null);
   assert.equal(normalized.applyEligible, false);
 });
+
+test("browser terminal alias matrix rejects unbound applied aliases", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const base = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  };
+  const aliases = [
+    ["candidate_hash", "b".repeat(64)],
+    ["candidateHash", "b".repeat(64)],
+    ["accepted_delta", [{ op: { op: "forged" } }]],
+    ["acceptedDelta", [{ op: { op: "forged" } }]],
+    ["delta", [{ op: { op: "forged" } }]],
+    ["candidateTransaction", { state: "candidate" }],
+    ["candidate_transaction", { state: "candidate" }],
+  ];
+  for (const [key, value] of aliases) {
+    const normalized = normalizeAgentEditResponse({ ...base, [key]: value });
+    assert.equal(normalized.terminalState, "undetermined", key);
+    assert.equal(normalized.candidateGraph, null, key);
+    assert.equal(normalized.applyEligible, false, key);
+    assert.equal(normalized.outcome.kind, "error", key);
+  }
+});
+
+test("browser terminal alias matrix binds acceptedBatch alone and scrubs nested products", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    report: { nested: { candidateHash: "forged" } },
+    evidence: { nested: { accepted_delta: [{ bad: true }] } },
+    failure: { nested: { delta: [{ bad: true }] } },
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "applied");
+  assert.deepEqual(normalized.raw.accepted_batch, acceptedBatch);
+  assert.equal(normalized.raw.acceptedBatch, undefined);
+  assert.deepEqual(normalized.raw.report, { nested: {} });
+  assert.deepEqual(normalized.evidence, { nested: {} });
+  assert.deepEqual(normalized.raw.failure, { nested: {} });
+  assert.equal(normalized.applyEligible, true);
+});

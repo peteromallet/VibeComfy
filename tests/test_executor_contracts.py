@@ -1282,6 +1282,91 @@ class TestExecutorResult:
         assert "acceptedBatch" not in payload
 
     @pytest.mark.parametrize(
+        ("alias_name", "alias_value"),
+        (
+            ("candidate_hash", "b" * 64),
+            ("candidateHash", "b" * 64),
+            ("accepted_delta", [{"op": {"op": "forged"}}]),
+            ("acceptedDelta", [{"op": {"op": "forged"}}]),
+            ("delta", [{"op": {"op": "forged"}}]),
+            ("candidateTransaction", {"state": "candidate"}),
+            ("candidate_transaction", {"state": "candidate"}),
+        ),
+    )
+    def test_terminal_alias_matrix_rejects_unbound_applied_aliases(
+        self, alias_name: str, alias_value: object
+    ) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "delta_replay", "op_count": 1,
+            },
+            "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
+            alias_name: alias_value,
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert payload["apply_eligible"] is False
+        assert payload["outcome"]["kind"] == "error"
+        assert all(key not in payload for key in (
+            "candidate", "graph", "accepted_batch", "candidate_hash", "candidateHash",
+            "accepted_delta", "acceptedDelta", "delta", "candidateTransaction",
+            "candidate_transaction",
+        ))
+
+    def test_terminal_alias_matrix_accepts_only_bound_accepted_batch_alias(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "delta_replay", "op_count": 1,
+            },
+            "candidate": {"graph": graph}, "acceptedBatch": accepted_batch,
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
+        })
+        assert payload["terminal_state"] == "applied"
+        assert payload["accepted_batch"] == accepted_batch
+        assert "acceptedBatch" not in payload
+
+    @pytest.mark.parametrize("section", ("report", "evidence", "failure"))
+    @pytest.mark.parametrize("alias_name", ("accepted_delta", "delta", "candidateHash"))
+    def test_applied_terminal_scrubs_nested_report_product_aliases(
+        self, section: str, alias_name: str
+    ) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "delta_replay", "op_count": 1,
+            },
+            "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
+            section: {"nested": {alias_name: [{"forged": True}]}},
+        })
+        assert payload["terminal_state"] == "applied"
+        assert alias_name not in payload[section]["nested"]
+
+    @pytest.mark.parametrize(
         "terminal_state",
         ("authority_rejected", "infra_failure", "no_candidate", "no_op", "clarify", "undetermined"),
     )

@@ -707,27 +707,117 @@ def _receipt_contradiction(receipt: Any) -> str | None:
     return None
 
 
-def _graph_carriers_well_formed(payload: Mapping[str, Any]) -> bool:
-    """Reject malformed product carriers before selecting a candidate graph."""
+def _scrub_nested_terminal_products(value: Any) -> Any:
+    """Remove product aliases from nested diagnostic/report projections."""
+    if isinstance(value, list):
+        return [_scrub_nested_terminal_products(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_nested_terminal_products(item) for item in value)
+    if not isinstance(value, Mapping):
+        return value
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        if key_text == "authority_receipt":
+            cleaned[key_text] = item
+        elif key_text in _PRODUCT_KEYS or key_text.startswith("candidate_"):
+            continue
+        else:
+            cleaned[key_text] = _scrub_nested_terminal_products(item)
+    return cleaned
+
+
+def _canonical_terminal_aliases(
+    payload: Mapping[str, Any],
+    candidate_graph: Any,
+    accepted_batch: Any,
+) -> tuple[bool, str, Any, dict[str, Any]]:
+    """Parse every applied product alias into one closed-world binding.
+
+    Compatibility spellings are accepted only when they carry the exact same
+    graph/batch/delta authority as the canonical fields.  Nested report,
+    evidence, and failure projections are scrubbed from the applied product
+    surface so implementation carriers cannot become a second authority.
+    """
     candidate = payload.get("candidate")
     if "candidate" in payload and not isinstance(candidate, Mapping):
-        return False
+        return False, "malformed_candidate_carrier", accepted_batch, dict(payload)
     if isinstance(candidate, Mapping) and "graph" in candidate:
         if not isinstance(candidate.get("graph"), Mapping):
-            return False
+            return False, "malformed_candidate_graph", accepted_batch, dict(payload)
 
-    for key in ("graph", "candidate_graph", "candidateGraph"):
+    graph_carrier_keys = ("graph", "candidate_graph", "candidateGraph")
+    for key in graph_carrier_keys:
         if key in payload and not isinstance(payload.get(key), Mapping):
-            return False
+            return False, "malformed_graph_carrier", accepted_batch, dict(payload)
+    transaction_values: list[Mapping[str, Any]] = []
     for key in ("candidate_transaction", "candidateTransaction"):
         if key not in payload:
             continue
         transaction = payload.get(key)
-        if not isinstance(transaction, Mapping):
+        if not isinstance(transaction, Mapping) or not isinstance(transaction.get("graph"), Mapping):
+            return False, "malformed_candidate_transaction", accepted_batch, dict(payload)
+        transaction_values.append(transaction)
+    if len(transaction_values) == 2 and transaction_values[0] != transaction_values[1]:
+        return False, "conflicting_candidate_transaction_aliases", accepted_batch, dict(payload)
+
+    try:
+        from vibecomfy.comfy_nodes.agent.session import payload_hash
+
+        computed_candidate_hash = payload_hash(candidate_graph) if isinstance(candidate_graph, Mapping) else None
+    except Exception:  # pragma: no cover - defensive import/hash boundary
+        computed_candidate_hash = None
+    if computed_candidate_hash is None:
+        return False, "candidate_hash_unavailable", accepted_batch, dict(payload)
+
+    hash_values = [
+        payload[key]
+        for key in ("candidate_hash", "candidateHash")
+        if key in payload
+    ]
+    if hash_values and any(value != computed_candidate_hash for value in hash_values):
+        return False, "candidate_hash_alias_mismatch", accepted_batch, dict(payload)
+
+    if "acceptedBatch" in payload:
+        alias_batch = payload.get("acceptedBatch")
+        if "accepted_batch" in payload and alias_batch != accepted_batch:
+            return False, "accepted_batch_alias_mismatch", accepted_batch, dict(payload)
+        if "accepted_batch" not in payload:
+            accepted_batch = alias_batch
+
+    def accepted_delta_matches(value: Any) -> bool:
+        if not isinstance(value, (list, tuple)):
             return False
-        if "graph" in transaction and not isinstance(transaction.get("graph"), Mapping):
-            return False
-    return True
+        if not isinstance(accepted_batch, (list, tuple)):
+            return not value
+        batch = list(accepted_batch)
+        ops = [
+            statement.get("op")
+            for statement in batch
+            if isinstance(statement, Mapping) and isinstance(statement.get("op"), Mapping)
+        ]
+        return value == batch or value == ops or value == {"schema_version": "2.0.0", "ops": ops}
+
+    delta_aliases = [
+        payload[key]
+        for key in ("accepted_delta", "acceptedDelta", "delta")
+        if key in payload
+    ]
+    if delta_aliases and any(not accepted_delta_matches(value) for value in delta_aliases):
+        return False, "accepted_delta_alias_mismatch", accepted_batch, dict(payload)
+
+    cleaned = dict(payload)
+    for key in (
+        "candidate_hash", "candidateHash", "acceptedBatch",
+        "accepted_delta", "acceptedDelta", "delta",
+    ):
+        cleaned.pop(key, None)
+    if "accepted_batch" in payload or "acceptedBatch" in payload:
+        cleaned["accepted_batch"] = accepted_batch
+    for key in ("report", "evidence", "failure"):
+        if key in cleaned:
+            cleaned[key] = _scrub_nested_terminal_products(cleaned[key])
+    return True, "ok", accepted_batch, cleaned
 
 
 def _receipt_is_authoritative(
@@ -912,11 +1002,9 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
     candidate_matches = _receipt_value(receipt, "candidate_matches")
     candidate = normalized.get("candidate")
     candidate_graph = candidate.get("graph") if isinstance(candidate, Mapping) else normalized.get("graph")
-    accepted_batch = normalized.get("accepted_batch")
-    accepted_batch_alias_conflict = (
-        "acceptedBatch" in normalized
-        and "accepted_batch" in normalized
-        and normalized.get("acceptedBatch") != accepted_batch
+    accepted_batch = normalized.get(
+        "accepted_batch",
+        normalized.get("acceptedBatch"),
     )
 
     if state is None and (replay_ok is False or candidate_matches is False):
@@ -930,6 +1018,11 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
 
     if state == "applied":
         existing_outcome = normalized.get("outcome")
+        aliases_ok, alias_reason, accepted_batch, normalized = _canonical_terminal_aliases(
+            normalized,
+            candidate_graph,
+            accepted_batch,
+        )
         invalid_claim = (
             not isinstance(existing_outcome, Mapping)
             or existing_outcome.get("kind") not in {"candidate", "candidate_transaction", "edit"}
@@ -943,11 +1036,10 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
                 and normalized[key].get("applyable") is not True
                 for key in ("eligibility", "apply_eligibility")
             )
-            or not _graph_carriers_well_formed(normalized)
-            or accepted_batch_alias_conflict
+            or not aliases_ok
         )
         bound, reason = (
-            (False, "invalid_outcome_or_eligibility")
+            (False, alias_reason if not aliases_ok else "invalid_outcome_or_eligibility")
             if invalid_claim
             else _receipt_is_authoritative(normalized, candidate_graph, accepted_batch)
         )
@@ -968,10 +1060,6 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
             normalized["canvas_apply_allowed"] = True
             normalized["queue_allowed"] = True
             normalized["graph_unchanged"] = False
-            # The canonical public terminal binds one delta spelling.  Equal
-            # compatibility aliases are harmless internally but must not be
-            # republished as a second, unbound authority carrier.
-            normalized.pop("acceptedBatch", None)
             return normalized
 
     # Every non-applied state is explicit and product-free.  Preserve the
