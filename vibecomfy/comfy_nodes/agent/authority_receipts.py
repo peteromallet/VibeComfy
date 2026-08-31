@@ -1822,6 +1822,7 @@ def stamp_response_with_authority(
         TERMINAL_STATE_CLARIFY,
         TERMINAL_STATE_NO_CANDIDATE,
         TERMINAL_STATE_NO_OP,
+        TERMINAL_STATE_UNDETERMINED,
     )
 
     def _strip_public_product_carriers() -> None:
@@ -2077,21 +2078,33 @@ def stamp_response_with_authority(
             eligibility_payload = stamped.get("apply_eligibility")
         if not isinstance(eligibility_payload, Mapping):
             eligibility_payload = {
-                "applyable": True,
-                "reason": TERMINAL_STATE_APPLIED,
-                "message": "Gateway-admitted accepted delta with verified replay.",
+                "applyable": False,
+                "reason": "apply_withheld",
+                "message": "Replay verified the candidate, but applyability was not granted.",
             }
         else:
             eligibility_payload = dict(eligibility_payload)
-            eligibility_payload.setdefault("applyable", True)
-            eligibility_payload.setdefault("reason", TERMINAL_STATE_APPLIED)
-        stamped = stamp_terminal_state(
-            stamped,
-            terminal_state=TERMINAL_STATE_APPLIED,
-            eligibility=eligibility_payload,
-            reason=TERMINAL_STATE_APPLIED,
-            evidence_refs=("authority_receipt",),
-        )
+            eligibility_payload.setdefault("applyable", False)
+            eligibility_payload.setdefault("reason", "apply_withheld")
+        if eligibility_payload.get("applyable") is True:
+            stamped = stamp_terminal_state(
+                stamped,
+                terminal_state=TERMINAL_STATE_APPLIED,
+                eligibility=eligibility_payload,
+                reason=TERMINAL_STATE_APPLIED,
+                evidence_refs=("authority_receipt",),
+            )
+        else:
+            # Replay proves the landed candidate, but it does not override a
+            # separate apply/queue gate. Keep the product and its evidence
+            # inspectable while using the existing non-applied terminal row.
+            stamped = stamp_terminal_state(
+                stamped,
+                terminal_state=TERMINAL_STATE_UNDETERMINED,
+                eligibility=eligibility_payload,
+                reason=str(eligibility_payload.get("reason") or "apply_withheld"),
+                evidence_refs=("authority_receipt",),
+            )
     elif (
         receipt.replay.replay_ok
         and receipt.replay.candidate_matches

@@ -3397,12 +3397,15 @@ def _stamp_recorded_candidate(
     candidate_plan_hash: str | None,
     candidate_structural_hash_before: str | None,
     candidate_structural_hash_after: str | None,
+    transaction_state: str | None = None,
 ) -> None:
     """Project one validated response into the durable turn index."""
     turn_record["state"] = _recorded_turn_state_for_response(
         candidate_graph_hash=candidate_graph_hash,
         agent_edit_protocol=agent_edit_protocol,
     )
+    if transaction_state == "recoverable_error" and candidate_graph_hash is not None:
+        turn_record["state"] = "recoverable_error"
     turn_record["candidate_graph_hash"] = candidate_graph_hash
     turn_record["candidate_structural_graph_hash"] = candidate_structural_graph_hash
     turn_record["candidate_structural_graph_hash_version"] = STRUCTURAL_PROJECTION_VERSION
@@ -4177,6 +4180,7 @@ def record_idempotent_response(
         if isinstance(candidate_payload.get("structural_hash_after"), str)
         else None
     )
+    transaction_state: str | None = None
     if requested_v2 and isinstance(candidate_graph_hash, str):
         complete_authority = (
             turn_id is not None
@@ -4306,6 +4310,7 @@ def record_idempotent_response(
                 else None
             ),
         )
+        transaction_state = transaction.get("state")
         write_candidate_transaction(response_path.parent, transaction)
         stamped_response = dict(stamped_response)
         stamped_response["candidate_transaction"] = transaction
@@ -4366,6 +4371,7 @@ def record_idempotent_response(
                 _stamp_recorded_candidate(
                     turn_record,
                     candidate_graph_hash=candidate_graph_hash,
+                    transaction_state=transaction_state,
                     agent_edit_protocol=agent_edit_protocol,
                     candidate_structural_graph_hash=candidate_structural_graph_hash,
                     candidate_plan_hash=candidate_plan_hash,

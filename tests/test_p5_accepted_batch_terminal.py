@@ -39,6 +39,7 @@ from vibecomfy.comfy_nodes.agent._frag_state import (
 )
 from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
+from vibecomfy.comfy_nodes.agent.session import read_state
 from vibecomfy.executor.contracts import (
     ExecutorResult,
     ImplementationResult,
@@ -353,6 +354,80 @@ def test_p5_d_round_trip_consumers_see_identical_delta_pre_and_post_projection(
     }
     violations = validate_reply_change_claims(overreaching)
     assert violations, "claims outside the accepted Δ must stay invalid"
+
+
+def test_a7_landed_candidate_survives_withheld_apply_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A landed delta stays inspectable when a later gate withholds Apply.
+
+    This is the A6-shaped boundary: the real batch handler lands an edit and
+    writes ``after.py``/accepted statements, then a server gate makes
+    ``eligibility.applyable`` false.  The entrypoint must not turn that
+    changed candidate into a noop/no_changes response or erase its hashes.
+    Apply and Queue remain false; only evidence publication is preserved.
+    """
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+
+    original_builder = agent_edit_module._build_batch_repl_response
+
+    def _withhold_apply(state, context):
+        response = original_builder(state, context)
+        blocked = {
+            "applyable": False,
+            "reason": "server_blocked",
+            "message": "Server validation gates blocked Apply.",
+            "warnings": [],
+        }
+        response["eligibility"] = blocked
+        response["apply_eligibility"] = blocked
+        response["apply_allowed"] = False
+        response["canvas_apply_allowed"] = False
+        response["queue_allowed"] = False
+        return response
+
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_build_batch_repl_response",
+        _withhold_apply,
+    )
+    result = _run_turn(
+        tmp_path,
+        _EDIT_THEN_DONE,
+        session_id="a7-withheld-apply",
+    )
+
+    assert result["ok"] is True
+    assert result["terminal_state"] == "undetermined"
+    assert result["terminal_reason"] == "server_blocked"
+    assert result["eligibility"]["applyable"] is False
+    assert result["eligibility"]["reason"] == "server_blocked"
+    assert result["apply_allowed"] is False
+    assert result["queue_allowed"] is False
+    assert result["candidate"] is not None
+    assert isinstance(result["candidate"]["graph"], dict)
+    assert isinstance(result["candidate"]["graph_hash"], str)
+    assert isinstance(result["candidate"]["structural_graph_hash"], str)
+    assert result["accepted_batch"]
+    assert result["outcome"]["kind"] in {"candidate", "candidate_transaction"}
+    assert result.get("no_candidate_reason") not in {"no_changes", "authority_replay_mismatch"}
+    assert result.get("graph_unchanged") is not True
+
+    turn_dir = tmp_path / "a7-withheld-apply" / "turns" / result["turn_id"]
+    persisted = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
+    assert persisted["candidate"]["graph"] == result["candidate"]["graph"]
+    assert persisted["accepted_batch"] == result["accepted_batch"]
+    assert persisted["terminal_state"] == "undetermined"
+    assert persisted["terminal_reason"] == "server_blocked"
+    transaction_path = next(turn_dir.glob("transactions/*/candidate_transaction.json"))
+    transaction = json.loads(transaction_path.read_text(encoding="utf-8"))
+    assert transaction["state"] == "recoverable_error"
+    assert transaction["available_actions"] == []
+    durable = read_state(tmp_path / "a7-withheld-apply")
+    turn_record = durable["turns"][result["turn_id"]]
+    assert turn_record["state"] == "recoverable_error"
+    assert turn_record["candidate_graph_hash"] == result["candidate"]["graph_hash"]
 
 
 # ---------------------------------------------------------------------------

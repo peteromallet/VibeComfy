@@ -2425,6 +2425,76 @@ test("terminal authority rejection remains typed and non-applyable in browser pr
   assert.equal(normalized.authorityReceipt.candidate_hash, "rejected-hash");
 });
 
+test("browser reload preserves replay-valid blocked candidate evidence without actions", () => {
+  const graph = { nodes: [], links: [] };
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "blocked-plan",
+    state: "recoverable_error",
+    deltaOps: [{ op: "add_node", uid: "n1", class_type: "ImageScale", node_id: "n1" }],
+    postconditionGraph: graph,
+  });
+  const candidateHash = sha256Hex(graph);
+  transaction.hashes.candidate_graph_hash = candidateHash;
+  transaction.hashes.candidate_structural_graph_hash = candidateHash;
+  const acceptedBatch = transaction.plan.accepted_batch;
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const raw = {
+    ok: true,
+    route: "revise",
+    session_id: "s",
+    turn_id: "t",
+    terminal_state: "undetermined",
+    terminal_reason: "server_blocked",
+    outcome: { kind: "candidate", changes: [] },
+    candidate: { graph },
+    graph,
+    candidate_graph: graph,
+    candidateGraph: graph,
+    candidate_graph_hash: candidateHash,
+    candidate_structural_graph_hash: candidateHash,
+    accepted_batch: acceptedBatch,
+    candidate_transaction: transaction,
+    eligibility: { applyable: false, reason: "server_blocked", warnings: ["server_blocked"] },
+    apply_eligibility: { applyable: false, reason: "server_blocked", warnings: ["server_blocked"] },
+    apply_eligible: false,
+    apply_allowed: false,
+    canvas_apply_allowed: false,
+    queue_allowed: false,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: candidateHash,
+      authority_receipt_digest: "b".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: acceptedBatch.length,
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/reload" });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.terminalReason, "server_blocked");
+  assert.deepEqual(normalized.candidateGraph, graph);
+  assert.deepEqual(normalized.candidate?.graph, graph);
+  assert.deepEqual(normalized.raw.candidate_graph, graph);
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.applyAllowed, false);
+  assert.equal(normalized.canvasApplyAllowed, false);
+  assert.equal(normalized.queueAllowed, false);
+  assert.ok(normalized.candidateTransaction);
+  assert.equal(normalized.candidateTransaction.state, "recoverable_error");
+  assert.deepEqual(normalized.candidateTransaction.available_actions, []);
+  assert.equal(normalized.outcome.kind, "candidate");
+});
+
 test("browser projection demotes an applied terminal with an unbound receipt", () => {
   const graph = { nodes: [{ id: 1 }], links: [] };
   const normalized = normalizeAgentEditResponse({

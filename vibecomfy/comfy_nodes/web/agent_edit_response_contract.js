@@ -951,11 +951,43 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility, so
         || replay.recomputed_candidate_hash === receipt.candidate_hash)
       && deltaCoherent
     );
+  const blockedCandidateEvidenceValid = terminalState === "undetermined"
+    && eligibility?.applyable !== true
+    && isObject(candidateGraph)
+    && receipt
+    && receipt.contract_version === "authority_receipt_v2"
+    && receipt.schema_version === "2.0.0"
+    && hash(receipt.authority_receipt_digest)
+    && replay?.replay_ok === true
+    && replay?.candidate_matches === true
+    && !replay?.error
+    && receiptCopiesAgree
+    && replayErrorAgree
+    && identityBound
+    && hash(receipt.candidate_hash)
+    && receipt.candidate_hash === sha256Hex(candidateGraph)
+    && (!Object.hasOwn(raw, "candidate_graph_hash")
+      || raw.candidate_graph_hash === receipt.candidate_hash)
+    && (!Object.hasOwn(raw, "candidateGraphHash")
+      || raw.candidateGraphHash === receipt.candidate_hash)
+    && (layoutNoop || deltaCoherent)
+    && candidateGraphCarriersAgree(raw, candidateGraph);
   if (terminalState === "applied" && !receiptValid) {
     terminalState = "undetermined";
     terminalReason = "incoherent_applied_terminal";
   }
   if (NON_APPLIED_TERMINAL_STATES.has(terminalState)) {
+    if (blockedCandidateEvidenceValid) {
+      return {
+        terminalState,
+        terminalReason,
+        outcome,
+        candidateGraph,
+        eligibility: { ...(eligibility || {}), applyable: false },
+        preserveCandidate: true,
+        raw,
+      };
+    }
     const kind = terminalState === "clarify" ? "clarify"
       : terminalState === "no_op" || terminalState === "no_candidate" ? "noop" : "error";
     const nextOutcome = kind === "clarify"
@@ -1357,9 +1389,11 @@ export function normalizeAgentEditResponse(
           : [],
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
-    candidateTransaction: terminal.terminalState && terminal.terminalState !== "applied"
-      ? null
-      : readCanonicalCandidateTransaction(raw),
+    candidateTransaction: terminal.preserveCandidate
+      ? readCanonicalCandidateTransaction(raw)
+      : terminal.terminalState && terminal.terminalState !== "applied"
+        ? null
+        : readCanonicalCandidateTransaction(raw),
     legacyMigration: !transactionBoundary || transactionBoundary.classification === "v2_authority"
       ? null
       : transactionBoundary,

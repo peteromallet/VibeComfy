@@ -695,10 +695,27 @@ def handle_agent_edit(
     eligibility = response.get("eligibility")
     if not isinstance(eligibility, dict):
         eligibility = response.get("apply_eligibility")
-    if not isinstance(eligibility, dict) or eligibility.get("applyable") is not True:
+    candidate = response.get("candidate")
+    has_candidate_evidence = (
+        isinstance(candidate, dict)
+        and isinstance(candidate.get("graph"), dict)
+        and isinstance(candidate.get("graph_hash"), str)
+        and isinstance(candidate.get("structural_graph_hash"), str)
+    )
+    if not isinstance(eligibility, dict) or (
+        eligibility.get("applyable") is not True and not has_candidate_evidence
+    ):
         # Answer-only/no-candidate turns are audit history, not transaction
         # authority. Do not persist or return a graph-shaped object that a
         # rehydrate consumer could mistake for an applyable candidate.
+        #
+        # A landed, replay-bound candidate is different: server eligibility
+        # can be false while the candidate remains truthful and inspectable
+        # (for example, a validation gate withholds Apply). Keep its graph,
+        # hashes, and accepted delta visible, but never promote the candidate
+        # to applyable/queueable here. The publication boundary performs the
+        # independent authority check and marks an ineligible transaction
+        # recoverable while preserving the evidence.
         response.pop("graph", None)
         response.pop("candidate", None)
     _write_turn_chat_artifact(state, context, response, contract)
