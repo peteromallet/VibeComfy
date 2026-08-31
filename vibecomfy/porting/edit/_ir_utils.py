@@ -33,6 +33,41 @@ def _is_primitive_widget_alias_class(class_type: str) -> bool:
     return class_type in {"Float", "Int"} or class_type.startswith("Primitive")
 
 
+def _has_frozen_name_row(
+    node: Any,
+    name_authority: Mapping[str, Sequence[str | None]] | None,
+) -> bool:
+    """Whether *node* has an explicit row in the supplied frozen table.
+
+    Live editing may operate on a hand-built IR with no snapshot.  That path
+    retains the historical schema fallback; a sealed row (including an empty
+    unresolved row) must remain strict.  Replay itself checks missing rows
+    before applying the delta, so this distinction does not reopen the gate.
+    """
+    if not isinstance(name_authority, Mapping):
+        return False
+    uid = str(getattr(node, "uid", "") or "")
+    node_id = str(getattr(node, "id", "") or "")
+    key = uid if uid in name_authority else node_id
+    if key not in name_authority:
+        return False
+    row = name_authority.get(key)
+    # A live authoring session may have captured an all-positional row for an
+    # opaque class while the shipped object-info authority can still provide a
+    # useful human field name.  Keep that authoring compatibility.  Receipt
+    # replay remains strict because its artifact-backed rows carry a stable
+    # source marker (or are checked by the frozen-domain gate).
+    if isinstance(row, (list, tuple)) and row and all(
+        value is None or (isinstance(value, str) and value.startswith("widget_"))
+        for value in row
+    ):
+        metadata = getattr(node, "metadata", None)
+        source = metadata.get("schema_source") if isinstance(metadata, Mapping) else None
+        if not isinstance(source, Mapping) or source.get("provider") == "unknown":
+            return False
+    return True
+
+
 def _write_compact_slot_mirrors(node: Any, index: int, value: Any) -> bool:
     """Write one compact slot across its parallel raw/UI carrier copies.
 
@@ -74,7 +109,11 @@ def _apply_primitive_widget_alias_write(
     if not _is_primitive_widget_alias_class(str(node.class_type)):
         return False
     index = widget_index_for_field(
-        node, field, schema_provider=schema_provider, name_authority=name_authority
+        node,
+        field,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+        strict_name_authority=_has_frozen_name_row(node, name_authority),
     )
     if index is None and field == "value":
         raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
@@ -91,6 +130,7 @@ def _apply_primitive_widget_alias_write(
         node,
         schema_provider=schema_provider,
         name_authority=name_authority,
+        strict_name_authority=_has_frozen_name_row(node, name_authority),
     )
     named_field = resolution.names[index] if index < len(resolution.names) else None
     widget_field = f"widget_{index}"
@@ -128,7 +168,11 @@ def _rewrite_positional_carrier(
     assignment the slot has exactly one carrier.
     """
     index = widget_index_for_field(
-        node, field, schema_provider=schema_provider, name_authority=name_authority
+        node,
+        field,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+        strict_name_authority=_has_frozen_name_row(node, name_authority),
     )
     if index is None:
         return False
@@ -917,6 +961,16 @@ def apply_edit_cow(
                 f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
         field = op.target.field_path
+        # Keep named and positional aliases synchronized in the frozen domain.
+        slot_index = widget_index_for_field(
+            node,
+            field,
+            schema_provider=schema_provider,
+            name_authority=name_authority,
+            strict_name_authority=_has_frozen_name_row(node, name_authority),
+        )
+        if slot_index is not None:
+            _write_compact_slot_mirrors(node, slot_index, op.value)
         # A literal assignment is also the explicit unlink operation for a
         # widget-backed input.  The retained IR has one edge authority, so
         # remove the incoming edge before materializing the literal value.

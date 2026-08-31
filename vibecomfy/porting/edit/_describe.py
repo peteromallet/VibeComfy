@@ -727,6 +727,14 @@ class _DescribeMixin:
             return _UNRESOLVED_OLD_VALUE
         widgets = getattr(node, "widgets", None) or {}
         inputs = getattr(node, "inputs", None) or {}
+        if (
+            str(getattr(node, "class_type", "") or "") == "IndexTTSEmotionOptionsNode"
+            and field == "emotion_control"
+        ):
+            # Legacy UI-only widget_0 is surfaced under the node's emitted
+            # control name, but the original graph has no literal field with
+            # that name; report the old side as genuinely unresolved.
+            return _UNRESOLVED_OLD_VALUE
         if field in widgets:
             return widgets[field]
         if field in inputs:

@@ -117,6 +117,122 @@ def _capture_widget_names(
     """
     from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 
+    # API/envelope nodes can carry the same literal vector twice: as named
+    # ``inputs``/``widgets`` and as positional ``raw_widgets.values`` retained
+    # from the UI door.  Only the source transformation is allowed to bind
+    # those carriers.  It records an ordered witness alongside the vector;
+    # mapping iteration and length coincidence are not identity evidence.
+    raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+    if not isinstance(raw_values, list):
+        metadata = getattr(node, "metadata", None)
+        raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+        raw_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
+    metadata = getattr(node, "metadata", None)
+    witness = metadata.get("_widget_order_witness") if isinstance(metadata, Mapping) else None
+    if isinstance(witness, Mapping):
+        names = witness.get("names")
+        witness_values = witness.get("values")
+        if (
+            isinstance(raw_values, list)
+            and isinstance(names, list)
+            and isinstance(witness_values, list)
+            and len(names) == len(raw_values) == len(witness_values)
+            and len({str(name) for name in names}) == len(names)
+            and all(isinstance(name, str) and name for name in names)
+            and all(
+                canonical_json_bytes_v1(left) == canonical_json_bytes_v1(right)
+                for left, right in zip(raw_values, witness_values)
+            )
+        ):
+            # A source adapter may only be able to record positional aliases
+            # (``widget_N``).  If the same frozen node can be resolved by the
+            # source schema, promote that ordered result into the witness;
+            # this freezes the named↔positional equivalence once, instead of
+            # asking later replay to consult ambient object_info.
+            resolved_names = list(names)
+            if all(name.startswith("widget_") for name in names):
+                try:
+                    resolved = compact_widget_names_for_node(node)
+                except Exception:  # noqa: BLE001 - retain positional witness
+                    resolved = None
+                if (
+                    resolved is not None
+                    and resolved.complete
+                    and len(resolved.names) == len(names)
+                    and all(
+                        isinstance(name, str)
+                        and name
+                        and not name.startswith("widget_")
+                        for name in resolved.names
+                    )
+                ):
+                    resolved_names = list(resolved.names)
+
+            linked_names = {
+                str(name)
+                for name, _source in incoming.get(node_id, [])
+                if name is not None
+            }
+            named_values: dict[str, list[Any]] = {}
+            for channel in (
+                getattr(node, "widgets", None),
+                getattr(node, "inputs", None),
+            ):
+                if not isinstance(channel, Mapping):
+                    continue
+                for name, value in channel.items():
+                    key = str(name)
+                    if key in linked_names or isinstance(value, (list, tuple)) and len(value) == 2:
+                        continue
+                    if key in names:
+                        witness_index = names.index(key)
+                        named_values.setdefault(resolved_names[witness_index], []).append(value)
+                    elif key.startswith("widget_"):
+                        # Some UI/API adapters retain the positional spelling
+                        # beside a named witness.  It is a carrier alias only
+                        # when its index is one of the witnessed slots; an
+                        # arbitrary extra literal is never evidence.
+                        try:
+                            alias_index = int(key.removeprefix("widget_"))
+                        except ValueError:
+                            alias_index = -1
+                        if 0 <= alias_index < len(names):
+                            named_values.setdefault(resolved_names[alias_index], []).append(value)
+                        else:
+                            return ()
+                    else:
+                        # A witnessed positional vector and an unrelated
+                        # literal cannot share one frozen name domain.  Keep
+                        # the row unresolved rather than silently dropping the
+                        # extra field.
+                        return ()
+            # Every witnessed slot must have a named (or indexed positional
+            # alias) carrier.  Previously a missing literal was accepted as a
+            # partial mapping, allowing a malformed carrier to look valid.
+            if any(name not in named_values for name in resolved_names):
+                return ()
+            # The witness must agree with every named representation that is
+            # present. This catches an otherwise plausible swapped roster and
+            # duplicate-value ambiguity instead of silently choosing one map.
+            for index, name in enumerate(resolved_names):
+                expected = canonical_json_bytes_v1(raw_values[index])
+                if any(
+                    canonical_json_bytes_v1(value) != expected
+                    for value in named_values.get(name, ())
+                ):
+                    return ()
+            return tuple(resolved_names)
+        # A present but invalid witness is explicit ambiguity.  Keep the row
+        # empty rather than consulting ambient schemas and laundering a
+        # carrier conflict into a valid name mapping.
+        return ()
+
+    # A raw positional vector without a source witness is deliberately
+    # unresolved.  API-only named carriers may still be compared directly,
+    # but they cannot be projected onto a positional vector by guesswork.
+    if isinstance(raw_values, list):
+        return ()
+
     linked_inputs = frozenset(str(to_input) for to_input, _ in incoming.get(node_id, []))
     try:
         resolution = compact_widget_names_for_node(
@@ -204,10 +320,10 @@ def capture_ingest_snapshot(
 def frozen_widget_names_by_uid(workflow: Any) -> Mapping[str, tuple[str, ...]]:
     """Read the sealed node→field-names table off *workflow*'s snapshot.
 
-    Returns ``{uid: names}`` for every node whose seal captured a non-empty
-    roster.  This mapping is the single name authority handed to admit /
-    interpret / emit / replay; consumers never re-derive names from ambient
-    object_info or live provider state for sealed nodes.
+    Returns ``{uid: names}`` for every node captured by the seal, including an
+    explicit empty/unresolved row.  Consumers distinguish that row from a
+    missing table and never re-derive names from ambient object_info or live
+    provider state for sealed nodes.
     """
     snapshot = snapshot_of(workflow)
     if snapshot is None:
@@ -218,8 +334,8 @@ def frozen_widget_names_by_uid(workflow: Any) -> Mapping[str, tuple[str, ...]]:
     result: dict[str, tuple[str, ...]] = {}
     for uid, snap in field_snapshot.items():
         names = snap.get("widget_names_sig") if isinstance(snap, Mapping) else None
-        if isinstance(names, (list, tuple)) and names:
-            result[str(uid)] = tuple(str(name) for name in names if name)
+        if isinstance(names, (list, tuple)):
+            result[str(uid)] = tuple(str(name) for name in names if isinstance(name, str) and name)
     return result
 
 

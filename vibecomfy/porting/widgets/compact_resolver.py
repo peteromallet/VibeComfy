@@ -54,16 +54,19 @@ def _frozen_authority_names(
     A hit is the sole name authority: ambient sources (metadata aliases,
     object_info, live providers) are never consulted for that node again.
     """
-    if not isinstance(name_authority, Mapping) or not name_authority:
+    if not isinstance(name_authority, Mapping):
         return None
     uid = getattr(node, "uid", None)
     if not uid and isinstance(node, Mapping):
         uid = node.get("uid")
     if not uid:
         return None
-    names = name_authority.get(str(uid))
-    if names is None:
+    key = str(uid)
+    if key not in name_authority:
         return None
+    names = name_authority[key]
+    if not isinstance(names, Sequence) or isinstance(names, (str, bytes)):
+        return ()
     return tuple(names)
 
 
@@ -156,6 +159,7 @@ def compact_widget_names_for_node(
     allow_object_info_fallback: bool = True,
     name_authority: Mapping[str, Sequence[str | None]] | None = None,
     linked_inputs: Collection[str] | None = None,
+    strict_name_authority: bool = False,
 ) -> WidgetNameResolution:
     """Return names aligned 1:1 to compact ``widgets_values`` positions.
 
@@ -175,6 +179,8 @@ def compact_widget_names_for_node(
 
     authority_names = _frozen_authority_names(node, name_authority)
     if authority_names is not None:
+        if strict_name_authority:
+            return _align_names(list(authority_names), count, _FIELD_SNAPSHOT_SOURCE)
         # S2 named-field emit: a frozen table that is all positional
         # ``widget_N`` placeholders carries no semantic names.  Treat it as
         # absent so the live schema provider / WIDGET_SCHEMA can supply
@@ -187,6 +193,10 @@ def compact_widget_names_for_node(
         if has_named:
             return _align_names(list(authority_names), count, _FIELD_SNAPSHOT_SOURCE)
         # All widget_N / None — fall through to live providers.
+    elif strict_name_authority and isinstance(name_authority, Mapping):
+        # A supplied table with no row is a missing witness, not permission to
+        # consult ambient object_info/providers.
+        return _align_names([], count, "unresolved")
 
     linked = _resolved_linked_input_names(node, linked_inputs)
     best: WidgetNameResolution | None = None
@@ -246,6 +256,7 @@ def widget_index_for_field(
     *,
     schema_provider: Any | None = None,
     name_authority: Mapping[str, Sequence[str | None]] | None = None,
+    strict_name_authority: bool = False,
 ) -> int | None:
     count = _compact_value_count(node, None)
     match = _WIDGET_KEY_RE.fullmatch(field_name)
@@ -253,7 +264,10 @@ def widget_index_for_field(
         index = int(match.group(1))
         if count is None or 0 <= index < count:
             resolution = compact_widget_names_for_node(
-                node, schema_provider=schema_provider, name_authority=name_authority
+                node,
+                schema_provider=schema_provider,
+                name_authority=name_authority,
+                strict_name_authority=strict_name_authority,
             )
             if _is_leading_null_padded_placeholder(node, resolution, index):
                 return None
@@ -261,7 +275,10 @@ def widget_index_for_field(
         return None
 
     resolution = compact_widget_names_for_node(
-        node, schema_provider=schema_provider, name_authority=name_authority
+        node,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+        strict_name_authority=strict_name_authority,
     )
     duplicates = {
         name
@@ -334,6 +351,13 @@ def _candidate_name_sources(
     curated = WIDGET_SCHEMA.get(class_type)
     if curated is not None:
         sources.append(("committed_widget_schema", _name_ui_control_slots(node, class_type, list(curated))))
+
+    # Legacy IndexTTS graphs sometimes serialize the opaque emitted control as
+    # one compact widget rather than the eight optional emotion sliders.  Keep
+    # that one-slot compatibility alias scoped to the legacy shape; real
+    # eight-slot nodes continue to use the artifact's explicit roster.
+    if class_type == "IndexTTSEmotionOptionsNode" and value_count == 1:
+        sources.append(("legacy_opaque_output_control", ["emotion_control"]))
 
     semantic_names = _semantic_names_for_count(class_type, value_count)
     if semantic_names:

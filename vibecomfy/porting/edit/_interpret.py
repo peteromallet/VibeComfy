@@ -1660,10 +1660,34 @@ class _InterpretRunner:
             return alias[0]
         if is_positional_alias(raw) and raw.startswith("widget_"):
             index = int(raw.removeprefix("widget_"))
+            strict_frozen = True
+            if isinstance(self.name_authority, Mapping):
+                key = str(getattr(node, "uid", "") or "")
+                row = self.name_authority.get(key)
+                metadata = getattr(node, "metadata", None)
+                source = metadata.get("schema_source") if isinstance(metadata, Mapping) else None
+                if (
+                    isinstance(row, (list, tuple))
+                    and row
+                    and all(
+                        value is None
+                        or (isinstance(value, str) and value.startswith("widget_"))
+                        for value in row
+                    )
+                    and (
+                        not isinstance(source, Mapping)
+                        or source.get("provider") == "unknown"
+                    )
+                ):
+                    # Live authoring may use the shipped source authority to
+                    # name an opaque positional carrier; the receipt gate will
+                    # still require an independently bound witness.
+                    strict_frozen = False
             resolution = compact_widget_names_for_node(
                 node,
                 schema_provider=self.schema_provider,
                 name_authority=self.name_authority,
+                strict_name_authority=strict_frozen,
             )
             if 0 <= index < len(resolution.names):
                 named = resolution.names[index]

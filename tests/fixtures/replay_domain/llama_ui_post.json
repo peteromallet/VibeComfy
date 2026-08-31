@@ -1,0 +1,26 @@
+{
+  "version": 1.0,
+  "id": "llama-replay-fixture",
+  "last_node_id": 3,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 3,
+      "type": "llama_cpp_parameters",
+      "pos": [0.0, 0.0],
+      "size": [320.0, 74.0],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "vibecomfy_uid": "3",
+        "Node name for S&R": "llama_cpp_parameters"
+      },
+      "widgets_values": [512, 0.8]
+    }
+  ],
+  "links": [],
+  "groups": []
+}

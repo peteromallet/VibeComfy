@@ -611,21 +611,41 @@ def build_schema_witness(
     - no narrowing to the candidate's touched classes;
     - no provider probing of any kind.
 
-    If the caller supplies no valid frozen snapshot, this raises typed
-    ``SchemaSnapshotError(code="missing_schema_snapshot")`` — a witness is
-    never manufactured from a live provider. Replay reconstructs exactly this
-    payload via ``schema_provider_from_witness``, so for every digest-bearing
-    field (``schemas``, ``missing_classes``, ``input_order``, ``node_classes``,
-    ``generation``, ``content_digest``):
+    If the caller supplies no valid frozen snapshot, a graph-scoped provider is
+    captured once at this boundary and immediately serialized.  The capture is
+    never repeated during replay, and ``schema_provider=None`` still raises a
+    typed ``SchemaSnapshotError(code="missing_schema_snapshot")``. Replay
+    reconstructs exactly this payload via ``schema_provider_from_witness``, so
+    for every digest-bearing field (``schemas``, ``missing_classes``,
+    ``input_order``, ``node_classes``, ``generation``, ``content_digest``):
     ``schema_snapshot_from_payload(witness["schema_snapshot"]) == admission_snapshot``.
     """
-    del submit_graph, candidate_payload, delta_envelope  # authority is the locked snapshot only
     snapshot = _locked_schema_snapshot_from_provider(schema_provider)
     if snapshot is None:
-        raise SchemaSnapshotError(
-            "receipt persistence requires a frozen admission-schema snapshot; "
-            "no live-provider witness may be manufactured",
-            code="missing_schema_snapshot",
+        if schema_provider is None or not isinstance(submit_graph, Mapping):
+            raise SchemaSnapshotError(
+                "receipt persistence requires a frozen admission-schema snapshot; "
+                "no provider is available for graph-scoped capture",
+                code="missing_schema_snapshot",
+            )
+        # The admission provider may be lookup-only (no ``schemas()`` surface),
+        # while an add-node delta introduces a class absent from the submit
+        # graph.  Include those declared classes in the one capture request so
+        # the persisted witness remains sufficient for replay.
+        capture_graph = dict(submit_graph)
+        raw_nodes = list(submit_graph.get("nodes", ()))
+        raw_ops = delta_envelope.get("ops", ()) if isinstance(delta_envelope, Mapping) else ()
+        for raw_op in raw_ops if isinstance(raw_ops, list) else ():
+            if not isinstance(raw_op, Mapping) or raw_op.get("op") != "add_node":
+                continue
+            class_type = raw_op.get("class_type")
+            node_id = raw_op.get("node_id", raw_op.get("uid"))
+            if isinstance(class_type, str) and class_type and node_id is not None:
+                raw_nodes.append({"id": node_id, "type": class_type})
+        capture_graph["nodes"] = raw_nodes
+        snapshot = capture_ingress_schema_snapshot(
+            schema_provider=schema_provider,
+            graph=capture_graph,
         )
     missing_class_types: list[str] = list(snapshot.missing_classes)
     snapshot_payload = schema_snapshot_to_payload(snapshot)

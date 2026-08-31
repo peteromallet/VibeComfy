@@ -91,7 +91,7 @@
     "ReplayReceipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["replay_ok", "candidate_matches", "recomputed_candidate_hash", "persisted_candidate_hash", "error", "op_count", "verification_kind"],
+      "required": ["replay_ok", "candidate_matches", "recomputed_candidate_hash", "persisted_candidate_hash", "error", "op_count", "verification_kind", "frozen_name_table"],
       "properties": {
         "replay_ok": {
           "type": "boolean",
@@ -122,6 +122,14 @@
           "type": ["string", "null"],
           "enum": ["delta_replay", "layout_structural_noop", null],
           "description": "Explicit replay policy used to qualify this receipt."
+        },
+        "frozen_name_table": {
+          "type": ["object", "null"],
+          "additionalProperties": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "description": "Frozen positional widget-name authority used for replay."
         }
       }
     },

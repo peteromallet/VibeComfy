@@ -1,0 +1,16 @@
+{
+  "version": 1.0,
+  "last_node_id": 7,
+  "last_link_id": 5,
+  "nodes": [
+    {"id": 1, "type": "UNETLoader", "pos": [0, 0], "size": [300, 100], "flags": {}, "order": 0, "inputs": [], "outputs": [{"name": "MODEL", "links": [1], "slot_index": 0}], "properties": {"vibecomfy_uid": "1"}, "widgets_values": ["acestep_v1.5_sft.safetensors", "default"]},
+    {"id": 2, "type": "CLIPLoader", "pos": [0, 150], "size": [300, 100], "flags": {}, "order": 1, "inputs": [], "outputs": [{"name": "CLIP", "links": [2], "slot_index": 0}], "properties": {"vibecomfy_uid": "2"}, "widgets_values": ["ace_step_v1.5.t5xxl.safetensors", "ltxv"]},
+    {"id": 5, "type": "EmptyLatentAudio", "pos": [0, 300], "size": [300, 100], "flags": {}, "order": 2, "inputs": [], "outputs": [{"name": "AUDIO", "links": [3], "slot_index": 0}], "properties": {"vibecomfy_uid": "5"}, "widgets_values": [30, 512]},
+    {"id": 6, "type": "ConditioningZeroOut", "pos": [0, 450], "size": [300, 100], "flags": {}, "order": 3, "inputs": [], "outputs": [{"name": "CONDITIONING", "links": [4], "slot_index": 0}], "properties": {"vibecomfy_uid": "6"}, "widgets_values": []},
+    {"id": 7, "type": "VAEDecode", "pos": [0, 600], "size": [300, 100], "flags": {}, "order": 4, "inputs": [], "outputs": [{"name": "AUDIO", "links": [5], "slot_index": 0}], "properties": {"vibecomfy_uid": "7"}, "widgets_values": []},
+    {"id": 3, "type": "KSampler", "pos": [400, 200], "size": [300, 270], "flags": {}, "order": 5, "inputs": [{"name": "model", "link": 1}, {"name": "positive", "link": 2}, {"name": "latent_image", "link": 3}, {"name": "negative", "link": 4}], "outputs": [{"name": "LATENT", "links": [5], "slot_index": 0}], "properties": {"vibecomfy_uid": "3"}, "widgets_values": [123, "fixed", 50, 7.0, "euler", "simple", 1.0]},
+    {"id": 4, "type": "SaveAudioMP3", "pos": [800, 200], "size": [300, 100], "flags": {}, "order": 6, "inputs": [{"name": "audio", "link": 5}], "outputs": [], "properties": {"vibecomfy_uid": "4"}, "widgets_values": ["audio/AceStep"]}
+  ],
+  "links": [[1, 1, 0, 3, 0, "MODEL"], [2, 2, 0, 3, 1, "CLIP"], [3, 5, 0, 3, 2, "AUDIO"], [4, 6, 0, 3, 3, "CONDITIONING"], [5, 3, 0, 7, 0, "LATENT"]],
+  "groups": []
+}

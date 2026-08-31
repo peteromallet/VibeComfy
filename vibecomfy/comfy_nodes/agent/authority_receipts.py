@@ -35,6 +35,7 @@ from vibecomfy.ingest.normalize import door_get_nodes
 from .candidate_transaction import (
     AUTHORITY_RECEIPT_DELTA_SCHEMA,
     build_schema_witness,
+    capture_ingress_schema_snapshot,
     content_hash,
     missing_touched_class_types,
     schema_provider_from_witness,
@@ -537,6 +538,53 @@ def _submit_graph_uid_to_node_id(submit_graph: Any) -> dict[str, str]:
     return key_by_uid
 
 
+def _independent_source_roster(node: Any) -> tuple[str, ...] | None:
+    """Recompute a stable roster from the committed source authority.
+
+    A caller-supplied table is a witness, not self-authenticating evidence: a
+    same-length unique substitution would otherwise pass shape checks.  The
+    committed object-info index is an independent source authority for the
+    artifact classes it contains.  It is deliberately consulted only here,
+    while validating an explicit witness; missing snapshots and opaque/custom
+    classes do not fall back to it during replay.
+    """
+    class_type = str(getattr(node, "class_type", "") or "")
+    if not class_type:
+        return None
+    try:
+        from vibecomfy.porting.widgets.compact_resolver import (
+            compact_widget_names_for_node,
+        )
+        from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+        root = Path(__file__).resolve().parents[3] / "vibecomfy" / "porting" / "cache" / "object_info"
+        provider = ObjectInfoIndexSchemaProvider(root)
+        # Metadata aliases are source evidence from the current provider, not
+        # an independent authority.  Only proceed when the committed index
+        # itself contains this class.
+        if provider.get_schema(class_type) is None:
+            return None
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        if not isinstance(raw_values, list) or not raw_values:
+            return ()
+        resolution = compact_widget_names_for_node(
+            node,
+            class_type=class_type,
+            value_count=len(raw_values),
+            schema_provider=provider,
+            allow_object_info_fallback=False,
+        )
+        names = tuple(
+            name for name in resolution.names
+            if isinstance(name, str) and name and not name.startswith("widget_")
+        )
+        if len(names) != len(raw_values) or not resolution.complete:
+            return None
+        return names
+    except Exception:  # noqa: BLE001 - unavailable source authority is opaque
+        return None
+
+
 def _verify_seal_coverage(
     workflow: Any,
     name_authority: Mapping[str, Any] | None,
@@ -576,11 +624,158 @@ def _verify_seal_coverage(
         normalized = tuple(
             str(name) for name in row if isinstance(name, str) and name
         )
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        if isinstance(raw_values, list) and (
+            len(normalized) != len(raw_values)
+            or len(set(normalized)) != len(normalized)
+        ):
+            return (
+                "frozen_name_table_invalid: node "
+                f"{node_id} (uid {uid}) witness shape does not match its "
+                "retained positional carrier"
+            )
         current = effective.get(str(uid)) or ()
         if current != normalized:
+            independent = _independent_source_roster(node)
+            if independent is not None and independent != normalized:
+                return (
+                    f"frozen_name_table_source_mismatch: node {node_id} "
+                    f"(uid {uid}) witness {normalized!r} disagrees with the "
+                    f"independently recomputed source authority {independent!r}"
+                )
+            # A UI-only positional carrier has no named literal against
+            # which the ambient provider's roster can be compared.  The
+            # supplied frozen row is precisely the authority that binds that
+            # vector, so tolerate provider drift here.  If named literals are
+            # present, however, the source itself is witness evidence and a
+            # different row is a genuine tamper/conflict.
+            metadata = getattr(node, "metadata", None)
+            raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+            # Inputs synthesized from a positional UI list are not source
+            # evidence: they merely reflect the verifier's ambient provider.
+            # Count only a literal that was named at the ingest door (or an
+            # API node with no retained UI door).
+            has_named_literal = False
+            if isinstance(raw_ui, Mapping):
+                widgets_values = raw_ui.get("widgets_values")
+                if isinstance(widgets_values, Mapping):
+                    has_named_literal = True
+                for item in raw_ui.get("inputs", ()) or ():
+                    if (
+                        isinstance(item, Mapping)
+                        and item.get("link") is None
+                        and isinstance(item.get("widget"), Mapping)
+                    ):
+                        has_named_literal = True
+                        break
+            else:
+                has_named_literal = any(
+                    str(key) and not str(key).startswith("widget_")
+                    and not (
+                        isinstance(value, (list, tuple))
+                        and len(value) == 2
+                    )
+                    for channel in (
+                        getattr(node, "inputs", None),
+                        getattr(node, "widgets", None),
+                    )
+                    if isinstance(channel, Mapping)
+                    for key, value in channel.items()
+                )
+            if not has_named_literal:
+                continue
             return (
                 f"name_domain_divergence: node {node_id} (uid {uid}) sealed as "
                 f"{current!r} but the frozen authority of record is {normalized!r}"
+            )
+    return None
+
+
+def _require_frozen_domain_for_positional_replay(
+    workflow: Any,
+    name_authority: Mapping[str, Any] | None,
+    ops: tuple[Any, ...],
+) -> str | None:
+    """Reject unpinned edits whose identity depends on a positional vector.
+
+    ``name_authority=None`` is useful for identity/no-op verification and for
+    legacy graphs that contain only named literals.  It is not sufficient for
+    a field edit against a retained ``widgets_values`` vector: a known class's
+    ambient schema can assign the same field to a different slot on the
+    verifier.  Require the receipt's frozen witness before entering that
+    path; explicit tables (including an empty row) are checked separately by
+    ``_verify_seal_coverage``.
+    """
+    if not ops or isinstance(name_authority, Mapping):
+        return None
+    from vibecomfy.porting.edit.ops import SetNodeFieldOp
+
+    # Removing/adding a node may touch a graph that happens to retain other
+    # positional vectors; only a named field write actually asks the ambient
+    # schema to bind a field name to one of those slots.
+    positional_targets = {
+        (str(op.target.uid), str(op.target.field_path))
+        for op in ops
+        if isinstance(op, SetNodeFieldOp)
+        and isinstance(getattr(op.target, "uid", None), str)
+    }
+    if not positional_targets:
+        return None
+    touched = frozenset(uid for uid, _field in positional_targets)
+    for node_id, node in getattr(workflow, "nodes", {}).items():
+        uid = str(getattr(node, "uid", "") or "") or str(node_id)
+        if uid not in touched and str(node_id) not in touched:
+            continue
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        if isinstance(raw_values, list):
+            # A single retained literal has no alternate positional slot to
+            # confuse a named edit; multi-slot vectors require the frozen
+            # witness because ambient order can shift.
+            if len(raw_values) <= 1:
+                continue
+            metadata = getattr(node, "metadata", None)
+            raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+            named_fields = {
+                str(key)
+                for channel in (
+                    getattr(node, "inputs", None),
+                    getattr(node, "widgets", None),
+                )
+                if isinstance(channel, Mapping)
+                for key, value in channel.items()
+                if not (
+                    isinstance(value, (list, tuple))
+                    and len(value) == 2
+                )
+                and not str(key).startswith("widget_")
+            }
+            if isinstance(raw_ui, Mapping):
+                named_source_fields: set[str] = set()
+                if isinstance(raw_ui.get("widgets_values"), Mapping):
+                    named_source_fields.update(
+                        str(key) for key in raw_ui["widgets_values"]
+                    )
+                for item in raw_ui.get("inputs", ()) or ():
+                    if (
+                        isinstance(item, Mapping)
+                        and item.get("link") is None
+                        and isinstance(item.get("widget"), Mapping)
+                    ):
+                        name = item.get("name")
+                        if isinstance(name, str) and name:
+                            named_source_fields.add(name)
+                named_fields &= named_source_fields
+            if all(
+                field in named_fields
+                for target_uid, field in positional_targets
+                if target_uid in {uid, str(node_id)}
+            ):
+                # A literal named carrier is already unambiguous; the raw
+                # vector is merely retained UI provenance for this edit.
+                continue
+            return (
+                "frozen_name_table_required: positional widget edit on node "
+                f"{node_id} (uid {uid}) has no frozen witness"
             )
     return None
 
@@ -607,7 +802,7 @@ def _seal_frozen_name_domain(
     ``bind_snapshot_lineage`` — and ``widget_names_sig`` is excluded from the
     semantic preimage, so digest equality is unchanged.
     """
-    if not isinstance(name_authority, Mapping) or not name_authority:
+    if not isinstance(name_authority, Mapping):
         return workflow
     from dataclasses import replace as _dc_replace
 
@@ -631,13 +826,13 @@ def _seal_frozen_name_domain(
         roster = name_authority.get(str(node_id))
         if current is None:
             continue
-        if isinstance(roster, (list, tuple)) and roster:
+        if isinstance(roster, (list, tuple)):
             names = tuple(str(name) for name in roster if name)
+            patched[str(key)] = {**current, "widget_names_sig": names}
+            hit = True
             if names:
-                patched[str(key)] = {**current, "widget_names_sig": names}
-                hit = True
                 _rekey_ir_widget_fields(node, names)
-                continue
+            continue
         patched[str(key)] = current
     if not hit:
         return workflow
@@ -777,6 +972,7 @@ def _unresolved_named_field_reason(
                 name_authority=(
                     {uid: authority_row} if authority_row is not None else None
                 ),
+                strict_name_authority=True,
             ) is None:
                 return f"field_resolution_unresolved:{uid}.{field}"
             break
@@ -846,9 +1042,16 @@ def recompute_apply(
             # fail closed with candidate_hash_mismatch.
             use_comfy_converter=False,
         )
-        # P1-R1: pin the hash domain before admit/interpret/emit run.  With no
-        # explicit table the freshly-sealed ingest roster remains authoritative
-        # (single self-consistent domain), preserving prior behavior.
+        # P1-R1: pin the hash domain before admit/interpret/emit run.  A
+        # positional edit cannot use a freshly inferred ambient roster: the
+        # verifier must consume the frozen witness carried by the receipt.
+        # Validate the receipt witness against the *fresh source witness*
+        # before sealing.  Comparing only after ``_seal_frozen_name_domain``
+        # would let a tampered authority row overwrite its own comparison and
+        # turn an otherwise visible mismatch into a self-consistent replay.
+        divergence = _verify_seal_coverage(workflow, name_authority, ops)
+        if divergence:
+            return False, None, divergence, len(ops)
         workflow = _seal_frozen_name_domain(workflow, name_authority)
         # RR1-FIX-1: the sealed domain must EQUAL the recorded authority on
         # every op-touched node. A silent skip (node absent from the fresh
@@ -936,6 +1139,37 @@ def verify_replay(
         )
 
     persisted_hash = structural_graph_hash(candidate) if candidate is not None else None
+    unpinned_positional_error: str | None = None
+
+    try:
+        parsed_ops = _extract_delta_ops_from_envelope(cumulative_delta_envelope)
+    except Exception:
+        parsed_ops = ()
+    if parsed_ops:
+        # Verify-replay is the strict public authority gate.  Internal
+        # sequential materialization remains able to operate on an unfrozen
+        # hand-built workflow, while this path never accepts an ambient
+        # positional name/domain for a candidate claim.
+        try:
+            from vibecomfy.ingest.normalize import from_ui
+
+            replay_workflow = from_ui(
+                dict(submit_graph),
+                schema_provider=schema_provider,
+                use_comfy_converter=False,
+            )
+            unpinned = _require_frozen_domain_for_positional_replay(
+                replay_workflow, name_authority, parsed_ops
+            )
+            unpinned_positional_error = unpinned
+        except Exception:
+            # The strict public verifier must never turn an unavailable fresh
+            # ingest into ambient-authority permission.  Internal materializers
+            # may tolerate a schema-less graph, but verification has no frozen
+            # witness to prove which positional carrier was edited.
+            unpinned_positional_error = (
+                "frozen_name_table_required: positional replay authority unavailable"
+            )
 
     ok, recomputed, error, op_count = recompute_apply(
         submit_graph,
@@ -973,12 +1207,32 @@ def verify_replay(
         )
 
     recomputed_hash = structural_graph_hash(recomputed)
-    semantic_matches = (
-        isinstance(candidate, Mapping)
-        and isinstance(recomputed, Mapping)
-        and semantic_graph_hash(dict(candidate)) == semantic_graph_hash(dict(recomputed))
+    # Older persisted UI candidates intentionally contain only the UI carrier
+    # (``widgets_values``) and omit the normalized ``inputs`` projection.  In
+    # that representation structural equality is the complete replay domain;
+    # requiring the richer semantic projection would reject a byte-identical
+    # legacy candidate after a harmless server-side normalization.  Once both
+    # sides carry that projection, retain the stronger semantic comparison so
+    # remove/add/link residuals cannot hide behind a matching widget vector.
+    candidate_nodes = candidate.get("nodes", ()) if isinstance(candidate, Mapping) else ()
+    recomputed_nodes = recomputed.get("nodes", ()) if isinstance(recomputed, Mapping) else ()
+    has_semantic_projection = all(
+        isinstance(node, Mapping) and "inputs" in node
+        for node in (*candidate_nodes, *recomputed_nodes)
     )
-    matches = recomputed_hash == persisted_hash and semantic_matches
+    semantic_matches = (
+        not has_semantic_projection
+        or (
+            isinstance(candidate, Mapping)
+            and isinstance(recomputed, Mapping)
+            and semantic_graph_hash(dict(candidate)) == semantic_graph_hash(dict(recomputed))
+        )
+    )
+    matches = (
+        not unpinned_positional_error
+        and recomputed_hash == persisted_hash
+        and semantic_matches
+    )
     error_value: str | None = None if matches else "candidate_hash_mismatch"
     return ReplayReceipt(
         replay_ok=True,
@@ -1121,22 +1375,60 @@ def build_authority_receipt(
     This is the canonical entry point.  The receipt records the replay verdict
     and all hashes needed for tamper detection.
     """
-    schema_witness = build_schema_witness(
-        schema_provider=schema_provider,
-        submit_graph=submit_graph,
-        candidate_payload=candidate,
-        delta_envelope=cumulative_delta_envelope,
-    )
-    persisted_schema_provider = schema_provider_from_witness(schema_witness)
+    try:
+        schema_witness = build_schema_witness(
+            schema_provider=schema_provider,
+            submit_graph=submit_graph,
+            candidate_payload=candidate,
+            delta_envelope=cumulative_delta_envelope,
+        )
+        persisted_schema_provider = schema_provider_from_witness(schema_witness)
+        schema_snapshot_error: str | None = None
+    except Exception as exc:  # noqa: BLE001 - receipt construction fails closed
+        # Direct callers may arrive before the session has attached its
+        # ingress snapshot. Capture the ingress surface once at this boundary
+        # (never object-info as a replay fallback), so known classes retain the
+        # historical receipt behavior while unknown touched classes remain
+        # explicitly missing and fail closed.
+        try:
+            from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+            ingress_snapshot = capture_ingress_schema_snapshot(
+                schema_provider=schema_provider,
+                graph=submit_graph,
+            )
+            schema_witness = build_schema_witness(
+                schema_provider=FrozenSchemaSnapshotProvider(ingress_snapshot),
+                submit_graph=submit_graph,
+                candidate_payload=candidate,
+                delta_envelope=cumulative_delta_envelope,
+            )
+            persisted_schema_provider = schema_provider_from_witness(schema_witness)
+            schema_snapshot_error = None
+        except Exception:
+            # A caller that still cannot establish an ingress snapshot gets a
+            # durable non-applyable receipt, never a synthetic ambient witness.
+            schema_witness = {
+                "contract_version": "schema_witness_unavailable",
+                "error": str(getattr(exc, "code", None) or "missing_schema_snapshot"),
+            }
+            persisted_schema_provider = None
+            schema_snapshot_error = str(
+                getattr(exc, "code", None) or "missing_schema_snapshot"
+            )
     # P1-REPLAY-HASH-DOMAIN (R1): derive THE name domain of record once, from
     # the frozen admission snapshot this witness reconstructs, and consume the
     # SAME table in the replay below.  The table is recorded on the receipt so
     # any future verification reproduces the identical hash domain from
     # persisted bytes instead of re-resolving names under an ambient provider.
-    frozen_name_table = canonical_frozen_name_table(
-        submit_graph,
-        # Use original ingest-bound provider (carries frozen snapshot) not witness-reconstructed
-        schema_provider=schema_provider,
+    frozen_name_table = (
+        canonical_frozen_name_table(
+            submit_graph,
+            # Use original ingest-bound provider (carries frozen snapshot) not witness-reconstructed
+            schema_provider=schema_provider,
+        )
+        if schema_snapshot_error is None
+        else {}
     )
     # RR1-FIX-REV (RRSYN-1) / RR1-FIX-REV2: a delta that touches an EXISTING
     # node may never mint authority without an explicit frozen name-domain
@@ -1149,7 +1441,9 @@ def build_authority_receipt(
     # may stay unpinned.  A malformed envelope is left to the replay layer's
     # own typed ``invalid_delta_envelope`` failure.
     guard_touched_existing: tuple[str, ...] = ()
-    if isinstance(cumulative_delta_envelope, Mapping):
+    if schema_snapshot_error is not None:
+        guard_touched_existing = ("__missing_schema_snapshot__",)
+    elif isinstance(cumulative_delta_envelope, Mapping):
         try:
             guard_ops = _extract_delta_ops_from_envelope(
                 cumulative_delta_envelope
