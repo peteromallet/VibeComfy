@@ -45,6 +45,7 @@ import {
   isNonApplyableClarify,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js";
 import { sha256Hex } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 
 const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
   "executor_pending",
@@ -2388,8 +2389,16 @@ test("terminal authority rejection remains typed and non-applyable in browser pr
       candidate_matches: false,
       candidate_hash: "rejected-hash",
     },
+    candidate_transaction: makeValidCandidateTransactionV2({
+      sessionId: "s",
+      turnId: "t",
+      planHash: "rejected-plan",
+    }),
     candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
     candidate_graph: { nodes: [{ id: 1 }], links: [] },
+    report: { nested: { candidateGraph: { forged: true } } },
+    evidence: { nested: { acceptedDelta: [{ forged: true }] } },
+    failure: { nested: { candidateTransaction: { forged: true } } },
     apply_eligible: true,
     apply_allowed: true,
     canvas_apply_allowed: true,
@@ -2404,6 +2413,11 @@ test("terminal authority rejection remains typed and non-applyable in browser pr
   assert.equal(normalized.outcome.kind, "error");
   assert.equal(normalized.applyEligible, false);
   assert.equal(normalized.eligibility.applyable, false);
+  assert.equal(normalized.candidateTransaction, null);
+  assert.equal(normalized.raw.candidateTransaction, undefined);
+  assert.deepEqual(normalized.report, { nested: {} });
+  assert.deepEqual(normalized.evidence, { nested: {} });
+  assert.deepEqual(normalized.raw.failure, { nested: {} });
   assert.equal(normalized.authorityReceipt.candidate_hash, "rejected-hash");
 });
 
@@ -2669,6 +2683,10 @@ test("browser terminal alias matrix rejects unbound applied aliases", () => {
     ["delta", [{ op: { op: "forged" } }]],
     ["candidateTransaction", { state: "candidate" }],
     ["candidate_transaction", { state: "candidate" }],
+    ["applyAllowed", false],
+    ["canvasApplyAllowed", false],
+    ["queueAllowed", false],
+    ["applyEligibility", { applyable: false }],
   ];
   for (const [key, value] of aliases) {
     const normalized = normalizeAgentEditResponse({ ...base, [key]: value });
@@ -2677,6 +2695,80 @@ test("browser terminal alias matrix rejects unbound applied aliases", () => {
     assert.equal(normalized.applyEligible, false, key);
     assert.equal(normalized.outcome.kind, "error", key);
   }
+});
+
+test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () => {
+  const graph = { nodes: [], links: [] };
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "plan-v2",
+  });
+  const acceptedBatch = [];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      op_count: 0,
+    },
+  });
+  assert.equal(normalized.terminalState, "applied");
+  assert.ok(normalized.candidateTransaction);
+  assert.equal(normalized.applyEligible, true);
+});
+
+test("browser terminal rejects non-hex receipt hash shapes", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "G".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
 });
 
 test("browser terminal alias matrix binds acceptedBatch alone and scrubs nested products", () => {

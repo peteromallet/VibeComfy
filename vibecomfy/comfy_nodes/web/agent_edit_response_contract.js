@@ -1,5 +1,6 @@
 import {
   classifyCandidateTransactionBoundary,
+  normalizeCandidateTransaction,
   readCandidateTransaction as readCanonicalCandidateTransaction,
 } from "./agent_edit_transaction.js";
 import { deep_plain } from "./deep_plain.js";
@@ -623,7 +624,14 @@ function candidateGraphCarriersAgree(raw, candidateGraph) {
         if (!isObject(raw[key].graph)) return false;
         carriers.push(raw[key].graph);
       } else {
-        return false;
+        if (raw[key].contract_version !== "candidate_transaction_v2") return false;
+        let transaction;
+        try {
+          transaction = normalizeCandidateTransaction(raw[key]);
+        } catch (_error) {
+          transaction = null;
+        }
+        if (!transaction || transaction.hashes?.candidate_graph_hash == null) return false;
       }
     }
   }
@@ -678,7 +686,7 @@ function canonicalTerminalAliases(raw, candidateGraph) {
 
   const hasAcceptedBatch = Object.hasOwn(raw, "accepted_batch");
   const hasAcceptedBatchAlias = Object.hasOwn(raw, "acceptedBatch");
-  const acceptedBatch = hasAcceptedBatch ? raw.accepted_batch : raw.acceptedBatch;
+  let acceptedBatch = hasAcceptedBatch ? raw.accepted_batch : raw.acceptedBatch;
   if (hasAcceptedBatchAlias && !Array.isArray(acceptedBatch)) {
     return { valid: false, reason: "malformed_accepted_batch_alias", acceptedBatch, raw };
   }
@@ -689,6 +697,50 @@ function canonicalTerminalAliases(raw, candidateGraph) {
       }
     } catch (_error) {
       return { valid: false, reason: "accepted_batch_alias_mismatch", acceptedBatch, raw };
+    }
+  }
+
+  const transactionValues = [];
+  for (const key of ["candidate_transaction", "candidateTransaction"]) {
+    if (!Object.hasOwn(raw, key)) continue;
+    try {
+      const transaction = normalizeCandidateTransaction(raw[key]);
+      if (!transaction) {
+        return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
+      }
+      transactionValues.push(transaction);
+    } catch (_error) {
+      return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
+    }
+  }
+  for (const transaction of transactionValues) {
+    const transactionBatch = transaction?.plan?.accepted_batch;
+    if (!Array.isArray(transactionBatch)) {
+      return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
+    }
+    if (!hasAcceptedBatch && !hasAcceptedBatchAlias) {
+      acceptedBatch = transactionBatch;
+    } else {
+      try {
+        if (canonicalJsonString(acceptedBatch) !== canonicalJsonString(transactionBatch)) {
+          return { valid: false, reason: "candidate_transaction_delta_mismatch", acceptedBatch, raw };
+        }
+      } catch (_error) {
+        return { valid: false, reason: "candidate_transaction_delta_mismatch", acceptedBatch, raw };
+      }
+    }
+  }
+
+  const eligibilityBooleans = [
+    "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
+    "applyAllowed", "canvasApplyAllowed", "queueAllowed",
+  ];
+  if (eligibilityBooleans.some((key) => Object.hasOwn(raw, key) && raw[key] !== true)) {
+    return { valid: false, reason: "eligibility_alias_mismatch", acceptedBatch, raw };
+  }
+  for (const key of ["eligibility", "apply_eligibility", "applyEligibility"]) {
+    if (Object.hasOwn(raw, key) && (!isObject(raw[key]) || raw[key].applyable !== true)) {
+      return { valid: false, reason: "eligibility_alias_mismatch", acceptedBatch, raw };
     }
   }
 
@@ -714,10 +766,11 @@ function canonicalTerminalAliases(raw, candidateGraph) {
   }
 
   const canonicalRaw = scrubAppliedNestedTerminalProducts(raw);
-  for (const key of ["candidate_hash", "candidateHash", "accepted_delta", "acceptedDelta", "delta"]) {
+  for (const key of ["candidate_hash", "candidateHash", "accepted_delta", "acceptedDelta", "delta",
+    "applyAllowed", "canvasApplyAllowed", "queueAllowed", "applyEligibility"]) {
     delete canonicalRaw[key];
   }
-  if (hasAcceptedBatchAlias) {
+  if (hasAcceptedBatchAlias || (!hasAcceptedBatch && transactionValues.length > 0)) {
     canonicalRaw.accepted_batch = acceptedBatch;
     delete canonicalRaw.acceptedBatch;
   }
@@ -832,6 +885,7 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
       outcome: nextOutcome,
       candidateGraph: null,
       eligibility: { applyable: false, reason: terminalReason || terminalState },
+      raw: scrubNestedTerminalProducts(raw),
     };
   }
   return {
@@ -1208,12 +1262,14 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
           : [],
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
-    candidateTransaction: readCanonicalCandidateTransaction(raw),
+    candidateTransaction: terminal.terminalState && terminal.terminalState !== "applied"
+      ? null
+      : readCanonicalCandidateTransaction(raw),
     legacyMigration: !transactionBoundary || transactionBoundary.classification === "v2_authority"
       ? null
       : transactionBoundary,
     candidateGraphHash:
-      asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
+      asString(publicRaw.candidateGraphHash) || asString(publicRaw.candidate_graph_hash),
     eligibility,
     terminalState: terminal.terminalState,
     terminalReason: terminal.terminalReason,
@@ -1256,7 +1312,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
         : asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
     graphUnchanged:
       asBooleanOrNull(raw.graphUnchanged) ?? asBooleanOrNull(raw.graph_unchanged),
-    report: isObject(raw.report) ? deep_plain(raw.report) : null,
+    report: isObject(publicRaw.report) ? deep_plain(publicRaw.report) : null,
     auditRef: isObject(raw.auditRef) ? deep_plain(raw.auditRef)
       : isObject(raw.audit_ref) ? deep_plain(raw.audit_ref)
         : null,

@@ -755,7 +755,18 @@ def _canonical_terminal_aliases(
         if key not in payload:
             continue
         transaction = payload.get(key)
-        if not isinstance(transaction, Mapping) or not isinstance(transaction.get("graph"), Mapping):
+        if not isinstance(transaction, Mapping):
+            return False, "malformed_candidate_transaction", accepted_batch, dict(payload)
+        if transaction.get("contract_version") == "candidate_transaction_v2":
+            try:
+                from vibecomfy.comfy_nodes.agent.candidate_transaction import validate_candidate_transaction
+
+                valid, reason = validate_candidate_transaction(transaction)
+            except Exception:  # pragma: no cover - defensive validation boundary
+                valid, reason = False, "malformed_candidate_transaction"
+            if not valid:
+                return False, reason or "malformed_candidate_transaction", accepted_batch, dict(payload)
+        elif not isinstance(transaction.get("graph"), Mapping):
             return False, "malformed_candidate_transaction", accepted_batch, dict(payload)
         transaction_values.append(transaction)
     if len(transaction_values) == 2 and transaction_values[0] != transaction_values[1]:
@@ -778,12 +789,36 @@ def _canonical_terminal_aliases(
     if hash_values and any(value != computed_candidate_hash for value in hash_values):
         return False, "candidate_hash_alias_mismatch", accepted_batch, dict(payload)
 
+    eligibility_booleans = (
+        "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
+        "applyAllowed", "canvasApplyAllowed", "queueAllowed",
+    )
+    if any(key in payload and payload.get(key) is not True for key in eligibility_booleans):
+        return False, "eligibility_alias_mismatch", accepted_batch, dict(payload)
+    for key in ("eligibility", "apply_eligibility", "applyEligibility"):
+        if key in payload:
+            value = payload.get(key)
+            if not isinstance(value, Mapping) or value.get("applyable") is not True:
+                return False, "eligibility_alias_mismatch", accepted_batch, dict(payload)
+
     if "acceptedBatch" in payload:
         alias_batch = payload.get("acceptedBatch")
         if "accepted_batch" in payload and alias_batch != accepted_batch:
             return False, "accepted_batch_alias_mismatch", accepted_batch, dict(payload)
         if "accepted_batch" not in payload:
             accepted_batch = alias_batch
+
+    for transaction in transaction_values:
+        hashes = transaction.get("hashes")
+        plan = transaction.get("plan")
+        transaction_hash = hashes.get("candidate_graph_hash") if isinstance(hashes, Mapping) else None
+        transaction_batch = plan.get("accepted_batch") if isinstance(plan, Mapping) else None
+        if not isinstance(transaction_hash, str) or not isinstance(transaction_batch, list):
+            return False, "candidate_transaction_binding_mismatch", accepted_batch, dict(payload)
+        if accepted_batch is None:
+            accepted_batch = transaction_batch
+        elif accepted_batch != transaction_batch:
+            return False, "candidate_transaction_delta_mismatch", accepted_batch, dict(payload)
 
     def accepted_delta_matches(value: Any) -> bool:
         if not isinstance(value, (list, tuple)):
@@ -810,6 +845,7 @@ def _canonical_terminal_aliases(
     for key in (
         "candidate_hash", "candidateHash", "acceptedBatch",
         "accepted_delta", "acceptedDelta", "delta",
+        "applyAllowed", "canvasApplyAllowed", "queueAllowed", "applyEligibility",
     ):
         cleaned.pop(key, None)
     if "accepted_batch" in payload or "acceptedBatch" in payload:
@@ -856,7 +892,7 @@ def _receipt_is_authoritative(
 
     for key in ("submit_graph_hash", "candidate_hash", "cumulative_delta_hash"):
         value = summary.get(key)
-        if not isinstance(value, str) or len(value) != 64:
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
             return False, f"receipt_{key}_missing"
     accepted_digest = summary.get("accepted_batch_digest")
     if accepted_digest != summary.get("cumulative_delta_hash"):

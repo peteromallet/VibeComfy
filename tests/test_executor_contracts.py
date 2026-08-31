@@ -1291,6 +1291,10 @@ class TestExecutorResult:
             ("delta", [{"op": {"op": "forged"}}]),
             ("candidateTransaction", {"state": "candidate"}),
             ("candidate_transaction", {"state": "candidate"}),
+            ("applyAllowed", False),
+            ("canvasApplyAllowed", False),
+            ("queueAllowed", False),
+            ("applyEligibility", {"applyable": False}),
         ),
     )
     def test_terminal_alias_matrix_rejects_unbound_applied_aliases(
@@ -1321,6 +1325,53 @@ class TestExecutorResult:
             "accepted_delta", "acceptedDelta", "delta", "candidateTransaction",
             "candidate_transaction",
         ))
+
+    def test_terminal_normalizer_accepts_valid_graphless_v2_transaction(self) -> None:
+        from tests.test_candidate_transaction_layout_contract import _transaction
+
+        graph = {
+            "nodes": [{
+                "vibecomfy_uid": "node-1", "type": "PreviewImage",
+                "pos": [300, 100], "size": [200, 100],
+            }],
+            "links": [], "groups": [],
+        }
+        transaction = _transaction()
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": []}))
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "layout_structural_noop", "op_count": 0,
+            },
+            "candidate": {"graph": graph}, "candidate_transaction": transaction,
+            "accepted_batch": [], "outcome": {"kind": "candidate"}, "apply_eligible": True,
+        })
+        assert payload["terminal_state"] == "applied"
+        assert payload["candidate"]["graph"] == graph
+
+    def test_terminal_normalizer_rejects_non_hex_receipt_hash(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "G" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "delta_replay", "op_count": 1,
+            },
+            "candidate": {"graph": graph}, "accepted_batch": accepted_batch,
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert "candidate" not in payload
+        assert payload["apply_eligible"] is False
 
     def test_terminal_alias_matrix_accepts_only_bound_accepted_batch_alias(self) -> None:
         graph = {"nodes": [{"id": 1}], "links": []}
