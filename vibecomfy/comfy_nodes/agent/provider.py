@@ -284,19 +284,52 @@ def _audit_with_runtime_attempts(
 
 
 def _fixture_provider_error(response: Any) -> ProviderError | None:
-    """Turn a fixture runtime's typed refusal into a provider error."""
-    if not isinstance(response, Mapping):
-        return None
-    error = response.get("error")
-    if not isinstance(error, Mapping) or error.get("kind") not in {
+    """Turn a fixture runtime refusal or unsafe fallback into a provider error.
+
+    Fixture runtimes use top-level metadata for v1/batch responses, while the
+    strict delta response keeps its metadata in an out-of-band audit sidecar.
+    Inspect both locations so an unmatched task cannot become a successful
+    composed edit merely because it selected the first available fixture.
+    """
+    error = response.get("error") if isinstance(response, Mapping) else None
+    if isinstance(error, Mapping) and error.get("kind") in {
         "fixture_not_found",
         "fixture_corruption",
         "fixture_ambiguous",
     }:
-        return None
-    message = str(error.get("message") or "fixture selection failed")
+        message = str(error.get("message") or "fixture selection failed")
+    else:
+        fixture: Mapping[str, Any] | None = None
+        if isinstance(response, Mapping):
+            candidate = response.get("fixture")
+            if isinstance(candidate, Mapping):
+                fixture = candidate
+        if fixture is None:
+            sidecar = getattr(response, "audit_metadata", None)
+            if isinstance(sidecar, Mapping):
+                candidate = sidecar.get("fixture")
+                if isinstance(candidate, Mapping):
+                    fixture = candidate
+        if fixture is None or not (
+            fixture.get("fallback_used") is True
+            or fixture.get("match_kind") == "fallback"
+        ):
+            return None
+        error = {
+            "kind": "fixture_not_found",
+            "code": "unmatched_task_fallback",
+            "message": (
+                "Fixture provider selected a first-available fallback for the "
+                "request; force a fixture scenario or provide a matching task."
+            ),
+            "fallback_used": True,
+        }
+        message = str(error["message"])
     failure = ProviderError(f"Fixture provider refused the request: {message}")
-    fixture = response.get("fixture")
+    fixture = response.get("fixture") if isinstance(response, Mapping) else None
+    if not isinstance(fixture, Mapping):
+        sidecar = getattr(response, "audit_metadata", None)
+        fixture = sidecar.get("fixture") if isinstance(sidecar, Mapping) else None
     if isinstance(fixture, Mapping):
         failure.fixture = dict(fixture)  # type: ignore[attr-defined]
     failure.fixture_error = dict(error)  # type: ignore[attr-defined]
@@ -1510,11 +1543,11 @@ def _normalize_agent_response(
     model: str | None,
     audit_metadata: Mapping[str, Any] | None = None,
 ) -> AgentTurnResult:
-    if isinstance(response, AgentTurnResult):
-        return response
     fixture_error = _fixture_provider_error(response)
     if fixture_error is not None:
         raise fixture_error
+    if isinstance(response, AgentTurnResult):
+        return response
     merged_audit = _audit_with_runtime_attempts(audit_metadata, response)
     if isinstance(response, str):
         payload = _extract_json_object(response)
@@ -1767,11 +1800,11 @@ def _normalize_batch_response(
     :func:`extract_batch_fence`.  The runtime may return a string (the raw
     model response) or a mapping with a ``content`` key.
     """
-    if isinstance(response, BatchTurnResult):
-        return response
     fixture_error = _fixture_provider_error(response)
     if fixture_error is not None:
         raise fixture_error
+    if isinstance(response, BatchTurnResult):
+        return response
     merged_audit = _audit_with_runtime_attempts(audit_metadata, response)
     if isinstance(response, str):
         text = response

@@ -1767,6 +1767,72 @@ def test_batch_repl_provider_error_writes_messages_artifact(tmp_path: Path) -> N
     assert response["turns"][0]["error"]["type"] == "ProviderError"
 
 
+def test_batch_repl_fixture_fallback_refusal_never_applies_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+    from vibecomfy.porting.edit import session as edit_session_module
+
+    state = AgentEditState(
+        task="an unmatched fixture task",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+    context = TurnContext(session_id="fixture-fallback-session", turn_id="0001")
+    apply_calls: list[str] = []
+
+    class FallbackRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**_kwargs):
+            return {
+                "fixture": {
+                    "key": "fallback-key",
+                    "session": "unrelated",
+                    "match_kind": "fallback",
+                    "fallback_used": True,
+                },
+                "content": "Unrelated.\n```batch\ndone()\n```",
+            }
+
+    def _unexpected_apply(self, _batch):
+        apply_calls.append("apply")
+        raise AssertionError("fixture fallback must be rejected before apply")
+
+    monkeypatch.setattr(provider_mod, "_load_arnold_runtime", lambda: FallbackRuntime)
+    monkeypatch.setattr(
+        agent_edit_module,
+        "run_agent_turn_batch",
+        provider_mod.run_agent_turn_batch,
+    )
+    monkeypatch.setattr(edit_session_module.EditSession, "apply_batch", _unexpected_apply)
+
+    with pytest.raises(provider_mod.ProviderError) as exc_info:
+        agent_edit_module._stage_agent_batch_repl(state, context, route="arnold")
+
+    assert exc_info.value.fixture_error["code"] == "unmatched_task_fallback"
+    assert apply_calls == []
+    assert state.batch_session is not None
+
+
 def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
     tmp_path: Path,
 ) -> None:

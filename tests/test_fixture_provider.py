@@ -877,6 +877,109 @@ def test_fixture_provenance_survives_batch_normalization() -> None:
     assert normalized.audit_metadata["fixture"] == raw["fixture"]
 
 
+def test_composed_provider_rejects_v1_fallback_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import provider
+
+    class FallbackRuntime:
+        @staticmethod
+        def run_agent_turn(**_kwargs):
+            return {
+                "fixture": {
+                    "key": "fallback-key",
+                    "session": "unrelated",
+                    "match_kind": "fallback",
+                    "fallback_used": True,
+                },
+                "content": json.dumps({"python": "", "message": "unrelated"}),
+            }
+
+    monkeypatch.setattr(provider, "_load_arnold_runtime", lambda: FallbackRuntime)
+    with pytest.raises(provider.ProviderError, match="first-available fallback") as exc_info:
+        provider.run_agent_turn("unmatched task", "", route="arnold")
+    assert exc_info.value.fixture_error["code"] == "unmatched_task_fallback"
+    assert exc_info.value.fixture["fallback_used"] is True
+
+
+def test_composed_provider_rejects_batch_fallback_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import provider
+
+    class FallbackRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**_kwargs):
+            return {
+                "fixture": {
+                    "key": "fallback-key",
+                    "session": "unrelated",
+                    "match_kind": "fallback",
+                    "fallback_used": True,
+                },
+                "content": "Unrelated.\n```batch\ndone()\n```",
+            }
+
+    monkeypatch.setattr(provider, "_load_arnold_runtime", lambda: FallbackRuntime)
+    with pytest.raises(provider.ProviderError, match="first-available fallback") as exc_info:
+        provider.run_agent_turn_batch("unmatched task", [], route="arnold")
+    assert exc_info.value.fixture_error["code"] == "unmatched_task_fallback"
+    assert exc_info.value.fixture["fallback_used"] is True
+
+
+def test_composed_provider_rejects_delta_sidecar_fallback_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import provider
+
+    class FallbackRuntime:
+        @staticmethod
+        def run_agent_turn_delta(**_kwargs):
+            return fixture_provider._FixtureDeltaResponse(
+                message="Unrelated.",
+                audit_metadata={
+                    "fixture": {
+                        "key": "fallback-key",
+                        "session": "unrelated",
+                        "match_kind": "fallback",
+                        "fallback_used": True,
+                    }
+                },
+            )
+
+    monkeypatch.setattr(provider, "_load_arnold_runtime", lambda: FallbackRuntime)
+    with pytest.raises(provider.ProviderError, match="first-available fallback") as exc_info:
+        provider.run_agent_turn_delta("unmatched task", "{}", route="arnold")
+    assert exc_info.value.fixture_error["code"] == "unmatched_task_fallback"
+    assert exc_info.value.fixture["fallback_used"] is True
+
+
+@pytest.mark.parametrize("match_kind", ["hash", "substring", "explicit"])
+def test_composed_provider_accepts_nonfallback_fixture_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    match_kind: str,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import provider
+
+    fixture = {
+        "key": "matched-key",
+        "session": "matched",
+        "match_kind": match_kind,
+        "fallback_used": False,
+    }
+    class MatchedRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**_kwargs):
+            return {
+                "fixture": fixture,
+                "content": "Matched.\n```batch\ndone()\n```",
+            }
+
+    monkeypatch.setattr(provider, "_load_arnold_runtime", lambda: MatchedRuntime)
+    normalized = provider.run_agent_turn_batch("matched task", [], route="arnold")
+    assert normalized.audit_metadata["fixture"] == fixture
+
+
 def test_fixture_delta_sidecar_survives_strict_provider_normalization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
