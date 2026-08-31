@@ -12,6 +12,9 @@ This version uses Python as the authoring surface instead. JSON remains the
 import/export and runtime format; Python is the translation layer where agents
 read, edit, validate, and compose workflows.
 
+This is an authoring layer rather than an agent protocol;
+[VibeComfy And Comfy MCP](comfy_mcp.md) explains that boundary.
+
 ## What Text Representation Is Best For Agents?
 
 For example, imagine you are not looking at the ComfyUI canvas. You are an

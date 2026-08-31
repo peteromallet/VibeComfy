@@ -65,6 +65,11 @@ VibeComfy preserves a workflow contract for agents. See
 [What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md) for the
 object at the center of that contract.
 
+Comfy MCP provides an agent access layer for operating ComfyUI. VibeComfy
+focuses on the authoring layer: understanding workflows, finding proven
+patterns, making complex edits, and preserving the result. See
+[VibeComfy And Comfy MCP](docs/comparisons/comfy_mcp.md).
+
 ## Getting Started
 
 Each path below is meant to be copied directly into an agent. The ComfyUI path
@@ -288,6 +293,7 @@ evidence; do not make compiled API JSON the reusable source of truth.
 - [What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md)
 - [Why Python, not JSON?](docs/comparisons/why_python_not_json.md)
 - [ComfyScript comparison](docs/comparisons/comfyscript.md)
+- [Comfy MCP comparison](docs/comparisons/comfy_mcp.md)
 
 ## Repository Layout
 
