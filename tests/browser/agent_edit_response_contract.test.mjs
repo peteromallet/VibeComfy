@@ -2683,6 +2683,7 @@ test("browser terminal alias matrix rejects unbound applied aliases", () => {
     ["delta", [{ op: { op: "forged" } }]],
     ["candidateTransaction", { state: "candidate" }],
     ["candidate_transaction", { state: "candidate" }],
+    ["candidateTransaction", { graph: { nodes: [] } }],
     ["applyAllowed", false],
     ["canvasApplyAllowed", false],
     ["queueAllowed", false],
@@ -2704,6 +2705,7 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
     turnId: "t",
     planHash: "plan-v2",
   });
+  transaction.hashes.candidate_graph_hash = sha256Hex(graph);
   const acceptedBatch = [];
   const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
   const normalized = normalizeAgentEditResponse({
@@ -2714,7 +2716,6 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
     turn_id: "t",
     candidate: { graph },
     candidate_transaction: transaction,
-    accepted_batch: acceptedBatch,
     outcome: { kind: "candidate" },
     apply_eligible: true,
     authority_receipt: {
@@ -2735,6 +2736,90 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
   assert.equal(normalized.terminalState, "applied");
   assert.ok(normalized.candidateTransaction);
   assert.equal(normalized.applyEligible, true);
+  assert.deepEqual(normalized.raw.accepted_batch, acceptedBatch);
+});
+
+test("browser binds transaction hash and identity and rejects conflicting aliases", () => {
+  const graph = { nodes: [], links: [] };
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: [] }));
+  const baseReceipt = {
+    contract_version: "authority_receipt_v2",
+    schema_version: "2.0.0",
+    session_id: "s",
+    turn_id: "t",
+    submit_graph_hash: "a".repeat(64),
+    candidate_hash: sha256Hex(graph),
+    accepted_batch_digest: deltaDigest,
+    cumulative_delta_hash: deltaDigest,
+    replay_ok: true,
+    candidate_matches: true,
+    verification_kind: "layout_structural_noop",
+    op_count: 0,
+  };
+  const validTransaction = () => {
+    const transaction = makeValidCandidateTransactionV2({
+      sessionId: "s",
+      turnId: "t",
+      planHash: "plan-v2",
+    });
+    transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+    return transaction;
+  };
+  const normalize = (transaction, aliases = {}, receipt = baseReceipt) => normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: receipt,
+    ...aliases,
+  });
+
+  for (const mutate of [
+    (transaction) => { transaction.hashes.candidate_graph_hash = "f".repeat(64); },
+    (transaction) => {
+      transaction.session_id = "other";
+      transaction.candidate_authority.session_id = "other";
+    },
+    (transaction) => {
+      transaction.turn_id = "other";
+      transaction.candidate_authority.turn_id = "other";
+    },
+  ]) {
+    const transaction = validTransaction();
+    mutate(transaction);
+    const normalized = normalize(transaction);
+    assert.equal(normalized.terminalState, "undetermined");
+    assert.equal(normalized.candidateGraph, null);
+    assert.equal(normalized.applyEligible, false);
+  }
+
+  const receiptMismatch = normalize(validTransaction(), {}, {
+    ...baseReceipt,
+    candidate_hash: "e".repeat(64),
+  });
+  assert.equal(receiptMismatch.terminalState, "undetermined");
+  assert.equal(receiptMismatch.candidateGraph, null);
+  assert.equal(receiptMismatch.applyEligible, false);
+
+  const first = validTransaction();
+  const second = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "other-plan",
+  });
+  second.hashes.candidate_graph_hash = sha256Hex(graph);
+  const conflicting = normalize(first, {
+    candidate_transaction: first,
+    candidateTransaction: second,
+  });
+  assert.equal(conflicting.terminalState, "undetermined");
+  assert.equal(conflicting.candidateGraph, null);
+  assert.equal(conflicting.applyEligible, false);
 });
 
 test("browser terminal rejects non-hex receipt hash shapes", () => {

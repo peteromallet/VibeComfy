@@ -731,6 +731,7 @@ def _canonical_terminal_aliases(
     payload: Mapping[str, Any],
     candidate_graph: Any,
     accepted_batch: Any,
+    receipt_candidate_hash: Any = None,
 ) -> tuple[bool, str, Any, dict[str, Any]]:
     """Parse every applied product alias into one closed-world binding.
 
@@ -766,8 +767,8 @@ def _canonical_terminal_aliases(
                 valid, reason = False, "malformed_candidate_transaction"
             if not valid:
                 return False, reason or "malformed_candidate_transaction", accepted_batch, dict(payload)
-        elif not isinstance(transaction.get("graph"), Mapping):
-            return False, "malformed_candidate_transaction", accepted_batch, dict(payload)
+        else:
+            return False, "unsupported_candidate_transaction", accepted_batch, dict(payload)
         transaction_values.append(transaction)
     if len(transaction_values) == 2 and transaction_values[0] != transaction_values[1]:
         return False, "conflicting_candidate_transaction_aliases", accepted_batch, dict(payload)
@@ -788,6 +789,8 @@ def _canonical_terminal_aliases(
     ]
     if hash_values and any(value != computed_candidate_hash for value in hash_values):
         return False, "candidate_hash_alias_mismatch", accepted_batch, dict(payload)
+    if receipt_candidate_hash is not None and receipt_candidate_hash != computed_candidate_hash:
+        return False, "candidate_hash_receipt_mismatch", accepted_batch, dict(payload)
 
     eligibility_booleans = (
         "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
@@ -813,8 +816,18 @@ def _canonical_terminal_aliases(
         plan = transaction.get("plan")
         transaction_hash = hashes.get("candidate_graph_hash") if isinstance(hashes, Mapping) else None
         transaction_batch = plan.get("accepted_batch") if isinstance(plan, Mapping) else None
-        if not isinstance(transaction_hash, str) or not isinstance(transaction_batch, list):
+        if (
+            not isinstance(transaction_hash, str)
+            or transaction_hash != computed_candidate_hash
+            or not isinstance(transaction_batch, list)
+        ):
             return False, "candidate_transaction_binding_mismatch", accepted_batch, dict(payload)
+        for identity in ("session_id", "turn_id"):
+            expected = payload.get(identity)
+            if expected is None:
+                expected = _receipt_value(payload.get("authority_receipt"), identity)
+            if transaction.get(identity) != expected:
+                return False, f"candidate_transaction_{identity}_mismatch", accepted_batch, dict(payload)
         if accepted_batch is None:
             accepted_batch = transaction_batch
         elif accepted_batch != transaction_batch:
@@ -848,7 +861,7 @@ def _canonical_terminal_aliases(
         "applyAllowed", "canvasApplyAllowed", "queueAllowed", "applyEligibility",
     ):
         cleaned.pop(key, None)
-    if "accepted_batch" in payload or "acceptedBatch" in payload:
+    if "accepted_batch" in payload or "acceptedBatch" in payload or transaction_values:
         cleaned["accepted_batch"] = accepted_batch
     for key in ("report", "evidence", "failure"):
         if key in cleaned:
@@ -1058,6 +1071,7 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
             normalized,
             candidate_graph,
             accepted_batch,
+            _receipt_value(normalized.get("authority_receipt"), "candidate_hash"),
         )
         invalid_claim = (
             not isinstance(existing_outcome, Mapping)

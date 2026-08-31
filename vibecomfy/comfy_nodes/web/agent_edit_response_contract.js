@@ -620,19 +620,21 @@ function candidateGraphCarriersAgree(raw, candidateGraph) {
   for (const key of ["candidate_transaction", "candidateTransaction"]) {
     if (Object.hasOwn(raw, key)) {
       if (!isObject(raw[key])) return false;
+      if (raw[key].contract_version !== "candidate_transaction_v2") return false;
+      let transaction;
+      try {
+        transaction = normalizeCandidateTransaction(raw[key]);
+      } catch (_error) {
+        transaction = null;
+      }
+      if (!transaction) return false;
       if (Object.hasOwn(raw[key], "graph")) {
         if (!isObject(raw[key].graph)) return false;
         carriers.push(raw[key].graph);
       } else {
-        if (raw[key].contract_version !== "candidate_transaction_v2") return false;
-        let transaction;
-        try {
-          transaction = normalizeCandidateTransaction(raw[key]);
-        } catch (_error) {
-          transaction = null;
-        }
         if (!transaction || transaction.hashes?.candidate_graph_hash == null) return false;
       }
+      if (transaction.hashes?.candidate_graph_hash !== sha256Hex(candidateGraph)) return false;
     }
   }
   const expected = sha256Hex(candidateGraph);
@@ -714,6 +716,12 @@ function canonicalTerminalAliases(raw, candidateGraph) {
     }
   }
   for (const transaction of transactionValues) {
+    for (const identity of ["session_id", "turn_id"]) {
+      const expected = raw[identity] ?? raw.authority_receipt?.[identity];
+      if (transaction[identity] !== expected) {
+        return { valid: false, reason: `candidate_transaction_${identity}_mismatch`, acceptedBatch, raw };
+      }
+    }
     const transactionBatch = transaction?.plan?.accepted_batch;
     if (!Array.isArray(transactionBatch)) {
       return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
@@ -728,6 +736,15 @@ function canonicalTerminalAliases(raw, candidateGraph) {
       } catch (_error) {
         return { valid: false, reason: "candidate_transaction_delta_mismatch", acceptedBatch, raw };
       }
+    }
+  }
+  if (transactionValues.length === 2) {
+    try {
+      if (canonicalJsonString(transactionValues[0]) !== canonicalJsonString(transactionValues[1])) {
+        return { valid: false, reason: "conflicting_candidate_transaction_aliases", acceptedBatch, raw };
+      }
+    } catch (_error) {
+      return { valid: false, reason: "conflicting_candidate_transaction_aliases", acceptedBatch, raw };
     }
   }
 

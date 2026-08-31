@@ -7,6 +7,7 @@ contracts.
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -1291,6 +1292,7 @@ class TestExecutorResult:
             ("delta", [{"op": {"op": "forged"}}]),
             ("candidateTransaction", {"state": "candidate"}),
             ("candidate_transaction", {"state": "candidate"}),
+            ("candidateTransaction", {"graph": {"nodes": []}}),
             ("applyAllowed", False),
             ("canvasApplyAllowed", False),
             ("queueAllowed", False),
@@ -1337,6 +1339,11 @@ class TestExecutorResult:
             "links": [], "groups": [],
         }
         transaction = _transaction()
+        transaction["session_id"] = "s"
+        transaction["turn_id"] = "t"
+        transaction["candidate_authority"]["session_id"] = "s"
+        transaction["candidate_authority"]["turn_id"] = "t"
+        transaction["hashes"]["candidate_graph_hash"] = payload_hash(graph)
         digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": []}))
         payload = normalize_terminal_envelope({
             "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
@@ -1348,10 +1355,95 @@ class TestExecutorResult:
                 "verification_kind": "layout_structural_noop", "op_count": 0,
             },
             "candidate": {"graph": graph}, "candidate_transaction": transaction,
-            "accepted_batch": [], "outcome": {"kind": "candidate"}, "apply_eligible": True,
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
         })
         assert payload["terminal_state"] == "applied"
         assert payload["candidate"]["graph"] == graph
+        assert payload["accepted_batch"] == []
+
+    def test_terminal_normalizer_binds_transaction_hash_and_identity(self) -> None:
+        from tests.test_candidate_transaction_layout_contract import _transaction
+
+        graph = {
+            "nodes": [{
+                "vibecomfy_uid": "node-1", "type": "PreviewImage",
+                "pos": [300, 100], "size": [200, 100],
+            }],
+            "links": [], "groups": [],
+        }
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": []}))
+
+        def terminal(
+            transaction: dict[str, object],
+            *,
+            receipt_candidate_hash: str = payload_hash(graph),
+        ) -> dict[str, object]:
+            return normalize_terminal_envelope({
+                "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+                "authority_receipt": {
+                    "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                    "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                    "candidate_hash": receipt_candidate_hash, "accepted_batch_digest": digest,
+                    "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                    "verification_kind": "layout_structural_noop", "op_count": 0,
+                },
+                "candidate": {"graph": graph}, "candidate_transaction": transaction,
+                "outcome": {"kind": "candidate"}, "apply_eligible": True,
+            })
+
+        def valid_transaction() -> dict[str, object]:
+            transaction = _transaction()
+            transaction["session_id"] = "s"
+            transaction["turn_id"] = "t"
+            transaction["candidate_authority"]["session_id"] = "s"
+            transaction["candidate_authority"]["turn_id"] = "t"
+            transaction["hashes"]["candidate_graph_hash"] = payload_hash(graph)
+            return transaction
+
+        for mutate in (
+            lambda tx: tx["hashes"].update(candidate_graph_hash="f" * 64),
+            lambda tx: (
+                tx.update(session_id="other"),
+                tx["candidate_authority"].update(session_id="other"),
+            ),
+            lambda tx: (
+                tx.update(turn_id="other"),
+                tx["candidate_authority"].update(turn_id="other"),
+            ),
+        ):
+            transaction = valid_transaction()
+            mutate(transaction)
+            normalized = terminal(transaction)
+            assert normalized["terminal_state"] == "undetermined"
+            assert normalized["ok"] is False
+            assert normalized["apply_eligible"] is False
+            assert "candidate" not in normalized
+
+        normalized = terminal(valid_transaction(), receipt_candidate_hash="e" * 64)
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
+
+        first = valid_transaction()
+        second = copy.deepcopy(first)
+        second["plan_hash"] = "other-plan"
+        second["candidate_authority"]["plan_hash"] = "other-plan"
+        normalized = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "layout_structural_noop", "op_count": 0,
+            },
+            "candidate": {"graph": graph}, "candidate_transaction": first,
+            "candidateTransaction": second, "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+        })
+        assert normalized["terminal_state"] == "undetermined"
+        assert normalized["ok"] is False
+        assert normalized["apply_eligible"] is False
 
     def test_terminal_normalizer_rejects_non_hex_receipt_hash(self) -> None:
         graph = {"nodes": [{"id": 1}], "links": []}
