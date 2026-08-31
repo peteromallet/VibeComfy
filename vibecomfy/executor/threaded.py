@@ -31,7 +31,7 @@ from .contracts import (
 from .refusal_evidence import (
     RefusalEvidenceBundle,
     RefusalEvidenceHandle,
-    _register_executor_refusal_evidence,
+    _create_refusal_evidence_store,
     _authority_content_digest_for_observations,
     _ledger_integrity,
     authority_generation,
@@ -479,13 +479,42 @@ def inspect_named_runtime_absences(
     return tuple(missing)
 
 
+class _ExecutorRefusalEvidenceState:
+    """Trusted per-turn capture state bound to one graph and schema source."""
+
+    def __init__(
+        self,
+        request: ExecutorRequest,
+        schema_lookup: Callable[[str], Any] | None = None,
+    ) -> None:
+        self._request = request
+        self._provider = _FrozenSchemaAuthority(
+            schema_lookup or _default_schema_lookup
+        )
+        self._store = _create_refusal_evidence_store()
+
+    def capture(self) -> RefusalEvidenceHandle:
+        bundle = _collect_refusal_evidence_bundle(self._request, self._provider)
+        handle = self._store._register(bundle)
+        if handle is None:
+            raise RuntimeError("trusted refusal evidence store rejected capture")
+        return handle
+
+
 def inspect_refusal_evidence_ledger(
     request: ExecutorRequest,
     *,
     schema_lookup: Callable[[str], Any] | None = None,
 ) -> RefusalEvidenceHandle:
-    """Freeze the exact class-absence ledger shown to the threaded model."""
-    provider = _FrozenSchemaAuthority(schema_lookup or _default_schema_lookup)
+    """Capture exact authority evidence through the trusted executor state."""
+    return _ExecutorRefusalEvidenceState(request, schema_lookup).capture()
+
+
+def _collect_refusal_evidence_bundle(
+    request: ExecutorRequest,
+    provider: _FrozenSchemaAuthority,
+) -> RefusalEvidenceBundle:
+    """Build evidence from already-bound graph/provider state only."""
     ledger = {
         record["evidence_id"]: record
         for class_type in inspect_named_runtime_absences(
@@ -579,7 +608,7 @@ def inspect_refusal_evidence_ledger(
             source_generation=source_generation,
         ),
     )
-    return _register_executor_refusal_evidence(bundle)
+    return bundle
 
 
 def synthesize_inspect_refusal_implementation(

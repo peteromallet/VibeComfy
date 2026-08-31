@@ -228,10 +228,16 @@ class RefusalEvidenceHandle(Mapping[str, Mapping[str, Any]]):
 class RefusalEvidenceStore:
     """Executor-owned registry; entries are addressed only by opaque handles."""
 
-    __slots__ = ("__weakref__",)
+    __slots__ = ("_register_callback", "__weakref__")
 
     def __init__(self) -> None:
         raise TypeError("RefusalEvidenceStore is owned by the executor capture path")
+
+    def _register(self, bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle | None:
+        callback = getattr(self, "_register_callback", None)
+        if not callable(callback):
+            return None
+        return callback(self, bundle)
 
 def _make_refusal_evidence_registry() -> tuple[
     Any, Any
@@ -243,16 +249,26 @@ def _make_refusal_evidence_registry() -> tuple[
     stores: dict[int, RefusalEvidenceStore] = {}
     entries: dict[int, dict[str, RefusalEvidenceBundle]] = {}
 
-    def capture(bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle:
+    def create_store() -> RefusalEvidenceStore:
         store = object.__new__(RefusalEvidenceStore)
         store_identity = id(store)
         stores[store_identity] = store
-        token = secrets.token_urlsafe(32)
-        entries[store_identity] = {token: bundle}
-        return RefusalEvidenceHandle(
-            token=token,
-            evidence_ids=tuple(bundle.records),
-        )
+        entries[store_identity] = {}
+
+        def register(
+            candidate: RefusalEvidenceStore, bundle: RefusalEvidenceBundle
+        ) -> RefusalEvidenceHandle | None:
+            if stores.get(store_identity) is not candidate:
+                return None
+            token = secrets.token_urlsafe(32)
+            entries[store_identity][token] = bundle
+            return RefusalEvidenceHandle(
+                token=token,
+                evidence_ids=tuple(bundle.records),
+            )
+
+        store._register_callback = register
+        return store
 
     def resolve(handle: RefusalEvidenceHandle) -> RefusalEvidenceBundle | None:
         if type(handle) is not RefusalEvidenceHandle:
@@ -263,10 +279,10 @@ def _make_refusal_evidence_registry() -> tuple[
                 return bundle
         return None
 
-    return capture, resolve
+    return create_store, resolve
 
 
-_register_executor_refusal_evidence, _resolve_refusal_evidence = (
+_create_refusal_evidence_store, _resolve_refusal_evidence = (
     _make_refusal_evidence_registry()
 )
 
