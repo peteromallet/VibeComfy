@@ -15,10 +15,15 @@ def _require_regeneration_dependencies_if_fallback_needed() -> None:
     """Guard only tests that exercise synthetic media regeneration.
 
     A checkout carrying all committed media can copy without optional media
-    packages.  A sparse/asset-less checkout takes the fallback path, which
-    intentionally requires PyAV and Pillow.
+    packages unless the explicit regeneration switch is set.  A
+    sparse/asset-less checkout, or a forced regeneration run, intentionally
+    requires PyAV and Pillow.
     """
-    if all((fixtures.FIXTURE_ROOT / name).is_file() for name in fixtures.SMOKE_FIXTURES):
+    regeneration_requested = os.environ.get("VIBECOMFY_FIXTURES_REGENERATE") == "1"
+    committed_corpus_available = all(
+        (fixtures.FIXTURE_ROOT / name).is_file() for name in fixtures.SMOKE_FIXTURES
+    )
+    if committed_corpus_available and not regeneration_requested:
         return
     pytest.importorskip("av", reason="fixture fallback requires the optional PyAV dependency")
     pytest.importorskip("PIL", reason="fixture fallback requires the optional Pillow dependency")
@@ -144,6 +149,33 @@ def test_copy_smoke_fixtures_copies_all(tmp_path: Path) -> None:
             assert target.stat().st_size == source.stat().st_size
         else:
             assert target.stat().st_size > 0
+
+
+def test_regeneration_guard_honors_forced_mode_with_committed_corpus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forced regeneration checks media prerequisites even when copies exist."""
+    for name in fixtures.SMOKE_FIXTURES:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(fixtures, "FIXTURE_ROOT", tmp_path)
+    monkeypatch.setenv("VIBECOMFY_FIXTURES_REGENERATE", "1")
+    requested: list[str] = []
+
+    def record_importorskip(name: str, **_: object) -> None:
+        requested.append(name)
+
+    monkeypatch.setattr(pytest, "importorskip", record_importorskip)
+    monkeypatch.delenv("VIBECOMFY_FIXTURES_REGENERATE", raising=False)
+    _require_regeneration_dependencies_if_fallback_needed()
+    assert requested == []
+
+    monkeypatch.setenv("VIBECOMFY_FIXTURES_REGENERATE", "1")
+    _require_regeneration_dependencies_if_fallback_needed()
+
+    assert requested == ["av", "PIL"]
 
 
 def test_copy_smoke_fixtures_is_idempotent(tmp_path: Path) -> None:
