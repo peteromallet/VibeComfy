@@ -453,7 +453,17 @@ function nativeNodeIdentityKey(value) {
     throw error;
   }
   if (typeof value === "number") {
-    return String(canonicalizeContractNumeric(value));
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      const error = new Error("Native node id must be a finite integer.");
+      error.code = "non_canonical_number";
+      throw error;
+    }
+    if (!Number.isSafeInteger(value)) {
+      const error = new Error("Native node id exceeds the JS safe integer range.");
+      error.code = "non_canonical_number";
+      throw error;
+    }
+    return String(value);
   }
   throw projectionMalformedGraph("Native node id must be a string or number.");
 }

@@ -231,6 +231,45 @@ def test_typed_projection_canonicalizes_numeric_native_ids_like_browser() -> Non
     assert caught.value.code == "non_canonical_number"
 
 
+def test_typed_projection_native_numeric_identity_contract_is_integral_and_safe() -> None:
+    accepted_numeric_ids = (0, -0.0, 7, -7, 7.0, 1e3, 9_007_199_254_740_991, -9_007_199_254_740_991)
+    for index, native_id in enumerate(accepted_numeric_ids):
+        graph = {
+            "nodes": [{"id": native_id, "vibecomfy_uid": f"accepted-{index}", "type": "Vendor.Custom"}],
+            "links": [],
+        }
+        project_graph_v1(graph, "structural_v1")
+
+    rejected_numeric_ids = (1.5, 1e-6, -0.25, float("nan"), float("inf"), float("-inf"), 2**53, -(2**53))
+    for index, native_id in enumerate(rejected_numeric_ids):
+        graph = {
+            "nodes": [{"id": native_id, "vibecomfy_uid": f"rejected-{index}", "type": "Vendor.Custom"}],
+            "links": [],
+        }
+        with pytest.raises(ContractError) as caught:
+            project_graph_v1(graph, "structural_v1")
+        assert caught.value.code == "non_canonical_number"
+
+    for index, native_id in enumerate(("0", "-0", "1.5", "1e-6", "NaN", "9007199254740992")):
+        graph = {
+            "nodes": [{"id": native_id, "vibecomfy_uid": f"string-{index}", "type": "Vendor.Custom"}],
+            "links": [],
+        }
+        project_graph_v1(graph, "structural_v1")
+
+    for index, (native_id, string_id) in enumerate(((0, "0"), (-0.0, "0"), (7, "7"), (7.0, "7"), (1e3, "1000"))):
+        graph = {
+            "nodes": [
+                {"id": native_id, "vibecomfy_uid": f"collision-a-{index}", "type": "Vendor.Custom"},
+                {"id": string_id, "vibecomfy_uid": f"collision-b-{index}", "type": "Vendor.Custom"},
+            ],
+            "links": [],
+        }
+        with pytest.raises(ContractError) as caught:
+            project_graph_v1(graph, "structural_v1")
+        assert caught.value.code == "duplicate_identity"
+
+
 def test_typed_projection_preserves_unknown_custom_node_types_and_fields() -> None:
     graph = {
         "nodes": [{

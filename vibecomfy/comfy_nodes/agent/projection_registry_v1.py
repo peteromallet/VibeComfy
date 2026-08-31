@@ -188,12 +188,16 @@ def _native_node_identity_key(value: Any) -> str:
         return value
     if isinstance(value, bool):
         raise ContractError("Native node id must not be boolean", "non_canonical_number")
-    if isinstance(value, (int, float)):
-        normalized = canonicalize_contract_numeric(
-            value,
-            finite_error_code="non_finite_number",
-        )
-        return canonical_json(normalized)
+    if isinstance(value, int):
+        if abs(value) > 9007199254740991:
+            raise ContractError("Native node id exceeds the JS safe integer range", "non_canonical_number")
+        return str(value)
+    if isinstance(value, float):
+        if not value.is_integer() or not value == value or value in (float("inf"), float("-inf")):
+            raise ContractError("Native node id must be a finite integer", "non_canonical_number")
+        if abs(value) > 9007199254740991:
+            raise ContractError("Native node id exceeds the JS safe integer range", "non_canonical_number")
+        return str(int(value))
     raise ContractError("Native node id must be a string or number", "malformed_graph")
 
 def _validate_projection_node_identities(nodes: list[Any]) -> None:

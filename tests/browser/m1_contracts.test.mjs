@@ -198,6 +198,46 @@ test("typed projections use shared validation precedence and numeric IDs", () =>
     (error) => error.code === "non_canonical_number",
   );
 });
+test("typed projection native numeric identity contract is integral and safe", () => {
+  const acceptedNumericIds = [0, -0, 7, -7, 7.0, 1e3, 9007199254740991, -9007199254740991];
+  acceptedNumericIds.forEach((nativeId, index) => {
+    projectGraphV1({
+      nodes: [{ id: nativeId, vibecomfy_uid: `accepted-${index}`, type: "Vendor.Custom" }],
+      links: [],
+    }, "structural_v1");
+  });
+
+  const rejectedNumericIds = [1.5, 1e-6, -0.25, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2 ** 53, -(2 ** 53)];
+  rejectedNumericIds.forEach((nativeId, index) => {
+    assert.throws(
+      () => projectGraphV1({
+        nodes: [{ id: nativeId, vibecomfy_uid: `rejected-${index}`, type: "Vendor.Custom" }],
+        links: [],
+      }, "structural_v1"),
+      (error) => error.code === "non_canonical_number",
+    );
+  });
+
+  ["0", "-0", "1.5", "1e-6", "NaN", "9007199254740992"].forEach((nativeId, index) => {
+    projectGraphV1({
+      nodes: [{ id: nativeId, vibecomfy_uid: `string-${index}`, type: "Vendor.Custom" }],
+      links: [],
+    }, "structural_v1");
+  });
+
+  [[0, "0"], [-0, "0"], [7, "7"], [7.0, "7"], [1e3, "1000"]].forEach(([nativeId, stringId], index) => {
+    assert.throws(
+      () => projectGraphV1({
+        nodes: [
+          { id: nativeId, vibecomfy_uid: `collision-a-${index}`, type: "Vendor.Custom" },
+          { id: stringId, vibecomfy_uid: `collision-b-${index}`, type: "Vendor.Custom" },
+        ],
+        links: [],
+      }, "structural_v1"),
+      (error) => error.code === "duplicate_identity",
+    );
+  });
+});
 test("typed projection preserves unknown custom node types and fields", () => {
   const graph = {
     nodes: [{
