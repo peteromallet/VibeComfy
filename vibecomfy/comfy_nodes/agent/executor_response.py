@@ -56,6 +56,9 @@ _NON_APPLYABLE_FORBIDDEN_KEYS = {
     "candidate",
     "graph",
     "candidate_graph",
+    "candidateGraph",
+    "candidateTransaction",
+    "acceptedBatch",
 }
 
 # Legacy alias kept for callers and ledger traceability.
@@ -82,6 +85,10 @@ def _strip_non_applyable_forbidden_fields(value: Any) -> Any:
             "terminal_state" in value or "authority_receipt" in value
         )
         for key, item in value.items():
+            if key == "authority_receipt":
+                # Receipt hashes are authority evidence, not product aliases.
+                stripped[key] = item
+                continue
             if key in _NON_APPLYABLE_FORBIDDEN_KEYS or key.startswith("candidate_"):
                 continue
             if key in {"apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed"}:
@@ -96,6 +103,8 @@ def _strip_non_applyable_forbidden_fields(value: Any) -> Any:
         return stripped
     if isinstance(value, list):
         return [_strip_non_applyable_forbidden_fields(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_non_applyable_forbidden_fields(item) for item in value)
     return value
 
 

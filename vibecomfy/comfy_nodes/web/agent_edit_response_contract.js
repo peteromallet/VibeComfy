@@ -7,7 +7,9 @@ import {
   PUBLIC_OUTCOME_KINDS,
   INTERNAL_OUTCOME_KIND_MAP,
   FAILURE_HINT_KEYS,
+  readDeltaEnvelope,
 } from "./agent_edit_response_contract_generated.js";
+import { sha256Hex } from "./canonical_hash.js";
 
 const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "clarify",
@@ -612,19 +614,47 @@ function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility) {
     terminalReason = "unknown_terminal_state";
   }
   const replay = isObject(receipt?.replay) ? receipt.replay : receipt;
+  const hash = (value) => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  const receiptCopiesAgree = receipt && replay
+    ? ["replay_ok", "candidate_matches", "error", "op_count", "verification_kind",
+      "persisted_candidate_hash", "recomputed_candidate_hash", "candidate_hash",
+      "cumulative_delta_hash", "accepted_batch_digest", "session_id", "turn_id"]
+      .every((key) => !(key in receipt) || !(key in replay) || receipt[key] === replay[key])
+    : true;
+  const identityBound = receipt
+    && typeof receipt.session_id === "string" && receipt.session_id
+    && typeof receipt.turn_id === "string" && receipt.turn_id
+    && (!raw.session_id || raw.session_id === receipt.session_id)
+    && (!raw.turn_id || raw.turn_id === receipt.turn_id);
+  const deltaEnvelope = readDeltaEnvelope(raw);
+  const opCount = replay?.op_count;
+  const layoutNoop = replay?.verification_kind === "layout_structural_noop";
+  const deltaCoherent = layoutNoop
+    ? (!Array.isArray(raw.accepted_batch) || raw.accepted_batch.length === 0)
+    : Number.isInteger(opCount) && opCount > 0
+      && Array.isArray(raw.accepted_batch) && raw.accepted_batch.length > 0
+      && isObject(deltaEnvelope)
+      && hash(receipt?.cumulative_delta_hash)
+      && receipt.cumulative_delta_hash === sha256Hex(deltaEnvelope);
   const receiptValid = terminalState !== "applied"
     || (
       receipt
       && receipt.contract_version === "authority_receipt_v2"
-      && typeof receipt.schema_version === "string"
-      && typeof receipt.submit_graph_hash === "string"
-      && typeof receipt.candidate_hash === "string"
-      && typeof receipt.cumulative_delta_hash === "string"
+      && receipt.schema_version === "2.0.0"
+      && hash(receipt.submit_graph_hash)
+      && hash(receipt.candidate_hash)
+      && hash(receipt.cumulative_delta_hash)
       && receipt.accepted_batch_digest === receipt.cumulative_delta_hash
       && replay?.replay_ok === true
       && replay?.candidate_matches === true
+      && !replay?.error
       && typeof replay?.verification_kind === "string"
+      && receiptCopiesAgree
+      && identityBound
       && isObject(candidateGraph)
+      && sha256Hex(candidateGraph) === receipt.candidate_hash
+      && (!raw.candidate_graph_hash || raw.candidate_graph_hash === receipt.candidate_hash)
+      && deltaCoherent
     );
   if (terminalState === "applied" && !receiptValid) {
     terminalState = "undetermined";

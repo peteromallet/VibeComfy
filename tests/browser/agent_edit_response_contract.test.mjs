@@ -2407,15 +2407,31 @@ test("terminal authority rejection remains typed and non-applyable in browser pr
 });
 
 test("browser projection demotes an applied terminal with an unbound receipt", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
   const normalized = normalizeAgentEditResponse({
     ok: true,
     route: "revise",
     terminal_state: "applied",
-    candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
-    accepted_batch: [{ op: { op: "set_node_field" } }],
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: [],
     outcome: { kind: "candidate" },
     apply_eligible: true,
-    authority_receipt: { replay_ok: true, candidate_matches: true },
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: "0".repeat(64),
+      accepted_batch_digest: "1".repeat(64),
+      cumulative_delta_hash: "1".repeat(64),
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
   }, { endpoint: "/submit" });
 
   assert.equal(normalized.terminalState, "undetermined");

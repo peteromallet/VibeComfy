@@ -1000,6 +1000,20 @@ class TestAgentTurnResult:
 
 
 class TestExecutorResult:
+    @pytest.mark.parametrize("bad_state", ({"x": 1}, ["bogus"], 7, None))
+    def test_terminal_normalizer_is_total_for_malformed_state_types(self, bad_state: object) -> None:
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "terminal_state": bad_state,
+            "candidate": {"graph": {"nodes": [{"id": 1}]}},
+            "accepted_batch": [{"op": "edit"}],
+            "outcome": {"kind": "candidate"},
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert payload["outcome"]["kind"] == "error"
+        assert "candidate" not in payload
+
     def test_terminal_normalizer_scrubs_unknown_nested_product_carriers(self) -> None:
         payload = normalize_terminal_envelope({
             "ok": True,
@@ -1090,6 +1104,74 @@ class TestExecutorResult:
         assert payload["apply_eligible"] is False
         assert "candidate" not in payload
         assert "candidate_graph" not in payload["failure"]
+
+    def test_terminal_normalizer_scrubs_camelcase_and_tuple_nested_aliases(self) -> None:
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "terminal_state": "no_candidate",
+            "candidateGraph": {"nodes": [{"id": 1}]},
+            "candidateTransaction": {"graph": {"nodes": [{"id": 1}]}},
+            "acceptedBatch": [{"op": "edit"}],
+            "candidateHash": "hash",
+            "report": {"executor": {"implementation": {
+                "failure": ({"candidateGraph": {"nodes": []}},),
+                "candidateTransaction": {"graph": {"nodes": []}},
+                "acceptedBatch": [{"op": "edit"}],
+            }}},
+            "evidence": {"implementation": {"failure": (
+                {"candidateHash": "hash"},
+            )}},
+            "outcome": {"kind": "candidate"},
+        })
+        assert payload["terminal_state"] == "no_candidate"
+        for key in ("candidateGraph", "candidateTransaction", "acceptedBatch", "candidateHash"):
+            assert key not in payload
+        implementation = payload["report"]["executor"]["implementation"]
+        assert "candidateTransaction" not in implementation
+        assert implementation["failure"] == ({},)
+        assert payload["evidence"]["implementation"]["failure"] == ({},)
+
+    def test_terminal_normalizer_rejects_contradictory_nested_receipt(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        receipt = {
+            "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+            "session_id": "s", "turn_id": "t", "submit_graph_hash": "a" * 64,
+            "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+            "cumulative_delta_hash": digest, "replay_ok": False,
+            "candidate_matches": False, "verification_kind": "delta_replay", "op_count": 1,
+            "replay": {"replay_ok": True, "candidate_matches": True,
+                        "verification_kind": "delta_replay", "op_count": 1},
+        }
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": receipt, "candidate": {"graph": graph},
+            "accepted_batch": accepted_batch, "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert "candidate" not in payload
+
+    def test_terminal_normalizer_rejects_non_layout_zero_op_delta(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        digest = "a" * 64
+        payload = normalize_terminal_envelope({
+            "ok": True, "session_id": "s", "turn_id": "t", "terminal_state": "applied",
+            "authority_receipt": {
+                "contract_version": "authority_receipt_v2", "schema_version": "2.0.0",
+                "session_id": "s", "turn_id": "t", "submit_graph_hash": "b" * 64,
+                "candidate_hash": payload_hash(graph), "accepted_batch_digest": digest,
+                "cumulative_delta_hash": digest, "replay_ok": True, "candidate_matches": True,
+                "verification_kind": "delta_replay", "op_count": 0,
+            },
+            "candidate": {"graph": graph}, "accepted_batch": [{"op": {"op": "edit"}}],
+            "outcome": {"kind": "candidate"}, "apply_eligible": True,
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert "accepted_batch" not in payload
 
     @pytest.mark.parametrize(
         "terminal_state",

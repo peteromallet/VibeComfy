@@ -662,6 +662,10 @@ _PRODUCT_KEYS = frozenset({
     "candidate", "candidate_graph", "candidate_transaction", "graph",
     "accepted_batch", "accepted_delta", "delta", "candidate_hash",
     "candidate_graph_hash", "candidate_structural_graph_hash",
+    # Browser/HTTP compatibility spellings must be closed under the same
+    # terminal scrubber as their snake_case counterparts.
+    "candidateGraph", "candidateTransaction", "acceptedBatch", "candidateHash",
+    "candidateGraphHash", "candidateStructuralGraphHash", "acceptedDelta",
 })
 _ELIGIBILITY_KEYS = frozenset({
     "apply_eligible", "applyEligibility", "apply_eligibility", "eligibility",
@@ -685,6 +689,22 @@ def _receipt_value(receipt: Any, key: str) -> Any:
     return summary.get(key) if summary is not None else None
 
 
+def _receipt_contradiction(receipt: Any) -> str | None:
+    """Reject conflicting summary/replay copies instead of choosing one."""
+    summary, replay = _receipt_parts(receipt)
+    if summary is None or replay is None:
+        return None
+    for key in (
+        "replay_ok", "candidate_matches", "replay_error", "op_count",
+        "verification_kind", "persisted_candidate_hash", "recomputed_candidate_hash",
+        "candidate_hash", "cumulative_delta_hash", "accepted_batch_digest",
+        "session_id", "turn_id",
+    ):
+        if key in summary and key in replay and summary.get(key) != replay.get(key):
+            return f"receipt_{key}_contradiction"
+    return None
+
+
 def _receipt_is_authoritative(
     payload: Mapping[str, Any],
     candidate_graph: Any,
@@ -701,6 +721,9 @@ def _receipt_is_authoritative(
     summary, _replay = _receipt_parts(receipt)
     if summary is None:
         return False, "missing_authority_receipt"
+    contradiction = _receipt_contradiction(receipt)
+    if contradiction is not None:
+        return False, contradiction
     if _receipt_value(receipt, "replay_ok") is not True:
         return False, "replay_not_ok"
     if _receipt_value(receipt, "candidate_matches") is not True:
@@ -750,6 +773,8 @@ def _receipt_is_authoritative(
         return False, "verification_kind_missing"
     if not isinstance(op_count, int) or isinstance(op_count, bool) or op_count < 0:
         return False, "invalid_op_count"
+    if verification_kind == "delta_replay" and op_count == 0:
+        return False, "zero_op_delta_not_applyable"
     if verification_kind != "layout_structural_noop" and op_count > 0:
         if not isinstance(accepted_batch, list) or not accepted_batch:
             return False, "accepted_delta_missing"
@@ -776,6 +801,8 @@ def _scrub_non_applied(value: Any, *, in_audit: bool = False) -> Any:
     """Remove product carriers recursively while retaining audit evidence."""
     if isinstance(value, list):
         return [_scrub_non_applied(item, in_audit=in_audit) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_non_applied(item, in_audit=in_audit) for item in value)
     if not isinstance(value, Mapping):
         return value
     cleaned: dict[str, Any] = {}
@@ -808,8 +835,8 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
     """
     normalized = deepcopy(dict(payload))
     explicit = normalized.get("terminal_state")
-    has_terminal = explicit is not None
-    if has_terminal and explicit not in _TERMINAL_STATES:
+    has_terminal = "terminal_state" in normalized
+    if has_terminal and (not isinstance(explicit, str) or explicit not in _TERMINAL_STATES):
         normalized["terminal_state"] = "undetermined"
         normalized["terminal_reason"] = "unknown_terminal_state"
         explicit = "undetermined"
@@ -2780,7 +2807,10 @@ class AgentTurnResult:
 
     @property
     def apply_eligible(self) -> bool:
-        return self.route in _APPLY_ELIGIBLE_ROUTES and self.candidate is not None
+        return (
+            self.candidate is not None
+            and (self.route in _APPLY_ELIGIBLE_ROUTES or self.terminal_state == "applied")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -2915,7 +2945,7 @@ class AgentTurnResult:
             and candidate_matches is True
         )
         if (
-            route in _APPLY_ELIGIBLE_ROUTES
+            (route in _APPLY_ELIGIBLE_ROUTES or terminal_state == "applied")
             and candidate_graph is not None
             and terminal_state not in {
                 "authority_rejected",
