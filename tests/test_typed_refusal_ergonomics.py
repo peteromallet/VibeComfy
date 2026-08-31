@@ -21,6 +21,7 @@ from vibecomfy.executor.threaded import (
     synthesize_inspect_refusal_implementation,
 )
 from vibecomfy.executor.refusal_evidence import FrozenRefusalLedger
+import vibecomfy.executor.refusal_evidence as refusal_evidence
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
 from tests.test_authority_nonapply_terminal import _route_test_graph, _route_test_provider
 from vibecomfy.porting.edit._interpret import interpret
@@ -295,6 +296,7 @@ def test_public_frozen_ledger_constructor_cannot_authenticate_fake_snapshot() ->
 
 
 def test_direct_capture_helper_requires_owner_capability() -> None:
+    assert not hasattr(refusal_evidence, "_issue_capture_owner")
     with pytest.raises(TypeError, match="authority collection"):
         FrozenRefusalLedger._from_capture(
             {},
@@ -488,6 +490,36 @@ def test_threaded_provider_generation_change_invalidates_frozen_ledger() -> None
     ledger = inspect_refusal_evidence_ledger(request, schema_lookup=provider)
     evidence_id = next(iter(ledger))
     provider._schemas["MTCNN"] = provider.get_schema("SaveImage")
+    result = synthesize_inspect_refusal_implementation(
+        request,
+        reply=(
+            '{"kind":"requires_custom_nodes","missing_classes":["MTCNN"],'
+            '"evidence":["%s"],"reply":"Install the detector pack."}'
+        ) % evidence_id,
+        schema_lookup=provider,
+        frozen_ledger=ledger,
+    )
+    assert result is not None
+    assert result.durable_response["outcome"]["kind"] == "noop"
+
+
+def test_threaded_markerless_provider_mutation_invalidates_frozen_ledger() -> None:
+    class MarkerlessProvider:
+        def __init__(self) -> None:
+            self.schema: object | None = None
+
+        def get_schema(self, _class_type: str) -> object | None:
+            return self.schema
+
+    provider = MarkerlessProvider()
+    request = ExecutorRequest(
+        query="Add MTCNN face detection",
+        graph={"nodes": {}},
+        expected_no_candidate_absent_classes=("MTCNN",),
+    )
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=provider)
+    evidence_id = next(iter(ledger))
+    provider.schema = _route_test_provider().get_schema("SaveImage")
     result = synthesize_inspect_refusal_implementation(
         request,
         reply=(

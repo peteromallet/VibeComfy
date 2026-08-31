@@ -29,13 +29,13 @@ from .contracts import (
 )
 from .refusal_evidence import (
     FrozenRefusalLedger,
+    _authority_content_digest_for_observations,
     authority_generation,
     class_absence_record,
     evidence_id_matches_record,
     feature_absence_record,
     evidence_record_matches_authority,
     frozen_ledger_matches_authority,
-    _issue_capture_owner,
     validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
@@ -117,10 +117,30 @@ class _FrozenSchemaAuthority:
 
     def __init__(self, source: Any) -> None:
         self.source = source
+        self.__capture_capability = object()
         self._observations: dict[str, Any] = {}
         self.content_digest = getattr(source, "content_digest", None)
         self.source_identity = id(source)
         self.source_generation = authority_generation(source)
+
+    def _capture_capability(self) -> object:
+        """Return the owner-bound mint capability to the ledger constructor."""
+        return self.__capture_capability
+
+    def capture_generation(self, class_types: tuple[str, ...]) -> str:
+        if self.source_generation is not None:
+            return self.source_generation
+        bounded = None
+        if callable(getattr(self.source, "get_schema", None)):
+            bounded = _authority_content_digest_for_observations(
+                {
+                    class_type: self._observations.get(class_type, _LOOKUP_UNAVAILABLE)
+                    for class_type in class_types
+                }
+            )
+        if bounded is not None:
+            return bounded
+        return f"identity:{self.source_identity}"
 
     def get_schema(self, class_type: str) -> Any:
         if class_type not in self._observations:
@@ -520,14 +540,18 @@ def inspect_refusal_evidence_ledger(
                 available_members=sorted(names),
             )
             ledger[record["evidence_id"]] = record
-    _issue_capture_owner(provider)
+    source_classes = tuple(
+        str(record.get("class_type"))
+        for record in ledger.values()
+        if isinstance(record.get("class_type"), str)
+    )
     return FrozenRefusalLedger._from_capture(
         ledger,
         graph=request.graph,
         schema_snapshot=provider.snapshot(),
         schema_content_digest=provider.content_digest,
         source_identity=provider.source_identity,
-        source_generation=provider.source_generation,
+        source_generation=provider.capture_generation(source_classes),
         owner=provider,
     )
 

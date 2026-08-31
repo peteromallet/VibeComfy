@@ -51,6 +51,35 @@ def authority_generation(source: Any) -> str | None:
     return "schemas:" + hashlib.sha256(encoded).hexdigest()
 
 
+def authority_content_digest(source: Any, class_types: tuple[str, ...]) -> str | None:
+    """Digest a bounded set of live ``get_schema`` observations.
+
+    Providers without a roster/generation marker still get freshness
+    protection, but only for the exact classes represented by the frozen
+    ledger.  A callable-only lookup is intentionally left opaque: it has no
+    provider-owned observation surface to revalidate.
+    """
+    getter = getattr(source, "get_schema", None)
+    if not callable(getter):
+        return None
+    observations: dict[str, Any] = {}
+    for class_type in sorted(set(class_types), key=str.casefold):
+        try:
+            observations[class_type] = getter(class_type)
+        except Exception:  # noqa: BLE001 - unavailable authority fails closed
+            return None
+    return _authority_content_digest_for_observations(observations)
+
+
+def _authority_content_digest_for_observations(observations: Mapping[str, Any]) -> str:
+    """Digest already-captured observations without consulting live authority."""
+    payload = {"classes": observations}
+    encoded = json.dumps(
+        _jsonable(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    return "bounded:" + hashlib.sha256(encoded).hexdigest()
+
+
 def _graph_classes(graph: Any) -> set[str]:
     classes: set[str] = set()
 
@@ -135,12 +164,6 @@ def _ledger_integrity(
 
 
 _LEDGER_TOKEN = object()
-_CAPTURE_OWNERS: set[int] = set()
-
-
-def _issue_capture_owner(owner: Any) -> None:
-    """Register one collector-owned capability for exactly one ledger mint."""
-    _CAPTURE_OWNERS.add(id(owner))
 
 
 class FrozenRefusalLedger(dict[str, dict[str, Any]]):
@@ -158,9 +181,13 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
         owner: Any,
         _token: object | None = None,
     ) -> None:
-        if _token is not _LEDGER_TOKEN or id(owner) not in _CAPTURE_OWNERS:
+        capability = getattr(owner, "_capture_capability", None)
+        if (
+            _token is not _LEDGER_TOKEN
+            or not callable(capability)
+            or capability() is None
+        ):
             raise TypeError("FrozenRefusalLedger must come from authority collection")
-        _CAPTURE_OWNERS.remove(id(owner))
         super().__init__((str(key), dict(value)) for key, value in records.items())
         self.graph_digest = graph_digest
         self.schema_content_digest = schema_content_digest
@@ -225,20 +252,27 @@ def frozen_ledger_matches_authority(
     ledger: FrozenRefusalLedger,
     *,
     graph: Any,
-    authority_source: Any = None,
+    authority_source: Any,
 ) -> bool:
     """Validate a ledger against its captured graph/schema witness only."""
     if not isinstance(ledger, FrozenRefusalLedger):
         return False
     if not ledger.integrity_valid() or ledger.graph_digest != graph_identity(graph):
         return False
-    if authority_source is not None:
-        if id(authority_source) != ledger.source_identity:
+    if id(authority_source) != ledger.source_identity:
+        return False
+    record_classes = tuple(
+        str(record.get("class_type"))
+        for record in ledger.values()
+        if isinstance(record.get("class_type"), str)
+    )
+    if not isinstance(ledger.source_generation, str) or not ledger.source_generation:
+        return False
+    if ledger.source_generation.startswith("bounded:"):
+        if authority_content_digest(authority_source, record_classes) != ledger.source_generation:
             return False
-        if (
-            ledger.source_generation is not None
-            and authority_generation(authority_source) != ledger.source_generation
-        ):
+    elif ledger.source_generation.startswith(("content_digest:", "schemas:")):
+        if authority_generation(authority_source) != ledger.source_generation:
             return False
     classes = _graph_classes(graph)
     for key, record in ledger.items():
