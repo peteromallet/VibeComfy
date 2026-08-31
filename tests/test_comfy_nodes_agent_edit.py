@@ -11207,6 +11207,7 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
 
 def test_registered_agent_status_route_redacts_unexpected_handler_exception(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     registered: dict[str, object] = {}
 
@@ -11248,7 +11249,8 @@ def test_registered_agent_status_route_redacts_unexpected_handler_exception(
     class _Request:
         query = {}
 
-    failed = asyncio.run(route(_Request()))
+    with caplog.at_level("ERROR", logger=route_module.__name__):
+        failed = asyncio.run(route(_Request()))
     assert failed["status"] == 500
     assert failed["body"] == {
         "ok": False,
@@ -11257,6 +11259,10 @@ def test_registered_agent_status_route_redacts_unexpected_handler_exception(
         "route_options": {},
     }
     assert secret not in json.dumps(failed["body"])
+    assert secret not in caplog.text
+    assert caplog.messages == [
+        "/vibecomfy/agent/status route handler failed; returning generic status response"
+    ]
 
     safe_status = {
         "ok": False,

@@ -2192,8 +2192,11 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
             try:
                 payload = _handle_agent_status(dict(request.query))
                 return _web.json_response(payload)
-            except Exception as exc:
-                _LOGGER.exception("/vibecomfy/agent/status route handler failed")
+            except Exception:
+                _LOGGER.error(
+                    "/vibecomfy/agent/status route handler failed; "
+                    "returning generic status response"
+                )
                 return _web.json_response(
                     {
                         "ok": False,
