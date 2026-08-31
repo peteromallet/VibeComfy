@@ -709,8 +709,11 @@ def _receipt_is_authoritative(
         return False, "replay_error"
     if summary.get("contract_version") != "authority_receipt_v2":
         return False, "receipt_contract_mismatch"
-    if not isinstance(summary.get("schema_version"), str) or not summary.get("schema_version"):
+    if summary.get("schema_version") != "2.0.0":
         return False, "receipt_schema_missing"
+    for identity in ("session_id", "turn_id"):
+        if not isinstance(summary.get(identity), str) or not summary.get(identity):
+            return False, f"receipt_{identity}_missing"
 
     for key in ("submit_graph_hash", "candidate_hash", "cumulative_delta_hash"):
         value = summary.get(key)
@@ -828,7 +831,26 @@ def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
         return normalized
 
     if state == "applied":
-        bound, reason = _receipt_is_authoritative(normalized, candidate_graph, accepted_batch)
+        existing_outcome = normalized.get("outcome")
+        invalid_claim = (
+            not isinstance(existing_outcome, Mapping)
+            or existing_outcome.get("kind") not in {"candidate", "candidate_transaction", "edit"}
+            or normalized.get("graph_unchanged") is True
+            or any(
+                key in normalized and normalized.get(key) is not True
+                for key in ("apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed")
+            )
+            or any(
+                isinstance(normalized.get(key), Mapping)
+                and normalized[key].get("applyable") is not True
+                for key in ("eligibility", "apply_eligibility")
+            )
+        )
+        bound, reason = (
+            (False, "invalid_outcome_or_eligibility")
+            if invalid_claim
+            else _receipt_is_authoritative(normalized, candidate_graph, accepted_batch)
+        )
         if not bound:
             state = "undetermined"
             normalized["terminal_state"] = state
@@ -2785,6 +2807,14 @@ class AgentTurnResult:
             payload["accepted_delta_ids"] = list(self.accepted_delta_ids)
         if self.evidence_refs:
             payload["evidence_refs"] = list(self.evidence_refs)
+        if self.terminal_state == "applied":
+            payload["outcome"] = {"kind": "candidate"}
+        elif self.terminal_state == "clarify":
+            payload["outcome"] = {"kind": "clarify"}
+        elif self.terminal_state in _NON_APPLIED_TERMINAL_STATES:
+            payload["outcome"] = {
+                "kind": "noop" if self.terminal_state in {"no_op", "no_candidate"} else "error"
+            }
         return normalize_terminal_envelope(payload)
 
     @classmethod
