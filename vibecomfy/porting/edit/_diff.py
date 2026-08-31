@@ -369,10 +369,25 @@ def _node_field_ops(
             if name not in pre_fields or name not in post_fields:
                 continue
         if pre_fields.get(name) != post_fields.get(name):
+            field_name = name
+            # Preserve the retained carrier spelling when both sides really
+            # store this logical field positionally.  The frozen row still
+            # supplies the name↔index proof; this is only the canonical wire
+            # spelling used by the edit delta (and avoids a synthetic named
+            # literal appearing beside a positional carrier).
+            row = _authority_row_for(pre_node, name_authority)
+            if row is not None and name in row:
+                index = row.index(name)
+                positional = f"widget_{index}"
+                if (
+                    positional in (getattr(pre_node, "widgets", {}) or {})
+                    and positional in (getattr(post_node, "widgets", {}) or {})
+                ):
+                    field_name = positional
             ops.append(
                 SetNodeFieldOp(
                     op="set_node_field",
-                    target=NodeFieldTarget("", uid, name),
+                    target=NodeFieldTarget("", uid, field_name),
                     value=post_fields.get(name),
                 )
             )

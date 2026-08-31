@@ -127,6 +127,62 @@ def test_artifact_tamper_controls_reject_untouched_widget_link_and_delta() -> No
     assert delta_receipt.replay_ok is False or delta_receipt.candidate_matches is False
 
 
+def test_exact_artifacts_reject_frozen_witness_tamper_and_absence() -> None:
+    """The production verifier must consume the artifact's frozen witness.
+
+    A changed roster and a missing row are both authority failures, even when
+    the ambient object-info provider could infer a plausible replacement.
+    Keep this control on every reported canary so a future carrier adapter
+    cannot regress one shape while the others remain covered.
+    """
+    cases = (
+        ("tripo_14_15", "26", "texture_quality", "detailed"),
+        ("acestep_32", "3", "steps", 30),
+        ("llama_82_83", "3", "max_tokens", 256),
+    )
+    for stem, uid, field, value in cases:
+        pre, post, table, envelope = _verify(stem, [(uid, field, value)])
+
+        unpinned_receipt = verify_replay(
+            pre,
+            envelope,
+            post,
+            schema_provider=OBJECT_INFO,
+        )
+        assert not (
+            unpinned_receipt.replay_ok and unpinned_receipt.candidate_matches
+        ), stem
+
+        absent = dict(table)
+        absent.pop(uid)
+        absent_receipt = verify_replay(
+            pre,
+            envelope,
+            post,
+            schema_provider=OBJECT_INFO,
+            name_authority=absent,
+        )
+        assert absent_receipt.replay_ok is False
+        assert "frozen_name_table" in (absent_receipt.error or "")
+
+        tampered = dict(table)
+        roster = list(tampered[uid])
+        # Duplicate one witness literal: it remains superficially shaped like
+        # a roster but cannot identify every positional slot uniquely.
+        roster[-1] = roster[0]
+        tampered[uid] = tuple(roster)
+        tampered_receipt = verify_replay(
+            pre,
+            envelope,
+            post,
+            schema_provider=OBJECT_INFO,
+            name_authority=tampered,
+        )
+        assert not (
+            tampered_receipt.replay_ok and tampered_receipt.candidate_matches
+        )
+
+
 def test_missing_snapshot_witness_is_not_replaced_by_ambient_object_info() -> None:
     pre, post, _table, _envelope = _verify(
         "tripo_14_15", [("26", "texture_quality", "detailed")]
@@ -136,3 +192,17 @@ def test_missing_snapshot_witness_is_not_replaced_by_ambient_object_info() -> No
     pre_wf.metadata.pop("_workflow_snapshot", None)
     ops = diff(pre_wf, post_wf, schema_provider=OBJECT_INFO)
     assert any(getattr(op, "op", None) == "remove_node" for op in ops)
+
+
+def test_exact_artifacts_missing_snapshot_rows_rebuild_instead_of_fallback() -> None:
+    for stem, uid, field, value in (
+        ("tripo_14_15", "26", "texture_quality", "detailed"),
+        ("acestep_32", "3", "steps", 30),
+        ("llama_82_83", "3", "max_tokens", 256),
+    ):
+        pre, post, _table, _envelope = _verify(stem, [(uid, field, value)])
+        pre_wf = from_ui(pre, schema_provider=OBJECT_INFO, use_comfy_converter=False)
+        post_wf = from_ui(post, schema_provider=OBJECT_INFO, use_comfy_converter=False)
+        pre_wf.metadata.pop("_workflow_snapshot", None)
+        ops = diff(pre_wf, post_wf, schema_provider=OBJECT_INFO)
+        assert any(getattr(op, "op", None) == "remove_node" for op in ops), stem

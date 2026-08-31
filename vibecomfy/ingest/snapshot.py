@@ -144,6 +144,30 @@ def _capture_widget_names(
                 for left, right in zip(raw_values, witness_values)
             )
         ):
+            # A source adapter may only be able to record positional aliases
+            # (``widget_N``).  If the same frozen node can be resolved by the
+            # source schema, promote that ordered result into the witness;
+            # this freezes the named↔positional equivalence once, instead of
+            # asking later replay to consult ambient object_info.
+            resolved_names = list(names)
+            if all(name.startswith("widget_") for name in names):
+                try:
+                    resolved = compact_widget_names_for_node(node)
+                except Exception:  # noqa: BLE001 - retain positional witness
+                    resolved = None
+                if (
+                    resolved is not None
+                    and resolved.complete
+                    and len(resolved.names) == len(names)
+                    and all(
+                        isinstance(name, str)
+                        and name
+                        and not name.startswith("widget_")
+                        for name in resolved.names
+                    )
+                ):
+                    resolved_names = list(resolved.names)
+
             linked_names = {
                 str(name)
                 for name, _source in incoming.get(node_id, [])
@@ -161,18 +185,43 @@ def _capture_widget_names(
                     if key in linked_names or isinstance(value, (list, tuple)) and len(value) == 2:
                         continue
                     if key in names:
-                        named_values.setdefault(key, []).append(value)
+                        witness_index = names.index(key)
+                        named_values.setdefault(resolved_names[witness_index], []).append(value)
+                    elif key.startswith("widget_"):
+                        # Some UI/API adapters retain the positional spelling
+                        # beside a named witness.  It is a carrier alias only
+                        # when its index is one of the witnessed slots; an
+                        # arbitrary extra literal is never evidence.
+                        try:
+                            alias_index = int(key.removeprefix("widget_"))
+                        except ValueError:
+                            alias_index = -1
+                        if 0 <= alias_index < len(names):
+                            named_values.setdefault(resolved_names[alias_index], []).append(value)
+                        else:
+                            return ()
+                    else:
+                        # A witnessed positional vector and an unrelated
+                        # literal cannot share one frozen name domain.  Keep
+                        # the row unresolved rather than silently dropping the
+                        # extra field.
+                        return ()
+            # Every witnessed slot must have a named (or indexed positional
+            # alias) carrier.  Previously a missing literal was accepted as a
+            # partial mapping, allowing a malformed carrier to look valid.
+            if any(name not in named_values for name in resolved_names):
+                return ()
             # The witness must agree with every named representation that is
             # present. This catches an otherwise plausible swapped roster and
             # duplicate-value ambiguity instead of silently choosing one map.
-            for index, name in enumerate(names):
+            for index, name in enumerate(resolved_names):
                 expected = canonical_json_bytes_v1(raw_values[index])
                 if any(
                     canonical_json_bytes_v1(value) != expected
                     for value in named_values.get(name, ())
                 ):
                     return ()
-            return tuple(names)
+            return tuple(resolved_names)
         # A present but invalid witness is explicit ambiguity.  Keep the row
         # empty rather than consulting ambient schemas and laundering a
         # carrier conflict into a valid name mapping.

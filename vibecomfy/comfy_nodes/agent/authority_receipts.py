@@ -566,11 +566,146 @@ def _verify_seal_coverage(
         normalized = tuple(
             str(name) for name in row if isinstance(name, str) and name
         )
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        if isinstance(raw_values, list) and (
+            len(normalized) != len(raw_values)
+            or len(set(normalized)) != len(normalized)
+        ):
+            return (
+                "frozen_name_table_invalid: node "
+                f"{node_id} (uid {uid}) witness shape does not match its "
+                "retained positional carrier"
+            )
         current = effective.get(str(uid)) or ()
         if current != normalized:
+            # A UI-only positional carrier has no named literal against
+            # which the ambient provider's roster can be compared.  The
+            # supplied frozen row is precisely the authority that binds that
+            # vector, so tolerate provider drift here.  If named literals are
+            # present, however, the source itself is witness evidence and a
+            # different row is a genuine tamper/conflict.
+            metadata = getattr(node, "metadata", None)
+            raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+            # Inputs synthesized from a positional UI list are not source
+            # evidence: they merely reflect the verifier's ambient provider.
+            # Count only a literal that was named at the ingest door (or an
+            # API node with no retained UI door).
+            has_named_literal = False
+            if isinstance(raw_ui, Mapping):
+                widgets_values = raw_ui.get("widgets_values")
+                if isinstance(widgets_values, Mapping):
+                    has_named_literal = True
+                for item in raw_ui.get("inputs", ()) or ():
+                    if (
+                        isinstance(item, Mapping)
+                        and item.get("link") is None
+                        and isinstance(item.get("widget"), Mapping)
+                    ):
+                        has_named_literal = True
+                        break
+            else:
+                has_named_literal = any(
+                    str(key) and not str(key).startswith("widget_")
+                    and not (
+                        isinstance(value, (list, tuple))
+                        and len(value) == 2
+                    )
+                    for channel in (
+                        getattr(node, "inputs", None),
+                        getattr(node, "widgets", None),
+                    )
+                    if isinstance(channel, Mapping)
+                    for key, value in channel.items()
+                )
+            if not has_named_literal:
+                continue
             return (
                 f"name_domain_divergence: node {node_id} (uid {uid}) sealed as "
                 f"{current!r} but the frozen authority of record is {normalized!r}"
+            )
+    return None
+
+
+def _require_frozen_domain_for_positional_replay(
+    workflow: Any,
+    name_authority: Mapping[str, Any] | None,
+    ops: tuple[Any, ...],
+) -> str | None:
+    """Reject unpinned edits whose identity depends on a positional vector.
+
+    ``name_authority=None`` is useful for identity/no-op verification and for
+    legacy graphs that contain only named literals.  It is not sufficient for
+    a field edit against a retained ``widgets_values`` vector: a known class's
+    ambient schema can assign the same field to a different slot on the
+    verifier.  Require the receipt's frozen witness before entering that
+    path; explicit tables (including an empty row) are checked separately by
+    ``_verify_seal_coverage``.
+    """
+    if not ops or isinstance(name_authority, Mapping):
+        return None
+    from vibecomfy.porting.edit.ops import SetNodeFieldOp
+
+    # Removing/adding a node may touch a graph that happens to retain other
+    # positional vectors; only a named field write actually asks the ambient
+    # schema to bind a field name to one of those slots.
+    positional_targets = {
+        (str(op.target.uid), str(op.target.field_path))
+        for op in ops
+        if isinstance(op, SetNodeFieldOp)
+        and isinstance(getattr(op.target, "uid", None), str)
+    }
+    if not positional_targets:
+        return None
+    touched = frozenset(uid for uid, _field in positional_targets)
+    for node_id, node in getattr(workflow, "nodes", {}).items():
+        uid = str(getattr(node, "uid", "") or "") or str(node_id)
+        if uid not in touched and str(node_id) not in touched:
+            continue
+        raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
+        if isinstance(raw_values, list):
+            metadata = getattr(node, "metadata", None)
+            raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+            named_fields = {
+                str(key)
+                for channel in (
+                    getattr(node, "inputs", None),
+                    getattr(node, "widgets", None),
+                )
+                if isinstance(channel, Mapping)
+                for key, value in channel.items()
+                if not (
+                    isinstance(value, (list, tuple))
+                    and len(value) == 2
+                )
+                and not str(key).startswith("widget_")
+            }
+            if isinstance(raw_ui, Mapping):
+                named_source_fields: set[str] = set()
+                if isinstance(raw_ui.get("widgets_values"), Mapping):
+                    named_source_fields.update(
+                        str(key) for key in raw_ui["widgets_values"]
+                    )
+                for item in raw_ui.get("inputs", ()) or ():
+                    if (
+                        isinstance(item, Mapping)
+                        and item.get("link") is None
+                        and isinstance(item.get("widget"), Mapping)
+                    ):
+                        name = item.get("name")
+                        if isinstance(name, str) and name:
+                            named_source_fields.add(name)
+                named_fields &= named_source_fields
+            if all(
+                field in named_fields
+                for target_uid, field in positional_targets
+                if target_uid in {uid, str(node_id)}
+            ):
+                # A literal named carrier is already unambiguous; the raw
+                # vector is merely retained UI provenance for this edit.
+                continue
+            return (
+                "frozen_name_table_required: positional widget edit on node "
+                f"{node_id} (uid {uid}) has no frozen witness"
             )
     return None
 
@@ -837,9 +972,16 @@ def recompute_apply(
             # fail closed with candidate_hash_mismatch.
             use_comfy_converter=False,
         )
-        # P1-R1: pin the hash domain before admit/interpret/emit run.  With no
-        # explicit table the freshly-sealed ingest roster remains authoritative
-        # (single self-consistent domain), preserving prior behavior.
+        # P1-R1: pin the hash domain before admit/interpret/emit run.  A
+        # positional edit cannot use a freshly inferred ambient roster: the
+        # verifier must consume the frozen witness carried by the receipt.
+        # Validate the receipt witness against the *fresh source witness*
+        # before sealing.  Comparing only after ``_seal_frozen_name_domain``
+        # would let a tampered authority row overwrite its own comparison and
+        # turn an otherwise visible mismatch into a self-consistent replay.
+        divergence = _verify_seal_coverage(workflow, name_authority, ops)
+        if divergence:
+            return False, None, divergence, len(ops)
         workflow = _seal_frozen_name_domain(workflow, name_authority)
         # RR1-FIX-1: the sealed domain must EQUAL the recorded authority on
         # every op-touched node. A silent skip (node absent from the fresh
@@ -927,6 +1069,31 @@ def verify_replay(
         )
 
     persisted_hash = structural_graph_hash(candidate) if candidate is not None else None
+    unpinned_positional_error: str | None = None
+
+    try:
+        parsed_ops = _extract_delta_ops_from_envelope(cumulative_delta_envelope)
+    except Exception:
+        parsed_ops = ()
+    if parsed_ops:
+        # Verify-replay is the strict public authority gate.  Internal
+        # sequential materialization remains able to operate on an unfrozen
+        # hand-built workflow, while this path never accepts an ambient
+        # positional name/domain for a candidate claim.
+        try:
+            from vibecomfy.ingest.normalize import from_ui
+
+            replay_workflow = from_ui(
+                dict(submit_graph),
+                schema_provider=schema_provider,
+                use_comfy_converter=False,
+            )
+            unpinned = _require_frozen_domain_for_positional_replay(
+                replay_workflow, name_authority, parsed_ops
+            )
+            unpinned_positional_error = unpinned
+        except Exception:
+            unpinned_positional_error = None
 
     ok, recomputed, error, op_count = recompute_apply(
         submit_graph,
@@ -969,7 +1136,11 @@ def verify_replay(
         and isinstance(recomputed, Mapping)
         and semantic_graph_hash(dict(candidate)) == semantic_graph_hash(dict(recomputed))
     )
-    matches = recomputed_hash == persisted_hash and semantic_matches
+    matches = (
+        not unpinned_positional_error
+        and recomputed_hash == persisted_hash
+        and semantic_matches
+    )
     error_value: str | None = None if matches else "candidate_hash_mismatch"
     return ReplayReceipt(
         replay_ok=True,

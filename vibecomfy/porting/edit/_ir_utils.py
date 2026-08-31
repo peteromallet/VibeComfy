@@ -33,6 +33,24 @@ def _is_primitive_widget_alias_class(class_type: str) -> bool:
     return class_type in {"Float", "Int"} or class_type.startswith("Primitive")
 
 
+def _has_frozen_name_row(
+    node: Any,
+    name_authority: Mapping[str, Sequence[str | None]] | None,
+) -> bool:
+    """Whether *node* has an explicit row in the supplied frozen table.
+
+    Live editing may operate on a hand-built IR with no snapshot.  That path
+    retains the historical schema fallback; a sealed row (including an empty
+    unresolved row) must remain strict.  Replay itself checks missing rows
+    before applying the delta, so this distinction does not reopen the gate.
+    """
+    if not isinstance(name_authority, Mapping):
+        return False
+    uid = str(getattr(node, "uid", "") or "")
+    node_id = str(getattr(node, "id", "") or "")
+    return uid in name_authority or node_id in name_authority
+
+
 def _write_compact_slot_mirrors(node: Any, index: int, value: Any) -> bool:
     """Write one compact slot across its parallel raw/UI carrier copies.
 
@@ -78,7 +96,7 @@ def _apply_primitive_widget_alias_write(
         field,
         schema_provider=schema_provider,
         name_authority=name_authority,
-        strict_name_authority=isinstance(name_authority, Mapping),
+        strict_name_authority=_has_frozen_name_row(node, name_authority),
     )
     if index is None and field == "value":
         raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
@@ -95,7 +113,7 @@ def _apply_primitive_widget_alias_write(
         node,
         schema_provider=schema_provider,
         name_authority=name_authority,
-        strict_name_authority=isinstance(name_authority, Mapping),
+        strict_name_authority=_has_frozen_name_row(node, name_authority),
     )
     named_field = resolution.names[index] if index < len(resolution.names) else None
     widget_field = f"widget_{index}"
@@ -137,7 +155,7 @@ def _rewrite_positional_carrier(
         field,
         schema_provider=schema_provider,
         name_authority=name_authority,
-        strict_name_authority=isinstance(name_authority, Mapping),
+        strict_name_authority=_has_frozen_name_row(node, name_authority),
     )
     if index is None:
         return False
@@ -932,7 +950,7 @@ def apply_edit_cow(
             field,
             schema_provider=schema_provider,
             name_authority=name_authority,
-            strict_name_authority=True,
+            strict_name_authority=_has_frozen_name_row(node, name_authority),
         )
         if slot_index is not None:
             _write_compact_slot_mirrors(node, slot_index, op.value)

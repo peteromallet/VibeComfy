@@ -123,3 +123,13 @@ def test_carrier_witness_rejects_value_order_and_duplicate_ambiguity() -> None:
     ]
     duplicate_wf = from_envelope(from_api(duplicate).to_envelope())
     assert frozen_widget_names_by_uid(duplicate_wf)["3"] == ()
+
+    missing_literal = copy.deepcopy(api)
+    missing_literal["3"]["inputs"].pop("temperature")
+    missing_wf = from_envelope(from_api(missing_literal).to_envelope())
+    assert frozen_widget_names_by_uid(missing_wf)["3"] == ()
+
+    extra_literal = copy.deepcopy(api)
+    extra_literal["3"]["inputs"]["unwitnessed_literal"] = 99
+    extra_wf = from_envelope(from_api(extra_literal).to_envelope())
+    assert frozen_widget_names_by_uid(extra_wf)["3"] == ()
