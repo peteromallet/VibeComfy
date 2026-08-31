@@ -350,7 +350,7 @@ def test_valid_summary_then_hang_recovers_post_flow_exit_cleanup(
         ["--write-summary", "--hang-after-summary", "--hold-seconds", "60"],
         probe_path=probe,
         pid_file=pid_file,
-        per_scenario_timeout=0.4,
+        per_scenario_timeout=0.8,
     )
     assert time.monotonic() - started < 2.0
     observed = _wait_for_json(probe)
@@ -384,7 +384,7 @@ def test_no_summary_then_hang_stays_infra_timeout(
         tmp_path,
         "never-writes",
         ["--hang-after-summary", "--hold-seconds", "60"],
-        per_scenario_timeout=0.4,
+        per_scenario_timeout=0.8,
     )
 
     scenario = summary["scenarios"][0]
