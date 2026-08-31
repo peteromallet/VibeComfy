@@ -111,87 +111,8 @@ The default install is `".[agent]"`: it installs the VibeComfy Python package,
 the extension-only dependencies, and the Arnold runtime that powers the
 in-editor agent panel into ComfyUI's interpreter.
 
-The symlink is what makes ComfyUI load `vibecomfy/comfy_nodes/__init__.py`,
-which registers the node classes and serves the bundled `web/` extension assets.
-
-After restart, look for nodes under `vibecomfy/exec`, `vibecomfy/intent`, and
-`conditioning/vibecomfy`. Install success means the VibeComfy nodes appear in
-node search and `/vibecomfy/agent/status` returns `ready: true`. Red "missing
-model" errors on the default workflow (e.g. `qwen_3_4b.safetensors`,
-`z_image_turbo_bf16.safetensors`) mean the models are not downloaded yet, not
-an install failure.
-
-The agent panel lets an agent edit a workflow from inside ComfyUI.
-
-Its guarded JSON routes default to trusted loopback access. Remote/LAN/RunPod
-access requires an explicit instance bearer capability; session ids are not
-credentials. See [HTTP authorization boundary](docs/agent-edit/http-authorization.md)
-before exposing ComfyUI beyond loopback.
-
-#### Practically this is how this looks
-
-The default workflow a fresh install loads is the z-image text-to-image graph.
-Suppose you want the agent to change the save prefix. On the ComfyUI canvas
-that node is a box, but as text — what the agent actually reads — it is this:
-
-```json
-{
-  "id": 9,
-  "type": "SaveImage",
-  "inputs": [{"name": "images", "type": "IMAGE", "link": 86}],
-  "widgets_values": ["z-image"],
-  "properties": {
-    "cnr_id": "comfy-core",
-    "ver": "0.3.64",
-    "Node name for S&R": "SaveImage"
-  }
-}
-```
-
-Accurate, but the agent's job is reconstruction: `link 86` lives elsewhere,
-`widgets_values[0]` is a positional array with no name, and "SaveImage" tells
-it nothing about where this sits in the graph. The VibeComfy layer says the
-same thing in ordinary code:
-
-```python
-save = SaveImage(_id="9", images=edited, filename_prefix="z-image")
-```
-
-Change the prefix by editing one named argument, validate with
-`vibecomfy validate`, and the compiler emits the API JSON ComfyUI queues. Both
-representations describe the same node; the Python one gives the agent names,
-call sites, and intent in one view — which is why the panel can act on
-"rename the SaveImage node" without first decoding a graph. For the full
-walkthrough — two connected nodes, subgraphs, and how this compares with
-ComfyScript-style exports — see
-[What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md).
-
-#### Advanced: nodes-only install (no agent panel)
-
-Skip the Arnold runtime if you only want the extension nodes:
-
-```bash
-"$COMFY_PYTHON" -m pip install -e .
-```
-
-The extension nodes and the panel's web assets work without the `agent` extra,
-but the in-editor agent panel has no runtime until it is installed.
-
-#### macOS: expected console noise
-
-On first load you may see 404s for `/api/userdata/*`, `user.css`,
-`comfy.templates.json`, and `/vibecomfy/demo/scenarios` (by design unless
-`VIBECOMFY_DEMO_PICKER=1`), plus objc duplicate-class warnings (cv2 vs av) and
-a comfy-kitchen CUDA backend "missing" message (expected on Mac; MPS is used).
-These are not install failures.
-
-#### `vibecomfy[comfy]` venv conflict
-
-Installing the `vibecomfy[comfy]` extra (`comfyui==0.26.0`) into a checkout
-venv, or reusing a venv that already has pip-installed comfyui, can produce a
-pip resolver conflict: `comfyui 0.26.0` wants `comfyui-frontend-package<1.46`
-while a fresh checkout pins 1.48.x. The checkout's own `comfy/` package wins
-when running `main.py`, so it is benign — but keep those venvs separate.
+Restart ComfyUI, confirm that VibeComfy nodes appear in node search, and verify
+that `/vibecomfy/agent/status` returns `ready: true`.
 
 ### Use VibeComfy Directly
 
