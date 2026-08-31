@@ -1135,7 +1135,7 @@ def verify_replay(
         parsed_ops = _extract_delta_ops_from_envelope(cumulative_delta_envelope)
     except Exception:
         parsed_ops = ()
-    if parsed_ops and schema_provider is not None:
+    if parsed_ops:
         # Verify-replay is the strict public authority gate.  Internal
         # sequential materialization remains able to operate on an unfrozen
         # hand-built workflow, while this path never accepts an ambient
@@ -1153,7 +1153,13 @@ def verify_replay(
             )
             unpinned_positional_error = unpinned
         except Exception:
-            unpinned_positional_error = None
+            # The strict public verifier must never turn an unavailable fresh
+            # ingest into ambient-authority permission.  Internal materializers
+            # may tolerate a schema-less graph, but verification has no frozen
+            # witness to prove which positional carrier was edited.
+            unpinned_positional_error = (
+                "frozen_name_table_required: positional replay authority unavailable"
+            )
 
     ok, recomputed, error, op_count = recompute_apply(
         submit_graph,

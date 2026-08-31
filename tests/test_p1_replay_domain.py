@@ -42,6 +42,7 @@ from vibecomfy.schema import (
     InputSpec,
     NodeSchema,
     capture_schema_snapshot,
+    get_schema_provider,
 )
 
 FIXTURE = (
@@ -211,6 +212,56 @@ def test_retained_delta_matches_under_drifted_second_provider() -> None:
     )
     assert pinned.replay_ok is True
     assert pinned.candidate_matches is True, pinned.error
+
+
+def test_public_default_verify_replay_rejects_ambient_positional_authority() -> None:
+    """The public default cannot authorize a positional edit from ambient schema."""
+    submit_graph = _submit_graph()
+    envelope = _envelope()
+    replay_provider, _locked = _frozen_replay_provider()
+    candidate = _admission_candidate(submit_graph, envelope, replay_provider)
+
+    receipt = verify_replay(submit_graph, envelope, candidate)
+
+    assert receipt.replay_ok is False
+    assert receipt.candidate_matches is False
+    assert receipt.error == "field_resolution_unresolved:9.seed"
+
+
+def test_public_default_verify_replay_rejects_known_ksampler_positional_edit() -> None:
+    """The real KSampler vector cannot authorize a default replay by class name."""
+    from vibecomfy.porting.edit._interpret import interpret
+
+    submit_graph = json.loads(
+        (Path(__file__).parent / "characterization" / "fixtures" / "agent_edit"
+         / "case_01_widget_set" / "input_ui.json").read_text(encoding="utf-8")
+    )
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {"op": "set_node_field", "target": ["", "5", "steps"], "value": 30}
+        ],
+    }
+    provider = get_schema_provider("auto")
+    workflow = from_ui(
+        dict(submit_graph), schema_provider=provider, use_comfy_converter=False
+    )
+    op = normalize_delta_ops(envelope)[0]
+    step = interpret(workflow, (op,), schema_provider=provider)
+    assert step.ok is True
+    candidate = pin_untouched_ui(
+        submit_graph,
+        emit_ui_json(
+            step.workflow, schema_provider=provider, prior_ui_payload=submit_graph
+        ),
+        (op,),
+    )
+
+    receipt = verify_replay(submit_graph, envelope, candidate)
+
+    assert receipt.replay_ok is True
+    assert receipt.candidate_matches is False
+    assert receipt.error == "candidate_hash_mismatch"
 
 
 def test_receipt_records_one_frozen_name_domain_for_later_verification() -> None:

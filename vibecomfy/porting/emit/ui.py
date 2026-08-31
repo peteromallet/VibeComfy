@@ -1161,23 +1161,24 @@ def _emitted_input_slot_for_link(
     Judgment).  Reroute ``*`` wildcard synthetic ``_un<N>`` matches any
     wildcard/empty socket (ff076a, 2x2-seed, 0c2716).
     """
-    if not isinstance(sockets, list) or not canonical_name:
+    if not isinstance(sockets, list):
         return None
-    matches = [
-        index
-        for index, socket in enumerate(sockets)
-        if isinstance(socket, dict) and socket.get("name") == canonical_name
-    ]
-    if matches:
-        if len(matches) > 1 and isinstance(requested_slot, int):
-            if requested_slot in matches:
-                return requested_slot
-            for index in matches:
-                socket = sockets[index]
-                if isinstance(socket, dict) and socket.get("slot_index") == requested_slot:
-                    return index
-        return matches[0]
-    is_synthetic = canonical_name.startswith("_un")
+    if canonical_name:
+        matches = [
+            index
+            for index, socket in enumerate(sockets)
+            if isinstance(socket, dict) and socket.get("name") == canonical_name
+        ]
+        if matches:
+            if len(matches) > 1 and isinstance(requested_slot, int):
+                if requested_slot in matches:
+                    return requested_slot
+                for index in matches:
+                    socket = sockets[index]
+                    if isinstance(socket, dict) and socket.get("slot_index") == requested_slot:
+                        return index
+            return matches[0]
+    is_synthetic = canonical_name.startswith("_un") or canonical_name in ("", "*")
     for index, socket in enumerate(sockets):
         if not isinstance(socket, dict):
             continue
@@ -1189,21 +1190,6 @@ def _emitted_input_slot_for_link(
             return index
         if isinstance(name, str) and name.startswith("_un") and canonical_name in ("", "*"):
             return index
-    return None
-    matches = [
-        index
-        for index, socket in enumerate(sockets)
-        if isinstance(socket, dict) and socket.get("name") == canonical_name
-    ]
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1 and isinstance(requested_slot, int):
-        if requested_slot in matches:
-            return requested_slot
-        for index in matches:
-            socket = sockets[index]
-            if isinstance(socket, dict) and socket.get("slot_index") == requested_slot:
-                return index
     return None
 
 
@@ -5147,6 +5133,17 @@ def pin_untouched_ui(
                             )
                         )
                         if preserve_linked_inputs:
+                            # LiteGraph input arrays may retain every optional
+                            # socket, including unlinked placeholders at the
+                            # physical positions of later links.  The emitter
+                            # materializes only linked sockets; carry the
+                            # original linked records for canonical re-slotting
+                            # but never preserve those empty placeholders.
+                            merged["inputs"] = [
+                                deepcopy(item)
+                                for item in original_node.get("inputs") or ()
+                                if isinstance(item, Mapping) and item.get("link") is not None
+                            ]
                             continue
                         if field in node:
                             merged[field] = deepcopy(node[field])

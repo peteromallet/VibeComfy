@@ -1488,6 +1488,14 @@ def _get_node_mode(node: VibeNode) -> int:
     """
     mode = getattr(node, "mode", None)
     if mode is not None:
+        # Hand-built nodes use ENABLED as the dataclass default and may retain
+        # only the legacy UI furniture mode.  Preserve that captured display
+        # state; explicitly non-enabled semantic modes remain authoritative.
+        if mode is NodeMode.ENABLED:
+            ui = node.metadata.get("_ui")
+            legacy = ui.get("mode") if isinstance(ui, dict) else None
+            if isinstance(legacy, int) and legacy in (_MODE_MUTED, _MODE_BYPASS):
+                return legacy
         return mode_to_litegraph(mode)
     ui = node.metadata.get("_ui")
     if not isinstance(ui, dict):
