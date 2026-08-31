@@ -55,6 +55,8 @@ _HIVEMIND_TOOL_DEFAULT_LIMIT = 5
 # latency (~0.13-0.54s live) with ample headroom for one 57014 degrade retry,
 # replacing the old 5.0s shared-deadline posture that 21/26 searches exhausted.
 _HIVEMIND_TOOL_DEFAULT_TIMEOUT = 10.0
+_HIVEMIND_TOOL_MAX_TIMEOUT = 30.0
+_HIVEMIND_TOOL_MAX_QUERY_CHARS = 512
 
 _SOURCE_TYPES = frozenset({"workflow", "discord", "distillation"})
 _SORTS = frozenset({"relevance", "recent", "validated"})
@@ -492,6 +494,12 @@ def hivemind_search(
             "`query` must be a non-empty string.",
         )
     query = query.strip()
+    if len(query) > _HIVEMIND_TOOL_MAX_QUERY_CHARS:
+        return _invalid(
+            HIVE_MIND_SEARCH_TOOL,
+            "query_too_long",
+            f"`query` must be at most {_HIVEMIND_TOOL_MAX_QUERY_CHARS} characters.",
+        )
 
     if filters is not None and not isinstance(filters, Mapping):
         return _invalid(
@@ -546,6 +554,12 @@ def hivemind_search(
             HIVE_MIND_SEARCH_TOOL,
             "timeout_invalid",
             "`timeout` must be a positive number of seconds.",
+        )
+    if timeout > _HIVEMIND_TOOL_MAX_TIMEOUT:
+        return _invalid(
+            HIVE_MIND_SEARCH_TOOL,
+            "timeout_too_large",
+            f"`timeout` must be at most {_HIVEMIND_TOOL_MAX_TIMEOUT} seconds.",
         )
 
     root = cache_root or DEFAULT_CACHE_ROOT
@@ -646,6 +660,12 @@ def hivemind_get(
             "`evidence_id` must be a non-empty string.",
         )
     evidence_id = evidence_id.strip()
+    if len(evidence_id) > _HIVEMIND_TOOL_MAX_QUERY_CHARS:
+        return _invalid(
+            HIVE_MIND_GET_TOOL,
+            "evidence_id_too_long",
+            f"`evidence_id` must be at most {_HIVEMIND_TOOL_MAX_QUERY_CHARS} characters.",
+        )
     parsed = _parse_evidence_id(evidence_id)
     if parsed is None:
         return _invalid(
@@ -659,6 +679,12 @@ def hivemind_get(
             HIVE_MIND_GET_TOOL,
             "timeout_invalid",
             "`timeout` must be a positive number of seconds.",
+        )
+    if timeout > _HIVEMIND_TOOL_MAX_TIMEOUT:
+        return _invalid(
+            HIVE_MIND_GET_TOOL,
+            "timeout_too_large",
+            f"`timeout` must be at most {_HIVEMIND_TOOL_MAX_TIMEOUT} seconds.",
         )
     table, row_id = parsed
 

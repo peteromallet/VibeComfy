@@ -47,6 +47,7 @@ from .evidence_pack import (
     EvidenceLedgerEntry,
     EvidencePack,
     MAX_LEDGER_PROMPT_ENTRIES,
+    MAX_LEDGER_CONCLUSION_CHARS,
 )
 from .agent_backend import (
     _attach_model_turn_evidence,
@@ -467,6 +468,57 @@ def _bounded(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+_EGRESS_SECRET_RE = re.compile(
+    r"(?i)\b(api[_ -]?key|token|password|secret|credential)\b\s*[:=]\s*[^\s,;]+"
+)
+_RESEARCH_ARG_LIMITS = {
+    "query": 512,
+    "evidence_id": 512,
+    "node_class": 256,
+    "timeout": 30.0,
+}
+
+
+def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
+    """Bound and redact model-controlled egress before any tool call."""
+    allowed = {
+        "hivemind_search": {"query", "filters", "cursor", "limit", "timeout"},
+        "hivemind_get": {"evidence_id", "timeout"},
+        "registry_lookup": {"node_class"},
+    }.get(tool, set())
+    safe: dict[str, Any] = {}
+    for key, value in args.items():
+        if key not in allowed or key.casefold() in {"body", "graph", "workflow", "secret"}:
+            continue
+        if key in {"query", "evidence_id", "node_class"}:
+            if not isinstance(value, str):
+                continue
+            text = _EGRESS_SECRET_RE.sub(r"\1=<redacted>", value.strip())
+            safe[key] = text[:_RESEARCH_ARG_LIMITS[key]]
+        elif key == "timeout":
+            try:
+                safe[key] = min(float(value), _RESEARCH_ARG_LIMITS[key])
+            except (TypeError, ValueError):
+                continue
+        elif key == "limit":
+            try:
+                safe[key] = max(1, min(int(value), 20))
+            except (TypeError, ValueError):
+                continue
+        elif key == "cursor":
+            if isinstance(value, str):
+                safe[key] = value[:512]
+        elif key == "filters" and isinstance(value, Mapping):
+            safe["filters"] = {
+                str(filter_key): _EGRESS_SECRET_RE.sub(
+                    r"\1=<redacted>", str(filter_value)
+                )[:256]
+                for filter_key, filter_value in value.items()
+                if str(filter_key) in {"source_type", "model_family", "capability", "node_class", "channel", "author", "date_from", "date_to", "has_workflow", "sort"}
+            }
+    return safe
 
 
 def _served_record_preview(view: Any, body: Mapping[str, Any]) -> str:
@@ -1490,6 +1542,7 @@ def run_agent_research_stage(
     session_id: str | None = None,
     request_identity: str | Mapping[str, Any] | None = None,
     baseline_identity: str | Mapping[str, Any] | None = None,
+    allow_empty_finish: bool = False,
 ) -> tuple[AgentResearchTrace, EvidencePack]:
     """Run the C1 agent-owned tool-calling research loop.
 
@@ -1851,7 +1904,7 @@ def run_agent_research_stage(
                     citation.startswith("hivemind_get:")
                     for citation in citable_citations
                 )
-                if not citable_citations and tool_calls_made == 0:
+                if not allow_empty_finish and not citable_citations and tool_calls_made == 0:
                     _finish_premature_turn(
                         conclusion=_clean_text(decision.get("conclusion")),
                         message=(
@@ -1868,7 +1921,7 @@ def run_agent_research_stage(
                     citation.startswith("hivemind_get:")
                     for citation in citable_citations
                 )
-                if fetched_requested_ids and not fetched_cited:
+                if not allow_empty_finish and fetched_requested_ids and not fetched_cited:
                     _finish_premature_turn(
                         conclusion=_clean_text(decision.get("conclusion")),
                         message=(
@@ -1892,29 +1945,69 @@ def run_agent_research_stage(
                         if isinstance(raw_ids, (list, tuple)):
                             for raw_id in raw_ids:
                                 candidate_id = str(raw_id)
-                                if candidate_id in artifacts:
+                                if (
+                                    candidate_id in artifacts
+                                    and artifacts[candidate_id].kind
+                                    in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+                                ):
                                     resolved_ids.append(candidate_id)
                                 elif candidate_id.startswith(_HIVEMIND_EVIDENCE_ID_PREFIX):
                                     alias = "hivemind_get:" + candidate_id.removeprefix(
                                         _HIVEMIND_EVIDENCE_ID_PREFIX
                                     )
-                                    if alias in artifacts:
+                                    if (
+                                        alias in artifacts
+                                        and artifacts[alias].kind
+                                        in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+                                    ):
                                         resolved_ids.append(alias)
                         if resolved_ids:
                             claim_provenance[raw_claim.strip()] = tuple(
                                 dict.fromkeys(resolved_ids)
                             )
                 if not claim_provenance and cited:
-                    claim_provenance = {"conclusion": cited}
+                    fetched_ids = tuple(
+                        evidence_id
+                        for evidence_id in cited
+                        if evidence_id in artifacts
+                        and artifacts[evidence_id].kind
+                        in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+                    )
+                    if fetched_ids:
+                        claim_provenance = {"conclusion": fetched_ids}
                 refine_question = decision.get("refine_question")
                 refine_question_text = _clean_text(refine_question)
                 enough = not bool(refine_question_text)
 
+                # Preserve the complete model synthesis as a durable artifact;
+                # the ledger carries only a bounded projection. This keeps a
+                # 4,001+ character answer from poisoning the whole stage.
+                synthesis_id = "research_synthesis:" + hashlib.sha256(
+                    conclusion.encode("utf-8")
+                ).hexdigest()[:24]
+                _add_artifact(EvidenceArtifact(
+                    evidence_id=synthesis_id,
+                    kind="research_synthesis",
+                    body={
+                        "conclusion": conclusion,
+                        "uncertainty": uncertainty,
+                        "evidence_ids": list(cited),
+                        "claim_provenance": {
+                            claim: list(ids)
+                            for claim, ids in claim_provenance.items()
+                        },
+                    },
+                    source="research_agent",
+                ))
+                compact_conclusion = _bounded(
+                    conclusion or "synthesis produced no conclusion",
+                    MAX_LEDGER_CONCLUSION_CHARS,
+                )
                 _add_entry(
                     EvidenceLedgerEntry(
                         decision=DECISION_SYNTHESIZE,
-                        conclusion=conclusion or "synthesis produced no conclusion",
-                        evidence_ids=cited,
+                        conclusion=compact_conclusion,
+                        evidence_ids=tuple(dict.fromkeys((*cited, synthesis_id))),
                         uncertainty=uncertainty,
                         claim_provenance=claim_provenance,
                     )
@@ -1964,6 +2057,7 @@ def run_agent_research_stage(
 
             tool = str(decision.get("tool") or "")
             args = decision.get("args") if isinstance(decision.get("args"), Mapping) else {}
+            args = _safe_research_args(tool, args)
             if tool not in RESEARCH_ALLOWED_TOOLS:
                 _refusal_call(
                     tool or "unknown_tool",

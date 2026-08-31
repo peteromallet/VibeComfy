@@ -604,6 +604,55 @@ _REPLY_SYSTEM = (
 )
 
 
+_MAX_REPLY_GRAPH_NODES = 48
+_MAX_REPLY_GRAPH_EDGES = 96
+_MAX_REPLY_CONTEXT_CHARS = 12000
+_MAX_REPLY_PROVENANCE_CLAIMS = 24
+_MAX_REPLY_PROVENANCE_IDS = 4
+
+
+def _bounded_graph_facts(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep one deterministic, bounded graph-authority projection."""
+    nodes = value.get("nodes") if isinstance(value.get("nodes"), (list, tuple)) else ()
+    edges = value.get("edges") if isinstance(value.get("edges"), (list, tuple)) else ()
+    result: dict[str, Any] = {
+        "node_count": value.get("node_count", len(nodes)),
+        "nodes": list(nodes[:_MAX_REPLY_GRAPH_NODES]),
+        "edges": list(edges[:_MAX_REPLY_GRAPH_EDGES]),
+    }
+    result["truncated"] = len(nodes) > _MAX_REPLY_GRAPH_NODES or len(edges) > _MAX_REPLY_GRAPH_EDGES
+    encoded = json.dumps(result, sort_keys=True, ensure_ascii=False)
+    if len(encoded) > _MAX_REPLY_CONTEXT_CHARS:
+        # Keep exact node identity/type facts while dropping bulky values.
+        result["nodes"] = [
+            {
+                key: node.get(key)
+                for key in ("node_id", "class_type", "title", "type_name", "mode")
+                if key in node
+            }
+            for node in result["nodes"] if isinstance(node, Mapping)
+        ]
+        result["edges"] = list(result["edges"][:48])
+        result["truncated"] = True
+    return result
+
+
+def _bounded_claim_provenance(value: Mapping[str, Any]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for claim, raw_ids in list(value.items())[:_MAX_REPLY_PROVENANCE_CLAIMS]:
+        if not isinstance(claim, str) or not claim.strip():
+            continue
+        ids = raw_ids if isinstance(raw_ids, (list, tuple)) else ()
+        deduped = list(dict.fromkeys(str(item) for item in ids if str(item).strip()))
+        if deduped:
+            result[claim.strip()[:160]] = deduped[:_MAX_REPLY_PROVENANCE_IDS]
+    return result
+
+
+def _memo_without_provenance(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if key != "claim_provenance"}
+
+
 def build_reply_messages(
     query: str,
     *,
@@ -656,7 +705,7 @@ def build_reply_messages(
     *candidate_present* indicates whether a graph edit candidate was produced.
     """
     parts = [f"User request:\n{query}"]
-    if graph_inspection:
+    if graph_inspection and not graph_facts:
         parts.append(
             "\nGraph inspection (cite what is actually in the graph — the "
             "workflow IR below is the authoritative source of node ids, widget "
@@ -666,7 +715,7 @@ def build_reply_messages(
             "or connections that are not listed):\n"
             f"{graph_inspection}"
         )
-    elif graph_summary:
+    elif graph_summary and not graph_facts:
         parts.append(
             "\nAttached workflow graph (the authoritative source of node ids, "
             "widget values, and link ids — cite link ids and widget "
@@ -681,7 +730,7 @@ def build_reply_messages(
             "\nExact graph facts (authoritative structured evidence; every "
             "connectivity claim must resolve to a listed link_id and every "
             "setting claim to a listed field/type/widget_index):\n"
-            + json.dumps(graph_facts, sort_keys=True)
+            + json.dumps(_bounded_graph_facts(graph_facts), sort_keys=True)
         )
     if plan is not None:
         parts.append(f"\nExecutor plan: {plan.plan_summary or 'completed'}")
@@ -707,7 +756,7 @@ def build_reply_messages(
         parts.append(
             "\nC5 research decision memo (evidence you may cite from for this "
             "reply — answer the user's question in your own words, do not "
-            f"relay the memo verbatim):\n{json.dumps(research_memo, sort_keys=True)}"
+            f"relay the memo verbatim):\n{json.dumps(_memo_without_provenance(research_memo), sort_keys=True)}"
         )
     if research_ledger:
         parts.append(
@@ -721,7 +770,7 @@ def build_reply_messages(
         parts.append(
             "\nClaim provenance (each claim label maps to resolvable evidence "
             "artifact IDs; do not cite anything else):\n"
-            + json.dumps(claim_provenance, sort_keys=True)
+            + json.dumps(_bounded_claim_provenance(claim_provenance), sort_keys=True)
         )
     if research_summary:
         parts.append(f"\nResearch findings: {research_summary}")
@@ -896,6 +945,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
             f"{sorted(str(key) for key in parsed.keys())}."
         )
     research = parsed.get("research")
+    research_available = parsed.get("research_available", False)
     implement = parsed.get("implement")
     reply = parsed.get("reply")
     effort = parsed.get("effort")
@@ -919,6 +969,8 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     # Coerce booleans; missing keys default to sensible values.
     if not isinstance(research, bool):
         research = bool(research)
+    if not isinstance(research_available, bool):
+        research_available = False
     if not isinstance(implement, bool):
         implement = bool(implement)
     if not isinstance(reply, bool):
@@ -995,6 +1047,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
 
     decision = ClassifyDecision(
         research=research,
+        research_available=research_available,
         implement=implement,
         reply=reply,
         effort=effort,

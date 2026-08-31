@@ -816,6 +816,9 @@ class ClassifyDecision:
 
     # ── legacy boolean gates ─────────────────────────────────────────────
     research: bool = False
+    # Capability metadata only; unlike ``research`` this does not select a
+    # research route or alter legacy route/task derivation.
+    research_available: bool = False
     implement: bool = False
     reply: bool = True
     effort: str = "low"
@@ -862,9 +865,10 @@ class ClassifyDecision:
         route_booleans = {
             "clarify": (False, False),
             "respond": (False, False),
-            # Inspect is always non-editing, but an explicitly declared
-            # answer-only lane may carry bounded research affordance.
-            "inspect": (self.research, False),
+            # Inspect is always non-editing. Research availability is a
+            # separate capability so legacy route parsing cannot silently
+            # turn ``research=true`` into a research task.
+            "inspect": (False, False),
             "research": (True, False),
             "revise": (False, True),
             "adapt": (True, True),
@@ -938,6 +942,8 @@ class ClassifyDecision:
         # Emit metadata fields only when non-empty.
         if self.research_goal:
             result["research_goal"] = self.research_goal
+        if self.research_available:
+            result["research_available"] = True
         if self.search_directions:
             result["search_directions"] = list(self.search_directions)
         if self.source_preferences:
@@ -1094,6 +1100,9 @@ class ExecutorRequest:
     # ``apply``: that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Explicit opt-in for an answer-only research phase.  Research is an
+    # affordance, never a mandatory latency/failure dependency of inspection.
+    research_required: bool = False
     # Explicit assessment contract from headless/live-agentic callers.  When
     # True, classify must choose an applyable edit route.
     expect_graph_changed: bool | None = None
@@ -1125,6 +1134,8 @@ class ExecutorRequest:
             )
         if not isinstance(self.network, bool):
             raise ValueError("ExecutorRequest `network` must be a boolean.")
+        if not isinstance(self.research_required, bool):
+            raise ValueError("ExecutorRequest `research_required` must be a boolean.")
         if self.expect_graph_changed is not None and not isinstance(
             self.expect_graph_changed, bool
         ):
@@ -1191,6 +1202,8 @@ class ExecutorRequest:
             payload["on_demand_schemas"] = self.on_demand_schemas
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.research_required:
+            payload["research_required"] = True
         if self.expect_graph_changed is not None:
             payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
@@ -1283,6 +1296,9 @@ class ExecutorRequest:
             raise ValueError(
                 "ExecutorRequest `interaction_mode` must be a string or null."
             )
+        research_required = payload.get("research_required", False)
+        if not isinstance(research_required, bool):
+            raise ValueError("ExecutorRequest `research_required` must be a boolean.")
         expect_graph_changed = payload.get("expect_graph_changed")
         if expect_graph_changed is not None and not isinstance(expect_graph_changed, bool):
             raise ValueError(
@@ -1311,6 +1327,7 @@ class ExecutorRequest:
             expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
             on_demand_schemas=on_demand_schemas,
             interaction_mode=interaction_mode,
+            research_required=research_required,
             expect_graph_changed=expect_graph_changed,
             max_batches=max_batches,
             pipeline_mode=pipeline_mode,

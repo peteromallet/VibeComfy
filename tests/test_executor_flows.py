@@ -849,10 +849,7 @@ class TestAnswerOnlyInteraction:
     def test_answer_only_does_not_overwrite_classifier_route(
         self, profile_dir: Path
     ) -> None:
-        """An edit-classified query on an answer_only interaction keeps the
-        classifier's adapt route: no deterministic inspect downgrade, the
-        edit kernel runs (authority applies only after deliberation), and the
-        reply phase still receives the interaction-mode context."""
+        """An edit-classified answer_only interaction is normalized to inspect."""
         def classify_edit(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
             return ClassifyDecision(
                 research=True,
@@ -915,13 +912,11 @@ class TestAnswerOnlyInteraction:
             )
 
         assert result.ok is True
-        # The classifier's plan is preserved verbatim — no purpose overwrite.
-        assert result.report.plan.effective_route == "adapt"
-        assert result.report.plan.implement is True
-        assert result.report.plan.research is True
-        assert result.to_dict()["route"] == "adapt"
-        # The edit kernel ran (post-deliberation authority owns admission).
-        assert edit_called is True
+        assert result.report.plan.effective_route == "inspect"
+        assert result.report.plan.implement is False
+        assert result.report.plan.research is False
+        assert result.to_dict()["route"] == "inspect"
+        assert edit_called is False
         assert legacy_prefetch_called is False
         assert reply_capture["interaction_mode"] == "answer_only"
 
@@ -951,9 +946,9 @@ class TestAnswerOnlyInteraction:
         )
 
         assert result.ok is True
-        assert result.report.plan.effective_route == "research"
+        assert result.report.plan.effective_route == "inspect"
         assert result.report.plan.implement is False
-        assert result.to_dict()["route"] == "research"
+        assert result.to_dict()["route"] == "inspect"
         assert legacy_prefetch_called is False
         assert reply_capture["interaction_mode"] == "answer_only"
         assert edit_called is False

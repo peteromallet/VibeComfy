@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 class WidgetEvidence:
     """One widget value extracted from a node's ``widgets_values`` list."""
 
-    index: int
+    index: int | None
     value: Any
     name: str | None = None
     # Schema-resolved kind (int/float/string/bool/enum/unknown).  ``None``
@@ -351,34 +351,32 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
     named: list[WidgetEvidence] = []
     widgets = node.widgets
     if isinstance(widgets, dict) and widgets:
-        for offset, name in enumerate(sorted((str(key) for key in widgets), key=_sort_widget_name)):
+        for name in sorted((str(key) for key in widgets), key=_sort_widget_name):
             index = widget_index_for_field(node, name)
-            if index is None:
-                index = offset
             resolved_name = (
                 resolution.names[index] if index < len(resolution.names) else name
-            )
+            ) if index is not None else name
             named.append(
                 WidgetEvidence(
                     index=index,
                     name=_named_or_none(resolved_name),
                     value=widgets[name],
-                    field_type=field_types.get(index),
+                    field_type=field_types.get(index) if index is not None else None,
                 )
             )
     inputs = node.inputs
     if isinstance(inputs, dict):
-        base = len(named)
-        for offset, name in enumerate(sorted(str(key) for key in inputs)):
+        for name in sorted(str(key) for key in inputs):
             value = inputs[name]
             if isinstance(value, (dict, list, tuple)):
                 continue
+            index = widget_index_for_field(node, name)
             named.append(
                 WidgetEvidence(
-                    index=base + offset,
+                    index=index,
                     name=str(name),
                     value=value,
-                    field_type=field_types.get(base + offset),
+                    field_type=field_types.get(index) if index is not None else None,
                 )
             )
     return tuple(named)

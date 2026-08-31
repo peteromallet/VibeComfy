@@ -142,10 +142,8 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
 def typed_refusal_contract(request: ExecutorRequest) -> bool:
     """True when the caller declared a typed no-candidate / custom-node refusal.
 
-    ``answer_only`` is the explain/advice contract. Scenarios that declare
-    ``allow_safe_refusal_outcome_kinds`` or ``expected_no_candidate_absent_*``
-    need an implement-capable lane so the batch path can emit
-    ``requires_custom_nodes``.
+    ``answer_only`` is the explain/advice contract. Typed-refusal metadata
+    never reopens edit authority in that lane.
     """
     kinds = _string_tuple(getattr(request, "allow_safe_refusal_outcome_kinds", ()))
     classes = _string_tuple(getattr(request, "expected_no_candidate_absent_classes", ()))
@@ -194,10 +192,10 @@ def _open_adapt_plan(request: ExecutorRequest) -> ClassifyDecision:
 
 def _inspect_answer_plan(request: ExecutorRequest) -> ClassifyDecision:
     return ClassifyDecision(
-        # answer_only forbids mutation, not evidence gathering.  The caller's
-        # declared lane therefore gets a bounded research opportunity while
-        # remaining non-editing.
-        research=True,
+        # Research is an optional capability, not part of the canonical
+        # inspect route booleans. ``research_required`` opts into the phase.
+        research=False,
+        research_available=True,
         implement=False,
         reply=True,
         route="inspect",
@@ -223,19 +221,17 @@ def coerce_declared_interaction_lane(
 ) -> ClassifyDecision:
     """Honor caller-declared interaction contracts without query-text inference.
 
-    Typed refusal stays implement-capable even under ``answer_only``.
+    Typed refusal is implement-capable only for ordinary interactions.
     Bare ``answer_only`` explain/advice turns take the non-editing inspect
     lane, which may run bounded research.
     Staged diagnostics classified as bare ``respond`` under ``answer_only``
     are lifted to inspect.
     """
+    if request.interaction_mode == "answer_only":
+        return _inspect_answer_plan(request)
     if typed_refusal_contract(request):
         if plan is None or plan.effective_route in {"inspect", "respond"}:
             return _open_adapt_plan(request)
-        return plan
-    if request.interaction_mode == "answer_only":
-        if plan is None or plan.effective_route == "respond":
-            return _inspect_answer_plan(request)
         return plan
     if plan is None:
         return _open_adapt_plan(request)
@@ -250,9 +246,9 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
 
     Caller-DECLARED contracts are transported as data:
     ``answer_only`` explain/advice turns route inspect (no implement).
-    Typed-refusal contracts stay implement-capable so the batch path can
-    emit ``requires_custom_nodes``. Requests without a declared contract
-    keep the open envelope.
+    Typed-refusal metadata stays typed evidence in answer-only and remains
+    implement-capable only for ordinary interactions. Requests without a
+    declared contract keep the open envelope.
     """
     return coerce_declared_interaction_lane(request, plan=None)
 
@@ -518,7 +514,7 @@ def run_threaded_executor(
             artifact_lineage=_build_artifact_lineage_manifest(
                 request,
                 plan=plan,
-                research=None,
+                research=research_result,
                 implementation_result=implementation,
                 model_attempts=attempts,
                 orchestration_mode="threaded",
@@ -532,11 +528,16 @@ def run_threaded_executor(
 
     inspect_only = plan.effective_route == "inspect"
     research_result: Any = None
-    phase = "reply" if inspect_only else "execute"
+    research_requested = bool(
+        inspect_only and getattr(request, "research_required", False)
+    )
+    phase = "research" if research_requested and kernel.run_research else (
+        "reply" if inspect_only else "execute"
+    )
     try:
         spec = kernel.resolve_spec(
             request.profile,
-            "research" if inspect_only and plan.research and kernel.run_research else phase,
+            phase,
         )
     except Exception as exc:
         failure = host_ports.classify_failure("profile", exc)
@@ -548,7 +549,7 @@ def run_threaded_executor(
         ))
 
     bounded_request, _budget = _bounded_request(request)
-    if inspect_only and plan.research and kernel.run_research is not None:
+    if research_requested and kernel.run_research is not None:
         kernel.emit_phase(
             bounded_request,
             executor_id=executor_id,
@@ -570,13 +571,11 @@ def run_threaded_executor(
                 status="error",
                 client_id=client_id,
             )
-            failure_kind = str(getattr(exc, "failure_kind", "ValidationError"))
-            return finish(ExecutorResult.failure(
-                kind=failure_kind,
-                stage="research",
-                message=str(exc),
-                report=build_report(),
-            ))
+            # Research is an optional evidence affordance. An unavailable
+            # provider must degrade to graph/unknown-qualified reply, never
+            # turn an answer-only request into a failed interaction.
+            research_result = None
+            LOGGER.warning("optional answer-only research unavailable: %s", exc)
         kernel.emit_phase(
             bounded_request,
             executor_id=executor_id,

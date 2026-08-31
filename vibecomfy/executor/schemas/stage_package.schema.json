@@ -91,6 +91,14 @@
           "items": {"type": "string", "minLength": 1}
         },
         "uncertainty": {"type": "string", "maxLength": 2000}
+        ,"claim_provenance": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
       }
     },
     "stage_diagnostic": {

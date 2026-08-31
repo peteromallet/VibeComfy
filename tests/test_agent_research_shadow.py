@@ -295,7 +295,9 @@ class TestTraceRecordsQuestionAndJudgment:
         assert "hivemind:workflows:111" in pack.artifacts
         assert "hivemind_get:workflows:111" in pack.artifacts
         assert trace.executed_tool_calls == 2
-        assert trace.evidence_artifact_count == 3
+        # Search lead, fetched record, and durable synthesis artifact (plus
+        # the internal question marker) are retained.
+        assert trace.evidence_artifact_count == 4
         assert trace.to_dict()["executed_tool_calls"] == 2
         # Batch 13: the fetch digest serves the IR surface lens of the
         # workflow record (the Python view), with the expanded bounded preview
@@ -594,7 +596,8 @@ class TestTraceRecordsQuestionAndJudgment:
             for entry in pack.ledger.entries
             if entry.decision == stage.DECISION_SYNTHESIZE
         ][-1]
-        assert synth.evidence_ids == ("hivemind:workflows:111",)
+        assert synth.evidence_ids[0] == "hivemind:workflows:111"
+        assert synth.evidence_ids[1].startswith("research_synthesis:")
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
     def test_phase_allowlist_refuses_implement_tools(self, profile_dir: Path) -> None:
@@ -637,7 +640,8 @@ class TestTraceRecordsQuestionAndJudgment:
         # The finish cited real search evidence (a finish with zero evidence
         # AND zero executed tool calls would be rejected as finish_premature).
         synth = [e for e in pack.ledger.entries if e.decision == stage.DECISION_SYNTHESIZE]
-        assert synth and synth[0].evidence_ids == ("hivemind:workflows:111",)
+        assert synth and synth[0].evidence_ids[0] == "hivemind:workflows:111"
+        assert synth[0].evidence_ids[1].startswith("research_synthesis:")
 
     def test_registry_lookup_is_agent_callable(self, profile_dir: Path) -> None:
         """registry_lookup is a research-phase tool the agent may choose."""
@@ -1149,7 +1153,8 @@ class TestFinishPrematureGuard:
             if entry.decision == stage.DECISION_SYNTHESIZE
         ]
         assert len(synth) == 1
-        assert synth[0].evidence_ids == ("hivemind:workflows:111",)
+        assert synth[0].evidence_ids[0] == "hivemind:workflows:111"
+        assert synth[0].evidence_ids[1].startswith("research_synthesis:")
         # One iteration per decision: premature-finish, search, finish.
         assert len(trace.iterations) == 3
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
@@ -1195,7 +1200,8 @@ class TestFinishPrematureGuard:
             if entry.decision == stage.DECISION_SYNTHESIZE
         ]
         assert len(synth) == 1
-        assert synth[0].evidence_ids == ("hivemind_get:workflows:111",)
+        assert synth[0].evidence_ids[0] == "hivemind_get:workflows:111"
+        assert synth[0].evidence_ids[1].startswith("research_synthesis:")
         assert trace.citations == ("hivemind_get:workflows:111",)
 
     def test_finish_after_fetch_but_no_citation_is_premature_refinement(self, profile_dir: Path) -> None:
@@ -1245,7 +1251,8 @@ class TestFinishPrematureGuard:
             if entry.decision == stage.DECISION_SYNTHESIZE
         ]
         assert len(synth) == 1
-        assert synth[0].evidence_ids == ("hivemind_get:workflows:111",)
+        assert synth[0].evidence_ids[0] == "hivemind_get:workflows:111"
+        assert synth[0].evidence_ids[1].startswith("research_synthesis:")
         assert trace.citations == ("hivemind_get:workflows:111",)
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
@@ -1476,7 +1483,7 @@ class TestResearchReliabilityPort:
         )
         assert trace.status == "ok"
         assert trace.executed_tool_calls == 2
-        assert trace.evidence_artifact_count == 1
+        assert trace.evidence_artifact_count == 2
         assert trace.attempt == stage.RESEARCH_ATTEMPT_GROUNDED
         assert "hivemind_get:workflows:111" in pack.artifacts
         assert any("projection failed" in warning for warning in trace.warnings)
@@ -1562,7 +1569,7 @@ class TestResearchReliabilityPort:
         assert trace.status == "ok"
         assert network_fetches == 1
         assert trace.executed_tool_calls == 1
-        assert trace.evidence_artifact_count == 1
+        assert trace.evidence_artifact_count == 2
 
     def test_empty_search_titles_keep_ledger_conclusion_compact(self) -> None:
         from vibecomfy.executor.tool_specs import TOOL_SPEC_BY_NAME, project_tool_evidence

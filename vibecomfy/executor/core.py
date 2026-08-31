@@ -317,19 +317,22 @@ def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
     return _ROUTE_BEHAVIORS[_canonical_route_for_plan(plan)]
 
 
-def _should_research(plan: ClassifyDecision) -> bool:
+def _should_research(plan: ClassifyDecision, request: ExecutorRequest | None = None) -> bool:
     """Determine if the research phase should run for *plan*."""
     behavior = _route_behavior(plan)
-    # answer_only's inspect lane can request bounded evidence while retaining
-    # its no-edit route.  Ordinary classifier-selected inspect plans remain
-    # research-free unless they explicitly carry this capability.
+    # Inspect is research-free by default. A caller may explicitly require
+    # bounded evidence without changing the canonical inspect route.
     return behavior.needs_research or (
-        behavior.route == "inspect" and bool(plan.research)
+        behavior.route == "inspect"
+        and request is not None
+        and request.research_required
     )
 
 
-def _should_implement(plan: ClassifyDecision) -> bool:
+def _should_implement(plan: ClassifyDecision, request: ExecutorRequest | None = None) -> bool:
     """Determine if the implement phase should run for *plan*."""
+    if request is not None and request.interaction_mode == "answer_only":
+        return False
     return _route_behavior(plan).needs_implement
 
 
@@ -998,14 +1001,16 @@ class AgentResearchResult:
         # subset; counts may differ between modes, field presence may not).
         payload["citations"] = list(trace.citations)[:12]
         if self.decision_memo is not None:
-            # Research-only exposes the bounded C5 memo, never source bodies,
-            # iterations, or the full C1 artifact pack.
+            # Research-only exposes the bounded C5 memo; full source bodies
+            # are carried separately below in the durable evidence pack.
             payload.update(dict(self.decision_memo))
         # The compact handoff ledger is exposed on BOTH routes: research-only
         # keeps its bounded C5 memo AND now carries the same compact ledger
-        # field the threaded carrier exposes (entries are tiny judgments; no
-        # source bodies, iterations, or artifact packs).
+        # field the threaded carrier exposes (entries are tiny judgments).
         payload["ledger"] = self.ledger.to_dict()
+        # Durable serialization carries the resolver, not only citation IDs;
+        # prompt projections remain body-free and bounded.
+        payload["evidence_pack"] = self.evidence_pack.to_dict()
         if self.claim_provenance:
             payload["claim_provenance"] = {
                 claim: list(ids) for claim, ids in self.claim_provenance.items()
@@ -1103,8 +1108,16 @@ def _research_decision_memo(
         memo["claim_provenance"] = {
             str(claim): list(ids) for claim, ids in claim_provenance.items()
         }
-    elif trace.citations:
-        memo["claim_provenance"] = {"conclusion": list(trace.citations)}
+    elif trace.citations and artifacts:
+        fetched = [
+            evidence_id
+            for evidence_id in trace.citations
+            if evidence_id in artifacts
+            and getattr(artifacts[evidence_id], "kind", "")
+            in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+        ]
+        if fetched:
+            memo["claim_provenance"] = {"conclusion": fetched[:6]}
     # R4d: a FAILED stage (e.g. an unparseable model decision) must expose the
     # actual error so the reply stage reports the real cause — never a
     # fabricated "ran out of time" (observed: malformed decision ValueError,
@@ -1357,6 +1370,7 @@ def _run_agent_owned_research(
         "session_id": request.session_id,
         "request_identity": research_request_identity,
         "baseline_identity": research_baseline_identity,
+        "allow_empty_finish": route == "inspect",
         **research_kwargs,
     }
     optional_research_keys = (
@@ -1364,6 +1378,7 @@ def _run_agent_owned_research(
         "session_id",
         "request_identity",
         "baseline_identity",
+        "allow_empty_finish",
     )
     while True:
         try:
@@ -1757,13 +1772,20 @@ def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) ->
     """
     from vibecomfy.porting.edit.checkpoint import TERMINAL_STATE_NO_CANDIDATE
 
+    outcome = result.get("outcome")
+    outcome_kind = outcome.get("kind") if isinstance(outcome, dict) else None
+    no_candidate_reason = result.get("no_candidate_reason")
+    if (
+        outcome_kind == "noop"
+        and no_candidate_reason == "no_changes"
+        and result.get("graph_unchanged") is True
+        and result.get("apply_eligible") is True
+    ):
+        return True
     terminal_state = _implementation_response_typed_terminal(result)
     if terminal_state is not None:
         return terminal_state == TERMINAL_STATE_NO_CANDIDATE
 
-    outcome = result.get("outcome")
-    outcome_kind = outcome.get("kind") if isinstance(outcome, dict) else None
-    no_candidate_reason = result.get("no_candidate_reason")
     if no_candidate_reason == "authority_replay_mismatch":
         return False
     if no_candidate_reason in {
@@ -1776,6 +1798,10 @@ def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) ->
     if no_candidate_reason in {
         "route_not_applyable",
         "no_graph",
+        "no_changes",
+        "no_accepted_delta",
+        "unrepresentable_delta",
+        "unrepresentable_link_order",
         "unknown_route",
         "no_candidate",
     }:
@@ -2642,6 +2668,53 @@ def _ground_reply_node_ids(reply: str, graph: dict[str, Any] | None) -> str:
     return "".join(out)
 
 
+_EVIDENCE_CITE_RE = re.compile(r"\[([A-Za-z0-9_.:-]+)\]")
+_CURRENT_CLAIM_RE = re.compile(
+    r"\b(current|latest|today|now|pricing|price|cost|supports?|available|capabilit(?:y|ies)|version)\b",
+    re.IGNORECASE,
+)
+
+
+def _validate_reply_provenance(
+    reply: str,
+    research_result: AgentResearchResult | None,
+) -> str:
+    """Repair model citations and qualify unsupported material claims.
+
+    The model may suggest bindings, but only the durable evidence pack can
+    authorize them. Unknown/search-hit-only citations are removed; current or
+    capability claims without a fetched durable artifact are explicitly
+    qualified instead of being presented as facts.
+    """
+    if research_result is None or not reply:
+        return reply
+    artifacts = research_result.evidence_pack.artifacts
+    fetched_ids = {
+        evidence_id
+        for evidence_id, artifact in artifacts.items()
+        if artifact.kind in {"hivemind_record", "web_search_result", "registry_resolution", "node_schema"}
+    }
+    cited = {match.group(1) for match in _EVIDENCE_CITE_RE.finditer(reply)}
+    invalid = cited - set(artifacts)
+    for evidence_id in invalid:
+        reply = reply.replace(f"[{evidence_id}]", "")
+    sentences = re.split(r"(?<=[.!?])\s+", reply)
+    repaired: list[str] = []
+    for sentence in sentences:
+        if _CURRENT_CLAIM_RE.search(sentence):
+            sentence_ids = {
+                match.group(1)
+                for match in _EVIDENCE_CITE_RE.finditer(sentence)
+            }
+            if not sentence_ids.intersection(fetched_ids):
+                sentence = (
+                    sentence.rstrip()
+                    + " (This time-sensitive claim is unverified from the available fetched evidence.)"
+                )
+        repaired.append(sentence)
+    return " ".join(repaired).strip()
+
+
 def _enforce_reply_grounding(
     reply: str,
     *,
@@ -2852,6 +2925,9 @@ def _run_reply(
                 message=failure.user_facing_message,
                 failure_envelope=failure,
             )
+        # Provenance is checked after model deliberation and before terminal
+        # grounding; durable artifact IDs are the only citation authority.
+        reply = _validate_reply_provenance(reply, research_result)
         # Fidelity + node-id grounding consumes the one closed-checkpoint
         # projection. This is not a second projector. A projection-time
         # exception after a durable applied product is row 6: keep applied.
@@ -3273,7 +3349,7 @@ def _run_staged_executor(
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
     retry_skips_research = bool(os.environ.get(_RESEARCH_HANG_RETRY_SKIP_ENV))
-    if _should_research(plan) and not retry_skips_research:
+    if _should_research(plan, request) and not retry_skips_research:
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
@@ -3347,7 +3423,7 @@ def _run_staged_executor(
         )
 
     # ── Phase 3: implement (optional) ────────────────────────────────────
-    if _should_implement(plan):
+    if _should_implement(plan, request):
         try:
             implement_spec = _resolve_spec(request.profile, "implement")
         except Exception as exc:

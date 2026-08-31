@@ -352,15 +352,19 @@ def project_ledger_for_prompt(
         return {"entries": []}
 
     projected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     for raw_entry in raw_entries[-max_entries:]:
         if not isinstance(raw_entry, Mapping):
             continue
         evidence_ids = raw_entry.get("evidence_ids")
-        ids = (
-            [str(item)[:120] for item in evidence_ids[:8]]
-            if isinstance(evidence_ids, (list, tuple))
-            else []
-        )
+        ids: list[str] = []
+        if isinstance(evidence_ids, (list, tuple)):
+            for item in evidence_ids[:8]:
+                evidence_id = str(item)[:120]
+                if evidence_id in seen_ids:
+                    continue
+                seen_ids.add(evidence_id)
+                ids.append(evidence_id)
         entry: dict[str, Any] = {
             "decision": str(raw_entry.get("decision") or "?")[:160],
             "conclusion": str(raw_entry.get("conclusion") or "")[:360],

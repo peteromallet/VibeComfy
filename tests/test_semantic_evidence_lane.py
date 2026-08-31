@@ -13,6 +13,12 @@ from vibecomfy.executor.evidence_pack import (
     project_ledger_for_prompt,
 )
 from vibecomfy.executor.prompts import build_reply_messages
+from vibecomfy.executor.core import AgentResearchResult, _validate_reply_provenance
+from vibecomfy.executor.agent_research_stage import AgentResearchTrace, run_agent_research_stage
+from vibecomfy.executor.graph_inspection import inspect_workflow
+from vibecomfy.executor.hivemind_tools import hivemind_get, hivemind_search
+from vibecomfy.executor.tool_contracts import ToolStatus
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
 def test_overflow_projection_keeps_newest_ledger_evidence() -> None:
@@ -61,6 +67,21 @@ def test_claim_provenance_round_trips_and_reaches_reply_prompt() -> None:
     )
     rebuilt = EvidencePack.from_dict(pack.to_dict())
     assert rebuilt.ledger.claim_provenance == {"wiring pattern": ("evidence:1",)}
+    trace = AgentResearchTrace(
+        route="research",
+        question="Explain the pattern",
+        iterations=(),
+        final_verdict="enough",
+        summary="The fetched record supports the wiring pattern.",
+        citations=("evidence:1",),
+        uncertainty="",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    durable = AgentResearchResult(
+        route="research", trace=trace, evidence_pack=rebuilt
+    ).to_dict()
+    assert durable["evidence_pack"]["artifacts"]["evidence:1"]["body"]["body"] == "source"
 
     messages = build_reply_messages(
         "Explain the pattern",
@@ -83,6 +104,81 @@ def test_claim_provenance_round_trips_and_reaches_reply_prompt() -> None:
     assert "evidence:1" in user
     assert '"widget_index": 0' in user
     assert '"link_id": 7' in user
+
+
+def test_reply_provenance_repair_removes_invented_and_search_only_citations() -> None:
+    search = EvidenceArtifact(
+        evidence_id="hivemind_search:1",
+        kind="hivemind_search_hit",
+        body={"title": "lead"},
+    )
+    pack = EvidencePack(
+        artifacts={search.evidence_id: search},
+        ledger=EvidenceLedger(
+            entries=(EvidenceLedgerEntry(
+                decision="synthesis",
+                conclusion="lead",
+                evidence_ids=(search.evidence_id,),
+                uncertainty="",
+            ),)
+        ),
+    )
+    trace = AgentResearchTrace(
+        route="inspect",
+        question="q",
+        iterations=(),
+        status="ok",
+        final_verdict="enough",
+        summary="",
+        citations=(),
+        uncertainty="",
+        elapsed_seconds=0.0,
+    )
+    result = AgentResearchResult(route="inspect", trace=trace, evidence_pack=pack)
+    repaired = _validate_reply_provenance(
+        "The current capability is supported [hivemind_search:1] and [invented:9].",
+        result,
+    )
+    assert "[invented:9]" not in repaired
+    assert "unverified" in repaired
+
+
+def test_named_scalar_inputs_never_get_sorted_synthetic_widget_indices() -> None:
+    workflow = VibeWorkflow(id="semantic", source=WorkflowSource(id="semantic"))
+    workflow.nodes["1"] = VibeNode(
+        id="1",
+        class_type="UnknownNode",
+        inputs={"zeta": 3, "alpha": 1},
+    )
+    widgets = inspect_workflow(workflow).nodes[0].widgets
+    assert {widget.name for widget in widgets} == {"alpha", "zeta"}
+    assert all(widget.index is None for widget in widgets)
+
+
+def test_optional_research_can_finish_without_a_tool_call() -> None:
+    trace, pack = run_agent_research_stage(
+        route="inspect",
+        question="Explain this graph locally",
+        judge_fn=lambda *_args: {
+            "action": "finish",
+            "conclusion": "The graph is locally explainable.",
+            "evidence_ids": [],
+            "uncertainty": "",
+        },
+        deadline_seconds=5,
+        max_turns=1,
+        allow_empty_finish=True,
+    )
+    assert trace.status == "ok"
+    assert trace.executed_tool_calls == 0
+    assert any(entry.decision == "synthesize" for entry in pack.ledger.entries)
+
+
+def test_research_egress_rejects_oversized_query_and_timeout() -> None:
+    query_result = hivemind_search("x" * 513)
+    timeout_result = hivemind_get("hivemind:messages:1", timeout=31)
+    assert query_result.status is ToolStatus.INVALID_REQUEST
+    assert timeout_result.status is ToolStatus.INVALID_REQUEST
 
 
 def test_answer_only_research_callback_cannot_produce_edit() -> None:
@@ -133,7 +229,12 @@ def test_answer_only_research_callback_cannot_produce_edit() -> None:
         end_model_attempt_capture=lambda _token: None,
     )
     result = run_threaded_executor(
-        ExecutorRequest(query="research this graph", graph=graph, interaction_mode="answer_only"),
+            ExecutorRequest(
+                query="research this graph",
+                graph=graph,
+                interaction_mode="answer_only",
+                research_required=True,
+            ),
         kernel=kernel,
         host_ports=ports,
         executor_id="semantic-test",
