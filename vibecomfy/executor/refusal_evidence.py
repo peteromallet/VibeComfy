@@ -228,16 +228,10 @@ class RefusalEvidenceHandle(Mapping[str, Mapping[str, Any]]):
 class RefusalEvidenceStore:
     """Executor-owned registry; entries are addressed only by opaque handles."""
 
-    __slots__ = ("_register_callback", "__weakref__")
+    __slots__ = ("__weakref__",)
 
     def __init__(self) -> None:
         raise TypeError("RefusalEvidenceStore is owned by the executor capture path")
-
-    def _register(self, bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle | None:
-        callback = getattr(self, "_register_callback", None)
-        if not callable(callback):
-            return None
-        return callback(self, bundle)
 
 def _make_refusal_evidence_registry() -> tuple[
     Any, Any
@@ -249,26 +243,27 @@ def _make_refusal_evidence_registry() -> tuple[
     stores: dict[int, RefusalEvidenceStore] = {}
     entries: dict[int, dict[str, RefusalEvidenceBundle]] = {}
 
-    def create_store() -> RefusalEvidenceStore:
+    def create_store() -> tuple[RefusalEvidenceStore, Any]:
         store = object.__new__(RefusalEvidenceStore)
         store_identity = id(store)
         stores[store_identity] = store
         entries[store_identity] = {}
 
-        def register(
-            candidate: RefusalEvidenceStore, bundle: RefusalEvidenceBundle
-        ) -> RefusalEvidenceHandle | None:
-            if stores.get(store_identity) is not candidate:
-                return None
+        def begin_registration() -> Any:
             token = secrets.token_urlsafe(32)
-            entries[store_identity][token] = bundle
-            return RefusalEvidenceHandle(
-                token=token,
-                evidence_ids=tuple(bundle.records),
-            )
 
-        store._register_callback = register
-        return store
+            def commit(bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle:
+                if stores.get(store_identity) is not store:
+                    raise RuntimeError("refusal evidence store is no longer registered")
+                entries[store_identity][token] = bundle
+                return RefusalEvidenceHandle(
+                    token=token,
+                    evidence_ids=tuple(bundle.records),
+                )
+
+            return commit
+
+        return store, begin_registration
 
     def resolve(handle: RefusalEvidenceHandle) -> RefusalEvidenceBundle | None:
         if type(handle) is not RefusalEvidenceHandle:

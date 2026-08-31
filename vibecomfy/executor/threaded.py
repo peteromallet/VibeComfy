@@ -491,14 +491,12 @@ class _ExecutorRefusalEvidenceState:
         self._provider = _FrozenSchemaAuthority(
             schema_lookup or _default_schema_lookup
         )
-        self._store = _create_refusal_evidence_store()
+        self._store, begin_registration = _create_refusal_evidence_store()
+        self._commit_evidence = begin_registration()
 
     def capture(self) -> RefusalEvidenceHandle:
         bundle = _collect_refusal_evidence_bundle(self._request, self._provider)
-        handle = self._store._register(bundle)
-        if handle is None:
-            raise RuntimeError("trusted refusal evidence store rejected capture")
-        return handle
+        return self._commit_evidence(bundle)
 
 
 def inspect_refusal_evidence_ledger(
