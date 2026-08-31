@@ -29,6 +29,7 @@ from .contracts import (
 )
 from .refusal_evidence import (
     FrozenRefusalLedger,
+    _CaptureOwner,
     _authority_content_digest_for_observations,
     authority_generation,
     class_absence_record,
@@ -112,20 +113,16 @@ class ThreadedKernel:
 _LOOKUP_UNAVAILABLE = object()
 
 
-class _FrozenSchemaAuthority:
+class _FrozenSchemaAuthority(_CaptureOwner):
     """Memoize one provider's observations for a single inspect turn."""
 
     def __init__(self, source: Any) -> None:
+        super().__init__()
         self.source = source
-        self.__capture_capability = object()
         self._observations: dict[str, Any] = {}
         self.content_digest = getattr(source, "content_digest", None)
         self.source_identity = id(source)
         self.source_generation = authority_generation(source)
-
-    def _capture_capability(self) -> object:
-        """Return the owner-bound mint capability to the ledger constructor."""
-        return self.__capture_capability
 
     def capture_generation(self, class_types: tuple[str, ...]) -> str:
         if self.source_generation is not None:

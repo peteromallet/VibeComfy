@@ -309,6 +309,23 @@ def test_direct_capture_helper_requires_owner_capability() -> None:
         )
 
 
+def test_direct_capture_rejects_forged_duck_owner() -> None:
+    class DuckOwner:
+        def _capture_capability(self) -> object:
+            return object()
+
+    with pytest.raises(TypeError, match="authority collection"):
+        FrozenRefusalLedger._from_capture(
+            {},
+            graph={"nodes": {}},
+            schema_snapshot={},
+            schema_content_digest=None,
+            source_identity=0,
+            source_generation="identity:0",
+            owner=DuckOwner(),
+        )
+
+
 def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
     request = ExecutorRequest(
         query="Add MTCNN face detection",

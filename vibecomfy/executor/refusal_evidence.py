@@ -166,6 +166,20 @@ def _ledger_integrity(
 _LEDGER_TOKEN = object()
 
 
+class _CaptureOwner:
+    """Nominal authority owner; only the threaded capture adapter subclasses it."""
+
+    __slots__ = ("__capture_capability",)
+
+    def __init__(self) -> None:
+        if type(self) is _CaptureOwner:
+            raise TypeError("capture owner is collector-private")
+        self.__capture_capability = object()
+
+    def _capture_capability(self) -> object:
+        return self.__capture_capability
+
+
 class FrozenRefusalLedger(dict[str, dict[str, Any]]):
     """Authenticated evidence mapping produced by one authority snapshot."""
 
@@ -181,11 +195,10 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
         owner: Any,
         _token: object | None = None,
     ) -> None:
-        capability = getattr(owner, "_capture_capability", None)
         if (
             _token is not _LEDGER_TOKEN
-            or not callable(capability)
-            or capability() is None
+            or not isinstance(owner, _CaptureOwner)
+            or owner._capture_capability() is None
         ):
             raise TypeError("FrozenRefusalLedger must come from authority collection")
         super().__init__((str(key), dict(value)) for key, value in records.items())
