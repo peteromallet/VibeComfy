@@ -4535,7 +4535,19 @@ async function _rehydrateChat(panel) {
       return;
     }
 
-    const payload = normalizeChatRehydratePayload(rawPayload);
+    // Rehydration has no authenticated source in the server payload. Capture
+    // the live canvas as the trusted source witness before normalizing any
+    // nested/latest candidate; if capture fails, transaction candidates stay
+    // non-applyable rather than trusting a public receipt hash.
+    let rehydrateSourceGraph = null;
+    try {
+      rehydrateSourceGraph = (await buildCanvasSnapshot()).graph;
+    } catch (_sourceError) {
+      rehydrateSourceGraph = null;
+    }
+    const payload = normalizeChatRehydratePayload(rawPayload, {
+      sourceGraph: rehydrateSourceGraph,
+    });
     if (payload && payload.ok === true) {
       if (payload.exists === false) {
         // Re-check scope guard before missing-session transition.
@@ -5145,7 +5157,7 @@ function readRoundtripApplyCandidate(source, options = {}) {
   }
 }
 
-function normalizeChatMessagePayload(message) {
+function normalizeChatMessagePayload(message, { sourceGraph = null } = {}) {
   if (!message || typeof message !== "object") {
     return message;
   }
@@ -5153,6 +5165,7 @@ function normalizeChatMessagePayload(message) {
     ? normalizeAgentEditResponse(message.response, {
       endpoint: "chat:message-response",
       allowLegacy: true,
+      sourceGraph,
     })
     : null;
   const outcome = message.outcome && typeof message.outcome === "object"
@@ -5164,6 +5177,7 @@ function normalizeChatMessagePayload(message) {
       {
         endpoint: "chat:message-outcome",
         allowLegacy: true,
+        sourceGraph,
       },
     ).outcome
     : response?.outcome || null;
@@ -5209,7 +5223,7 @@ function normalizeChatMessagePayload(message) {
   };
 }
 
-function normalizeChatRehydratePayload(rawPayload) {
+function normalizeChatRehydratePayload(rawPayload, { sourceGraph = null } = {}) {
   if (!rawPayload || typeof rawPayload !== "object") {
     throw new Error("chat endpoint must return an object");
   }
@@ -5283,15 +5297,15 @@ function normalizeChatRehydratePayload(rawPayload) {
     })(),
     latestCandidate:
       rawPayload.latestCandidate && typeof rawPayload.latestCandidate === "object"
-        ? normalizeAgentEditResponse(rawPayload.latestCandidate, { endpoint: "chat:latest_candidate", allowLegacy: true })
+        ? normalizeAgentEditResponse(rawPayload.latestCandidate, { endpoint: "chat:latest_candidate", allowLegacy: true, sourceGraph })
         : (rawPayload.latest_candidate && typeof rawPayload.latest_candidate === "object"
-          ? normalizeAgentEditResponse(rawPayload.latest_candidate, { endpoint: "chat:latest_candidate", allowLegacy: true })
+          ? normalizeAgentEditResponse(rawPayload.latest_candidate, { endpoint: "chat:latest_candidate", allowLegacy: true, sourceGraph })
           : null),
     pipelineMode: normalizePipelineMode(
       rawPayload.pipelineMode ?? rawPayload.pipeline_mode ?? DEFAULT_PIPELINE_MODE,
     ),
     messages: Array.isArray(rawPayload.messages)
-      ? rawPayload.messages.map((message) => normalizeChatMessagePayload(message))
+      ? rawPayload.messages.map((message) => normalizeChatMessagePayload(message, { sourceGraph }))
       : [],
   };
 }

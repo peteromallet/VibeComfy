@@ -106,6 +106,9 @@ class HeadlessAgentRequest:
     # ``apply`` — that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Explicit bounded evidence affordance for answer-only canaries. The
+    # answer lane remains dominant; this only permits the research phase.
+    research_required: bool = False
     # Scenario assessment contract forwarded into ExecutorRequest/classify.
     expect_graph_changed: bool | None = None
     # Batch-REPL per-request turn budget (PR-D).  Integer 1..250; None =
@@ -160,6 +163,8 @@ class HeadlessAgentRequest:
             raise ValueError(
                 "HeadlessAgentRequest `interaction_mode` must be a string or null."
             )
+        if not isinstance(self.research_required, bool):
+            raise ValueError("HeadlessAgentRequest `research_required` must be a boolean.")
         if self.expect_graph_changed is not None and not isinstance(
             self.expect_graph_changed, bool
         ):
@@ -231,6 +236,7 @@ class HeadlessAgentRequest:
             idempotency_key=self.idempotency_key,
             network=self.network,
             interaction_mode=self.interaction_mode,
+            research_required=self.research_required,
             expect_graph_changed=self.expect_graph_changed,
             max_batches=self.max_batches,
             pipeline_mode=self.pipeline_mode,
@@ -275,6 +281,8 @@ class HeadlessAgentRequest:
             payload["timeout"] = self.timeout
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.research_required:
+            payload["research_required"] = True
         if self.expect_graph_changed is not None:
             payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
@@ -350,6 +358,11 @@ class HeadlessAgentRequest:
             interaction_mode=_require_optional_str(
                 payload.get("interaction_mode"),
                 field_name="interaction_mode",
+            ),
+            research_required=_parse_bool(
+                payload.get("research_required"),
+                field_name="research_required",
+                default=False,
             ),
             expect_graph_changed=_parse_bool(
                 payload.get("expect_graph_changed"),

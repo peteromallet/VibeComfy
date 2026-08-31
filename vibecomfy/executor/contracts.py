@@ -2796,7 +2796,7 @@ class Report:
                 plan_payload["task"] = task
             inner["plan"] = plan_payload
         if self.research is not None:
-            inner["research"] = self.research.to_dict()
+            inner["research"] = self.research.to_public_dict()
         if self.implementation is not None:
             inner["implementation"] = self.implementation.to_dict()
         usage_payload = coerce_deepseek_usage(self.deepseek_usage)
@@ -3345,7 +3345,7 @@ class AgentTurnResult:
 
         research: dict[str, Any] = {}
         if result.report.research is not None:
-            research = result.report.research.to_dict()
+            research = result.report.research.to_public_dict()
             warnings.extend(result.report.research.warnings)
         elif route == "research":
             research = _durable_research_evidence(

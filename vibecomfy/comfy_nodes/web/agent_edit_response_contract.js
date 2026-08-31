@@ -725,6 +725,9 @@ function canonicalTerminalAliases(raw, candidateGraph, sourceStructuralHash = nu
     }
   }
   for (const transaction of transactionValues) {
+    if (!sourceStructuralHash) {
+      return { valid: false, reason: "missing_trusted_source_witness", acceptedBatch, raw };
+    }
     const candidateAuthority = transaction.candidate_authority;
     const authority = transaction.authority;
     for (const identity of ["session_id", "turn_id"]) {
@@ -742,9 +745,9 @@ function canonicalTerminalAliases(raw, candidateGraph, sourceStructuralHash = nu
       transaction,
       candidateGraph,
       // A source graph supplied by the submit owner is trusted ingress
-      // context; the receipt summary is the durable fallback used when
-      // rehydrating a response without the live source graph.
-      { sourceStructuralHash: sourceStructuralHash || receipt.submit_structural_graph_hash },
+      // context. A public receipt is not an independent source witness:
+      // source-less rehydration must fail closed until it gets one.
+      { sourceStructuralHash },
     );
     if (!projectionBinding.valid) {
       return { valid: false, reason: projectionBinding.reason, acceptedBatch, raw };
@@ -1327,6 +1330,7 @@ export function normalizeAgentEditResponse(
     ? normalizeAgentEditResponse(raw.latestCandidate || raw.latest_candidate, {
       endpoint: endpoint ? `${endpoint}:latest_candidate` : "latest_candidate",
       allowLegacy,
+      sourceGraph,
     })
     : null;
 
@@ -1436,7 +1440,11 @@ export function normalizeAgentEditResponse(
       asString(raw.clientStructuralGraphHash) || asString(raw.client_structural_graph_hash),
     latestCandidate,
     messages: Array.isArray(raw.messages)
-      ? raw.messages.map((message) => normalizeMessage(message, { endpoint, allowLegacy }))
+      ? raw.messages.map((message) => normalizeMessage(message, {
+        endpoint,
+        allowLegacy,
+        sourceGraph,
+      }))
       : null,
     sessionPath: asString(raw.sessionPath) || asString(raw.session_path),
     sessionPathResolved:

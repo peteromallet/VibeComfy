@@ -43,9 +43,10 @@ def test_headless_request_to_executor_request() -> None:
         "client_live_canvas_token",
         "expected_baseline_graph_hash",
         "expected_baseline_graph_hash_present",
-        "on_demand_schemas",
-        "interaction_mode",
-        "expect_graph_changed",
+            "on_demand_schemas",
+            "interaction_mode",
+            "research_required",
+            "expect_graph_changed",
         "max_batches",
         "pipeline_mode",
         "scenario_id",
@@ -192,6 +193,17 @@ def test_headless_request_from_payload_round_trip() -> None:
     assert headless.additive is False
     assert "additive" in headless.to_dict()
     assert headless.to_dict()["additive"] is False
+
+
+def test_headless_answer_only_research_affordance_round_trips() -> None:
+    request = HeadlessAgentRequest(
+        query="compare current model capabilities",
+        interaction_mode="answer_only",
+        research_required=True,
+    )
+    restored = HeadlessAgentRequest.from_payload(request.to_dict())
+    assert restored.research_required is True
+    assert restored.to_executor_request().research_required is True
 
 
 def test_headless_request_defaults() -> None:

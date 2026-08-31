@@ -325,7 +325,7 @@ def _should_research(plan: ClassifyDecision, request: ExecutorRequest | None = N
     return behavior.needs_research or (
         behavior.route == "inspect"
         and request is not None
-        and request.research_required
+        and (request.research_required or plan.research_available)
     )
 
 
@@ -1015,6 +1015,17 @@ class AgentResearchResult:
             payload["claim_provenance"] = {
                 claim: list(ids) for claim, ids in self.claim_provenance.items()
             }
+        return payload
+
+    def to_public_dict(self) -> dict[str, Any]:
+        """Return the compact flow contract without durable source bodies.
+
+        ``evidence_pack`` remains available on the typed result for internal
+        citation resolution and durable persistence.  Public executor/report
+        payloads carry only the bounded ledger and provenance identifiers.
+        """
+        payload = self.to_dict()
+        payload.pop("evidence_pack", None)
         return payload
 
 def _source_policy_entries(
@@ -2827,9 +2838,12 @@ def _validate_reply_provenance(
     capability claims without a fetched durable artifact are explicitly
     qualified instead of being presented as facts.
     """
-    if research_result is None or not reply:
+    if not reply:
         return reply
-    artifacts = research_result.evidence_pack.artifacts
+    # An answer-only turn may legitimately skip optional research, but that
+    # is an empty evidence set—not permission to bypass claim qualification.
+    pack = getattr(research_result, "evidence_pack", None)
+    artifacts = getattr(pack, "artifacts", {})
     fetched_ids = {
         evidence_id
         for evidence_id, artifact in artifacts.items()
@@ -2859,13 +2873,19 @@ def _validate_reply_provenance(
             material = bool(_claim_terms(clause)) and not clause.lstrip().startswith(
                 ("?", "I don't know", "I cannot verify")
             )
+            # With no research result, only time-sensitive/external claims
+            # require an evidence qualification. Graph explanations remain
+            # answerable from the authoritative graph witness.
+            requires_evidence = material and (
+                research_result is not None or bool(_CURRENT_CLAIM_RE.search(clause))
+            )
             if supported:
                 # Re-attach only IDs that support this specific clause. A
                 # supported clause must not authorize its mixed neighbour.
                 clause = clause.rstrip() + " " + " ".join(
                     f"[{evidence_id}]" for evidence_id in sorted(supported)
                 )
-            elif material and not graph_grounded:
+            elif requires_evidence and not graph_grounded:
                 if "unverified" not in clause.casefold():
                     clause = clause.rstrip() + (
                         " (This claim is unverified from the available fetched evidence.)"

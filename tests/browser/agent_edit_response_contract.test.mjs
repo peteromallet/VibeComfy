@@ -2750,11 +2750,56 @@ test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () 
       verification_kind: "layout_structural_noop",
       op_count: 0,
     },
-  });
+  }, { sourceGraph: graph });
   assert.equal(normalized.terminalState, "applied");
   assert.ok(normalized.candidateTransaction);
   assert.equal(normalized.applyEligible, true);
   assert.deepEqual(normalized.raw.accepted_batch, acceptedBatch);
+});
+
+test("browser source-less transaction payloads fail closed even when receipt hash is coordinated", () => {
+  const graph = { nodes: [], links: [] };
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "source-less",
+    family: "layout",
+    verificationKind: "layout_structural_noop",
+  });
+  transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+  transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+  transaction.hashes.candidate_layout_graph_hash = sha256Hex(buildLayoutGraphProjection(graph));
+  const payload = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      submit_structural_graph_hash: transaction.hashes.submit_structural_graph_hash,
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "b".repeat(64),
+      accepted_batch_digest: sha256Hex(readDeltaEnvelope({ accepted_batch: [] })),
+      cumulative_delta_hash: sha256Hex(readDeltaEnvelope({ accepted_batch: [] })),
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      op_count: 0,
+    },
+  };
+  const normalized = normalizeAgentEditResponse(payload);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
 });
 
 test("browser binds layout postcondition and graph hash to the published candidate", () => {
@@ -2817,7 +2862,7 @@ test("browser binds layout postcondition and graph hash to the published candida
       op_count: 0,
     },
   };
-  const valid = normalizeAgentEditResponse(structuredClone(base));
+  const valid = normalizeAgentEditResponse(structuredClone(base), { sourceGraph: preconditionGraph });
   assert.equal(valid.terminalState, "applied");
   assert.equal(valid.applyEligible, true);
   const sourceBound = normalizeAgentEditResponse(structuredClone(base), { sourceGraph: preconditionGraph });

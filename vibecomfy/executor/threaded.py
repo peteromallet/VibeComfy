@@ -278,12 +278,16 @@ def _open_adapt_plan(request: ExecutorRequest) -> ClassifyDecision:
     )
 
 
-def _inspect_answer_plan(request: ExecutorRequest) -> ClassifyDecision:
+def _inspect_answer_plan(
+    request: ExecutorRequest,
+    *,
+    research_selected: bool = False,
+) -> ClassifyDecision:
     return ClassifyDecision(
         # Research is an optional capability, not part of the canonical
         # inspect route booleans. ``research_required`` opts into the phase.
         research=False,
-        research_available=True,
+        research_available=research_selected,
         implement=False,
         reply=True,
         route="inspect",
@@ -316,7 +320,14 @@ def coerce_declared_interaction_lane(
     are lifted to inspect.
     """
     if request.interaction_mode == "answer_only":
-        return _inspect_answer_plan(request)
+        # Preserve a classifier-selected research affordance while forcing
+        # the non-editing inspect lane.  The caller's explicit requirement is
+        # equivalent to that bounded selection; neither path can enable edit.
+        selected = bool(
+            request.research_required
+            or (plan is not None and plan.effective_route == "research")
+        )
+        return _inspect_answer_plan(request, research_selected=selected)
     if typed_refusal_contract(request):
         if plan is None or plan.effective_route in {"inspect", "respond"}:
             return _open_adapt_plan(request)
@@ -1058,6 +1069,12 @@ def run_threaded_executor(
                 message=str(exc),
                 report=build_report(),
             ))
+        # Keep answer-only replies subject to the same conservative claim
+        # qualification as staged replies.  Skipped optional research is an
+        # empty evidence set, never a bypass around provenance validation.
+        from .core import _validate_reply_provenance  # noqa: PLC0415
+
+        reply = _validate_reply_provenance(reply, research_result, request.graph)
         kernel.emit_phase(
             bounded_request,
             executor_id=executor_id,

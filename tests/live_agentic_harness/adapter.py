@@ -236,6 +236,7 @@ def run_headless_scenario(
         and not typed_refusal
     ):
         interaction_mode = "answer_only"
+    research_required = bool(assessment_map.get("require_executed_research", False))
 
     request = HeadlessAgentRequest(
         query=query,
@@ -250,6 +251,7 @@ def run_headless_scenario(
         timeout=scenario.get("timeout"),
         additive=bool(scenario.get("additive", False)),
         interaction_mode=interaction_mode,
+        research_required=research_required,
         expect_graph_changed=expect_graph_changed,
         max_batches=scenario.get("max_batches"),
         pipeline_mode=pipeline_mode,

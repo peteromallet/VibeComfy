@@ -86,8 +86,12 @@ def test_claim_provenance_round_trips_and_reaches_reply_prompt() -> None:
     )
     durable = AgentResearchResult(
         route="research", trace=trace, evidence_pack=rebuilt
-    ).to_dict()
-    assert durable["evidence_pack"]["artifacts"]["evidence:1"]["body"]["body"] == "source"
+    )
+    durable_payload = durable.to_dict()
+    assert durable_payload["evidence_pack"]["artifacts"]["evidence:1"]["body"]["body"] == "source"
+    public_payload = durable.to_public_dict()
+    assert "evidence_pack" not in public_payload
+    assert durable.evidence_pack.artifacts["evidence:1"].body["body"] == "source"
 
     messages = build_reply_messages(
         "Explain the pattern",
@@ -149,6 +153,14 @@ def test_reply_provenance_repair_removes_invented_and_search_only_citations() ->
     assert "unverified" in repaired
 
 
+def test_no_research_answer_qualifies_external_current_claims() -> None:
+    repaired = _validate_reply_provenance(
+        "The latest Claude model costs less and has higher rate limits.",
+        None,
+    )
+    assert "unverified" in repaired
+
+
 def test_named_scalar_inputs_never_get_sorted_synthetic_widget_indices() -> None:
     workflow = VibeWorkflow(id="semantic", source=WorkflowSource(id="semantic"))
     workflow.nodes["1"] = VibeNode(
@@ -200,7 +212,9 @@ def test_research_egress_rejects_nonfinite_timeout_and_redacts_embedded_payloads
             "timeout": "NaN",
         },
     )
-    assert "timeout" not in safe
+    # Preserve malformed values so the registered validator returns a typed
+    # invalid_request before transport; do not silently default/drop them.
+    assert safe["timeout"] == "NaN"
     assert "SecretNode" not in safe["query"]
     assert "abc123" not in safe["query"]
     assert "supersecret" not in safe["query"]

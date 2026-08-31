@@ -814,6 +814,44 @@ class TestTraceRecordsQuestionAndJudgment:
         assert entries and entries[0].conclusion.startswith("invalid_request")
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        (
+            ("limit", "not-an-int"),
+            ("limit", True),
+            ("limit", 2.5),
+            ("timeout", "not-a-number"),
+            ("timeout", False),
+            ("filters", "not-an-object"),
+            ("filters", {"source_type": 17}),
+            ("cursor", "not-a-valid-opaque-cursor"),
+        ),
+    )
+    def test_malformed_search_args_reach_typed_validator_without_transport(
+        self,
+        key: str,
+        value: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Safe egress bounds malformed values instead of dropping/coercing them."""
+        from vibecomfy.executor import hivemind_tools
+
+        def no_transport(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("invalid arguments must fail before transport")
+
+        monkeypatch.setattr(hivemind_tools, "_hivemind_search_transport", no_transport)
+        result = stage._default_tool_fn(
+            "hivemind_search",
+            {"query": "bounded validation", key: value},
+        )
+        assert result.status is ToolStatus.INVALID_REQUEST
+        assert result.diagnostics
+        assert result.diagnostics[0].code in {
+            "limit_invalid",
+            "timeout_invalid",
+            "invalid_filter",
+        }
+
 
 # ── Acceptance 3: no full research result / workflow schema in the model request ─
 

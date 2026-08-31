@@ -641,6 +641,38 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
             value = value[:start] + "[redacted graph payload]" + value[end:]
         return " ".join(value.split())
 
+    def _preserve_bounded(value: Any, *, depth: int = 0) -> Any:
+        """Keep malformed arguments visible to the registered validator.
+
+        This is deliberately a *sanitizer*, not a validator: dropping a bad
+        value here makes the handler observe a default and turns a typed
+        ``invalid_request`` into a silent coercion.  Primitive values retain
+        their type (in particular bools and floats), while nested model data
+        is bounded and redacted before it can cross the egress seam.
+        """
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            return _redact(value)[:512]
+        if depth >= 2:
+            return _bounded(str(value), 256)
+        if isinstance(value, Mapping):
+            bounded: dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= 32:
+                    break
+                bounded_key = _redact(str(key))[:128]
+                bounded[bounded_key] = _preserve_bounded(item, depth=depth + 1)
+            return bounded
+        if isinstance(value, (list, tuple)):
+            return [
+                _preserve_bounded(item, depth=depth + 1)
+                for item in value[:32]
+            ]
+        # Keep an invalid type invalid without allowing an arbitrary object's
+        # representation to become an egress channel.
+        return _bounded(type(value).__name__, 128)
+
     safe: dict[str, Any] = {}
     for key, value in args.items():
         if key not in allowed or key.casefold() in {"body", "graph", "workflow", "secret"}:
@@ -651,27 +683,29 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
             text = _redact(value.strip())
             safe[key] = text[:_RESEARCH_ARG_LIMITS[key]]
         elif key == "timeout":
-            try:
-                timeout = float(value)
-            except (TypeError, ValueError):
-                continue
-            if not math.isfinite(timeout) or timeout <= 0:
-                continue
-            safe[key] = min(timeout, _RESEARCH_ARG_LIMITS[key])
+            valid_timeout = False
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                try:
+                    valid_timeout = math.isfinite(float(value)) and value > 0
+                except OverflowError:
+                    valid_timeout = False
+            if valid_timeout:
+                safe[key] = min(value, _RESEARCH_ARG_LIMITS[key])
+            else:
+                safe[key] = _preserve_bounded(value)
         elif key == "limit":
-            try:
-                safe[key] = max(1, min(int(value), 20))
-            except (TypeError, ValueError):
-                continue
+            if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and 1 <= value <= 20
+            ):
+                safe[key] = value
+            else:
+                safe[key] = _preserve_bounded(value)
         elif key == "cursor":
-            if isinstance(value, str):
-                safe[key] = value[:512]
-        elif key == "filters" and isinstance(value, Mapping):
-            safe["filters"] = {
-                str(filter_key): _redact(str(filter_value))[:256]
-                for filter_key, filter_value in value.items()
-                if str(filter_key) in {"source_type", "model_family", "capability", "node_class", "channel", "author", "date_from", "date_to", "has_workflow", "sort"}
-            }
+            safe[key] = _preserve_bounded(value)
+        elif key == "filters":
+            safe[key] = _preserve_bounded(value)
     return safe
 
 
