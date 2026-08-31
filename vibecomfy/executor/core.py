@@ -3202,29 +3202,27 @@ def _run_inspect_reply(
         refusal_evidence_handle = inspect_refusal_evidence_ledger(request)
         bundle = resolve_refusal_evidence_handle(refusal_evidence_handle)
     records = bundle.records if bundle is not None else {}
+    graph_inspection = render_inspect_markdown(evidence)
     if records:
-        evidence = (
-            evidence
-            + "\n\nTyped refusal authority ledger (cite exact IDs only):\n"
-            + "\n".join(
-                (
-                    f"- {record['evidence_id']}: class_absence {record['class_type']} "
-                    f"authority_digest={record['authority_digest']}"
-                    if record.get("kind") == "class_absence"
-                    else f"- {record['evidence_id']}: feature_absence "
-                    f"{record.get('class_type')}.{record.get('member_kind')}"
-                    f" {record.get('member')} authority_digest={record['authority_digest']}"
-                )
-                for record in records.values()
+        refusal_ledger_markdown = "\n\nTyped refusal authority ledger (cite exact IDs only):\n" + "\n".join(
+            (
+                f"- {record['evidence_id']}: class_absence {record['class_type']} "
+                f"authority_digest={record['authority_digest']}"
+                if record.get("kind") == "class_absence"
+                else f"- {record['evidence_id']}: feature_absence "
+                f"{record.get('class_type')}.{record.get('member_kind')}"
+                f" {record.get('member')} authority_digest={record['authority_digest']}"
             )
+            for record in records.values()
         )
+        graph_inspection += refusal_ledger_markdown
     return _run_reply(
         request,
         spec,
         plan=plan,
         effective_graph=request.graph,
         research_result=research_result,
-        graph_inspection=render_inspect_markdown(evidence),
+        graph_inspection=graph_inspection,
         host_ports=host_ports,
     )
 

@@ -436,11 +436,22 @@ def inspect_named_runtime_absences(
     # manufacture a secret set from sentence-initial capitalization; that set
     # was never shown to the model and cannot be a complete ledger.
     if not declared:
-        for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
+        for match in re.finditer(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
+            token = match.group(0)
             if token in candidates:
                 continue
             folded = re.sub(r"[^a-z0-9]", "", token.lower())
             if folded in _GENERIC_DOMAIN_TOKENS:
+                continue
+            # A sentence-initial title-case word is ordinary prose far more
+            # often than a runtime class (for example, ``Explain`` or
+            # ``Before``).  Keep explicit/internal-capital identifiers and
+            # title-case names used inside a sentence eligible for lookup.
+            token_is_title_case = token[0].isupper() and token[1:].islower()
+            prefix = query[: match.start()].rstrip()
+            if token_is_title_case and (
+                not prefix or prefix[-1] in ".!?;:"
+            ):
                 continue
             if any(ch.isupper() for ch in token):
                 candidates.append(token)

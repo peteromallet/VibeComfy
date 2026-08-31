@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from vibecomfy.executor import core as executor_core
 from vibecomfy.agent.contracts import HeadlessAgentRequest
 from vibecomfy.comfy_nodes.agent.contracts import (
     missing_runtime_classes_from_report,
@@ -160,6 +161,129 @@ def test_inspect_synthesizes_missing_runtime_classes_for_named_absence() -> None
     promoted = durable["outcome"]
     assert promoted["kind"] == "requires_custom_nodes"
     assert list(promoted["missing_classes"]) == ["GroundingDINO"]
+
+
+def test_live_graph_answer_only_does_not_treat_explain_as_runtime_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The live inspect smoke must reach the reply provider without a ledger crash."""
+    request = ExecutorRequest(
+        query=(
+            "Explain what this graph does. If anything important is missing, ask one "
+            "clarifying question; otherwise inspect the workflow and answer directly."
+        ),
+        graph={
+            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+            "2": {"class_type": "CLIPTextEncode", "inputs": {}},
+            "3": {"class_type": "KSampler", "inputs": {}},
+        },
+        interaction_mode="answer_only",
+        expect_graph_changed=False,
+    )
+    assert inspect_named_runtime_absences(request, schema_lookup=lambda _name: None) == ()
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=lambda _name: None)
+
+    captured: dict[str, Any] = {}
+
+    def fake_run_reply(*_args: Any, **kwargs: Any) -> str:
+        captured["graph_inspection"] = kwargs["graph_inspection"]
+        return "grounded explanation"
+
+    monkeypatch.setattr(executor_core, "_run_reply", fake_run_reply)
+    result = executor_core._run_inspect_reply(
+        request,
+        AgentSpecShape("hermes", "model", "medium"),
+        plan=ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            route="inspect",
+            task="inspect_graph",
+            intent="explain_graph",
+        ),
+        refusal_evidence_handle=ledger,
+    )
+
+    assert result == "grounded explanation"
+    assert "3 node(s)" in captured["graph_inspection"]
+    assert "Typed refusal authority ledger" not in captured["graph_inspection"]
+
+
+def test_inspect_reply_appends_typed_ledger_after_rendering_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit absence evidence remains visible without concatenating GraphEvidence."""
+    request = _d813fe_request(
+        query="Explain the graph and whether MTCNN is available.",
+        expected_no_candidate_absent_classes=("MTCNN",),
+    )
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=lambda _name: None)
+    captured: dict[str, Any] = {}
+
+    def fake_run_reply(*_args: Any, **kwargs: Any) -> str:
+        captured["graph_inspection"] = kwargs["graph_inspection"]
+        return "grounded explanation"
+
+    monkeypatch.setattr(executor_core, "_run_reply", fake_run_reply)
+    result = executor_core._run_inspect_reply(
+        request,
+        AgentSpecShape("hermes", "model", "medium"),
+        plan=ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            route="inspect",
+            task="inspect_graph",
+            intent="explain_graph",
+        ),
+        refusal_evidence_handle=ledger,
+    )
+
+    assert result == "grounded explanation"
+    assert "Typed refusal authority ledger" in captured["graph_inspection"]
+    assert next(iter(ledger)) in captured["graph_inspection"]
+
+
+@pytest.mark.parametrize(
+    ("query", "inferred_names", "ordinary_words"),
+    (
+        (
+            "This workflow uses Gemini to process and split prompts. I'd like to "
+            "compare Gemini to Claude for generating complex image prompts. What are "
+            "the trade-offs? Just research, don't modify the workflow.",
+            {"Gemini", "Claude"},
+            {"This", "What", "Just"},
+        ),
+        (
+            "What alternative sharpening methods could replace the high pass filter "
+            "in this workflow?",
+            set(),
+            {"What"},
+        ),
+        (
+            "For this Qwen Image workflow, research techniques for ControlNet-based "
+            "inpainting with Qwen-Image-Lightning. Also explore mask blending.",
+            {"Qwen", "ControlNet", "Lightning"},
+            {"Before", "Also"},
+        ),
+        (
+            "My workflow uses a standard UNet-based Stable Diffusion checkpoint with "
+            "AnimateDiff. What are the trade-offs with PixArt? Specifically, how "
+            "would ControlNet integration differ?",
+            {"UNet", "Stable", "Diffusion", "AnimateDiff", "PixArt", "ControlNet"},
+            {"What", "Specifically"},
+        ),
+    ),
+)
+def test_answer_only_descriptors_keep_named_classes_but_drop_sentence_words(
+    query: str,
+    inferred_names: set[str],
+    ordinary_words: set[str],
+) -> None:
+    request = ExecutorRequest(query=query, graph={}, interaction_mode="answer_only")
+    missing = set(inspect_named_runtime_absences(request, schema_lookup=lambda _name: None))
+    assert inferred_names <= missing
+    assert not ordinary_words & missing
 
 
 def test_inspect_does_not_fabricate_absence_when_lookup_unavailable() -> None:
