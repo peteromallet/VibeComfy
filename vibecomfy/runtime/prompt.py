@@ -34,6 +34,8 @@ async def _warm_schema_provider(
 ) -> Any | None:
     if provider is None:
         return None
+    from vibecomfy.schema.cache import ObjectInfoPayloadError
+
     try:
         if getattr(provider, "_object_info", None) is not None:
             return provider
@@ -77,7 +79,10 @@ async def _warm_schema_provider(
         validate_object_info_payload_shape(object_info)
         provider._object_info = object_info
         return provider
-    except (OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+    except ObjectInfoPayloadError as exc:
+        on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
+        return None
+    except (OSError, RuntimeError, TimeoutError) as exc:
         on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
         return None
 

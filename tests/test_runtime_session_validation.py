@@ -528,6 +528,23 @@ def test_warm_schema_provider_rejects_malformed_live_payload_and_allows_retry(
         assert provider._object_info == {"GoodNode": {"input": {}}}
 
 
+@pytest.mark.parametrize("error_type", [TypeError, ValueError])
+def test_warm_schema_provider_propagates_provider_implementation_errors(
+    error_type: type[Exception],
+) -> None:
+    class Provider:
+        _object_info = None
+
+        async def object_info_async(self):
+            raise error_type("provider implementation bug")
+
+    for warm in (_warm_schema_provider, prompt_module._warm_schema_provider):
+        unavailable: list[str] = []
+        with pytest.raises(error_type, match="provider implementation bug"):
+            asyncio.run(warm(Provider(), on_unavailable=unavailable.append))
+        assert unavailable == []
+
+
 def test_cache_only_warmup_rejects_malformed_object_info_row(tmp_path: Path) -> None:
     cache_path = tmp_path / "object_info.cache.json"
     write_object_info_cache(
