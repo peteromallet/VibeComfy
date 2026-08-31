@@ -74,7 +74,11 @@ def _apply_primitive_widget_alias_write(
     if not _is_primitive_widget_alias_class(str(node.class_type)):
         return False
     index = widget_index_for_field(
-        node, field, schema_provider=schema_provider, name_authority=name_authority
+        node,
+        field,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+        strict_name_authority=isinstance(name_authority, Mapping),
     )
     if index is None and field == "value":
         raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
@@ -91,6 +95,7 @@ def _apply_primitive_widget_alias_write(
         node,
         schema_provider=schema_provider,
         name_authority=name_authority,
+        strict_name_authority=isinstance(name_authority, Mapping),
     )
     named_field = resolution.names[index] if index < len(resolution.names) else None
     widget_field = f"widget_{index}"
@@ -128,7 +133,11 @@ def _rewrite_positional_carrier(
     assignment the slot has exactly one carrier.
     """
     index = widget_index_for_field(
-        node, field, schema_provider=schema_provider, name_authority=name_authority
+        node,
+        field,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
+        strict_name_authority=isinstance(name_authority, Mapping),
     )
     if index is None:
         return False
@@ -917,6 +926,16 @@ def apply_edit_cow(
                 f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
         field = op.target.field_path
+        # Keep named and positional aliases synchronized in the frozen domain.
+        slot_index = widget_index_for_field(
+            node,
+            field,
+            schema_provider=schema_provider,
+            name_authority=name_authority,
+            strict_name_authority=True,
+        )
+        if slot_index is not None:
+            _write_compact_slot_mirrors(node, slot_index, op.value)
         # A literal assignment is also the explicit unlink operation for a
         # widget-backed input.  The retained IR has one edge authority, so
         # remove the incoming edge before materializing the literal value.

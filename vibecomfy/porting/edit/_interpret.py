@@ -1664,6 +1664,7 @@ class _InterpretRunner:
                 node,
                 schema_provider=self.schema_provider,
                 name_authority=self.name_authority,
+                strict_name_authority=True,
             )
             if 0 <= index < len(resolution.names):
                 named = resolution.names[index]

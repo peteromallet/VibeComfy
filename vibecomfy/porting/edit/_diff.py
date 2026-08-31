@@ -174,6 +174,7 @@ def _common_node_rebuild_required(
     post_node: Any,
     *,
     name_authority: Mapping[str, Any] | None = None,
+    strict_frozen: bool = False,
 ) -> bool:
     """True when a common node's π_edit delta needs remove+add.
 
@@ -187,13 +188,28 @@ def _common_node_rebuild_required(
     """
     if str(pre_node.class_type) != str(post_node.class_type):
         return True
+    if strict_frozen:
+        for node in (pre_node, post_node):
+            if _raw_widget_values(node) is not None and not _authority_has_row(
+                node, name_authority
+            ):
+                # A positional carrier without a retained witness has no
+                # replay identity.  Ambient object_info is deliberately not a
+                # substitute for the missing frozen authority.
+                return True
+            if _frozen_carrier_conflict(node, name_authority):
+                return True
     # Compare the editable quotient, not the carrier channel. API/envelope
     # ingest stores literals as named inputs while a UI carrier stores the
     # same vector as positional widgets_values. With one frozen roster these
     # are the same fields; treating channel spelling as identity forces a
     # remove/add and makes retained links look like residual topology edits.
-    pre_fields = _named_literals(pre_node, name_authority=name_authority)
-    post_fields = _named_literals(post_node, name_authority=name_authority)
+    pre_fields = _named_literals(
+        pre_node, name_authority=name_authority, strict_frozen=strict_frozen
+    )
+    post_fields = _named_literals(
+        post_node, name_authority=name_authority, strict_frozen=strict_frozen
+    )
     if set(pre_fields) != set(post_fields):
         return True
     # A name in BOTH raw channels is still two distinct carriers at the
@@ -213,10 +229,77 @@ def _is_link_payload(value: Any) -> bool:
     return isinstance(value, (list, tuple)) and len(value) == 2 and not isinstance(value, (str, bytes))
 
 
+def _raw_widget_values(node: Any) -> list[Any] | None:
+    raw = getattr(node, "raw_widgets", None)
+    values = getattr(raw, "values", None)
+    if isinstance(values, list):
+        return values
+    metadata = getattr(node, "metadata", None)
+    ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    values = ui.get("widgets_values") if isinstance(ui, Mapping) else None
+    return values if isinstance(values, list) else None
+
+
+def _authority_has_row(
+    node: Any, name_authority: Mapping[str, Any] | None
+) -> bool:
+    if not isinstance(name_authority, Mapping):
+        return False
+    uid = str(getattr(node, "uid", "") or "")
+    node_id = str(getattr(node, "id", "") or "")
+    return uid in name_authority or node_id in name_authority
+
+
+def _authority_row_for(
+    node: Any, name_authority: Mapping[str, Any] | None
+) -> tuple[Any, ...] | None:
+    if not isinstance(name_authority, Mapping):
+        return None
+    uid = str(getattr(node, "uid", "") or "")
+    node_id = str(getattr(node, "id", "") or "")
+    key = uid if uid in name_authority else node_id
+    row = name_authority.get(key)
+    return tuple(row) if isinstance(row, (list, tuple)) else None
+
+
+def _frozen_carrier_conflict(
+    node: Any, name_authority: Mapping[str, Any] | None
+) -> bool:
+    """Detect disagreement between the frozen positional and named carriers."""
+    values = _raw_widget_values(node)
+    row = _authority_row_for(node, name_authority)
+    if values is None or row is None:
+        return False
+    if len(row) != len(values) or len(set(row)) != len(row):
+        return True
+    named: dict[str, list[Any]] = {}
+    for channel_name in ("widgets", "inputs"):
+        channel = getattr(node, channel_name, None)
+        if not isinstance(channel, Mapping):
+            continue
+        for name, value in channel.items():
+            key = str(name)
+            if _is_link_payload(value) or key not in row:
+                continue
+            named.setdefault(key, []).append(value)
+    from vibecomfy.comfy_nodes.agent._canonical_contract_primitives import (
+        canonical_json_bytes_v1,
+    )
+
+    for index, name in enumerate(row):
+        if not isinstance(name, str) or not name or name not in named:
+            continue
+        expected = canonical_json_bytes_v1(values[index])
+        if any(canonical_json_bytes_v1(value) != expected for value in named[name]):
+            return True
+    return False
+
+
 def _named_literals(
     node: Any,
     *,
     name_authority: Mapping[str, Any] | None = None,
+    strict_frozen: bool = False,
 ) -> dict[str, Any]:
     """Name-keyed literal map for ``diff`` field ops.
 
@@ -229,9 +312,16 @@ def _named_literals(
 
     fields: dict[str, Any] = {}
     try:
-        names = tuple(
-            compact_widget_names_for_node(node, name_authority=name_authority).names
-        )
+        if strict_frozen and not _authority_has_row(node, name_authority):
+            names = ()
+        else:
+            names = tuple(
+                compact_widget_names_for_node(
+                    node,
+                    name_authority=name_authority,
+                    strict_name_authority=strict_frozen,
+                ).names
+            )
     except Exception:  # noqa: BLE001 - name resolution is best-effort for diff
         names = ()
     raw = getattr(node, "raw_widgets", None)
@@ -263,10 +353,15 @@ def _node_field_ops(
     post_node: Any,
     *,
     name_authority: Mapping[str, Any] | None = None,
+    strict_frozen: bool = False,
 ) -> list[EditOp]:
     """set_node_field ops for a common node over stable channels."""
-    pre_fields = _named_literals(pre_node, name_authority=name_authority)
-    post_fields = _named_literals(post_node, name_authority=name_authority)
+    pre_fields = _named_literals(
+        pre_node, name_authority=name_authority, strict_frozen=strict_frozen
+    )
+    post_fields = _named_literals(
+        post_node, name_authority=name_authority, strict_frozen=strict_frozen
+    )
     ops: list[EditOp] = []
     for name in sorted(set(pre_fields) | set(post_fields)):
         if name.startswith("widget_") and name[7:].isdigit():
@@ -480,6 +575,7 @@ def diff(
             pre_node,
             post_node,
             name_authority=name_authority,
+            strict_frozen=True,
         ):
             rebuild_uids.add(uid)
     for uid in sorted(rebuild_uids) + removed_uids:
@@ -529,6 +625,7 @@ def diff(
                 pre_node,
                 post_node,
                 name_authority=name_authority,
+                strict_frozen=True,
             )
         )
 

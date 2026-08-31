@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui
+from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
 from vibecomfy.porting.edit._diff import diff
 from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.ops import parse_edit_delta
@@ -97,3 +98,28 @@ def test_mixed_carrier_tampering_stays_fail_closed() -> None:
     unwitnessed = copy.deepcopy(pre)
     unwitnessed.metadata.pop("_workflow_snapshot", None)
     assert diff(unwitnessed, tampered)
+
+
+def test_carrier_witness_rejects_value_order_and_duplicate_ambiguity() -> None:
+    api = json.loads((_FIXTURES / "llama_api_pre.json").read_text(encoding="utf-8"))
+
+    value_tamper = copy.deepcopy(api)
+    value_tamper["3"]["_widget_order_witness"]["values"][0] = 999
+    value_wf = from_envelope(from_api(value_tamper).to_envelope())
+    assert frozen_widget_names_by_uid(value_wf)["3"] == ()
+
+    order_tamper = copy.deepcopy(api)
+    order_tamper["3"]["_widget_order_witness"]["names"] = [
+        "temperature",
+        "max_tokens",
+    ]
+    order_wf = from_envelope(from_api(order_tamper).to_envelope())
+    assert frozen_widget_names_by_uid(order_wf)["3"] == ()
+
+    duplicate = copy.deepcopy(api)
+    duplicate["3"]["_widget_order_witness"]["names"] = [
+        "max_tokens",
+        "max_tokens",
+    ]
+    duplicate_wf = from_envelope(from_api(duplicate).to_envelope())
+    assert frozen_widget_names_by_uid(duplicate_wf)["3"] == ()

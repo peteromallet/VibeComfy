@@ -7,6 +7,11 @@
     },
     "_ui": {
       "widgets_values": [1024, 0.8]
+    },
+    "_widget_order_witness": {
+      "contract_version": "ui_widget_order_v1",
+      "names": ["max_tokens", "temperature"],
+      "values": [1024, 0.8]
     }
   }
 }

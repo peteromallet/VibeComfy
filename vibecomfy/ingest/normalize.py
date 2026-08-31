@@ -544,7 +544,8 @@ def _ui_graph_to_api(
             else:
                 _enforce_exec_source_limits(converted, surface="ui.converter")
                 if not _has_unknown_widget_inputs(converted):
-                    _merge_slim_ui(raw, converted)
+                    _merge_slim_ui(raw, converted, schema_provider=schema_provider)
+                    _attach_widget_order_witness(raw, converted, schema_provider=schema_provider)
                     return converted
                 return _normalize_ui_to_api(raw, schema_provider=schema_provider)
 
@@ -604,6 +605,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 input_provenance[str(name)] = "edge"
         widgets_present = "widgets_values" in node
         widgets = node.get("widgets_values", [])
+        widget_order_witness: list[str] | None = None
         if isinstance(widgets, dict):
             for name, value in widgets.items():
                 if name in inputs:
@@ -611,7 +613,13 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 inputs[str(name)] = value
                 input_provenance[str(name)] = "widget"
         elif isinstance(widgets, list):
-            widget_names = _schema_input_names(schema_provider, class_type)
+            # This is the only boundary that knows both sides of the
+            # positional contract: the UI vector and the names selected for
+            # each slot.  Retain that ordered relation as evidence.  Later
+            # stages must validate this witness against the retained values;
+            # they must not reconstruct it from mapping order or object_info.
+            widget_order_witness = []
+            widget_names = _schema_widget_names(schema_provider, class_type)
             for idx, value in enumerate(widgets):
                 if idx < len(widget_names):
                     name = _normalize_widget_input_name(widget_names, idx, value)
@@ -624,6 +632,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 name = _unique_input_name(used_names, str(name))
                 inputs[name] = value
                 input_provenance[str(name)] = "widget"
+                widget_order_witness.append(name)
         api_node = {
             "class_type": class_type,
             "inputs": inputs,
@@ -632,6 +641,12 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
         }
         if widgets_present:
             api_node["_raw_widgets"] = _raw_widget_payload_dict(widgets, source="ui.widgets_values")
+            if widget_order_witness is not None:
+                api_node["_widget_order_witness"] = {
+                    "contract_version": "ui_widget_order_v1",
+                    "names": deepcopy(widget_order_witness),
+                    "values": deepcopy(widgets),
+                }
         api[node_id] = api_node
     _enforce_exec_source_limits(api, surface="ui.offline")
     return api
@@ -716,7 +731,12 @@ def _coerce_raw_widget_payload(raw: Any) -> RawWidgetPayload | None:
     )
 
 
-def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
+def _merge_slim_ui(
+    raw: dict[str, Any],
+    converted: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> None:
     """Merge slim _ui {id, pos, size, properties} from raw litegraph nodes onto converted API nodes.
 
     Called after convert_ui_to_api so pos/properties survive on the comfy-converter path.
@@ -800,6 +820,33 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                 node_data["_ui"] = slim
             else:
                 node_data["_ui"] = {}
+
+
+def _attach_widget_order_witness(
+    raw: dict[str, Any],
+    api: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> None:
+    """Attach source-side positional evidence after a live converter pass."""
+    for raw_node in raw.get("nodes", ()):
+        if not isinstance(raw_node, dict) or "id" not in raw_node:
+            continue
+        values = raw_node.get("widgets_values")
+        api_node = api.get(str(raw_node["id"]))
+        if not isinstance(values, list) or not isinstance(api_node, dict):
+            continue
+        class_type = str(api_node.get("class_type") or raw_node.get("type") or "Unknown")
+        names = _schema_widget_names(schema_provider, class_type)
+        if len(names) == len(values):
+            api_node.setdefault(
+                "_widget_order_witness",
+                {
+                    "contract_version": "ui_widget_order_v1",
+                    "names": deepcopy(names),
+                    "values": deepcopy(values),
+                },
+            )
 
 
 def _has_unknown_widget_inputs(api: dict[str, Any]) -> bool:
@@ -1688,6 +1735,24 @@ def _schema_input_names(schema_provider: SchemaProvider | None, class_type: str)
     schema = schema_for(schema_provider, class_type)
     names = widget_names_from_schema(class_type, schema)
     return [name if name is not None else f"unused_widget_{index}" for index, name in enumerate(names)]
+
+
+def _schema_widget_names(schema_provider: SchemaProvider | None, class_type: str) -> list[str]:
+    """Return the schema's compact widget order, excluding linked sockets."""
+    schema = schema_for(schema_provider, class_type)
+    compact = getattr(schema, "widget_input_order", ())
+    if compact:
+        return [
+            str(name) if isinstance(name, str) and name else f"unused_widget_{index}"
+            for index, name in enumerate(compact)
+        ]
+    committed = widget_names_for_class(class_type)
+    if committed and any(isinstance(name, str) and name for name in committed):
+        return [
+            str(name) if isinstance(name, str) and name else f"unused_widget_{index}"
+            for index, name in enumerate(committed)
+        ]
+    return _schema_input_names(schema_provider, class_type)
 
 
 def _normalize_widget_input_name(names: list[str], index: int, value: Any) -> str:

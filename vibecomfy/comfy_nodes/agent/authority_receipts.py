@@ -597,7 +597,7 @@ def _seal_frozen_name_domain(
     ``bind_snapshot_lineage`` — and ``widget_names_sig`` is excluded from the
     semantic preimage, so digest equality is unchanged.
     """
-    if not isinstance(name_authority, Mapping) or not name_authority:
+    if not isinstance(name_authority, Mapping):
         return workflow
     from dataclasses import replace as _dc_replace
 
@@ -621,13 +621,13 @@ def _seal_frozen_name_domain(
         roster = name_authority.get(str(node_id))
         if current is None:
             continue
-        if isinstance(roster, (list, tuple)) and roster:
+        if isinstance(roster, (list, tuple)):
             names = tuple(str(name) for name in roster if name)
+            patched[str(key)] = {**current, "widget_names_sig": names}
+            hit = True
             if names:
-                patched[str(key)] = {**current, "widget_names_sig": names}
-                hit = True
                 _rekey_ir_widget_fields(node, names)
-                continue
+            continue
         patched[str(key)] = current
     if not hit:
         return workflow
@@ -767,6 +767,7 @@ def _unresolved_named_field_reason(
                 name_authority=(
                     {uid: authority_row} if authority_row is not None else None
                 ),
+                strict_name_authority=True,
             ) is None:
                 return f"field_resolution_unresolved:{uid}.{field}"
             break

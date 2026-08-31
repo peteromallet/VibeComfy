@@ -119,57 +119,70 @@ def _capture_widget_names(
 
     # API/envelope nodes can carry the same literal vector twice: as named
     # ``inputs``/``widgets`` and as positional ``raw_widgets.values`` retained
-    # from the UI door.  This is an exact identity witness, not a schema guess.
-    # Prefer it before consulting object-info: schema-opaque custom nodes may
-    # have stale/nearby ambient entries (the LLaMA ``max_tokens``/``top_k``
-    # collision), and re-deriving the roster there makes an otherwise valid
-    # one-field edit look like a node remove/add plus link churn on replay.
+    # from the UI door.  Only the source transformation is allowed to bind
+    # those carriers.  It records an ordered witness alongside the vector;
+    # mapping iteration and length coincidence are not identity evidence.
     raw_values = getattr(getattr(node, "raw_widgets", None), "values", None)
     if not isinstance(raw_values, list):
         metadata = getattr(node, "metadata", None)
         raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
         raw_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
-    if isinstance(raw_values, list) and raw_values:
-        linked_names = {
-            str(name)
-            for name, _source in incoming.get(node_id, [])
-            if name is not None
-        }
-        literal_names: list[str] = []
-        for channel in (
-            getattr(node, "widgets", None),
-            getattr(node, "inputs", None),
+    metadata = getattr(node, "metadata", None)
+    witness = metadata.get("_widget_order_witness") if isinstance(metadata, Mapping) else None
+    if isinstance(witness, Mapping):
+        names = witness.get("names")
+        witness_values = witness.get("values")
+        if (
+            isinstance(raw_values, list)
+            and isinstance(names, list)
+            and isinstance(witness_values, list)
+            and len(names) == len(raw_values) == len(witness_values)
+            and len({str(name) for name in names}) == len(names)
+            and all(isinstance(name, str) and name for name in names)
+            and all(
+                canonical_json_bytes_v1(left) == canonical_json_bytes_v1(right)
+                for left, right in zip(raw_values, witness_values)
+            )
         ):
-            if not isinstance(channel, Mapping):
-                continue
-            for name, value in channel.items():
-                name = str(name)
-                if name in linked_names or name.startswith("widget_"):
-                    continue
-                if isinstance(value, (list, tuple)) and len(value) == 2:
-                    continue
-                if name not in literal_names:
-                    literal_names.append(name)
-        # A ``None`` literal can also be an unbound socket in an API carrier;
-        # without a schema witness it is not safe to claim that name for a
-        # positional widget slot. Let the ordinary resolver handle that
-        # ambiguous shape instead of manufacturing a cross-carrier identity.
-        literal_values = [
-            value
+            linked_names = {
+                str(name)
+                for name, _source in incoming.get(node_id, [])
+                if name is not None
+            }
+            named_values: dict[str, list[Any]] = {}
             for channel in (
                 getattr(node, "widgets", None),
                 getattr(node, "inputs", None),
-            )
-            if isinstance(channel, Mapping)
-            for name, value in channel.items()
-            if str(name) in literal_names
-        ]
-        if (
-            len(literal_names) == len(raw_values)
-            and len(literal_values) == len(literal_names)
-            and all(value is not None for value in literal_values)
-        ):
-            return tuple(literal_names)
+            ):
+                if not isinstance(channel, Mapping):
+                    continue
+                for name, value in channel.items():
+                    key = str(name)
+                    if key in linked_names or isinstance(value, (list, tuple)) and len(value) == 2:
+                        continue
+                    if key in names:
+                        named_values.setdefault(key, []).append(value)
+            # The witness must agree with every named representation that is
+            # present. This catches an otherwise plausible swapped roster and
+            # duplicate-value ambiguity instead of silently choosing one map.
+            for index, name in enumerate(names):
+                expected = canonical_json_bytes_v1(raw_values[index])
+                if any(
+                    canonical_json_bytes_v1(value) != expected
+                    for value in named_values.get(name, ())
+                ):
+                    return ()
+            return tuple(names)
+        # A present but invalid witness is explicit ambiguity.  Keep the row
+        # empty rather than consulting ambient schemas and laundering a
+        # carrier conflict into a valid name mapping.
+        return ()
+
+    # A raw positional vector without a source witness is deliberately
+    # unresolved.  API-only named carriers may still be compared directly,
+    # but they cannot be projected onto a positional vector by guesswork.
+    if isinstance(raw_values, list):
+        return ()
 
     linked_inputs = frozenset(str(to_input) for to_input, _ in incoming.get(node_id, []))
     try:
@@ -258,10 +271,10 @@ def capture_ingest_snapshot(
 def frozen_widget_names_by_uid(workflow: Any) -> Mapping[str, tuple[str, ...]]:
     """Read the sealed node→field-names table off *workflow*'s snapshot.
 
-    Returns ``{uid: names}`` for every node whose seal captured a non-empty
-    roster.  This mapping is the single name authority handed to admit /
-    interpret / emit / replay; consumers never re-derive names from ambient
-    object_info or live provider state for sealed nodes.
+    Returns ``{uid: names}`` for every node captured by the seal, including an
+    explicit empty/unresolved row.  Consumers distinguish that row from a
+    missing table and never re-derive names from ambient object_info or live
+    provider state for sealed nodes.
     """
     snapshot = snapshot_of(workflow)
     if snapshot is None:
@@ -272,8 +285,8 @@ def frozen_widget_names_by_uid(workflow: Any) -> Mapping[str, tuple[str, ...]]:
     result: dict[str, tuple[str, ...]] = {}
     for uid, snap in field_snapshot.items():
         names = snap.get("widget_names_sig") if isinstance(snap, Mapping) else None
-        if isinstance(names, (list, tuple)) and names:
-            result[str(uid)] = tuple(str(name) for name in names if name)
+        if isinstance(names, (list, tuple)):
+            result[str(uid)] = tuple(str(name) for name in names if isinstance(name, str) and name)
     return result
 
 
