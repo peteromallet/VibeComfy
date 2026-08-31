@@ -3,6 +3,8 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+import yaml
+
 
 def test_comfy_nodes_are_counted_by_coverage_policy() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -43,3 +45,33 @@ def test_fast_and_broad_python_gates_are_explicitly_distinct() -> None:
     assert "broad-pytest:" in makefile
     assert "PYTEST) -n 8 -q -p no:cacheprovider tests" in makefile
     assert "full-pytest: broad-pytest" in makefile
+
+
+def test_broad_python_workflow_is_scheduled_manual_and_non_required() -> None:
+    """Keep the repository-wide lane observable without making PR CI broad."""
+    workflow_path = Path(".github/workflows/broad-python.yml")
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+
+    # PyYAML's YAML 1.1 loader treats the unquoted ``on`` key as boolean True.
+    parsed = yaml.safe_load(workflow_text)
+    trigger = parsed.get("on", parsed.get(True))
+    assert set(trigger) == {"schedule", "workflow_dispatch"}
+    assert trigger["schedule"]
+
+    assert "timeout-minutes: 45" in workflow_text
+    assert "make PYTHON=.venv/bin/python install-ci" in workflow_text
+    assert "make PYTHON=.venv/bin/python broad-pytest" in workflow_text
+    assert "if: always()" in workflow_text
+    assert "name: broad-python-coverage-xml" in workflow_text
+
+    forbidden = (
+        "--run-live",
+        "--runpod",
+        "--runpod-full",
+        "VIBECOMFY_COMFY_SMOKE",
+        "VIBECOMFY_RUN_COVERAGE_SWEEP",
+        "continue-on-error",
+        "|| true",
+        "set +e",
+    )
+    assert not [fragment for fragment in forbidden if fragment in workflow_text]

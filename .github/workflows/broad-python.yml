@@ -1,0 +1,44 @@
+# Repository-wide Python coverage lane.
+#
+# This lane is intentionally scheduled/manual and non-required.  The normal
+# push/PR workflow keeps the bounded fast gate; this job supplies the broader
+# denominator without slowing or changing required PR checks.
+
+name: broad-python
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  broad-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: |
+          uv venv --seed
+          make PYTHON=.venv/bin/python install-ci
+
+      - name: Run repository-wide Python coverage
+        run: make PYTHON=.venv/bin/python broad-pytest
+
+      - name: Upload broad coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: broad-python-coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
