@@ -282,3 +282,8 @@ test("canonical route policy keeps DeepSeek as a distinct provider route", () =>
   assert.equal(Object.hasOwn(statusPoller.ROUTE_LABELS, "deepseek"), true);
   assert.equal(statusPoller.CANONICAL_AGENT_PROVIDERS.has("deepseek"), true);
 });
+
+test("agent submit UI has no paid-provider warning gate or API-key example badges", () => {
+  assert.doesNotMatch(roundtripSource, /confirmPaidSubmitGate|PAID_SUBMIT_ACK_KEY|costs money/);
+  assert.doesNotMatch(panelThreadSource, /uses your API key|consume API\/CLI quota/);
+});
