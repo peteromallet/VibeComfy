@@ -331,6 +331,13 @@ def test_forged_store_and_handle_cannot_authorize_evidence() -> None:
     ) is None
 
 
+def test_removed_bundle_capture_seam_cannot_mint_authority() -> None:
+    assert not hasattr(refusal_evidence, "_capture_refusal_evidence")
+    forged_bundle = object()
+    with pytest.raises(AttributeError):
+        getattr(refusal_evidence, "_capture_refusal_evidence")(forged_bundle)
+
+
 def test_direct_capture_rejects_forged_duck_owner() -> None:
     class DuckOwner:
         def _capture_capability(self) -> object:

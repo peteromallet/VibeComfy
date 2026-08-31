@@ -31,7 +31,7 @@ from .contracts import (
 from .refusal_evidence import (
     RefusalEvidenceBundle,
     RefusalEvidenceHandle,
-    _capture_refusal_evidence,
+    _register_executor_refusal_evidence,
     _authority_content_digest_for_observations,
     _ledger_integrity,
     authority_generation,
@@ -579,7 +579,7 @@ def inspect_refusal_evidence_ledger(
             source_generation=source_generation,
         ),
     )
-    return _capture_refusal_evidence(bundle)
+    return _register_executor_refusal_evidence(bundle)
 
 
 def synthesize_inspect_refusal_implementation(

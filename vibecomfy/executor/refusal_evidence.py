@@ -266,7 +266,9 @@ def _make_refusal_evidence_registry() -> tuple[
     return capture, resolve
 
 
-_capture_refusal_evidence, _resolve_refusal_evidence = _make_refusal_evidence_registry()
+_register_executor_refusal_evidence, _resolve_refusal_evidence = (
+    _make_refusal_evidence_registry()
+)
 
 
 def resolve_refusal_evidence_handle(
