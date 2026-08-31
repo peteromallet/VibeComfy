@@ -476,6 +476,11 @@ _EGRESS_SECRET_RE = re.compile(
     r"password|secret|credential|cookie|session|private[_ -]?key|ssh[_ -]?key)\b"
     r"[\"']?\s*[:=]\s*(?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
 )
+_EGRESS_SECRET_KEY_RE = re.compile(
+    r"(?is)[\"']?(?:api[_ -]?key|access[_ -]?key|authorization|auth|bearer|token|"
+    r"password|secret|credential|cookie|session|private[_ -]?key|ssh[_ -]?key)"
+    r"[\"']?\s*[:=]\s*"
+)
 _EGRESS_WORKFLOW_RE = re.compile(
     r"(?is)\b(?:workflow|graph|payload|body|request)\b\s*[:=]\s*(?:\{.*?\}|\[.*?\])"
 )
@@ -503,7 +508,51 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
         # then workflow/graph payloads even when they are embedded in prose;
         # no raw graph or secret can cross the egress seam by hiding in a
         # query string.
-        value = _EGRESS_SECRET_RE.sub("<redacted-secret>", value)
+        def redact_secret_values(text: str) -> str:
+            """Redact quoted/unquoted secret values with JSON escape support."""
+            output: list[str] = []
+            cursor = 0
+            while True:
+                match = _EGRESS_SECRET_KEY_RE.search(text, cursor)
+                if match is None:
+                    output.append(text[cursor:])
+                    break
+                output.append(text[cursor:match.start()])
+                start = match.end()
+                if start >= len(text):
+                    output.append("<redacted-secret>")
+                    break
+                quote = text[start] if text[start] in {"\"", "'"} else None
+                end = start
+                if quote is not None:
+                    end += 1
+                    escaped = False
+                    while end < len(text):
+                        char = text[end]
+                        if escaped:
+                            escaped = False
+                        elif char == "\\":
+                            escaped = True
+                        elif char == quote:
+                            end += 1
+                            break
+                        end += 1
+                else:
+                    end = start
+                    while end < len(text) and text[end] not in ",;}\n\r\t ":
+                        end += 1
+                    # Authorization: Bearer <token> is one secret value, even
+                    # though the unquoted representation contains a space.
+                    if text[start:end].casefold() == "bearer":
+                        while end < len(text) and text[end].isspace():
+                            end += 1
+                        while end < len(text) and text[end] not in ",;}\n\r\t ":
+                            end += 1
+                output.append("<redacted-secret>")
+                cursor = end
+            return "".join(output)
+
+        value = redact_secret_values(value)
 
         def balanced_end(start: int) -> int | None:
             opener = value[start]

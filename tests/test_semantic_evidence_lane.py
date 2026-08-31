@@ -209,6 +209,16 @@ def test_research_egress_rejects_nonfinite_timeout_and_redacts_embedded_payloads
     assert hivemind_get("hivemind:messages:1", timeout=float("inf")).status is ToolStatus.INVALID_REQUEST
 
 
+def test_research_egress_redacts_escaped_quote_secret_without_suffix_leak() -> None:
+    safe = _safe_research_args(
+        "hivemind_search",
+        {"query": 'query {"api_key": "TOP\\\"SECRET", "password": "PW"}'},
+    )
+    assert "TOP" not in safe["query"]
+    assert "SECRET" not in safe["query"]
+    assert "PW" not in safe["query"]
+
+
 def test_reply_provenance_requires_body_support_and_claim_coverage() -> None:
     fetched = EvidenceArtifact(
         evidence_id="hivemind_record:1",
@@ -241,6 +251,38 @@ def test_reply_provenance_requires_body_support_and_claim_coverage() -> None:
     assert "blue sampler" in mixed and "pricing is $100" in mixed
     assert mixed.count("[hivemind_record:1]") == 1
     assert "pricing is $100" in mixed and "This claim is unverified" in mixed
+
+
+def test_graph_provenance_requires_a_concrete_node_or_link_witness() -> None:
+    fetched = EvidenceArtifact(
+        evidence_id="hivemind_record:graph",
+        kind="hivemind_record",
+        body={"body": "unrelated fetched record"},
+    )
+    trace = AgentResearchTrace(
+        route="inspect", question="q", iterations=(), status="ok",
+        final_verdict="enough", summary="", citations=(), uncertainty="",
+        elapsed_seconds=0.0,
+    )
+    result = AgentResearchResult(
+        route="inspect", trace=trace,
+        evidence_pack=EvidencePack(
+            artifacts={fetched.evidence_id: fetched}, ledger=EvidenceLedger()
+        ),
+    )
+    graph = {
+        "nodes": [{"node_id": "1", "class_type": "KSampler", "inputs": {"steps": 20}}],
+        "edges": [{"link_id": 7, "origin_node": "1", "target_node": "2"}],
+    }
+    unsupported = _validate_reply_provenance(
+        "The graph supports FooBar [hivemind_record:graph].", result, graph
+    )
+    assert "[hivemind_record:graph]" not in unsupported
+    assert "unverified" in unsupported
+    grounded = _validate_reply_provenance(
+        "The graph contains node 1 of type KSampler.", result, graph
+    )
+    assert "unverified" not in grounded
 
 
 def test_reply_prompt_bounds_actual_combined_context_and_identifier_length() -> None:

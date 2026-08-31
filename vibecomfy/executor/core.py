@@ -2719,6 +2719,77 @@ def _reply_claim_clauses(sentence: str) -> list[str]:
     return clauses or [sentence.strip()]
 
 
+_GRAPH_GENERIC_TERMS = frozenset(
+    "graph workflow node nodes link links widget widgets field fields connection "
+    "connections contains contain support supports supported has have uses use "
+    "shows lists includes include is are the a an this that with and or of type "
+    "to from in on by for".split()
+)
+
+
+def _graph_witness_terms(graph: Mapping[str, Any]) -> set[str]:
+    """Collect concrete node/link/field witnesses from the authoritative graph."""
+    witnesses: set[str] = set()
+
+    def add(value: Any) -> None:
+        if value is None or isinstance(value, bool):
+            return
+        if isinstance(value, (str, int, float)):
+            witnesses.add(str(value).casefold())
+
+    counts = (graph.get("node_count"), graph.get("edge_count"))
+    number_words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+    for count in counts:
+        add(count)
+        if isinstance(count, int) and 0 <= count < len(number_words):
+            add(number_words[count])
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+    if isinstance(nodes, (list, tuple)):
+        add(len(nodes))
+        if len(nodes) < len(number_words):
+            add(number_words[len(nodes)])
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            for key in ("node_id", "id", "uid", "class_type", "title", "type_name", "name", "mode"):
+                add(node.get(key))
+            for field in ("inputs", "widgets", "fields"):
+                values = node.get(field)
+                if isinstance(values, Mapping):
+                    for name, item in values.items():
+                        add(name)
+                        add(item.get("value") if isinstance(item, Mapping) else item)
+                elif isinstance(values, (list, tuple)):
+                    for item in values:
+                        if isinstance(item, Mapping):
+                            for key in ("field", "name", "value", "type", "widget_index"):
+                                add(item.get(key))
+    if isinstance(edges, (list, tuple)):
+        add(len(edges))
+        if len(edges) < len(number_words):
+            add(number_words[len(edges)])
+        for edge in edges:
+            if isinstance(edge, Mapping):
+                for key in ("link_id", "id", "origin_node", "target_node", "origin_slot", "target_slot"):
+                    add(edge.get(key))
+    return witnesses
+
+
+def _graph_supports_claim(claim: str, graph: Mapping[str, Any] | None) -> bool:
+    """Require every concrete graph claim term to resolve to a graph witness."""
+    if not isinstance(graph, Mapping):
+        return False
+    claim_terms = {
+        token.strip(".,;()[]{}").casefold()
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", claim)
+        if token.strip(".,;()[]{}").casefold() not in _GRAPH_GENERIC_TERMS
+    }
+    if not claim_terms:
+        return False
+    return claim_terms.issubset(_graph_witness_terms(graph))
+
+
 def _validated_claim_provenance(
     research_result: AgentResearchResult | None,
 ) -> dict[str, tuple[str, ...]]:
@@ -2784,9 +2855,7 @@ def _validate_reply_provenance(
                 for evidence_id in valid_fetched
                 if _artifact_supports_claim(clause, artifacts[evidence_id])
             }
-            graph_grounded = bool(graph) and bool(
-                re.search(r"\b(graph|workflow|node|link|widget|connection)\b", clause, re.I)
-            )
+            graph_grounded = _graph_supports_claim(clause, graph)
             material = bool(_claim_terms(clause)) and not clause.lstrip().startswith(
                 ("?", "I don't know", "I cannot verify")
             )
