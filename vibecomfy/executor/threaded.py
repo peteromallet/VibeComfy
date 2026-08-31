@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
@@ -26,6 +28,21 @@ from .contracts import (
     Report,
     coerce_model_attempts,
     validate_reply_change_claims,
+)
+from .refusal_evidence import (
+    RefusalEvidenceBundle,
+    RefusalEvidenceHandle,
+    _authority_content_digest_for_observations,
+    _ledger_integrity,
+    authority_generation,
+    class_absence_record,
+    evidence_id_matches_record,
+    feature_absence_record,
+    evidence_record_matches_authority,
+    frozen_ledger_matches_authority,
+    graph_identity,
+    resolve_refusal_evidence_handle,
+    validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
 
@@ -104,6 +121,59 @@ class ThreadedKernel:
 
 _LOOKUP_UNAVAILABLE = object()
 
+
+class _FrozenSchemaAuthority:
+    """Memoize one provider's observations for a single inspect turn."""
+
+    def __init__(self, source: Any) -> None:
+        self.source = source
+        self._observations: dict[str, Any] = {}
+        self.content_digest = getattr(source, "content_digest", None)
+        self.source_identity = id(source)
+        self.source_generation = authority_generation(source)
+
+    def capture_generation(self, class_types: tuple[str, ...]) -> str:
+        if self.source_generation is not None:
+            return self.source_generation
+        bounded = None
+        if callable(getattr(self.source, "get_schema", None)):
+            bounded = _authority_content_digest_for_observations(
+                {
+                    class_type: self._observations.get(class_type, _LOOKUP_UNAVAILABLE)
+                    for class_type in class_types
+                }
+            )
+        if bounded is not None:
+            return bounded
+        return f"identity:{self.source_identity}"
+
+    def get_schema(self, class_type: str) -> Any:
+        if class_type not in self._observations:
+            getter = getattr(self.source, "get_schema", None)
+            if not callable(getter) and callable(self.source):
+                getter = self.source
+            if not callable(getter):
+                self._observations[class_type] = _LOOKUP_UNAVAILABLE
+            else:
+                try:
+                    self._observations[class_type] = getter(class_type)
+                except Exception:  # noqa: BLE001 - authority lookup fails closed
+                    self._observations[class_type] = _LOOKUP_UNAVAILABLE
+        return self._observations[class_type]
+
+    def schemas(self) -> Mapping[str, Any]:
+        getter = getattr(self.source, "schemas", None)
+        if not callable(getter):
+            return {}
+        try:
+            result = getter()
+        except Exception:  # noqa: BLE001 - authority listing fails closed
+            return {}
+        return result if isinstance(result, Mapping) else {}
+
+    def snapshot(self) -> Mapping[str, Any]:
+        return dict(self._observations)
+
 _GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
     "audio",
     "generate",
@@ -130,6 +200,21 @@ _GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
     "text",
     "video",
     "workflow",
+    "add",
+    "change",
+    "create",
+    "make",
+    "use",
+    "want",
+    "need",
+    "install",
+    "swap",
+    "replace",
+    "switch",
+    "set",
+    "keep",
+    "existing",
+    "current",
 })
 
 
@@ -147,7 +232,10 @@ def typed_refusal_contract(request: ExecutorRequest) -> bool:
     """
     kinds = _string_tuple(getattr(request, "allow_safe_refusal_outcome_kinds", ()))
     classes = _string_tuple(getattr(request, "expected_no_candidate_absent_classes", ()))
-    features = _string_tuple(getattr(request, "expected_no_candidate_absent_features", ()))
+    features = tuple(
+        item for item in (getattr(request, "expected_no_candidate_absent_features", ()) or ())
+        if isinstance(item, Mapping)
+    )
     return bool(kinds or classes or features)
 
 
@@ -333,31 +421,219 @@ def inspect_named_runtime_absences(
     for name in declared:
         if name not in candidates:
             candidates.append(name)
-    for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
-        if token in candidates:
-            continue
-        folded = re.sub(r"[^a-z0-9]", "", token.lower())
-        if folded in _GENERIC_DOMAIN_TOKENS:
-            continue
-        if token[0].isupper() and any(ch.islower() for ch in token[1:]):
-            candidates.append(token)
-    present = _graph_class_types(request.graph)
+    # Benchmark/production callers provide the exact expected set.  Do not
+    # manufacture a secret set from sentence-initial capitalization; that set
+    # was never shown to the model and cannot be a complete ledger.
+    if not declared:
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", query):
+            if token in candidates:
+                continue
+            folded = re.sub(r"[^a-z0-9]", "", token.lower())
+            if folded in _GENERIC_DOMAIN_TOKENS:
+                continue
+            if any(ch.isupper() for ch in token):
+                candidates.append(token)
+    present = {item.casefold() for item in _graph_class_types(request.graph)}
     lookup = schema_lookup or _default_schema_lookup
     missing: list[str] = []
+
+    def resolve_schema(name: str) -> tuple[str, Any]:
+        """Resolve declared spelling to the provider's canonical class name."""
+        try:
+            getter = getattr(lookup, "get_schema", None)
+            if not callable(getter) and callable(lookup):
+                getter = lookup
+            schema = getter(name) if callable(getter) else _LOOKUP_UNAVAILABLE
+        except Exception:
+            return name, _LOOKUP_UNAVAILABLE
+        if schema is not None and schema is not _LOOKUP_UNAVAILABLE:
+            return name, schema
+        schemas = getattr(lookup, "schemas", None)
+        if not callable(schemas):
+            return name, schema
+        try:
+            available = schemas()
+        except Exception:
+            return name, _LOOKUP_UNAVAILABLE
+        if not isinstance(available, Mapping):
+            return name, schema
+        canonical = next(
+            (str(key) for key in available if str(key).casefold() == name.casefold()),
+            name,
+        )
+        if canonical == name:
+            return name, schema
+        try:
+            getter = getattr(lookup, "get_schema", None)
+            if not callable(getter) and callable(lookup):
+                getter = lookup
+            return canonical, getter(canonical) if callable(getter) else _LOOKUP_UNAVAILABLE
+        except Exception:
+            return canonical, _LOOKUP_UNAVAILABLE
+
     for name in candidates:
-        if name in present:
+        if name.casefold() in present:
             continue
         if name not in declared and not _query_names_class(query, name):
             continue
-        try:
-            schema = lookup(name)
-        except Exception:
-            continue
+        canonical, schema = resolve_schema(name)
         if schema is _LOOKUP_UNAVAILABLE:
             continue
         if schema is None:
-            missing.append(name)
+            missing.append(canonical)
     return tuple(missing)
+
+
+class _ExecutorRefusalEvidenceState:
+    """Trusted per-turn capture state bound to one graph and schema source."""
+
+    __slots__ = ("_request", "_provider", "_capture_handle", "_resolve_handle")
+
+    def __init__(
+        self,
+        request: ExecutorRequest,
+        schema_lookup: Callable[[str], Any] | None = None,
+    ) -> None:
+        self._request = request
+        self._provider = _FrozenSchemaAuthority(
+            schema_lookup or _default_schema_lookup
+        )
+        entries: dict[str, RefusalEvidenceBundle] = {}
+
+        def resolve_handle(
+            handle: RefusalEvidenceHandle,
+        ) -> RefusalEvidenceBundle | None:
+            bundle = entries.get(handle.token)
+            if bundle is None or handle.evidence_ids != tuple(bundle.records):
+                return None
+            return bundle
+
+        self._resolve_handle = resolve_handle
+
+        def capture_handle() -> RefusalEvidenceHandle:
+            bundle = _collect_refusal_evidence_bundle(self._request, self._provider)
+            token = secrets.token_urlsafe(32)
+            entries[token] = bundle
+            handle = object.__new__(RefusalEvidenceHandle)
+            object.__setattr__(handle, "token", token)
+            object.__setattr__(handle, "evidence_ids", tuple(bundle.records))
+            object.__setattr__(handle, "_resolver", self._resolve_handle)
+            return handle
+
+        self._capture_handle = capture_handle
+
+    def capture(self) -> RefusalEvidenceHandle:
+        return self._capture_handle()
+
+
+def inspect_refusal_evidence_ledger(
+    request: ExecutorRequest,
+    *,
+    schema_lookup: Callable[[str], Any] | None = None,
+) -> RefusalEvidenceHandle:
+    """Capture exact authority evidence through the trusted executor state."""
+    return _ExecutorRefusalEvidenceState(request, schema_lookup).capture()
+
+
+def _collect_refusal_evidence_bundle(
+    request: ExecutorRequest,
+    provider: _FrozenSchemaAuthority,
+) -> RefusalEvidenceBundle:
+    """Build evidence from already-bound graph/provider state only."""
+    ledger = {
+        record["evidence_id"]: record
+        for class_type in inspect_named_runtime_absences(
+            request, schema_lookup=provider
+        )
+        for record in (
+            class_absence_record(request.graph, provider, class_type),
+        )
+    }
+    graph_class_names = _graph_class_types(request.graph)
+    graph_classes = {item.casefold() for item in graph_class_names}
+    get_schema = getattr(provider, "get_schema", None)
+    if not callable(get_schema) and callable(provider):
+        get_schema = provider
+    for feature in getattr(request, "expected_no_candidate_absent_features", ()) or ():
+        if not isinstance(feature, Mapping):
+            continue
+        for check in feature.get("checks", ()) or ():
+            if not isinstance(check, Mapping):
+                continue
+            class_type = str(check.get("class_type") or "").strip()
+            member_kind = str(check.get("member_kind") or "").strip()
+            member = str(check.get("member") or "").strip()
+            if not class_type or member_kind not in {"input", "widget", "output"} or not member:
+                continue
+            canonical_class_type = next(
+                (item for item in graph_class_names if item.casefold() == class_type.casefold()),
+                class_type,
+            )
+            if canonical_class_type.casefold() not in graph_classes or not callable(get_schema):
+                continue
+            try:
+                schema = get_schema(canonical_class_type)
+            except Exception:  # noqa: BLE001 - unavailable authority fails closed
+                continue
+            if schema is None or schema is _LOOKUP_UNAVAILABLE:
+                continue
+            if member_kind == "output":
+                names = {
+                    str(getattr(item, "name", None) or getattr(item, "type", ""))
+                    for item in (getattr(schema, "outputs", None) or ())
+                }
+            else:
+                names = {str(name) for name in (getattr(schema, "inputs", None) or {})}
+            if member in names:
+                continue
+            record = feature_absence_record(
+                request.graph,
+                provider,
+                class_type=canonical_class_type,
+                member_kind=member_kind,
+                member=member,
+                available_members=sorted(names),
+            )
+            ledger[record["evidence_id"]] = record
+    source_classes = tuple(
+        str(record.get("class_type"))
+        for record in ledger.values()
+        if isinstance(record.get("class_type"), str)
+    )
+    graph_digest = graph_identity(request.graph)
+    schema_snapshot = MappingProxyType(
+        {
+            str(class_type): MappingProxyType(dict(schema))
+            if isinstance(schema, Mapping)
+            else schema
+            for class_type, schema in provider.snapshot().items()
+        }
+    )
+    source_generation = provider.capture_generation(source_classes)
+    records = MappingProxyType(
+        {
+            str(key): MappingProxyType(dict(value))
+            for key, value in ledger.items()
+        }
+    )
+    bundle = RefusalEvidenceBundle(
+        records=records,
+        graph_digest=graph_digest,
+        schema_snapshot=schema_snapshot,
+        schema_content_digest=provider.content_digest,
+        source_identity=provider.source_identity,
+        source_generation=source_generation,
+        authority_source=provider.source,
+        integrity=_ledger_integrity(
+            records,
+            graph_digest=graph_digest,
+            schema_snapshot=schema_snapshot,
+            schema_content_digest=provider.content_digest,
+            source_identity=provider.source_identity,
+            source_generation=source_generation,
+        ),
+    )
+    return bundle
 
 
 def synthesize_inspect_refusal_implementation(
@@ -365,33 +641,163 @@ def synthesize_inspect_refusal_implementation(
     *,
     reply: str,
     schema_lookup: Callable[[str], Any] | None = None,
+    evidence_handle: RefusalEvidenceHandle | None = None,
 ) -> ImplementationResult | None:
-    """Attach ``authoring_blocker.missing_runtime_classes`` on inspect.
+    """Validate a model-selected typed refusal against inspect evidence.
 
-    ``promote_requires_custom_nodes_outcome`` reads missing classes only
-    from that blocker. Empty proof returns None (fail-closed).
+    The schema lookup is deterministic evidence collection only.  A plain
+    inspect reply, or a generic/no-op-shaped reply, is never promoted.  The
+    model must emit the typed JSON refusal and cite the complete absence set.
     """
-    missing = inspect_named_runtime_absences(request, schema_lookup=schema_lookup)
-    if not missing:
+    if evidence_handle is None:
+        evidence_handle = inspect_refusal_evidence_ledger(
+            request, schema_lookup=schema_lookup
+        )
+    bundle = resolve_refusal_evidence_handle(evidence_handle)
+    frozen_authority_valid = bundle is not None and frozen_ledger_matches_authority(
+        bundle,
+        graph=request.graph,
+        authority_source=(
+            schema_lookup if schema_lookup is not None else bundle.authority_source
+        ) if bundle is not None else None,
+    )
+    ledger = bundle.records if bundle is not None else {}
+    missing = tuple(
+        str(record.get("class_type"))
+        for record in ledger.values()
+        if record.get("kind") == "class_absence"
+    )
+    if not ledger:
         return None
+    from vibecomfy.executor.prompts import _extract_json_object, parse_reply_payload
+
+    try:
+        payload = parse_reply_payload(reply)
+    except (TypeError, ValueError):
+        payload = None
+    raw_object: Mapping[str, Any] | None = None
+    if str(reply).lstrip().startswith("{"):
+        try:
+            candidate = _extract_json_object(str(reply))
+        except (TypeError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict):
+            raw_object = candidate
+    allowed_fields = {
+        "kind", "missing_classes", "feature_absences", "evidence",
+        "reply", "message", "question", "clarification_question",
+    }
+    strict_shape_ok = raw_object is None or not (
+        set(raw_object) - allowed_fields
+        or not isinstance(raw_object.get("evidence", []), list)
+        or not all(isinstance(item, str) and item.strip() for item in raw_object.get("evidence", []))
+        or len(set(raw_object.get("evidence", []))) != len(raw_object.get("evidence", []))
+        or not isinstance(raw_object.get("feature_absences", []), list)
+        or any(
+            not isinstance(item, dict)
+            or set(item) != {"evidence_id"}
+            or not isinstance(item.get("evidence_id"), str)
+            for item in raw_object.get("feature_absences", [])
+        )
+        or len({item.get("evidence_id") for item in raw_object.get("feature_absences", [])})
+        != len(raw_object.get("feature_absences", []))
+    )
+    typed_payload = bool(
+        payload
+        and payload.is_typed_refusal
+        and payload.evidence
+        and strict_shape_ok
+    )
+    claimed = tuple(payload.missing_classes) if payload is not None else ()
+    claimed_feature_ids = (
+        [
+            item.get("evidence_id")
+            for item in payload.feature_absences
+            if isinstance(item, Mapping)
+        ]
+        if payload is not None
+        else []
+    )
+    records = validate_evidence_ids(payload.evidence, ledger) if typed_payload else None
+    class_records = tuple(
+        record for record in (records or ()) if record.get("kind") == "class_absence"
+    )
+    expected_feature_ids = {
+        str(key)
+        for key, record in ledger.items()
+        if record.get("kind") == "feature_absence"
+    }
+    feature_ids_valid = (
+        validate_evidence_ids(claimed_feature_ids, ledger) is not None
+        if expected_feature_ids
+        else not claimed_feature_ids
+    )
+    valid = bool(
+        typed_payload
+        and records is not None
+        and frozen_authority_valid
+        and {item.casefold() for item in claimed}
+        == {item.casefold() for item in missing}
+        and len(claimed) == len(missing)
+        and {
+            str(record.get("class_type")).casefold() for record in class_records
+        } == {item.casefold() for item in missing}
+        and all(
+            (
+                evidence_id_matches_record(record)
+                if bundle is not None
+                else evidence_record_matches_authority(record, request.graph, schema_lookup)
+            )
+            for record in (records or ())
+        )
+        and set(claimed_feature_ids)
+        == expected_feature_ids
+        and feature_ids_valid
+    )
     from vibecomfy.comfy_nodes.agent.contracts import (
         missing_runtime_classes_from_report,
         promote_requires_custom_nodes_outcome,
     )
 
+    feature_records = [
+        record for record in ledger.values() if record.get("kind") == "feature_absence"
+    ]
+    blocker = {
+        "reason": "structural_feature_absent" if feature_records and not missing else "named_class_absent_from_schema",
+        "missing_runtime_classes": list(missing),
+        "absence_evidence": list(ledger.values()),
+        "evidence_refs": list(ledger),
+    }
+    if feature_records:
+        blocker["feature_absences"] = [
+            {"feature": record.get("feature"), "checks": [record]}
+            for record in feature_records
+        ]
     blocker_report = {
         "authoring_blocker": {
-            "reason": "named_class_absent_from_schema",
-            "missing_runtime_classes": list(missing),
+            **blocker,
         },
         "graph_unchanged": True,
     }
-    outcome = promote_requires_custom_nodes_outcome(
-        {"kind": "noop"},
-        missing_classes=missing_runtime_classes_from_report(blocker_report),
-    )
+    outcome = {"kind": payload.kind, "message": payload.text} if valid and payload is not None else {"kind": "noop", "message": "The refusal could not be authorized from the frozen evidence ledger."}
+    if valid and payload is not None and payload.kind == "requires_custom_nodes":
+        outcome = promote_requires_custom_nodes_outcome(
+            outcome,
+            missing_classes=missing_runtime_classes_from_report(blocker_report),
+        )
+    if valid and payload is not None:
+        outcome["evidence"] = list(payload.evidence)
+    else:
+        blocker_report["authoring_blocker"]["refusal_validation"] = {
+            "authorized": False,
+            "reason": "invalid_or_missing_bound_evidence",
+        }
     return ImplementationResult(
-        message=reply,
+        message=(
+            payload.text
+            if payload is not None and (valid or not str(reply).lstrip().startswith("{"))
+            else "The requested refusal could not be authorized from the frozen runtime evidence."
+        ),
         durable_response={
             "outcome": outcome,
             "graph_unchanged": True,
@@ -626,6 +1032,7 @@ def run_threaded_executor(
                 message="Threaded inspect reply kernel is unavailable.",
                 report=build_report(),
             ))
+        refusal_evidence_handle = inspect_refusal_evidence_ledger(bounded_request)
         try:
             reply = kernel.run_inspect_reply(
                 bounded_request,
@@ -633,6 +1040,7 @@ def run_threaded_executor(
                 plan=plan,
                 host_ports=host_ports,
                 research_result=research_result,
+                refusal_evidence_handle=refusal_evidence_handle,
             )
         except Exception as exc:
             kernel.emit_phase(
@@ -660,11 +1068,12 @@ def run_threaded_executor(
         implementation = synthesize_inspect_refusal_implementation(
             bounded_request,
             reply=reply,
+            evidence_handle=refusal_evidence_handle,
         )
         return finish(ExecutorResult.success(
             report=build_report(implementation),
             graph=None,
-            reply=reply,
+            reply=implementation.message if implementation is not None else reply,
         ))
 
     try:
@@ -850,6 +1259,7 @@ __all__ = [
     "ThreadedPurposeBudget",
     "coerce_declared_interaction_lane",
     "inspect_named_runtime_absences",
+    "inspect_refusal_evidence_ledger",
     "run_threaded_executor",
     "synthesize_inspect_refusal_implementation",
     "typed_refusal_contract",

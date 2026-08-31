@@ -23,13 +23,13 @@ from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorHostPorts,
     ExecutorRequest,
-    ImplementationResult,
 )
 from vibecomfy.executor.profiles import AgentSpecShape
 from vibecomfy.executor.threaded import (
     ThreadedKernel,
     coerce_declared_interaction_lane,
     inspect_named_runtime_absences,
+    inspect_refusal_evidence_ledger,
     run_threaded_executor,
     synthesize_inspect_refusal_implementation,
     typed_refusal_contract,
@@ -139,8 +139,17 @@ def test_inspect_synthesizes_missing_runtime_classes_for_named_absence() -> None
 
     missing = inspect_named_runtime_absences(request, schema_lookup=lookup)
     assert missing == ("GroundingDINO",)
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=lookup)
     implementation = synthesize_inspect_refusal_implementation(
-        request, reply="GroundingDINO is not in this runtime.", schema_lookup=lookup
+        request,
+        reply=(
+            '{"kind":"requires_custom_nodes",'
+            '"missing_classes":["GroundingDINO"],'
+            f'"evidence":["{next(iter(ledger))}"],'
+            '"reply":"GroundingDINO is not in this runtime."}'
+        ),
+        schema_lookup=lookup,
+        evidence_handle=ledger,
     )
     assert implementation is not None
     durable = dict(implementation.durable_response or {})
@@ -180,8 +189,15 @@ def test_inspect_lane_attaches_promoted_outcome_on_executor_result() -> None:
     def lookup(class_type: str) -> object | None:
         return None if class_type == "GroundingDINO" else object()
 
+    ledger = inspect_refusal_evidence_ledger(inspect_request, schema_lookup=lookup)
+
     def run_inspect_reply(*_a: Any, **_k: Any) -> str:
-        return "GroundingDINO is not authorable here."
+        return (
+            '{"kind":"requires_custom_nodes",'
+            '"missing_classes":["GroundingDINO"],'
+            f'"evidence":["{next(iter(ledger))}"],'
+            '"reply":"GroundingDINO is not authorable here."}'
+        )
 
     kernel = ThreadedKernel(
         resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),

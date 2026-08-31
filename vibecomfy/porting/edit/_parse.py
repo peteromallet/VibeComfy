@@ -121,6 +121,26 @@ def _parse_and_validate_batch(
             ),
         )
 
+    refusal_indexes = [
+        index
+        for index, statement in enumerate(module.body)
+        if isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Name)
+        and statement.value.func.id == "refuse"
+    ]
+    allowed_refusal_index = len(module.body) - 1
+    if module.body and isinstance(module.body[-1], ast.Expr) and isinstance(module.body[-1].value, ast.Call):
+        tail_call = module.body[-1].value
+        if isinstance(tail_call.func, ast.Name) and tail_call.func.id == "done":
+            allowed_refusal_index -= 1
+    if refusal_indexes and (len(refusal_indexes) != 1 or refusal_indexes[0] != allowed_refusal_index):
+        return _ParsedBatch(
+            statements=(),
+            expanded=(),
+            diagnostics=(_diag("refusal_must_be_terminal", "refuse(...) must be the single final action (optionally followed by done()).", severity="error"),),
+        )
+
     admission_issues = [
         _unsafe(node, code, message)
         for node, code, message in diagnose_unadmitted_ast(module)
@@ -472,8 +492,64 @@ def _validate_call(
             return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
         return _validate_subgraph_interface_call(node, env=env)
     if name in CONTROL_CALL_NAMES:
-        if node.args or node.keywords:
+        if name == "done" and (node.args or node.keywords):
             return [_unsafe(node, "done_arguments_not_allowed", "done() does not accept arguments.")]
+        if name == "refuse":
+            if node.args:
+                return [_unsafe(node, "refusal_arguments_not_allowed", "refuse() requires keyword arguments.")]
+            allowed = {"kind", "missing_classes", "feature_absences", "evidence", "message", "question"}
+            names = [kw.arg for kw in node.keywords]
+            unknown = [name for name in names if name not in allowed]
+            duplicates = sorted(name for name in set(names) if names.count(name) > 1)
+            kind_kw = next((kw for kw in node.keywords if kw.arg == "kind"), None)
+            try:
+                kind = ast.literal_eval(kind_kw.value) if kind_kw is not None else None
+            except (ValueError, TypeError, SyntaxError):
+                kind = None
+            message_kw = next((kw for kw in node.keywords if kw.arg in {"message", "question"}), None)
+            try:
+                message = ast.literal_eval(message_kw.value) if message_kw is not None else None
+            except (ValueError, TypeError, SyntaxError):
+                message = None
+            invalid_fields: list[str] = []
+            if kind not in {"requires_custom_nodes", "clarify"}:
+                invalid_fields.append("kind")
+            if not isinstance(message, str) or not message.strip():
+                invalid_fields.append("message")
+            if sum(item.arg in {"message", "question"} for item in node.keywords) != 1:
+                invalid_fields.append("message_or_question")
+            for field in ("missing_classes", "evidence"):
+                kw = next((item for item in node.keywords if item.arg == field), None)
+                if kw is None:
+                    continue
+                try:
+                    value = ast.literal_eval(kw.value)
+                except (ValueError, TypeError, SyntaxError):
+                    value = None
+                if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in value):
+                    invalid_fields.append(field)
+                elif field == "evidence" and not value:
+                    invalid_fields.append(field)
+            feature_kw = next((item for item in node.keywords if item.arg == "feature_absences"), None)
+            if feature_kw is not None:
+                try:
+                    features = ast.literal_eval(feature_kw.value)
+                except (ValueError, TypeError, SyntaxError):
+                    features = None
+                if not isinstance(features, (list, tuple)) or not all(isinstance(item, dict) for item in features):
+                    invalid_fields.append("feature_absences")
+            if kind == "requires_custom_nodes":
+                if not any(item.arg == "missing_classes" for item in node.keywords):
+                    invalid_fields.append("missing_classes")
+                if not any(item.arg == "evidence" for item in node.keywords):
+                    invalid_fields.append("evidence")
+            if duplicates or unknown or invalid_fields:
+                return [_unsafe(
+                    node,
+                    "invalid_refusal_action",
+                    "refuse() requires kind= and accepts only missing_classes, feature_absences, evidence, message, or question.",
+                    detail={"unknown": unknown, "duplicates": duplicates, "invalid": invalid_fields},
+                )]
         return []
     if name == "clarify":
         return [
@@ -492,6 +568,21 @@ def _validate_call(
             return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
         if name in _AGENT_TOOL_CALL_NAMES:
             return _validate_tool_call(node, env=env)
+        if name == "schema_check":
+            allowed = {"class_type", "member_kind", "member"}
+            seen: set[str] = set()
+            issues: list[CompactDiagnostic] = []
+            for keyword in node.keywords:
+                if keyword.arg is None or keyword.arg not in allowed or keyword.arg in seen:
+                    issues.append(_unsafe(keyword, "invalid_schema_check", "schema_check requires unique class_type, member_kind, and member keywords."))
+                    continue
+                seen.add(keyword.arg)
+                value, issue = _fold_constant(keyword.value, env=env)
+                if issue is not None or not isinstance(value, str) or not value.strip():
+                    issues.append(issue or _unsafe(keyword.value, "invalid_schema_check", f"schema_check {keyword.arg}= must be a non-empty string."))
+            if seen != allowed:
+                issues.append(_unsafe(node, "invalid_schema_check", "schema_check requires class_type=, member_kind=, and member=."))
+            return issues
         return []
     if not top_level:
         return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]

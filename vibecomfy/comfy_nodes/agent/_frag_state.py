@@ -231,6 +231,13 @@ class AgentEditState:
     batch_final_summary: str = ""
     batch_exit_mode: str = ""
     batch_done_summary: str = ""
+    # Explicit terminal action selected by the model.  Absence evidence is
+    # validated later against the authority ledger; these fields never imply
+    # a refusal merely because a batch ended with no edits.
+    batch_refusal_kind: str | None = None
+    batch_refusal_missing_classes: tuple[str, ...] = ()
+    batch_refusal_feature_absences: tuple[dict[str, Any], ...] = ()
+    batch_refusal_evidence: tuple[str, ...] = ()
     lint_noop_messages: tuple[str, ...] = ()
     provisional_registry_candidate_hashes: frozenset[str] = frozenset()
     # Planned custom-node dependencies classified before authoring.  Registry

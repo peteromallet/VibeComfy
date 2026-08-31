@@ -24,6 +24,12 @@ from ._frag_state import (
 )
 
 from .contracts import _clarification_payload
+from vibecomfy.executor.refusal_evidence import (
+    class_absence_record,
+    feature_absence_record,
+    evidence_record_matches_authority,
+    validate_evidence_ids,
+)
 
 
 def _failure_response(
@@ -670,6 +676,21 @@ _GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
     "text",
     "video",
     "workflow",
+    "add",
+    "change",
+    "create",
+    "make",
+    "use",
+    "want",
+    "need",
+    "install",
+    "swap",
+    "replace",
+    "switch",
+    "set",
+    "keep",
+    "existing",
+    "current",
 })
 
 
@@ -727,6 +748,13 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
         )
 
     missing: list[str] = []
+    # A class already present in the retained graph is not absent merely
+    # because an exploratory search used a spelling/alias the index does not
+    # know.  This prevents a model-selected refusal from contradicting the
+    # attached workflow.
+    present_classes = {
+        class_type.casefold() for class_type in _state_graph_class_types(state)
+    }
     for turn in getattr(state, "batch_turns", ()) or ():
         if not isinstance(turn, Mapping):
             continue
@@ -740,8 +768,68 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
                 class_type = str(raw_class_type or "").strip()
                 if not class_type or class_type in missing:
                     continue
+                if class_type.casefold() in present_classes:
+                    continue
                 if _names_class(class_type):
                     missing.append(class_type)
+    # Once one exact miss has been established, require the structured search
+    # ledger to cover every class-shaped token named by the request.  A partial
+    # search must never become a complete refusal merely because the model
+    # happened to probe one name.  We do not mint records for unsearched names:
+    # the resolver must produce an exact miss for each member of this set.
+    if missing:
+        request_classes = getattr(state, "request_payload", None)
+        request_text_full = " ".join(
+            str(value or "")
+            for value in (
+                getattr(state, "task", ""),
+                request_classes.get("query", "") if isinstance(request_classes, Mapping) else "",
+            )
+        )
+        declared = (
+            request_classes.get("expected_no_candidate_absent_classes")
+            if isinstance(request_classes, Mapping)
+            else None
+        )
+        candidates = [
+            str(item).strip()
+            for item in (declared or ())
+            if isinstance(item, str) and item.strip()
+        ]
+        if not candidates:
+            candidates = [
+                token
+                for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", request_text_full)
+                if any(char.isupper() for char in token)
+                and token.casefold() not in _GENERIC_DOMAIN_TOKENS
+                and token.casefold() not in {"please", "which", "another"}
+            ]
+        candidate_keys = {
+            re.sub(r"[^a-z0-9]", "", candidate.casefold())
+            for candidate in dict.fromkeys(candidates)
+            if candidate.casefold() not in present_classes
+        }
+        observed_keys = {
+            re.sub(r"[^a-z0-9]", "", item.casefold()) for item in missing
+        }
+        # One request family token may intentionally cover several concrete
+        # registry classes (for example GroundingDINO*).  Every observed miss
+        # must still be covered, and every requested candidate must have an
+        # observed exact/family miss; an omitted probe therefore fails closed.
+        covered_observed = {
+            observed
+            for observed in observed_keys
+            if any(observed == candidate or observed.startswith(candidate) for candidate in candidate_keys)
+        }
+        covered_candidates = {
+            candidate
+            for candidate in candidate_keys
+            if any(observed == candidate or observed.startswith(candidate) for observed in observed_keys)
+        }
+        if candidate_keys and (
+            covered_observed != observed_keys or covered_candidates != candidate_keys
+        ):
+            return ()
     return tuple(missing)
 
 
@@ -799,10 +887,56 @@ def _record_named_schema_absence_blocker(
     """
     if has_candidate:
         return ()
+    # A typed refusal is terminal evidence, not a laundering path for an
+    # invalid edit.  Any rejected edit statement (including one rolled back
+    # by the transaction journal) keeps the hard diagnostic terminal.
+    for turn in tuple(getattr(state, "batch_turns", ()) or ()) + tuple(
+        getattr(state, "batch_aborted_turns", ()) or ()
+    ):
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            op_kind = str(statement.get("op_kind") or "")
+            if op_kind in {"", "query", "done", "clarify", "refuse"}:
+                continue
+            if statement.get("ok") is not True or statement.get("landed") is not True:
+                return ()
+    if any(
+        isinstance(turn, Mapping) and int(turn.get("landed_op_count", 0) or 0) > 0
+        for turn in getattr(state, "batch_turns", ()) or ()
+    ):
+        return ()
     missing = _batch_named_schema_absences(state)
     if not missing:
         return ()
     report = dict(state.report) if isinstance(state.report, Mapping) else {}
+    collected_records: dict[str, Mapping[str, Any]] = {}
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            detail = statement.get("detail") if isinstance(statement, Mapping) else None
+            raw_records = detail.get("absence_evidence") if isinstance(detail, Mapping) else None
+            for record in raw_records or ():
+                if isinstance(record, Mapping) and record.get("evidence_id"):
+                    class_type = str(record.get("class_type") or "")
+                    if class_type in missing and record.get("kind") == "class_absence":
+                        collected_records[str(record["evidence_id"])] = dict(record)
+    if len(collected_records) != len(missing):
+        collected_records = {
+            item["evidence_id"]: item
+            for item in (
+                class_absence_record(
+                    _state_authority_graph(state),
+                    getattr(state, "schema_provider", None),
+                    class_type,
+                )
+                for class_type in missing
+            )
+        }
+    absence_records = list(collected_records.values())
     blocker = (
         dict(report.get("authoring_blocker"))
         if isinstance(report.get("authoring_blocker"), Mapping)
@@ -812,6 +946,8 @@ def _record_named_schema_absence_blocker(
         {
             "reason": "named_class_absent_from_schema",
             "missing_runtime_classes": list(missing),
+            "absence_evidence": absence_records,
+            "evidence_refs": [str(item["evidence_id"]) for item in absence_records],
             "message": state.user_message,
         }
     )
@@ -824,7 +960,7 @@ def _record_named_schema_absence_blocker(
 
 def _state_graph_class_types(state: AgentEditState) -> set[str]:
     """Collect class types from the working graph, whatever shape it is."""
-    classes: set[str] = []
+    classes: set[str] = set()
 
     def walk(value: Any) -> None:
         if isinstance(value, Mapping):
@@ -842,6 +978,12 @@ def _state_graph_class_types(state: AgentEditState) -> set[str]:
 
     walk(getattr(state, "graph", None))
     return classes
+
+
+def _state_authority_graph(state: AgentEditState) -> Any:
+    """Return the attached graph used by frozen refusal evidence."""
+    graph = getattr(state, "graph", None)
+    return graph if graph is not None else getattr(state, "workflow", None)
 
 
 def _schema_surface_member_names(schema: Any, member_kind: str) -> tuple[str, ...]:
@@ -899,13 +1041,36 @@ def _record_structural_feature_absence_blocker(
     claim).  Any unverifiable claim records nothing (fail closed); a generic
     terminal label alone never triggers this path.
     """
-    del has_candidate  # kept for call-site symmetry with the named recorder
+    if has_candidate:
+        return ()
+    # Preserve the same anti-laundering invariant as named-class refusals.
+    for turn in tuple(getattr(state, "batch_turns", ()) or ()) + tuple(
+        getattr(state, "batch_aborted_turns", ()) or ()
+    ):
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            op_kind = str(statement.get("op_kind") or "")
+            if op_kind in {"", "query", "done", "clarify", "refuse"}:
+                continue
+            if statement.get("ok") is not True or statement.get("landed") is not True:
+                return ()
+    if any(
+        isinstance(turn, Mapping) and int(turn.get("landed_op_count", 0) or 0) > 0
+        for turn in getattr(state, "batch_turns", ()) or ()
+    ):
+        return ()
     if not getattr(state, "schema_provider", None):
         return ()
     declared_features = _batch_declared_feature_absences(state)
     if not declared_features:
         return ()
-    graph_classes = _state_graph_class_types(state)
+    graph_classes = {
+        class_type.casefold(): class_type
+        for class_type in _state_graph_class_types(state)
+    }
 
     def _member_absent(schema: Any, member_kind: str, member: str) -> bool:
         if member_kind not in ("input", "widget", "output"):
@@ -913,6 +1078,16 @@ def _record_structural_feature_absence_blocker(
         return member not in _schema_surface_member_names(schema, member_kind)
 
     recorded: list[dict[str, Any]] = []
+    collected_feature_records: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            detail = statement.get("detail") if isinstance(statement, Mapping) else None
+            for raw in (detail.get("absence_evidence", ()) if isinstance(detail, Mapping) else ()):
+                if isinstance(raw, Mapping) and raw.get("evidence_id"):
+                    key = (str(raw.get("class_type") or ""), str(raw.get("member_kind") or ""), str(raw.get("member") or ""))
+                    collected_feature_records[key] = raw
     for feature in declared_features:
         feature_name = str(feature.get("feature") or "").strip()
         raw_checks = feature.get("checks")
@@ -927,19 +1102,20 @@ def _record_structural_feature_absence_blocker(
             member = str(raw_check.get("member") or "").strip()
             if not class_type or not member_kind or not member:
                 continue
-            if class_type not in graph_classes:
+            graph_class_type = graph_classes.get(class_type.casefold())
+            if graph_class_type is None:
                 continue
             try:
-                schema = state.schema_provider.get_schema(class_type)
+                schema = state.schema_provider.get_schema(graph_class_type)
             except Exception:  # noqa: BLE001 - lookup failure is simply not evidence
                 schema = None
             if schema is None:
                 continue
             if not _member_absent(schema, member_kind, member):
                 continue
-            verified_checks.append(
-                {
-                    "class_type": class_type,
+            verified = {
+                    "kind": "feature_absence",
+                    "class_type": graph_class_type,
                     "member_kind": member_kind,
                     "member": member,
                     "present": False,
@@ -947,7 +1123,33 @@ def _record_structural_feature_absence_blocker(
                         _schema_surface_member_names(schema, member_kind)
                     ),
                 }
+            collected = collected_feature_records.get((class_type, member_kind, member))
+            current_record = feature_absence_record(
+                _state_authority_graph(state),
+                state.schema_provider,
+                class_type=graph_class_type,
+                member_kind=member_kind,
+                member=member,
+                available_members=list(_schema_surface_member_names(schema, member_kind)),
             )
+            # A resolver-side record is only reusable when it was minted from
+            # this exact graph/schema authority.  Otherwise mint a fresh
+            # canonical record instead of carrying a stale cross-projection ID.
+            if (
+                collected
+                and collected.get("evidence_id") == current_record["evidence_id"]
+                and collected.get("authority_digest") == current_record["authority_digest"]
+            ):
+                current_record = dict(collected)
+            verified.update(current_record)
+            verified["class_type"] = graph_class_type
+            verified["member_kind"] = member_kind
+            verified["member"] = member
+            verified["present"] = False
+            verified["available_members"] = list(
+                _schema_surface_member_names(schema, member_kind)
+            )
+            verified_checks.append(verified)
         if len(verified_checks) != len(
             [
                 check
@@ -973,6 +1175,12 @@ def _record_structural_feature_absence_blocker(
         {
             "reason": "structural_feature_absent",
             "feature_absences": recorded,
+            "evidence_refs": [
+                check["evidence_id"]
+                for feature in recorded
+                for check in feature.get("checks", ())
+                if isinstance(check, Mapping) and check.get("evidence_id")
+            ],
             "message": state.user_message,
         }
     )
@@ -981,6 +1189,129 @@ def _record_structural_feature_absence_blocker(
     report["graph_unchanged"] = True
     state.report = report
     return tuple(recorded)
+
+
+def _typed_refusal_is_authorized(
+    state: AgentEditState,
+    *,
+    named_schema_absence: bool,
+    structural_feature_absence: bool,
+) -> bool:
+    """Validate the model-selected terminal against recorded evidence.
+
+    Collection and publication are intentionally separate: recorders may
+    retain deterministic evidence for a later turn, while this gate alone can
+    authorize a typed terminal.  It rejects missing evidence, incomplete or
+    invented class lists, and feature payloads that do not equal the verified
+    structural ledger.
+    """
+    if not getattr(state, "batch_refusal_kind", None):
+        return False
+    if not (named_schema_absence or structural_feature_absence):
+        return False
+    if not tuple(getattr(state, "batch_refusal_evidence", ()) or ()):
+        return False
+    if named_schema_absence:
+        # A canonical ID without the provider that minted its digest is only
+        # a claim, never production authority evidence.
+        if not getattr(state, "schema_provider", None):
+            return False
+        report = state.report if isinstance(state.report, Mapping) else {}
+        blocker = report.get("authoring_blocker", {})
+        raw = blocker.get("missing_runtime_classes", ()) if isinstance(blocker, Mapping) else ()
+        observed = tuple(str(item) for item in raw if item)
+        claimed = tuple(getattr(state, "batch_refusal_missing_classes", ()) or ())
+        if (
+            not claimed
+            or {item.casefold() for item in claimed}
+            != {item.casefold() for item in observed}
+            or len(claimed) != len(observed)
+        ):
+            return False
+        request = getattr(state, "request_payload", None)
+        declared = request.get("expected_no_candidate_absent_classes") if isinstance(request, Mapping) else None
+        if isinstance(declared, (list, tuple)) and declared:
+            declared_set = {str(item).strip() for item in declared if str(item).strip()}
+            if (
+                {item.casefold() for item in declared_set}
+                != {item.casefold() for item in observed}
+                or len(declared_set) != len(observed)
+            ):
+                return False
+        ledger = {
+            str(item.get("evidence_id")): item
+            for item in (blocker.get("absence_evidence", ()) if isinstance(blocker, Mapping) else ())
+            if isinstance(item, Mapping) and item.get("evidence_id")
+        }
+        records = validate_evidence_ids(
+            getattr(state, "batch_refusal_evidence", ()), ledger
+        )
+        expected_ids = tuple(
+            item["evidence_id"] for item in ledger.values()
+            if item.get("kind") == "class_absence" and item.get("class_type") in observed
+        )
+        if records is None or set(item["evidence_id"] for item in records) != set(expected_ids):
+            return False
+        if any(
+            item.get("class_type") not in observed
+            or item.get("graph_present") is not False
+            or item.get("schema_present") is not False
+            for item in records
+        ):
+            return False
+        if any(
+            not evidence_record_matches_authority(
+                item,
+                _state_authority_graph(state),
+                getattr(state, "schema_provider", None),
+            )
+            for item in records
+        ):
+            return False
+    if not named_schema_absence and getattr(state, "batch_refusal_missing_classes", ()):
+        return False
+    if structural_feature_absence:
+        report = state.report if isinstance(state.report, Mapping) else {}
+        blocker = report.get("authoring_blocker", {})
+        recorded = blocker.get("feature_absences", ()) if isinstance(blocker, Mapping) else ()
+        claimed = tuple(getattr(state, "batch_refusal_feature_absences", ()) or ())
+        ledger = {
+            str(check.get("evidence_id")): check
+            for feature in recorded if isinstance(feature, Mapping)
+            for check in (feature.get("checks", ()) or ())
+            if isinstance(check, Mapping) and check.get("evidence_id")
+        }
+        if any(
+            not isinstance(item, Mapping)
+            or set(item) != {"evidence_id"}
+            or not isinstance(item.get("evidence_id"), str)
+            for item in claimed
+        ):
+            return False
+        claimed_ids = [item["evidence_id"] for item in claimed]
+        records = validate_evidence_ids(claimed_ids, ledger) if claimed_ids else ()
+        evidence_records = validate_evidence_ids(
+            getattr(state, "batch_refusal_evidence", ()), ledger
+        )
+        if (
+            (claimed and records is None)
+            or evidence_records is None
+            or set(claimed_ids) != set(ledger)
+            or set(item["evidence_id"] for item in evidence_records) != set(ledger)
+        ):
+            return False
+        if any(
+            not evidence_record_matches_authority(
+                item,
+                _state_authority_graph(state),
+                getattr(state, "schema_provider", None),
+            )
+            for item in (records or ())
+        ):
+            return False
+    elif getattr(state, "batch_refusal_feature_absences", ()):
+        return False
+    return True
 
 
 _SPECIFIC_CLARIFY_ACTION_RE = re.compile(
@@ -1719,9 +2050,35 @@ def _build_batch_repl_response(
     # external evidence is not a success: the edit cannot satisfy the request
     # with only the partial graph change. Weak registry/code-search leads are
     # not authoring capability and should not force a special product route.
+    # Absence evidence is collected independently so diagnostics remain
+    # available for the next turn.  It becomes a terminal refusal only when
+    # the model explicitly selected ``refuse(...)`` and cited the complete
+    # evidence ledger.  In particular, ``search(...); done()`` stays a plain
+    # no-op and can never be auto-promoted from the collector's report.
+    typed_refusal_terminal = _typed_refusal_is_authorized(
+        state,
+        named_schema_absence=named_schema_absence_terminal,
+        structural_feature_absence=structural_feature_absence_terminal,
+    )
+    if typed_refusal_terminal:
+        report = dict(state.report) if isinstance(state.report, Mapping) else {}
+        blocker = report.get("authoring_blocker", {})
+        authoritative: dict[str, Any] = {
+            "kind": state.batch_refusal_kind,
+            "evidence_refs": list(blocker.get("evidence_refs", ())) if isinstance(blocker, Mapping) else [],
+        }
+        if named_schema_absence_terminal:
+            authoritative["missing_classes"] = list(
+                blocker.get("missing_runtime_classes", ())
+                if isinstance(blocker, Mapping)
+                else ()
+            )
+        if structural_feature_absence_terminal and isinstance(blocker, Mapping):
+            authoritative["feature_absences"] = list(blocker.get("feature_absences", ()))
+        report["typed_refusal_action"] = authoritative
+        state.report = report
     unresolved_schema_terminal = (
-        named_schema_absence_terminal
-        or structural_feature_absence_terminal
+        typed_refusal_terminal
         or (
             state.batch_exit_mode in (_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY)
             and any(
@@ -1773,11 +2130,20 @@ def _build_batch_repl_response(
     # the named-class blocker — missing_runtime_classes_from_report reads it
     # exclusively from report.authoring_blocker.missing_runtime_classes, so
     # the public field can never become an independent assertion.
-    public_outcome = promote_requires_custom_nodes_outcome(
-        public_outcome,
-        missing_classes=missing_runtime_classes_from_report(state.report),
-        unresolved_schema_terminal=unresolved_schema_terminal,
-    )
+    if typed_refusal_terminal and state.batch_refusal_kind == "requires_custom_nodes":
+        public_outcome = promote_requires_custom_nodes_outcome(
+            public_outcome,
+            missing_classes=missing_runtime_classes_from_report(state.report),
+        )
+    elif typed_refusal_terminal and state.batch_refusal_kind == "clarify":
+        public_outcome = dict(public_outcome)
+        if named_schema_absence_terminal:
+            public_outcome["missing_classes"] = list(
+                missing_runtime_classes_from_report(state.report)
+            )
+        if structural_feature_absence_terminal:
+            blocker = state.report.get("authoring_blocker", {}) if isinstance(state.report, Mapping) else {}
+            public_outcome["feature_absences"] = list(blocker.get("feature_absences", ())) if isinstance(blocker, Mapping) else []
     change_details = _change_details_payload(state, context)
     _prepare_narrative_artifact_paths(state)
     try:
@@ -1821,11 +2187,20 @@ def _build_batch_repl_response(
         promote_requires_custom_nodes_outcome,
     )
 
-    public_outcome = promote_requires_custom_nodes_outcome(
-        public_outcome,
-        missing_classes=missing_runtime_classes_from_report(state.report),
-        unresolved_schema_terminal=unresolved_schema_terminal,
-    )
+    if typed_refusal_terminal and state.batch_refusal_kind == "requires_custom_nodes":
+        public_outcome = promote_requires_custom_nodes_outcome(
+            public_outcome,
+            missing_classes=missing_runtime_classes_from_report(state.report),
+        )
+    elif typed_refusal_terminal and state.batch_refusal_kind == "clarify":
+        public_outcome = dict(public_outcome)
+        if named_schema_absence_terminal:
+            public_outcome["missing_classes"] = list(
+                missing_runtime_classes_from_report(state.report)
+            )
+        if structural_feature_absence_terminal:
+            blocker = state.report.get("authoring_blocker", {}) if isinstance(state.report, Mapping) else {}
+            public_outcome["feature_absences"] = list(blocker.get("feature_absences", ())) if isinstance(blocker, Mapping) else []
     gate_snapshot = context.gate_snapshot()
     response = success_envelope(
         context,
@@ -1998,7 +2373,16 @@ def _build_batch_repl_response(
     if inferred is not None:
         built_response = stamp_terminal_state(built_response, terminal_state=inferred)
     if unresolved_schema_terminal:
-        return _strip_clarify_forbidden_response_fields(built_response)
+        built_response = _strip_clarify_forbidden_response_fields(built_response)
+        if typed_refusal_terminal and state.batch_refusal_kind == "clarify":
+            outcome = built_response.get("outcome")
+            blocker = state.report.get("authoring_blocker", {}) if isinstance(state.report, Mapping) else {}
+            if isinstance(outcome, dict) and isinstance(blocker, Mapping):
+                if structural_feature_absence_terminal:
+                    outcome["feature_absences"] = list(blocker.get("feature_absences", ()))
+                if named_schema_absence_terminal:
+                    outcome["missing_classes"] = list(blocker.get("missing_runtime_classes", ()))
+        return built_response
     return _sanitize_pure_clarify_response(built_response)
 
 

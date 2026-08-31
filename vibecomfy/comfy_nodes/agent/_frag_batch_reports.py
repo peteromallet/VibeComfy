@@ -210,6 +210,16 @@ def _format_batch_report(
                 extras.append(detail_text)
         if statement.teaching_hint:
             extras.append(f"hint: {statement.teaching_hint}")
+        if isinstance(statement.detail, Mapping):
+            absence_evidence = statement.detail.get("absence_evidence")
+            if isinstance(absence_evidence, (list, tuple)):
+                ids = [
+                    str(item.get("evidence_id"))
+                    for item in absence_evidence
+                    if isinstance(item, Mapping) and item.get("evidence_id")
+                ]
+                if ids:
+                    extras.append(f"authority evidence IDs: [{', '.join(ids)}]")
         if extras:
             line += f" ({'; '.join(extras)})"
         statement_lines.append(line)
@@ -267,6 +277,56 @@ def _format_batch_report(
         )
     lines = [summary, *statement_lines, query_only_note, *diagnostic_lines]
     return "\n".join(line for line in lines if line)
+
+
+def _format_refusal_authority_context(
+    batch_result: Any, *, graph: Any, schema_provider: Any
+) -> str:
+    """Render canonical refusal IDs for the next model turn."""
+    from vibecomfy.executor.refusal_evidence import (
+        class_absence_record,
+        feature_absence_record,
+    )
+
+    records: dict[str, dict[str, Any]] = {}
+    for statement in getattr(batch_result, "statements", ()):
+        detail = getattr(statement, "detail", None)
+        if not isinstance(detail, Mapping):
+            continue
+        for class_type in detail.get("missing_classes", ()) or ():
+            if isinstance(class_type, str) and class_type.strip():
+                record = class_absence_record(graph, schema_provider, class_type.strip())
+                records[record["evidence_id"]] = record
+        for feature in detail.get("feature_absences", ()) or ():
+            if not isinstance(feature, Mapping):
+                continue
+            for check in feature.get("checks", ()) or ():
+                if not isinstance(check, Mapping):
+                    continue
+                class_type = str(check.get("class_type") or "").strip()
+                member_kind = str(check.get("member_kind") or "").strip()
+                member = str(check.get("member") or "").strip()
+                if not class_type or not member_kind or not member:
+                    continue
+                record = feature_absence_record(
+                    graph,
+                    schema_provider,
+                    class_type=class_type,
+                    member_kind=member_kind,
+                    member=member,
+                    available_members=[],
+                )
+                records[record["evidence_id"]] = record
+    if not records:
+        return ""
+    return (
+        "Frozen refusal authority ledger (cite the exact complete ID set):\n"
+        + "\n".join(
+            f"- {record['evidence_id']}: {record['kind']} "
+            f"class={record['class_type']} authority_digest={record['authority_digest']}"
+            for record in records.values()
+        )
+    )
 
 
 def _cap_diagnostic_detail(detail: dict[str, Any]) -> dict[str, Any]:
@@ -407,6 +467,14 @@ _BATCH_EXIT_STUCK = "stuck"
 class TerminalClarifySplit:
     batch: str
     message: str | None
+    # A model-selected typed refusal.  These fields are deliberately carried
+    # out of the edit grammar as data; the authority layer validates them
+    # against the complete absence ledger before publishing a refusal.
+    kind: str | None = None
+    missing_classes: tuple[str, ...] = ()
+    feature_absences: tuple[dict[str, Any], ...] = ()
+    evidence: tuple[str, ...] = ()
+    action: str | None = None
 
 
 def _extract_clarify_message(batch: str) -> str | None:
@@ -433,6 +501,84 @@ def _is_terminal_clarify_expr(node: ast.stmt) -> bool:
     )
 
 
+def _is_terminal_refuse_expr(node: ast.stmt) -> bool:
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return False
+    call = node.value
+    return (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "refuse"
+        and not call.args
+        and all(keyword.arg is not None for keyword in call.keywords)
+    )
+
+
+def _literal_keyword(call: ast.Call, name: str) -> Any:
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            try:
+                return ast.literal_eval(keyword.value)
+            except (ValueError, TypeError, SyntaxError):
+                return None
+    return None
+
+
+def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...], tuple[dict[str, Any], ...], tuple[str, ...]] | None:
+    """Decode the model's refusal action without deciding whether it is valid."""
+    if not _is_terminal_refuse_expr(node):
+        return None
+    call = node.value
+    assert isinstance(call, ast.Call)
+    allowed = {"kind", "missing_classes", "feature_absences", "evidence", "message", "question"}
+    names = [keyword.arg for keyword in call.keywords]
+    if any(name not in allowed for name in names) or len(names) != len(set(names)):
+        return None
+    if names.count("kind") != 1 or (names.count("message") + names.count("question")) != 1:
+        return None
+    kind = _literal_keyword(call, "kind")
+    message = _literal_keyword(call, "message")
+    if message is None:
+        message = _literal_keyword(call, "question")
+    classes = _literal_keyword(call, "missing_classes")
+    features = _literal_keyword(call, "feature_absences")
+    evidence = _literal_keyword(call, "evidence")
+    if kind not in {"requires_custom_nodes", "clarify"} or not isinstance(message, str) or not message.strip():
+        return None
+    if classes is None:
+        classes = ()
+    if evidence is None:
+        evidence = ()
+    if features is None:
+        features = ()
+    if not isinstance(classes, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in classes):
+        return None
+    if len(set(classes)) != len(classes):
+        return None
+    if not isinstance(evidence, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in evidence):
+        return None
+    if len(set(evidence)) != len(evidence):
+        return None
+    if not isinstance(features, (list, tuple)) or not all(isinstance(item, dict) for item in features):
+        return None
+    if any(set(item) != {"evidence_id"} or not isinstance(item.get("evidence_id"), str) or not item["evidence_id"].strip() for item in features):
+        return None
+    if len({item["evidence_id"] for item in features}) != len(features):
+        return None
+    if not isinstance(evidence, (list, tuple)) or not evidence:
+        return None
+    if not classes and not features:
+        return None
+    if kind == "requires_custom_nodes" and not classes:
+        return None
+    return (
+        kind,
+        message.strip(),
+        tuple(item.strip() for item in classes),
+        tuple(dict(item) for item in features),
+        tuple(item.strip() for item in evidence),
+    )
+
+
 def _is_done_expr(node: ast.stmt) -> bool:
     if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
         return False
@@ -449,7 +595,7 @@ def _contains_clarify_call(node: ast.AST) -> bool:
     return any(
         isinstance(child, ast.Call)
         and isinstance(child.func, ast.Name)
-        and child.func.id == "clarify"
+        and child.func.id in {"clarify", "refuse"}
         for child in ast.walk(node)
     )
 
@@ -498,7 +644,12 @@ def _split_terminal_clarify_line_regex(batch: str) -> TerminalClarifySplit:
 
 
 def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
-    """Split a final top-level clarify("...") call from editable batch code."""
+    """Split a final top-level clarify/refuse action from editable code.
+
+    ``refuse(...)`` is a terminal action chosen by the model.  It is not an
+    automatic conversion of ``done()`` or ``noop``; callers must still prove
+    its payload against authority evidence.
+    """
     try:
         module = ast.parse(batch)
     except SyntaxError:
@@ -514,15 +665,46 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         return TerminalClarifySplit(batch=batch, message=None)
 
     terminal = body[-1]
-    if not _is_terminal_clarify_expr(terminal):
+    is_clarify = _is_terminal_clarify_expr(terminal)
+    is_refusal = _is_terminal_refuse_expr(terminal)
+    if not is_clarify and not is_refusal:
         return TerminalClarifySplit(batch=batch, message=None)
     if any(_contains_clarify_call(stmt) for stmt in body[:-1]):
         return TerminalClarifySplit(batch=batch, message=None)
 
     call = terminal.value
     assert isinstance(call, ast.Call)
-    message_node = call.args[0]
-    assert isinstance(message_node, ast.Constant)
+    if is_refusal:
+        # The splitter is a pre-parse convenience layer, not a second grammar.
+        # Re-run the canonical parser so unknown/duplicate fields and refusal
+        # sequence errors cannot be laundered by stripping the terminal first.
+        from vibecomfy.porting.edit._parse import _parse_and_validate_batch
+
+        validated = _parse_and_validate_batch(
+            batch,
+            max_batch_bytes=1_000_000,
+            max_statements=1_000,
+            max_expanded_statements=10_000,
+            max_for_iterations=1_000,
+        )
+        if validated.diagnostics:
+            return TerminalClarifySplit(batch=batch, message=None)
+    refusal_payload = _terminal_refusal_payload(terminal) if is_refusal else None
+    if is_refusal and refusal_payload is None:
+        return TerminalClarifySplit(batch=batch, message=None)
+    if is_clarify:
+        message_node = call.args[0]
+        assert isinstance(message_node, ast.Constant)
+        message = message_node.value
+        kind = "clarify"
+        missing_classes: tuple[str, ...] = ()
+        feature_absences: tuple[dict[str, Any], ...] = ()
+        evidence: tuple[str, ...] = ()
+        action = "clarify"
+    else:
+        assert refusal_payload is not None
+        kind, message, missing_classes, feature_absences, evidence = refusal_payload
+        action = "refuse"
     start = _offset_from_ast_position(batch, terminal.lineno, terminal.col_offset)
     editable_batch = batch[:start].rstrip()
     if editable_batch.endswith(";"):
@@ -536,7 +718,15 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         between = batch[terminal_end:trailing_start]
         if any(line.strip() and not line.lstrip().startswith("#") for line in between.splitlines()):
             return TerminalClarifySplit(batch=batch, message=None)
-    return TerminalClarifySplit(batch=editable_batch, message=message_node.value)
+    return TerminalClarifySplit(
+        batch=editable_batch,
+        message=message,
+        kind=kind,
+        missing_classes=missing_classes,
+        feature_absences=feature_absences,
+        evidence=evidence,
+        action=action,
+    )
 
 
 def _batch_has_landed_edits(state: "AgentEditState") -> bool:
@@ -854,7 +1044,8 @@ __all__ = (
      "_compact_diag_with_capped_detail", "_contains_clarify_call",
      "_decode_clarify_literal", "_duplicate_search_cycle_feedback",
      "_extract_clarify_message", "_extract_search_signatures", "_format_batch_report",
-     "_format_batch_report_json", "_format_diagnostic_detail_text", "_is_done_expr",
+     "_format_batch_report_json", "_format_refusal_authority_context",
+     "_format_diagnostic_detail_text", "_is_done_expr",
      "_is_terminal_clarify_expr", "_lint_diag_with_capped_detail",
      "_offset_from_ast_position", "_re", "_split_terminal_clarify_line_regex",
      "split_terminal_clarify",

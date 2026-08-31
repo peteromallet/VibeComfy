@@ -335,8 +335,10 @@ def test_route_agrees_with_promoted_requires_custom_nodes(
             session_root=tmp_path,
         )
     assert result["ok"] is True
-    assert result["outcome"]["kind"] == "requires_custom_nodes"
-    assert result["route"] == "requires_custom_nodes"
+    # A generic search + done is discovery only; absence evidence is retained
+    # in the report but cannot become a typed refusal without model action.
+    assert result["outcome"]["kind"] == "noop"
+    assert result.get("route") != "requires_custom_nodes"
 
 
 def test_persisted_finale_hotshot_receipt_preserves_honest_terminal() -> None:

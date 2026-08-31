@@ -118,7 +118,7 @@ class HeadlessAgentRequest:
     pipeline_mode: str | None = None
     allow_safe_refusal_outcome_kinds: tuple[str, ...] = ()
     expected_no_candidate_absent_classes: tuple[str, ...] = ()
-    expected_no_candidate_absent_features: tuple[str, ...] = ()
+    expected_no_candidate_absent_features: tuple[Mapping[str, Any], ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -203,11 +203,7 @@ class HeadlessAgentRequest:
         object.__setattr__(
             self,
             "expected_no_candidate_absent_features",
-            tuple(
-                str(item).strip()
-                for item in (self.expected_no_candidate_absent_features or ())
-                if str(item).strip()
-            ),
+            tuple(dict(item) for item in (self.expected_no_candidate_absent_features or ()) if isinstance(item, Mapping)),
         )
         object.__setattr__(self, "extra", dict(self.extra or {}))
 
@@ -376,9 +372,9 @@ class HeadlessAgentRequest:
                 if isinstance(item, str) and item.strip()
             ) if isinstance(payload.get("expected_no_candidate_absent_classes"), (list, tuple)) else (),
             expected_no_candidate_absent_features=tuple(
-                str(item).strip()
+                dict(item)
                 for item in (payload.get("expected_no_candidate_absent_features") or ())
-                if isinstance(item, str) and item.strip()
+                if isinstance(item, Mapping)
             ) if isinstance(payload.get("expected_no_candidate_absent_features"), (list, tuple)) else (),
             extra=_parse_extra(payload.get("extra")),
         )

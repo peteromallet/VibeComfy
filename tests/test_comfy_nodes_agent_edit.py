@@ -3204,16 +3204,12 @@ def test_batch_repl_search_partial_exact_miss_reports_missing_classes() -> None:
     ]
 
 
-def test_rc5_named_schema_absence_with_real_options_promotes_typed_refusal() -> None:
-    """c80bbf-shaped: an exact named miss plus a real choice is not candidate."""
+def test_rc5_named_schema_absence_after_landed_edit_keeps_candidate() -> None:
+    """A schema miss cannot launder an already-landed edit into refusal."""
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
-    question = (
-        "AudioLDM2 is absent from the local authoring schema. To proceed "
-        "authorably, either keep the native joint AV path or name an available "
-        "audio class from the index."
-    )
+    question = "The edit was applied; inspect the resulting workflow."
     state = _make_state(
         task="Replace the existing sampler with AudioLDM2",
         request_payload={"query": "Replace the sampler with AudioLDM2"},
@@ -3256,10 +3252,9 @@ def test_rc5_named_schema_absence_with_real_options_promotes_typed_refusal() -> 
         TurnContext(session_id="rc5-c80bbf", turn_id="0001"),
     )
 
-    assert response["outcome"]["kind"] == "requires_custom_nodes"
-    assert response["outcome"]["missing_classes"] == ["AudioLDM2"]
-    assert response["graph_unchanged"] is True
-    assert "candidate" not in response
+    assert response["outcome"]["kind"] == "candidate"
+    assert response["graph_unchanged"] is False
+    assert response.get("authoring_blocker") is None
 
 
 def test_rc5_named_schema_miss_does_not_override_representable_candidate() -> None:

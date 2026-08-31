@@ -14,6 +14,7 @@ from vibecomfy.executor.evidence_pack import (
     EvidenceLedgerEntry,
 )
 from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
+from vibecomfy.executor.refusal_evidence import class_absence_record, feature_absence_record
 from vibecomfy.porting.edit.ops import (
     AnchorRef,
     LinkSourceRef,
@@ -497,13 +498,13 @@ class _ResolveMixin:
         env = item.env
         if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
             call_name = _call_name(statement.value)
-            if call_name == "done":
+            if call_name in {"done", "refuse"}:
                 return StatementResult(
                     statement_index=item.statement_index,
                     source=source,
                     ok=True,
                     landed=False,
-                    op_kind="done",
+                    op_kind=call_name,
                 )
             return self._resolve_query_statement(
                 statement_index=item.statement_index,
@@ -603,7 +604,7 @@ class _ResolveMixin:
         env: Mapping[str, Any],
     ) -> StatementResult:
         call_name = _call_name(call)
-        if call_name not in {"search", "research", "python"} and call_name not in _AGENT_TOOL_CALL_NAMES:
+        if call_name not in {"search", "research", "python", "schema_check"} and call_name not in _AGENT_TOOL_CALL_NAMES:
             return StatementResult(
                 statement_index=statement_index,
                 source=source,
@@ -613,7 +614,7 @@ class _ResolveMixin:
                 diagnostics=(
                     _diag(
                         "unsupported_query_call",
-                        "Only search(...), python(), done(), and the ten "
+                "Only search(...), schema_check(...), python(), done(), and the ten "
                         "agent tool calls (hivemind_search, hivemind_get, registry_lookup, "
                         "ready_template_list, ready_template_load, rank_edit_targets, "
                         "suggest_seed_nodes, layout_hints, web_search) are supported as "
@@ -688,6 +689,48 @@ class _ResolveMixin:
                 landed=False,
                 op_kind="query",
                 detail={"query": "python", "query_output": str(output)},
+            )
+
+        if call_name == "schema_check":
+            values: dict[str, str] = {}
+            for keyword in call.keywords:
+                if keyword.arg is not None:
+                    value, _issue = _fold_constant(keyword.value, env=env)
+                    values[keyword.arg] = str(value)
+            class_type = values.get("class_type", "")
+            member_kind = values.get("member_kind", "")
+            member = values.get("member", "")
+            schema = self.schema_provider.get_schema(class_type)
+            if schema is None:
+                return StatementResult(
+                    statement_index=statement_index, source=source, ok=True,
+                    landed=False, op_kind="query",
+                    detail={
+                        "query": "schema_check",
+                        "missing_classes": [class_type],
+                        "absence_evidence": [
+                            class_absence_record(
+                                getattr(self, "workflow", None),
+                                self.schema_provider,
+                                class_type,
+                            )
+                        ],
+                    },
+                )
+            if member_kind not in {"input", "widget", "output"}:
+                return StatementResult(
+                    statement_index=statement_index, source=source, ok=False,
+                    landed=False, op_kind="query",
+                    diagnostics=(_diag("invalid_schema_check", "member_kind must be input, widget, or output.", severity="error"),),
+                    detail={"query": "schema_check"},
+                )
+            names = tuple(str(name) for name in ((getattr(schema, "inputs", {}) or {}) if member_kind != "output" else (getattr(item, "name", None) or getattr(item, "type", "") for item in (getattr(schema, "outputs", None) or ()))))
+            if member in names:
+                return StatementResult(statement_index=statement_index, source=source, ok=True, landed=False, op_kind="query", detail={"query": "schema_check", "feature_absences": []})
+            check = {"class_type": class_type, "member_kind": member_kind, "member": member}
+            return StatementResult(
+                statement_index=statement_index, source=source, ok=True, landed=False, op_kind="query",
+                detail={"query": "schema_check", "feature_absences": [{"feature": member, "checks": [check]}], "absence_evidence": [feature_absence_record(getattr(self, "workflow", None), self.schema_provider, class_type=class_type, member_kind=member_kind, member=member, available_members=list(names))]},
             )
 
         if call_name == "research":
@@ -818,6 +861,14 @@ class _ResolveMixin:
             # schema provider.  Response shaping may use this only when the
             # user named the same class and the batch ends in a real choice.
             detail["missing_classes"] = missing_classes
+            detail["absence_evidence"] = [
+                class_absence_record(
+                    getattr(self, "workflow", None),
+                    self.schema_provider,
+                    class_type,
+                )
+                for class_type in missing_classes
+            ]
         return StatementResult(
             statement_index=statement_index,
             source=source,
