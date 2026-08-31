@@ -362,6 +362,19 @@ class VibeComfyProjectAdapter(FakeProjectAdapter):
         if mode != "structural":
             return None
 
+        # The structural runner filters GPU-tagged scenarios, but direct adapter
+        # callers must be fail-closed too.  A scenario authored as live (or
+        # tagged GPU) must never be satisfied by a deterministic structural
+        # builder, including the M5 execution builders.
+        scenario_mode = (
+            scenario.mode.value
+            if hasattr(scenario.mode, "value")
+            else str(scenario.mode)
+        )
+        scenario_tags = set(getattr(scenario, "tags", []) or [])
+        if scenario_mode == "live" or "gpu" in scenario_tags:
+            return None
+
         if run.dispatcher == DISPATCHER_FAKING:
             return build_faking_structural_chain(frozen_root)
         # Structural builders are deterministic shortcuts for the fake actor.

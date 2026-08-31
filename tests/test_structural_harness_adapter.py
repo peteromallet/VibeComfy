@@ -652,6 +652,69 @@ def test_capture_structural_evidence_returns_none_for_unknown_non_faking_structu
     assert manifest is None
 
 
+@pytest.mark.parametrize(
+    ("scenario_mode", "scenario_tags"),
+    [
+        (sisypy.RunMode.LIVE, []),
+        (sisypy.RunMode.STRUCTURAL, ["gpu"]),
+    ],
+    ids=["scenario-declared-live", "scenario-tagged-gpu"],
+)
+def test_capture_structural_evidence_rejects_live_or_gpu_scenarios_directly(
+    tmp_path: Path,
+    scenario_mode: sisypy.RunMode,
+    scenario_tags: list[str],
+) -> None:
+    """Direct adapter calls must preserve the runner's live/GPU boundary."""
+    adapter = VibeComfyProjectAdapter(name="vibecomfy", repo_root=tmp_path)
+    scenario = _scenario("two-stage-chain-both-ran")
+    scenario.mode = scenario_mode
+    scenario.tags = scenario_tags
+    run = _run()
+    run.mode = sisypy.RunMode.STRUCTURAL
+    run.dispatcher = DISPATCHER_FAKE
+
+    manifest = adapter._capture_structural_evidence(
+        scenario,
+        run,
+        tmp_path / "reports" / "two-stage-chain-both-ran" / "evidence",
+    )
+
+    assert manifest is None
+
+
+def test_capture_structural_evidence_accepts_ordinary_structural_scenario(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-GPU structural scenario still reaches its deterministic builder."""
+    from tests.structural_harness import adapter as adapter_module
+    from sisypy import RunMode
+
+    sentinel = {"scenario": "ordinary-structural"}
+    monkeypatch.setitem(
+        adapter_module._M5_BUILDERS,
+        "ordinary-structural",
+        lambda _frozen_root: sentinel,
+    )
+
+    adapter = VibeComfyProjectAdapter(name="vibecomfy", repo_root=tmp_path)
+    scenario = _scenario("ordinary-structural")
+    scenario.mode = RunMode.STRUCTURAL
+    scenario.tags = ["m5", "structural"]
+    run = _run()
+    run.mode = RunMode.STRUCTURAL
+    run.dispatcher = DISPATCHER_FAKE
+
+    manifest = adapter._capture_structural_evidence(
+        scenario,
+        run,
+        tmp_path / "reports" / "ordinary-structural" / "evidence",
+    )
+
+    assert manifest is sentinel
+
+
 # ── M2 adapter dispatch and faking-guard tests ───────────────────────────────
 
 
