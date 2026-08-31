@@ -55,19 +55,19 @@ def _landed_response(gate_a=True, gate_b=True, error_variant: str = "candidate_h
     }
 
 
-def test_s1_landed_gate_pass_persists_candidate_instead_of_authority_rejected():
+def test_s1_landed_gate_pass_still_fails_closed_on_receipt_mismatch():
     receipt = _receipt_error("candidate_hash_mismatch")
     response = _landed_response(gate_a=True, gate_b=True)
     stamped = stamp_response_with_authority(response, receipt)
     assert "authority_receipt" in stamped
     assert stamped["authority_receipt"]["replay_error"] == "candidate_hash_mismatch"
-    assert "candidate" in stamped and stamped["candidate"] is not None
-    assert "graph" in stamped and stamped["graph"] is not None
-    assert "accepted_batch" in stamped and len(stamped["accepted_batch"]) == 1
-    assert stamped.get("graph_unchanged") is not True
-    assert stamped.get("no_candidate_reason") != "authority_replay_mismatch"
-    assert stamped.get("terminal_state") != "authority_rejected"
-    assert "rejected_candidate" not in (stamped.get("audit") or {})
+    assert stamped["terminal_state"] == "authority_rejected"
+    assert "candidate" not in stamped
+    assert "graph" not in stamped
+    assert "accepted_batch" not in stamped
+    assert stamped["graph_unchanged"] is True
+    assert stamped["ok"] is False
+    assert stamped["audit"]["rejected_candidate"]["state"] == "rejected"
 
 
 def test_s1_candidate_hash_mismatch_with_batch_turns_landed_preserved():
@@ -86,8 +86,9 @@ def test_s1_candidate_hash_mismatch_with_batch_turns_landed_preserved():
         "graph_unchanged": False,
     }
     stamped = stamp_response_with_authority(response, receipt)
-    assert "candidate" in stamped
-    assert stamped.get("graph_unchanged") is not True
+    assert stamped["terminal_state"] == "authority_rejected"
+    assert "candidate" not in stamped
+    assert stamped["graph_unchanged"] is True
 
 
 def test_s1_schema_gap_still_fail_closed_even_with_gate_pass():
@@ -116,7 +117,7 @@ def test_s1_gate_false_not_preserved():
     assert stamped.get("graph_unchanged") is True
 
 
-def test_s1_fallback_accepted_batch_plus_candidate_without_explicit_gates():
+def test_s1_fallback_accepted_batch_plus_candidate_without_explicit_gates_fails_closed():
     receipt = _receipt_error("candidate_hash_mismatch")
     response = {
         "ok": True,
@@ -126,11 +127,12 @@ def test_s1_fallback_accepted_batch_plus_candidate_without_explicit_gates():
         "graph_unchanged": False,
     }
     stamped = stamp_response_with_authority(response, receipt)
-    assert "candidate" in stamped
-    assert stamped.get("graph_unchanged") is not True
+    assert stamped["terminal_state"] == "authority_rejected"
+    assert "candidate" not in stamped
+    assert stamped["graph_unchanged"] is True
 
 
-def test_s1_debug_gates_fallback_for_threaded_r9():
+def test_s1_debug_gates_cannot_override_receipt_rejection():
     receipt = _receipt_error("candidate_hash_mismatch")
     response = {
         "ok": True,
@@ -142,4 +144,6 @@ def test_s1_debug_gates_fallback_for_threaded_r9():
         "graph_unchanged": False,
     }
     stamped = stamp_response_with_authority(response, receipt)
-    assert "candidate" in stamped
+    assert stamped["terminal_state"] == "authority_rejected"
+    assert "candidate" not in stamped
+    assert stamped["graph_unchanged"] is True

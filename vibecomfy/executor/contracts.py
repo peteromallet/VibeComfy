@@ -647,6 +647,7 @@ _NO_CANDIDATE_REASONS = frozenset({
     "unrepresentable_delta",
     "unrepresentable_link_order",
     "unknown_route",
+    "authority_replay_mismatch",
 })
 
 _TASK_DESCRIPTIONS: dict[str, str] = {
@@ -2588,8 +2589,68 @@ class AgentTurnResult:
             warnings.append(result.failure_message)
 
         candidate: dict[str, Any] | None = None
-        if route in _APPLY_ELIGIBLE_ROUTES and result.graph is not None:
-            candidate = {"graph": result.graph}
+        durable = result.report.implementation.durable_response if (
+            result.report.implementation is not None
+        ) else None
+        terminal_state = (
+            durable.get("terminal_state")
+            if isinstance(durable, Mapping)
+            else None
+        )
+        if terminal_state is None and isinstance(durable, Mapping):
+            raw_receipt = durable.get("authority_receipt")
+            raw_replay = raw_receipt.get("replay") if isinstance(raw_receipt, Mapping) else None
+            replay_ok = (
+                raw_replay.get("replay_ok")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("replay_ok")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            candidate_matches = (
+                raw_replay.get("candidate_matches")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("candidate_matches")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            if replay_ok is False or candidate_matches is False:
+                terminal_state = "authority_rejected"
+        # The durable terminal owns candidate eligibility.  A retained
+        # request/original graph on a rejected threaded turn is context, never
+        # a public candidate; an applied durable graph remains publishable even
+        # when the driver did not copy it into ``ExecutorResult.graph``.
+        candidate_graph = result.graph
+        if terminal_state == "applied" and isinstance(durable, Mapping):
+            raw_graph = durable.get("graph")
+            if isinstance(raw_graph, Mapping):
+                candidate_graph = _thaw_jsonish(raw_graph)
+        receipt = durable.get("authority_receipt") if isinstance(durable, Mapping) else None
+        replay_receipt = receipt.get("replay") if isinstance(receipt, Mapping) else None
+        replay_ok = receipt.get("replay_ok") if isinstance(receipt, Mapping) else None
+        candidate_matches = receipt.get("candidate_matches") if isinstance(receipt, Mapping) else None
+        if isinstance(replay_receipt, Mapping):
+            replay_ok = replay_receipt.get("replay_ok")
+            candidate_matches = replay_receipt.get("candidate_matches")
+        receipt_ok = (
+            isinstance(receipt, Mapping)
+            and replay_ok is True
+            and candidate_matches is True
+        )
+        if (
+            route in _APPLY_ELIGIBLE_ROUTES
+            and candidate_graph is not None
+            and terminal_state not in {
+                "authority_rejected",
+                "infra_failure",
+                "clarify",
+                "no_candidate",
+                "no_op",
+                "undetermined",
+            }
+            and (terminal_state != "applied" or receipt_ok)
+        ):
+            candidate = {"graph": candidate_graph}
             # Attach durable metadata (SD2: applyable == durable).
             impl = result.report.implementation
             if impl is not None:
@@ -2626,6 +2687,33 @@ def _derive_no_candidate_reason(
     result: "ExecutorResult",
     implementation: Mapping[str, Any],
 ) -> str | None:
+    durable = result.report.implementation.durable_response if (
+        result.report.implementation is not None
+    ) else None
+    terminal_state = durable.get("terminal_state") if isinstance(durable, Mapping) else None
+    if terminal_state is None and isinstance(durable, Mapping):
+        receipt = durable.get("authority_receipt")
+        replay = receipt.get("replay") if isinstance(receipt, Mapping) else None
+        replay_ok = replay.get("replay_ok") if isinstance(replay, Mapping) else receipt.get("replay_ok") if isinstance(receipt, Mapping) else None
+        candidate_matches = replay.get("candidate_matches") if isinstance(replay, Mapping) else receipt.get("candidate_matches") if isinstance(receipt, Mapping) else None
+        if replay_ok is False or candidate_matches is False:
+            terminal_state = "authority_rejected"
+    if terminal_state in {
+        "authority_rejected",
+        "infra_failure",
+        "clarify",
+        "no_candidate",
+        "no_op",
+        "undetermined",
+    }:
+        return {
+            "authority_rejected": "authority_replay_mismatch",
+            "infra_failure": "implementation_failed",
+            "clarify": "route_not_applyable",
+            "no_candidate": "no_changes",
+            "no_op": "no_changes",
+            "undetermined": "implementation_failed",
+        }[terminal_state]
     if route not in _APPLY_ELIGIBLE_ROUTES:
         return "route_not_applyable"
     if result.graph is not None:
@@ -2669,6 +2757,13 @@ _DURABLE_ENVELOPE_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "gates",
     "debug",
     "contract_version",
+    # Canonical terminal publication fields.  These are durable authority
+    # facts, not synthetic turn metadata, and must survive the public overlay.
+    "terminal_state",
+    "terminal_reason",
+    "evidence_refs",
+    "accepted_delta_ids",
+    "authority_receipt",
 )
 
 
@@ -2720,8 +2815,134 @@ class ExecutorResult:
                 value = dr.get(key)
                 if value is not None:
                     payload[key] = _thaw_jsonish(value)
-        payload.update(self.turn.to_dict())
-        if self.graph is not None:
+        turn_payload = self.turn.to_dict()
+        payload.update(turn_payload)
+
+        # A durable terminal is the sole authority for candidate publication.
+        # In particular, threaded mode may retain the original request graph
+        # internally for reply grounding; that graph is never a candidate.
+        impl_payload = impl if isinstance(impl, ImplementationResult) else None
+        durable = impl_payload.durable_response if impl_payload is not None else None
+        terminal_state = (
+            durable.get("terminal_state")
+            if isinstance(durable, Mapping)
+            else None
+        )
+        if terminal_state is None and isinstance(durable, Mapping):
+            raw_receipt = durable.get("authority_receipt")
+            raw_replay = raw_receipt.get("replay") if isinstance(raw_receipt, Mapping) else None
+            replay_ok = (
+                raw_replay.get("replay_ok")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("replay_ok")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            candidate_matches = (
+                raw_replay.get("candidate_matches")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("candidate_matches")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            if replay_ok is False or candidate_matches is False:
+                terminal_state = "authority_rejected"
+                payload["terminal_state"] = terminal_state
+        if terminal_state in {
+            "authority_rejected",
+            "infra_failure",
+            "clarify",
+            "no_candidate",
+            "no_op",
+            "undetermined",
+        }:
+            # Non-applied products are audit-only.  Omit the carrier rather
+            # than serializing JSON null/empty values that contradict the
+            # typed terminal and confuse downstream assessors.
+            for key in (
+                "candidate",
+                "candidate_graph",
+                "candidate_transaction",
+                "graph",
+                "accepted_batch",
+                "candidate_hash",
+                "candidate_graph_hash",
+                "candidate_structural_graph_hash",
+            ):
+                payload.pop(key, None)
+            payload["apply_eligible"] = False
+            payload["graph_unchanged"] = True
+            outcome_payload = payload.get("outcome")
+            if isinstance(outcome_payload, Mapping) and outcome_payload.get("kind") == "error":
+                payload["ok"] = False
+            if (
+                terminal_state in {"no_candidate", "no_op"}
+                and isinstance(outcome_payload, Mapping)
+                and outcome_payload.get("kind") in {"candidate", "candidate_transaction", "edit"}
+            ):
+                normalized_outcome = dict(outcome_payload)
+                normalized_outcome["kind"] = "noop"
+                normalized_outcome["reason"] = "no_candidate"
+                normalized_outcome["graph_unchanged"] = True
+                payload["outcome"] = normalized_outcome
+            report_payload = payload.get("report")
+            if isinstance(report_payload, Mapping):
+                executor_payload = report_payload.get("executor")
+                if isinstance(executor_payload, dict):
+                    implementation_payload = executor_payload.get("implementation")
+                    if isinstance(implementation_payload, dict):
+                        implementation_payload.pop("graph", None)
+            evidence_payload = payload.get("evidence")
+            if isinstance(evidence_payload, dict):
+                evidence_implementation = evidence_payload.get("implementation")
+                if isinstance(evidence_implementation, dict):
+                    evidence_implementation.pop("graph", None)
+        elif terminal_state == "applied":
+            # Applied is the only terminal that may expose a candidate.  It
+            # needs the final graph and a matching receipt; otherwise fail
+            # closed as undetermined rather than manufacturing a candidate.
+            receipt = durable.get("authority_receipt") if isinstance(durable, Mapping) else None
+            replay_receipt = receipt.get("replay") if isinstance(receipt, Mapping) else None
+            replay_ok = receipt.get("replay_ok") if isinstance(receipt, Mapping) else None
+            candidate_matches = receipt.get("candidate_matches") if isinstance(receipt, Mapping) else None
+            if isinstance(replay_receipt, Mapping):
+                replay_ok = replay_receipt.get("replay_ok")
+                candidate_matches = replay_receipt.get("candidate_matches")
+            receipt_ok = (
+                isinstance(receipt, Mapping)
+                and replay_ok is True
+                and candidate_matches is True
+            )
+            candidate = payload.get("candidate")
+            accepted_batch = durable.get("accepted_batch") if isinstance(durable, Mapping) else None
+            verification_kind = (
+                replay_receipt.get("verification_kind")
+                if isinstance(replay_receipt, Mapping)
+                else receipt.get("verification_kind")
+                if isinstance(receipt, Mapping)
+                else None
+            )
+            op_count = (
+                replay_receipt.get("op_count")
+                if isinstance(replay_receipt, Mapping)
+                else receipt.get("op_count")
+                if isinstance(receipt, Mapping)
+                else None
+            )
+            delta_coherent = bool(accepted_batch) or op_count == 0 or verification_kind == "layout_structural_noop"
+            if not receipt_ok or not isinstance(candidate, Mapping) or not candidate.get("graph") or not delta_coherent:
+                payload.pop("candidate", None)
+                payload.pop("graph", None)
+                payload["terminal_state"] = "undetermined"
+                payload["terminal_reason"] = "incoherent_applied_terminal"
+                payload["apply_eligible"] = False
+                payload["graph_unchanged"] = True
+        elif self.graph is not None:
+            # Legacy/non-durable success paths retain their established graph
+            # projection. Durable terminal paths above are canonicalized.
+            payload["graph"] = self.graph
+
+        if terminal_state is None and self.graph is not None:
             payload["graph"] = self.graph
         if self.failure_kind is not None:
             payload["failure_kind"] = self.failure_kind

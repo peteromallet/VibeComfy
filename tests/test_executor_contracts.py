@@ -996,6 +996,102 @@ class TestAgentTurnResult:
 
 
 class TestExecutorResult:
+    def test_durable_rejected_terminal_is_atomic_and_audit_only(self) -> None:
+        original = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+        durable = {
+            "terminal_state": "authority_rejected",
+            "terminal_reason": "authority_replay_mismatch",
+            "authority_receipt": {
+                "replay_ok": False,
+                "candidate_matches": False,
+                "candidate_hash": "rejected-hash",
+            },
+            "candidate_graph_hash": "rejected-hash",
+            "candidate_structural_graph_hash": "rejected-structural-hash",
+            "candidate": {"graph": original},
+            "graph": original,
+            "accepted_batch": [{"op": "set_node_field"}],
+            "outcome": {"kind": "error", "failure_kind": "ValidationError"},
+            "apply_eligible": False,
+            "graph_unchanged": True,
+        }
+        result = ExecutorResult.success(
+            report=Report(
+                plan=ClassifyDecision(route="revise"),
+                implementation=ImplementationResult(
+                    graph=original,
+                    durable_response=durable,
+                ),
+            ),
+            # Threaded grounding may retain this internally; it must not leak.
+            graph=original,
+            reply="The edit landed.",
+        )
+
+        payload = result.to_dict()
+
+        assert payload["ok"] is False
+        assert payload["terminal_state"] == "authority_rejected"
+        assert payload["authority_receipt"]["replay_ok"] is False
+        assert payload["graph_unchanged"] is True
+        assert payload["apply_eligible"] is False
+        assert "candidate" not in payload
+        assert "graph" not in payload
+        assert "accepted_batch" not in payload
+        assert "candidate_graph_hash" not in payload
+        assert "graph" not in payload["evidence"]["implementation"]
+
+    def test_durable_applied_terminal_requires_matching_receipt(self) -> None:
+        graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+        durable = {
+            "terminal_state": "applied",
+            "authority_receipt": {"replay_ok": True, "candidate_matches": True},
+            "graph": graph,
+            "accepted_batch": [{"op": "set_node_field"}],
+            "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+        }
+        result = ExecutorResult.success(
+            report=Report(
+                plan=ClassifyDecision(route="revise"),
+                implementation=ImplementationResult(durable_response=durable),
+            ),
+            reply="The edit landed.",
+        )
+
+        payload = result.to_dict()
+
+        assert payload["terminal_state"] == "applied"
+        assert payload["candidate"] == {"graph": graph}
+        assert payload["accepted_batch"] == [{"op": "set_node_field"}]
+        assert payload["authority_receipt"]["candidate_matches"] is True
+        assert payload["apply_eligible"] is True
+
+    def test_applied_terminal_without_receipt_fails_closed(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        result = ExecutorResult.success(
+            report=Report(
+                plan=ClassifyDecision(route="revise"),
+                implementation=ImplementationResult(
+                    graph=graph,
+                    durable_response={
+                        "terminal_state": "applied",
+                        "graph": graph,
+                        "accepted_batch": [{"op": "set_node_field"}],
+                    },
+                ),
+            ),
+            graph=graph,
+            reply="The edit landed.",
+        )
+
+        payload = result.to_dict()
+
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["apply_eligible"] is False
+        assert "candidate" not in payload
+        assert "graph" not in payload
+
     def test_default_success(self) -> None:
         r = ExecutorResult()
         assert r.ok is True

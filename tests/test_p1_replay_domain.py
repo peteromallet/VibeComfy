@@ -307,7 +307,10 @@ def test_pure_clarify_with_empty_candidate_object_survives_verbatim() -> None:
     assert stamped["outcome"].get("kind") == "clarify", stamped["outcome"]
     assert stamped.get("no_candidate_reason") != "authority_replay_mismatch"
     assert stamped.get("message") == response["message"]
-    assert stamped.get("apply_eligible") is not False
+    # Empty candidate-shaped carriers are stripped from the canonical
+    # non-applied envelope and therefore cannot remain apply-eligible.
+    assert stamped.get("apply_eligible") is False
+    assert "candidate" not in stamped
 
     # Fail-closed direction preserved: a REAL candidate hidden under a clarify
     # label is still rejected.

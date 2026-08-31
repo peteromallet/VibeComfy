@@ -1502,6 +1502,28 @@ def stamp_response_with_authority(
     }
 
     replay_error = str(receipt.replay.error or "")
+    from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
+    from vibecomfy.porting.edit.checkpoint import (
+        TERMINAL_STATE_AUTHORITY_REJECTED,
+        TERMINAL_STATE_CLARIFY,
+        TERMINAL_STATE_NO_CANDIDATE,
+        TERMINAL_STATE_NO_OP,
+    )
+
+    def _strip_public_product_carriers() -> None:
+        """Keep rejected/absent products in audit only, never public fields."""
+        for key in (
+            "candidate",
+            "graph",
+            "candidate_graph",
+            "candidate_transaction",
+            "accepted_batch",
+            "candidate_hash",
+            "candidate_graph_hash",
+            "candidate_structural_graph_hash",
+        ):
+            stamped.pop(key, None)
+        stamped["graph_unchanged"] = True
     missing_touched = (
         tuple(
             item
@@ -1510,6 +1532,15 @@ def stamp_response_with_authority(
         )
         if replay_error.startswith("missing_touched_schema:")
         else ()
+    )
+    _has_candidate_authority = any(
+        _candidate_payload_has_content(stamped.get(key))
+        for key in (
+            "graph",
+            "candidate",
+            "candidate_graph",
+            "candidate_transaction",
+        )
     )
     if not receipt.is_applyable:
         # Preserve non-applyable terminal clarifications instead of rewriting
@@ -1578,29 +1609,28 @@ def stamp_response_with_authority(
             and isinstance(_report, Mapping)
             and "discovery_stop" in _report
         ):
-            return stamped
-        # S1 — Trust Judgment: landed Δ that passed Gate A/B must not be nulled as no_changes.
-        # When Gate A (replayed interpret + emit, pinned @ :883) and Gate B (compile
-        # isomorphism) passed locally — evidenced by change_details.landed_operation_count
-        # + gate_a/b or accepted_batch + candidate — authority replay divergence
-        # (candidate_hash_mismatch / emit drift from schema-less best-effort slots
-        #  at vibecomfy/ingest/normalize.py:1746 + emit_ready.py:1577) must persist
-        # candidate.ui → final.ui instead of authority_rejected.  Never null a
-        # Gate A/B pass as no_changes.  Scenarios: character-replacement,
-        # e8c20a, d93baf, wan-vace (staged/threaded).  Schema-gap and phantom
-        # landings remain fail-closed.
-        if replay_error != "phantom_landing_no_byte_change" and not _is_schema_gap_error(replay_error):
-            if _response_has_landed_gate_pass(response):
-                return stamped
-            _debug = response.get("debug") if isinstance(response.get("debug"), Mapping) else None
-            if isinstance(_debug, Mapping):
-                _gates = _debug.get("gates") if isinstance(_debug.get("gates"), Mapping) else None
-                if isinstance(_gates, Mapping) and any(
-                    _gates.get(k) is True
-                    for k in ("edit_scope_ok", "isomorphic_ok", "python_load_ok", "ui_fidelity_ok")
-                ):
-                    if _has_accepted_batch_content(response) and _has_candidate_authority:
-                        return stamped
+            _strip_public_product_carriers()
+            kind = _orig_outcome.get("kind") if isinstance(_orig_outcome, Mapping) else None
+            if kind == "clarify" or (
+                isinstance(_report, Mapping) and "discovery_stop" in _report
+            ):
+                terminal = TERMINAL_STATE_CLARIFY
+            elif kind == "noop":
+                terminal = TERMINAL_STATE_NO_OP
+            else:
+                terminal = TERMINAL_STATE_NO_CANDIDATE
+            return stamp_terminal_state(
+                stamped,
+                terminal_state=terminal,
+                eligibility={
+                    "applyable": False,
+                    "reason": terminal,
+                    "message": "No workflow candidate was applied; the graph is unchanged.",
+                },
+                reason=terminal,
+                evidence_refs=("authority_receipt",),
+                accepted_delta_ids=(),
+            )
         # Fail closed: force applyability fields to False. Row 4, not row 3:
         from vibecomfy.comfy_nodes.agent.contracts import stamp_terminal_state
         from vibecomfy.porting.edit.checkpoint import (
@@ -1662,6 +1692,7 @@ def stamp_response_with_authority(
             "question": message,
             "clarification": {"message": message},
         }
+        stamped["ok"] = False
         stamped["internal_outcome"] = {
             "kind": "failure",
             "failure_kind": authority_failure_kind,
@@ -1688,11 +1719,7 @@ def stamp_response_with_authority(
             audit["rejected_candidate"] = rejected_candidate
         stamped["audit"] = audit
         # Row 4: rejected product is audit-only. Public keys must not carry it.
-        stamped.pop("candidate", None)
-        stamped.pop("graph", None)
-        stamped.pop("accepted_batch", None)
-        stamped.pop("candidate_graph", None)
-        stamped.pop("candidate_transaction", None)
+        _strip_public_product_carriers()
 
         stamped = stamp_terminal_state(
             stamped,
@@ -1705,6 +1732,7 @@ def stamp_response_with_authority(
     elif (
         receipt.replay.replay_ok
         and receipt.replay.candidate_matches
+        and _has_candidate_authority
         # P1-R3 (apply eligibility gate): semantic applyability additionally
         # requires a non-empty accepted batch whenever a REAL delta was
         # declared.  A matched replay over a declared delta with nothing
@@ -1777,6 +1805,17 @@ def stamp_response_with_authority(
             existing = dict(existing) if isinstance(existing, Mapping) else {}
             existing.update(eligibility_payload)
             stamped[eligibility_field] = existing
+        prior_outcome = stamped.get("outcome")
+        if isinstance(prior_outcome, Mapping) and prior_outcome.get("kind") in {
+            "candidate",
+            "candidate_transaction",
+            "edit",
+        }:
+            normalized_outcome = dict(prior_outcome)
+            normalized_outcome["kind"] = "noop"
+            normalized_outcome["reason"] = "no_accepted_batch"
+            normalized_outcome["graph_unchanged"] = True
+            stamped["outcome"] = normalized_outcome
         stamped = stamp_terminal_state(
             stamped,
             terminal_state=TERMINAL_STATE_NO_CANDIDATE,
@@ -1784,7 +1823,36 @@ def stamp_response_with_authority(
             reason="no_accepted_batch",
             evidence_refs=("authority_receipt",),
         )
+        candidate = stamped.get("candidate")
+        if _candidate_payload_has_content(candidate):
+            audit = dict(stamped.get("audit") or {}) if isinstance(stamped.get("audit"), Mapping) else {}
+            audit["rejected_candidate"] = dict(candidate) if isinstance(candidate, Mapping) else candidate
+            stamped["audit"] = audit
+        _strip_public_product_carriers()
 
+    # A receipt that claims a clean replay but has no public candidate is a
+    # valid no-candidate terminal, never an implicit applied result.  Close
+    # this malformed/zero-op shape explicitly so every terminal carries the
+    # same typed state and carrier rules.
+    if "terminal_state" not in stamped and not _has_candidate_authority:
+        _strip_public_product_carriers()
+        terminal = (
+            TERMINAL_STATE_NO_OP
+            if receipt.replay.op_count == 0
+            else TERMINAL_STATE_NO_CANDIDATE
+        )
+        stamped = stamp_terminal_state(
+            stamped,
+            terminal_state=terminal,
+            eligibility={
+                "applyable": False,
+                "reason": terminal,
+                "message": "No workflow candidate was applied; the graph is unchanged.",
+            },
+            reason=terminal,
+            evidence_refs=("authority_receipt",),
+            accepted_delta_ids=(),
+        )
     return stamped
 
 
