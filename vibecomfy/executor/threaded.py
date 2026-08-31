@@ -29,11 +29,13 @@ from .contracts import (
 )
 from .refusal_evidence import (
     FrozenRefusalLedger,
+    authority_generation,
     class_absence_record,
     evidence_id_matches_record,
     feature_absence_record,
     evidence_record_matches_authority,
     frozen_ledger_matches_authority,
+    _issue_capture_owner,
     validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
@@ -117,6 +119,8 @@ class _FrozenSchemaAuthority:
         self.source = source
         self._observations: dict[str, Any] = {}
         self.content_digest = getattr(source, "content_digest", None)
+        self.source_identity = id(source)
+        self.source_generation = authority_generation(source)
 
     def get_schema(self, class_type: str) -> Any:
         if class_type not in self._observations:
@@ -516,11 +520,15 @@ def inspect_refusal_evidence_ledger(
                 available_members=sorted(names),
             )
             ledger[record["evidence_id"]] = record
+    _issue_capture_owner(provider)
     return FrozenRefusalLedger._from_capture(
         ledger,
         graph=request.graph,
         schema_snapshot=provider.snapshot(),
         schema_content_digest=provider.content_digest,
+        source_identity=provider.source_identity,
+        source_generation=provider.source_generation,
+        owner=provider,
     )
 
 
@@ -540,7 +548,13 @@ def synthesize_inspect_refusal_implementation(
     frozen_authority_valid = True
     if frozen_ledger is not None:
         frozen_authority_valid = isinstance(frozen_ledger, FrozenRefusalLedger) and frozen_ledger_matches_authority(
-            frozen_ledger, graph=request.graph
+            frozen_ledger,
+            graph=request.graph,
+            authority_source=(
+                schema_lookup
+                if schema_lookup is not None
+                else getattr(frozen_ledger, "authority_source", None)
+            ),
         )
         ledger = (
             {str(key): dict(value) for key, value in frozen_ledger.items()}

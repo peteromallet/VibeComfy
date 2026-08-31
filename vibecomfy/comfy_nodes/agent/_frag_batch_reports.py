@@ -566,6 +566,8 @@ def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...]
         return None
     if not isinstance(evidence, (list, tuple)) or not evidence:
         return None
+    if not classes and not features:
+        return None
     if kind == "requires_custom_nodes" and not classes:
         return None
     return (

@@ -34,6 +34,23 @@ def graph_identity(graph: Any) -> str:
     ).hexdigest()
 
 
+def authority_generation(source: Any) -> str | None:
+    """Return a provider-owned generation marker without schema lookups."""
+    content_digest = getattr(source, "content_digest", None)
+    if content_digest is not None:
+        return f"content_digest:{content_digest}"
+    schemas = getattr(source, "schemas", None)
+    if not callable(schemas):
+        return None
+    try:
+        encoded = json.dumps(
+            _jsonable(schemas()), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    except Exception:  # noqa: BLE001 - optional generation metadata
+        return None
+    return "schemas:" + hashlib.sha256(encoded).hexdigest()
+
+
 def _graph_classes(graph: Any) -> set[str]:
     classes: set[str] = set()
 
@@ -101,12 +118,16 @@ def _ledger_integrity(
     graph_digest: str,
     schema_snapshot: Mapping[str, Any],
     schema_content_digest: Any,
+    source_identity: int,
+    source_generation: str | None,
 ) -> str:
     payload = {
         "records": records,
         "graph_identity": graph_digest,
         "schema_snapshot": schema_snapshot,
         "schema_content_digest": schema_content_digest,
+        "source_identity": source_identity,
+        "source_generation": source_generation,
     }
     return hashlib.sha256(
         json.dumps(_jsonable(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
@@ -114,6 +135,12 @@ def _ledger_integrity(
 
 
 _LEDGER_TOKEN = object()
+_CAPTURE_OWNERS: set[int] = set()
+
+
+def _issue_capture_owner(owner: Any) -> None:
+    """Register one collector-owned capability for exactly one ledger mint."""
+    _CAPTURE_OWNERS.add(id(owner))
 
 
 class FrozenRefusalLedger(dict[str, dict[str, Any]]):
@@ -126,19 +153,28 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
         graph_digest: str,
         schema_snapshot: Mapping[str, Any],
         schema_content_digest: Any,
+        source_identity: int,
+        source_generation: str | None,
+        owner: Any,
         _token: object | None = None,
     ) -> None:
-        if _token is not _LEDGER_TOKEN:
+        if _token is not _LEDGER_TOKEN or id(owner) not in _CAPTURE_OWNERS:
             raise TypeError("FrozenRefusalLedger must come from authority collection")
+        _CAPTURE_OWNERS.remove(id(owner))
         super().__init__((str(key), dict(value)) for key, value in records.items())
         self.graph_digest = graph_digest
         self.schema_content_digest = schema_content_digest
+        self.source_identity = source_identity
+        self.source_generation = source_generation
+        self.authority_source = getattr(owner, "source", None)
         self.schema_snapshot = MappingProxyType(dict(schema_snapshot))
         self._integrity = _ledger_integrity(
             self,
             graph_digest=graph_digest,
             schema_snapshot=self.schema_snapshot,
             schema_content_digest=schema_content_digest,
+            source_identity=source_identity,
+            source_generation=source_generation,
         )
 
     @classmethod
@@ -149,12 +185,18 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
         graph: Any,
         schema_snapshot: Mapping[str, Any],
         schema_content_digest: Any,
+        source_identity: int,
+        source_generation: str | None,
+        owner: Any,
     ) -> "FrozenRefusalLedger":
         return cls(
             records,
             graph_digest=graph_identity(graph),
             schema_snapshot=schema_snapshot,
             schema_content_digest=schema_content_digest,
+            source_identity=source_identity,
+            source_generation=source_generation,
+            owner=owner,
             _token=_LEDGER_TOKEN,
         )
 
@@ -174,6 +216,8 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
             graph_digest=self.graph_digest,
             schema_snapshot=self.schema_snapshot,
             schema_content_digest=self.schema_content_digest,
+            source_identity=self.source_identity,
+            source_generation=self.source_generation,
         )
 
 
@@ -181,12 +225,21 @@ def frozen_ledger_matches_authority(
     ledger: FrozenRefusalLedger,
     *,
     graph: Any,
+    authority_source: Any = None,
 ) -> bool:
     """Validate a ledger against its captured graph/schema witness only."""
     if not isinstance(ledger, FrozenRefusalLedger):
         return False
     if not ledger.integrity_valid() or ledger.graph_digest != graph_identity(graph):
         return False
+    if authority_source is not None:
+        if id(authority_source) != ledger.source_identity:
+            return False
+        if (
+            ledger.source_generation is not None
+            and authority_generation(authority_source) != ledger.source_generation
+        ):
+            return False
     classes = _graph_classes(graph)
     for key, record in ledger.items():
         if not isinstance(key, str) or key != record.get("evidence_id"):
@@ -369,6 +422,7 @@ def evidence_record_matches_authority(
 
 __all__ = [
     "FrozenRefusalLedger",
+    "authority_generation",
     "authority_digest",
     "authority_digest_for_snapshot",
     "class_absence_record",

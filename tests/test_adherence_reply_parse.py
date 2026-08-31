@@ -88,6 +88,7 @@ def test_typed_refusal_payload_preserves_kind_and_classes() -> None:
     raw = json.dumps({
         "kind": "requires_custom_nodes",
         "missing_classes": ["HotshotXLLoader", "AnimateDiffLoader"],
+        "evidence": ["refusal:v1:000000000000000000000000"],
         "reply": "HotshotXL is not in the current authoring surface.",
     })
     payload = parse_reply_payload(raw)
@@ -102,6 +103,7 @@ def test_typed_refusal_missing_runtime_classes_alias() -> None:
     raw = json.dumps({
         "kind": "requires_custom_nodes",
         "missing_runtime_classes": ["MTCNN"],
+        "evidence": ["refusal:v1:000000000000000000000000"],
         "reply": "MTCNN is absent from the runtime class list.",
     })
     payload = parse_reply_payload(raw)
@@ -114,6 +116,7 @@ def test_typed_refusal_without_prose_synthesizes_emit_able_text() -> None:
     raw = json.dumps({
         "kind": "requires_custom_nodes",
         "missing_classes": ["RetinaFace"],
+        "evidence": ["refusal:v1:000000000000000000000000"],
     })
     payload = parse_reply_payload(raw)
     assert payload.is_typed_refusal is True
@@ -126,6 +129,8 @@ def test_typed_clarify_refusal_uses_question() -> None:
     raw = json.dumps({
         "kind": "clarify",
         "question": "Which sampler should keep the existing steps?",
+        "missing_classes": ["KSampler"],
+        "evidence": ["refusal:v1:000000000000000000000000"],
     })
     payload = parse_reply_payload(raw)
     assert payload.kind == "clarify"

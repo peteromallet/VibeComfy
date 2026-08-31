@@ -117,6 +117,8 @@ def test_splitter_rejects_unknown_duplicate_and_nonterminal_refusal() -> None:
         'refuse(kind="clarify", message="x", feature_absences=[{"evidence_id":"id","feature":"x"}], evidence=["id"])',
         'refuse(kind="clarify", message="x", evidence=["id", "id"])',
         'refuse(kind="requires_custom_nodes", message="x", missing_classes=["MTCNN", "MTCNN"], evidence=["id"])',
+        'refuse(kind="clarify", message="x", evidence=[])',
+        'refuse(kind="clarify", message="x", evidence=["id"])',
         'refuse(kind="clarify", message="x", evidence=["id"])\npython()',
     )
     for source in cases:
@@ -267,6 +269,9 @@ def test_threaded_typed_classes_reject_lossy_non_string_items() -> None:
         '{"kind":"clarify","evidence":["id"],"reply":"x","extra":1}',
         '{"kind":"clarify","feature_absences":[{"evidence_id":"id","feature":"x"}],"reply":"x"}',
         '{"kind":"clarify","evidence":[7],"reply":"x"}',
+        '{"kind":"clarify","evidence":[],"missing_classes":["MTCNN"],"reply":"x"}',
+        '{"kind":"clarify","evidence":["id"],"reply":"x"}',
+        '{"kind":"requires_custom_nodes","missing_classes":["MTCNN"],"evidence":[],"reply":"x"}',
     ):
         with pytest.raises(ValueError):
             parse_reply_payload(raw)
@@ -286,6 +291,19 @@ def test_public_frozen_ledger_constructor_cannot_authenticate_fake_snapshot() ->
             graph={"nodes": {"1": {"class_type": "MTCNN"}}},
             schema_snapshot={"MTCNN": None},
             schema_content_digest="fake",
+        )
+
+
+def test_direct_capture_helper_requires_owner_capability() -> None:
+    with pytest.raises(TypeError, match="authority collection"):
+        FrozenRefusalLedger._from_capture(
+            {},
+            graph={"nodes": {}},
+            schema_snapshot={},
+            schema_content_digest=None,
+            source_identity=0,
+            source_generation=None,
+            owner=object(),
         )
 
 
@@ -458,6 +476,29 @@ def test_threaded_forged_or_stale_frozen_ledger_fails_closed() -> None:
     )
     assert stale_result is not None
     assert stale_result.durable_response["outcome"]["kind"] == "noop"
+
+
+def test_threaded_provider_generation_change_invalidates_frozen_ledger() -> None:
+    provider = _route_test_provider()
+    request = ExecutorRequest(
+        query="Add MTCNN face detection",
+        graph={"nodes": {}},
+        expected_no_candidate_absent_classes=("MTCNN",),
+    )
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=provider)
+    evidence_id = next(iter(ledger))
+    provider._schemas["MTCNN"] = provider.get_schema("SaveImage")
+    result = synthesize_inspect_refusal_implementation(
+        request,
+        reply=(
+            '{"kind":"requires_custom_nodes","missing_classes":["MTCNN"],'
+            '"evidence":["%s"],"reply":"Install the detector pack."}'
+        ) % evidence_id,
+        schema_lookup=provider,
+        frozen_ledger=ledger,
+    )
+    assert result is not None
+    assert result.durable_response["outcome"]["kind"] == "noop"
 
 
 def test_threaded_implicit_class_set_cannot_authorize_partial_search() -> None:

@@ -1215,8 +1215,9 @@ def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
     ):
         return None
     raw_evidence = parsed.get("evidence")
-    if raw_evidence is not None and (
+    if (
         not isinstance(raw_evidence, (list, tuple))
+        or not raw_evidence
         or not all(isinstance(item, str) and item.strip() for item in raw_evidence)
         or len(set(raw_evidence)) != len(raw_evidence)
     ):
@@ -1236,6 +1237,8 @@ def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
     classes = _missing_classes_from_mapping(parsed)
     feature_absences = _typed_refusal_features_from_mapping(parsed)
     evidence = _typed_refusal_evidence_from_mapping(parsed)
+    if not classes and not feature_absences:
+        return None
     if text is None:
         if kind == "requires_custom_nodes" and classes:
             text = (
