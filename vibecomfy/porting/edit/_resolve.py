@@ -497,13 +497,13 @@ class _ResolveMixin:
         env = item.env
         if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
             call_name = _call_name(statement.value)
-            if call_name == "done":
+            if call_name in {"done", "refuse"}:
                 return StatementResult(
                     statement_index=item.statement_index,
                     source=source,
                     ok=True,
                     landed=False,
-                    op_kind="done",
+                    op_kind=call_name,
                 )
             return self._resolve_query_statement(
                 statement_index=item.statement_index,

@@ -361,13 +361,25 @@ def synthesize_inspect_refusal_implementation(
     reply: str,
     schema_lookup: Callable[[str], Any] | None = None,
 ) -> ImplementationResult | None:
-    """Attach ``authoring_blocker.missing_runtime_classes`` on inspect.
+    """Validate a model-selected typed refusal against inspect evidence.
 
-    ``promote_requires_custom_nodes_outcome`` reads missing classes only
-    from that blocker. Empty proof returns None (fail-closed).
+    The schema lookup is deterministic evidence collection only.  A plain
+    inspect reply, or a generic/no-op-shaped reply, is never promoted.  The
+    model must emit the typed JSON refusal and cite the complete absence set.
     """
     missing = inspect_named_runtime_absences(request, schema_lookup=schema_lookup)
     if not missing:
+        return None
+    from vibecomfy.executor.prompts import parse_reply_payload
+
+    try:
+        payload = parse_reply_payload(reply)
+    except (TypeError, ValueError):
+        return None
+    if not payload.is_typed_refusal or not payload.evidence:
+        return None
+    claimed = tuple(payload.missing_classes)
+    if set(claimed) != set(missing) or len(claimed) != len(missing):
         return None
     from vibecomfy.comfy_nodes.agent.contracts import (
         missing_runtime_classes_from_report,
@@ -381,10 +393,13 @@ def synthesize_inspect_refusal_implementation(
         },
         "graph_unchanged": True,
     }
-    outcome = promote_requires_custom_nodes_outcome(
-        {"kind": "noop"},
-        missing_classes=missing_runtime_classes_from_report(blocker_report),
-    )
+    outcome = {"kind": payload.kind, "message": payload.text}
+    if payload.kind == "requires_custom_nodes":
+        outcome = promote_requires_custom_nodes_outcome(
+            outcome,
+            missing_classes=missing_runtime_classes_from_report(blocker_report),
+        )
+    outcome["evidence"] = list(payload.evidence)
     return ImplementationResult(
         message=reply,
         durable_response={

@@ -719,7 +719,7 @@ class _InterpretRunner:
             diagnostics.extend(outcome.diagnostics)
             diagnostics.extend(self._pending_apply_diagnostics)
             self._pending_apply_diagnostics.clear()
-            is_edit = outcome.op_kind not in {None, "query", "done", "statement"}
+            is_edit = outcome.op_kind not in {None, "query", "done", "refuse", "statement"}
             if outcome.status == "applied" and is_edit:
                 saw_landed_edit = True
                 if outcome.op is not None:
@@ -749,7 +749,7 @@ class _InterpretRunner:
                 o
                 for o in outcomes
                 if o.status == "rejected"
-                and o.op_kind not in {None, "query", "done", "statement"}
+                and o.op_kind not in {None, "query", "done", "refuse", "statement"}
             ]
             only_missing_schema_on_wire = (
                 has_valid_add
@@ -797,7 +797,7 @@ class _InterpretRunner:
             )
             rolled: list[StatementOutcome] = []
             for outcome in outcomes:
-                if outcome.status == "applied" and outcome.op_kind not in {None, "query", "done"}:
+                if outcome.status == "applied" and outcome.op_kind not in {None, "query", "done", "refuse"}:
                     rolled.append(
                         StatementOutcome(
                             statement_index=outcome.statement_index,
@@ -820,7 +820,7 @@ class _InterpretRunner:
             )
         ok = not any(
             outcome.status == "rejected"
-            and outcome.op_kind not in {None, "query", "done"}
+            and outcome.op_kind not in {None, "query", "done", "refuse"}
             for outcome in outcomes
         ) and not any(diag.severity == "error" for diag in diagnostics)
         return InterpretationResult(
@@ -906,7 +906,7 @@ class _InterpretRunner:
                 source=item.source,
                 status="skipped",
                 reason="non_edit",
-                op_kind="done" if call_name == "done" else "query",
+                op_kind=call_name if call_name in {"done", "refuse"} else "query",
             )
         if isinstance(statement, ast.Delete):
             return self._delete(item)

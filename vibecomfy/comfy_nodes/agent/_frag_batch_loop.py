@@ -20,10 +20,10 @@ Reply in exactly this format:
 
 One short sentence for the user.
 ```batch
-# one or more edit statements, or clarify("question"), or done()
+# one or more edit statements, or clarify("question"), refuse(...), or done()
 ```
 
-If you cannot safely edit the graph, still use the same format and put your question or blocker inside `clarify("...")` in the batch block.
+If you cannot safely edit the graph, use `refuse(kind=..., missing_classes=..., feature_absences=..., evidence=..., message=...)` only when the prior report contains the exact structured absence evidence; otherwise use `clarify("...")` for a specific question.
 The entire reply must contain exactly one opening ```batch fence and exactly one closing ``` fence. Never split statements across multiple batch blocks.
 Do not emit tool-call XML, tags such as <tool_call>, JSON tool envelopes, or markdown other than the single batch block."""
 

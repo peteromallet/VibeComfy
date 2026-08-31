@@ -472,8 +472,53 @@ def _validate_call(
             return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
         return _validate_subgraph_interface_call(node, env=env)
     if name in CONTROL_CALL_NAMES:
-        if node.args or node.keywords:
+        if name == "done" and (node.args or node.keywords):
             return [_unsafe(node, "done_arguments_not_allowed", "done() does not accept arguments.")]
+        if name == "refuse":
+            if node.args:
+                return [_unsafe(node, "refusal_arguments_not_allowed", "refuse() requires keyword arguments.")]
+            allowed = {"kind", "missing_classes", "feature_absences", "evidence", "message", "question"}
+            unknown = [kw.arg for kw in node.keywords if kw.arg not in allowed]
+            kind_kw = next((kw for kw in node.keywords if kw.arg == "kind"), None)
+            try:
+                kind = ast.literal_eval(kind_kw.value) if kind_kw is not None else None
+            except (ValueError, TypeError, SyntaxError):
+                kind = None
+            message_kw = next((kw for kw in node.keywords if kw.arg in {"message", "question"}), None)
+            try:
+                message = ast.literal_eval(message_kw.value) if message_kw is not None else None
+            except (ValueError, TypeError, SyntaxError):
+                message = None
+            invalid_fields: list[str] = []
+            if kind not in {"requires_custom_nodes", "clarify"}:
+                invalid_fields.append("kind")
+            if not isinstance(message, str) or not message.strip():
+                invalid_fields.append("message")
+            for field in ("missing_classes", "evidence"):
+                kw = next((item for item in node.keywords if item.arg == field), None)
+                if kw is None:
+                    continue
+                try:
+                    value = ast.literal_eval(kw.value)
+                except (ValueError, TypeError, SyntaxError):
+                    value = None
+                if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in value):
+                    invalid_fields.append(field)
+            feature_kw = next((item for item in node.keywords if item.arg == "feature_absences"), None)
+            if feature_kw is not None:
+                try:
+                    features = ast.literal_eval(feature_kw.value)
+                except (ValueError, TypeError, SyntaxError):
+                    features = None
+                if not isinstance(features, (list, tuple)) or not all(isinstance(item, dict) for item in features):
+                    invalid_fields.append("feature_absences")
+            if unknown or invalid_fields:
+                return [_unsafe(
+                    node,
+                    "invalid_refusal_action",
+                    "refuse() requires kind= and accepts only missing_classes, feature_absences, evidence, message, or question.",
+                    detail={"unknown": unknown, "invalid": invalid_fields},
+                )]
         return []
     if name == "clarify":
         return [

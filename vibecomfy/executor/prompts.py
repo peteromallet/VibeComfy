@@ -1109,6 +1109,8 @@ class ReplyPayload:
     text: str
     kind: str | None = None
     missing_classes: tuple[str, ...] = ()
+    feature_absences: tuple[dict[str, Any], ...] = ()
+    evidence: tuple[str, ...] = ()
 
     @property
     def is_typed_refusal(self) -> bool:
@@ -1144,6 +1146,22 @@ def _missing_classes_from_mapping(parsed: Mapping[str, Any]) -> tuple[str, ...]:
     return ()
 
 
+def _typed_refusal_features_from_mapping(parsed: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    raw = parsed.get("feature_absences")
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    return tuple(dict(item) for item in raw if isinstance(item, Mapping))
+
+
+def _typed_refusal_evidence_from_mapping(parsed: Mapping[str, Any]) -> tuple[str, ...]:
+    raw = parsed.get("evidence")
+    if isinstance(raw, str) and raw.strip():
+        return (raw.strip(),)
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return ()
+
+
 def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
     """Return a typed-refusal payload when *parsed* is an emit-able envelope."""
     kind = parsed.get("kind")
@@ -1165,6 +1183,8 @@ def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
                 text = value.strip()
                 break
     classes = _missing_classes_from_mapping(parsed)
+    feature_absences = _typed_refusal_features_from_mapping(parsed)
+    evidence = _typed_refusal_evidence_from_mapping(parsed)
     if text is None:
         if kind == "requires_custom_nodes" and classes:
             text = (
@@ -1173,7 +1193,13 @@ def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
             )
         else:
             return None
-    return ReplyPayload(text=text, kind=kind, missing_classes=classes)
+    return ReplyPayload(
+        text=text,
+        kind=kind,
+        missing_classes=classes,
+        feature_absences=feature_absences,
+        evidence=evidence,
+    )
 
 
 def parse_reply_payload(raw: str) -> ReplyPayload:

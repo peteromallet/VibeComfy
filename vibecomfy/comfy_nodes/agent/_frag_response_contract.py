@@ -727,6 +727,13 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
         )
 
     missing: list[str] = []
+    # A class already present in the retained graph is not absent merely
+    # because an exploratory search used a spelling/alias the index does not
+    # know.  This prevents a model-selected refusal from contradicting the
+    # attached workflow.
+    present_classes = {
+        class_type.casefold() for class_type in _state_graph_class_types(state)
+    }
     for turn in getattr(state, "batch_turns", ()) or ():
         if not isinstance(turn, Mapping):
             continue
@@ -739,6 +746,8 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
             for raw_class_type in detail.get("missing_classes") or ():
                 class_type = str(raw_class_type or "").strip()
                 if not class_type or class_type in missing:
+                    continue
+                if class_type.casefold() in present_classes:
                     continue
                 if _names_class(class_type):
                     missing.append(class_type)
@@ -799,6 +808,27 @@ def _record_named_schema_absence_blocker(
     """
     if has_candidate:
         return ()
+    # A typed refusal is terminal evidence, not a laundering path for an
+    # invalid edit.  Any rejected edit statement (including one rolled back
+    # by the transaction journal) keeps the hard diagnostic terminal.
+    for turn in tuple(getattr(state, "batch_turns", ()) or ()) + tuple(
+        getattr(state, "batch_aborted_turns", ()) or ()
+    ):
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            op_kind = str(statement.get("op_kind") or "")
+            if op_kind in {"", "query", "done", "clarify", "refuse"}:
+                continue
+            if statement.get("ok") is not True or statement.get("landed") is not True:
+                return ()
+    if any(
+        isinstance(turn, Mapping) and int(turn.get("landed_op_count", 0) or 0) > 0
+        for turn in getattr(state, "batch_turns", ()) or ()
+    ):
+        return ()
     missing = _batch_named_schema_absences(state)
     if not missing:
         return ()
@@ -812,6 +842,16 @@ def _record_named_schema_absence_blocker(
         {
             "reason": "named_class_absent_from_schema",
             "missing_runtime_classes": list(missing),
+            "absence_evidence": [
+                {
+                    "class_type": class_type,
+                    "graph_present": False,
+                    "schema_present": False,
+                    "evidence": "structured_schema_search",
+                }
+                for class_type in missing
+            ],
+            "evidence_refs": list(getattr(state, "batch_refusal_evidence", ()) or ()),
             "message": state.user_message,
         }
     )
@@ -824,7 +864,7 @@ def _record_named_schema_absence_blocker(
 
 def _state_graph_class_types(state: AgentEditState) -> set[str]:
     """Collect class types from the working graph, whatever shape it is."""
-    classes: set[str] = []
+    classes: set[str] = set()
 
     def walk(value: Any) -> None:
         if isinstance(value, Mapping):
@@ -899,7 +939,27 @@ def _record_structural_feature_absence_blocker(
     claim).  Any unverifiable claim records nothing (fail closed); a generic
     terminal label alone never triggers this path.
     """
-    del has_candidate  # kept for call-site symmetry with the named recorder
+    if has_candidate:
+        return ()
+    # Preserve the same anti-laundering invariant as named-class refusals.
+    for turn in tuple(getattr(state, "batch_turns", ()) or ()) + tuple(
+        getattr(state, "batch_aborted_turns", ()) or ()
+    ):
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            op_kind = str(statement.get("op_kind") or "")
+            if op_kind in {"", "query", "done", "clarify", "refuse"}:
+                continue
+            if statement.get("ok") is not True or statement.get("landed") is not True:
+                return ()
+    if any(
+        isinstance(turn, Mapping) and int(turn.get("landed_op_count", 0) or 0) > 0
+        for turn in getattr(state, "batch_turns", ()) or ()
+    ):
+        return ()
     if not getattr(state, "schema_provider", None):
         return ()
     declared_features = _batch_declared_feature_absences(state)
@@ -973,6 +1033,7 @@ def _record_structural_feature_absence_blocker(
         {
             "reason": "structural_feature_absent",
             "feature_absences": recorded,
+            "evidence_refs": list(getattr(state, "batch_refusal_evidence", ()) or ()),
             "message": state.user_message,
         }
     )
@@ -981,6 +1042,56 @@ def _record_structural_feature_absence_blocker(
     report["graph_unchanged"] = True
     state.report = report
     return tuple(recorded)
+
+
+def _typed_refusal_is_authorized(
+    state: AgentEditState,
+    *,
+    named_schema_absence: bool,
+    structural_feature_absence: bool,
+) -> bool:
+    """Validate the model-selected terminal against recorded evidence.
+
+    Collection and publication are intentionally separate: recorders may
+    retain deterministic evidence for a later turn, while this gate alone can
+    authorize a typed terminal.  It rejects missing evidence, incomplete or
+    invented class lists, and feature payloads that do not equal the verified
+    structural ledger.
+    """
+    if not getattr(state, "batch_refusal_kind", None):
+        return False
+    if not (named_schema_absence or structural_feature_absence):
+        return False
+    if not tuple(getattr(state, "batch_refusal_evidence", ()) or ()):
+        return False
+    if named_schema_absence:
+        report = state.report if isinstance(state.report, Mapping) else {}
+        blocker = report.get("authoring_blocker", {})
+        raw = blocker.get("missing_runtime_classes", ()) if isinstance(blocker, Mapping) else ()
+        observed = tuple(str(item) for item in raw if item)
+        claimed = tuple(getattr(state, "batch_refusal_missing_classes", ()) or ())
+        if not claimed or set(claimed) != set(observed) or len(claimed) != len(observed):
+            return False
+        request = getattr(state, "request_payload", None)
+        declared = request.get("expected_no_candidate_absent_classes") if isinstance(request, Mapping) else None
+        if isinstance(declared, (list, tuple)) and declared:
+            declared_set = {str(item).strip() for item in declared if str(item).strip()}
+            if declared_set != set(observed) or len(declared_set) != len(observed):
+                return False
+    if structural_feature_absence:
+        report = state.report if isinstance(state.report, Mapping) else {}
+        blocker = report.get("authoring_blocker", {})
+        recorded = blocker.get("feature_absences", ()) if isinstance(blocker, Mapping) else ()
+        claimed = tuple(getattr(state, "batch_refusal_feature_absences", ()) or ())
+        def key(value: Mapping[str, Any]) -> str:
+            return json.dumps(dict(value), sort_keys=True, separators=(",", ":"))
+        if not claimed or {
+            key(item) for item in claimed if isinstance(item, Mapping)
+        } != {
+            key(item) for item in recorded if isinstance(item, Mapping)
+        }:
+            return False
+    return True
 
 
 _SPECIFIC_CLARIFY_ACTION_RE = re.compile(
@@ -1688,9 +1799,30 @@ def _build_batch_repl_response(
     # external evidence is not a success: the edit cannot satisfy the request
     # with only the partial graph change. Weak registry/code-search leads are
     # not authoring capability and should not force a special product route.
+    # Absence evidence is collected independently so diagnostics remain
+    # available for the next turn.  It becomes a terminal refusal only when
+    # the model explicitly selected ``refuse(...)`` and cited the complete
+    # evidence ledger.  In particular, ``search(...); done()`` stays a plain
+    # no-op and can never be auto-promoted from the collector's report.
+    typed_refusal_terminal = _typed_refusal_is_authorized(
+        state,
+        named_schema_absence=named_schema_absence_terminal,
+        structural_feature_absence=structural_feature_absence_terminal,
+    )
+    if typed_refusal_terminal and structural_feature_absence_terminal:
+        blocker = state.report.get("authoring_blocker", {}) if isinstance(state.report, Mapping) else {}
+        recorded_features = blocker.get("feature_absences", ()) if isinstance(blocker, Mapping) else ()
+        claimed_features = tuple(getattr(state, "batch_refusal_feature_absences", ()) or ())
+        def _feature_key(value: Mapping[str, Any]) -> str:
+            return json.dumps(dict(value), sort_keys=True, separators=(",", ":"))
+        if not claimed_features or {
+            _feature_key(item) for item in claimed_features if isinstance(item, Mapping)
+        } != {
+            _feature_key(item) for item in recorded_features if isinstance(item, Mapping)
+        }:
+            typed_refusal_terminal = False
     unresolved_schema_terminal = (
-        named_schema_absence_terminal
-        or structural_feature_absence_terminal
+        typed_refusal_terminal
         or (
             state.batch_exit_mode in (_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY)
             and any(
@@ -1742,11 +1874,20 @@ def _build_batch_repl_response(
     # the named-class blocker — missing_runtime_classes_from_report reads it
     # exclusively from report.authoring_blocker.missing_runtime_classes, so
     # the public field can never become an independent assertion.
-    public_outcome = promote_requires_custom_nodes_outcome(
-        public_outcome,
-        missing_classes=missing_runtime_classes_from_report(state.report),
-        unresolved_schema_terminal=unresolved_schema_terminal,
-    )
+    if typed_refusal_terminal and state.batch_refusal_kind == "requires_custom_nodes":
+        public_outcome = promote_requires_custom_nodes_outcome(
+            public_outcome,
+            missing_classes=missing_runtime_classes_from_report(state.report),
+        )
+    elif typed_refusal_terminal and state.batch_refusal_kind == "clarify":
+        public_outcome = dict(public_outcome)
+        if named_schema_absence_terminal:
+            public_outcome["missing_classes"] = list(
+                missing_runtime_classes_from_report(state.report)
+            )
+        if structural_feature_absence_terminal:
+            blocker = state.report.get("authoring_blocker", {}) if isinstance(state.report, Mapping) else {}
+            public_outcome["feature_absences"] = list(blocker.get("feature_absences", ())) if isinstance(blocker, Mapping) else []
     change_details = _change_details_payload(state, context)
     _prepare_narrative_artifact_paths(state)
     try:
@@ -1790,11 +1931,20 @@ def _build_batch_repl_response(
         promote_requires_custom_nodes_outcome,
     )
 
-    public_outcome = promote_requires_custom_nodes_outcome(
-        public_outcome,
-        missing_classes=missing_runtime_classes_from_report(state.report),
-        unresolved_schema_terminal=unresolved_schema_terminal,
-    )
+    if typed_refusal_terminal and state.batch_refusal_kind == "requires_custom_nodes":
+        public_outcome = promote_requires_custom_nodes_outcome(
+            public_outcome,
+            missing_classes=missing_runtime_classes_from_report(state.report),
+        )
+    elif typed_refusal_terminal and state.batch_refusal_kind == "clarify":
+        public_outcome = dict(public_outcome)
+        if named_schema_absence_terminal:
+            public_outcome["missing_classes"] = list(
+                missing_runtime_classes_from_report(state.report)
+            )
+        if structural_feature_absence_terminal:
+            blocker = state.report.get("authoring_blocker", {}) if isinstance(state.report, Mapping) else {}
+            public_outcome["feature_absences"] = list(blocker.get("feature_absences", ())) if isinstance(blocker, Mapping) else []
     gate_snapshot = context.gate_snapshot()
     response = success_envelope(
         context,

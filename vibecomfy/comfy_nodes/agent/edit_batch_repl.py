@@ -1454,6 +1454,15 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         clarify_split = deps.split_terminal_clarify(turn_result.batch)
         clarify_message = clarify_split.message
         editable_batch = clarify_split.batch if clarify_message is not None else turn_result.batch
+        refusal_action = getattr(clarify_split, "action", None) == "refuse"
+        if refusal_action:
+            # The action is model-selected input, not a conclusion.  Keep it
+            # on durable state so the response contract can validate the
+            # exact classes/features against the authority ledger.
+            state.batch_refusal_kind = clarify_split.kind
+            state.batch_refusal_missing_classes = tuple(clarify_split.missing_classes)
+            state.batch_refusal_feature_absences = tuple(clarify_split.feature_absences)
+            state.batch_refusal_evidence = tuple(clarify_split.evidence)
         response_log.append(
             {
                 "turn_number": turn_number,
@@ -1490,6 +1499,13 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 "graph_unchanged": True,
                 "queue_blockers": [],
             }
+            if refusal_action:
+                state.report["typed_refusal_action"] = {
+                    "kind": state.batch_refusal_kind,
+                    "missing_classes": list(state.batch_refusal_missing_classes),
+                    "feature_absences": list(state.batch_refusal_feature_absences),
+                    "evidence": list(state.batch_refusal_evidence),
+                }
             turn_record = {
                 "turn_number": turn_number,
                 "batch": turn_result.batch,
@@ -1810,6 +1826,13 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             if clarify_message is not None:
                 turn_record["clarification_required"] = True
                 turn_record["clarification_message"] = clarify_message
+            if refusal_action:
+                turn_record["typed_refusal_action"] = {
+                    "kind": state.batch_refusal_kind,
+                    "missing_classes": list(state.batch_refusal_missing_classes),
+                    "feature_absences": list(state.batch_refusal_feature_absences),
+                    "evidence": list(state.batch_refusal_evidence),
+                }
             state.batch_turns.append(turn_record)
             state.batch_feedback = report_text
             state.batch_turn_count = turn_number + 1
@@ -2441,4 +2464,3 @@ __all__ = (
     "REQUIRED_DEPENDENCY_NAMES",
     "build_edit_batch_repl_deps",
 )
-

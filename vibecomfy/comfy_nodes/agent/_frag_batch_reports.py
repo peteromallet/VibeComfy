@@ -407,6 +407,14 @@ _BATCH_EXIT_STUCK = "stuck"
 class TerminalClarifySplit:
     batch: str
     message: str | None
+    # A model-selected typed refusal.  These fields are deliberately carried
+    # out of the edit grammar as data; the authority layer validates them
+    # against the complete absence ledger before publishing a refusal.
+    kind: str | None = None
+    missing_classes: tuple[str, ...] = ()
+    feature_absences: tuple[dict[str, Any], ...] = ()
+    evidence: tuple[str, ...] = ()
+    action: str | None = None
 
 
 def _extract_clarify_message(batch: str) -> str | None:
@@ -433,6 +441,64 @@ def _is_terminal_clarify_expr(node: ast.stmt) -> bool:
     )
 
 
+def _is_terminal_refuse_expr(node: ast.stmt) -> bool:
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return False
+    call = node.value
+    return (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "refuse"
+        and not call.args
+        and all(keyword.arg is not None for keyword in call.keywords)
+    )
+
+
+def _literal_keyword(call: ast.Call, name: str) -> Any:
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            try:
+                return ast.literal_eval(keyword.value)
+            except (ValueError, TypeError, SyntaxError):
+                return None
+    return None
+
+
+def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...], tuple[dict[str, Any], ...], tuple[str, ...]] | None:
+    """Decode the model's refusal action without deciding whether it is valid."""
+    if not _is_terminal_refuse_expr(node):
+        return None
+    call = node.value
+    assert isinstance(call, ast.Call)
+    kind = _literal_keyword(call, "kind")
+    message = _literal_keyword(call, "message")
+    if message is None:
+        message = _literal_keyword(call, "question")
+    classes = _literal_keyword(call, "missing_classes")
+    features = _literal_keyword(call, "feature_absences")
+    evidence = _literal_keyword(call, "evidence")
+    if kind not in {"requires_custom_nodes", "clarify"} or not isinstance(message, str) or not message.strip():
+        return None
+    if classes is None:
+        classes = ()
+    if evidence is None:
+        evidence = ()
+    if features is None:
+        features = ()
+    if not isinstance(classes, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in classes):
+        return None
+    if not isinstance(evidence, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in evidence):
+        return None
+    if not isinstance(features, (list, tuple)) or not all(isinstance(item, dict) for item in features):
+        return None
+    return (
+        kind,
+        message.strip(),
+        tuple(item.strip() for item in classes),
+        tuple(dict(item) for item in features),
+        tuple(item.strip() for item in evidence),
+    )
+
+
 def _is_done_expr(node: ast.stmt) -> bool:
     if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
         return False
@@ -449,7 +515,7 @@ def _contains_clarify_call(node: ast.AST) -> bool:
     return any(
         isinstance(child, ast.Call)
         and isinstance(child.func, ast.Name)
-        and child.func.id == "clarify"
+        and child.func.id in {"clarify", "refuse"}
         for child in ast.walk(node)
     )
 
@@ -498,7 +564,12 @@ def _split_terminal_clarify_line_regex(batch: str) -> TerminalClarifySplit:
 
 
 def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
-    """Split a final top-level clarify("...") call from editable batch code."""
+    """Split a final top-level clarify/refuse action from editable code.
+
+    ``refuse(...)`` is a terminal action chosen by the model.  It is not an
+    automatic conversion of ``done()`` or ``noop``; callers must still prove
+    its payload against authority evidence.
+    """
     try:
         module = ast.parse(batch)
     except SyntaxError:
@@ -514,15 +585,31 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         return TerminalClarifySplit(batch=batch, message=None)
 
     terminal = body[-1]
-    if not _is_terminal_clarify_expr(terminal):
+    is_clarify = _is_terminal_clarify_expr(terminal)
+    is_refusal = _is_terminal_refuse_expr(terminal)
+    if not is_clarify and not is_refusal:
         return TerminalClarifySplit(batch=batch, message=None)
     if any(_contains_clarify_call(stmt) for stmt in body[:-1]):
         return TerminalClarifySplit(batch=batch, message=None)
 
     call = terminal.value
     assert isinstance(call, ast.Call)
-    message_node = call.args[0]
-    assert isinstance(message_node, ast.Constant)
+    refusal_payload = _terminal_refusal_payload(terminal) if is_refusal else None
+    if is_refusal and refusal_payload is None:
+        return TerminalClarifySplit(batch=batch, message=None)
+    if is_clarify:
+        message_node = call.args[0]
+        assert isinstance(message_node, ast.Constant)
+        message = message_node.value
+        kind = "clarify"
+        missing_classes: tuple[str, ...] = ()
+        feature_absences: tuple[dict[str, Any], ...] = ()
+        evidence: tuple[str, ...] = ()
+        action = "clarify"
+    else:
+        assert refusal_payload is not None
+        kind, message, missing_classes, feature_absences, evidence = refusal_payload
+        action = "refuse"
     start = _offset_from_ast_position(batch, terminal.lineno, terminal.col_offset)
     editable_batch = batch[:start].rstrip()
     if editable_batch.endswith(";"):
@@ -536,7 +623,15 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         between = batch[terminal_end:trailing_start]
         if any(line.strip() and not line.lstrip().startswith("#") for line in between.splitlines()):
             return TerminalClarifySplit(batch=batch, message=None)
-    return TerminalClarifySplit(batch=editable_batch, message=message_node.value)
+    return TerminalClarifySplit(
+        batch=editable_batch,
+        message=message,
+        kind=kind,
+        missing_classes=missing_classes,
+        feature_absences=feature_absences,
+        evidence=evidence,
+        action=action,
+    )
 
 
 def _batch_has_landed_edits(state: "AgentEditState") -> bool:

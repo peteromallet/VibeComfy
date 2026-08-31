@@ -146,6 +146,14 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         in_doc_table=False,
         in_prompt=False,
     ),
+    StatementForm(
+        form_id="refuse",
+        surface="`refuse(kind=…, missing_classes=…, evidence=…, message=…)`",
+        op=None,
+        interpreter="control: finish with a model-selected typed refusal; authority validates evidence",
+        ast_types=(ast.Expr, ast.Call, ast.Name, ast.keyword, ast.Constant, ast.List, ast.Tuple, ast.Dict),
+        in_doc_table=False,
+    ),
 )
 
 
@@ -292,7 +300,7 @@ FORBIDDEN_ASSIGN_ATTRS: dict[str, str] = {
 QUERY_CALL_NAMES: frozenset[str] = frozenset({"python", "research", "search"}) | frozenset(
     AGENT_TOOL_CALL_NAMES
 )
-CONTROL_CALL_NAMES: frozenset[str] = frozenset({"done"})
+CONTROL_CALL_NAMES: frozenset[str] = frozenset({"done", "refuse"})
 ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES: frozenset[str] = frozenset({"vibecomfy.exec"})
 
 AUTHORING_DOC_RELPATH = "docs/architecture/python_authoring_edit_surface.md"
@@ -352,7 +360,7 @@ def op_kind_for_statement(statement: ast.stmt) -> str | None:
         if isinstance(call.func, ast.Name) and call.func.id == "subgraph_interface":
             return "subgraph_interface"
         if isinstance(call.func, ast.Name) and call.func.id in CONTROL_CALL_NAMES:
-            return "done"
+            return call.func.id
         return "query"
     return None
 
