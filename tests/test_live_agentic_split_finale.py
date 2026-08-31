@@ -154,6 +154,8 @@ def test_split_one_invocation_50_legs_concurrent_fake(
         output_base: Path,
         tag: str,
         transport: str | None,
+        judge_route: str,
+        judge_model: str,
     ) -> dict[str, Any]:
         with live_lock:
             live[0] += 1
@@ -253,6 +255,8 @@ def test_split_does_not_alter_paired_smoke_path(
         output_base: Path,
         tag: str,
         transport: str | None,
+        judge_route: str,
+        judge_model: str,
     ) -> dict[str, Any]:
         calls.append((scenario["id"], mode))
         return _summary(mode, locked_input_sha256)
@@ -294,6 +298,8 @@ def test_split_one_invocation_50_legs_process_isolation(
         output_base: Path,
         tag: str,
         transport: str | None,
+        judge_route: str,
+        judge_model: str,
         concurrency: int,
     ) -> list[dict[str, Any]]:
         # Prove bounded launch window and manifest-order submission.

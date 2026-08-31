@@ -62,6 +62,10 @@ def validate_live_agentic_artifact(metadata: Mapping[str, Any]) -> None:
 def guard_output_dir(
     output_dir: Path | str,
     scenario: Mapping[str, Any] | None = None,
+    *,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
+    assessment_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Inspect an artifact directory and return a strict verdict.
 
@@ -74,7 +78,13 @@ def guard_output_dir(
     validate_live_agentic_artifact(metadata)
 
     metadata_success = is_live_agentic_success(metadata)
-    assessment = assess_live_output_dir(output_dir, scenario=scenario)
+    assessment = assess_live_output_dir(
+        output_dir,
+        scenario=scenario,
+        judge_route=judge_route,
+        judge_model=judge_model,
+        assessment_path=assessment_path,
+    )
 
     assessment_verdict = assessment.get("verdict")
     if assessment_verdict not in {"pass", "fail", "undetermined"}:
@@ -101,6 +111,7 @@ def guard_output_dir(
         "model_behavior": metadata.get("model_behavior"),
         "metadata_success": metadata_success,
         "assessment": assessment,
+        "judge_config": assessment.get("judge_config"),
         "verdict": assessment_verdict,
         "live_agentic_success": live_agentic_success,
         "score_class": score_class,

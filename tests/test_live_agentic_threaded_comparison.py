@@ -443,6 +443,8 @@ def test_concurrent_comparison_submits_all_legs_and_reconstructs_manifest_order(
         output_base: Path,
         tag: str,
         transport: str | None,
+        judge_route: str,
+        judge_model: str,
     ) -> dict[str, Any]:
         calls.append((scenario["id"], mode, id(scenario), transport))
         # If legs were accidentally run sequentially, this barrier times out.
@@ -482,6 +484,8 @@ def test_concurrent_comparison_isolates_leg_exception(
         output_base: Path,
         tag: str,
         transport: str | None,
+        judge_route: str,
+        judge_model: str,
     ) -> dict[str, Any]:
         calls.append((scenario["id"], mode))
         if scenario["id"] == json.loads(manifest.read_text())["entries"][0]["id"] and mode == "staged":

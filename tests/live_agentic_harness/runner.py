@@ -46,6 +46,13 @@ from .failure_analysis import (
     prepare_failure_analysis,
     recommendations_for_run,
 )
+from .judge_config import (
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_ROUTE,
+    JudgeReadinessError,
+    require_judge_readiness,
+    resolve_judge_config,
+)
 from .scenario_manifest import discover_manifest_scenarios
 from .output_paths import authorized_output_dir
 from .adapter import _HARNESS_DEFAULT_TRANSPORT, _TRANSPORT_SELECTING_ENV_KEYS
@@ -706,6 +713,8 @@ def _build_run_summary(
     total_scenarios: int,
     complete: bool,
     transport: str | None = None,
+    judge_config: Mapping[str, Any] | None = None,
+    judge_readiness: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     passed = sum(1 for summary in summaries if summary["guard"].get("live_agentic_success") is True)
     failed = len(summaries) - passed
@@ -736,6 +745,8 @@ def _build_run_summary(
     return {
         "tag": tag,
         "transport": transport,
+        "judge_config": dict(judge_config or {}),
+        "judge_readiness": dict(judge_readiness or {}),
         "scenario_count": len(summaries),
         "total_scenarios": total_scenarios,
         "completed": len(summaries),
@@ -766,6 +777,8 @@ def _persist_run_summary(
     total_scenarios: int,
     complete: bool,
     transport: str | None = None,
+    judge_config: Mapping[str, Any] | None = None,
+    judge_readiness: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     summaries = [r for r in results if r]
     summary = _build_run_summary(
@@ -774,6 +787,8 @@ def _persist_run_summary(
         total_scenarios=total_scenarios,
         complete=complete,
         transport=transport,
+        judge_config=judge_config,
+        judge_readiness=judge_readiness,
     )
     run_dir = _run_dir_for(output_base, tag)
     if complete:
@@ -844,11 +859,18 @@ def _guard_scenario_output(
     output_dir: str | Path,
     *,
     scenario: Mapping[str, Any],
+    judge_route: str | None = None,
+    judge_model: str | None = None,
 ) -> dict[str, Any]:
     """Load the heavyweight assessment stack only after agent execution."""
     from .guard import guard_output_dir
 
-    return guard_output_dir(output_dir, scenario=scenario)
+    return guard_output_dir(
+        output_dir,
+        scenario=scenario,
+        judge_route=judge_route,
+        judge_model=judge_model,
+    )
 
 
 def run_single(
@@ -857,6 +879,8 @@ def run_single(
     output_base: Any,
     out_file: Path | None,
     transport: str | None = None,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
 ) -> dict[str, Any]:
     """Run ONE scenario in-process; write its summary JSON to *out_file* if given.
 
@@ -865,6 +889,8 @@ def run_single(
     (``_HARNESS_DEFAULT_TRANSPORT``), never to an ambient credential.
     """
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
+    judge_config = resolve_judge_config(judge_route, judge_model)
+    judge_readiness = require_judge_readiness(judge_config)
     if output_base is not None:
         output_base = Path(output_base).absolute()
     from .adapter import run_headless_scenario
@@ -886,7 +912,11 @@ def run_single(
     summary["guard"] = _guard_scenario_output(
         summary["output_dir"],
         scenario=scenario,
+        judge_route=judge_config.route,
+        judge_model=judge_config.model,
     )
+    summary["judge_config"] = judge_config.as_dict()
+    summary["judge_readiness"] = judge_readiness
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
     if out_file is not None:
@@ -908,6 +938,8 @@ def run_tag(
     infra_retries: int = DEFAULT_INFRA_RETRIES,
     manifest_path: Path | None = None,
     transport: str | None = None,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
 ) -> dict[str, Any]:
     """Run every scenario under *scenarios_dir* CONCURRENTLY — each in its own
     subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*.
@@ -925,6 +957,8 @@ def run_tag(
     else:
         output_base = Path(output_base).absolute()
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
+    judge_config = resolve_judge_config(judge_route, judge_model)
+    judge_readiness = require_judge_readiness(judge_config)
     if scenarios_dir is None:
         scenarios_dir = Path(__file__).with_name("scenarios")
     paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
@@ -939,6 +973,8 @@ def run_tag(
         total_scenarios=len(paths),
         complete=False,
         transport=transport,
+        judge_config=judge_config.as_dict(),
+        judge_readiness=judge_readiness,
     )
     sem = threading.Semaphore(max(1, max_workers))
     lock = threading.Lock()
@@ -955,6 +991,8 @@ def run_tag(
             )
             results[idx] = summary
             results[idx].setdefault("transport", transport)
+            results[idx].setdefault("judge_config", judge_config.as_dict())
+            results[idx].setdefault("judge_readiness", judge_readiness)
             _persist_scenario_summary(
                 results[idx],
                 output_base,
@@ -971,6 +1009,8 @@ def run_tag(
                     total_scenarios=len(paths),
                     complete=False,
                     transport=transport,
+                    judge_config=judge_config.as_dict(),
+                    judge_readiness=judge_readiness,
                 )
                 if progress_every > 0 and (
                     completed == len(paths) or completed % progress_every == 0
@@ -1009,6 +1049,12 @@ def run_tag(
                         cmd += ["--output-base", str(output_base)]
                     if transport is not None:
                         cmd += ["--transport", transport]
+                    cmd += [
+                        "--judge-route",
+                        judge_config.route,
+                        "--judge-model",
+                        judge_config.model,
+                    ]
                     child_env = _pinned_child_env(transport)
                     # I-B: the retry of a zero-attempt research-hang kill must
                     # NOT be a second 1200s black hole — the research path is
@@ -1240,6 +1286,8 @@ def run_tag(
         total_scenarios=len(paths),
         complete=True,
         transport=transport,
+        judge_config=judge_config.as_dict(),
+        judge_readiness=judge_readiness,
     )
 
 
@@ -1313,6 +1361,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "subprocess. Default: the canonical product route (openrouter), "
             "pinned — never an ambient credential."
         ),
+    )
+    parser.add_argument(
+        "--judge-route",
+        default=DEFAULT_JUDGE_ROUTE,
+        help="Explicit evaluator route; preflighted before product dispatch.",
+    )
+    parser.add_argument(
+        "--judge-model",
+        default=DEFAULT_JUDGE_MODEL,
+        help="Explicit evaluator model; recorded in every assessment.",
     )
     parser.add_argument(
         "--progress-every",
@@ -1411,24 +1469,42 @@ def main(argv: list[str] | None = None) -> int:
     if args.single:
         out_file = Path(args.single_out) if args.single_out else None
         ob = Path(args.output_base) if args.output_base else None
-        summary = run_single(args.single, args.tag, ob, out_file, transport=args.transport)
+        try:
+            summary = run_single(
+                args.single,
+                args.tag,
+                ob,
+                out_file,
+                transport=args.transport,
+                judge_route=args.judge_route,
+                judge_model=args.judge_model,
+            )
+        except JudgeReadinessError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
+            return 1
         # Compact one-line stdout for liveness; the real payload is in --single-out.
         print(json.dumps({"scenario_id": summary.get("scenario_id"),
                           "ok": summary["guard"]["live_agentic_success"]}))
         return 0 if summary["guard"]["live_agentic_success"] else 1
 
     output_base = Path(args.output_base) if args.output_base else None
-    summary = run_tag(
-        args.tag,
-        scenarios_dir=scenarios_dir,
-        output_base=output_base,
-        max_workers=args.max_workers,
-        per_scenario_timeout=args.per_scenario_timeout,
-        progress_every=args.progress_every,
-        infra_retries=args.infra_retries,
-        manifest_path=Path(args.manifest) if args.manifest else None,
-        transport=args.transport,
-    )
+    try:
+        summary = run_tag(
+            args.tag,
+            scenarios_dir=scenarios_dir,
+            output_base=output_base,
+            max_workers=args.max_workers,
+            per_scenario_timeout=args.per_scenario_timeout,
+            progress_every=args.progress_every,
+            infra_retries=args.infra_retries,
+            manifest_path=Path(args.manifest) if args.manifest else None,
+            transport=args.transport,
+            judge_route=args.judge_route,
+            judge_model=args.judge_model,
+        )
+    except JudgeReadinessError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
+        return 1
     if args.prepare_failure_analysis or args.analyze_failures or args.recommend_fixes:
         run_summary_path = _run_dir_for(output_base, summary["tag"]) / "run_summary.json"
         analysis = _run_failure_analysis_from_summary(

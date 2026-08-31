@@ -20,6 +20,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .judge_config import (
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_ROUTE,
+    JudgeReadinessError,
+    require_judge_readiness,
+    resolve_judge_config,
+)
 from .scenario_manifest import (
     DEFAULT_MANIFEST_PATH,
     ScenarioManifestError,
@@ -808,6 +815,8 @@ def _run_mode(
     output_base: Path,
     tag: str,
     transport: str | None,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
 ) -> dict[str, Any]:
     from .adapter import run_headless_scenario  # noqa: PLC0415
     from .guard import guard_output_dir  # noqa: PLC0415
@@ -822,6 +831,9 @@ def _run_mode(
         pipeline_mode=mode,
     )
     summary = dict(summary)
+    summary["judge_config"] = resolve_judge_config(
+        judge_route, judge_model
+    ).as_dict()
     if summary.get("pipeline_mode") != mode:
         raise ComparisonManifestError(
             f"adapter did not attest requested pipeline_mode {mode!r}"
@@ -829,7 +841,12 @@ def _run_mode(
     summary["locked_input_sha256"] = locked_input_sha256
     summary["elapsed_s"] = time.monotonic() - started
     try:
-        summary["guard"] = guard_output_dir(summary["output_dir"], scenario=scenario)
+        summary["guard"] = guard_output_dir(
+            summary["output_dir"],
+            scenario=scenario,
+            judge_route=judge_route,
+            judge_model=judge_model,
+        )
     except Exception as exc:  # noqa: BLE001
         summary["guard"] = {
             "live_agentic_success": False,
@@ -983,6 +1000,8 @@ def run_comparison(
     output_base: Path | None = None,
     tag: str = "staged-threaded",
     transport: str | None = None,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
     concurrency: int = 1,
     leg_isolation: str = "thread",
     split: bool = False,
@@ -1005,6 +1024,11 @@ def run_comparison(
 
     if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
         raise ComparisonManifestError("concurrency must be a positive integer")
+    judge_config = resolve_judge_config(judge_route, judge_model)
+    try:
+        judge_readiness = require_judge_readiness(judge_config)
+    except JudgeReadinessError as exc:
+        raise ComparisonManifestError(str(exc)) from exc
     validate_only(manifest_path)
     path = manifest_path or DEFAULT_COMPARISON_MANIFEST
     # T5.3 + G5-B4-MUST-006 / RR1-FIX-REV2: this is the paid-call lane.
@@ -1053,6 +1077,8 @@ def run_comparison(
                     output_base=base,
                     tag=tag,
                     transport=transport,
+                    judge_route=judge_config.route,
+                    judge_model=judge_config.model,
                     concurrency=concurrency,
                 )
             else:
@@ -1070,6 +1096,8 @@ def run_comparison(
                             output_base=base,
                             tag=tag,
                             transport=transport,
+                            judge_route=judge_config.route,
+                            judge_model=judge_config.model,
                         )
                         for _scenario_id, mode, descriptor, lock in descriptors
                     ]
@@ -1119,6 +1147,8 @@ def run_comparison(
                     output_base=base,
                     tag=tag,
                     transport=transport,
+                    judge_route=judge_config.route,
+                    judge_model=judge_config.model,
                 )
                 metrics = _leg_metrics(result)
                 comparisons.append(
@@ -1159,6 +1189,8 @@ def run_comparison(
                 output_base=base,
                 tag=tag,
                 transport=transport,
+                judge_route=judge_config.route,
+                judge_model=judge_config.model,
                 concurrency=concurrency,
             )
         else:
@@ -1176,6 +1208,8 @@ def run_comparison(
                         output_base=base,
                         tag=tag,
                         transport=transport,
+                        judge_route=judge_config.route,
+                        judge_model=judge_config.model,
                     )
                     for _scenario_id, mode, descriptor, lock in descriptors
                 ]
@@ -1229,6 +1263,8 @@ def run_comparison(
                     output_base=base,
                     tag=tag,
                     transport=transport,
+                    judge_route=judge_config.route,
+                    judge_model=judge_config.model,
                 )
                 for mode in PIPELINE_MODES
             }
@@ -1244,6 +1280,8 @@ def run_comparison(
         pass
     else:
         payload = {"aggregate": _aggregate(comparisons), "scenarios": comparisons}
+    payload["judge_config"] = judge_config.as_dict()
+    payload["judge_readiness"] = judge_readiness
     base.mkdir(parents=True, exist_ok=True)
     (base / "comparison.json").write_text(
         json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
@@ -1259,6 +1297,8 @@ def _write_leg_spec(
     output_base: Path,
     tag: str,
     transport: str | None,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
     attempt_identity: str | None = None,
 ) -> None:
     """Persist one leg's full execution spec (the subprocess's only input).
@@ -1269,6 +1309,7 @@ def _write_leg_spec(
     ``locked_input_sha256``) stays byte-identical. Attempt-1 specs omit the
     field entirely and keep their historical bytes.
     """
+    judge_config = resolve_judge_config(judge_route, judge_model)
     spec = {
         "scenario": dict(scenario),
         "mode": mode,
@@ -1276,6 +1317,7 @@ def _write_leg_spec(
         "output_base": str(output_base),
         "tag": tag,
         "transport": transport,
+        "judge_config": judge_config.as_dict(),
         "source_commit": _SOURCE_COMMIT[0] if _SOURCE_COMMIT else "",
     }
     if attempt_identity is not None:
@@ -1300,6 +1342,21 @@ def run_leg_from_spec(spec_path: str | Path, out_path: str | Path) -> int:
     if commit:
         os.environ[SOURCE_COMMIT_ENV_VAR] = commit
     try:
+        raw_judge_config = spec.get("judge_config")
+        if raw_judge_config is None:
+            judge_config = resolve_judge_config()
+        elif (
+            isinstance(raw_judge_config, Mapping)
+            and set(raw_judge_config) == {"route", "model"}
+        ):
+            judge_config = resolve_judge_config(
+                str(raw_judge_config["route"]), str(raw_judge_config["model"])
+            )
+        else:
+            raise ComparisonManifestError(
+                "leg spec judge_config must contain route and model"
+            )
+        judge_readiness = require_judge_readiness(judge_config)
         summary = _run_mode(
             dict(spec["scenario"]),
             mode=str(spec["mode"]),
@@ -1307,7 +1364,11 @@ def run_leg_from_spec(spec_path: str | Path, out_path: str | Path) -> int:
             output_base=Path(str(spec["output_base"])),
             tag=str(spec.get("attempt_identity") or spec["tag"]),
             transport=spec.get("transport"),
+            judge_route=judge_config.route,
+            judge_model=judge_config.model,
         )
+        summary["judge_config"] = judge_config.as_dict()
+        summary["judge_readiness"] = judge_readiness
         payload = {"ok": True, "summary": summary}
     except BaseException as exc:  # noqa: BLE001 - the child reports, never crashes silently
         payload = {
@@ -1563,6 +1624,8 @@ def _run_legs_in_processes(
     output_base: Path,
     tag: str,
     transport: str | None,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
     concurrency: int = 1,
 ) -> list[dict[str, Any] | None]:
     """Run legs in their own processes under the concurrency cap.
@@ -1609,6 +1672,8 @@ def _run_legs_in_processes(
             output_base=output_base,
             tag=tag,
             transport=transport,
+            judge_route=judge_route,
+            judge_model=judge_model,
             # Attempt ≥ 2 runs under a fresh identity; attempt 1 spec bytes
             # stay exactly as they have always been.
             attempt_identity=identity if attempt > 1 else None,
@@ -1821,6 +1886,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-base", type=Path, default=None)
     parser.add_argument("--tag", default="staged-threaded")
     parser.add_argument("--transport", choices=("openrouter", "native"), default=None)
+    parser.add_argument("--judge-route", default=DEFAULT_JUDGE_ROUTE)
+    parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument(
         "--concurrency",
         type=_positive_int,
@@ -1885,6 +1952,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_base=args.output_base,
                 tag=args.tag,
                 transport=args.transport,
+                judge_route=args.judge_route,
+                judge_model=args.judge_model,
                 concurrency=args.concurrency,
                 leg_isolation=leg_isolation,
                 split=args.split,

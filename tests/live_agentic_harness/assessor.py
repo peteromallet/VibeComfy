@@ -39,6 +39,7 @@ from .intent_judge import (
     judge_grounded_refusal,
     judge_semantic_answer,
 )
+from .judge_config import resolve_judge_config
 from .research_assessment import assess_research_evidence
 from .lineage_check import assess_artifact_lineage
 from .scenario_obligations import (
@@ -2233,9 +2234,16 @@ def _record_judge_result(
     check: str,
     judge_name: str,
     verdict: Mapping[str, Any],
+    requested_route: str | None = None,
+    requested_model: str | None = None,
 ) -> str:
     """Append a judge result and a matching issue. Return the tri-state."""
     tri = _tri_state_from_judge(verdict)
+    metadata = dict(verdict.get("metadata") or {})
+    if requested_route is not None:
+        metadata["requested_route"] = requested_route
+    if requested_model is not None:
+        metadata["requested_model"] = requested_model
     judge_results.append(
         {
             "judge": judge_name,
@@ -2247,7 +2255,7 @@ def _record_judge_result(
             # §28 fix 3: additive typed metadata (e.g. verdict class
             # "applied_unverified") so outcome classes survive into the
             # recorded assessment without renaming the tri-state vocabulary.
-            "metadata": dict(verdict.get("metadata") or {}),
+            "metadata": metadata,
         }
     )
     if tri == "fail":
@@ -2494,6 +2502,10 @@ def _assess_effective_edit_targets(
 def _assess_live_output_dir(
     output_dir: Path | str,
     scenario: Mapping[str, Any] | None = None,
+    *,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
+    assessment_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Inspect live artifacts under *output_dir* and return an assessment.
 
@@ -2512,6 +2524,7 @@ def _assess_live_output_dir(
     * ``judge_results`` — one entry per judge that ran.
     """
     output_dir = Path(output_dir)
+    judge_config = resolve_judge_config(judge_route, judge_model)
     no_candidate_contract = expected_no_candidate_contract(scenario or {})
     if no_candidate_contract is None:
         response, response_state = _load_response_json(output_dir / "response.json")
@@ -2661,7 +2674,11 @@ def _assess_live_output_dir(
         # only a candidate. The judge decides pass/fail/undetermined.
         if refusal_candidate:
             refusal_verdict = judge_grounded_refusal(
-                output_dir, scenario or {}, response_snapshot=response
+                output_dir,
+                scenario or {},
+                route=judge_config.route,
+                model=judge_config.model,
+                response_snapshot=response,
             )
             refusal_tri = _record_judge_result(
                 issues=issues,
@@ -2669,6 +2686,8 @@ def _assess_live_output_dir(
                 check="grounded_refusal",
                 judge_name="grounded_refusal",
                 verdict=refusal_verdict,
+                requested_route=judge_config.route,
+                requested_model=judge_config.model,
             )
             if refusal_tri == "pass":
                 safe_refusal_accepted = True
@@ -2883,8 +2902,14 @@ def _assess_live_output_dir(
                 check="intent_judge",
                 judge_name="edit_intent",
                 verdict=judge_edit_intent(
-                    output_dir, scenario or {}, response_snapshot=response
+                    output_dir,
+                    scenario or {},
+                    route=judge_config.route,
+                    model=judge_config.model,
+                    response_snapshot=response,
                 ),
+                requested_route=judge_config.route,
+                requested_model=judge_config.model,
             )
 
         # Any hard diagnostic anywhere in the response envelope.
@@ -2991,8 +3016,14 @@ def _assess_live_output_dir(
             check="semantic_answer",
             judge_name="semantic_answer",
             verdict=judge_semantic_answer(
-                output_dir, scenario or {}, response_snapshot=response
+                output_dir,
+                scenario or {},
+                route=judge_config.route,
+                model=judge_config.model,
+                response_snapshot=response,
             ),
+            requested_route=judge_config.route,
+            requested_model=judge_config.model,
         )
 
     if impl_result is not None:
@@ -3084,6 +3115,7 @@ def _assess_live_output_dir(
         "error_count": len(errors),
         "issues": deduped,
         "judge_results": judge_results,
+        "judge_config": judge_config.as_dict(),
         "scenario_kind": _scenario_kind(scenario),
         "excluded_from_semantic_product_rates": _excluded_from_semantic_product_rates(
             scenario
@@ -3096,19 +3128,33 @@ def _assess_live_output_dir(
         },
         "ui_evidence": ui_evidence,
     }
-    return _publish_assessment(output_dir, assessment)
+    return _publish_assessment(
+        output_dir,
+        assessment,
+        assessment_path=assessment_path,
+    )
 
 
-def _publish_assessment(output_dir: Path | str, assessment: dict[str, Any]) -> dict[str, Any]:
+def _publish_assessment(
+    output_dir: Path | str,
+    assessment: dict[str, Any],
+    *,
+    assessment_path: Path | str | None = None,
+) -> dict[str, Any]:
     """Publish one assessment atomically, preserving the stale-on-error rule."""
     output_dir = Path(output_dir)
-    assessment_path = output_dir / "assessment.json"
+    assessment_path = (
+        Path(assessment_path)
+        if assessment_path is not None
+        else output_dir / "assessment.json"
+    )
     temp_path: Path | None = None
     try:
+        assessment_path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
-            dir=output_dir,
+            dir=assessment_path.parent,
             prefix=".assessment.",
             suffix=".tmp",
             delete=False,
@@ -3135,6 +3181,16 @@ def _publish_assessment(output_dir: Path | str, assessment: dict[str, Any]) -> d
 def assess_live_output_dir(
     output_dir: Path | str,
     scenario: Mapping[str, Any] | None = None,
+    *,
+    judge_route: str | None = None,
+    judge_model: str | None = None,
+    assessment_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Assess a run, preserving scoring and typed ancillary failures."""
-    return _assess_live_output_dir(output_dir, scenario=scenario)
+    return _assess_live_output_dir(
+        output_dir,
+        scenario=scenario,
+        judge_route=judge_route,
+        judge_model=judge_model,
+        assessment_path=assessment_path,
+    )
