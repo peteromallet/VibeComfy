@@ -1583,6 +1583,25 @@
     "identifier": "VibeComfy comfy_adapter resolves logical widget fields before getter-only LiteGraph properties"
    },
    "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-084",
+   "file": "projection_registry_v1.js",
+   "region": "validateProjectionContainers",
+   "accesses": {
+    "native_links": 1
+   },
+   "purpose": "Validate the structural projection link container before hashing",
+   "semantic_owner": "projection_registry_v1",
+   "target_api": "projectGraphV1",
+   "slice": "-",
+   "projection_identity_effect": "structural link container validation",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
   }
  ]
 }
