@@ -23,7 +23,6 @@ from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorHostPorts,
     ExecutorRequest,
-    ImplementationResult,
 )
 from vibecomfy.executor.profiles import AgentSpecShape
 from vibecomfy.executor.threaded import (
@@ -151,6 +150,7 @@ def test_inspect_synthesizes_missing_runtime_classes_for_named_absence() -> None
             '"reply":"GroundingDINO is not in this runtime."}'
         ),
         schema_lookup=lookup,
+        evidence_handle=ledger,
     )
     assert implementation is not None
     durable = dict(implementation.durable_response or {})

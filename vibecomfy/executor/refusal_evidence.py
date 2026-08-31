@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
+from dataclasses import dataclass
+from collections.abc import Iterator
 from typing import Any, Mapping
 
 
@@ -163,17 +166,10 @@ def _ledger_integrity(
 
 
 class FrozenRefusalLedger(dict[str, dict[str, Any]]):
-    """Inspectable authority evidence; only the capture closure can mint it."""
-
-    _AUTH_FIELDS = frozenset({"_authenticator", "_auth_token", "_auth_signature"})
+    """Legacy data type retained for inspection compatibility only."""
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-        raise TypeError("FrozenRefusalLedger must be minted by authority capture")
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name in self._AUTH_FIELDS and name in self.__dict__:
-            raise AttributeError("ledger authentication is immutable")
-        object.__setattr__(self, name, value)
+        raise TypeError("FrozenRefusalLedger is not a public authority capture input")
 
     @classmethod
     def from_collection(cls, *_args: Any, **_kwargs: Any) -> "FrozenRefusalLedger":
@@ -183,50 +179,127 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
         path; accepting caller-owned schema snapshots here would turn the
         integrity checksum into self-authentication.
         """
-        raise TypeError("FrozenRefusalLedger must be minted by authority capture")
+        raise TypeError("FrozenRefusalLedger is not a public authority capture input")
 
-    def integrity_valid(self) -> bool:
-        return self._integrity == _ledger_integrity(
-            self,
-            graph_digest=self.graph_digest,
-            schema_snapshot=self.schema_snapshot,
-            schema_content_digest=self.schema_content_digest,
-            source_identity=self.source_identity,
-            source_generation=self.source_generation,
+@dataclass(frozen=True)
+class RefusalEvidenceBundle:
+    """Authority records owned by one executor evidence store entry."""
+
+    records: Mapping[str, Mapping[str, Any]]
+    graph_digest: str
+    schema_snapshot: Mapping[str, Any]
+    schema_content_digest: Any
+    source_identity: int
+    source_generation: str
+    authority_source: Any
+    integrity: str
+
+
+@dataclass(frozen=True)
+class RefusalEvidenceHandle(Mapping[str, Mapping[str, Any]]):
+    """Opaque model-facing handle for one executor-owned evidence entry."""
+
+    token: str
+    evidence_ids: tuple[str, ...]
+    _store: "RefusalEvidenceStore"
+
+    def _bundle(self) -> RefusalEvidenceBundle | None:
+        return resolve_refusal_evidence_handle(self)
+
+    def __getitem__(self, key: str) -> Mapping[str, Any]:
+        bundle = self._bundle()
+        if bundle is None:
+            raise KeyError(key)
+        return bundle.records[key]
+
+    def __iter__(self) -> Iterator[str]:
+        bundle = self._bundle()
+        return iter(bundle.records if bundle is not None else ())
+
+    def __len__(self) -> int:
+        bundle = self._bundle()
+        return len(bundle.records) if bundle is not None else 0
+
+    @property
+    def records(self) -> Mapping[str, Mapping[str, Any]]:
+        bundle = self._bundle()
+        return bundle.records if bundle is not None else {}
+
+
+class RefusalEvidenceStore:
+    """Executor-owned registry; entries are addressed only by opaque handles."""
+
+    def __init__(self) -> None:
+        raise TypeError("RefusalEvidenceStore is owned by the executor capture path")
+
+    def _capture(
+        self, bundle: RefusalEvidenceBundle, capability: object
+    ) -> RefusalEvidenceHandle:
+        if getattr(self, "_capture_capability", None) is not capability:
+            raise TypeError("evidence store capture requires the trusted executor")
+        token = secrets.token_urlsafe(32)
+        self._entries[token] = bundle
+        return RefusalEvidenceHandle(
+            token=token,
+            evidence_ids=tuple(bundle.records),
+            _store=self,
         )
+
+    def _resolve(self, handle: RefusalEvidenceHandle) -> RefusalEvidenceBundle | None:
+        if type(handle) is not RefusalEvidenceHandle or handle._store is not self:
+            return None
+        return self._entries.get(handle.token)
+
+
+def resolve_refusal_evidence_handle(
+    handle: RefusalEvidenceHandle,
+) -> RefusalEvidenceBundle | None:
+    """Resolve only handles issued by their exact owning store."""
+    if type(handle) is not RefusalEvidenceHandle:
+        return None
+    store = handle._store
+    if type(store) is not RefusalEvidenceStore:
+        return None
+    return store._resolve(handle)
 
 
 def frozen_ledger_matches_authority(
-    ledger: FrozenRefusalLedger,
+    bundle: RefusalEvidenceBundle,
     *,
     graph: Any,
     authority_source: Any,
 ) -> bool:
-    """Validate a ledger against its captured graph/schema witness only."""
-    if not isinstance(ledger, FrozenRefusalLedger):
+    """Validate executor-owned evidence against its frozen authority witness."""
+    if type(bundle) is not RefusalEvidenceBundle:
         return False
-    authenticator = getattr(ledger, "_authenticator", None)
-    if not callable(authenticator) or not authenticator(ledger):
+    if _ledger_integrity(
+        bundle.records,
+        graph_digest=bundle.graph_digest,
+        schema_snapshot=bundle.schema_snapshot,
+        schema_content_digest=bundle.schema_content_digest,
+        source_identity=bundle.source_identity,
+        source_generation=bundle.source_generation,
+    ) != bundle.integrity:
         return False
-    if not ledger.integrity_valid() or ledger.graph_digest != graph_identity(graph):
+    if bundle.graph_digest != graph_identity(graph):
         return False
-    if id(authority_source) != ledger.source_identity:
+    if id(authority_source) != bundle.source_identity:
         return False
     record_classes = tuple(
         str(record.get("class_type"))
-        for record in ledger.values()
+        for record in bundle.records.values()
         if isinstance(record.get("class_type"), str)
     )
-    if not isinstance(ledger.source_generation, str) or not ledger.source_generation:
+    if not isinstance(bundle.source_generation, str) or not bundle.source_generation:
         return False
-    if ledger.source_generation.startswith("bounded:"):
-        if authority_content_digest(authority_source, record_classes) != ledger.source_generation:
+    if bundle.source_generation.startswith("bounded:"):
+        if authority_content_digest(authority_source, record_classes) != bundle.source_generation:
             return False
-    elif ledger.source_generation.startswith(("content_digest:", "schemas:")):
-        if authority_generation(authority_source) != ledger.source_generation:
+    elif bundle.source_generation.startswith(("content_digest:", "schemas:")):
+        if authority_generation(authority_source) != bundle.source_generation:
             return False
     classes = _graph_classes(graph)
-    for key, record in ledger.items():
+    for key, record in bundle.records.items():
         if not isinstance(key, str) or key != record.get("evidence_id"):
             return False
         if not evidence_id_matches_record(record):
@@ -234,12 +307,12 @@ def frozen_ledger_matches_authority(
         class_type = record.get("class_type")
         if not isinstance(class_type, str):
             return False
-        schema = ledger.schema_snapshot.get(class_type)
+        schema = bundle.schema_snapshot.get(class_type)
         if record.get("authority_digest") != authority_digest_for_snapshot(
             graph,
             class_type=class_type,
             schema=schema,
-            schema_content_digest=ledger.schema_content_digest,
+            schema_content_digest=bundle.schema_content_digest,
         ):
             return False
         if record.get("kind") == "class_absence":
@@ -407,6 +480,9 @@ def evidence_record_matches_authority(
 
 __all__ = [
     "FrozenRefusalLedger",
+    "RefusalEvidenceBundle",
+    "RefusalEvidenceHandle",
+    "RefusalEvidenceStore",
     "authority_generation",
     "authority_digest",
     "authority_digest_for_snapshot",
@@ -414,6 +490,7 @@ __all__ = [
     "feature_absence_record",
     "frozen_ledger_matches_authority",
     "graph_identity",
+    "resolve_refusal_evidence_handle",
     "validate_evidence_ids",
     "evidence_id_matches_record",
     "evidence_record_matches_authority",

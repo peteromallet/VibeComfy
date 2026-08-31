@@ -20,7 +20,7 @@ from vibecomfy.executor.threaded import (
     inspect_refusal_evidence_ledger,
     synthesize_inspect_refusal_implementation,
 )
-from vibecomfy.executor.refusal_evidence import FrozenRefusalLedger
+from vibecomfy.executor.refusal_evidence import FrozenRefusalLedger, RefusalEvidenceStore
 import vibecomfy.executor.refusal_evidence as refusal_evidence
 import vibecomfy.executor.threaded as threaded_executor
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
@@ -301,6 +301,8 @@ def test_direct_capture_helper_requires_owner_capability() -> None:
     assert not hasattr(FrozenRefusalLedger, "_from_capture")
     with pytest.raises(TypeError, match="authority capture"):
         FrozenRefusalLedger({})
+    with pytest.raises(TypeError, match="owned by the executor"):
+        RefusalEvidenceStore()
 
 
 def test_direct_capture_rejects_forged_duck_owner() -> None:
@@ -360,7 +362,7 @@ def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
             '"reply":"MTCNN is unavailable."}'
         ) % evidence_id,
         schema_lookup=lookup,
-        frozen_ledger=ledger,
+        evidence_handle=ledger,
     )
     assert duplicate is not None
     assert duplicate.durable_response["outcome"]["kind"] == "noop"
@@ -400,7 +402,7 @@ def test_threaded_structural_refusal_uses_frozen_feature_ledger() -> None:
             '"evidence":["%s"],"reply":"Use another image sink."}'
         ) % (feature_id, feature_id),
         schema_lookup=provider,
-        frozen_ledger=ledger,
+        evidence_handle=ledger,
     )
     assert implementation is not None
     assert implementation.durable_response["outcome"]["kind"] == "clarify"
@@ -419,7 +421,7 @@ def test_threaded_structural_refusal_uses_frozen_feature_ledger() -> None:
             '"evidence":["%s"],"reply":"Use another image sink."}'
         ) % (frozen_id, frozen_id),
         schema_lookup=changing_lookup,
-        frozen_ledger=frozen,
+        evidence_handle=frozen,
     )
     assert stable is not None
     assert stable.durable_response["outcome"]["kind"] == "clarify"
@@ -450,7 +452,7 @@ def test_threaded_frozen_class_ledger_is_not_recomputed() -> None:
             '"evidence":["%s"],"reply":"Install the detector pack."}'
         ) % evidence_id,
         schema_lookup=lookup,
-        frozen_ledger=frozen,
+        evidence_handle=frozen,
     )
     assert result is not None
     assert result.durable_response["outcome"]["kind"] == "requires_custom_nodes"
@@ -476,14 +478,20 @@ def test_threaded_forged_or_stale_frozen_ledger_fails_closed() -> None:
     forged = dict(ledger)
     forged[evidence_id] = dict(ledger[evidence_id], authority_digest="f" * 64)
     forged_result = synthesize_inspect_refusal_implementation(
-        request, reply=reply, schema_lookup=lookup, frozen_ledger=forged
+        request, reply=reply, schema_lookup=lookup, evidence_handle=forged
     )
-    assert forged_result is not None
-    assert forged_result.durable_response["outcome"]["kind"] == "noop"
+    assert forged_result is None
+
+    forged_object = dict.__new__(FrozenRefusalLedger)
+    dict.__init__(forged_object, dict(ledger))
+    forged_object._authenticator = lambda _candidate: True
+    assert synthesize_inspect_refusal_implementation(
+        request, reply=reply, schema_lookup=lookup, evidence_handle=forged_object
+    ) is None
 
     request.graph["nodes"]["1"] = {"class_type": "MTCNN"}
     stale_result = synthesize_inspect_refusal_implementation(
-        request, reply=reply, schema_lookup=lookup, frozen_ledger=ledger
+        request, reply=reply, schema_lookup=lookup, evidence_handle=ledger
     )
     assert stale_result is not None
     assert stale_result.durable_response["outcome"]["kind"] == "noop"
@@ -506,7 +514,7 @@ def test_threaded_provider_generation_change_invalidates_frozen_ledger() -> None
             '"evidence":["%s"],"reply":"Install the detector pack."}'
         ) % evidence_id,
         schema_lookup=provider,
-        frozen_ledger=ledger,
+        evidence_handle=ledger,
     )
     assert result is not None
     assert result.durable_response["outcome"]["kind"] == "noop"
@@ -536,7 +544,7 @@ def test_threaded_markerless_provider_mutation_invalidates_frozen_ledger() -> No
             '"evidence":["%s"],"reply":"Install the detector pack."}'
         ) % evidence_id,
         schema_lookup=provider,
-        frozen_ledger=ledger,
+        evidence_handle=ledger,
     )
     assert result is not None
     assert result.durable_response["outcome"]["kind"] == "noop"

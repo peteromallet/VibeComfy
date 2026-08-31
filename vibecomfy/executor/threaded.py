@@ -10,10 +10,6 @@ from __future__ import annotations
 
 import logging
 import re
-import hashlib
-import hmac
-import json
-import secrets
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -33,9 +29,10 @@ from .contracts import (
     validate_reply_change_claims,
 )
 from .refusal_evidence import (
-    FrozenRefusalLedger,
+    RefusalEvidenceBundle,
+    RefusalEvidenceHandle,
+    RefusalEvidenceStore,
     _authority_content_digest_for_observations,
-    _jsonable,
     _ledger_integrity,
     authority_generation,
     class_absence_record,
@@ -44,6 +41,7 @@ from .refusal_evidence import (
     evidence_record_matches_authority,
     frozen_ledger_matches_authority,
     graph_identity,
+    resolve_refusal_evidence_handle,
     validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
@@ -485,7 +483,7 @@ def inspect_refusal_evidence_ledger(
     request: ExecutorRequest,
     *,
     schema_lookup: Callable[[str], Any] | None = None,
-) -> dict[str, dict[str, Any]]:
+) -> RefusalEvidenceHandle:
     """Freeze the exact class-absence ledger shown to the threaded model."""
     provider = _FrozenSchemaAuthority(schema_lookup or _default_schema_lookup)
     ledger = {
@@ -548,58 +546,44 @@ def inspect_refusal_evidence_ledger(
         for record in ledger.values()
         if isinstance(record.get("class_type"), str)
     )
-    auth_key = secrets.token_bytes(32)
-    auth_registry: dict[str, tuple[int, str]] = {}
-
-    def auth_payload(captured: FrozenRefusalLedger) -> bytes:
-        payload = {
-            "records": captured,
-            "graph_identity": captured.graph_digest,
-            "schema_snapshot": captured.schema_snapshot,
-            "schema_content_digest": captured.schema_content_digest,
-            "source_identity": captured.source_identity,
-            "source_generation": captured.source_generation,
-        }
-        return json.dumps(
-            _jsonable(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode()
-
-    def authenticate(captured: FrozenRefusalLedger) -> bool:
-        token = getattr(captured, "_auth_token", None)
-        signature = getattr(captured, "_auth_signature", None)
-        if not isinstance(token, str) or not isinstance(signature, str):
-            return False
-        if auth_registry.get(token) != (id(captured), signature):
-            return False
-        expected = hmac.new(auth_key, auth_payload(captured), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(signature, expected)
-
     graph_digest = graph_identity(request.graph)
-    schema_snapshot = MappingProxyType(dict(provider.snapshot()))
+    schema_snapshot = MappingProxyType(
+        {
+            str(class_type): MappingProxyType(dict(schema))
+            if isinstance(schema, Mapping)
+            else schema
+            for class_type, schema in provider.snapshot().items()
+        }
+    )
     source_generation = provider.capture_generation(source_classes)
-    captured = dict.__new__(FrozenRefusalLedger)
-    dict.__init__(captured, ((str(key), dict(value)) for key, value in ledger.items()))
-    captured.graph_digest = graph_digest
-    captured.schema_snapshot = schema_snapshot
-    captured.schema_content_digest = provider.content_digest
-    captured.source_identity = provider.source_identity
-    captured.source_generation = source_generation
-    captured.authority_source = provider.source
-    captured._integrity = _ledger_integrity(
-        captured,
+    records = MappingProxyType(
+        {
+            str(key): MappingProxyType(dict(value))
+            for key, value in ledger.items()
+        }
+    )
+    bundle = RefusalEvidenceBundle(
+        records=records,
         graph_digest=graph_digest,
         schema_snapshot=schema_snapshot,
         schema_content_digest=provider.content_digest,
         source_identity=provider.source_identity,
         source_generation=source_generation,
+        authority_source=provider.source,
+        integrity=_ledger_integrity(
+            records,
+            graph_digest=graph_digest,
+            schema_snapshot=schema_snapshot,
+            schema_content_digest=provider.content_digest,
+            source_identity=provider.source_identity,
+            source_generation=source_generation,
+        ),
     )
-    captured._authenticator = authenticate
-    captured._auth_token = secrets.token_hex(32)
-    captured._auth_signature = hmac.new(
-        auth_key, auth_payload(captured), hashlib.sha256
-    ).hexdigest()
-    auth_registry[captured._auth_token] = (id(captured), captured._auth_signature)
-    return captured
+    store = object.__new__(RefusalEvidenceStore)
+    store._entries = {}
+    capability = object()
+    store._capture_capability = capability
+    return store._capture(bundle, capability)
 
 
 def synthesize_inspect_refusal_implementation(
@@ -607,7 +591,7 @@ def synthesize_inspect_refusal_implementation(
     *,
     reply: str,
     schema_lookup: Callable[[str], Any] | None = None,
-    frozen_ledger: Mapping[str, Mapping[str, Any]] | None = None,
+    evidence_handle: RefusalEvidenceHandle | None = None,
 ) -> ImplementationResult | None:
     """Validate a model-selected typed refusal against inspect evidence.
 
@@ -615,24 +599,19 @@ def synthesize_inspect_refusal_implementation(
     inspect reply, or a generic/no-op-shaped reply, is never promoted.  The
     model must emit the typed JSON refusal and cite the complete absence set.
     """
-    frozen_authority_valid = True
-    if frozen_ledger is not None:
-        frozen_authority_valid = isinstance(frozen_ledger, FrozenRefusalLedger) and frozen_ledger_matches_authority(
-            frozen_ledger,
-            graph=request.graph,
-            authority_source=(
-                schema_lookup
-                if schema_lookup is not None
-                else getattr(frozen_ledger, "authority_source", None)
-            ),
+    if evidence_handle is None:
+        evidence_handle = inspect_refusal_evidence_ledger(
+            request, schema_lookup=schema_lookup
         )
-        ledger = (
-            {str(key): dict(value) for key, value in frozen_ledger.items()}
-            if isinstance(frozen_ledger, Mapping)
-            else {}
-        )
-    else:
-        ledger = inspect_refusal_evidence_ledger(request, schema_lookup=schema_lookup)
+    bundle = resolve_refusal_evidence_handle(evidence_handle)
+    frozen_authority_valid = bundle is not None and frozen_ledger_matches_authority(
+        bundle,
+        graph=request.graph,
+        authority_source=(
+            schema_lookup if schema_lookup is not None else bundle.authority_source
+        ) if bundle is not None else None,
+    )
+    ledger = bundle.records if bundle is not None else {}
     missing = tuple(
         str(record.get("class_type"))
         for record in ledger.values()
@@ -716,7 +695,7 @@ def synthesize_inspect_refusal_implementation(
         and all(
             (
                 evidence_id_matches_record(record)
-                if frozen_ledger is not None
+                if bundle is not None
                 else evidence_record_matches_authority(record, request.graph, schema_lookup)
             )
             for record in (records or ())
@@ -931,14 +910,14 @@ def run_threaded_executor(
                 message="Threaded inspect reply kernel is unavailable.",
                 report=build_report(),
             ))
-        refusal_ledger = inspect_refusal_evidence_ledger(bounded_request)
+        refusal_evidence_handle = inspect_refusal_evidence_ledger(bounded_request)
         try:
             reply = kernel.run_inspect_reply(
                 bounded_request,
                 spec,
                 plan=plan,
                 host_ports=host_ports,
-                refusal_ledger=refusal_ledger,
+                refusal_evidence_handle=refusal_evidence_handle,
             )
         except Exception as exc:
             kernel.emit_phase(
@@ -966,7 +945,7 @@ def run_threaded_executor(
         implementation = synthesize_inspect_refusal_implementation(
             bounded_request,
             reply=reply,
-            frozen_ledger=refusal_ledger,
+            evidence_handle=refusal_evidence_handle,
         )
         return finish(ExecutorResult.success(
             report=build_report(implementation),
