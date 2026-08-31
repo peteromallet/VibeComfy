@@ -683,6 +683,27 @@ def test_capture_structural_evidence_rejects_live_or_gpu_scenarios_directly(
     assert manifest is None
 
 
+def test_capture_structural_evidence_rejects_scenario_without_mode(
+    tmp_path: Path,
+) -> None:
+    """A mode-less scenario object cannot bypass the structural boundary."""
+    from types import SimpleNamespace
+
+    adapter = VibeComfyProjectAdapter(name="vibecomfy", repo_root=tmp_path)
+    scenario = SimpleNamespace(name="two-stage-chain-both-ran", tags=[])
+    run = _run()
+    run.mode = sisypy.RunMode.STRUCTURAL
+    run.dispatcher = DISPATCHER_FAKE
+
+    manifest = adapter._capture_structural_evidence(
+        scenario,
+        run,
+        tmp_path / "reports" / "two-stage-chain-both-ran" / "evidence",
+    )
+
+    assert manifest is None
+
+
 def test_capture_structural_evidence_accepts_ordinary_structural_scenario(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
