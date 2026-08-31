@@ -97,7 +97,97 @@ def _noop_field_changes(
 def _batch_candidate_graph_changed(state: AgentEditState) -> bool:
     if not isinstance(state.ui_payload, Mapping) or not isinstance(state.graph, Mapping):
         return False
-    return semantic_graph_hash(state.ui_payload) != semantic_graph_hash(state.graph)
+    # The batch route retains the ingress API node-map in ``state.graph`` but
+    # emits its candidate as LiteGraph UI (``nodes``/``links``).  Hashing both
+    # with ``semantic_graph_hash`` silently projects the API map to an empty
+    # graph, so every otherwise-valid landed batch was classified as ``noop``
+    # and never reached queue validation.  Compare the two through the same
+    # API normalization boundary first; this is detection only — replay and
+    # terminal authority remain the gates that accept a candidate.
+    try:
+        from vibecomfy.ingest.normalize import normalize_to_api
+
+        schema_provider = getattr(state, "schema_provider", None)
+        candidate_api = normalize_to_api(
+            dict(state.ui_payload),
+            schema_provider=schema_provider,
+            use_comfy_converter=False,
+        )
+        baseline_api = normalize_to_api(
+            dict(state.graph),
+            schema_provider=schema_provider,
+            use_comfy_converter=False,
+        )
+        def _api_comparison_projection(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                if "class_type" in value and isinstance(value.get("inputs"), Mapping):
+                    # UI→API normalization may spell a literal widget with
+                    # its schema name (``prompt``), while an API ingress may
+                    # retain the positional spelling (``widget_0``).  The
+                    # widget provenance and compact roster make these the
+                    # same serialized carrier; canonicalize both to the
+                    # positional key for change detection.
+                    provenance = value.get("_input_provenance")
+                    widget_names = ()
+                    if isinstance(provenance, Mapping):
+                        try:
+                            from vibecomfy.porting.widgets.compact_resolver import (
+                                compact_widget_names_for_node,
+                            )
+
+                            widget_names = tuple(
+                                name
+                                for name in compact_widget_names_for_node(
+                                    value, schema_provider=schema_provider
+                                ).names
+                            )
+                        except (TypeError, ValueError, KeyError):
+                            widget_names = ()
+                    inputs: dict[str, Any] = {}
+                    for key, item in value["inputs"].items():
+                        canonical_key = str(key)
+                        if canonical_key.startswith("widget_"):
+                            pass
+                        elif (
+                            isinstance(provenance, Mapping)
+                            and provenance.get(key) == "widget"
+                            and key in widget_names
+                        ):
+                            canonical_key = f"widget_{widget_names.index(key)}"
+                        inputs[canonical_key] = _api_comparison_projection(item)
+                    return {
+                        str(key): _api_comparison_projection(item)
+                        for key, item in value.items()
+                        if key not in {
+                            "_ui",
+                            "_raw_widgets",
+                            "_widget_order_witness",
+                            "_input_provenance",
+                            "inputs",
+                        }
+                    } | {"inputs": inputs}
+                return {
+                    str(key): _api_comparison_projection(item)
+                    for key, item in value.items()
+                    if key not in {
+                        "_ui",
+                        "_raw_widgets",
+                        "_widget_order_witness",
+                        "_input_provenance",
+                    }
+                }
+            if isinstance(value, list):
+                return [_api_comparison_projection(item) for item in value]
+            return value
+
+        return _api_comparison_projection(candidate_api) != _api_comparison_projection(
+            baseline_api
+        )
+    except (TypeError, ValueError, KeyError):
+        # Preserve the previous fail-closed behavior for malformed or
+        # unsupported payloads.  A later authority/replay check still owns
+        # candidate acceptance.
+        return semantic_graph_hash(state.ui_payload) != semantic_graph_hash(state.graph)
 
 def _landed_edit_lead(state: AgentEditState) -> str:
     count = _total_landed_edit_count(state)

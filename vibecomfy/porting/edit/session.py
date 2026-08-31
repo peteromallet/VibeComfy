@@ -459,13 +459,20 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         if target is None:
             raise RuntimeError("EditSession cannot emit UI without a retained IR")
         prior_ui = _unfreeze(self._ingest_ui)
+        pin_ops = tuple(self.landed_ops if ops is None else ops)
         emitted = emit_ui_json(
             target,
             schema_provider=self.schema_provider,
             include_virtual_wires=True,
-            prior_ui_payload=prior_ui,
+            # With an accepted delta, let the IR value reach the emitter
+            # before pinning.  Passing the raw UI as widget evidence here can
+            # classify a semantic write (e.g. ``prompt`` retained as
+            # ``widget_0``) as an opaque unchanged carrier and re-instate the
+            # old widgets_values.  ``pin_untouched_ui`` below already
+            # preserves all un-attributed editor furniture; the raw prior
+            # payload is needed only for a baseline/no-op projection.
+            prior_ui_payload=prior_ui if not pin_ops else None,
         )
-        pin_ops = tuple(self.landed_ops if ops is None else ops)
         return pin_untouched_ui(prior_ui, emitted, pin_ops)
 
     def node_ui(self, uid: str, scope_path: str = "") -> dict[str, Any] | None:

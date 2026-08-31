@@ -16,6 +16,10 @@ from vibecomfy.porting.edit._ir_utils import (
     _output_specs,
 )
 from vibecomfy.porting.edit._diff import _UNRESOLVED_OLD_VALUE
+from vibecomfy.porting.widgets.compact_resolver import (
+    missing_widget_value_sentinel,
+    widget_value_for_field,
+)
 from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.porting.edit.ops import LinkSourceRef
 from vibecomfy.schema import schema_for
@@ -745,6 +749,17 @@ class _DescribeMixin:
                 return widgets[alias]
             if alias in inputs:
                 return inputs[alias]
+        # A named widget field can be retained as a positional carrier in the
+        # original IR.  Resolve that carrier through the same compact roster
+        # used by apply/replay so field-change evidence reports the real old
+        # value (rather than ``old=None``) for threaded edits.
+        value = widget_value_for_field(
+            node,
+            field,
+            schema_provider=getattr(self, "schema_provider", None),
+        )
+        if value is not missing_widget_value_sentinel():
+            return value
         return _UNRESOLVED_OLD_VALUE
 
     def _node_field_value(

@@ -1401,7 +1401,9 @@ class _InterpretRunner:
         hard = [issue for issue in bound_issues if getattr(issue, "severity", "error") == "error"]
         if hard:
             return self._reject_diagnostics(item, "set_node_field", _port_issues(hard))
-        current = _current_field_value(node, field_name)
+        current = _current_field_value(
+            node, field_name, schema_provider=self.schema_provider
+        )
         cas_key = (str(node.uid), field_name)
         expected = self.cas_old.get(cas_key)
         if expected is None:
@@ -2232,11 +2234,27 @@ def _call_id(call: ast.Call) -> str | None:
     return None
 
 
-def _current_field_value(node: Any, field_name: str) -> Any:
+def _current_field_value(
+    node: Any, field_name: str, *, schema_provider: Any | None = None
+) -> Any:
     if field_name in getattr(node, "widgets", {}):
         return node.widgets[field_name]
     if field_name in getattr(node, "inputs", {}):
         return node.inputs[field_name]
+    # Semantic names (for example Qwen's ``prompt``) may be retained only as
+    # compact ``widget_N`` carriers.  Read through the same resolver used by
+    # the apply path so a second threaded edit sees the value it just wrote,
+    # instead of treating it as ``None`` and losing the old-value witness.
+    from vibecomfy.porting.widgets.compact_resolver import (
+        missing_widget_value_sentinel,
+        widget_value_for_field,
+    )
+
+    value = widget_value_for_field(
+        node, field_name, schema_provider=schema_provider
+    )
+    if value is not missing_widget_value_sentinel():
+        return value
     return None
 
 
