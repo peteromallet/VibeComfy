@@ -1558,6 +1558,37 @@ def _build_research_findings_payload(state: AgentEditState) -> dict[str, Any]:
     }
 
 
+def _batch_tool_evidence_pack(state: AgentEditState) -> dict[str, Any] | None:
+    """Serialize the live tool surface before the terminal response closes.
+
+    ``_AgentToolSurface`` intentionally keeps raw bodies out of prompts, but
+    its in-memory artifact map is the only resolver for IDs emitted by the
+    threaded tool ledger. Carry the complete map through the durable response
+    so a later report/replay can resolve every citation instead of retaining
+    an orphan ID.
+    """
+    session = getattr(state, "batch_session", None)
+    surface = getattr(session, "_tool_surface", None)
+    artifacts = getattr(surface, "artifacts", None)
+    if not isinstance(artifacts, Mapping) or not artifacts:
+        return None
+    serialized: dict[str, Any] = {}
+    for evidence_id, artifact in list(artifacts.items())[:48]:
+        if not isinstance(evidence_id, str) or not evidence_id.strip():
+            continue
+        if hasattr(artifact, "to_dict"):
+            serialized[evidence_id] = artifact.to_dict()
+        elif isinstance(artifact, Mapping) and artifact.get("body") is not None:
+            serialized[evidence_id] = dict(artifact)
+    if not serialized:
+        return None
+    ledger = getattr(surface, "ledger", None)
+    return {
+        "artifacts": serialized,
+        "ledger": ledger.to_dict() if hasattr(ledger, "to_dict") else {"entries": []},
+    }
+
+
 def _build_batch_repl_response(
     state: AgentEditState,
     context: TurnContext,
@@ -1885,6 +1916,11 @@ def _build_batch_repl_response(
             dict(state.post_edit_reorganisation_advisory)
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
+    tool_evidence_pack = _batch_tool_evidence_pack(state)
+    if tool_evidence_pack is not None:
+        # Full bodies are durable evidence, not prompt context. The compact
+        # statement ledger remains unchanged for cross-turn memory.
+        response["evidence_pack"] = _json_safe(tool_evidence_pack)
     # ── Accepted Δ ────────────────────────────────────────────────────────
     # The response's change claims (reply, report, outcome) are grounded in
     # the accepted Δ: the batch statements that landed.  ``accepted_batch``

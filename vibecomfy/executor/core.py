@@ -2711,6 +2711,14 @@ def _artifact_supports_claim(claim: str, artifact: Any) -> bool:
     return len(overlap) >= required
 
 
+def _reply_claim_clauses(sentence: str) -> list[str]:
+    """Split one reply sentence into independently attributable claims."""
+    clauses = [part.strip() for part in re.split(
+        r"\s+(?:and|but|while|yet)\s+|\s*;\s*", sentence, flags=re.I
+    ) if part.strip()]
+    return clauses or [sentence.strip()]
+
+
 def _validated_claim_provenance(
     research_result: AgentResearchResult | None,
 ) -> dict[str, tuple[str, ...]]:
@@ -2764,34 +2772,43 @@ def _validate_reply_provenance(
     repaired: list[str] = []
     for sentence in sentences:
         sentence_ids = {
-                match.group(1)
-                for match in _EVIDENCE_CITE_RE.finditer(sentence)
-            }
-        valid_fetched = sentence_ids.intersection(fetched_ids)
-        supported = {
-            evidence_id
-            for evidence_id in valid_fetched
-            if _artifact_supports_claim(sentence, artifacts[evidence_id])
+            match.group(1) for match in _EVIDENCE_CITE_RE.finditer(sentence)
         }
-        # A citation is a claim binding, not proof of support merely because
-        # the record was fetched. Remove unrelated/unsupported references.
-        if sentence_ids and not supported:
-            sentence = re.sub(r"\s*\[[A-Za-z0-9_.:-]+\]", "", sentence)
-        graph_grounded = bool(graph) and bool(
-            re.search(r"\b(graph|workflow|node|link|widget|connection)\b", sentence, re.I)
-        )
-        material = bool(_claim_terms(sentence)) and not sentence.lstrip().startswith(("?", "I don't know", "I cannot verify"))
-        if material and not supported and not graph_grounded:
-            qualifier = (
-                " (This claim is unverified from the available fetched evidence.)"
+        valid_fetched = sentence_ids.intersection(fetched_ids)
+        citation_free = re.sub(r"\s*\[[A-Za-z0-9_.:-]+\]", "", sentence).strip()
+        clauses = _reply_claim_clauses(citation_free)
+        repaired_clauses: list[str] = []
+        for clause in clauses:
+            supported = {
+                evidence_id
+                for evidence_id in valid_fetched
+                if _artifact_supports_claim(clause, artifacts[evidence_id])
+            }
+            graph_grounded = bool(graph) and bool(
+                re.search(r"\b(graph|workflow|node|link|widget|connection)\b", clause, re.I)
             )
-            if "unverified" not in sentence.casefold():
-                sentence = sentence.rstrip() + qualifier
-        elif _CURRENT_CLAIM_RE.search(sentence) and not supported and not graph_grounded:
-            if "unverified" not in sentence.casefold():
-                sentence = sentence.rstrip() + (
-                    " (This time-sensitive claim is unverified from the available fetched evidence.)"
+            material = bool(_claim_terms(clause)) and not clause.lstrip().startswith(
+                ("?", "I don't know", "I cannot verify")
+            )
+            if supported:
+                # Re-attach only IDs that support this specific clause. A
+                # supported clause must not authorize its mixed neighbour.
+                clause = clause.rstrip() + " " + " ".join(
+                    f"[{evidence_id}]" for evidence_id in sorted(supported)
                 )
+            elif material and not graph_grounded:
+                if "unverified" not in clause.casefold():
+                    clause = clause.rstrip() + (
+                        " (This claim is unverified from the available fetched evidence.)"
+                    )
+            repaired_clauses.append(clause)
+        # Keep conjunction semantics readable while retaining per-clause
+        # attribution; punctuation from the original sentence stays on the
+        # final clause.
+        if len(repaired_clauses) > 1:
+            sentence = " and ".join(repaired_clauses)
+        else:
+            sentence = repaired_clauses[0] if repaired_clauses else sentence
         repaired.append(sentence)
     return " ".join(repaired).strip()
 

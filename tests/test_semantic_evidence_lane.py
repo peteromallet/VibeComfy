@@ -234,6 +234,13 @@ def test_reply_provenance_requires_body_support_and_claim_coverage() -> None:
         "The record discusses a blue sampler with 20 steps [hivemind_record:1].", result
     )
     assert "unverified" not in supported
+    mixed = _validate_reply_provenance(
+        "The record discusses a blue sampler with 20 steps and pricing is $100 [hivemind_record:1].",
+        result,
+    )
+    assert "blue sampler" in mixed and "pricing is $100" in mixed
+    assert mixed.count("[hivemind_record:1]") == 1
+    assert "pricing is $100" in mixed and "This claim is unverified" in mixed
 
 
 def test_reply_prompt_bounds_actual_combined_context_and_identifier_length() -> None:
@@ -312,6 +319,25 @@ def test_threaded_durable_projection_retains_full_artifact_body() -> None:
     )
     projected = _durable_research_evidence(implementation, ClassifyDecision(route="research", research=True))
     assert projected["evidence_pack"]["artifacts"]["hivemind_record:1"]["body"]["body"] == "complete fetched record body"
+
+
+def test_live_threaded_tool_surface_is_serialized_before_terminal_close() -> None:
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent._frag_response_contract import _batch_tool_evidence_pack
+    from vibecomfy.porting.edit._resolve import _AgentToolSurface
+
+    surface = _AgentToolSurface(search_budget=1, fetch_budget=1, registry_budget=1)
+    artifact = EvidenceArtifact(
+        evidence_id="hivemind_record:live",
+        kind="hivemind_record",
+        body={"body": "the complete live body"},
+    )
+    surface.artifacts[artifact.evidence_id] = artifact
+    state = SimpleNamespace(batch_session=SimpleNamespace(_tool_surface=surface))
+    packed = _batch_tool_evidence_pack(state)
+    assert packed is not None
+    assert packed["artifacts"]["hivemind_record:live"]["body"]["body"] == "the complete live body"
 
 
 def test_answer_only_research_callback_cannot_produce_edit() -> None:

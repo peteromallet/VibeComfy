@@ -472,9 +472,9 @@ def _bounded(text: str, limit: int) -> str:
 
 
 _EGRESS_SECRET_RE = re.compile(
-    r"(?is)\b(api[_ -]?key|access[_ -]?key|authorization|auth|bearer|token|"
+    r"(?is)[\"']?\b(api[_ -]?key|access[_ -]?key|authorization|auth|bearer|token|"
     r"password|secret|credential|cookie|session|private[_ -]?key|ssh[_ -]?key)\b"
-    r"\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"
+    r"[\"']?\s*[:=]\s*(?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
 )
 _EGRESS_WORKFLOW_RE = re.compile(
     r"(?is)\b(?:workflow|graph|payload|body|request)\b\s*[:=]\s*(?:\{.*?\}|\[.*?\])"
@@ -503,9 +503,71 @@ def _safe_research_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
         # then workflow/graph payloads even when they are embedded in prose;
         # no raw graph or secret can cross the egress seam by hiding in a
         # query string.
-        value = _EGRESS_SECRET_RE.sub(r"\1=<redacted>", value)
-        value = _EGRESS_WORKFLOW_RE.sub("[redacted structured payload]", value)
-        value = _EGRESS_WORKFLOW_JSON_RE.sub("[redacted workflow payload]", value)
+        value = _EGRESS_SECRET_RE.sub("<redacted-secret>", value)
+
+        def balanced_end(start: int) -> int | None:
+            opener = value[start]
+            closer = "}" if opener == "{" else "]"
+            depth = 0
+            quoted: str | None = None
+            escaped = False
+            for index in range(start, len(value)):
+                char = value[index]
+                if quoted is not None:
+                    if escaped:
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == quoted:
+                        quoted = None
+                    continue
+                if char in {"\"", "'"}:
+                    quoted = char
+                elif char == opener:
+                    depth += 1
+                elif char == closer:
+                    depth -= 1
+                    if depth == 0:
+                        return index + 1
+            return None
+
+        # Replace complete balanced values after workflow/graph/payload keys;
+        # this handles nested arrays/objects and never leaves a tail behind.
+        marker = re.compile(
+            r"(?is)(?:\b(?:workflow|graph|payload|body|request)\b|"
+            r"[\"'](?:workflow|graph|payload|body|request)[\"'])\s*[:=]"
+        )
+        while True:
+            match = marker.search(value)
+            if match is None:
+                break
+            start = match.end()
+            while start < len(value) and value[start].isspace():
+                start += 1
+            if start >= len(value) or value[start] not in "{[":
+                value = value[: match.start()] + "[redacted structured payload]" + value[match.end():]
+                continue
+            end = balanced_end(start)
+            if end is None:
+                value = value[: match.start()] + "[redacted structured payload]"
+                break
+            value = value[: match.start()] + "[redacted structured payload]" + value[end:]
+
+        # A quoted JSON object may omit the word workflow but still expose a
+        # graph-shaped payload. Redact its enclosing balanced object.
+        graph_key = re.compile(
+            r"(?is)[\"'](?:nodes|links|class_type|inputs|widgets_values)[\"']\s*:"
+        )
+        while True:
+            match = graph_key.search(value)
+            if match is None:
+                break
+            start = value.rfind("{", 0, match.start())
+            end = balanced_end(start) if start >= 0 else None
+            if end is None:
+                value = value[: max(0, start)] + "[redacted graph payload]"
+                break
+            value = value[:start] + "[redacted graph payload]" + value[end:]
         return " ".join(value.split())
 
     safe: dict[str, Any] = {}
