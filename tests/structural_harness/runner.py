@@ -351,9 +351,10 @@ def _filter_gpu_scenarios(
     """Return (allowed_names, skipped_names) after dropping GPU-tagged scenarios in structural mode.
 
     When names is None, enumerates all *.yaml files in scenarios_dir.  When names
-    is provided, intersects with on-disk basenames.  Scenarios tagged ``gpu`` are
-    dropped when mode == 'structural'.  Fail-open on parse errors (log warning,
-    treat as non-gpu).
+    is provided, resolves both on-disk basenames and descriptor ``name`` fields.
+    Scenarios tagged ``gpu`` are dropped when mode == 'structural'.  Unknown
+    explicit names pass through to Sisypy unchanged.  Descriptor parse errors
+    fail closed.
 
     Tags are read via sisypy's public ``load_scenario`` loader rather than a raw
     file read, so this module performs no direct source-file reads and the
@@ -364,40 +365,50 @@ def _filter_gpu_scenarios(
     if mode != "structural":
         return names, []
 
+    descriptors: list[tuple[str, str, bool]] = []
+    by_stem: dict[str, tuple[str, str, bool]] = {}
+    by_name: dict[str, tuple[str, str, bool]] = {}
+    for yaml_path in sorted(scenarios_dir.glob("*.yaml")):
+        try:
+            scenario = load_scenario(yaml_path)
+            resolved_name = getattr(scenario, "name", None) or yaml_path.stem
+            if not isinstance(resolved_name, str) or not resolved_name:
+                raise ValueError("descriptor name must be a non-empty string")
+            scenario_tags = list(getattr(scenario, "tags", []) or [])
+            descriptor = (yaml_path.stem, resolved_name, "gpu" in scenario_tags)
+        except Exception as exc:  # noqa: BLE001 — descriptor gate must fail closed
+            raise ValueError(f"GPU gate: could not parse {yaml_path}: {exc}") from exc
+
+        descriptors.append(descriptor)
+        stem = descriptor[0]
+        if stem in by_stem:
+            raise ValueError(f"GPU gate: duplicate scenario filename stem {stem!r}")
+        by_stem[stem] = descriptor
+        if resolved_name in by_name:
+            raise ValueError(f"GPU gate: duplicate scenario name {resolved_name!r}")
+        by_name[resolved_name] = descriptor
+
     if names is None:
-        candidates: list[str] = sorted(p.stem for p in scenarios_dir.glob("*.yaml"))
+        candidates = descriptors
     else:
-        candidates = list(names)
+        candidates = []
+        for requested_name in names:
+            descriptor = by_stem.get(requested_name)
+            by_name_descriptor = by_name.get(requested_name)
+            if descriptor is not None and by_name_descriptor is not None and descriptor != by_name_descriptor:
+                raise ValueError(f"GPU gate: ambiguous scenario name {requested_name!r}")
+            descriptor = descriptor or by_name_descriptor
+            if descriptor is None:
+                # Unknown explicit names retain Sisypy's established no-match
+                # behavior.  Keep them non-empty so they cannot mean "all".
+                candidates.append((requested_name, requested_name, False))
+            else:
+                candidates.append(descriptor)
 
     allowed: list[str] = []
     skipped: list[str] = []
 
-    for name in candidates:
-        yaml_path = scenarios_dir / f"{name}.yaml"
-        if not yaml_path.is_file():
-            # Not on disk — pass through; sisypy will handle the unknown name.
-            allowed.append(name)
-            continue
-
-        is_gpu = False
-        # Use the scenario's ``name`` field (not the filename stem) so the list
-        # passed to run_all matches how it identifies scenarios. Older scenarios
-        # use underscore filenames (generate_image_canonical_op.yaml) with a
-        # hyphenated name (generate-image-canonical-op); passing the stem would
-        # silently drop them from the run.
-        resolved_name = name
-        try:
-            scenario = load_scenario(yaml_path)
-            resolved_name = getattr(scenario, "name", None) or name
-            scenario_tags = list(getattr(scenario, "tags", []) or [])
-            is_gpu = "gpu" in scenario_tags
-        except Exception as exc:  # noqa: BLE001 — fail-open
-            logging.warning(
-                "GPU gate: could not parse %s (%s); treating as non-gpu",
-                yaml_path,
-                exc,
-            )
-
+    for _stem, resolved_name, is_gpu in candidates:
         if is_gpu:
             skipped.append(resolved_name)
             print(
@@ -414,7 +425,21 @@ def _filter_gpu_scenarios(
             file=sys.stderr,
         )
 
-    return allowed or None, skipped
+    # An empty list is intentional: run_chaining_family must short-circuit
+    # before Sisypy, whose run_all(names=[]) means "all scenarios".
+    return allowed, skipped
+
+
+def _empty_batch_summary(tag: str, mode: str, dry_run: bool) -> dict[str, Any]:
+    """Return Sisypy's zero-selection shape without invoking ``run_all``."""
+    return {
+        "batch_tag": tag,
+        "scenario_count": 0,
+        "scenario_names": [],
+        "mode": mode,
+        "scenarios": [],
+        "dry_run": dry_run,
+    }
 
 
 def run_chaining_family(
@@ -481,6 +506,12 @@ def run_chaining_family(
 
     effective_scenarios_dir = scenarios_dir or _default_scenarios_dir()
     names, _skipped = _filter_gpu_scenarios(effective_scenarios_dir, mode, names, tags)
+
+    if names == []:
+        # Sisypy's current _filter_scenarios uses ``if names:``; passing [] to
+        # run_all would therefore expand an all-filtered structural selection
+        # back into every scenario, including GPU-tagged ones.
+        return _empty_batch_summary(tag, mode, dry_run)
 
     run_kwargs: dict[str, Any] = {
         "scenarios_dir": effective_scenarios_dir,

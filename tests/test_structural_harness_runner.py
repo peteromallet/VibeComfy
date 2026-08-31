@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,11 @@ import sisypy.runner
 
 from tests.structural_harness import runner as structural_runner
 from sisypy import RunMode
+
+
+def _write_scenario(path: Path, *, name: str, tags: list[str]) -> None:
+    tag_lines = "\n".join(f"  - {tag}" for tag in tags)
+    path.write_text(f"name: {name}\ntags:\n{tag_lines}\n", encoding="utf-8")
 
 
 def test_runner_help_exposes_repo_local_options(capsys: pytest.CaptureFixture[str]) -> None:
@@ -120,6 +126,184 @@ def test_run_chaining_family_adapts_to_reports_dir_api_shape(monkeypatch: pytest
     assert captured["names"] == ["one"]
     assert captured["dry_run"] is True
     assert captured["mode"] is RunMode.STRUCTURAL
+
+
+def test_gpu_only_selection_short_circuits_before_run_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    _write_scenario(
+        scenarios_dir / "gpu-fixture.yaml",
+        name="gpu-fixture",
+        tags=["gpu"],
+    )
+    calls: list[object] = []
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        calls.append(True)
+        raise AssertionError("all-filtered structural selection must not call run_all")
+
+    monkeypatch.setattr(sisypy.runner, "run_all", fail_if_called)
+
+    result = structural_runner.run_chaining_family(
+        scenarios_dir=scenarios_dir,
+        names=["gpu-fixture"],
+    )
+
+    assert calls == []
+    assert result == {
+        "batch_tag": "run",
+        "scenario_count": 0,
+        "scenario_names": [],
+        "mode": "structural",
+        "scenarios": [],
+        "dry_run": False,
+    }
+
+
+def test_empty_programmatic_selection_does_not_expand_to_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    _write_scenario(
+        scenarios_dir / "ordinary.yaml",
+        name="ordinary",
+        tags=["structural"],
+    )
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("empty names must not be sent to Sisypy run_all")
+
+    monkeypatch.setattr(sisypy.runner, "run_all", fail_if_called)
+
+    result = structural_runner.run_chaining_family(
+        scenarios_dir=scenarios_dir,
+        names=[],
+    )
+
+    assert result["scenario_count"] == 0
+    assert result["scenarios"] == []
+
+
+def test_gpu_filter_forwards_only_non_gpu_canonical_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    _write_scenario(
+        scenarios_dir / "gpu-fixture.yaml",
+        name="gpu-fixture",
+        tags=["gpu"],
+    )
+    _write_scenario(
+        scenarios_dir / "ordinary_fixture.yaml",
+        name="ordinary-fixture",
+        tags=["structural"],
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run_all(
+        _adapter: object,
+        *,
+        names: list[str] | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        kwargs["names"] = names
+        captured.update(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(sisypy.runner, "run_all", fake_run_all)
+
+    result = structural_runner.run_chaining_family(
+        scenarios_dir=scenarios_dir,
+        names=["gpu-fixture", "ordinary_fixture"],
+    )
+
+    assert result == {"status": "ok"}
+    assert captured["names"] == ["ordinary-fixture"]
+
+
+def test_gpu_filter_resolves_canonical_name_when_filename_differs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    _write_scenario(
+        scenarios_dir / "underscored_gpu_fixture.yaml",
+        name="hyphenated-gpu-fixture",
+        tags=["gpu"],
+    )
+    calls: list[object] = []
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        calls.append(True)
+        raise AssertionError("canonical GPU name must be filtered")
+
+    monkeypatch.setattr(sisypy.runner, "run_all", fail_if_called)
+
+    result = structural_runner.run_chaining_family(
+        scenarios_dir=scenarios_dir,
+        names=["hyphenated-gpu-fixture"],
+    )
+
+    assert calls == []
+    assert result["scenario_count"] == 0
+
+
+def test_unknown_explicit_name_passes_through_to_run_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    captured: dict[str, object] = {}
+
+    def fake_run_all(
+        _adapter: object,
+        *,
+        names: list[str] | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        kwargs["names"] = names
+        captured.update(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(sisypy.runner, "run_all", fake_run_all)
+
+    result = structural_runner.run_chaining_family(
+        scenarios_dir=scenarios_dir,
+        names=["unknown-explicit-name"],
+    )
+
+    assert result == {"status": "ok"}
+    assert captured["names"] == ["unknown-explicit-name"]
+
+
+def test_malformed_descriptor_fails_before_run_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    (scenarios_dir / "malformed.yaml").write_text("name: [unterminated", encoding="utf-8")
+    calls: list[object] = []
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        calls.append(True)
+        raise AssertionError("malformed descriptors must fail before run_all")
+
+    monkeypatch.setattr(sisypy.runner, "run_all", fail_if_called)
+
+    with pytest.raises(ValueError, match="GPU gate: could not parse"):
+        structural_runner.run_chaining_family(scenarios_dir=scenarios_dir)
+
+    assert calls == []
 
 
 def test_structural_runner_rejects_live_agent_actors() -> None:
