@@ -71,6 +71,7 @@ def test_requires_custom_nodes_refusal_cites_exact_absence_ledger() -> None:
     assert action.kind == "requires_custom_nodes"
     assert action.missing_classes == ("MTCNN", "RetinaFace")
     state = _state(claimed=action.missing_classes, evidence=action.evidence)
+    state.schema_provider = _route_test_provider()
     assert _record_named_schema_absence_blocker(state, has_candidate=False) == (
         "MTCNN",
         "RetinaFace",
@@ -110,6 +111,9 @@ def test_splitter_rejects_unknown_duplicate_and_nonterminal_refusal() -> None:
         'refuse(kind="clarify", message="x", extra="bad")',
         'refuse(kind="clarify", kind="requires_custom_nodes", message="x", evidence=["id"])',
         'refuse(kind="clarify", message="x", question="y", evidence=["id"])',
+        'refuse(kind="clarify", message="x", feature_absences=[{"evidence_id":"id","feature":"x"}], evidence=["id"])',
+        'refuse(kind="clarify", message="x", evidence=["id", "id"])',
+        'refuse(kind="requires_custom_nodes", message="x", missing_classes=["MTCNN", "MTCNN"], evidence=["id"])',
         'refuse(kind="clarify", message="x", evidence=["id"])\npython()',
     )
     for source in cases:
@@ -135,6 +139,32 @@ def test_invented_or_partial_classes_fail_closed() -> None:
         assert not _typed_refusal_is_authorized(
             state, named_schema_absence=True, structural_feature_absence=False
         )
+
+
+def test_partial_search_cannot_authorize_complete_named_refusal() -> None:
+    state = _state(claimed=("MTCNN",), evidence=("schema:MTCNN",))
+    state.schema_provider = _route_test_provider()
+    state.batch_turns[0]["statements"][0]["detail"]["missing_classes"] = ["MTCNN"]
+    assert _record_named_schema_absence_blocker(state, has_candidate=False) == ()
+    assert "authoring_blocker" not in state.report
+    state.batch_turns[0]["statements"].append(
+        {
+            "op_kind": "query",
+            "ok": True,
+            "landed": False,
+            "detail": {"missing_classes": ["RetinaFace"]},
+        }
+    )
+    _record_named_schema_absence_blocker(state, has_candidate=False)
+    blocker = state.report["authoring_blocker"]
+    assert blocker["missing_runtime_classes"] == ["MTCNN", "RetinaFace"]
+    state.batch_refusal_missing_classes = ("MTCNN", "RetinaFace")
+    state.batch_refusal_evidence = tuple(
+        item["evidence_id"] for item in blocker["absence_evidence"]
+    )
+    assert _typed_refusal_is_authorized(
+        state, named_schema_absence=True, structural_feature_absence=False
+    )
 
 
 def test_failed_edit_cannot_be_laundered_into_refusal() -> None:
@@ -175,6 +205,7 @@ def test_present_class_cannot_be_claimed_absent() -> None:
 
 def test_recomputed_wrong_authority_digest_is_rejected() -> None:
     state = _state(claimed=("MTCNN",))
+    state.schema_provider = _route_test_provider()
     _record_named_schema_absence_blocker(state, has_candidate=False)
     original = dict(state.report["authoring_blocker"]["absence_evidence"][0])
     forged = dict(original, authority_digest="0" * 64)
@@ -223,6 +254,14 @@ def test_reply_lane_preserves_typed_evidence_fields() -> None:
     assert payload.evidence == ("schema:MTCNN",)
 
 
+def test_threaded_typed_classes_reject_lossy_non_string_items() -> None:
+    payload = parse_reply_payload(
+        '{"kind":"requires_custom_nodes","missing_classes":["MTCNN",7],'
+        '"evidence":["id"],"reply":"MTCNN is absent."}'
+    )
+    assert payload.is_typed_refusal is False
+
+
 def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
     request = ExecutorRequest(
         query="Add MTCNN face detection",
@@ -269,6 +308,115 @@ def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
     )
     assert implementation is not None
     assert implementation.durable_response["outcome"]["kind"] == "requires_custom_nodes"
+
+
+def test_threaded_structural_refusal_uses_frozen_feature_ledger() -> None:
+    request = ExecutorRequest(
+        query="Use the SaveImage missing_feature input",
+        graph=_route_test_graph(),
+        expected_no_candidate_absent_features=(
+            {"feature": "missing_feature", "checks": [{
+                "class_type": "saveimage", "member_kind": "input", "member": "missing_feature"
+            }]},
+        ),
+    )
+    provider = _route_test_provider()
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=provider)
+    feature_id = next(
+        key for key, record in ledger.items() if record["kind"] == "feature_absence"
+    )
+    implementation = synthesize_inspect_refusal_implementation(
+        request,
+        reply=(
+            '{"kind":"clarify","feature_absences":[{"evidence_id":"%s"}],'
+            '"evidence":["%s"],"reply":"Use another image sink."}'
+        ) % (feature_id, feature_id),
+        schema_lookup=provider,
+        frozen_ledger=ledger,
+    )
+    assert implementation is not None
+    assert implementation.durable_response["outcome"]["kind"] == "clarify"
+
+    mutable = {"value": provider.get_schema("SaveImage")}
+    def changing_lookup(class_type: str) -> object | None:
+        value = mutable["value"]
+        mutable["value"] = object()
+        return value
+    frozen = inspect_refusal_evidence_ledger(request, schema_lookup=changing_lookup)
+    frozen_id = next(iter(frozen))
+    stable = synthesize_inspect_refusal_implementation(
+        request,
+        reply=(
+            '{"kind":"clarify","feature_absences":[{"evidence_id":"%s"}],'
+            '"evidence":["%s"],"reply":"Use another image sink."}'
+        ) % (frozen_id, frozen_id),
+        schema_lookup=changing_lookup,
+        frozen_ledger=frozen,
+    )
+    assert stable is not None
+    assert stable.durable_response["outcome"]["kind"] == "clarify"
+
+
+def test_threaded_frozen_class_ledger_is_not_recomputed() -> None:
+    provider = _route_test_provider()
+    calls = 0
+
+    def lookup(class_type: str) -> object | None:
+        nonlocal calls
+        calls += 1
+        # The first cached observation is the authority shown to the model;
+        # later ambient state changes must not affect validation.
+        return None if calls <= 2 else provider.get_schema("SaveImage")
+
+    request = ExecutorRequest(
+        query="Add MTCNN face detection",
+        graph={"nodes": {}},
+        expected_no_candidate_absent_classes=("MTCNN",),
+    )
+    frozen = inspect_refusal_evidence_ledger(request, schema_lookup=lookup)
+    evidence_id = next(iter(frozen))
+    result = synthesize_inspect_refusal_implementation(
+        request,
+        reply=(
+            '{"kind":"requires_custom_nodes","missing_classes":["MTCNN"],'
+            '"evidence":["%s"],"reply":"Install the detector pack."}'
+        ) % evidence_id,
+        schema_lookup=lookup,
+        frozen_ledger=frozen,
+    )
+    assert result is not None
+    assert result.durable_response["outcome"]["kind"] == "requires_custom_nodes"
+    assert calls == 1
+
+
+def test_threaded_implicit_class_set_cannot_authorize_partial_search() -> None:
+    request = ExecutorRequest(
+        query="Add MTCNN and RetinaFace face detection",
+        graph={"nodes": {}},
+    )
+
+    def lookup(_class_type: str) -> None:
+        return None
+
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=lookup)
+    assert {
+        record["class_type"] for record in ledger.values()
+        if record["kind"] == "class_absence"
+    } == {"MTCNN", "RetinaFace"}
+
+
+def test_staged_stale_authority_evidence_is_rejected() -> None:
+    provider = _route_test_provider()
+    state = _state(claimed=("MTCNN",))
+    state.schema_provider = provider
+    _record_named_schema_absence_blocker(state, has_candidate=False)
+    evidence_id = state.report["authoring_blocker"]["evidence_refs"][0]
+    original = provider.get_schema
+    provider.get_schema = lambda _class_type: original("SaveImage")
+    state.batch_refusal_evidence = (evidence_id,)
+    assert not _typed_refusal_is_authorized(
+        state, named_schema_absence=True, structural_feature_absence=False
+    )
 
 
 def test_staged_structural_refusal_uses_produced_bound_evidence() -> None:

@@ -1140,10 +1140,10 @@ def _missing_classes_from_mapping(parsed: Mapping[str, Any]) -> tuple[str, ...]:
     raw = parsed.get("missing_classes")
     if raw is None:
         raw = parsed.get("missing_runtime_classes")
-    if isinstance(raw, str) and raw.strip():
-        return _filter_registry_missing_classes((raw.strip(),))
     if isinstance(raw, (list, tuple)):
-        raw_tuple = tuple(str(item).strip() for item in raw if str(item).strip())
+        if not all(isinstance(item, str) and item.strip() for item in raw):
+            return ()
+        raw_tuple = tuple(item.strip() for item in raw)
         return _filter_registry_missing_classes(raw_tuple)
     return ()
 
@@ -1173,6 +1173,13 @@ def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
         return None
     kind = kind.strip()
     if kind not in _REPLY_TYPED_REFUSAL_KINDS:
+        return None
+    raw_classes = parsed.get("missing_classes", parsed.get("missing_runtime_classes"))
+    if raw_classes is not None and (
+        not isinstance(raw_classes, (list, tuple))
+        or not all(isinstance(item, str) and item.strip() for item in raw_classes)
+        or not all(_is_registry_class_token(item.strip()) for item in raw_classes)
+    ):
         return None
     text = None
     for key in ("reply", "message", "response", "content", "text"):

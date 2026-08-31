@@ -2881,19 +2881,30 @@ def _run_inspect_reply(
     *,
     plan: ClassifyDecision,
     host_ports: ExecutorHostPorts | None = None,
+    refusal_ledger: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
     """Run the shared graph-inspection reply surface for either driver."""
     evidence = inspect_graph(request.graph)
     from .threaded import inspect_refusal_evidence_ledger
 
-    refusal_ledger = inspect_refusal_evidence_ledger(request)
+    refusal_ledger = (
+        refusal_ledger
+        if isinstance(refusal_ledger, Mapping)
+        else inspect_refusal_evidence_ledger(request)
+    )
     if refusal_ledger:
         evidence = (
             evidence
             + "\n\nTyped refusal authority ledger (cite exact IDs only):\n"
             + "\n".join(
-                f"- {record['evidence_id']}: class_absence {record['class_type']} "
-                f"authority_digest={record['authority_digest']}"
+                (
+                    f"- {record['evidence_id']}: class_absence {record['class_type']} "
+                    f"authority_digest={record['authority_digest']}"
+                    if record.get("kind") == "class_absence"
+                    else f"- {record['evidence_id']}: feature_absence "
+                    f"{record.get('class_type')}.{record.get('member_kind')}"
+                    f" {record.get('member')} authority_digest={record['authority_digest']}"
+                )
                 for record in refusal_ledger.values()
             )
         )

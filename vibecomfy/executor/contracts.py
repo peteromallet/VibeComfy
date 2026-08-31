@@ -1353,7 +1353,7 @@ class ExecutorRequest:
     scenario_id: str | None = None
     allow_safe_refusal_outcome_kinds: tuple[str, ...] = ()
     expected_no_candidate_absent_classes: tuple[str, ...] = ()
-    expected_no_candidate_absent_features: tuple[str, ...] = ()
+    expected_no_candidate_absent_features: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
@@ -1401,11 +1401,7 @@ class ExecutorRequest:
         object.__setattr__(
             self,
             "expected_no_candidate_absent_features",
-            tuple(
-                str(item).strip()
-                for item in (self.expected_no_candidate_absent_features or ())
-                if str(item).strip()
-            ),
+            tuple(dict(item) for item in (self.expected_no_candidate_absent_features or ()) if isinstance(item, Mapping)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1568,9 +1564,9 @@ class ExecutorRequest:
                 if isinstance(item, str) and item.strip()
             ) if isinstance(payload.get("expected_no_candidate_absent_classes"), (list, tuple)) else (),
             expected_no_candidate_absent_features=tuple(
-                str(item).strip()
+                dict(item)
                 for item in (payload.get("expected_no_candidate_absent_features") or ())
-                if isinstance(item, str) and item.strip()
+                if isinstance(item, Mapping)
             ) if isinstance(payload.get("expected_no_candidate_absent_features"), (list, tuple)) else (),
         )
 

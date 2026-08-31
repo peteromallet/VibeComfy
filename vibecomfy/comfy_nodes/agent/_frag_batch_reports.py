@@ -552,9 +552,17 @@ def _terminal_refusal_payload(node: ast.stmt) -> tuple[str, str, tuple[str, ...]
         features = ()
     if not isinstance(classes, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in classes):
         return None
+    if len(set(classes)) != len(classes):
+        return None
     if not isinstance(evidence, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in evidence):
         return None
+    if len(set(evidence)) != len(evidence):
+        return None
     if not isinstance(features, (list, tuple)) or not all(isinstance(item, dict) for item in features):
+        return None
+    if any(set(item) != {"evidence_id"} or not isinstance(item.get("evidence_id"), str) or not item["evidence_id"].strip() for item in features):
+        return None
+    if len({item["evidence_id"] for item in features}) != len(features):
         return None
     if not isinstance(evidence, (list, tuple)) or not evidence:
         return None

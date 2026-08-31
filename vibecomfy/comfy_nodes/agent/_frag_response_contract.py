@@ -676,6 +676,21 @@ _GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
     "text",
     "video",
     "workflow",
+    "add",
+    "change",
+    "create",
+    "make",
+    "use",
+    "want",
+    "need",
+    "install",
+    "swap",
+    "replace",
+    "switch",
+    "set",
+    "keep",
+    "existing",
+    "current",
 })
 
 
@@ -757,6 +772,64 @@ def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
                     continue
                 if _names_class(class_type):
                     missing.append(class_type)
+    # Once one exact miss has been established, require the structured search
+    # ledger to cover every class-shaped token named by the request.  A partial
+    # search must never become a complete refusal merely because the model
+    # happened to probe one name.  We do not mint records for unsearched names:
+    # the resolver must produce an exact miss for each member of this set.
+    if missing:
+        request_classes = getattr(state, "request_payload", None)
+        request_text_full = " ".join(
+            str(value or "")
+            for value in (
+                getattr(state, "task", ""),
+                request_classes.get("query", "") if isinstance(request_classes, Mapping) else "",
+            )
+        )
+        declared = (
+            request_classes.get("expected_no_candidate_absent_classes")
+            if isinstance(request_classes, Mapping)
+            else None
+        )
+        candidates = [
+            str(item).strip()
+            for item in (declared or ())
+            if isinstance(item, str) and item.strip()
+        ]
+        if not candidates:
+            candidates = [
+                token
+                for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", request_text_full)
+                if any(char.isupper() for char in token)
+                and token.casefold() not in _GENERIC_DOMAIN_TOKENS
+                and token.casefold() not in {"please", "which", "another"}
+            ]
+        candidate_keys = {
+            re.sub(r"[^a-z0-9]", "", candidate.casefold())
+            for candidate in dict.fromkeys(candidates)
+            if candidate.casefold() not in present_classes
+        }
+        observed_keys = {
+            re.sub(r"[^a-z0-9]", "", item.casefold()) for item in missing
+        }
+        # One request family token may intentionally cover several concrete
+        # registry classes (for example GroundingDINO*).  Every observed miss
+        # must still be covered, and every requested candidate must have an
+        # observed exact/family miss; an omitted probe therefore fails closed.
+        covered_observed = {
+            observed
+            for observed in observed_keys
+            if any(observed == candidate or observed.startswith(candidate) for candidate in candidate_keys)
+        }
+        covered_candidates = {
+            candidate
+            for candidate in candidate_keys
+            if any(observed == candidate or observed.startswith(candidate) for observed in observed_keys)
+        }
+        if candidate_keys and (
+            covered_observed != observed_keys or covered_candidates != candidate_keys
+        ):
+            return ()
     return tuple(missing)
 
 
@@ -1139,6 +1212,10 @@ def _typed_refusal_is_authorized(
     if not tuple(getattr(state, "batch_refusal_evidence", ()) or ()):
         return False
     if named_schema_absence:
+        # A canonical ID without the provider that minted its digest is only
+        # a claim, never production authority evidence.
+        if not getattr(state, "schema_provider", None):
+            return False
         report = state.report if isinstance(state.report, Mapping) else {}
         blocker = report.get("authoring_blocker", {})
         raw = blocker.get("missing_runtime_classes", ()) if isinstance(blocker, Mapping) else ()
