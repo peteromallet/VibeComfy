@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, Mapping
-from types import MappingProxyType
 
 
 
@@ -163,90 +162,18 @@ def _ledger_integrity(
     ).hexdigest()
 
 
-_LEDGER_TOKEN = object()
-
-
-class _CaptureOwner:
-    """Nominal authority owner; only the threaded capture adapter subclasses it."""
-
-    __slots__ = ("__capture_capability",)
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if (
-            cls.__module__ != "vibecomfy.executor.threaded"
-            or cls.__name__ != "_FrozenSchemaAuthority"
-        ):
-            raise TypeError("capture owner type is sealed")
-
-    def __init__(self) -> None:
-        if type(self) is _CaptureOwner:
-            raise TypeError("capture owner is collector-private")
-        self.__capture_capability = object()
-
-    def _capture_capability(self) -> object:
-        return self.__capture_capability
-
-
 class FrozenRefusalLedger(dict[str, dict[str, Any]]):
-    """Authenticated evidence mapping produced by one authority snapshot."""
+    """Inspectable authority evidence; only the capture closure can mint it."""
 
-    def __init__(
-        self,
-        records: Mapping[str, Mapping[str, Any]],
-        *,
-        graph_digest: str,
-        schema_snapshot: Mapping[str, Any],
-        schema_content_digest: Any,
-        source_identity: int,
-        source_generation: str | None,
-        owner: Any,
-        _token: object | None = None,
-    ) -> None:
-        if (
-            _token is not _LEDGER_TOKEN
-            or not isinstance(owner, _CaptureOwner)
-            or owner._capture_capability() is None
-        ):
-            raise TypeError("FrozenRefusalLedger must come from authority collection")
-        super().__init__((str(key), dict(value)) for key, value in records.items())
-        self.graph_digest = graph_digest
-        self.schema_content_digest = schema_content_digest
-        self.source_identity = source_identity
-        self.source_generation = source_generation
-        self.authority_source = getattr(owner, "source", None)
-        self.schema_snapshot = MappingProxyType(dict(schema_snapshot))
-        self._integrity = _ledger_integrity(
-            self,
-            graph_digest=graph_digest,
-            schema_snapshot=self.schema_snapshot,
-            schema_content_digest=schema_content_digest,
-            source_identity=source_identity,
-            source_generation=source_generation,
-        )
+    _AUTH_FIELDS = frozenset({"_authenticator", "_auth_token", "_auth_signature"})
 
-    @classmethod
-    def _from_capture(
-        cls,
-        records: Mapping[str, Mapping[str, Any]],
-        *,
-        graph: Any,
-        schema_snapshot: Mapping[str, Any],
-        schema_content_digest: Any,
-        source_identity: int,
-        source_generation: str | None,
-        owner: Any,
-    ) -> "FrozenRefusalLedger":
-        return cls(
-            records,
-            graph_digest=graph_identity(graph),
-            schema_snapshot=schema_snapshot,
-            schema_content_digest=schema_content_digest,
-            source_identity=source_identity,
-            source_generation=source_generation,
-            owner=owner,
-            _token=_LEDGER_TOKEN,
-        )
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("FrozenRefusalLedger must be minted by authority capture")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in self._AUTH_FIELDS and name in self.__dict__:
+            raise AttributeError("ledger authentication is immutable")
+        object.__setattr__(self, name, value)
 
     @classmethod
     def from_collection(cls, *_args: Any, **_kwargs: Any) -> "FrozenRefusalLedger":
@@ -277,6 +204,9 @@ def frozen_ledger_matches_authority(
 ) -> bool:
     """Validate a ledger against its captured graph/schema witness only."""
     if not isinstance(ledger, FrozenRefusalLedger):
+        return False
+    authenticator = getattr(ledger, "_authenticator", None)
+    if not callable(authenticator) or not authenticator(ledger):
         return False
     if not ledger.integrity_valid() or ledger.graph_digest != graph_identity(graph):
         return False

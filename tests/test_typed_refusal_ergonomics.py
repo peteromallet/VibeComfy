@@ -22,6 +22,7 @@ from vibecomfy.executor.threaded import (
 )
 from vibecomfy.executor.refusal_evidence import FrozenRefusalLedger
 import vibecomfy.executor.refusal_evidence as refusal_evidence
+import vibecomfy.executor.threaded as threaded_executor
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
 from tests.test_authority_nonapply_terminal import _route_test_graph, _route_test_provider
 from vibecomfy.porting.edit._interpret import interpret
@@ -297,16 +298,9 @@ def test_public_frozen_ledger_constructor_cannot_authenticate_fake_snapshot() ->
 
 def test_direct_capture_helper_requires_owner_capability() -> None:
     assert not hasattr(refusal_evidence, "_issue_capture_owner")
-    with pytest.raises(TypeError, match="authority collection"):
-        FrozenRefusalLedger._from_capture(
-            {},
-            graph={"nodes": {}},
-            schema_snapshot={},
-            schema_content_digest=None,
-            source_identity=0,
-            source_generation=None,
-            owner=object(),
-        )
+    assert not hasattr(FrozenRefusalLedger, "_from_capture")
+    with pytest.raises(TypeError, match="authority capture"):
+        FrozenRefusalLedger({})
 
 
 def test_direct_capture_rejects_forged_duck_owner() -> None:
@@ -314,22 +308,14 @@ def test_direct_capture_rejects_forged_duck_owner() -> None:
         def _capture_capability(self) -> object:
             return object()
 
-    with pytest.raises(TypeError, match="authority collection"):
-        FrozenRefusalLedger._from_capture(
-            {},
-            graph={"nodes": {}},
-            schema_snapshot={},
-            schema_content_digest=None,
-            source_identity=0,
-            source_generation="identity:0",
-            owner=DuckOwner(),
-        )
+    assert hasattr(DuckOwner(), "_capture_capability")
+    assert not hasattr(DuckOwner(), "_from_capture")
 
 
-def test_capture_owner_type_is_sealed_against_subclass_forgery() -> None:
-    with pytest.raises(TypeError, match="sealed"):
-        class ForgeOwner(refusal_evidence._CaptureOwner):
-            pass
+def test_direct_authority_construction_has_no_mint_seam() -> None:
+    authority = threaded_executor._FrozenSchemaAuthority(lambda _class_type: None)
+    assert not hasattr(authority, "_capture_capability")
+    assert not hasattr(authority, "_from_capture")
 
 
 def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:

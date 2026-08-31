@@ -10,8 +10,13 @@ from __future__ import annotations
 
 import logging
 import re
+import hashlib
+import hmac
+import json
+import secrets
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
@@ -29,14 +34,16 @@ from .contracts import (
 )
 from .refusal_evidence import (
     FrozenRefusalLedger,
-    _CaptureOwner,
     _authority_content_digest_for_observations,
+    _jsonable,
+    _ledger_integrity,
     authority_generation,
     class_absence_record,
     evidence_id_matches_record,
     feature_absence_record,
     evidence_record_matches_authority,
     frozen_ledger_matches_authority,
+    graph_identity,
     validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
@@ -113,11 +120,10 @@ class ThreadedKernel:
 _LOOKUP_UNAVAILABLE = object()
 
 
-class _FrozenSchemaAuthority(_CaptureOwner):
+class _FrozenSchemaAuthority:
     """Memoize one provider's observations for a single inspect turn."""
 
     def __init__(self, source: Any) -> None:
-        super().__init__()
         self.source = source
         self._observations: dict[str, Any] = {}
         self.content_digest = getattr(source, "content_digest", None)
@@ -542,15 +548,58 @@ def inspect_refusal_evidence_ledger(
         for record in ledger.values()
         if isinstance(record.get("class_type"), str)
     )
-    return FrozenRefusalLedger._from_capture(
-        ledger,
-        graph=request.graph,
-        schema_snapshot=provider.snapshot(),
+    auth_key = secrets.token_bytes(32)
+    auth_registry: dict[str, tuple[int, str]] = {}
+
+    def auth_payload(captured: FrozenRefusalLedger) -> bytes:
+        payload = {
+            "records": captured,
+            "graph_identity": captured.graph_digest,
+            "schema_snapshot": captured.schema_snapshot,
+            "schema_content_digest": captured.schema_content_digest,
+            "source_identity": captured.source_identity,
+            "source_generation": captured.source_generation,
+        }
+        return json.dumps(
+            _jsonable(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+
+    def authenticate(captured: FrozenRefusalLedger) -> bool:
+        token = getattr(captured, "_auth_token", None)
+        signature = getattr(captured, "_auth_signature", None)
+        if not isinstance(token, str) or not isinstance(signature, str):
+            return False
+        if auth_registry.get(token) != (id(captured), signature):
+            return False
+        expected = hmac.new(auth_key, auth_payload(captured), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(signature, expected)
+
+    graph_digest = graph_identity(request.graph)
+    schema_snapshot = MappingProxyType(dict(provider.snapshot()))
+    source_generation = provider.capture_generation(source_classes)
+    captured = dict.__new__(FrozenRefusalLedger)
+    dict.__init__(captured, ((str(key), dict(value)) for key, value in ledger.items()))
+    captured.graph_digest = graph_digest
+    captured.schema_snapshot = schema_snapshot
+    captured.schema_content_digest = provider.content_digest
+    captured.source_identity = provider.source_identity
+    captured.source_generation = source_generation
+    captured.authority_source = provider.source
+    captured._integrity = _ledger_integrity(
+        captured,
+        graph_digest=graph_digest,
+        schema_snapshot=schema_snapshot,
         schema_content_digest=provider.content_digest,
         source_identity=provider.source_identity,
-        source_generation=provider.capture_generation(source_classes),
-        owner=provider,
+        source_generation=source_generation,
     )
+    captured._authenticator = authenticate
+    captured._auth_token = secrets.token_hex(32)
+    captured._auth_signature = hmac.new(
+        auth_key, auth_payload(captured), hashlib.sha256
+    ).hexdigest()
+    auth_registry[captured._auth_token] = (id(captured), captured._auth_signature)
+    return captured
 
 
 def synthesize_inspect_refusal_implementation(
