@@ -29,10 +29,12 @@ from .contracts import (
     validate_reply_change_claims,
 )
 from .refusal_evidence import (
+    FrozenRefusalLedger,
     class_absence_record,
     evidence_id_matches_record,
     feature_absence_record,
     evidence_record_matches_authority,
+    frozen_ledger_matches_authority,
     validate_evidence_ids,
 )
 from .profiles import AgentSpecShape
@@ -140,6 +142,9 @@ class _FrozenSchemaAuthority:
         except Exception:  # noqa: BLE001 - authority listing fails closed
             return {}
         return result if isinstance(result, Mapping) else {}
+
+    def snapshot(self) -> Mapping[str, Any]:
+        return dict(self._observations)
 
 _GENERIC_DOMAIN_TOKENS: frozenset[str] = frozenset({
     "audio",
@@ -512,7 +517,12 @@ def inspect_refusal_evidence_ledger(
                 available_members=sorted(names),
             )
             ledger[record["evidence_id"]] = record
-    return ledger
+    return FrozenRefusalLedger.from_collection(
+        ledger,
+        graph=request.graph,
+        schema_snapshot=provider.snapshot(),
+        schema_content_digest=provider.content_digest,
+    )
 
 
 def synthesize_inspect_refusal_implementation(
@@ -528,11 +538,18 @@ def synthesize_inspect_refusal_implementation(
     inspect reply, or a generic/no-op-shaped reply, is never promoted.  The
     model must emit the typed JSON refusal and cite the complete absence set.
     """
-    ledger = (
-        {str(key): dict(value) for key, value in frozen_ledger.items()}
-        if isinstance(frozen_ledger, Mapping)
-            else inspect_refusal_evidence_ledger(request, schema_lookup=schema_lookup)
-    )
+    frozen_authority_valid = True
+    if frozen_ledger is not None:
+        frozen_authority_valid = isinstance(frozen_ledger, FrozenRefusalLedger) and frozen_ledger_matches_authority(
+            frozen_ledger, graph=request.graph
+        )
+        ledger = (
+            {str(key): dict(value) for key, value in frozen_ledger.items()}
+            if isinstance(frozen_ledger, Mapping)
+            else {}
+        )
+    else:
+        ledger = inspect_refusal_evidence_ledger(request, schema_lookup=schema_lookup)
     missing = tuple(
         str(record.get("class_type"))
         for record in ledger.values()
@@ -606,6 +623,7 @@ def synthesize_inspect_refusal_implementation(
     valid = bool(
         typed_payload
         and records is not None
+        and frozen_authority_valid
         and {item.casefold() for item in claimed}
         == {item.casefold() for item in missing}
         and len(claimed) == len(missing)

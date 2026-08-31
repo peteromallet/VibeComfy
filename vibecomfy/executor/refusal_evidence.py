@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, Mapping
+from types import MappingProxyType
 
 
 
@@ -24,6 +25,57 @@ def _jsonable(value: Any) -> Any:
     return repr(value)
 
 
+def graph_identity(graph: Any) -> str:
+    """Return the stable identity of the graph used for one evidence turn."""
+    return hashlib.sha256(
+        json.dumps(
+            _jsonable(graph), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    ).hexdigest()
+
+
+def _graph_classes(graph: Any) -> set[str]:
+    classes: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key in ("class_type", "type"):
+                item = value.get(key)
+                if isinstance(item, str) and item.strip():
+                    classes.add(item.strip().casefold())
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                walk(child)
+        elif hasattr(value, "nodes"):
+            walk(getattr(value, "nodes"))
+        elif isinstance(getattr(value, "class_type", None), str):
+            classes.add(value.class_type.strip().casefold())
+
+    walk(graph)
+    return classes
+
+
+def authority_digest_for_snapshot(
+    graph: Any,
+    *,
+    class_type: str,
+    schema: Any,
+    schema_content_digest: Any = None,
+) -> str:
+    """Digest a previously captured graph/schema observation without lookup."""
+    payload = {
+        "graph_classes": sorted(_graph_classes(graph)),
+        "class_type": class_type,
+        "schema": _jsonable(schema),
+        "schema_content_digest": schema_content_digest,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+
+
 def authority_digest(graph: Any, schema_provider: Any, *, class_type: str) -> str:
     """Digest the exact graph and class schema authority used by a lookup."""
     schema = None
@@ -35,33 +87,137 @@ def authority_digest(graph: Any, schema_provider: Any, *, class_type: str) -> st
             schema = get_schema(class_type)
         except Exception:  # noqa: BLE001 - unavailable authority is not proof
             schema = None
-    def graph_classes(value: Any, found: set[str]) -> None:
-        if isinstance(value, Mapping):
-            for key in ("class_type", "type"):
-                item = value.get(key)
-                if isinstance(item, str) and item.strip():
-                    found.add(item.strip().casefold())
-            for child in value.values():
-                graph_classes(child, found)
-        elif isinstance(value, (list, tuple)):
-            for child in value:
-                graph_classes(child, found)
-        elif hasattr(value, "nodes"):
-            graph_classes(getattr(value, "nodes"), found)
-        elif isinstance(getattr(value, "class_type", None), str):
-            found.add(value.class_type.strip().casefold())
+    return authority_digest_for_snapshot(
+        graph,
+        class_type=class_type,
+        schema=schema,
+        schema_content_digest=getattr(schema_provider, "content_digest", None),
+    )
 
-    classes: set[str] = set()
-    graph_classes(graph, classes)
+
+def _ledger_integrity(
+    records: Mapping[str, Mapping[str, Any]],
+    *,
+    graph_digest: str,
+    schema_snapshot: Mapping[str, Any],
+    schema_content_digest: Any,
+) -> str:
     payload = {
-        "graph_classes": sorted(classes),
-        "class_type": class_type,
-        "schema": _jsonable(schema),
-        "schema_content_digest": getattr(schema_provider, "content_digest", None),
+        "records": records,
+        "graph_identity": graph_digest,
+        "schema_snapshot": schema_snapshot,
+        "schema_content_digest": schema_content_digest,
     }
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        json.dumps(_jsonable(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     ).hexdigest()
+
+
+_LEDGER_TOKEN = object()
+
+
+class FrozenRefusalLedger(dict[str, dict[str, Any]]):
+    """Authenticated evidence mapping produced by one authority snapshot."""
+
+    def __init__(
+        self,
+        records: Mapping[str, Mapping[str, Any]],
+        *,
+        graph_digest: str,
+        schema_snapshot: Mapping[str, Any],
+        schema_content_digest: Any,
+        _token: object | None = None,
+    ) -> None:
+        if _token is not _LEDGER_TOKEN:
+            raise TypeError("FrozenRefusalLedger must come from authority collection")
+        super().__init__((str(key), dict(value)) for key, value in records.items())
+        self.graph_digest = graph_digest
+        self.schema_content_digest = schema_content_digest
+        self.schema_snapshot = MappingProxyType(dict(schema_snapshot))
+        self._integrity = _ledger_integrity(
+            self,
+            graph_digest=graph_digest,
+            schema_snapshot=self.schema_snapshot,
+            schema_content_digest=schema_content_digest,
+        )
+
+    @classmethod
+    def from_collection(
+        cls,
+        records: Mapping[str, Mapping[str, Any]],
+        *,
+        graph: Any,
+        schema_snapshot: Mapping[str, Any],
+        schema_content_digest: Any,
+    ) -> "FrozenRefusalLedger":
+        return cls(
+            records,
+            graph_digest=graph_identity(graph),
+            schema_snapshot=schema_snapshot,
+            schema_content_digest=schema_content_digest,
+            _token=_LEDGER_TOKEN,
+        )
+
+    def integrity_valid(self) -> bool:
+        return self._integrity == _ledger_integrity(
+            self,
+            graph_digest=self.graph_digest,
+            schema_snapshot=self.schema_snapshot,
+            schema_content_digest=self.schema_content_digest,
+        )
+
+
+def frozen_ledger_matches_authority(
+    ledger: FrozenRefusalLedger,
+    *,
+    graph: Any,
+) -> bool:
+    """Validate a ledger against its captured graph/schema witness only."""
+    if not isinstance(ledger, FrozenRefusalLedger):
+        return False
+    if not ledger.integrity_valid() or ledger.graph_digest != graph_identity(graph):
+        return False
+    classes = _graph_classes(graph)
+    for key, record in ledger.items():
+        if not isinstance(key, str) or key != record.get("evidence_id"):
+            return False
+        if not evidence_id_matches_record(record):
+            return False
+        class_type = record.get("class_type")
+        if not isinstance(class_type, str):
+            return False
+        schema = ledger.schema_snapshot.get(class_type)
+        if record.get("authority_digest") != authority_digest_for_snapshot(
+            graph,
+            class_type=class_type,
+            schema=schema,
+            schema_content_digest=ledger.schema_content_digest,
+        ):
+            return False
+        if record.get("kind") == "class_absence":
+            if class_type.casefold() in classes or schema is not None:
+                return False
+        elif record.get("kind") == "feature_absence":
+            if class_type.casefold() not in classes or schema is None:
+                return False
+            member_kind = record.get("member_kind")
+            member = record.get("member")
+            if member_kind not in {"input", "widget", "output"} or not isinstance(member, str):
+                return False
+            if member_kind == "output":
+                names = {
+                    str(getattr(item, "name", None) or getattr(item, "type", ""))
+                    for item in (getattr(schema, "outputs", None) or ())
+                }
+            else:
+                names = {str(name) for name in (getattr(schema, "inputs", None) or {})}
+            if member in names or record.get("present") is not False:
+                return False
+            if sorted(str(item) for item in record.get("available_members", ())) != sorted(names):
+                return False
+        else:
+            return False
+    return True
 
 
 def class_absence_record(graph: Any, schema_provider: Any, class_type: str) -> dict[str, Any]:
@@ -202,9 +358,13 @@ def evidence_record_matches_authority(
 
 
 __all__ = [
+    "FrozenRefusalLedger",
     "authority_digest",
+    "authority_digest_for_snapshot",
     "class_absence_record",
     "feature_absence_record",
+    "frozen_ledger_matches_authority",
+    "graph_identity",
     "validate_evidence_ids",
     "evidence_id_matches_record",
     "evidence_record_matches_authority",

@@ -389,6 +389,38 @@ def test_threaded_frozen_class_ledger_is_not_recomputed() -> None:
     assert calls == 1
 
 
+def test_threaded_forged_or_stale_frozen_ledger_fails_closed() -> None:
+    request = ExecutorRequest(
+        query="Add MTCNN face detection",
+        graph={"nodes": {}},
+        expected_no_candidate_absent_classes=("MTCNN",),
+    )
+
+    def lookup(_class_type: str) -> None:
+        return None
+
+    ledger = inspect_refusal_evidence_ledger(request, schema_lookup=lookup)
+    evidence_id = next(iter(ledger))
+    reply = (
+        '{"kind":"requires_custom_nodes","missing_classes":["MTCNN"],'
+        '"evidence":["%s"],"reply":"Install the detector pack."}'
+    ) % evidence_id
+    forged = dict(ledger)
+    forged[evidence_id] = dict(ledger[evidence_id], authority_digest="f" * 64)
+    forged_result = synthesize_inspect_refusal_implementation(
+        request, reply=reply, schema_lookup=lookup, frozen_ledger=forged
+    )
+    assert forged_result is not None
+    assert forged_result.durable_response["outcome"]["kind"] == "noop"
+
+    request.graph["nodes"]["1"] = {"class_type": "MTCNN"}
+    stale_result = synthesize_inspect_refusal_implementation(
+        request, reply=reply, schema_lookup=lookup, frozen_ledger=ledger
+    )
+    assert stale_result is not None
+    assert stale_result.durable_response["outcome"]["kind"] == "noop"
+
+
 def test_threaded_implicit_class_set_cannot_authorize_partial_search() -> None:
     request = ExecutorRequest(
         query="Add MTCNN and RetinaFace face detection",
@@ -413,6 +445,16 @@ def test_staged_stale_authority_evidence_is_rejected() -> None:
     evidence_id = state.report["authoring_blocker"]["evidence_refs"][0]
     original = provider.get_schema
     provider.get_schema = lambda _class_type: original("SaveImage")
+    state.batch_refusal_evidence = (evidence_id,)
+    assert not _typed_refusal_is_authorized(
+        state, named_schema_absence=True, structural_feature_absence=False
+    )
+
+    state = _state(claimed=("MTCNN",))
+    state.schema_provider = _route_test_provider()
+    _record_named_schema_absence_blocker(state, has_candidate=False)
+    state.graph = {"nodes": {"1": {"class_type": "MTCNN"}}}
+    evidence_id = state.report["authoring_blocker"]["evidence_refs"][0]
     state.batch_refusal_evidence = (evidence_id,)
     assert not _typed_refusal_is_authorized(
         state, named_schema_absence=True, structural_feature_absence=False
