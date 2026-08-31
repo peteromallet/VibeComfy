@@ -181,10 +181,11 @@ def schema_payload_from_node_schema(class_type: str, schema: Any) -> dict[str, A
         ],
         # RR1-FIX-1: preserve the explicit input/widget SPLIT through snapshot
         # serialization. ``input_order`` keeps declared input order; this keeps
-        # which ordered inputs are literal widget slots (``None`` = UI-only
-        # slot). Replay reconstructs the exact same compact slot domain live
-        # admission used instead of re-guessing socket/widget membership from
-        # type names.
+        # the compact literal-widget slots after normalized object-info socket
+        # nulls are removed. Named UI-only controls (such as
+        # ``control_after_generate``) remain explicit. ``None`` is accepted
+        # only for legacy/provider payload compatibility; replay reconstructs
+        # the same compact slot domain live admission used.
         "widget_input_order": [
             name if isinstance(name, str) else None
             for name in (getattr(schema, "widget_input_order", None) or ())

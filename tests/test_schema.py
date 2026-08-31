@@ -311,6 +311,39 @@ def test_workflow_json_candidates_create_provisional_authoring_schemas() -> None
     assert "def ADE_AnimateDiffLoaderWithContext" in format_signature_rows(rows)
 
 
+def test_provisional_normalized_object_info_preserves_widget_order() -> None:
+    provider = ProvisionalRegistrySchemaProvider(
+        [
+            {
+                "pack": {"slug": "workflow_json"},
+                "validation_mode": "workflow_json_provisional",
+                "provisional_schema": {
+                    "version": "workflow-json",
+                    "schema": {
+                        "nodes": {
+                            "ProvisionalWidgetNode": {
+                                "inputs": {
+                                    "required": {
+                                        "model": ["MODEL", {}],
+                                        "seed": ["INT", {}],
+                                    }
+                                },
+                                "object_info_widget_order": [None, "seed"],
+                                "outputs": [],
+                            }
+                        }
+                    },
+                },
+            }
+        ]
+    )
+
+    schema = provider.get_schema("ProvisionalWidgetNode")
+
+    assert schema is not None
+    assert schema.widget_input_order == ("seed",)
+
+
 def test_authoring_schema_provider_prefers_committed_object_info_when_node_index_stale(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "node_index.json").write_text(
@@ -1915,9 +1948,19 @@ def test_conversion_schema_provider_falls_back_to_object_info_cache(
         cache,
         {
             "CacheOnlyNode": {
-                "input": {"required": {"image": ["IMAGE", {}]}},
-                "output": ["MASK"],
-                "output_name": ["mask"],
+                "inputs": {
+                    "required": {
+                        "model": ["MODEL", {}],
+                        "seed": [
+                            "INT",
+                            {"control_after_generate": ["fixed", "increment", "decrement"]},
+                        ],
+                        "steps": ["INT", {}],
+                        "sampler_name": [["euler", "heun"], {}],
+                    }
+                },
+                "object_info_widget_order": [None, "seed", None, "steps", "sampler_name"],
+                "outputs": [{"type": "MASK", "name": "mask"}],
                 "category": "test/cache",
             },
         },
@@ -1933,12 +1976,65 @@ def test_conversion_schema_provider_falls_back_to_object_info_cache(
         enable_runtime=False,
     )
 
+    direct = ObjectInfoSchemaProvider(cache).get_schema("CacheOnlyNode")
+    assert direct is not None
+    assert direct.widget_input_order == (
+        "seed",
+        "control_after_generate",
+        "steps",
+        "sampler_name",
+    )
+
     schema = provider.get_schema("CacheOnlyNode")
     assert schema is not None
     assert schema.source_provider == "object_info_cache"
-    assert schema.inputs["image"].type == "IMAGE"
+    assert schema.inputs["model"].type == "MODEL"
+    assert schema.widget_input_order == direct.widget_input_order
     assert schema.confidence == 0.8
     assert schema.conflicts == ()
+
+    from vibecomfy.schema import node_schema_from_payload, schema_payload_from_node_schema
+
+    restored = node_schema_from_payload(
+        "CacheOnlyNode", schema_payload_from_node_schema("CacheOnlyNode", schema)
+    )
+    assert restored.widget_input_order == schema.widget_input_order
+
+    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
+
+    resolution = compact_widget_names_for_node(
+        {"type": "CacheOnlyNode", "widgets_values": [7, "fixed", 20, "euler"]},
+        schema_provider=provider,
+    )
+    assert resolution.names == (
+        "seed",
+        "control_after_generate",
+        "steps",
+        "sampler_name",
+    )
+
+
+def test_schema_from_raw_object_info_does_not_guess_widget_order() -> None:
+    from vibecomfy.schema.provider import _schema_from_object_info
+
+    schema = _schema_from_object_info(
+        "RawObjectInfoNode",
+        {
+            "input": {
+                "required": {
+                    "model": ["MODEL", {}],
+                    "seed": [
+                        "INT",
+                        {"control_after_generate": ["fixed", "increment", "decrement"]},
+                    ],
+                    "steps": ["INT", {}],
+                }
+            },
+            "output": ["LATENT"],
+        },
+    )
+
+    assert schema.widget_input_order == ()
 
 
 def test_conversion_schema_provider_uses_object_info_index_root(
@@ -1958,6 +2054,7 @@ def test_conversion_schema_provider_uses_object_info_index_root(
             "IndexedNode": {
                 "pack": "indexed-pack",
                 "inputs": {"required": {"prompt": ["STRING", {}]}},
+                "object_info_widget_order": ["prompt"],
                 "outputs": [{"type": "IMAGE", "name": "image"}],
             }
         },
@@ -1983,6 +2080,7 @@ def test_conversion_schema_provider_uses_object_info_index_root(
     assert schema.source_hash == "authored-pack-id"
     assert schema.source_package == "indexed-pack"
     assert schema.source_version == "1.2.3"
+    assert schema.widget_input_order == ("prompt",)
 
 
 def test_conversion_schema_provider_falls_back_to_widget_schema(

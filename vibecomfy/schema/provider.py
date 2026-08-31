@@ -1351,6 +1351,7 @@ class ConversionSchemaProvider:
             pack=schema.pack,
             inputs=schema.inputs,
             outputs=schema.outputs,
+            widget_input_order=schema.widget_input_order,
             source_provider=info.provider_name,
             source_path=info.source_path,
             source_cache_path=info.cache_path,
@@ -1510,7 +1511,25 @@ def _schema_from_object_info(class_type: str, info: dict[str, Any]) -> NodeSchem
     inputs = _order_object_info_inputs(parsed_inputs, info)
     outputs = _parse_outputs(info)
     pack = _first_string(info, "pack", "package", "category")
-    return NodeSchema(class_type=class_type, pack=pack, inputs=inputs, outputs=outputs)
+    # ``object_info_widget_order`` is emitted by the normalized object-info
+    # cache alongside its normalized ``inputs`` map. It is the only explicit
+    # widget/socket authority here: raw ComfyUI ``input`` rows do not carry an
+    # exact compact widgets_values domain, so leave the field empty for them
+    # instead of guessing from input type names.
+    widget_input_order: tuple[str | None, ...] = ()
+    if isinstance(info.get("object_info_widget_order"), list) and isinstance(
+        info.get("inputs"), Mapping
+    ):
+        from vibecomfy.porting.object_info.consume import compact_literal_widget_order
+
+        widget_input_order = tuple(compact_literal_widget_order(info))
+    return NodeSchema(
+        class_type=class_type,
+        pack=pack,
+        inputs=inputs,
+        outputs=outputs,
+        widget_input_order=widget_input_order,
+    )
 
 
 def _provisional_schemas_from_candidates(
@@ -1545,6 +1564,7 @@ def _provisional_schemas_from_candidates(
                     pack=schema.pack or pack_name,
                     inputs=schema.inputs,
                     outputs=schema.outputs,
+                    widget_input_order=schema.widget_input_order,
                     source_provider=source_provider,
                     source_package=pack_name,
                     source_version=_first_string(schema_payload, "version") if isinstance(schema_payload, dict) else None,
