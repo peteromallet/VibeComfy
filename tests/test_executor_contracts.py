@@ -1040,6 +1040,41 @@ class TestExecutorResult:
         assert payload["outcome"]["kind"] == "error"
         assert "candidate" not in payload
 
+    def test_terminal_normalizer_rejects_applied_outcome_eligibility_contradiction(self) -> None:
+        graph = {"nodes": [{"id": 1}], "links": []}
+        accepted_batch = [{"op": {"op": "set_node_field"}}]
+        digest = content_hash(derived_accepted_delta_envelope({"accepted_batch": accepted_batch}))
+        receipt = {
+            "contract_version": "authority_receipt_v2",
+            "schema_version": "2.0.0",
+            "session_id": "s",
+            "turn_id": "t",
+            "submit_graph_hash": "a" * 64,
+            "candidate_hash": payload_hash(graph),
+            "accepted_batch_digest": digest,
+            "cumulative_delta_hash": digest,
+            "replay_ok": True,
+            "candidate_matches": True,
+            "verification_kind": "delta_replay",
+            "op_count": 1,
+        }
+        payload = normalize_terminal_envelope({
+            "ok": True,
+            "session_id": "s",
+            "turn_id": "t",
+            "terminal_state": "applied",
+            "authority_receipt": receipt,
+            "candidate": {"graph": graph},
+            "accepted_batch": accepted_batch,
+            "outcome": {"kind": "noop"},
+            "apply_eligible": False,
+            "eligibility": {"applyable": False},
+        })
+        assert payload["terminal_state"] == "undetermined"
+        assert payload["ok"] is False
+        assert payload["outcome"]["kind"] == "error"
+        assert "candidate" not in payload
+
     def test_terminal_normalizer_contradictory_rejection_cannot_keep_candidate_outcome(self) -> None:
         payload = normalize_terminal_envelope({
             "ok": True,
