@@ -42,7 +42,6 @@ import {
   renderChatBubbleNode as renderChatBubbleNodeImpl,
   renderChatThread as renderChatThreadImpl,
   renderThreadSection as renderThreadSectionImpl,
-  WELCOME_EXAMPLE_PROMPTS,
 } from "./panel_thread.js";
 import {
   clearPreviewDomOverlay,
@@ -202,7 +201,6 @@ import {
   AGENT_STATUS_RETRY_DELAYS_MS,
   CANONICAL_AGENT_PROVIDERS,
   ROUTE_ALIASES,
-  ROUTE_LABELS,
   ROUTE_STATUS_KIND,
   _lsGet,
   _lsRemove,
@@ -8226,51 +8224,6 @@ function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
   renderLifecycleTransition(panel, obligations);
 }
 
-// ── Paid-submit confirmation gate ─────────────────────────────────────────
-// The first agent-executor submit in a browser calls a real provider and
-// costs money (API/CLI quota). Ask once, persist the ack in localStorage, and
-// ALWAYS confirm the exact welcome-example prompts — clicking an example is a
-// demo, not a deliberate paid submission. Cancel = do not submit.
-const PAID_SUBMIT_ACK_KEY = "vibecomfy_paid_submit_ack";
-
-async function confirmPaidSubmitGate(panel, task) {
-  const isExamplePrompt = WELCOME_EXAMPLE_PROMPTS.includes(task);
-  if (!isExamplePrompt) {
-    try {
-      if (_lsGet(PAID_SUBMIT_ACK_KEY) === "1") {
-        return true;
-      }
-    } catch (_error) {
-      // Storage unavailable: still ask so the cost is never hidden.
-    }
-  }
-  const route = normalizeRoutePreference(
-    panel?.state?.routeStatus?.requestedRoute || panel?.fields?.route?.value,
-  );
-  const model = (panel?.fields?.model?.value && String(panel.fields.model.value).trim())
-    || panel?.state?.routeStatus?.model
-    || "default";
-  const routeLabel = ROUTE_LABELS[route] || route;
-  let confirmed = true;
-  try {
-    if (typeof globalThis.confirm === "function") {
-      confirmed = globalThis.confirm(
-        `Submit this edit through ${routeLabel} (model: ${model})? This calls the provider and costs money.`,
-      );
-    }
-  } catch (_error) {
-    // Non-interactive contexts (tests/harnesses) proceed without blocking.
-  }
-  if (confirmed && !isExamplePrompt) {
-    try {
-      _lsSet(PAID_SUBMIT_ACK_KEY, "1");
-    } catch (_error) {
-      // Best-effort persistence only.
-    }
-  }
-  return confirmed;
-}
-
 async function submitAgentEdit(panel, { taskOverride } = {}) {
   // A staged demo leaves panel.state.__demoMode set, which routes Apply/Reject
   // to the demo handlers and would mask this real edit with the demo's result.
@@ -8449,13 +8402,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
       renderLifecycleTransition(panel, obligations);
-      return;
-    }
-
-    // Paid-submit confirmation gate: ask once per browser, and always for the
-    // exact welcome-example prompts. Nothing has been mutated yet, so a cancel
-    // simply aborts the submit and leaves the draft prompt in place.
-    if (!(await confirmPaidSubmitGate(panel, task))) {
       return;
     }
 
