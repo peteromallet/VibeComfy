@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Iterator
 from typing import Any, Mapping
 
@@ -200,9 +200,17 @@ class RefusalEvidenceHandle(Mapping[str, Mapping[str, Any]]):
 
     token: str
     evidence_ids: tuple[str, ...]
+    _resolver: Any = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not callable(self._resolver):
+            raise TypeError("evidence handles are issued by an executor session")
 
     def _bundle(self) -> RefusalEvidenceBundle | None:
-        return resolve_refusal_evidence_handle(self)
+        try:
+            return self._resolver(self)
+        except Exception:  # noqa: BLE001 - invalid handles fail closed
+            return None
 
     def __getitem__(self, key: str) -> Mapping[str, Any]:
         bundle = self._bundle()
@@ -232,22 +240,13 @@ class RefusalEvidenceStore:
     def __init__(self) -> None:
         raise TypeError("RefusalEvidenceStore is owned by the executor capture path")
 
-# These registries contain no caller-facing mutator.  The only insertion
-# closure is created and retained by the executor evidence state.
-_REFUSAL_STORES: dict[int, RefusalEvidenceStore] = {}
-_REFUSAL_ENTRIES: dict[str, RefusalEvidenceBundle] = {}
-
-
 def resolve_refusal_evidence_handle(
     handle: RefusalEvidenceHandle,
 ) -> RefusalEvidenceBundle | None:
     """Resolve only handles issued by the trusted executor capture closure."""
     if type(handle) is not RefusalEvidenceHandle:
         return None
-    bundle = _REFUSAL_ENTRIES.get(handle.token)
-    if bundle is None or handle.evidence_ids != tuple(bundle.records):
-        return None
-    return bundle
+    return handle._bundle()
 
 
 def frozen_ledger_matches_authority(

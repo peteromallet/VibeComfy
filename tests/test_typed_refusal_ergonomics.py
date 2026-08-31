@@ -313,9 +313,12 @@ def test_forged_store_and_handle_cannot_authorize_evidence() -> None:
     forged_store = object.__new__(RefusalEvidenceStore)
     with pytest.raises(AttributeError):
         forged_store._entries = {}
-    forged_handle = RefusalEvidenceHandle(
-        token="forged-token", evidence_ids=("forged-evidence",)
-    )
+    with pytest.raises(TypeError, match="executor session"):
+        RefusalEvidenceHandle(token="forged-token", evidence_ids=("forged-evidence",))
+    forged_handle = object.__new__(RefusalEvidenceHandle)
+    object.__setattr__(forged_handle, "token", "forged-token")
+    object.__setattr__(forged_handle, "evidence_ids", ("forged-evidence",))
+    object.__setattr__(forged_handle, "_resolver", lambda _handle: None)
     request = ExecutorRequest(
         query="Add MTCNN face detection",
         graph={"nodes": {}},

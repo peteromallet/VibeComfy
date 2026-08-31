@@ -32,9 +32,6 @@ from .contracts import (
 from .refusal_evidence import (
     RefusalEvidenceBundle,
     RefusalEvidenceHandle,
-    RefusalEvidenceStore,
-    _REFUSAL_ENTRIES,
-    _REFUSAL_STORES,
     _authority_content_digest_for_observations,
     _ledger_integrity,
     authority_generation,
@@ -494,25 +491,28 @@ class _ExecutorRefusalEvidenceState:
         self._provider = _FrozenSchemaAuthority(
             schema_lookup or _default_schema_lookup
         )
-        self._store = object.__new__(RefusalEvidenceStore)
-        self._store_identity = id(self._store)
-        _REFUSAL_STORES[self._store_identity] = self._store
-        token = secrets.token_urlsafe(32)
+        entries: dict[str, RefusalEvidenceBundle] = {}
 
-        def commit(bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle:
-            if _REFUSAL_STORES.get(self._store_identity) is not self._store:
-                raise RuntimeError("refusal evidence store is no longer registered")
-            _REFUSAL_ENTRIES[token] = bundle
-            return RefusalEvidenceHandle(
-                token=token,
-                evidence_ids=tuple(bundle.records),
-            )
+        def resolve_handle(
+            handle: RefusalEvidenceHandle,
+        ) -> RefusalEvidenceBundle | None:
+            bundle = entries.get(handle.token)
+            if bundle is None or handle.evidence_ids != tuple(bundle.records):
+                return None
+            return bundle
 
-        self._commit_evidence = commit
+        self._entries = entries
+        self._resolve_handle = resolve_handle
 
     def capture(self) -> RefusalEvidenceHandle:
         bundle = _collect_refusal_evidence_bundle(self._request, self._provider)
-        return self._commit_evidence(bundle)
+        token = secrets.token_urlsafe(32)
+        self._entries[token] = bundle
+        handle = object.__new__(RefusalEvidenceHandle)
+        object.__setattr__(handle, "token", token)
+        object.__setattr__(handle, "evidence_ids", tuple(bundle.records))
+        object.__setattr__(handle, "_resolver", self._resolve_handle)
+        return handle
 
 
 def inspect_refusal_evidence_ledger(
