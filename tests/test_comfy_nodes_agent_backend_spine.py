@@ -4475,6 +4475,73 @@ def test_agent_provider_readiness_stays_unavailable_when_runtime_omits_ready(mon
     assert status["readiness"] == "unavailable"
 
 
+def test_agent_provider_readiness_redacts_runtime_readiness_exception(
+    monkeypatch, caplog
+) -> None:
+    secret = "runtime-probe-secret"
+
+    class Runtime:
+        @staticmethod
+        def readiness(**_kwargs):
+            raise RuntimeError(f"probe failed Authorization: Bearer {secret}")
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    with caplog.at_level("WARNING", logger=agent_provider.__name__):
+        status = agent_provider.get_agent_status(route="openrouter", model="m1")
+
+    assert status["ok"] is False
+    assert status["ready"] is False
+    assert status["readiness"] == "unavailable"
+    assert status["provider_available"] is False
+    assert status["reason"] == agent_provider._ARNOLD_RUNTIME_PROBE_FAILED_REASON
+    assert status["error"] == agent_provider._ARNOLD_RUNTIME_PROBE_FAILED_REASON
+    assert status["route"] == "openrouter"
+    assert status["requested_route"] == "openrouter"
+    assert isinstance(status["route_options"], dict)
+    assert secret not in json.dumps(status)
+    assert secret not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "Authorization: <redacted>" in caplog.text
+
+
+def test_agent_provider_readiness_redacts_runtime_status_exception(monkeypatch) -> None:
+    secret = "runtime-status-secret"
+
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**_kwargs):
+            raise KeyError(f"provider token {secret}")
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    status = agent_provider.readiness(route="anthropic", model="m1")
+
+    assert status["ready"] is False
+    assert status["provider_available"] is False
+    assert status["reason"] == agent_provider._ARNOLD_RUNTIME_PROBE_FAILED_REASON
+    assert status["error"] == agent_provider._ARNOLD_RUNTIME_PROBE_FAILED_REASON
+    assert status["requested_route"] == "anthropic"
+    assert secret not in json.dumps(status)
+
+
+def test_agent_provider_readiness_does_not_swallow_metadata_programmer_error(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def readiness(**_kwargs):
+            return {"ready": True, "reason": "healthy"}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+    monkeypatch.setattr(
+        agent_provider,
+        "_provider_status_metadata",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("metadata bug")),
+    )
+
+    with pytest.raises(RuntimeError, match="metadata bug"):
+        agent_provider.readiness(route="openrouter", model="m1")
+
+
 def test_agent_provider_load_runtime_rejects_module_without_execution_contract(monkeypatch) -> None:
     def fake_import(name: str):
         assert name == "empty_runtime"

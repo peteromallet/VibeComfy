@@ -11205,6 +11205,75 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
     assert "codex-secret" not in json.dumps(ignored)
 
 
+def test_registered_agent_status_route_redacts_unexpected_handler_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registered: dict[str, object] = {}
+
+    class _Routes:
+        def get(self, path: str, **_kwargs):
+            def _register(handler):
+                registered[path] = handler
+                return handler
+
+            return _register
+
+        def post(self, path: str, **_kwargs):
+            return self.get(path, **_kwargs)
+
+    server_module = types.ModuleType("server")
+    server_module.PromptServer = types.SimpleNamespace(
+        instance=types.SimpleNamespace(routes=_Routes())
+    )
+    aiohttp_module = types.ModuleType("aiohttp")
+    aiohttp_module.web = types.SimpleNamespace(
+        json_response=lambda body, status=200: {"status": status, "body": body}
+    )
+    monkeypatch.setitem(sys.modules, "server", server_module)
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "0")
+
+    route_module = importlib.reload(
+        importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+    )
+    route = registered["/vibecomfy/agent/status"]
+
+    secret = "status-handler-secret"
+
+    def _raise(_params):
+        raise RuntimeError(f"handler exploded with {secret}")
+
+    monkeypatch.setattr(route_module, "_handle_agent_status", _raise)
+
+    class _Request:
+        query = {}
+
+    failed = asyncio.run(route(_Request()))
+    assert failed["status"] == 500
+    assert failed["body"] == {
+        "ok": False,
+        "ready": False,
+        "error": route_module._AGENT_STATUS_HANDLER_ERROR,
+        "route_options": {},
+    }
+    assert secret not in json.dumps(failed["body"])
+
+    safe_status = {
+        "ok": False,
+        "ready": False,
+        "provider_available": False,
+        "reason": "The model provider is unavailable. Check local provider configuration.",
+        "route": "arnold",
+        "requested_route": "arnold",
+        "route_options": {"arnold": {"normalized_route": "arnold"}},
+    }
+    monkeypatch.setattr(route_module, "_handle_agent_status", lambda _params: safe_status)
+
+    healthy_response = asyncio.run(route(_Request()))
+    assert healthy_response["status"] == 200
+    assert healthy_response["body"] == safe_status
+
+
 def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_secret_writes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

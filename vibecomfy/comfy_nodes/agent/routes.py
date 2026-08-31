@@ -20,6 +20,7 @@ from . import _agentic_replay_service
 from ..http_security import register_http_route
 
 _LOGGER = logging.getLogger(__name__)
+_AGENT_STATUS_HANDLER_ERROR = "Agent status unavailable."
 
 from vibecomfy.security.gate import CapabilityFenceError
 
@@ -2197,7 +2198,7 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
                     {
                         "ok": False,
                         "ready": False,
-                        "error": f"Status handler error: {exc}",
+                        "error": _AGENT_STATUS_HANDLER_ERROR,
                         "route_options": {},
                     },
                     status=500,

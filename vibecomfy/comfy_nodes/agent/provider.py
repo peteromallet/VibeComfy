@@ -66,6 +66,10 @@ _ARNOLD_RUNTIME_UNAVAILABLE_REASON = (
     "pip install -e '.[agent]' inside ComfyUI's Python environment, "
     "then restart ComfyUI."
 )
+_ARNOLD_RUNTIME_PROBE_FAILED_REASON = (
+    "The agent provider could not determine readiness. "
+    "Check local provider configuration and logs."
+)
 
 
 def _outcome_kind(value: Any) -> str:
@@ -2429,12 +2433,32 @@ def readiness(*, route: str | None = None, model: str | None = None) -> dict[str
     # report honest per-route readiness. The surrounding provider metadata still
     # carries the normalized ``selected_route``.
     probe_route = route_descriptor.requested_route or selected_route
-    readiness_fn: Callable[..., Any] | None = getattr(runtime, "readiness", None)
-    if callable(readiness_fn):
-        raw_status = readiness_fn(route=probe_route, model=selected_model)
-    else:
-        status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
-        raw_status = status_fn(route=probe_route, model=selected_model) if status_fn else {}
+    try:
+        readiness_fn: Callable[..., Any] | None = getattr(runtime, "readiness", None)
+        if callable(readiness_fn):
+            raw_status = readiness_fn(route=probe_route, model=selected_model)
+        else:
+            status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
+            raw_status = status_fn(route=probe_route, model=selected_model) if status_fn else {}
+    except Exception as exc:  # noqa: BLE001 - dynamic provider probe boundary
+        LOGGER.warning(
+            "readiness runtime probe failed route=%r model=%r error_type=%s detail=%s",
+            probe_route,
+            selected_model,
+            type(exc).__name__,
+            _preview_raw_model_response(str(exc)),
+        )
+        return {
+            **_provider_status_metadata(
+                route_descriptor=route_descriptor,
+                selected_route=selected_route,
+                selected_model=selected_model,
+                provider_available=False,
+            ),
+            "ready": False,
+            "reason": _ARNOLD_RUNTIME_PROBE_FAILED_REASON,
+            "error": _ARNOLD_RUNTIME_PROBE_FAILED_REASON,
+        }
     if not isinstance(raw_status, Mapping):
         raw_status = {}
     explicit_ready = raw_status.get("ready")
