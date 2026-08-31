@@ -326,6 +326,12 @@ def test_direct_capture_rejects_forged_duck_owner() -> None:
         )
 
 
+def test_capture_owner_type_is_sealed_against_subclass_forgery() -> None:
+    with pytest.raises(TypeError, match="sealed"):
+        class ForgeOwner(refusal_evidence._CaptureOwner):
+            pass
+
+
 def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
     request = ExecutorRequest(
         query="Add MTCNN face detection",

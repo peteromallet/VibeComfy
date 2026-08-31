@@ -171,6 +171,14 @@ class _CaptureOwner:
 
     __slots__ = ("__capture_capability",)
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if (
+            cls.__module__ != "vibecomfy.executor.threaded"
+            or cls.__name__ != "_FrozenSchemaAuthority"
+        ):
+            raise TypeError("capture owner type is sealed")
+
     def __init__(self) -> None:
         if type(self) is _CaptureOwner:
             raise TypeError("capture owner is collector-private")
