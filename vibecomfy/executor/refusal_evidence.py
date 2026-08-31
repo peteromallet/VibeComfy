@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import secrets
 from dataclasses import dataclass
 from collections.abc import Iterator
 from typing import Any, Mapping
@@ -233,60 +232,22 @@ class RefusalEvidenceStore:
     def __init__(self) -> None:
         raise TypeError("RefusalEvidenceStore is owned by the executor capture path")
 
-def _make_refusal_evidence_registry() -> tuple[
-    Any, Any
-]:
-    """Create the private capture/resolve closures for executor evidence."""
-    # Keep the exact store identities strongly alive for the duration of the
-    # executor process.  The registry, not any public object field, is the
-    # authority witness for a handle.
-    stores: dict[int, RefusalEvidenceStore] = {}
-    entries: dict[int, dict[str, RefusalEvidenceBundle]] = {}
-
-    def create_store() -> tuple[RefusalEvidenceStore, Any]:
-        store = object.__new__(RefusalEvidenceStore)
-        store_identity = id(store)
-        stores[store_identity] = store
-        entries[store_identity] = {}
-
-        def begin_registration() -> Any:
-            token = secrets.token_urlsafe(32)
-
-            def commit(bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle:
-                if stores.get(store_identity) is not store:
-                    raise RuntimeError("refusal evidence store is no longer registered")
-                entries[store_identity][token] = bundle
-                return RefusalEvidenceHandle(
-                    token=token,
-                    evidence_ids=tuple(bundle.records),
-                )
-
-            return commit
-
-        return store, begin_registration
-
-    def resolve(handle: RefusalEvidenceHandle) -> RefusalEvidenceBundle | None:
-        if type(handle) is not RefusalEvidenceHandle:
-            return None
-        for store_identity in stores:
-            bundle = entries.get(store_identity, {}).get(handle.token)
-            if bundle is not None and handle.evidence_ids == tuple(bundle.records):
-                return bundle
-        return None
-
-    return create_store, resolve
-
-
-_create_refusal_evidence_store, _resolve_refusal_evidence = (
-    _make_refusal_evidence_registry()
-)
+# These registries contain no caller-facing mutator.  The only insertion
+# closure is created and retained by the executor evidence state.
+_REFUSAL_STORES: dict[int, RefusalEvidenceStore] = {}
+_REFUSAL_ENTRIES: dict[str, RefusalEvidenceBundle] = {}
 
 
 def resolve_refusal_evidence_handle(
     handle: RefusalEvidenceHandle,
 ) -> RefusalEvidenceBundle | None:
     """Resolve only handles issued by the trusted executor capture closure."""
-    return _resolve_refusal_evidence(handle)
+    if type(handle) is not RefusalEvidenceHandle:
+        return None
+    bundle = _REFUSAL_ENTRIES.get(handle.token)
+    if bundle is None or handle.evidence_ids != tuple(bundle.records):
+        return None
+    return bundle
 
 
 def frozen_ledger_matches_authority(

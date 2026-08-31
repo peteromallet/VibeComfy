@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -31,7 +32,9 @@ from .contracts import (
 from .refusal_evidence import (
     RefusalEvidenceBundle,
     RefusalEvidenceHandle,
-    _create_refusal_evidence_store,
+    RefusalEvidenceStore,
+    _REFUSAL_ENTRIES,
+    _REFUSAL_STORES,
     _authority_content_digest_for_observations,
     _ledger_integrity,
     authority_generation,
@@ -491,8 +494,21 @@ class _ExecutorRefusalEvidenceState:
         self._provider = _FrozenSchemaAuthority(
             schema_lookup or _default_schema_lookup
         )
-        self._store, begin_registration = _create_refusal_evidence_store()
-        self._commit_evidence = begin_registration()
+        self._store = object.__new__(RefusalEvidenceStore)
+        self._store_identity = id(self._store)
+        _REFUSAL_STORES[self._store_identity] = self._store
+        token = secrets.token_urlsafe(32)
+
+        def commit(bundle: RefusalEvidenceBundle) -> RefusalEvidenceHandle:
+            if _REFUSAL_STORES.get(self._store_identity) is not self._store:
+                raise RuntimeError("refusal evidence store is no longer registered")
+            _REFUSAL_ENTRIES[token] = bundle
+            return RefusalEvidenceHandle(
+                token=token,
+                evidence_ids=tuple(bundle.records),
+            )
+
+        self._commit_evidence = commit
 
     def capture(self) -> RefusalEvidenceHandle:
         bundle = _collect_refusal_evidence_bundle(self._request, self._provider)

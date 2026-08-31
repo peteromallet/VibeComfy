@@ -334,6 +334,7 @@ def test_forged_store_and_handle_cannot_authorize_evidence() -> None:
 def test_removed_bundle_capture_seam_cannot_mint_authority() -> None:
     assert not hasattr(refusal_evidence, "_capture_refusal_evidence")
     assert not hasattr(refusal_evidence, "_register_executor_refusal_evidence")
+    assert not hasattr(refusal_evidence, "_create_refusal_evidence_store")
     forged_bundle = object()
     with pytest.raises(AttributeError):
         getattr(refusal_evidence, "_capture_refusal_evidence")(forged_bundle)
