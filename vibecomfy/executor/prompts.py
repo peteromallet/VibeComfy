@@ -788,6 +788,17 @@ def build_reply_messages(
 
 # ── response parsers ─────────────────────────────────────────────────────────
 
+
+def _strict_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build JSON objects without silently accepting duplicate keys."""
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object field: {key}")
+        result[key] = value
+    return result
+
+
 def _first_json_object_span(text: str) -> tuple[int, int] | None:
     """Return (start, end) of the FIRST balanced JSON object in *text*.
 
@@ -841,7 +852,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
     # Try direct parse first (fast path).
     try:
-        parsed = json.loads(stripped)
+        parsed = json.loads(stripped, object_pairs_hook=_strict_object_pairs)
         if isinstance(parsed, dict):
             return parsed
     except json.JSONDecodeError:
@@ -853,7 +864,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if span is not None:
         start, end = span
         try:
-            parsed = json.loads(stripped[start:end])
+            parsed = json.loads(stripped[start:end], object_pairs_hook=_strict_object_pairs)
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
@@ -1174,11 +1185,40 @@ def _typed_refusal_from_json(parsed: Mapping[str, Any]) -> ReplyPayload | None:
     kind = kind.strip()
     if kind not in _REPLY_TYPED_REFUSAL_KINDS:
         return None
+    allowed = {
+        "kind", "missing_classes", "missing_runtime_classes", "feature_absences",
+        "evidence", "reply", "message", "response", "content", "text",
+        "clarification_question", "question",
+    }
+    if set(parsed) - allowed:
+        return None
+    if "missing_classes" in parsed and "missing_runtime_classes" in parsed:
+        return None
     raw_classes = parsed.get("missing_classes", parsed.get("missing_runtime_classes"))
     if raw_classes is not None and (
         not isinstance(raw_classes, (list, tuple))
         or not all(isinstance(item, str) and item.strip() for item in raw_classes)
         or not all(_is_registry_class_token(item.strip()) for item in raw_classes)
+    ):
+        return None
+    raw_features = parsed.get("feature_absences")
+    if raw_features is not None and (
+        not isinstance(raw_features, (list, tuple))
+        or not all(
+            isinstance(item, Mapping)
+            and set(item) == {"evidence_id"}
+            and isinstance(item.get("evidence_id"), str)
+            and item["evidence_id"].strip()
+            for item in raw_features
+        )
+        or len({item["evidence_id"] for item in raw_features}) != len(raw_features)
+    ):
+        return None
+    raw_evidence = parsed.get("evidence")
+    if raw_evidence is not None and (
+        not isinstance(raw_evidence, (list, tuple))
+        or not all(isinstance(item, str) and item.strip() for item in raw_evidence)
+        or len(set(raw_evidence)) != len(raw_evidence)
     ):
         return None
     text = None
@@ -1233,6 +1273,8 @@ def parse_reply_payload(raw: str) -> ReplyPayload:
         refusal = _typed_refusal_from_json(parsed)
         if refusal is not None:
             return refusal
+        if parsed.get("kind") in _REPLY_TYPED_REFUSAL_KINDS:
+            raise ValueError("typed refusal envelope has invalid fields or reply")
         reply = parsed.get("reply")
         if isinstance(reply, str) and reply.strip():
             return ReplyPayload(text=reply.strip())

@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import re
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.comfy_nodes.agent._frag_batch_reports import split_terminal_clarify
 from vibecomfy.comfy_nodes.agent._frag_response_contract import (
     _record_named_schema_absence_blocker,
@@ -18,6 +20,7 @@ from vibecomfy.executor.threaded import (
     inspect_refusal_evidence_ledger,
     synthesize_inspect_refusal_implementation,
 )
+from vibecomfy.executor.refusal_evidence import FrozenRefusalLedger
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
 from tests.test_authority_nonapply_terminal import _route_test_graph, _route_test_provider
 from vibecomfy.porting.edit._interpret import interpret
@@ -255,11 +258,35 @@ def test_reply_lane_preserves_typed_evidence_fields() -> None:
 
 
 def test_threaded_typed_classes_reject_lossy_non_string_items() -> None:
-    payload = parse_reply_payload(
-        '{"kind":"requires_custom_nodes","missing_classes":["MTCNN",7],'
-        '"evidence":["id"],"reply":"MTCNN is absent."}'
-    )
-    assert payload.is_typed_refusal is False
+    with pytest.raises(ValueError):
+        parse_reply_payload(
+            '{"kind":"requires_custom_nodes","missing_classes":["MTCNN",7],'
+            '"evidence":["id"],"reply":"MTCNN is absent."}'
+        )
+    for raw in (
+        '{"kind":"clarify","evidence":["id"],"reply":"x","extra":1}',
+        '{"kind":"clarify","feature_absences":[{"evidence_id":"id","feature":"x"}],"reply":"x"}',
+        '{"kind":"clarify","evidence":[7],"reply":"x"}',
+    ):
+        with pytest.raises(ValueError):
+            parse_reply_payload(raw)
+
+
+def test_public_frozen_ledger_constructor_cannot_authenticate_fake_snapshot() -> None:
+    with pytest.raises(TypeError, match="authority capture"):
+        FrozenRefusalLedger.from_collection(
+            {
+                "refusal:v1:forged": {
+                    "evidence_id": "refusal:v1:forged",
+                    "kind": "class_absence",
+                    "class_type": "MTCNN",
+                    "authority_digest": "f" * 64,
+                }
+            },
+            graph={"nodes": {"1": {"class_type": "MTCNN"}}},
+            schema_snapshot={"MTCNN": None},
+            schema_content_digest="fake",
+        )
 
 
 def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
@@ -296,6 +323,18 @@ def test_threaded_lane_requires_model_typed_refusal_before_promotion() -> None:
     assert "could not be authorized" in malformed.message.lower()
     ledger = inspect_refusal_evidence_ledger(request, schema_lookup=lookup)
     evidence_id = next(iter(ledger))
+    duplicate = synthesize_inspect_refusal_implementation(
+        request,
+        reply=(
+            '{"kind":"requires_custom_nodes","kind":"clarify",'
+            '"missing_classes":["MTCNN"],"evidence":["%s"],'
+            '"reply":"MTCNN is unavailable."}'
+        ) % evidence_id,
+        schema_lookup=lookup,
+        frozen_ledger=ledger,
+    )
+    assert duplicate is not None
+    assert duplicate.durable_response["outcome"]["kind"] == "noop"
     implementation = synthesize_inspect_refusal_implementation(
         request,
         reply=(

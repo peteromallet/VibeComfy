@@ -9,7 +9,6 @@ host. There is no threaded session store and no classifier call.
 from __future__ import annotations
 
 import logging
-import json
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -517,7 +516,7 @@ def inspect_refusal_evidence_ledger(
                 available_members=sorted(names),
             )
             ledger[record["evidence_id"]] = record
-    return FrozenRefusalLedger.from_collection(
+    return FrozenRefusalLedger._from_capture(
         ledger,
         graph=request.graph,
         schema_snapshot=provider.snapshot(),
@@ -557,7 +556,7 @@ def synthesize_inspect_refusal_implementation(
     )
     if not ledger:
         return None
-    from vibecomfy.executor.prompts import parse_reply_payload
+    from vibecomfy.executor.prompts import _extract_json_object, parse_reply_payload
 
     try:
         payload = parse_reply_payload(reply)
@@ -566,7 +565,7 @@ def synthesize_inspect_refusal_implementation(
     raw_object: Mapping[str, Any] | None = None
     if str(reply).lstrip().startswith("{"):
         try:
-            candidate = json.loads(str(reply))
+            candidate = _extract_json_object(str(reply))
         except (TypeError, ValueError):
             candidate = None
         if isinstance(candidate, dict):

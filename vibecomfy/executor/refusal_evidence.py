@@ -142,7 +142,7 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
         )
 
     @classmethod
-    def from_collection(
+    def _from_capture(
         cls,
         records: Mapping[str, Mapping[str, Any]],
         *,
@@ -157,6 +157,16 @@ class FrozenRefusalLedger(dict[str, dict[str, Any]]):
             schema_content_digest=schema_content_digest,
             _token=_LEDGER_TOKEN,
         )
+
+    @classmethod
+    def from_collection(cls, *_args: Any, **_kwargs: Any) -> "FrozenRefusalLedger":
+        """Reject arbitrary public snapshot construction.
+
+        Production ledgers are minted only by the collector's private token
+        path; accepting caller-owned schema snapshots here would turn the
+        integrity checksum into self-authentication.
+        """
+        raise TypeError("FrozenRefusalLedger must be minted by authority capture")
 
     def integrity_valid(self) -> bool:
         return self._integrity == _ledger_integrity(
