@@ -73,7 +73,7 @@ def test_async_warmup_populates_cache_then_validates() -> None:
     api = asyncio.run(run_prepare())
 
     assert provider.object_info_calls == 1
-    assert provider._object_info == {"ready": True}
+    assert provider._object_info == {"ready": {}}
     assert api["1"]["inputs"]["ckpt_name"] == "model-a.safetensors"
 
 
@@ -496,6 +496,67 @@ def test_cache_only_warmup_rejects_runtime_fingerprint_mismatch(tmp_path: Path) 
         assert len(unavailable) == 1
         assert "cache_runtime_fingerprint_mismatch" in unavailable[0]
         assert "using structural validation only" in unavailable[0]
+
+
+@pytest.mark.parametrize("payload", [[], "not-object", None, 7, {"BadNode": []}])
+def test_warm_schema_provider_rejects_malformed_live_payload_and_allows_retry(
+    payload: Any,
+) -> None:
+    class Provider:
+        _object_info = None
+
+        def __init__(self) -> None:
+            self.payloads = [payload, {"GoodNode": {"input": {}}}]
+
+        async def object_info_async(self):
+            return self.payloads.pop(0)
+
+    for warm in (_warm_schema_provider, prompt_module._warm_schema_provider):
+        provider = Provider()
+        unavailable: list[str] = []
+
+        effective = asyncio.run(warm(provider, on_unavailable=unavailable.append))
+
+        assert effective is None
+        assert provider._object_info is None
+        assert len(unavailable) == 1
+        assert "using structural validation only" in unavailable[0]
+        assert "object_info" in unavailable[0]
+
+        retried = asyncio.run(warm(provider, on_unavailable=unavailable.append))
+        assert retried is provider
+        assert provider._object_info == {"GoodNode": {"input": {}}}
+
+
+def test_cache_only_warmup_rejects_malformed_object_info_row(tmp_path: Path) -> None:
+    cache_path = tmp_path / "object_info.cache.json"
+    write_object_info_cache(
+        cache_path,
+        {"BadNode": []},
+        runtime_fingerprint="runtime-id",
+    )
+
+    class Provider:
+        _object_info = None
+
+        def __init__(self) -> None:
+            self.cache_path = cache_path
+
+        def _cache_validation_expected(self) -> dict[str, str]:
+            return {"runtime_fingerprint": "runtime-id"}
+
+    for warm in (_warm_schema_provider, prompt_module._warm_schema_provider):
+        provider = Provider()
+        unavailable: list[str] = []
+        effective = asyncio.run(
+            warm(provider, on_unavailable=unavailable.append, cache_only=True)
+        )
+        assert effective is None
+        assert provider._object_info is None
+        assert unavailable == [
+            f"object_info cache rejected at {cache_path}: cache_payload_row_not_object; "
+            "using structural validation only"
+        ]
 
 
 def test_cache_only_prepare_reports_cache_mismatch_and_skipped_classes(tmp_path: Path) -> None:

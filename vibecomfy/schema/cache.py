@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -17,6 +18,30 @@ CACHE_METADATA_KEY = "_cache_metadata"
 
 CacheValidationPolicy = Literal["strict", "allow_legacy"]
 CacheValidationSeverity = Literal["ok", "warning", "error"]
+
+
+class ObjectInfoPayloadError(ValueError):
+    """Raised when an object-info payload cannot be treated as a schema map."""
+
+
+def validate_object_info_payload_shape(data: Any) -> None:
+    """Require the wire/cache payload to be a class-type → object mapping.
+
+    ComfyUI's object-info endpoint is an object whose non-metadata values are
+    per-class objects.  Metadata is deliberately excluded from this row check
+    because it is owned by the cache envelope, not the endpoint schema.
+    """
+    if not isinstance(data, Mapping):
+        raise ObjectInfoPayloadError(
+            f"object_info payload must be an object, got {type(data).__name__}"
+        )
+    for class_type, row in data.items():
+        if class_type == CACHE_METADATA_KEY:
+            continue
+        if not isinstance(row, Mapping):
+            raise ObjectInfoPayloadError(
+                f"object_info row {class_type!r} must be an object, got {type(row).__name__}"
+            )
 
 
 @dataclass(frozen=True)
@@ -157,6 +182,16 @@ def validate_object_info_cache(
             actual={"payload_type": type(data).__name__},
             cache_path=cache_path_text,
             severity="error",
+        )
+
+    try:
+        validate_object_info_payload_shape(data)
+    except ObjectInfoPayloadError as exc:
+        return _invalid(
+            "cache_payload_row_not_object",
+            expected_values,
+            {"payload_error": str(exc)},
+            cache_path_text,
         )
 
     metadata = data.get(CACHE_METADATA_KEY)

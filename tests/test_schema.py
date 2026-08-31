@@ -28,6 +28,7 @@ from vibecomfy.schema import (
     OutputSpec,
     ProvisionalRegistrySchemaProvider,
     RuntimeSchemaProvider,
+    SchemaProviderError,
     SchemaIndexError,
     SourceSchemaProvider,
     get_authoring_schema_provider,
@@ -1183,6 +1184,36 @@ def test_runtime_schema_provider_async_rejects_stale_cache_and_rewrites_fresh(tm
     )
     assert result.ok
     assert cached is not None and "AsyncFetchedNode" in cached
+
+
+@pytest.mark.parametrize("payload", [[], "not-object", None, 7, {"BadNode": []}])
+def test_runtime_schema_provider_rejects_malformed_live_payload_without_cache(
+    tmp_path, monkeypatch, payload
+) -> None:
+    class FakeServer:
+        async def __aenter__(self):
+            return "http://runtime.test"
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def object_info(self):
+            return payload
+
+    monkeypatch.setattr("vibecomfy.schema.provider.comfy_server", lambda **kwargs: FakeServer())
+    monkeypatch.setattr("vibecomfy.schema.provider.ComfyClient", FakeClient)
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+
+    with pytest.raises(SchemaProviderError, match="object_info"):
+        asyncio.run(provider.object_info_async())
+
+    assert provider._object_info is None
+    assert provider._schemas is None
+    assert not provider.cache_path.exists()
 
 
 def test_object_info_schema_provider_reads_normalized_cache_shape(tmp_path) -> None:

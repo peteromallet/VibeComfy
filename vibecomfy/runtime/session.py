@@ -1588,7 +1588,10 @@ async def _warm_schema_provider(
         if getattr(provider, "_object_info", None) is not None:
             return provider
         if cache_only:
-            from vibecomfy.schema.cache import load_object_info_cache, validate_object_info_cache
+            from vibecomfy.schema.cache import (
+                load_object_info_cache,
+                validate_object_info_cache,
+            )
 
             cached = load_object_info_cache(provider.cache_path)
             if cached is None:
@@ -1618,9 +1621,13 @@ async def _warm_schema_provider(
                 provider._object_info = cached
             return provider
 
-        provider._object_info = await provider.object_info_async()
+        from vibecomfy.schema.cache import validate_object_info_payload_shape
+
+        object_info = await provider.object_info_async()
+        validate_object_info_payload_shape(object_info)
+        provider._object_info = object_info
         return provider
-    except (OSError, RuntimeError, TimeoutError) as exc:
+    except (OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
         return None
 

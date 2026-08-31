@@ -21,6 +21,7 @@ from .cache import (
     object_info_cache_candidates,
     object_info_cache_path,
     runtime_fingerprint,
+    validate_object_info_payload_shape,
     validate_object_info_cache,
     write_object_info_cache,
 )
@@ -1408,6 +1409,10 @@ class RuntimeSchemaProvider:
             return self._object_info
         async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await ComfyClient(active_url).object_info()
+        try:
+            validate_object_info_payload_shape(data)
+        except ValueError as exc:
+            raise SchemaProviderError(None, exc) from exc
         write_object_info_cache(
             self.cache_path,
             data,
@@ -1441,6 +1446,10 @@ class RuntimeSchemaProvider:
         return {"runtime_fingerprint": runtime_fingerprint(self.server_url)}
 
     def _set_object_info(self, data: dict[str, Any]) -> None:
+        try:
+            validate_object_info_payload_shape(data)
+        except ValueError as exc:
+            raise SchemaProviderError(None, exc) from exc
         if self._object_info != data:
             self._schemas = None
         self._object_info = data

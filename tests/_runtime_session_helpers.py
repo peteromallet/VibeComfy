@@ -105,7 +105,7 @@ class WarmProvider:
 
     async def object_info_async(self) -> dict[str, Any]:
         self.object_info_calls += 1
-        return {"ready": True}
+        return {"ready": {}}
 
     def schemas(self) -> dict[str, NodeSchema]:
         if self._object_info is None:
