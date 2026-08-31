@@ -73,6 +73,9 @@ def test_versioned_layout_verification_contract_is_valid():
         }
     )
     assert validate_candidate_transaction(transaction) == (True, None)
+    assert transaction["hashes"]["submit_structural_graph_hash"] == (
+        transaction["candidate_authority"]["precondition"]["compatibility_digest"]
+    )
 
 
 def test_unknown_layout_verification_contract_fails_closed():

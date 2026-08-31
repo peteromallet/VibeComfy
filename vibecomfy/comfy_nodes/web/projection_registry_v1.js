@@ -579,6 +579,123 @@ export function assertProjectionReferenceV1(value, { expected = null } = {}) {
   return value;
 }
 
+function projectionReferenceMatches(actual, expected, { requireCanonical = false } = {}) {
+  if (!actual || actual.kind !== expected.kind
+    || actual.projection !== expected.projection
+    || actual.digest !== expected.digest) {
+    return false;
+  }
+  if (requireCanonical && !Object.hasOwn(actual, "canonical")) return false;
+  if (Object.hasOwn(actual, "canonical")) {
+    try {
+      return canonicalJsonString(actual.canonical) === canonicalJsonString(expected.canonical);
+    } catch (_error) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Verify the transaction projection claims against the terminal's candidate.
+ * The precondition's canonical projection is the source witness; the
+ * transaction's submit structural hash is bound to that witness (or the
+ * layout transaction's structural precondition witness).  Layout hashes are
+ * compatibility projections and are recomputed from the published graph.
+ */
+export function validateTerminalTransactionProjectionBinding(
+  transaction,
+  candidateGraph,
+  { sourceStructuralHash } = {},
+) {
+  if (!transaction || typeof transaction !== "object" || Array.isArray(transaction)
+    || !candidateGraph || typeof candidateGraph !== "object" || Array.isArray(candidateGraph)) {
+    return { valid: false, reason: "invalid_terminal_projection_boundary" };
+  }
+  const candidateAuthority = transaction.candidate_authority;
+  const hashes = transaction.hashes;
+  const authority = transaction.authority;
+  if (!candidateAuthority || typeof candidateAuthority !== "object" || Array.isArray(candidateAuthority)
+    || !hashes || typeof hashes !== "object" || Array.isArray(hashes)
+    || !authority || typeof authority !== "object" || Array.isArray(authority)) {
+    return { valid: false, reason: "invalid_terminal_projection_boundary" };
+  }
+  if (typeof sourceStructuralHash !== "string" || !/^[0-9a-f]{64}$/.test(sourceStructuralHash)) {
+    return { valid: false, reason: "missing_or_invalid_submit_structural_authority" };
+  }
+  const projection = candidateAuthority.operation_family === "layout" ? "layout_v1" : "structural_v1";
+  let expectedPostcondition;
+  try {
+    expectedPostcondition = projectionReferenceV1(candidateGraph, projection);
+  } catch (_error) {
+    return { valid: false, reason: "candidate_transaction_postcondition_unavailable" };
+  }
+  if (!projectionReferenceMatches(candidateAuthority.postcondition, expectedPostcondition)) {
+    return { valid: false, reason: "candidate_transaction_postcondition_mismatch" };
+  }
+
+  const precondition = candidateAuthority.precondition;
+  try {
+    assertProjectionReferenceV1(precondition, { expected: projection });
+  } catch (_error) {
+    return { valid: false, reason: "candidate_transaction_precondition_mismatch" };
+  }
+  if (!projectionReferenceMatches(precondition, precondition, { requireCanonical: true })) {
+    return { valid: false, reason: "candidate_transaction_precondition_mismatch" };
+  }
+
+  let expectedSubmitStructuralHash = precondition.compatibility_digest;
+  if (projection === "layout_v1") {
+    const structuralWitness = candidateAuthority.structural_witness;
+    let expectedStructuralPostcondition;
+    try {
+      assertProjectionReferenceV1(structuralWitness, { expected: "structural_v1" });
+      expectedStructuralPostcondition = projectionReferenceV1(candidateGraph, "structural_v1");
+    } catch (_error) {
+      return { valid: false, reason: "candidate_transaction_structural_witness_mismatch" };
+    }
+    if (!projectionReferenceMatches(structuralWitness, structuralWitness, { requireCanonical: true })
+      || !projectionReferenceMatches(structuralWitness, expectedStructuralPostcondition)
+      || structuralWitness.precondition_digest !== structuralWitness.digest
+      || structuralWitness.postcondition_digest !== structuralWitness.digest) {
+      return { valid: false, reason: "candidate_transaction_structural_witness_mismatch" };
+    }
+    if (structuralWitness.compatibility_digest !== precondition.compatibility_digest) {
+      return { valid: false, reason: "candidate_transaction_submit_structural_hash_mismatch" };
+    }
+  }
+  if (typeof expectedSubmitStructuralHash !== "string"
+    || !/^[0-9a-f]{64}$/.test(expectedSubmitStructuralHash)
+    || hashes.submit_structural_graph_hash !== expectedSubmitStructuralHash
+    || expectedSubmitStructuralHash !== sourceStructuralHash
+    || hashes.submit_structural_graph_hash !== sourceStructuralHash) {
+    return { valid: false, reason: "candidate_transaction_submit_structural_hash_mismatch" };
+  }
+
+  if (candidateAuthority.operation_family === "layout") {
+    const layoutHash = hashes.candidate_layout_graph_hash;
+    const layoutVerification = authority.layout_verification;
+    if (layoutHash != null || layoutVerification != null) {
+      let expectedLayoutHash;
+      try {
+        expectedLayoutHash = sha256Hex(buildLayoutGraphProjection(candidateGraph));
+      } catch (_error) {
+        expectedLayoutHash = null;
+      }
+      if (expectedLayoutHash == null
+        || (layoutHash != null && layoutHash !== expectedLayoutHash)
+        || (layoutVerification != null && (!layoutVerification || typeof layoutVerification !== "object"
+          || Array.isArray(layoutVerification)
+          || layoutVerification.contract_version !== "layout_verification_v1"
+          || layoutVerification.projection !== "browser_layout_v1"
+          || layoutVerification.candidate_layout_graph_hash !== expectedLayoutHash))) {
+        return { valid: false, reason: "candidate_transaction_layout_hash_mismatch" };
+      }
+    }
+  }
+  return { valid: true, reason: "ok" };
+}
+
 // M0 layout-preview compatibility profile. The preview module re-exports
 // these APIs, but identity, field selection, ordering, and hashing stay here.
 export function computeMutationPlanHash(planProjection) {

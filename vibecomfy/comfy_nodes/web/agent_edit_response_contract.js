@@ -1,5 +1,6 @@
 import {
   classifyCandidateTransactionBoundary,
+  normalizeCandidateTransaction,
   readCandidateTransaction as readCanonicalCandidateTransaction,
 } from "./agent_edit_transaction.js";
 import { deep_plain } from "./deep_plain.js";
@@ -7,7 +8,13 @@ import {
   PUBLIC_OUTCOME_KINDS,
   INTERNAL_OUTCOME_KIND_MAP,
   FAILURE_HINT_KEYS,
+  readDeltaEnvelope,
 } from "./agent_edit_response_contract_generated.js";
+import { canonicalJsonString, sha256Hex, sha256HexFromString } from "./canonical_hash.js";
+import {
+  validateTerminalTransactionProjectionBinding,
+  structuralGraphProjectionJson,
+} from "./projection_registry_v1.js";
 
 const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "clarify",
@@ -20,6 +27,14 @@ const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
 ]);
 
 const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";
+
+const TERMINAL_STATES = Object.freeze(new Set([
+  "applied", "no_op", "no_candidate", "clarify", "authority_rejected",
+  "infra_failure", "undetermined",
+]));
+const NON_APPLIED_TERMINAL_STATES = Object.freeze(new Set([
+  "no_op", "no_candidate", "clarify", "authority_rejected", "infra_failure", "undetermined",
+]));
 
 /** Whitelist of engine diagnostic detail keys safe for normalized browser
  * diagnostics. Raw debug, provider payloads, and internal trace keys stay
@@ -591,6 +606,379 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
   };
 }
 
+function candidateGraphCarriersAgree(raw, candidateGraph) {
+  if (!isObject(candidateGraph)) return false;
+  const carriers = [];
+  if (Object.hasOwn(raw, "candidate") && !isObject(raw.candidate)) return false;
+  if (isObject(raw.candidate) && Object.hasOwn(raw.candidate, "graph")) {
+    if (!isObject(raw.candidate.graph)) return false;
+    carriers.push(raw.candidate.graph);
+  }
+  for (const key of ["graph", "candidate_graph", "candidateGraph"]) {
+    if (Object.hasOwn(raw, key)) {
+      if (!isObject(raw[key])) return false;
+      carriers.push(raw[key]);
+    }
+  }
+  for (const key of ["candidate_transaction", "candidateTransaction"]) {
+    if (Object.hasOwn(raw, key)) {
+      if (!isObject(raw[key])) return false;
+      if (raw[key].contract_version !== "candidate_transaction_v2") return false;
+      let transaction;
+      try {
+        transaction = normalizeCandidateTransaction(raw[key]);
+      } catch (_error) {
+        transaction = null;
+      }
+      if (!transaction) return false;
+      if (Object.hasOwn(raw[key], "graph")) {
+        if (!isObject(raw[key].graph)) return false;
+        carriers.push(raw[key].graph);
+      } else {
+        if (!transaction || transaction.hashes?.candidate_graph_hash == null) return false;
+      }
+      if (transaction.hashes?.candidate_graph_hash !== sha256Hex(candidateGraph)) return false;
+    }
+  }
+  const expected = sha256Hex(candidateGraph);
+  return carriers.every((graph) => sha256Hex(graph) === expected);
+}
+
+const TERMINAL_PRODUCT_KEYS = new Set([
+  "candidate", "candidate_graph", "candidate_transaction", "graph",
+  "accepted_batch", "accepted_delta", "delta", "candidate_hash",
+  "candidate_graph_hash", "candidate_structural_graph_hash",
+  "candidateGraph", "candidateTransaction", "acceptedBatch", "candidateHash",
+  "candidateGraphHash", "candidateStructuralGraphHash", "acceptedDelta",
+]);
+
+function scrubNestedTerminalProducts(value) {
+  if (Array.isArray(value)) return value.map(scrubNestedTerminalProducts);
+  if (!isObject(value)) return value;
+  const cleaned = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "authority_receipt") {
+      cleaned[key] = item;
+    } else if (TERMINAL_PRODUCT_KEYS.has(key) || key.startsWith("candidate_")) {
+      continue;
+    } else {
+      cleaned[key] = scrubNestedTerminalProducts(item);
+    }
+  }
+  return cleaned;
+}
+
+function scrubAppliedNestedTerminalProducts(raw) {
+  const cleaned = { ...raw };
+  for (const key of ["report", "evidence", "failure"]) {
+    if (Object.hasOwn(cleaned, key)) {
+      cleaned[key] = scrubNestedTerminalProducts(cleaned[key]);
+    }
+  }
+  return cleaned;
+}
+
+function canonicalTerminalAliases(raw, candidateGraph, sourceStructuralHash = null) {
+  if (!candidateGraphCarriersAgree(raw, candidateGraph)) {
+    return { valid: false, reason: "malformed_or_conflicting_product_carrier", acceptedBatch: null, raw };
+  }
+  const receipt = raw.authority_receipt;
+  if (!isObject(receipt)
+    || typeof receipt.authority_receipt_digest !== "string"
+    || !/^[0-9a-f]{64}$/.test(receipt.authority_receipt_digest)) {
+    return { valid: false, reason: "missing_or_invalid_authority_receipt_digest", acceptedBatch: null, raw };
+  }
+  const candidateHash = sha256Hex(candidateGraph);
+  for (const key of ["candidate_hash", "candidateHash"]) {
+    if (Object.hasOwn(raw, key) && raw[key] !== candidateHash) {
+      return { valid: false, reason: "candidate_hash_alias_mismatch", acceptedBatch: null, raw };
+    }
+  }
+
+  const hasAcceptedBatch = Object.hasOwn(raw, "accepted_batch");
+  const hasAcceptedBatchAlias = Object.hasOwn(raw, "acceptedBatch");
+  let acceptedBatch = hasAcceptedBatch ? raw.accepted_batch : raw.acceptedBatch;
+  if (hasAcceptedBatchAlias && !Array.isArray(acceptedBatch)) {
+    return { valid: false, reason: "malformed_accepted_batch_alias", acceptedBatch, raw };
+  }
+  if (hasAcceptedBatchAlias && hasAcceptedBatch) {
+    try {
+      if (canonicalJsonString(raw.accepted_batch) !== canonicalJsonString(raw.acceptedBatch)) {
+        return { valid: false, reason: "accepted_batch_alias_mismatch", acceptedBatch, raw };
+      }
+    } catch (_error) {
+      return { valid: false, reason: "accepted_batch_alias_mismatch", acceptedBatch, raw };
+    }
+  }
+
+  const transactionValues = [];
+  for (const key of ["candidate_transaction", "candidateTransaction"]) {
+    if (!Object.hasOwn(raw, key)) continue;
+    try {
+      const transaction = normalizeCandidateTransaction(raw[key]);
+      if (!transaction) {
+        return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
+      }
+      transactionValues.push(transaction);
+    } catch (_error) {
+      return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
+    }
+  }
+  for (const transaction of transactionValues) {
+    const candidateAuthority = transaction.candidate_authority;
+    const authority = transaction.authority;
+    for (const identity of ["session_id", "turn_id"]) {
+      const expected = raw[identity] ?? raw.authority_receipt?.[identity];
+      if (transaction[identity] !== expected || !isObject(candidateAuthority)
+        || candidateAuthority[identity] !== transaction[identity]) {
+        return { valid: false, reason: `candidate_transaction_${identity}_mismatch`, acceptedBatch, raw };
+      }
+    }
+    if (!isObject(candidateAuthority) || !isObject(authority)
+      || candidateAuthority.plan_hash !== transaction.plan_hash) {
+      return { valid: false, reason: "candidate_transaction_authority_mismatch", acceptedBatch, raw };
+    }
+    const projectionBinding = validateTerminalTransactionProjectionBinding(
+      transaction,
+      candidateGraph,
+      // A source graph supplied by the submit owner is trusted ingress
+      // context; the receipt summary is the durable fallback used when
+      // rehydrating a response without the live source graph.
+      { sourceStructuralHash: sourceStructuralHash || receipt.submit_structural_graph_hash },
+    );
+    if (!projectionBinding.valid) {
+      return { valid: false, reason: projectionBinding.reason, acceptedBatch, raw };
+    }
+    const identitySeed = `${transaction.session_id}:${transaction.turn_id}:${transaction.plan_hash}`;
+    const expectedTransactionId = sha256HexFromString(`${identitySeed}:transaction`);
+    const expectedCandidateId = sha256HexFromString(`${identitySeed}:candidate`);
+    if (candidateAuthority.transaction_id !== expectedTransactionId
+      || candidateAuthority.candidate_id !== expectedCandidateId) {
+      return { valid: false, reason: "candidate_transaction_identity_mismatch", acceptedBatch, raw };
+    }
+    const transactionReceipt = raw.authority_receipt;
+    if (isObject(transactionReceipt)) {
+      for (const key of ["replay_ok", "candidate_matches", "verification_kind"]) {
+        if (authority[key] !== transactionReceipt[key]) {
+          return { valid: false, reason: `candidate_transaction_${key}_mismatch`, acceptedBatch, raw };
+        }
+      }
+      if (candidateAuthority.authority_receipt_contract_version !== transactionReceipt.contract_version
+        || candidateAuthority.authority_receipt_delta_schema !== transactionReceipt.schema_version) {
+        return { valid: false, reason: "candidate_transaction_receipt_contract_mismatch", acceptedBatch, raw };
+      }
+      const expectedFamily = transactionReceipt.verification_kind === "layout_structural_noop" ? "layout" : "structural";
+      if (candidateAuthority.operation_family !== expectedFamily
+        || transaction.hashes?.submit_graph_hash !== transactionReceipt.submit_graph_hash) {
+        return { valid: false, reason: "candidate_transaction_receipt_binding_mismatch", acceptedBatch, raw };
+      }
+      if (transaction.hashes?.authority_receipt_hash !== transactionReceipt.authority_receipt_digest) {
+        return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
+      }
+      const expectedWorkflowId = raw.workflow_id ?? transactionReceipt.workflow_id;
+      if (expectedWorkflowId != null && candidateAuthority.workflow_id !== expectedWorkflowId) {
+        return { valid: false, reason: "candidate_transaction_workflow_id_mismatch", acceptedBatch, raw };
+      }
+    }
+    if (transaction.hashes?.candidate_structural_graph_hash !== structuralGraphHash(candidateGraph)) {
+      return { valid: false, reason: "candidate_transaction_structural_hash_mismatch", acceptedBatch, raw };
+    }
+    if (candidateAuthority.authority_receipt_digest !== transaction.hashes?.authority_receipt_hash) {
+      return { valid: false, reason: "candidate_transaction_receipt_digest_mismatch", acceptedBatch, raw };
+    }
+    const transactionBatch = transaction?.plan?.accepted_batch;
+    if (!Array.isArray(transactionBatch)) {
+      return { valid: false, reason: "malformed_candidate_transaction", acceptedBatch, raw };
+    }
+    if (!hasAcceptedBatch && !hasAcceptedBatchAlias) {
+      acceptedBatch = transactionBatch;
+    } else {
+      try {
+        if (canonicalJsonString(acceptedBatch) !== canonicalJsonString(transactionBatch)) {
+          return { valid: false, reason: "candidate_transaction_delta_mismatch", acceptedBatch, raw };
+        }
+      } catch (_error) {
+        return { valid: false, reason: "candidate_transaction_delta_mismatch", acceptedBatch, raw };
+      }
+    }
+  }
+  if (transactionValues.length === 2) {
+    try {
+      if (canonicalJsonString(transactionValues[0]) !== canonicalJsonString(transactionValues[1])) {
+        return { valid: false, reason: "conflicting_candidate_transaction_aliases", acceptedBatch, raw };
+      }
+    } catch (_error) {
+      return { valid: false, reason: "conflicting_candidate_transaction_aliases", acceptedBatch, raw };
+    }
+  }
+
+  const eligibilityBooleans = [
+    "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
+    "applyAllowed", "canvasApplyAllowed", "queueAllowed",
+  ];
+  if (eligibilityBooleans.some((key) => Object.hasOwn(raw, key) && raw[key] !== true)) {
+    return { valid: false, reason: "eligibility_alias_mismatch", acceptedBatch, raw };
+  }
+  for (const key of ["eligibility", "apply_eligibility", "applyEligibility"]) {
+    if (Object.hasOwn(raw, key) && (!isObject(raw[key]) || raw[key].applyable !== true)) {
+      return { valid: false, reason: "eligibility_alias_mismatch", acceptedBatch, raw };
+    }
+  }
+
+  const deltaAliases = ["accepted_delta", "acceptedDelta", "delta"]
+    .filter((key) => Object.hasOwn(raw, key))
+    .map((key) => raw[key]);
+  const expectedBatch = Array.isArray(acceptedBatch) ? acceptedBatch : [];
+  const expectedOps = expectedBatch
+    .filter((statement) => isObject(statement) && isObject(statement.op))
+    .map((statement) => statement.op);
+  for (const alias of deltaAliases) {
+    let matches = false;
+    try {
+      matches = canonicalJsonString(alias) === canonicalJsonString(expectedBatch)
+        || canonicalJsonString(alias) === canonicalJsonString(expectedOps)
+        || canonicalJsonString(alias) === canonicalJsonString({ schema_version: "2.0.0", ops: expectedOps });
+    } catch (_error) {
+      matches = false;
+    }
+    if (!matches) {
+      return { valid: false, reason: "accepted_delta_alias_mismatch", acceptedBatch, raw };
+    }
+  }
+
+  const canonicalRaw = scrubAppliedNestedTerminalProducts(raw);
+  for (const key of ["candidate_hash", "candidateHash", "accepted_delta", "acceptedDelta", "delta",
+    "applyAllowed", "canvasApplyAllowed", "queueAllowed", "applyEligibility"]) {
+    delete canonicalRaw[key];
+  }
+  if (hasAcceptedBatchAlias || (!hasAcceptedBatch && transactionValues.length > 0)) {
+    canonicalRaw.accepted_batch = acceptedBatch;
+    delete canonicalRaw.acceptedBatch;
+  }
+  return { valid: true, reason: "ok", acceptedBatch, raw: canonicalRaw };
+}
+
+function structuralGraphHash(candidateGraph) {
+  try {
+    return sha256HexFromString(structuralGraphProjectionJson(candidateGraph));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function normalizeTerminalContract(raw, outcome, candidateGraph, eligibility, sourceStructuralHash = null) {
+  const hasTerminal = Object.prototype.hasOwnProperty.call(raw, "terminal_state");
+  if (!hasTerminal) {
+    return { terminalState: null, terminalReason: null, outcome, candidateGraph, eligibility };
+  }
+  let terminalState = asString(raw.terminal_state);
+  let terminalReason = asString(raw.terminal_reason);
+  const receipt = isObject(raw.authority_receipt) ? deep_plain(raw.authority_receipt) : null;
+  if (!TERMINAL_STATES.has(terminalState)) {
+    terminalState = "undetermined";
+    terminalReason = "unknown_terminal_state";
+  }
+  const replay = isObject(receipt?.replay) ? receipt.replay : receipt;
+  const hash = (value) => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  const receiptCopiesAgree = receipt && replay
+    ? ["replay_ok", "candidate_matches", "error", "op_count", "verification_kind",
+      "persisted_candidate_hash", "recomputed_candidate_hash", "candidate_hash",
+      "cumulative_delta_hash", "accepted_batch_digest", "session_id", "turn_id"]
+      .every((key) => !(key in receipt) || !(key in replay) || receipt[key] === replay[key])
+    : true;
+  const replayErrorAgree = receipt && replay
+    ? !("error" in replay) || !("replay_error" in receipt) || replay.error === receipt.replay_error
+    : true;
+  const identityBound = receipt
+    && typeof receipt.session_id === "string" && receipt.session_id
+    && typeof receipt.turn_id === "string" && receipt.turn_id
+    && (!raw.session_id || raw.session_id === receipt.session_id)
+    && (!raw.turn_id || raw.turn_id === receipt.turn_id);
+  const aliases = terminalState === "applied"
+    ? canonicalTerminalAliases(raw, candidateGraph, sourceStructuralHash)
+    : { valid: true, reason: "ok", acceptedBatch: raw.accepted_batch, raw };
+  const canonicalRaw = aliases.raw;
+  const deltaEnvelope = readDeltaEnvelope(canonicalRaw);
+  const acceptedBatch = aliases.acceptedBatch;
+  const opCount = replay?.op_count;
+  const layoutNoop = replay?.verification_kind === "layout_structural_noop";
+  const deltaCoherent = layoutNoop
+    ? (acceptedBatch == null || (Array.isArray(acceptedBatch) && acceptedBatch.length === 0))
+    : Number.isInteger(opCount) && opCount > 0
+      && Array.isArray(acceptedBatch) && acceptedBatch.length > 0
+      && isObject(deltaEnvelope)
+      && hash(receipt?.cumulative_delta_hash)
+      && receipt.cumulative_delta_hash === sha256Hex(deltaEnvelope);
+  const receiptValid = terminalState !== "applied"
+    || (
+      receipt
+      && receipt.contract_version === "authority_receipt_v2"
+      && receipt.schema_version === "2.0.0"
+      && hash(receipt.submit_graph_hash)
+      && hash(receipt.candidate_hash)
+      && hash(receipt.cumulative_delta_hash)
+      && receipt.accepted_batch_digest === receipt.cumulative_delta_hash
+      && replay?.replay_ok === true
+      && replay?.candidate_matches === true
+      && !replay?.error
+      && typeof replay?.verification_kind === "string"
+      && aliases.valid
+      && receiptCopiesAgree
+      && replayErrorAgree
+      && identityBound
+      && isObject(candidateGraph)
+      && candidateGraphCarriersAgree(raw, candidateGraph)
+      && sha256Hex(candidateGraph) === receipt.candidate_hash
+      && (!Object.hasOwn(raw, "candidate_graph_hash")
+        || raw.candidate_graph_hash === receipt.candidate_hash)
+      && (!Object.hasOwn(raw, "candidateGraphHash")
+        || raw.candidateGraphHash === receipt.candidate_hash)
+      && (!Object.hasOwn(raw, "candidate_graph_hash") || !Object.hasOwn(raw, "candidateGraphHash")
+        || raw.candidate_graph_hash === raw.candidateGraphHash)
+      && (!Object.hasOwn(raw, "candidate_structural_graph_hash")
+        || !Object.hasOwn(raw, "candidateStructuralGraphHash")
+        || raw.candidate_structural_graph_hash === raw.candidateStructuralGraphHash)
+      && (!Object.hasOwn(raw, "candidate_structural_graph_hash")
+        || raw.candidate_structural_graph_hash === structuralGraphHash(candidateGraph))
+      && (!Object.hasOwn(raw, "candidateStructuralGraphHash")
+        || raw.candidateStructuralGraphHash === structuralGraphHash(candidateGraph))
+      && (!replay?.persisted_candidate_hash
+        || replay.persisted_candidate_hash === receipt.candidate_hash)
+      && (!replay?.recomputed_candidate_hash
+        || replay.recomputed_candidate_hash === receipt.candidate_hash)
+      && deltaCoherent
+    );
+  if (terminalState === "applied" && !receiptValid) {
+    terminalState = "undetermined";
+    terminalReason = "incoherent_applied_terminal";
+  }
+  if (NON_APPLIED_TERMINAL_STATES.has(terminalState)) {
+    const kind = terminalState === "clarify" ? "clarify"
+      : terminalState === "no_op" || terminalState === "no_candidate" ? "noop" : "error";
+    const nextOutcome = kind === "clarify"
+      ? { kind: "clarify", ...clarificationPayload(raw.reply || raw.message) }
+      : kind === "noop"
+        ? { kind: "noop", reason: terminalReason || terminalState }
+        : { kind: "error", failureKind: "ValidationError", stage: "terminal" };
+    return {
+      terminalState,
+      terminalReason,
+      outcome: nextOutcome,
+      candidateGraph: null,
+      eligibility: { applyable: false, reason: terminalReason || terminalState },
+      raw: scrubNestedTerminalProducts(raw),
+    };
+  }
+  return {
+    terminalState,
+    terminalReason,
+    outcome,
+    candidateGraph,
+    eligibility,
+    raw: terminalState === "applied" ? canonicalRaw : raw,
+  };
+}
+
 function normalizeTurnIdentityPayload(identity) {
   if (!isObject(identity)) {
     return null;
@@ -884,7 +1272,10 @@ function normalizeDiagnostics(raw) {
   return collected.length ? collected : null;
 }
 
-export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy = true } = {}) {
+export function normalizeAgentEditResponse(
+  raw,
+  { endpoint = null, allowLegacy = true, sourceGraph = null } = {},
+) {
   if (raw?.[NORMALIZED_RESPONSE_MARKER] === true) {
     return raw;
   }
@@ -904,9 +1295,21 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
         );
       })();
 
-  const candidateGraph = normalizeCandidateGraph(raw, outcome);
+  let candidateGraph = normalizeCandidateGraph(raw, outcome);
   const transactionBoundary = classifyCandidateTransactionBoundary(raw);
-  const eligibility = normalizeEligibility(raw, candidateGraph);
+  let eligibility = normalizeEligibility(raw, candidateGraph);
+  const sourceStructuralHash = isObject(sourceGraph) ? structuralGraphHash(sourceGraph) : null;
+  const terminal = normalizeTerminalContract(
+    raw,
+    outcome,
+    candidateGraph,
+    eligibility,
+    sourceStructuralHash,
+  );
+  candidateGraph = terminal.candidateGraph;
+  eligibility = terminal.eligibility;
+  const normalizedOutcome = terminal.outcome;
+  const publicRaw = terminal.raw || raw;
   const rawRebaselineRecovery = extractRebaselineRecovery(raw);
 
   // SD2: Applyable means durable. A candidate missing both session_id and
@@ -929,7 +1332,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
 
   const normalized = {
     [NORMALIZED_RESPONSE_MARKER]: true,
-    raw,
+    raw: publicRaw,
     endpoint,
     ok: asBooleanOrNull(raw.ok),
     exists: asBooleanOrNull(raw.exists),
@@ -938,8 +1341,9 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     agentEditProtocol:
       asString(raw.agentEditProtocol) || asString(raw.agent_edit_protocol),
     reply: asString(raw.reply) || asString(raw.message),
-    evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? deep_plain(raw.evidence) : null,
-    outcome,
+    evidence: isObject(publicRaw.evidence) || Array.isArray(publicRaw.evidence)
+      ? deep_plain(publicRaw.evidence) : null,
+    outcome: normalizedOutcome,
     customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
     runtimeDependencies:
       Array.isArray(raw.runtimeDependencies)
@@ -949,13 +1353,18 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
           : [],
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
-    candidateTransaction: readCanonicalCandidateTransaction(raw),
+    candidateTransaction: terminal.terminalState && terminal.terminalState !== "applied"
+      ? null
+      : readCanonicalCandidateTransaction(raw),
     legacyMigration: !transactionBoundary || transactionBoundary.classification === "v2_authority"
       ? null
       : transactionBoundary,
     candidateGraphHash:
-      asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
+      asString(publicRaw.candidateGraphHash) || asString(publicRaw.candidate_graph_hash),
     eligibility,
+    terminalState: terminal.terminalState,
+    terminalReason: terminal.terminalReason,
+    authorityReceipt: isObject(raw.authority_receipt) ? deep_plain(raw.authority_receipt) : null,
     turnIdentity: null,
     stageSnapshots: Array.isArray(raw.stageSnapshots)
       ? raw.stageSnapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
@@ -969,24 +1378,32 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     fieldChanges: readRawFieldChanges(raw),
     diagnostics: normalizeDiagnostics(raw),
     applyEligible:
-      asBooleanOrNull(raw.applyEligible)
-      ?? asBooleanOrNull(raw.apply_eligible)
-      ?? (eligibility ? eligibility.applyable === true : null),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.applyEligible)
+          ?? asBooleanOrNull(raw.apply_eligible)
+          ?? (eligibility ? eligibility.applyable === true : null),
     noCandidateReason:
       asString(raw.noCandidateReason) || asString(raw.no_candidate_reason),
     applyAllowed:
-      asBooleanOrNull(raw.applyAllowed)
-      ?? asBooleanOrNull(raw.apply_allowed)
-      ?? asBooleanOrNull(raw.apply_eligible),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.applyAllowed)
+          ?? asBooleanOrNull(raw.apply_allowed)
+          ?? asBooleanOrNull(raw.apply_eligible),
     canvasApplyAllowed:
-      asBooleanOrNull(raw.canvasApplyAllowed)
-      ?? asBooleanOrNull(raw.canvas_apply_allowed)
-      ?? asBooleanOrNull(raw.apply_eligible),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.canvasApplyAllowed)
+          ?? asBooleanOrNull(raw.canvas_apply_allowed)
+          ?? asBooleanOrNull(raw.apply_eligible),
     queueAllowed:
-      asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
+      terminal.terminalState
+        ? terminal.terminalState === "applied"
+        : asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
     graphUnchanged:
       asBooleanOrNull(raw.graphUnchanged) ?? asBooleanOrNull(raw.graph_unchanged),
-    report: isObject(raw.report) ? deep_plain(raw.report) : null,
+    report: isObject(publicRaw.report) ? deep_plain(publicRaw.report) : null,
     auditRef: isObject(raw.auditRef) ? deep_plain(raw.auditRef)
       : isObject(raw.audit_ref) ? deep_plain(raw.audit_ref)
         : null,

@@ -341,9 +341,19 @@ export function makeValidCandidateTransactionV2({
   let candidateGraphHash;
   let candidateStructuralGraphHash;
   let candidateLayoutGraphHash;
+  let submitStructuralGraphHash;
+  let preconditionReference;
+  let postconditionReference;
 
   try {
     const preRef = projectionReferenceV1(preGraph, projection);
+    const compatibilityPreconditionHash = sha256Hex(
+      buildStructuralGraphProjection(preGraph),
+    );
+    preconditionReference = {
+      ...preRef,
+      compatibility_digest: compatibilityPreconditionHash,
+    };
     preconditionDigest = preRef.digest;
     if (!isLayout) {
       candidateStructuralGraphHash = preRef.digest;
@@ -353,6 +363,7 @@ export function makeValidCandidateTransactionV2({
       }
     }
     const postRef = projectionReferenceV1(postGraph, projection);
+    postconditionReference = postRef;
     postconditionDigest = postRef.digest;
     candidateGraphHash = postRef.digest;
     if (!isLayout) {
@@ -365,6 +376,7 @@ export function makeValidCandidateTransactionV2({
       candidateLayoutGraphHash = projectionReferenceV1(postGraph, "layout_v1").digest;
       candidateStructuralGraphHash = projectionReferenceV1(postGraph, "structural_v1").digest;
     }
+    submitStructuralGraphHash = compatibilityPreconditionHash;
   } catch (_err) {
     // Fallback: use the graph as-is for digest computation if projection fails
     // (e.g., the graph doesn't have vibecomfy_uid properties).
@@ -376,6 +388,9 @@ export function makeValidCandidateTransactionV2({
     postconditionDigest = postDigest;
     candidateGraphHash = postDigest;
     candidateStructuralGraphHash = postDigest;
+    submitStructuralGraphHash = preDigest;
+    preconditionReference = { ..._ref(projection, preDigest), compatibility_digest: preDigest };
+    postconditionReference = _ref(projection, postDigest);
     if (isLayout) {
       candidateLayoutGraphHash = postDigest;
     }
@@ -425,8 +440,8 @@ export function makeValidCandidateTransactionV2({
     turn_id: turnId,
     operation,
     operation_family: family,
-    precondition: _ref(projection, preconditionDigest),
-    postcondition: _ref(projection, postconditionDigest),
+    precondition: preconditionReference,
+    postcondition: postconditionReference,
     rollback_projection: projection,
     restoration_strategy: restoration,
     plan_hash: planHash,
@@ -436,12 +451,13 @@ export function makeValidCandidateTransactionV2({
   };
 
   if (isLayout) {
+    const structuralPre = projectionReferenceV1(preGraph, "structural_v1");
+    const structuralPost = projectionReferenceV1(postGraph, "structural_v1");
     candidateAuthority.structural_witness = {
-      kind: "projection_ref_v1",
-      projection: "structural_v1",
-      digest: candidateStructuralGraphHash,
-      precondition_digest: candidateStructuralGraphHash,
-      postcondition_digest: candidateStructuralGraphHash,
+      ...structuralPre,
+      compatibility_digest: sha256Hex(buildStructuralGraphProjection(preGraph)),
+      precondition_digest: structuralPre.digest,
+      postcondition_digest: structuralPost.digest,
     };
   }
 
@@ -494,7 +510,7 @@ export function makeValidCandidateTransactionV2({
     },
     hashes: {
       submit_graph_hash: "submit-full-hash",
-      submit_structural_graph_hash: "submit-structural-hash",
+      submit_structural_graph_hash: submitStructuralGraphHash,
       candidate_graph_hash: candidateGraphHash,
       candidate_structural_graph_hash: candidateStructuralGraphHash,
       authority_receipt_hash: "c".repeat(64),
@@ -528,7 +544,6 @@ export function bindTransactionHashes(extensionModule, transaction, graph, preco
   const evidencePreconditionGraph = preconditionGraph || liveGraph || graph;
   const typedPreconditionHash = projectionReferenceV1(evidencePreconditionGraph, "structural_v1").digest;
   const typedStructuralHash = projectionReferenceV1(graph, "structural_v1").digest;
-  const typedLayoutHash = projectionReferenceV1(graph, "layout_v1").digest;
   const compatibilityPreconditionHash = sha256Hex(
     buildStructuralGraphProjection(evidencePreconditionGraph),
   );
@@ -540,17 +555,20 @@ export function bindTransactionHashes(extensionModule, transaction, graph, preco
 
   for (const authority of [transaction.candidate_authority, transaction.prepared_authority]) {
     if (!authority) continue;
-    const authorityDigest =
-      authority.operation_family === "layout" ? typedLayoutHash : typedStructuralHash;
-    authority.precondition.digest =
-      authority.operation_family === "layout"
-        ? projectionReferenceV1(evidencePreconditionGraph, "layout_v1").digest
-        : typedPreconditionHash;
-    authority.postcondition.digest = authorityDigest;
+    const authorityProjection =
+      authority.operation_family === "layout" ? "layout_v1" : "structural_v1";
+    authority.precondition = {
+      ...projectionReferenceV1(evidencePreconditionGraph, authorityProjection),
+      compatibility_digest: compatibilityPreconditionHash,
+    };
+    authority.postcondition = projectionReferenceV1(graph, authorityProjection);
     if (authority.structural_witness) {
-      authority.structural_witness.digest = typedStructuralHash;
-      authority.structural_witness.precondition_digest = typedPreconditionHash;
-      authority.structural_witness.postcondition_digest = typedStructuralHash;
+      authority.structural_witness = {
+        ...projectionReferenceV1(evidencePreconditionGraph, "structural_v1"),
+        compatibility_digest: compatibilityPreconditionHash,
+        precondition_digest: typedPreconditionHash,
+        postcondition_digest: typedStructuralHash,
+      };
     }
   }
   if (transaction.authority?.verification_kind === "layout_structural_noop") {

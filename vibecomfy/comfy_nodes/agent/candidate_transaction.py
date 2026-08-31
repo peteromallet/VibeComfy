@@ -45,6 +45,7 @@ from .projection_registry_v1 import (
     ContractError as _RegistryContractError,
     classify_legacy_migration_v1,
     projection_reference_v1,
+    structural_graph_hash_compat,
     validate_candidate_transaction_v2,
     validate_prepared_authority_v1,
     workflow_identity_v1,
@@ -852,6 +853,14 @@ def build_candidate_transaction(
     projection = "layout_v1" if family == "layout" else "structural_v1"
     precondition = projection_reference_v1(submit_graph, projection)
     postcondition = projection_reference_v1(candidate_graph, projection)
+    submit_structural_compatibility_hash = structural_graph_hash_compat(submit_graph)
+    if isinstance(submit_structural_compatibility_hash, str):
+        precondition["compatibility_digest"] = submit_structural_compatibility_hash
+    bound_submit_structural_graph_hash = (
+        submit_structural_compatibility_hash
+        if isinstance(submit_structural_compatibility_hash, str)
+        else submit_structural_graph_hash
+    )
     # §3.1: the grandfathered baseline_snapshot_v1 ref restoration is digested
     # over {contract_version, ref} via the shared hash owner so the validator's
     # recomputation matches byte-for-byte.
@@ -926,6 +935,8 @@ def build_candidate_transaction(
     if family == "layout":
         structural_pre = projection_reference_v1(submit_graph, "structural_v1")
         structural_post = projection_reference_v1(candidate_graph, "structural_v1")
+        if isinstance(submit_structural_compatibility_hash, str):
+            structural_pre["compatibility_digest"] = submit_structural_compatibility_hash
         if structural_pre["digest"] != structural_post["digest"]:
             raise ValueError("Layout authority requires a genuine structural pre==post witness.")
         candidate_authority["structural_witness"] = {
@@ -953,7 +964,7 @@ def build_candidate_transaction(
         },
         "hashes": {
             "submit_graph_hash": submit_graph_hash,
-            "submit_structural_graph_hash": submit_structural_graph_hash,
+            "submit_structural_graph_hash": bound_submit_structural_graph_hash,
             "candidate_graph_hash": candidate_graph_hash,
             "candidate_structural_graph_hash": candidate_structural_graph_hash,
             "candidate_layout_graph_hash": candidate_layout_graph_hash,

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
@@ -647,7 +648,657 @@ _NO_CANDIDATE_REASONS = frozenset({
     "unrepresentable_delta",
     "unrepresentable_link_order",
     "unknown_route",
+    "authority_replay_mismatch",
 })
+
+# Terminal states are deliberately closed-world.  A new or misspelled state
+# must never inherit the candidate fields from the implementation phase.
+_TERMINAL_STATES = frozenset({
+    "applied", "no_op", "no_candidate", "clarify", "authority_rejected",
+    "infra_failure", "undetermined",
+})
+_NON_APPLIED_TERMINAL_STATES = frozenset(_TERMINAL_STATES - {"applied"})
+_PRODUCT_KEYS = frozenset({
+    "candidate", "candidate_graph", "candidate_transaction", "graph",
+    "accepted_batch", "accepted_delta", "delta", "candidate_hash",
+    "candidate_graph_hash", "candidate_structural_graph_hash",
+    # Browser/HTTP compatibility spellings must be closed under the same
+    # terminal scrubber as their snake_case counterparts.
+    "candidateGraph", "candidateTransaction", "acceptedBatch", "candidateHash",
+    "candidateGraphHash", "candidateStructuralGraphHash", "acceptedDelta",
+})
+_ELIGIBILITY_KEYS = frozenset({
+    "apply_eligible", "applyEligibility", "apply_eligibility", "eligibility",
+    "apply_allowed", "applyAllowed", "canvas_apply_allowed",
+    "canvasApplyAllowed", "queue_allowed", "queueAllowed",
+})
+
+
+def _receipt_parts(receipt: Any) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
+    """Return the summary and replay blocks without trusting either one."""
+    if not isinstance(receipt, Mapping):
+        return None, None
+    replay = receipt.get("replay")
+    return receipt, replay if isinstance(replay, Mapping) else None
+
+
+def _receipt_value(receipt: Any, key: str) -> Any:
+    summary, replay = _receipt_parts(receipt)
+    if replay is not None and key in replay:
+        return replay.get(key)
+    return summary.get(key) if summary is not None else None
+
+
+def _receipt_contradiction(receipt: Any) -> str | None:
+    """Reject conflicting summary/replay copies instead of choosing one."""
+    summary, replay = _receipt_parts(receipt)
+    if summary is None or replay is None:
+        return None
+    if "error" in replay and "replay_error" in summary and replay.get("error") != summary.get("replay_error"):
+        return "receipt_replay_error_contradiction"
+    for key in (
+        "replay_ok", "candidate_matches", "replay_error", "op_count",
+        "verification_kind", "persisted_candidate_hash", "recomputed_candidate_hash",
+        "candidate_hash", "cumulative_delta_hash", "accepted_batch_digest",
+        "session_id", "turn_id",
+    ):
+        if key in summary and key in replay and summary.get(key) != replay.get(key):
+            return f"receipt_{key}_contradiction"
+    return None
+
+
+def _scrub_nested_terminal_products(value: Any) -> Any:
+    """Remove product aliases from nested diagnostic/report projections."""
+    if isinstance(value, list):
+        return [_scrub_nested_terminal_products(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_nested_terminal_products(item) for item in value)
+    if not isinstance(value, Mapping):
+        return value
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        if key_text == "authority_receipt":
+            cleaned[key_text] = item
+        elif key_text in _PRODUCT_KEYS or key_text.startswith("candidate_"):
+            continue
+        else:
+            cleaned[key_text] = _scrub_nested_terminal_products(item)
+    return cleaned
+
+
+def _canonical_terminal_aliases(
+    payload: Mapping[str, Any],
+    candidate_graph: Any,
+    accepted_batch: Any,
+    receipt_candidate_hash: Any = None,
+) -> tuple[bool, str, Any, dict[str, Any]]:
+    """Parse every applied product alias into one closed-world binding.
+
+    Compatibility spellings are accepted only when they carry the exact same
+    graph/batch/delta authority as the canonical fields.  Nested report,
+    evidence, and failure projections are scrubbed from the applied product
+    surface so implementation carriers cannot become a second authority.
+    """
+    candidate = payload.get("candidate")
+    if "candidate" in payload and not isinstance(candidate, Mapping):
+        return False, "malformed_candidate_carrier", accepted_batch, dict(payload)
+    if isinstance(candidate, Mapping) and "graph" in candidate:
+        if not isinstance(candidate.get("graph"), Mapping):
+            return False, "malformed_candidate_graph", accepted_batch, dict(payload)
+
+    graph_carrier_keys = ("graph", "candidate_graph", "candidateGraph")
+    for key in graph_carrier_keys:
+        if key in payload and not isinstance(payload.get(key), Mapping):
+            return False, "malformed_graph_carrier", accepted_batch, dict(payload)
+    transaction_values: list[Mapping[str, Any]] = []
+    for key in ("candidate_transaction", "candidateTransaction"):
+        if key not in payload:
+            continue
+        transaction = payload.get(key)
+        if not isinstance(transaction, Mapping):
+            return False, "malformed_candidate_transaction", accepted_batch, dict(payload)
+        if transaction.get("contract_version") == "candidate_transaction_v2":
+            try:
+                from vibecomfy.comfy_nodes.agent.candidate_transaction import validate_candidate_transaction
+
+                valid, reason = validate_candidate_transaction(transaction)
+            except Exception:  # pragma: no cover - defensive validation boundary
+                valid, reason = False, "malformed_candidate_transaction"
+            if not valid:
+                return False, reason or "malformed_candidate_transaction", accepted_batch, dict(payload)
+        else:
+            return False, "unsupported_candidate_transaction", accepted_batch, dict(payload)
+        transaction_values.append(transaction)
+    if len(transaction_values) == 2 and transaction_values[0] != transaction_values[1]:
+        return False, "conflicting_candidate_transaction_aliases", accepted_batch, dict(payload)
+
+    try:
+        from vibecomfy.comfy_nodes.agent.session import payload_hash
+
+        computed_candidate_hash = payload_hash(candidate_graph) if isinstance(candidate_graph, Mapping) else None
+    except Exception:  # pragma: no cover - defensive import/hash boundary
+        computed_candidate_hash = None
+    if computed_candidate_hash is None:
+        return False, "candidate_hash_unavailable", accepted_batch, dict(payload)
+
+    hash_values = [
+        payload[key]
+        for key in ("candidate_hash", "candidateHash")
+        if key in payload
+    ]
+    if hash_values and any(value != computed_candidate_hash for value in hash_values):
+        return False, "candidate_hash_alias_mismatch", accepted_batch, dict(payload)
+    if receipt_candidate_hash is not None and receipt_candidate_hash != computed_candidate_hash:
+        return False, "candidate_hash_receipt_mismatch", accepted_batch, dict(payload)
+
+    receipt = payload.get("authority_receipt")
+    receipt_values = _receipt_parts(receipt)
+    receipt_summary = receipt_values[0]
+    if (
+        receipt_summary is None
+        or not isinstance(receipt_summary.get("authority_receipt_digest"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", receipt_summary["authority_receipt_digest"])
+    ):
+        return False, "missing_or_invalid_authority_receipt_digest", accepted_batch, dict(payload)
+
+    eligibility_booleans = (
+        "apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed",
+        "applyAllowed", "canvasApplyAllowed", "queueAllowed",
+    )
+    if any(key in payload and payload.get(key) is not True for key in eligibility_booleans):
+        return False, "eligibility_alias_mismatch", accepted_batch, dict(payload)
+    for key in ("eligibility", "apply_eligibility", "applyEligibility"):
+        if key in payload:
+            value = payload.get(key)
+            if not isinstance(value, Mapping) or value.get("applyable") is not True:
+                return False, "eligibility_alias_mismatch", accepted_batch, dict(payload)
+
+    if "acceptedBatch" in payload:
+        alias_batch = payload.get("acceptedBatch")
+        if "accepted_batch" in payload and alias_batch != accepted_batch:
+            return False, "accepted_batch_alias_mismatch", accepted_batch, dict(payload)
+        if "accepted_batch" not in payload:
+            accepted_batch = alias_batch
+
+    for transaction in transaction_values:
+        hashes = transaction.get("hashes")
+        if (
+            not isinstance(receipt_summary.get("submit_structural_graph_hash"), str)
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", receipt_summary["submit_structural_graph_hash"]
+            )
+        ):
+            return False, "missing_or_invalid_submit_structural_authority", accepted_batch, dict(payload)
+        plan = transaction.get("plan")
+        candidate_authority = transaction.get("candidate_authority")
+        authority = transaction.get("authority")
+        transaction_hash = hashes.get("candidate_graph_hash") if isinstance(hashes, Mapping) else None
+        transaction_batch = plan.get("accepted_batch") if isinstance(plan, Mapping) else None
+        if (
+            not isinstance(transaction_hash, str)
+            or transaction_hash != computed_candidate_hash
+            or not isinstance(transaction_batch, list)
+        ):
+            return False, "candidate_transaction_binding_mismatch", accepted_batch, dict(payload)
+        for identity in ("session_id", "turn_id"):
+            expected = payload.get(identity)
+            if expected is None:
+                expected = _receipt_value(payload.get("authority_receipt"), identity)
+            if transaction.get(identity) != expected:
+                return False, f"candidate_transaction_{identity}_mismatch", accepted_batch, dict(payload)
+            if not isinstance(candidate_authority, Mapping) or candidate_authority.get(identity) != transaction.get(identity):
+                return False, f"candidate_authority_{identity}_mismatch", accepted_batch, dict(payload)
+        if (
+            not isinstance(candidate_authority, Mapping)
+            or candidate_authority.get("plan_hash") != transaction.get("plan_hash")
+            or not isinstance(authority, Mapping)
+        ):
+            return False, "candidate_transaction_authority_mismatch", accepted_batch, dict(payload)
+        try:
+            from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+                assert_projection_reference_v1,
+                projection_reference_v1,
+            )
+
+            projection = (
+                "layout_v1"
+                if candidate_authority.get("operation_family") == "layout"
+                else "structural_v1"
+            )
+            precondition = candidate_authority.get("precondition")
+            if (
+                not isinstance(precondition, Mapping)
+                or "canonical" not in precondition
+                or not isinstance(precondition.get("compatibility_digest"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", precondition["compatibility_digest"])
+            ):
+                return False, "candidate_transaction_precondition_mismatch", accepted_batch, dict(payload)
+            assert_projection_reference_v1(precondition, projection)
+            expected_postcondition = projection_reference_v1(candidate_graph, projection)
+        except Exception:  # pragma: no cover - defensive projection boundary
+            return False, "candidate_transaction_postcondition_unavailable", accepted_batch, dict(payload)
+        postcondition = candidate_authority.get("postcondition")
+        if (
+            not isinstance(postcondition, Mapping)
+            or postcondition.get("kind") != expected_postcondition["kind"]
+            or postcondition.get("projection") != expected_postcondition["projection"]
+            or postcondition.get("digest") != expected_postcondition["digest"]
+            or (
+                "canonical" in postcondition
+                and postcondition.get("canonical") != expected_postcondition["canonical"]
+            )
+        ):
+            return False, "candidate_transaction_postcondition_mismatch", accepted_batch, dict(payload)
+        try:
+            from vibecomfy.comfy_nodes.agent.candidate_transaction import candidate_transaction_identities_v2
+
+            expected_transaction_id, expected_candidate_id = candidate_transaction_identities_v2(
+                transaction.get("session_id"),
+                transaction.get("turn_id"),
+                transaction.get("plan_hash"),
+            )
+        except Exception:  # pragma: no cover - defensive validation boundary
+            return False, "candidate_transaction_identity_unavailable", accepted_batch, dict(payload)
+        if (
+            candidate_authority.get("transaction_id") != expected_transaction_id
+            or candidate_authority.get("candidate_id") != expected_candidate_id
+        ):
+            return False, "candidate_transaction_identity_mismatch", accepted_batch, dict(payload)
+        if receipt_summary is not None:
+            for key in ("replay_ok", "candidate_matches", "verification_kind"):
+                if authority.get(key) != _receipt_value(receipt, key):
+                    return False, f"candidate_transaction_{key}_mismatch", accepted_batch, dict(payload)
+            for key in ("contract_version", "schema_version"):
+                nested_key = "authority_receipt_contract_version" if key == "contract_version" else "authority_receipt_delta_schema"
+                if candidate_authority.get(nested_key) != receipt_summary.get(key):
+                    return False, f"candidate_transaction_receipt_{key}_mismatch", accepted_batch, dict(payload)
+            if candidate_authority.get("operation_family") != (
+                "layout" if _receipt_value(receipt, "verification_kind") == "layout_structural_noop" else "structural"
+            ):
+                return False, "candidate_transaction_operation_family_mismatch", accepted_batch, dict(payload)
+            if hashes.get("submit_graph_hash") != receipt_summary.get("submit_graph_hash"):
+                return False, "candidate_transaction_submit_hash_mismatch", accepted_batch, dict(payload)
+            if hashes.get("authority_receipt_hash") != receipt_summary["authority_receipt_digest"]:
+                return False, "candidate_transaction_receipt_digest_mismatch", accepted_batch, dict(payload)
+        try:
+            from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
+
+            expected_structural_hash = structural_graph_hash(candidate_graph)
+        except Exception:  # pragma: no cover - defensive validation boundary
+            return False, "candidate_structural_hash_unavailable", accepted_batch, dict(payload)
+        if hashes.get("candidate_structural_graph_hash") != expected_structural_hash:
+            return False, "candidate_transaction_structural_hash_mismatch", accepted_batch, dict(payload)
+        if candidate_authority.get("authority_receipt_digest") != hashes.get("authority_receipt_hash"):
+            return False, "candidate_transaction_receipt_digest_mismatch", accepted_batch, dict(payload)
+        if candidate_authority.get("operation_family") == "layout":
+            layout_hash = hashes.get("candidate_layout_graph_hash")
+            layout_verification = authority.get("layout_verification")
+            if layout_hash is not None or layout_verification is not None:
+                try:
+                    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import layout_graph_hash_compat
+
+                    expected_layout_hash = layout_graph_hash_compat(candidate_graph)
+                except Exception:  # pragma: no cover - defensive layout boundary
+                    expected_layout_hash = None
+                if (
+                    expected_layout_hash is None
+                    or (layout_hash is not None and layout_hash != expected_layout_hash)
+                    or (
+                        layout_verification is not None
+                        and (
+                            not isinstance(layout_verification, Mapping)
+                            or layout_verification.get("contract_version") != "layout_verification_v1"
+                            or layout_verification.get("projection") != "browser_layout_v1"
+                            or layout_verification.get("candidate_layout_graph_hash") != expected_layout_hash
+                        )
+                    )
+                ):
+                    return False, "candidate_transaction_layout_hash_mismatch", accepted_batch, dict(payload)
+            structural_witness = candidate_authority.get("structural_witness")
+            try:
+                if not isinstance(structural_witness, Mapping) or "canonical" not in structural_witness:
+                    raise ValueError("missing structural witness canonical projection")
+                assert_projection_reference_v1(structural_witness, "structural_v1")
+                expected_structural_postcondition = projection_reference_v1(
+                    candidate_graph, "structural_v1"
+                )
+            except Exception:  # pragma: no cover - defensive projection boundary
+                return False, "candidate_transaction_structural_witness_mismatch", accepted_batch, dict(payload)
+            if (
+                structural_witness.get("digest") != expected_structural_postcondition["digest"]
+                or structural_witness.get("canonical")
+                != expected_structural_postcondition["canonical"]
+                or structural_witness.get("precondition_digest") != structural_witness["digest"]
+                or structural_witness.get("postcondition_digest") != structural_witness["digest"]
+                or structural_witness.get("compatibility_digest")
+                != precondition.get("compatibility_digest")
+                or hashes.get("submit_structural_graph_hash")
+                != precondition.get("compatibility_digest")
+            ):
+                return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
+        elif hashes.get("submit_structural_graph_hash") != precondition.get("compatibility_digest"):
+            return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
+        if (
+            precondition.get("compatibility_digest")
+            != receipt_summary.get("submit_structural_graph_hash")
+            or hashes.get("submit_structural_graph_hash")
+            != receipt_summary.get("submit_structural_graph_hash")
+        ):
+            return False, "candidate_transaction_submit_structural_hash_mismatch", accepted_batch, dict(payload)
+        for key in ("workflow_id",):
+            expected = payload.get(key)
+            if expected is None and receipt_summary is not None:
+                expected = receipt_summary.get(key)
+            if expected is not None and candidate_authority.get(key) != expected:
+                return False, f"candidate_transaction_{key}_mismatch", accepted_batch, dict(payload)
+        if accepted_batch is None:
+            accepted_batch = transaction_batch
+        elif accepted_batch != transaction_batch:
+            return False, "candidate_transaction_delta_mismatch", accepted_batch, dict(payload)
+
+    def accepted_delta_matches(value: Any) -> bool:
+        if not isinstance(value, (list, tuple)):
+            return False
+        if not isinstance(accepted_batch, (list, tuple)):
+            return not value
+        batch = list(accepted_batch)
+        ops = [
+            statement.get("op")
+            for statement in batch
+            if isinstance(statement, Mapping) and isinstance(statement.get("op"), Mapping)
+        ]
+        return value == batch or value == ops or value == {"schema_version": "2.0.0", "ops": ops}
+
+    delta_aliases = [
+        payload[key]
+        for key in ("accepted_delta", "acceptedDelta", "delta")
+        if key in payload
+    ]
+    if delta_aliases and any(not accepted_delta_matches(value) for value in delta_aliases):
+        return False, "accepted_delta_alias_mismatch", accepted_batch, dict(payload)
+
+    cleaned = dict(payload)
+    for key in (
+        "candidate_hash", "candidateHash", "acceptedBatch",
+        "accepted_delta", "acceptedDelta", "delta",
+        "applyAllowed", "canvasApplyAllowed", "queueAllowed", "applyEligibility",
+    ):
+        cleaned.pop(key, None)
+    if "accepted_batch" in payload or "acceptedBatch" in payload or transaction_values:
+        cleaned["accepted_batch"] = accepted_batch
+    for key in ("report", "evidence", "failure"):
+        if key in cleaned:
+            cleaned[key] = _scrub_nested_terminal_products(cleaned[key])
+    return True, "ok", accepted_batch, cleaned
+
+
+def _receipt_is_authoritative(
+    payload: Mapping[str, Any],
+    candidate_graph: Any,
+    accepted_batch: Any,
+) -> tuple[bool, str]:
+    """Validate the *binding* needed for public applied publication.
+
+    The receipt's two replay booleans are necessary but not sufficient.  This
+    gate binds the receipt to its contract, turn identity, exact candidate
+    bytes, and the accepted delta digest.  It intentionally accepts a compact
+    receipt summary as long as all binding fields are present.
+    """
+    receipt = payload.get("authority_receipt")
+    summary, _replay = _receipt_parts(receipt)
+    if summary is None:
+        return False, "missing_authority_receipt"
+    contradiction = _receipt_contradiction(receipt)
+    if contradiction is not None:
+        return False, contradiction
+    if _receipt_value(receipt, "replay_ok") is not True:
+        return False, "replay_not_ok"
+    if _receipt_value(receipt, "candidate_matches") is not True:
+        return False, "candidate_mismatch"
+    if _receipt_value(receipt, "replay_error") not in (None, ""):
+        return False, "replay_error"
+    _summary, replay = _receipt_parts(receipt)
+    if summary.get("contract_version") != "authority_receipt_v2":
+        return False, "receipt_contract_mismatch"
+    if summary.get("schema_version") != "2.0.0":
+        return False, "receipt_schema_missing"
+    for identity in ("session_id", "turn_id"):
+        if not isinstance(summary.get(identity), str) or not summary.get(identity):
+            return False, f"receipt_{identity}_missing"
+
+    for key in ("submit_graph_hash", "candidate_hash", "cumulative_delta_hash"):
+        value = summary.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+            return False, f"receipt_{key}_missing"
+    accepted_digest = summary.get("accepted_batch_digest")
+    if accepted_digest != summary.get("cumulative_delta_hash"):
+        return False, "receipt_delta_digest_mismatch"
+
+    # A receipt from another turn is evidence, not authority for this turn.
+    for identity in ("session_id", "turn_id"):
+        expected = payload.get(identity)
+        recorded = summary.get(identity)
+        if expected is not None and (not isinstance(recorded, str) or recorded != expected):
+            return False, f"receipt_{identity}_mismatch"
+
+    if not isinstance(candidate_graph, Mapping) or not candidate_graph:
+        return False, "missing_candidate_graph"
+    try:
+        from vibecomfy.comfy_nodes.agent.session import payload_hash
+
+        computed_candidate_hash = payload_hash(candidate_graph)
+        graph_carriers: list[Mapping[str, Any]] = []
+        candidate_envelope = payload.get("candidate")
+        if isinstance(candidate_envelope, Mapping) and "graph" in candidate_envelope:
+            graph_carriers.append(candidate_envelope["graph"])
+        for key in ("graph", "candidate_graph", "candidateGraph"):
+            if key in payload:
+                graph_carriers.append(payload[key])
+        for key in ("candidate_transaction", "candidateTransaction"):
+            transaction = payload.get(key)
+            if isinstance(transaction, Mapping) and "graph" in transaction:
+                graph_carriers.append(transaction["graph"])
+        if any(payload_hash(graph) != computed_candidate_hash for graph in graph_carriers):
+            return False, "conflicting_candidate_graph_carriers"
+    except Exception:  # pragma: no cover - defensive import/hash boundary
+        return False, "candidate_hash_unavailable"
+    if computed_candidate_hash != summary.get("candidate_hash"):
+        return False, "candidate_hash_mismatch"
+    declared_hashes = {
+        key: payload.get(key)
+        for key in ("candidate_graph_hash", "candidateGraphHash")
+        if payload.get(key) is not None
+    }
+    if any(value != computed_candidate_hash for value in declared_hashes.values()):
+        return False, "candidate_graph_hash_mismatch"
+    structural_hashes = {
+        key: payload.get(key)
+        for key in ("candidate_structural_graph_hash", "candidateStructuralGraphHash")
+        if payload.get(key) is not None
+    }
+    if structural_hashes:
+        try:
+            from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
+
+            computed_structural_hash = structural_graph_hash(candidate_graph)
+        except Exception:  # pragma: no cover - defensive import/hash boundary
+            return False, "candidate_structural_hash_unavailable"
+        if any(value != computed_structural_hash for value in structural_hashes.values()):
+            return False, "candidate_structural_graph_hash_mismatch"
+
+    if isinstance(replay, Mapping):
+        nested_error = replay.get("error")
+        if nested_error not in (None, ""):
+            return False, "replay_error"
+        for key in ("persisted_candidate_hash", "recomputed_candidate_hash"):
+            value = replay.get(key)
+            if value != summary.get("candidate_hash"):
+                return False, f"replay_{key}_mismatch"
+
+    verification_kind = _receipt_value(receipt, "verification_kind")
+    op_count = _receipt_value(receipt, "op_count")
+    if verification_kind not in {"delta_replay", "layout_structural_noop"}:
+        return False, "verification_kind_missing"
+    if not isinstance(op_count, int) or isinstance(op_count, bool) or op_count < 0:
+        return False, "invalid_op_count"
+    if verification_kind == "delta_replay" and op_count == 0:
+        return False, "zero_op_delta_not_applyable"
+    if verification_kind != "layout_structural_noop" and op_count > 0:
+        if not isinstance(accepted_batch, list) or not accepted_batch:
+            return False, "accepted_delta_missing"
+        # The durable batch is represented as the canonical delta envelope;
+        # compare its semantic digest to the receipt rather than trusting a
+        # copied free-form field.
+        try:
+            from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+            from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+
+            actual_delta = content_hash(
+                derived_accepted_delta_envelope({"accepted_batch": accepted_batch})
+            )
+        except Exception:  # pragma: no cover - malformed boundary data
+            return False, "accepted_delta_hash_unavailable"
+        if actual_delta != summary.get("cumulative_delta_hash"):
+            return False, "accepted_delta_digest_mismatch"
+    elif verification_kind == "layout_structural_noop" and accepted_batch not in (None, [], ()):
+        return False, "layout_noop_has_delta"
+    return True, "ok"
+
+
+def _scrub_non_applied(value: Any, *, in_audit: bool = False) -> Any:
+    """Remove product carriers recursively while retaining audit evidence."""
+    if isinstance(value, list):
+        return [_scrub_non_applied(item, in_audit=in_audit) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_non_applied(item, in_audit=in_audit) for item in value)
+    if not isinstance(value, Mapping):
+        return value
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        if not in_audit and (key_text in _PRODUCT_KEYS or key_text.startswith("candidate_")):
+            continue
+        if key_text in _ELIGIBILITY_KEYS:
+            # Preserve the spelling, but never a stale truthy value.
+            cleaned[key_text] = False if key_text not in {"eligibility", "apply_eligibility"} else {
+                "applyable": False,
+                "reason": "terminal_not_applyable",
+            }
+            continue
+        # Receipt fields are cryptographic evidence, even when a candidate
+        # was rejected; do not recurse into the receipt and erase its hash.
+        if key_text == "authority_receipt":
+            cleaned[key_text] = item
+        else:
+            cleaned[key_text] = _scrub_non_applied(item, in_audit=in_audit or key_text == "audit")
+    return cleaned
+
+
+def normalize_terminal_envelope(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Make one total, typed, atomic public terminal envelope.
+
+    This function is shared by executor and HTTP serialization boundaries so
+    no caller can accidentally republish an implementation candidate after a
+    rejected, malformed, or incoherent terminal.
+    """
+    normalized = deepcopy(dict(payload))
+    explicit = normalized.get("terminal_state")
+    has_terminal = "terminal_state" in normalized
+    if has_terminal and (not isinstance(explicit, str) or explicit not in _TERMINAL_STATES):
+        normalized["terminal_state"] = "undetermined"
+        normalized["terminal_reason"] = "unknown_terminal_state"
+        explicit = "undetermined"
+    state = explicit
+    receipt = normalized.get("authority_receipt")
+    replay_ok = _receipt_value(receipt, "replay_ok")
+    candidate_matches = _receipt_value(receipt, "candidate_matches")
+    candidate = normalized.get("candidate")
+    candidate_graph = candidate.get("graph") if isinstance(candidate, Mapping) else normalized.get("graph")
+    accepted_batch = normalized.get(
+        "accepted_batch",
+        normalized.get("acceptedBatch"),
+    )
+
+    if state is None and (replay_ok is False or candidate_matches is False):
+        state = "authority_rejected"
+        normalized["terminal_state"] = state
+        normalized["terminal_reason"] = "authority_replay_mismatch"
+        has_terminal = True
+    if not has_terminal:
+        # Legacy non-durable responses retain their established projection.
+        return normalized
+
+    if state == "applied":
+        existing_outcome = normalized.get("outcome")
+        aliases_ok, alias_reason, accepted_batch, normalized = _canonical_terminal_aliases(
+            normalized,
+            candidate_graph,
+            accepted_batch,
+            _receipt_value(normalized.get("authority_receipt"), "candidate_hash"),
+        )
+        invalid_claim = (
+            not isinstance(existing_outcome, Mapping)
+            or existing_outcome.get("kind") not in {"candidate", "candidate_transaction", "edit"}
+            or normalized.get("graph_unchanged") is True
+            or any(
+                key in normalized and normalized.get(key) is not True
+                for key in ("apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed")
+            )
+            or any(
+                isinstance(normalized.get(key), Mapping)
+                and normalized[key].get("applyable") is not True
+                for key in ("eligibility", "apply_eligibility")
+            )
+            or not aliases_ok
+        )
+        bound, reason = (
+            (False, alias_reason if not aliases_ok else "invalid_outcome_or_eligibility")
+            if invalid_claim
+            else _receipt_is_authoritative(normalized, candidate_graph, accepted_batch)
+        )
+        if not bound:
+            state = "undetermined"
+            normalized["terminal_state"] = state
+            normalized["terminal_reason"] = f"incoherent_applied_terminal:{reason}"
+        else:
+            normalized["ok"] = True
+            existing_outcome = normalized.get("outcome")
+            normalized["outcome"] = {
+                **(existing_outcome if isinstance(existing_outcome, Mapping) else {}),
+                "kind": "candidate",
+                "graph_unchanged": False,
+            }
+            normalized["apply_eligible"] = True
+            normalized["apply_allowed"] = True
+            normalized["canvas_apply_allowed"] = True
+            normalized["queue_allowed"] = True
+            normalized["graph_unchanged"] = False
+            return normalized
+
+    # Every non-applied state is explicit and product-free.  Preserve the
+    # receipt summary and audit subtree, but scrub all implementation/report
+    # aliases including nested ``failure``/``evidence`` carriers.
+    if state not in _NON_APPLIED_TERMINAL_STATES:
+        state = "undetermined"
+        normalized["terminal_state"] = state
+        normalized["terminal_reason"] = "invalid_terminal_state"
+    normalized = _scrub_non_applied(normalized)
+    normalized["terminal_state"] = state
+    normalized.setdefault("terminal_reason", state)
+    normalized["graph_unchanged"] = True
+    normalized["apply_eligible"] = False
+    normalized["apply_allowed"] = False
+    normalized["canvas_apply_allowed"] = False
+    normalized["queue_allowed"] = False
+    normalized["ok"] = state in {"no_op", "no_candidate", "clarify"}
+    outcome_kind = "clarify" if state == "clarify" else "noop" if state in {"no_op", "no_candidate"} else "error"
+    outcome = normalized.get("outcome")
+    if not isinstance(outcome, Mapping) or outcome.get("kind") not in {outcome_kind}:
+        normalized["outcome"] = {"kind": outcome_kind, "graph_unchanged": True}
+    else:
+        normalized["outcome"] = {**outcome, "kind": outcome_kind, "graph_unchanged": True}
+    return normalized
 
 _TASK_DESCRIPTIONS: dict[str, str] = {
     "edit_graph": "modify the current graph.",
@@ -2501,6 +3152,14 @@ class AgentTurnResult:
     candidate: dict[str, Any] | None = None
     no_candidate_reason: str | None = None
     disposition: str = ""
+    terminal_state: str | None = None
+    terminal_reason: str | None = None
+    authority_receipt: Mapping[str, Any] | None = None
+    accepted_batch: tuple[dict[str, Any], ...] = ()
+    session_id: str | None = None
+    turn_id: str | None = None
+    accepted_delta_ids: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # An empty route is the truthful "no classification decision" sentinel
@@ -2527,10 +3186,13 @@ class AgentTurnResult:
 
     @property
     def apply_eligible(self) -> bool:
-        return self.route in _APPLY_ELIGIBLE_ROUTES and self.candidate is not None
+        return (
+            self.candidate is not None
+            and (self.route in _APPLY_ELIGIBLE_ROUTES or self.terminal_state == "applied")
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "route": self.route,
             "reply": self.reply,
             "evidence": self.evidence.to_dict(),
@@ -2538,6 +3200,31 @@ class AgentTurnResult:
             "apply_eligible": self.apply_eligible,
             "no_candidate_reason": self.no_candidate_reason,
         }
+        if self.terminal_state is not None:
+            payload["terminal_state"] = self.terminal_state
+        if self.terminal_reason is not None:
+            payload["terminal_reason"] = self.terminal_reason
+        if self.authority_receipt is not None:
+            payload["authority_receipt"] = _thaw_jsonish(self.authority_receipt)
+        if self.accepted_batch:
+            payload["accepted_batch"] = _thaw_jsonish(self.accepted_batch)
+        if self.session_id is not None:
+            payload["session_id"] = self.session_id
+        if self.turn_id is not None:
+            payload["turn_id"] = self.turn_id
+        if self.accepted_delta_ids:
+            payload["accepted_delta_ids"] = list(self.accepted_delta_ids)
+        if self.evidence_refs:
+            payload["evidence_refs"] = list(self.evidence_refs)
+        if self.terminal_state == "applied":
+            payload["outcome"] = {"kind": "candidate"}
+        elif self.terminal_state == "clarify":
+            payload["outcome"] = {"kind": "clarify"}
+        elif self.terminal_state in _NON_APPLIED_TERMINAL_STATES:
+            payload["outcome"] = {
+                "kind": "noop" if self.terminal_state in {"no_op", "no_candidate"} else "error"
+            }
+        return normalize_terminal_envelope(payload)
 
     @classmethod
     def from_executor_result(cls, result: "ExecutorResult") -> "AgentTurnResult":
@@ -2588,8 +3275,68 @@ class AgentTurnResult:
             warnings.append(result.failure_message)
 
         candidate: dict[str, Any] | None = None
-        if route in _APPLY_ELIGIBLE_ROUTES and result.graph is not None:
-            candidate = {"graph": result.graph}
+        durable = result.report.implementation.durable_response if (
+            result.report.implementation is not None
+        ) else None
+        terminal_state = (
+            durable.get("terminal_state")
+            if isinstance(durable, Mapping)
+            else None
+        )
+        if terminal_state is None and isinstance(durable, Mapping):
+            raw_receipt = durable.get("authority_receipt")
+            raw_replay = raw_receipt.get("replay") if isinstance(raw_receipt, Mapping) else None
+            replay_ok = (
+                raw_replay.get("replay_ok")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("replay_ok")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            candidate_matches = (
+                raw_replay.get("candidate_matches")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("candidate_matches")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            if replay_ok is False or candidate_matches is False:
+                terminal_state = "authority_rejected"
+        # The durable terminal owns candidate eligibility.  A retained
+        # request/original graph on a rejected threaded turn is context, never
+        # a public candidate; an applied durable graph remains publishable even
+        # when the driver did not copy it into ``ExecutorResult.graph``.
+        candidate_graph = result.graph
+        if terminal_state == "applied" and isinstance(durable, Mapping):
+            raw_graph = durable.get("graph")
+            if isinstance(raw_graph, Mapping):
+                candidate_graph = _thaw_jsonish(raw_graph)
+        receipt = durable.get("authority_receipt") if isinstance(durable, Mapping) else None
+        replay_receipt = receipt.get("replay") if isinstance(receipt, Mapping) else None
+        replay_ok = receipt.get("replay_ok") if isinstance(receipt, Mapping) else None
+        candidate_matches = receipt.get("candidate_matches") if isinstance(receipt, Mapping) else None
+        if isinstance(replay_receipt, Mapping):
+            replay_ok = replay_receipt.get("replay_ok")
+            candidate_matches = replay_receipt.get("candidate_matches")
+        receipt_ok = (
+            isinstance(receipt, Mapping)
+            and replay_ok is True
+            and candidate_matches is True
+        )
+        if (
+            (route in _APPLY_ELIGIBLE_ROUTES or terminal_state == "applied")
+            and candidate_graph is not None
+            and terminal_state not in {
+                "authority_rejected",
+                "infra_failure",
+                "clarify",
+                "no_candidate",
+                "no_op",
+                "undetermined",
+            }
+            and (terminal_state != "applied" or receipt_ok)
+        ):
+            candidate = {"graph": candidate_graph}
             # Attach durable metadata (SD2: applyable == durable).
             impl = result.report.implementation
             if impl is not None:
@@ -2617,6 +3364,38 @@ class AgentTurnResult:
             candidate=candidate,
             no_candidate_reason=reason,
             disposition=disposition,
+            terminal_state=terminal_state if isinstance(terminal_state, str) else None,
+            terminal_reason=(
+                durable.get("terminal_reason")
+                if isinstance(durable, Mapping) and isinstance(durable.get("terminal_reason"), str)
+                else None
+            ),
+            authority_receipt=(
+                receipt if isinstance(receipt, Mapping) else None
+            ),
+            accepted_batch=tuple(
+                _thaw_jsonish(item)
+                for item in (durable.get("accepted_batch", ()) if isinstance(durable, Mapping) else ())
+                if isinstance(item, Mapping)
+            ),
+            session_id=(
+                durable.get("session_id")
+                if isinstance(durable, Mapping) and isinstance(durable.get("session_id"), str)
+                else None
+            ),
+            turn_id=(
+                durable.get("turn_id")
+                if isinstance(durable, Mapping) and isinstance(durable.get("turn_id"), str)
+                else None
+            ),
+            accepted_delta_ids=tuple(
+                item for item in (durable.get("accepted_delta_ids", ()) if isinstance(durable, Mapping) else ())
+                if isinstance(item, str)
+            ),
+            evidence_refs=tuple(
+                item for item in (durable.get("evidence_refs", ()) if isinstance(durable, Mapping) else ())
+                if isinstance(item, str)
+            ),
         )
 
 
@@ -2626,6 +3405,33 @@ def _derive_no_candidate_reason(
     result: "ExecutorResult",
     implementation: Mapping[str, Any],
 ) -> str | None:
+    durable = result.report.implementation.durable_response if (
+        result.report.implementation is not None
+    ) else None
+    terminal_state = durable.get("terminal_state") if isinstance(durable, Mapping) else None
+    if terminal_state is None and isinstance(durable, Mapping):
+        receipt = durable.get("authority_receipt")
+        replay = receipt.get("replay") if isinstance(receipt, Mapping) else None
+        replay_ok = replay.get("replay_ok") if isinstance(replay, Mapping) else receipt.get("replay_ok") if isinstance(receipt, Mapping) else None
+        candidate_matches = replay.get("candidate_matches") if isinstance(replay, Mapping) else receipt.get("candidate_matches") if isinstance(receipt, Mapping) else None
+        if replay_ok is False or candidate_matches is False:
+            terminal_state = "authority_rejected"
+    if terminal_state in {
+        "authority_rejected",
+        "infra_failure",
+        "clarify",
+        "no_candidate",
+        "no_op",
+        "undetermined",
+    }:
+        return {
+            "authority_rejected": "authority_replay_mismatch",
+            "infra_failure": "implementation_failed",
+            "clarify": "route_not_applyable",
+            "no_candidate": "no_changes",
+            "no_op": "no_changes",
+            "undetermined": "implementation_failed",
+        }[terminal_state]
     if route not in _APPLY_ELIGIBLE_ROUTES:
         return "route_not_applyable"
     if result.graph is not None:
@@ -2669,6 +3475,13 @@ _DURABLE_ENVELOPE_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "gates",
     "debug",
     "contract_version",
+    # Canonical terminal publication fields.  These are durable authority
+    # facts, not synthetic turn metadata, and must survive the public overlay.
+    "terminal_state",
+    "terminal_reason",
+    "evidence_refs",
+    "accepted_delta_ids",
+    "authority_receipt",
 )
 
 
@@ -2720,8 +3533,134 @@ class ExecutorResult:
                 value = dr.get(key)
                 if value is not None:
                     payload[key] = _thaw_jsonish(value)
-        payload.update(self.turn.to_dict())
-        if self.graph is not None:
+        turn_payload = self.turn.to_dict()
+        payload.update(turn_payload)
+
+        # A durable terminal is the sole authority for candidate publication.
+        # In particular, threaded mode may retain the original request graph
+        # internally for reply grounding; that graph is never a candidate.
+        impl_payload = impl if isinstance(impl, ImplementationResult) else None
+        durable = impl_payload.durable_response if impl_payload is not None else None
+        terminal_state = (
+            durable.get("terminal_state")
+            if isinstance(durable, Mapping)
+            else None
+        )
+        if terminal_state is None and isinstance(durable, Mapping):
+            raw_receipt = durable.get("authority_receipt")
+            raw_replay = raw_receipt.get("replay") if isinstance(raw_receipt, Mapping) else None
+            replay_ok = (
+                raw_replay.get("replay_ok")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("replay_ok")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            candidate_matches = (
+                raw_replay.get("candidate_matches")
+                if isinstance(raw_replay, Mapping)
+                else raw_receipt.get("candidate_matches")
+                if isinstance(raw_receipt, Mapping)
+                else None
+            )
+            if replay_ok is False or candidate_matches is False:
+                terminal_state = "authority_rejected"
+                payload["terminal_state"] = terminal_state
+        if terminal_state in {
+            "authority_rejected",
+            "infra_failure",
+            "clarify",
+            "no_candidate",
+            "no_op",
+            "undetermined",
+        }:
+            # Non-applied products are audit-only.  Omit the carrier rather
+            # than serializing JSON null/empty values that contradict the
+            # typed terminal and confuse downstream assessors.
+            for key in (
+                "candidate",
+                "candidate_graph",
+                "candidate_transaction",
+                "graph",
+                "accepted_batch",
+                "candidate_hash",
+                "candidate_graph_hash",
+                "candidate_structural_graph_hash",
+            ):
+                payload.pop(key, None)
+            payload["apply_eligible"] = False
+            payload["graph_unchanged"] = True
+            outcome_payload = payload.get("outcome")
+            if isinstance(outcome_payload, Mapping) and outcome_payload.get("kind") == "error":
+                payload["ok"] = False
+            if (
+                terminal_state in {"no_candidate", "no_op"}
+                and isinstance(outcome_payload, Mapping)
+                and outcome_payload.get("kind") in {"candidate", "candidate_transaction", "edit"}
+            ):
+                normalized_outcome = dict(outcome_payload)
+                normalized_outcome["kind"] = "noop"
+                normalized_outcome["reason"] = "no_candidate"
+                normalized_outcome["graph_unchanged"] = True
+                payload["outcome"] = normalized_outcome
+            report_payload = payload.get("report")
+            if isinstance(report_payload, Mapping):
+                executor_payload = report_payload.get("executor")
+                if isinstance(executor_payload, dict):
+                    implementation_payload = executor_payload.get("implementation")
+                    if isinstance(implementation_payload, dict):
+                        implementation_payload.pop("graph", None)
+            evidence_payload = payload.get("evidence")
+            if isinstance(evidence_payload, dict):
+                evidence_implementation = evidence_payload.get("implementation")
+                if isinstance(evidence_implementation, dict):
+                    evidence_implementation.pop("graph", None)
+        elif terminal_state == "applied":
+            # Applied is the only terminal that may expose a candidate.  It
+            # needs the final graph and a matching receipt; otherwise fail
+            # closed as undetermined rather than manufacturing a candidate.
+            receipt = durable.get("authority_receipt") if isinstance(durable, Mapping) else None
+            replay_receipt = receipt.get("replay") if isinstance(receipt, Mapping) else None
+            replay_ok = receipt.get("replay_ok") if isinstance(receipt, Mapping) else None
+            candidate_matches = receipt.get("candidate_matches") if isinstance(receipt, Mapping) else None
+            if isinstance(replay_receipt, Mapping):
+                replay_ok = replay_receipt.get("replay_ok")
+                candidate_matches = replay_receipt.get("candidate_matches")
+            receipt_ok = (
+                isinstance(receipt, Mapping)
+                and replay_ok is True
+                and candidate_matches is True
+            )
+            candidate = payload.get("candidate")
+            accepted_batch = durable.get("accepted_batch") if isinstance(durable, Mapping) else None
+            verification_kind = (
+                replay_receipt.get("verification_kind")
+                if isinstance(replay_receipt, Mapping)
+                else receipt.get("verification_kind")
+                if isinstance(receipt, Mapping)
+                else None
+            )
+            op_count = (
+                replay_receipt.get("op_count")
+                if isinstance(replay_receipt, Mapping)
+                else receipt.get("op_count")
+                if isinstance(receipt, Mapping)
+                else None
+            )
+            delta_coherent = bool(accepted_batch) or op_count == 0 or verification_kind == "layout_structural_noop"
+            if not receipt_ok or not isinstance(candidate, Mapping) or not candidate.get("graph") or not delta_coherent:
+                payload.pop("candidate", None)
+                payload.pop("graph", None)
+                payload["terminal_state"] = "undetermined"
+                payload["terminal_reason"] = "incoherent_applied_terminal"
+                payload["apply_eligible"] = False
+                payload["graph_unchanged"] = True
+        elif self.graph is not None:
+            # Legacy/non-durable success paths retain their established graph
+            # projection. Durable terminal paths above are canonicalized.
+            payload["graph"] = self.graph
+
+        if terminal_state is None and self.graph is not None:
             payload["graph"] = self.graph
         if self.failure_kind is not None:
             payload["failure_kind"] = self.failure_kind
@@ -2729,7 +3668,7 @@ class ExecutorResult:
             payload["failure_stage"] = self.failure_stage
         if self.failure_message is not None:
             payload["failure_message"] = self.failure_message
-        return payload
+        return normalize_terminal_envelope(payload)
 
     @classmethod
     def success(

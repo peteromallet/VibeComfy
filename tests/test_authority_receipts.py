@@ -147,6 +147,8 @@ def test_layout_only_candidate_uses_structural_noop_authority() -> None:
     assert receipt.replay.candidate_matches is True
     assert receipt.replay.verification_kind == "layout_structural_noop"
     assert receipt.replay.op_count == 0
+    assert receipt.submit_structural_graph_hash == _authority_receipts.structural_graph_hash(submit_graph)
+    assert receipt.to_dict()["submit_structural_graph_hash"] == receipt.submit_structural_graph_hash
 
 
 def test_layout_authority_rejects_semantic_change_despite_forged_layout_evidence() -> None:

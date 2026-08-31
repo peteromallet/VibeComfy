@@ -44,6 +44,12 @@ import {
   readObligationArtifacts,
   isNonApplyableClarify,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js";
+import { sha256Hex, sha256HexFromString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import {
+  buildLayoutGraphProjection,
+  structuralGraphProjectionJson,
+} from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 
 const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
   "executor_pending",
@@ -1427,6 +1433,9 @@ const CURATED_PROJECTION_FIELDS = [
   "candidateGraph",
   "candidate",
   "candidateGraphHash",
+  "terminalState",
+  "terminalReason",
+  "authorityReceipt",
   "eligibility",
   "turnIdentity",
   "stageSnapshots",
@@ -2370,4 +2379,733 @@ test("normalizeAgentEditResponse surfaces idempotency key from turn identity", (
   const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
   assert.equal(readIdempotencyKey(normalized.raw), "idem-durable-001");
   assert.equal(normalized.turnIdentity?.idempotencyKey, "idem-durable-001");
+});
+
+test("terminal authority rejection remains typed and non-applyable in browser projection", () => {
+  const normalized = normalizeAgentEditResponse({
+    ok: false,
+    route: "revise",
+    terminal_state: "authority_rejected",
+    terminal_reason: "authority_replay_mismatch",
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      replay_ok: false,
+      candidate_matches: false,
+      candidate_hash: "rejected-hash",
+    },
+    candidate_transaction: makeValidCandidateTransactionV2({
+      sessionId: "s",
+      turnId: "t",
+      planHash: "rejected-plan",
+    }),
+    candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
+    candidate_graph: { nodes: [{ id: 1 }], links: [] },
+    report: { nested: { candidateGraph: { forged: true } } },
+    evidence: { nested: { acceptedDelta: [{ forged: true }] } },
+    failure: { nested: { candidateTransaction: { forged: true } } },
+    apply_eligible: true,
+    apply_allowed: true,
+    canvas_apply_allowed: true,
+    queue_allowed: true,
+    outcome: { kind: "candidate" },
+  }, { endpoint: "/submit" });
+
+  assert.equal(normalized.terminalState, "authority_rejected");
+  assert.equal(normalized.terminalReason, "authority_replay_mismatch");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.candidate, null);
+  assert.equal(normalized.outcome.kind, "error");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.eligibility.applyable, false);
+  assert.equal(normalized.candidateTransaction, null);
+  assert.equal(normalized.raw.candidateTransaction, undefined);
+  assert.deepEqual(normalized.report, { nested: {} });
+  assert.deepEqual(normalized.evidence, { nested: {} });
+  assert.deepEqual(normalized.raw.failure, { nested: {} });
+  assert.equal(normalized.authorityReceipt.candidate_hash, "rejected-hash");
+});
+
+test("browser projection demotes an applied terminal with an unbound receipt", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: [],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: "0".repeat(64),
+      accepted_batch_digest: "1".repeat(64),
+      cumulative_delta_hash: "1".repeat(64),
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  }, { endpoint: "/submit" });
+
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.outcome.kind, "error");
+  assert.equal(normalized.applyEligible, false);
+});
+
+test("browser projection rejects replay-derived candidate hash and error contradictions", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: [{ op: { op: "set_node_field" } }],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: "0".repeat(64),
+      accepted_batch_digest: "1".repeat(64),
+      cumulative_delta_hash: "1".repeat(64),
+      replay_ok: true,
+      candidate_matches: true,
+      replay: {
+        replay_ok: true,
+        candidate_matches: true,
+        verification_kind: "delta_replay",
+        op_count: 1,
+        error: "tampered",
+        persisted_candidate_hash: "b".repeat(64),
+        recomputed_candidate_hash: "b".repeat(64),
+      },
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+});
+
+test("browser projection rejects camelCase hash and conflicting graph carriers", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const otherGraph = { nodes: [{ id: 2 }], links: [] };
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    graph: otherGraph,
+    candidateGraphHash: "b".repeat(64),
+    accepted_batch: [{ op: { op: "set_node_field" } }],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: "0".repeat(64),
+      accepted_batch_digest: "1".repeat(64),
+      cumulative_delta_hash: "1".repeat(64),
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+});
+
+test("browser projection rejects non-object applied graph carriers", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const receipt = {
+    contract_version: "authority_receipt_v2",
+    schema_version: "2.0.0",
+    session_id: "s",
+    turn_id: "t",
+    submit_graph_hash: "a".repeat(64),
+    candidate_hash: sha256Hex(graph),
+    accepted_batch_digest: deltaDigest,
+    cumulative_delta_hash: deltaDigest,
+    replay_ok: true,
+    candidate_matches: true,
+    verification_kind: "delta_replay",
+    op_count: 1,
+  };
+  for (const malformed of [
+    { graph: "forged" },
+    { candidateTransaction: { graph: "bad" } },
+    { candidate: "bad" },
+  ]) {
+    const normalized = normalizeAgentEditResponse({
+      ok: true,
+      route: "revise",
+      terminal_state: "applied",
+      session_id: "s",
+      turn_id: "t",
+      candidate: { graph },
+      accepted_batch: acceptedBatch,
+      outcome: { kind: "candidate" },
+      apply_eligible: true,
+      authority_receipt: receipt,
+      ...malformed,
+    });
+    assert.equal(normalized.terminalState, "undetermined");
+    assert.equal(normalized.candidateGraph, null);
+    assert.equal(normalized.applyEligible, false);
+    assert.equal(normalized.outcome.kind, "error");
+  }
+});
+
+test("browser projection rejects a conflicting acceptedBatch alias", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    acceptedBatch: [{ op: { op: "forged" } }],
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "a".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.outcome.kind, "error");
+});
+
+test("browser projection validates structural graph hash aliases against the graph", () => {
+  const graph = {
+    nodes: [{ id: 1, type: "KSampler", vibecomfy_uid: "n1", inputs: [], outputs: [] }],
+    links: [],
+  };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    candidateStructuralGraphHash: "f".repeat(64),
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "a".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+});
+
+test("browser terminal alias matrix rejects unbound applied aliases", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const base = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  };
+  const aliases = [
+    ["candidate_hash", "b".repeat(64)],
+    ["candidateHash", "b".repeat(64)],
+    ["accepted_delta", [{ op: { op: "forged" } }]],
+    ["acceptedDelta", [{ op: { op: "forged" } }]],
+    ["delta", [{ op: { op: "forged" } }]],
+    ["candidateTransaction", { state: "candidate" }],
+    ["candidate_transaction", { state: "candidate" }],
+    ["candidateTransaction", { graph: { nodes: [] } }],
+    ["applyAllowed", false],
+    ["canvasApplyAllowed", false],
+    ["queueAllowed", false],
+    ["applyEligibility", { applyable: false }],
+  ];
+  for (const [key, value] of aliases) {
+    const normalized = normalizeAgentEditResponse({ ...base, [key]: value });
+    assert.equal(normalized.terminalState, "undetermined", key);
+    assert.equal(normalized.candidateGraph, null, key);
+    assert.equal(normalized.applyEligible, false, key);
+    assert.equal(normalized.outcome.kind, "error", key);
+  }
+});
+
+test("browser accepts a valid graphless candidate_transaction_v2 aggregate", () => {
+  const graph = { nodes: [], links: [] };
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "plan-v2",
+    family: "layout",
+    verificationKind: "layout_structural_noop",
+  });
+  const identitySeed = "s:t:plan-v2";
+  transaction.candidate_authority.transaction_id = sha256HexFromString(`${identitySeed}:transaction`);
+  transaction.candidate_authority.candidate_id = sha256HexFromString(`${identitySeed}:candidate`);
+  transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+  transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+  transaction.hashes.submit_graph_hash = "a".repeat(64);
+  transaction.hashes.candidate_layout_graph_hash = sha256Hex(buildLayoutGraphProjection(graph));
+  const acceptedBatch = [];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    workflow_id: workflowId,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      submit_structural_graph_hash: transaction.hashes.submit_structural_graph_hash,
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "c".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      op_count: 0,
+    },
+  });
+  assert.equal(normalized.terminalState, "applied");
+  assert.ok(normalized.candidateTransaction);
+  assert.equal(normalized.applyEligible, true);
+  assert.deepEqual(normalized.raw.accepted_batch, acceptedBatch);
+});
+
+test("browser binds layout postcondition and graph hash to the published candidate", () => {
+  const preconditionGraph = {
+    nodes: [{ id: 1, vibecomfy_uid: "node-1", type: "PreviewImage", pos: [0, 0], size: [200, 100] }],
+    links: [],
+  };
+  const graph = {
+    nodes: [{ id: 1, vibecomfy_uid: "node-1", type: "PreviewImage", pos: [300, 100], size: [200, 100] }],
+    links: [],
+  };
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: "s",
+    turnId: "t",
+    planHash: "layout-plan",
+    family: "layout",
+    verificationKind: "layout_structural_noop",
+    preconditionGraph,
+    postconditionGraph: graph,
+  });
+  const identitySeed = "s:t:layout-plan";
+  transaction.candidate_authority.transaction_id = sha256HexFromString(`${identitySeed}:transaction`);
+  transaction.candidate_authority.candidate_id = sha256HexFromString(`${identitySeed}:candidate`);
+  transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+  transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+  transaction.hashes.submit_graph_hash = "a".repeat(64);
+  const layoutHash = sha256Hex(buildLayoutGraphProjection(graph));
+  transaction.hashes.candidate_layout_graph_hash = layoutHash;
+  transaction.authority.layout_verification = {
+    contract_version: "layout_verification_v1",
+    projection: "browser_layout_v1",
+    candidate_layout_graph_hash: layoutHash,
+  };
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: [] }));
+  const base = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    workflow_id: "123e4567-e89b-12d3-a456-426614174000",
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      submit_structural_graph_hash: transaction.hashes.submit_structural_graph_hash,
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "c".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      op_count: 0,
+    },
+  };
+  const valid = normalizeAgentEditResponse(structuredClone(base));
+  assert.equal(valid.terminalState, "applied");
+  assert.equal(valid.applyEligible, true);
+  const sourceBound = normalizeAgentEditResponse(structuredClone(base), { sourceGraph: preconditionGraph });
+  assert.equal(sourceBound.terminalState, "applied");
+  assert.equal(sourceBound.applyEligible, true);
+
+  const forgedPostcondition = structuredClone(base);
+  forgedPostcondition.candidate_transaction.candidate_authority.postcondition =
+    forgedPostcondition.candidate_transaction.candidate_authority.precondition;
+  let normalized = normalizeAgentEditResponse(forgedPostcondition);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const forgedPrecondition = structuredClone(base);
+  forgedPrecondition.candidate_transaction.candidate_authority.precondition =
+    forgedPrecondition.candidate_transaction.candidate_authority.postcondition;
+  normalized = normalizeAgentEditResponse(forgedPrecondition);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const coordinated = structuredClone(base);
+  coordinated.candidate_transaction.candidate_authority.precondition = {
+    ...coordinated.candidate_transaction.candidate_authority.postcondition,
+    compatibility_digest: "d".repeat(64),
+  };
+  coordinated.candidate_transaction.candidate_authority.structural_witness.compatibility_digest = "d".repeat(64);
+  coordinated.candidate_transaction.hashes.submit_structural_graph_hash = "d".repeat(64);
+  normalized = normalizeAgentEditResponse(coordinated);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const coordinatedWithForgedReceipt = structuredClone(coordinated);
+  coordinatedWithForgedReceipt.authority_receipt.submit_structural_graph_hash = "d".repeat(64);
+  normalized = normalizeAgentEditResponse(coordinatedWithForgedReceipt, { sourceGraph: preconditionGraph });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const forgedLayout = structuredClone(base);
+  forgedLayout.candidate_transaction.hashes.candidate_layout_graph_hash = "f".repeat(64);
+  forgedLayout.candidate_transaction.authority.layout_verification.candidate_layout_graph_hash = "f".repeat(64);
+  normalized = normalizeAgentEditResponse(forgedLayout);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+
+  const forgedSubmit = structuredClone(base);
+  forgedSubmit.candidate_transaction.hashes.submit_structural_graph_hash = "f".repeat(64);
+  normalized = normalizeAgentEditResponse(forgedSubmit);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+});
+
+test("browser binds transaction hash and identity and rejects conflicting aliases", () => {
+  const graph = { nodes: [], links: [] };
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: [] }));
+  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
+  const baseReceipt = {
+    contract_version: "authority_receipt_v2",
+    schema_version: "2.0.0",
+    session_id: "s",
+    turn_id: "t",
+    submit_graph_hash: "a".repeat(64),
+    candidate_hash: sha256Hex(graph),
+    authority_receipt_digest: "c".repeat(64),
+    accepted_batch_digest: deltaDigest,
+    cumulative_delta_hash: deltaDigest,
+    replay_ok: true,
+    candidate_matches: true,
+    verification_kind: "layout_structural_noop",
+    op_count: 0,
+  };
+  const validTransaction = () => {
+    const transaction = makeValidCandidateTransactionV2({
+      sessionId: "s",
+      turnId: "t",
+      planHash: "plan-v2",
+      family: "layout",
+      verificationKind: "layout_structural_noop",
+    });
+    const identitySeed = "s:t:plan-v2";
+    transaction.candidate_authority.transaction_id = sha256HexFromString(`${identitySeed}:transaction`);
+    transaction.candidate_authority.candidate_id = sha256HexFromString(`${identitySeed}:candidate`);
+    transaction.hashes.candidate_graph_hash = sha256Hex(graph);
+    transaction.hashes.candidate_structural_graph_hash = sha256HexFromString(structuralGraphProjectionJson(graph));
+    transaction.hashes.submit_graph_hash = "a".repeat(64);
+    return transaction;
+  };
+  const normalize = (transaction, aliases = {}, receipt = baseReceipt) => normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    candidate_transaction: transaction,
+    workflow_id: workflowId,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: receipt,
+    ...aliases,
+  });
+
+  for (const [index, mutate] of [
+    (transaction) => { transaction.hashes.candidate_graph_hash = "f".repeat(64); },
+    (transaction) => {
+      transaction.session_id = "other";
+      transaction.candidate_authority.session_id = "other";
+    },
+    (transaction) => {
+      transaction.turn_id = "other";
+      transaction.candidate_authority.turn_id = "other";
+    },
+    (transaction) => { transaction.candidate_authority.candidate_id = "forged"; },
+    (transaction) => { transaction.candidate_authority.transaction_id = "forged"; },
+    (transaction) => { transaction.plan_hash = "other-plan"; },
+    (transaction) => { transaction.candidate_authority.plan_hash = "other-plan"; },
+    (transaction) => { transaction.candidate_authority.workflow_id = "123e4567-e89b-12d3-a456-426614174001"; },
+    (transaction) => { transaction.authority.replay_ok = false; },
+    (transaction) => { transaction.authority.candidate_matches = false; },
+    (transaction) => { transaction.authority.verification_kind = "delta_replay"; },
+    (transaction) => { transaction.candidate_authority.authority_receipt_digest = "d".repeat(64); },
+    (transaction) => { transaction.hashes.authority_receipt_hash = "d".repeat(64); },
+    (transaction) => { transaction.hashes.candidate_structural_graph_hash = "d".repeat(64); },
+    (transaction) => { transaction.hashes.submit_graph_hash = "d".repeat(64); },
+  ].entries()) {
+    const transaction = validTransaction();
+    mutate(transaction);
+    const normalized = normalize(transaction);
+    assert.equal(normalized.terminalState, "undetermined", `mutation ${index}`);
+    assert.equal(normalized.candidateGraph, null, `mutation ${index}`);
+    assert.equal(normalized.applyEligible, false, `mutation ${index}`);
+  }
+
+  const receiptMismatch = normalize(validTransaction(), {}, {
+    ...baseReceipt,
+    candidate_hash: "e".repeat(64),
+  });
+  assert.equal(receiptMismatch.terminalState, "undetermined");
+  assert.equal(receiptMismatch.candidateGraph, null);
+  assert.equal(receiptMismatch.applyEligible, false);
+
+  const first = validTransaction();
+  const second = structuredClone(first);
+  second.plan_hash = "other-plan";
+  second.candidate_authority.plan_hash = "other-plan";
+  const otherIdentitySeed = "s:t:other-plan";
+  second.candidate_authority.transaction_id = sha256HexFromString(`${otherIdentitySeed}:transaction`);
+  second.candidate_authority.candidate_id = sha256HexFromString(`${otherIdentitySeed}:candidate`);
+  const conflicting = normalize(first, {
+    candidate_transaction: first,
+    candidateTransaction: second,
+  });
+  assert.equal(conflicting.terminalState, "undetermined");
+  assert.equal(conflicting.candidateGraph, null);
+  assert.equal(conflicting.applyEligible, false);
+});
+
+test("browser terminal rejects non-hex receipt hash shapes", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "G".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.applyEligible, false);
+});
+
+test("browser applied terminal requires a bound authority receipt digest without transaction", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const base = {
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    accepted_batch: acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+      authority_receipt_digest: "a".repeat(64),
+    },
+  };
+  const valid = normalizeAgentEditResponse(structuredClone(base));
+  assert.equal(valid.terminalState, "applied");
+  assert.equal(valid.applyEligible, true);
+  assert.equal(valid.raw.authority_receipt.authority_receipt_digest, "a".repeat(64));
+
+  for (const malformed of [null, 1, "ABC", "x", "a".repeat(63), "a".repeat(65)]) {
+    const payload = structuredClone(base);
+    payload.authority_receipt.authority_receipt_digest = malformed;
+    const normalized = normalizeAgentEditResponse(payload);
+    assert.equal(normalized.terminalState, "undetermined");
+    assert.equal(normalized.applyEligible, false);
+    assert.equal(normalized.candidateGraph, null);
+    assert.equal(normalized.outcome.kind, "error");
+  }
+
+  const omitted = structuredClone(base);
+  delete omitted.authority_receipt.authority_receipt_digest;
+  const normalized = normalizeAgentEditResponse(omitted);
+  assert.equal(normalized.terminalState, "undetermined");
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.outcome.kind, "error");
+});
+
+test("browser terminal alias matrix binds acceptedBatch alone and scrubs nested products", () => {
+  const graph = { nodes: [{ id: 1 }], links: [] };
+  const acceptedBatch = [{ op: { op: "set_node_field" } }];
+  const deltaDigest = sha256Hex(readDeltaEnvelope({ accepted_batch: acceptedBatch }));
+  const normalized = normalizeAgentEditResponse({
+    ok: true,
+    route: "revise",
+    terminal_state: "applied",
+    session_id: "s",
+    turn_id: "t",
+    candidate: { graph },
+    acceptedBatch,
+    outcome: { kind: "candidate" },
+    apply_eligible: true,
+    report: { nested: { candidateHash: "forged" } },
+    evidence: { nested: { accepted_delta: [{ bad: true }] } },
+    failure: { nested: { delta: [{ bad: true }] } },
+    authority_receipt: {
+      contract_version: "authority_receipt_v2",
+      schema_version: "2.0.0",
+      session_id: "s",
+      turn_id: "t",
+      submit_graph_hash: "a".repeat(64),
+      candidate_hash: sha256Hex(graph),
+      authority_receipt_digest: "a".repeat(64),
+      accepted_batch_digest: deltaDigest,
+      cumulative_delta_hash: deltaDigest,
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "delta_replay",
+      op_count: 1,
+    },
+  });
+  assert.equal(normalized.terminalState, "applied");
+  assert.deepEqual(normalized.raw.accepted_batch, acceptedBatch);
+  assert.equal(normalized.raw.acceptedBatch, undefined);
+  assert.deepEqual(normalized.raw.report, { nested: {} });
+  assert.deepEqual(normalized.evidence, { nested: {} });
+  assert.deepEqual(normalized.raw.failure, { nested: {} });
+  assert.equal(normalized.applyEligible, true);
 });

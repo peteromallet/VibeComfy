@@ -174,6 +174,36 @@ def test_candidate_authority_still_fails_closed() -> None:
     assert stamped.get("apply_eligible") is False
 
 
+def test_alias_only_rejected_candidate_is_audit_only() -> None:
+    """Every public candidate spelling is captured before fail-closed scrub."""
+    frozen = _frozen_provider()
+    submit = _submit_graph()
+    candidate_graph = {"nodes": {"26": {"class_type": "TripoTextureNode"}}}
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=submit,
+        cumulative_delta_envelope=None,
+        candidate=candidate_graph,
+        response={},
+        schema_provider=frozen,
+    )
+    stamped = stamp_response_with_authority(
+        {
+            "candidate_graph": candidate_graph,
+            "candidate_transaction": {"graph": candidate_graph},
+            "outcome": {"kind": "candidate"},
+            "apply_eligible": True,
+        },
+        receipt,
+    )
+    assert "candidate_graph" not in stamped
+    assert "candidate_transaction" not in stamped
+    rejected = stamped["audit"]["rejected_candidate"]
+    assert rejected["candidate_graph"] == candidate_graph
+    assert rejected["candidate_transaction"]["graph"] == candidate_graph
+
+
 def _absence_state(query: str, missing: list[str]) -> SimpleNamespace:
     return SimpleNamespace(
         task="edit_graph",

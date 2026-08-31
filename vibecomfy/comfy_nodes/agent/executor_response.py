@@ -56,12 +56,9 @@ _NON_APPLYABLE_FORBIDDEN_KEYS = {
     "candidate",
     "graph",
     "candidate_graph",
-    "apply_eligible",
-    "apply_eligibility",
-    "eligibility",
-    "apply_allowed",
-    "canvas_apply_allowed",
-    "queue_allowed",
+    "candidateGraph",
+    "candidateTransaction",
+    "acceptedBatch",
 }
 
 # Legacy alias kept for callers and ledger traceability.
@@ -76,16 +73,38 @@ def _format_clarify_markdown(message: Any) -> str:
 
 
 def _strip_non_applyable_forbidden_fields(value: Any) -> Any:
-    """Strip candidate/apply/eligibility fields from non-applyable route envelopes."""
+    """Strip product carriers while retaining typed terminal evidence.
+
+    Eligibility booleans and the authority receipt are contract evidence, not
+    candidate carriers.  They must survive browser/HTTP serialization so the
+    client can prove that a terminal is non-applyable.
+    """
     if isinstance(value, dict):
         stripped: dict[str, Any] = {}
+        preserve_terminal_evidence = (
+            "terminal_state" in value or "authority_receipt" in value
+        )
         for key, item in value.items():
+            if key == "authority_receipt":
+                # Receipt hashes are authority evidence, not product aliases.
+                stripped[key] = item
+                continue
             if key in _NON_APPLYABLE_FORBIDDEN_KEYS or key.startswith("candidate_"):
                 continue
-            stripped[key] = _strip_non_applyable_forbidden_fields(item)
+            if key in {"apply_eligible", "apply_allowed", "canvas_apply_allowed", "queue_allowed"}:
+                if preserve_terminal_evidence:
+                    stripped[key] = False
+                continue
+            if key in {"apply_eligibility", "eligibility"}:
+                if preserve_terminal_evidence:
+                    stripped[key] = {"applyable": False, "reason": "terminal_not_applyable"}
+                continue
+            stripped[key] = item if key == "audit" else _strip_non_applyable_forbidden_fields(item)
         return stripped
     if isinstance(value, list):
         return [_strip_non_applyable_forbidden_fields(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_non_applyable_forbidden_fields(item) for item in value)
     return value
 
 
@@ -161,6 +180,11 @@ def serialize_executor_result(result: Any) -> dict[str, Any]:
         merged = _strip_non_applyable_forbidden_fields(merged)
     if is_clarify:
         merged = _sanitize_clarify_payload(merged)
+    # One final shared normalization pass closes combinations introduced by
+    # compatibility aliases or by a custom result object's serializer.
+    from vibecomfy.executor.contracts import normalize_terminal_envelope
+
+    merged = normalize_terminal_envelope(merged)
     # Batch 10 fix: "claims ⊆ Δ" is enforced on the product path.  The reply
     # may only claim changes the accepted Δ actually landed; invalid claims
     # are stripped from the response (change_details.operations and

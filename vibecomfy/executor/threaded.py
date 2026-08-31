@@ -661,8 +661,10 @@ def run_threaded_executor(
     if getattr(projection, "graph", None) is not None and getattr(projection, "terminal_state", None) == "applied":
         graph = projection.graph
     elif getattr(projection, "terminal_state", None) != "applied":
-        # Non-applied rows: original graph remains authoritative; do not
-        # publish a rejected candidate as the product graph.
+        # Non-applied rows: original graph remains authoritative internally,
+        # but it is never an ExecutorResult graph/candidate.  Keep the request
+        # graph only for reply grounding below; public serialization must have
+        # no graph carrier for a rejected/no-candidate terminal.
         if getattr(projection, "terminal_state", None) in {
             "authority_rejected",
             "infra_failure",
@@ -671,7 +673,7 @@ def run_threaded_executor(
             "no_op",
             "undetermined",
         }:
-            graph = projection.graph if getattr(projection, "graph", None) is not None else request.graph
+            graph = None
 
     # The same execute-agent conversation supplies the prose. Projection runs
     # only now, after the durable response closed, and deterministically checks
