@@ -47,6 +47,17 @@ def test_fast_and_broad_python_gates_are_explicitly_distinct() -> None:
     assert "full-pytest: broad-pytest" in makefile
 
 
+def test_make_installers_support_uv_venvs_without_pip() -> None:
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+
+    assert "ifneq ($(origin PIP), undefined)" in makefile
+    assert "PIP_INSTALL := $(PIP) install" in makefile
+    assert "$(PYTHON) -m pip --version" in makefile
+    assert "PIP_INSTALL := $(UV) pip install --python $(PYTHON)" in makefile
+    assert '$(PIP_INSTALL) --extra-index-url "$(COMFY_INDEX_URL)" -e ".[dev,comfy]"' in makefile
+    assert '$(PIP_INSTALL) --extra-index-url "$(COMFY_INDEX_URL)" -e ".[dev,runpod-launch,comfy]"' in makefile
+
+
 def test_broad_python_workflow_is_scheduled_manual_and_non_required() -> None:
     """Keep the repository-wide lane observable without making PR CI broad."""
     workflow_path = Path(".github/workflows/broad-python.yml")

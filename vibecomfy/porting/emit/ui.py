@@ -3458,6 +3458,19 @@ def emit_ui_json(
             for edge in incoming_sorted:
                 from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
                 _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache)
+                if not socket_type or socket_type in {"*", "UNKNOWN"}:
+                    raw_inputs = raw_ui_node.get("inputs") if isinstance(raw_ui_node, Mapping) else None
+                    raw_input = next(
+                        (
+                            item
+                            for item in raw_inputs or ()
+                            if isinstance(item, Mapping) and item.get("name") == edge.to_input
+                        ),
+                        None,
+                    )
+                    raw_type = raw_input.get("type") if isinstance(raw_input, Mapping) else None
+                    if isinstance(raw_type, str) and raw_type:
+                        socket_type = raw_type
                 lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
                 slot: dict[str, Any] = {
                     "name": edge.to_input,
@@ -3576,6 +3589,28 @@ def emit_ui_json(
                 )
             else:
                 to_slot = remapped
+        if not socket_type or socket_type in {"*", "UNKNOWN"}:
+            source_socket = (
+                emitted_outputs[from_slot]
+                if isinstance(emitted_outputs, list)
+                and 0 <= from_slot < len(emitted_outputs)
+                and isinstance(emitted_outputs[from_slot], Mapping)
+                else None
+            )
+            target_socket = (
+                emitted_inputs[to_slot]
+                if isinstance(emitted_inputs, list)
+                and 0 <= to_slot < len(emitted_inputs)
+                and isinstance(emitted_inputs[to_slot], Mapping)
+                else None
+            )
+            projected_type = (
+                source_socket.get("type") if source_socket is not None else None
+            ) or (
+                target_socket.get("type") if target_socket is not None else None
+            )
+            if isinstance(projected_type, str) and projected_type not in {"", "*", "UNKNOWN"}:
+                socket_type = projected_type
         if source_socket_missing or target_socket_missing:
             carried = _original_link_slots_if_present(
                 wf,
@@ -4302,10 +4337,111 @@ def _is_emit_furniture_path(path: str) -> bool:
     )
 
 
+def _is_stable_uid_materialization(
+    path: str,
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+) -> bool:
+    """Allow only the emitter's missing-UID identity stamp.
+
+    An arbitrary vibecomfy_uid rewrite changes node identity and must remain
+    visible to the guard. The sole furniture case is materializing a missing
+    UID with the native identity already used to match the original node.
+    """
+    if path != "properties.vibecomfy_uid":
+        return False
+    original_properties = original_node.get("properties")
+    candidate_properties = candidate_node.get("properties")
+    if not isinstance(candidate_properties, Mapping):
+        return False
+    original_uid = (
+        original_properties.get("vibecomfy_uid")
+        if isinstance(original_properties, Mapping)
+        else None
+    )
+    if original_uid not in (None, ""):
+        return False
+    native_id = original_node.get("id")
+    if native_id is None:
+        return False
+    return str(candidate_properties.get("vibecomfy_uid") or "") == str(native_id)
+
+
 def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
     if not allowed_paths:
         return False
     return all(any(_path_is_at_or_below(diff, allowed) for allowed in allowed_paths) for diff in diffs)
+
+
+def _set_node_field_allowed_ui_paths(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    field_paths: set[str],
+) -> set[str]:
+    """Resolve semantic field attribution to the exact LiteGraph paths it owns.
+
+    SetNodeFieldOp names an IR field such as steps, while the UI projection
+    stores that value positionally in widgets_values. Do not authorize the
+    whole widget array merely because one field was edited.
+    """
+    allowed: set[str] = set()
+    class_type = str(candidate_node.get("type") or original_node.get("type") or "")
+    widget_names = widget_names_for_class(class_type) or []
+    if not widget_names:
+        try:
+            from vibecomfy.porting.object_info.consume import (  # noqa: PLC0415
+                object_info_widget_value_order,
+            )
+
+            widget_names = list(object_info_widget_value_order(class_type))
+        except Exception:
+            widget_names = []
+
+    attributed_input_names: set[str] = set()
+    for field_path in field_paths:
+        field = str(field_path)
+        index: int | None = None
+        if field.startswith("widgets_values[") and field.endswith("]"):
+            raw_index = field[len("widgets_values["):-1]
+            if raw_index.isdigit():
+                index = int(raw_index)
+        elif field.startswith("widgets_values."):
+            raw_index = field.split(".", 1)[1]
+            if raw_index.isdigit():
+                index = int(raw_index)
+        elif field.startswith("widget_") and field[len("widget_"):].isdigit():
+            index = int(field[len("widget_"):])
+        else:
+            try:
+                index = widget_names.index(field)
+            except ValueError:
+                index = None
+            attributed_input_names.add(field)
+        if index is not None:
+            allowed.add(f"widgets_values[{index}]")
+
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    if (
+        attributed_input_names
+        and isinstance(original_inputs, list)
+        and isinstance(candidate_inputs, list)
+        and original_inputs != candidate_inputs
+    ):
+        # Assigning a literal to a linked input removes precisely that socket.
+        # Authorize the array projection only when every other raw socket is
+        # byte-identical; unrelated socket drift must still fail closed.
+        expected_inputs = [
+            item
+            for item in original_inputs
+            if not (
+                isinstance(item, Mapping)
+                and str(item.get("name")) in attributed_input_names
+            )
+        ]
+        if candidate_inputs == expected_inputs:
+            allowed.add("inputs")
+    return allowed
 
 
 def _recomputed_link_counter(scope: Mapping[str, Any] | None) -> int | None:
@@ -5504,10 +5640,28 @@ def guard_exit_ui(
             path
             for path in _value_diff_paths(original_node, candidate_node)
             if not _is_emit_furniture_path(path)
+            and not _is_stable_uid_materialization(
+                path,
+                original_node,
+                candidate_node,
+            )
         ]
         if not diffs:
             continue
-        allowed_paths = attribution["node_paths"].get(key, set())
+        allowed_paths = set(attribution["node_paths"].get(key, set()))
+        set_fields = attribution["set_node_fields"].get(key, set())
+        if set_fields:
+            # SetNodeField owns one semantic field, not every widget/input on
+            # the node. Resolve that semantic name to its exact UI projection.
+            allowed_paths.discard("widgets_values")
+            allowed_paths.discard("inputs")
+            allowed_paths.update(
+                _set_node_field_allowed_ui_paths(
+                    original_node,
+                    candidate_node,
+                    set_fields,
+                )
+            )
         if _all_diffs_op_allowed(diffs, allowed_paths):
             continue
         diagnostics.append(

@@ -333,6 +333,45 @@ def test_guard_exit_ui_accepts_attributed_field_change() -> None:
     assert unattributed_nodes == []
 
 
+def test_guard_exit_ui_rejects_unrelated_widget_change_on_attributed_node() -> None:
+    original = _fixture()
+    candidate = copy.deepcopy(original)
+    sampler = next(node for node in candidate["nodes"] if node["id"] == 5)
+    sampler["widgets_values"][2] = 30
+    sampler["widgets_values"][3] = 12
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 30}]
+    )
+
+    guard = guard_exit_ui(original, candidate, delta)
+
+    assert guard.ok is False
+    assert any(
+        issue.code == "full_ui_node_changed_unattributed"
+        and (issue.detail or {}).get("uid") == "5"
+        and "widgets_values[3]" in (issue.detail or {}).get("field_paths", [])
+        for issue in guard.diagnostics
+    )
+
+
+def test_guard_exit_ui_rejects_arbitrary_uid_rewrite() -> None:
+    original = _fixture()
+    candidate = copy.deepcopy(original)
+    sampler = next(node for node in candidate["nodes"] if node["id"] == 5)
+    sampler.setdefault("properties", {})["vibecomfy_uid"] = "unrelated-identity"
+
+    guard = guard_exit_ui(original, candidate, ())
+
+    assert guard.ok is False
+    assert any(
+        issue.code in {
+            "full_ui_node_removed_unattributed",
+            "full_ui_node_added_unattributed",
+        }
+        for issue in guard.diagnostics
+    )
+
+
 def test_apply_delta_stops_before_mutation_for_invalid_delta() -> None:
     original = _fixture()
     before = copy.deepcopy(original)

@@ -27,6 +27,14 @@ _IDENTITY_DIAGNOSTIC_CODES = frozenset(
 )
 
 
+def _is_idempotent_rewire_batch(operations: tuple[EditOp, ...]) -> bool:
+    """Return whether an empty result can mean the requested wiring already exists."""
+
+    return bool(operations) and all(
+        getattr(operation, "op", None) == "upsert_link" for operation in operations
+    )
+
+
 class _ParseExecuteMixin:
 
     def apply_batch(self, code: str) -> BatchResult:
@@ -82,10 +90,12 @@ class _ParseExecuteMixin:
                     interpreted.landed_ops,
                     working_workflow=pre_ir,
                 )
-                if (
+                idempotent_rewire = (
                     isinstance(admitted, AdmissionRejected)
-                    and admitted.typed_reason != "no_op"
-                ):
+                    and admitted.typed_reason == "no_op"
+                    and _is_idempotent_rewire_batch(interpreted.landed_ops)
+                )
+                if isinstance(admitted, AdmissionRejected) and not idempotent_rewire:
                     rejection = _diag(
                         admitted.typed_reason,
                         admitted.typed_reason,
@@ -245,7 +255,12 @@ class _ParseExecuteMixin:
                     name_hints=self._transient_name_index,
                 )
                 apply_gate_eligible = gate.apply_eligible
-                if gate.ok and not gate.apply_eligible and gate.reason == "empty_delta":
+                if (
+                    gate.ok
+                    and not gate.apply_eligible
+                    and gate.reason == "empty_delta"
+                    and _is_idempotent_rewire_batch(interpreted.landed_ops)
+                ):
                     # An idempotent rewire is already true in the retained IR.
                     # It is not a failed edit and must not poison a later
                     # done() in the same agent conversation. Keep the batch

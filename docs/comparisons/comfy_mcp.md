@@ -25,11 +25,11 @@ It is:
 
 | Concern | Comfy MCP | VibeComfy |
 |---|---|---|
-| Primary role | Expose ComfyUI and `comfy-cli` capabilities through MCP tools. | Provide an agent-native workflow authoring, knowledge and reasoning layer. |
+| Purpose | Let MCP-capable clients discover and operate a ComfyUI installation. | Help agents understand, author, verify, and preserve ComfyUI workflows. |
+| Primary role | Standard control surface over ComfyUI and `comfy-cli`. | Agent-native workflow authoring, knowledge, and reasoning layer. |
 | Interface | Tool calls available to any MCP client. | Readable Python built around `VibeWorkflow`. |
 | Workflow changes | Edit declared template slots and operate on workflow JSON. | Change values, wiring, nodes, blocks, subgraphs, and composed workflows using tools built for complex changes. |
 | Understanding | Supply live node schemas, workflow notes, templates, and validation results. | Make graph intent inspectable through named calls, metadata, public inputs, provenance, and output contracts. |
-| Best practices | Give the agent access to the available operations. | Guide the agent through curated templates, local precedents, community research, and workflow-specific skills. |
 | Lifecycle | Launch, inspect, run, monitor, and manage ComfyUI. | Discover, translate, edit, compose, validate, compile, execute, and preserve the result. |
 
 ## Why Tool Access Is Not Enough

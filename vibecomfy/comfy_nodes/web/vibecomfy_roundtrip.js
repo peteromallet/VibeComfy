@@ -201,6 +201,7 @@ import {
   AGENT_STATUS_RETRY_DELAYS_MS,
   CANONICAL_AGENT_PROVIDERS,
   ROUTE_ALIASES,
+  ROUTE_LABELS,
   ROUTE_STATUS_KIND,
   _lsGet,
   _lsRemove,
@@ -1154,10 +1155,7 @@ export function ensureAgentNodeIdentities(nodes) {
 }
 
 function ensureLiveAgentNodeIdentities() {
-  const nodes = Array.isArray(app?.canvas?.graph?._nodes)
-    ? app.canvas.graph._nodes
-    : (Array.isArray(app?.canvas?.graph?.nodes) ? app.canvas.graph.nodes : []);
-  ensureAgentNodeIdentities(nodes);
+  ensureAgentNodeIdentities(getLiveGraphNodes(getLiveGraph()));
 }
 
 function ensureSerializedAgentNodeIdentities(graph) {

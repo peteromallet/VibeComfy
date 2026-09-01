@@ -572,15 +572,15 @@ test("machine ledger schema is closed and rejects placeholder metadata", () => {
   assert.throws(() => validateLedger(ledger({ ...row, fixture_proof: { path: "unicorn test that does not exist" } })), /path does not exist/);
 });
 
-test("all 81 rows pass semantic anchors and exact invented mutations fail", async () => {
+test("all 82 rows pass semantic anchors and exact invented mutations fail", async () => {
   const authority = JSON.parse(await readFile(nativeAuthorityLedgerPath, "utf8"));
-  assert.equal(authority.rows.length, 81);
+  assert.equal(authority.rows.length, 82);
   // NGA-040/041 retired with cleanup(T-058) — their roundtrip regions
   // (applyRenderedNodeSizesToSerializedGraph, attemptScopedCanvasRollback)
   // were deleted as dead after the apply-flow extraction.
   assert.deepEqual(
     authority.rows.map((row) => row.id).sort(),
-    Array.from({ length: 83 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`).filter(
+    Array.from({ length: 84 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`).filter(
       (id) => id !== "NGA-040" && id !== "NGA-041",
     ),
   );

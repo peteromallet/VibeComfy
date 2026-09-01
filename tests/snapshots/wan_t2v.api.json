@@ -22,7 +22,6 @@
     "class_type": "EmptyHunyuanLatentVideo",
     "inputs": {
       "width": 832,
-      "height": 480,
       "length": 33
     }
   },

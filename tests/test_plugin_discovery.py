@@ -337,9 +337,10 @@ def test_ensure_plugins_loaded_has_one_owner_under_concurrency(
 
 
 def test_ensure_plugins_loaded_failure_is_terminal_and_shared(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, request: pytest.FixtureRequest
 ) -> None:
     _reset_plugin_state(monkeypatch, tmp_path)
+    request.addfinalizer(extras._reset_for_tests)
     entered = threading.Event()
     release = threading.Event()
     waiter_done = threading.Event()

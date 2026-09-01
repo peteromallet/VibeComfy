@@ -1,5 +1,18 @@
 PYTHON ?= .venv/bin/python
-PIP ?= $(PYTHON) -m pip
+UV ?= uv
+ifneq ($(origin PIP), undefined)
+PIP_INSTALL := $(PIP) install
+else
+ifneq ($(shell $(PYTHON) -m pip --version >/dev/null 2>&1 && echo available),)
+PIP_INSTALL := $(PYTHON) -m pip install
+else
+ifneq ($(shell command -v $(UV) 2>/dev/null),)
+PIP_INSTALL := $(UV) pip install --python $(PYTHON)
+else
+PIP_INSTALL := $(PYTHON) -m pip install
+endif
+endif
+endif
 PYTEST ?= $(PYTHON) -m pytest
 NODE ?= node
 COMFY_INDEX_URL ?= https://nodes.appmana.com/simple/
@@ -125,11 +138,11 @@ check: root-clean docs template-index templates strict-ready fast snapshots orac
 ci: check
 
 install-dev:
-	$(PIP) install -e ".[dev]"
+	$(PIP_INSTALL) --extra-index-url "$(COMFY_INDEX_URL)" -e ".[dev,comfy]"
 
 install-ci:
-	$(PIP) install --extra-index-url "$(COMFY_INDEX_URL)" -e ".[dev,runpod-launch,comfy]"
-	$(PIP) install "lazy-object-proxy>=1.10" "frozendict>=2.4" "pillow>=10" "ConfigArgParse>=1.7.1"
+	$(PIP_INSTALL) --extra-index-url "$(COMFY_INDEX_URL)" -e ".[dev,runpod-launch,comfy]"
+	$(PIP_INSTALL) "lazy-object-proxy>=1.10" "frozendict>=2.4" "pillow>=10" "ConfigArgParse>=1.7.1"
 
 prune-empty-runtime-root:
 	@for path in input output models user vendor custom_nodes; do \

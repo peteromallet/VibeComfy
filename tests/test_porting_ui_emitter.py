@@ -117,7 +117,11 @@ def _install_comfy_nodes_context_stub() -> None:
     def get_nodes():
         provider = get_authoring_schema_provider()
         schemas = provider.schemas()
-        return {class_type: _class_for_schema(schema) for class_type, schema in schemas.items()}
+        return {
+            class_type: _class_for_schema(schema)
+            for class_type, schema in schemas.items()
+            if isinstance(schema, NodeSchema)
+        }
 
     module = types.ModuleType("comfy.nodes_context")
     module.get_nodes = get_nodes
