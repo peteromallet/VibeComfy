@@ -9,6 +9,7 @@ from vibecomfy._compile._widgets import (
     WIDGET_SCHEMA,
     WIDGET_SEMANTIC_NAMES,
 )
+from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 from vibecomfy.schema import schema_for
 
 
@@ -29,16 +30,13 @@ class WidgetResolution:
 
 
 def _input_alias_from_schema(schema: Any | None) -> list[str | None]:
+    explicit_order = getattr(schema, "widget_input_order", None)
+    if isinstance(explicit_order, (list, tuple)) and explicit_order:
+        return [str(name) if isinstance(name, str) and name else None for name in explicit_order]
     inputs = getattr(schema, "inputs", None)
     if not isinstance(inputs, dict):
         return []
-    names: list[str | None] = []
-    for name, spec in inputs.items():
-        input_type = str(getattr(spec, "type", "") or "").upper()
-        if input_type in LINK_ONLY_TYPES:
-            continue
-        names.append(str(name))
-    return names
+    return [str(name) for name, spec in inputs.items() if input_spec_is_literal_widget(spec)]
 
 
 def _schema_from_provider(schema_provider: Any | None, class_type: str) -> Any | None:
@@ -198,16 +196,7 @@ def widget_names_from_schema(class_type: str, schema: Any | None) -> list[str | 
     committed = widget_names_for_class(class_type)
     if committed is not None:
         return committed
-    inputs = getattr(schema, "inputs", None)
-    if not isinstance(inputs, dict):
-        return []
-    names: list[str | None] = []
-    for name, spec in inputs.items():
-        input_type = str(getattr(spec, "type", "") or "").upper()
-        if input_type in LINK_ONLY_TYPES:
-            continue
-        names.append(str(name))
-    return names
+    return _input_alias_from_schema(schema)
 
 
 def unresolved_widget_aliases(

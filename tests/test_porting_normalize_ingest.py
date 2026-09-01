@@ -88,6 +88,127 @@ def test_control_after_generate_fixed_from_ui_widgets() -> None:
     assert wf.nodes["1"].metadata.get("control_after_generate") == "fixed"
 
 
+def test_ui_widget_roster_outranks_schema_with_leading_custom_socket() -> None:
+    """Exact UI names prevent a custom linked socket from shifting literals.
+
+    TripoTextureNode's schema begins with the custom ``MODEL_TASK_ID`` socket.
+    That type is not a universal link-only token, while the LiteGraph node
+    carries an exact widget roster.  The ingest door must therefore bind the
+    six serialized values to those six UI names instead of offsetting them by
+    the socket and dropping the first boolean on key collision.
+    """
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    raw = {
+        "nodes": [
+            {
+                "id": 7,
+                "type": "TripoTextToModelNode",
+                "inputs": [],
+                "outputs": [
+                    {
+                        "name": "model task_id",
+                        "type": "MODEL_TASK_ID",
+                        "links": [2],
+                        "slot_index": 1,
+                    }
+                ],
+                "widgets_values": [],
+            },
+            {
+                "id": 26,
+                "type": "TripoTextureNode",
+                "inputs": [
+                    {"name": "model_task_id", "type": "MODEL_TASK_ID", "link": 2},
+                    {
+                        "name": "texture",
+                        "type": "BOOLEAN",
+                        "link": None,
+                        "widget": {"name": "texture"},
+                    },
+                    {
+                        "name": "pbr",
+                        "type": "BOOLEAN",
+                        "link": None,
+                        "widget": {"name": "pbr"},
+                    },
+                    {
+                        "name": "texture_seed",
+                        "type": "INT",
+                        "link": None,
+                        "widget": {"name": "texture_seed"},
+                    },
+                    {
+                        "name": "texture_quality",
+                        "type": "COMBO",
+                        "link": None,
+                        "widget": {"name": "texture_quality"},
+                    },
+                    {
+                        "name": "texture_alignment",
+                        "type": "COMBO",
+                        "link": None,
+                        "widget": {"name": "texture_alignment"},
+                    },
+                    {
+                        "name": "texture_prompt",
+                        "type": "STRING",
+                        "link": None,
+                        "widget": {"name": "texture_prompt"},
+                    },
+                ],
+                "outputs": [],
+                "widgets_values": [True, True, 42, "standard", "original_image", ""],
+            },
+        ],
+        "links": [[2, 7, 1, 26, 0, "MODEL_TASK_ID"]],
+    }
+    provider = ObjectInfoIndexSchemaProvider("vibecomfy/porting/cache/object_info")
+
+    api = normalize_to_api(raw, schema_provider=provider, use_comfy_converter=False)
+
+    assert api["26"]["inputs"] == {
+        "model_task_id": ["7", 1],
+        "texture": True,
+        "pbr": True,
+        "texture_seed": 42,
+        "texture_quality": "standard",
+        "texture_alignment": "original_image",
+        "texture_prompt": "",
+    }
+    assert api["26"]["_input_provenance"] == {
+        "model_task_id": "edge",
+        "texture": "widget",
+        "pbr": "widget",
+        "texture_seed": "widget",
+        "texture_quality": "widget",
+        "texture_alignment": "widget",
+        "texture_prompt": "widget",
+    }
+
+    workflow = from_api(api, schema_provider=provider)
+    texture_node = workflow.nodes["26"]
+    assert texture_node.inputs == {
+        "texture": True,
+        "pbr": True,
+        "texture_seed": 42,
+        "texture_quality": "standard",
+        "texture_alignment": "original_image",
+        "texture_prompt": "",
+    }
+    texture_node.inputs["texture_quality"] = "detailed"
+    emitted = emit_ui_json(workflow, schema_provider=provider)
+    emitted_texture = next(node for node in emitted["nodes"] if node["id"] == 26)
+    assert emitted_texture["widgets_values"] == [
+        True,
+        True,
+        42,
+        "detailed",
+        "original_image",
+        "",
+    ]
+
+
 def test_public_raw_widgets_alias_is_preserved_as_raw_widget_payload() -> None:
     wf = _workflow_from_node(
         {

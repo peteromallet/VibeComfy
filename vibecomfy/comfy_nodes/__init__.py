@@ -70,6 +70,7 @@ class _RouteRegistrationOwner:
         self.state = _ROUTES_UNINITIALIZED
         self.error: BaseException | None = None
         self.owner_thread: int | None = None
+        self.owner_loader: str | None = None
 
 
 _route_state = _ROUTES_UNINITIALIZED
@@ -286,6 +287,7 @@ def _mark_route_failed(
     with owner.condition:
         owner.error = error
         owner.owner_thread = None
+        owner.owner_loader = None
         owner.state = _ROUTES_FAILED
         _mirror_route_owner(owner)
         owner.condition.notify_all()
@@ -297,6 +299,7 @@ def _mark_route_ready(instance: Any, owner: _RouteRegistrationOwner) -> None:
     with owner.condition:
         owner.error = None
         owner.owner_thread = None
+        owner.owner_loader = None
         owner.state = _ROUTES_READY
         _mirror_route_owner(owner)
         owner.condition.notify_all()
@@ -420,11 +423,27 @@ def _ensure_routes_registered() -> None:
                 raise error
             if owner.state == _ROUTES_LOADING:
                 if owner.owner_thread == current_thread:
+                    # ComfyUI imports a custom node under a synthetic module name.
+                    # Importing our canonical package from that entry point can
+                    # therefore re-enter this file on the same thread while the
+                    # synthetic loader still owns registration.  The outer loader
+                    # will finish the shared registration; blocking here would
+                    # deadlock and treating it as self-recursion rejects a valid
+                    # import topology.  True recursion within one loader remains
+                    # a hard failure.
+                    if owner.owner_loader != __name__:
+                        _LOGGER.info(
+                            "VibeComfy route registration is already owned by "
+                            "alternate loader %s; deferring to it.",
+                            owner.owner_loader,
+                        )
+                        return
                     raise RuntimeError("route registration is not reentrant")
                 owner.condition.wait()
                 continue
             owner.state = _ROUTES_LOADING
             owner.owner_thread = current_thread
+            owner.owner_loader = __name__
             _mirror_route_owner(owner)
             break
 
@@ -444,13 +463,27 @@ def _ensure_routes_registered() -> None:
             raise error
         else:
             owner.owner_thread = None
+            owner.owner_loader = None
             _mirror_route_owner(owner)
             owner.condition.notify_all()
 
 
+def _route_registration_entrypoint() -> Any:
+    """Return the one canonical module that owns process-scoped HTTP state."""
+
+    if __name__ == "vibecomfy.comfy_nodes":
+        return sys.modules[__name__]
+    # ComfyUI loads custom-node entry points under a synthetic module identity.
+    # Route guards, the CSRF capability, and the agent handlers must nevertheless
+    # come from one canonical package module or process-scoped secrets split.
+    from vibecomfy import comfy_nodes as canonical
+
+    return canonical
+
+
 if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":
     try:
-        _ensure_routes_registered()
+        _route_registration_entrypoint()._ensure_routes_registered()
     except ImportError as _route_import_exc:
         _LOGGER.warning(
             "Could not register VibeComfy agent routes (%s); "
@@ -739,3 +772,12 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     KIND_TO_CLASS_TYPE["code"]: "VibeComfy Code Intent",
     KIND_TO_CLASS_TYPE["loop"]: "VibeComfy Loop Intent",
 }
+
+# ComfyUI's synthetic loader should expose the canonical class objects too.
+# This prevents schema/type checks from observing a second set of node classes
+# even though Python executed the entry-point file under another module name.
+if __name__ != "vibecomfy.comfy_nodes":
+    _canonical_entrypoint = _route_registration_entrypoint()
+    WEB_DIRECTORY = _canonical_entrypoint.WEB_DIRECTORY
+    NODE_CLASS_MAPPINGS = _canonical_entrypoint.NODE_CLASS_MAPPINGS
+    NODE_DISPLAY_NAME_MAPPINGS = _canonical_entrypoint.NODE_DISPLAY_NAME_MAPPINGS

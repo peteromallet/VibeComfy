@@ -79,11 +79,23 @@ PACK_URL_FALLBACKS: dict[str, str] = {
     "ComfyUI-llama-cpp": "https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm",
     "ComfyUI-llama-cpp_vlm": "https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm",
     "ComfyUI-DeepExtract": "https://github.com/abdozmantar/ComfyUI-DeepExtract",
+    "ComfyUI-ProPost": "https://github.com/digitaljohn/comfyui-propost",
     "audio-separation-nodes-comfyui": "https://github.com/christian-byrke/audio-separation-nodes-comfyui",
     # ACN — Suzie1/ComfyUI-Advanced-ControlNet is 404 Not Found
     # (verified 2026-08-26); live upstream is Kosinkadink (original) /
     # omneky-org (fork). Use Kosinkadink as canonical.
     "ComfyUI-Advanced-ControlNet": "https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
+}
+
+# Exact class-to-pack witnesses for off-registry nodes whose generic GitHub
+# search results are polluted by workflow/documentation repositories. These
+# are used by schema-only on-demand resolution before fuzzy remote evidence.
+CLASS_PACK_FALLBACKS: dict[str, str] = {
+    "ProPostApplyLUT": "ComfyUI-ProPost",
+    "ProPostDepthMapBlur": "ComfyUI-ProPost",
+    "ProPostFilmGrain": "ComfyUI-ProPost",
+    "ProPostRadialBlur": "ComfyUI-ProPost",
+    "ProPostVignette": "ComfyUI-ProPost",
 }
 
 # Fallback version pins — when current master has migrated to the v3

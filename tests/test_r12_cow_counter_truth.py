@@ -491,3 +491,43 @@ def test_pin_set_field_preserves_schema_less_link_type_on_unrelated_reemit() -> 
     pinned = pin_untouched_ui(original, emitted, (operation,))
 
     assert pinned["nodes"][0]["inputs"] == original["nodes"][0]["inputs"]
+
+
+def test_pin_set_field_preserves_unlinked_widget_input_descriptor() -> None:
+    """A literal widget write must not delete its captured UI input record."""
+    original = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CustomWidgetTarget",
+                "properties": {"vibecomfy_uid": "target", "kept": "original"},
+                "inputs": [
+                    {"name": "model", "type": "MODEL", "link": 4},
+                    {
+                        "name": "texture_quality",
+                        "type": "COMBO",
+                        "widget": {"name": "texture_quality"},
+                        "link": None,
+                    },
+                ],
+                "widgets_values": ["standard"],
+            }
+        ],
+        "links": [[4, 2, 0, 1, 0, "MODEL"]],
+    }
+    emitted = deepcopy(original)
+    emitted["nodes"][0]["inputs"] = [emitted["nodes"][0]["inputs"][0]]
+    emitted["nodes"][0]["widgets_values"] = ["detailed"]
+    emitted["nodes"][0]["properties"]["vibecomfy_id"] = "CustomWidgetTarget_0"
+    emitted["nodes"][0]["properties"]["_vibecomfy_schema_provider"] = "unknown"
+    operation = SetNodeFieldOp(
+        "set_node_field",
+        NodeFieldTarget("", "target", "texture_quality"),
+        "detailed",
+    )
+
+    pinned = pin_untouched_ui(original, emitted, (operation,))
+
+    assert pinned["nodes"][0]["inputs"] == original["nodes"][0]["inputs"]
+    assert pinned["nodes"][0]["widgets_values"] == ["detailed"]
+    assert pinned["nodes"][0]["properties"] == original["nodes"][0]["properties"]

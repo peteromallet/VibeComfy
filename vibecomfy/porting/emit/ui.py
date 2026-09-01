@@ -1423,6 +1423,21 @@ def _widget_names_for_emission(
     """
     from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
 
+    if node is not None and isinstance(name_authority, Mapping):
+        uid = getattr(node, "uid", None) or getattr(node, "id", None)
+        authority_names = name_authority.get(str(uid)) if uid is not None else None
+        if isinstance(authority_names, (list, tuple)) and authority_names:
+            count = _compact_widget_count_for_emission(node) or len(authority_names)
+            return list(
+                compact_widget_names_for_node(
+                    node,
+                    class_type,
+                    value_count=count,
+                    schema_provider=schema_provider,
+                    name_authority=name_authority,
+                ).names
+            )
+
     committed = widget_names_for_class(class_type)
     object_info_order = object_info_widget_order(class_type)
     if _widget_value_domain_for_emission(node, committed, object_info_order) == "raw_object_info":
@@ -4541,7 +4556,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
 
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
-            allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs", "properties")
+            allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs")
             set_node_fields.setdefault(
                 (op.target.scope_path, op.target.uid), set()
             ).add(op.target.field_path)
@@ -5147,6 +5162,7 @@ def pin_untouched_ui(
                             for item in merged["inputs"]
                             if not (
                                 isinstance(item, Mapping)
+                                and item.get("link") is not None
                                 and str(item.get("name")) in set_fields
                                 and str(item.get("name")) not in candidate_input_names
                             )

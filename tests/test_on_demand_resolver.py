@@ -108,6 +108,40 @@ def test_l1_no_pack_resolves_returns_none(tmp_path: Path, monkeypatch: pytest.Mo
     assert provider._cache["DoesNotExistNode"] is None
 
 
+def test_propost_class_uses_verified_pack_before_fuzzy_github_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = OnDemandInstallSchemaProvider(sandbox_root=tmp_path / "sandbox")
+
+    def unexpected_fuzzy_lookup(_class_type: str):
+        raise AssertionError("exact class witness must outrank fuzzy GitHub search")
+
+    monkeypatch.setattr(
+        "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
+        unexpected_fuzzy_lookup,
+    )
+
+    ref = provider._resolve_pack("ProPostApplyLUT")
+    assert ref.slug == "ComfyUI-ProPost"
+    assert ref.url == "https://github.com/digitaljohn/comfyui-propost"
+    assert ref.source == "verified-class-fallback"
+
+
+def test_schema_git_commands_skip_lfs_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.schema import on_demand
+
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return __import__("subprocess").CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(on_demand.subprocess, "run", fake_run)
+    on_demand._run_git(["git", "clone", "source", "target"], timeout=5)
+    assert captured["env"]["GIT_LFS_SKIP_SMUDGE"] == "1"
+
+
 def test_registry_archive_resolves_package_version_without_git_tag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

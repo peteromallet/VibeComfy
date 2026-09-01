@@ -611,7 +611,20 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 inputs[str(name)] = value
                 input_provenance[str(name)] = "widget"
         elif isinstance(widgets, list):
-            widget_names = _schema_input_names(schema_provider, class_type)
+            # LiteGraph's per-input ``widget.name`` roster is direct evidence
+            # for the serialized ``widgets_values`` row.  Prefer it whenever
+            # it covers the row exactly.  A schema may lead with a custom
+            # socket type that the generic literal/socket classifier does not
+            # know (for example Tripo's ``MODEL_TASK_ID``); using that broader
+            # schema order shifts every literal right and can then drop the
+            # first value when it collides with the linked socket.  Partial UI
+            # rosters still fall back to schema evidence for compatibility
+            # with UI-only controls such as ``control_after_generate``.
+            widget_names = (
+                ui_widget_names
+                if len(ui_widget_names) == len(widgets)
+                else _schema_input_names(schema_provider, class_type)
+            )
             for idx, value in enumerate(widgets):
                 if idx < len(widget_names):
                     name = _normalize_widget_input_name(widget_names, idx, value)
@@ -1730,7 +1743,7 @@ def _schema_output_types(schema_provider: SchemaProvider | None, class_type: str
 
 def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: str) -> list[str | None]:
     """Build input aliases from schema, excluding link-only types so widget positions do not shift."""
-    from vibecomfy.porting.widgets.aliases import LINK_ONLY_TYPES
+    from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 
     schema = schema_for(schema_provider, class_type)
     if schema is None:
@@ -1738,12 +1751,7 @@ def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: st
     inputs = getattr(schema, "inputs", None)
     if not isinstance(inputs, dict):
         return []
-    aliases: list[str | None] = []
-    for name, spec in inputs.items():
-        input_type = str(getattr(spec, "type", "") or "").upper()
-        if input_type in LINK_ONLY_TYPES:
-            continue
-        aliases.append(str(name))
+    aliases = [str(name) for name, spec in inputs.items() if input_spec_is_literal_widget(spec)]
     return aliases if aliases else []
 
 

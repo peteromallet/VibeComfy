@@ -45,6 +45,9 @@ function response(body, status = 200) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    clone() {
+      return response(body, status);
+    },
     async json() {
       return structuredClone(body);
     },
@@ -103,6 +106,43 @@ test("mutating browser request bootstraps once and sends process CSRF header", a
     assert.equal(calls[1].options.redirect, "error");
     assert.equal(calls[1].options.headers["Content-Type"], "application/json");
     assert.equal(calls[2].options.headers[CSRF_HEADER], TOKEN);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("local mutation refreshes a stale process CSRF capability once after restart", async () => {
+  _resetCsrfCapabilityForTests();
+  const refreshedToken = "browser-test-process-csrf-capability-0000002";
+  const calls = [];
+  let bootstrapCount = 0;
+  let mutationCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options: structuredClone(options) });
+    if (String(url) === CSRF_BOOTSTRAP_PATH) {
+      bootstrapCount += 1;
+      return response({
+        csrf_header: CSRF_HEADER,
+        csrf_token: bootstrapCount === 1 ? TOKEN : refreshedToken,
+      });
+    }
+    mutationCount += 1;
+    return mutationCount === 1
+      ? response({ error: "http_request_not_authorized" }, 403)
+      : response({ ok: true });
+  };
+  try {
+    const result = await vibecomfyFetch("/vibecomfy/agent/settings", {
+      method: "POST",
+      body: "{}",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 4);
+    assert.equal(calls[1].options.headers[CSRF_HEADER], TOKEN);
+    assert.equal(calls[2].url, CSRF_BOOTSTRAP_PATH);
+    assert.equal(calls[3].options.headers[CSRF_HEADER], refreshedToken);
   } finally {
     globalThis.fetch = originalFetch;
   }

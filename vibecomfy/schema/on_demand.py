@@ -125,6 +125,9 @@ def _run_git(command: list[str], timeout: int) -> subprocess.CompletedProcess[st
             capture_output=True,
             text=True,
             timeout=timeout,
+            # Schema discovery needs Python source only. Never smudge model or
+            # media payloads from a candidate pack's Git LFS pointers.
+            env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise OnDemandCloneError(_git_diagnostics(command, exc)) from exc
@@ -271,7 +274,21 @@ class OnDemandInstallSchemaProvider:
 
     def _resolve_pack(self, class_type: str) -> Any:
         try:
-            from vibecomfy.registry.pack_resolver import resolve_missing_nodes
+            from vibecomfy.registry.pack_resolver import (
+                CLASS_PACK_FALLBACKS,
+                PACK_URL_FALLBACKS,
+                PackRef,
+                resolve_missing_nodes,
+            )
+
+            fallback_slug = CLASS_PACK_FALLBACKS.get(class_type)
+            fallback_url = PACK_URL_FALLBACKS.get(fallback_slug or "")
+            if fallback_slug and fallback_url:
+                return PackRef(
+                    slug=fallback_slug,
+                    source="verified-class-fallback",
+                    url=fallback_url,
+                )
 
             resolution = resolve_missing_nodes(class_type)
         except Exception:

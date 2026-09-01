@@ -27,6 +27,7 @@ def _reset_route_state(module, instance=None) -> None:
             owner.state = module._ROUTES_UNINITIALIZED
             owner.error = None
             owner.owner_thread = None
+            owner.owner_loader = None
 
 
 def test_entry_point_resolves_vibecomfy_in_comfyui_group() -> None:
@@ -309,6 +310,78 @@ def test_route_registration_shares_owner_across_alternate_loaders(monkeypatch) -
     finally:
         for name in aliases:
             sys.modules.pop(name, None)
+
+
+def test_route_registration_defers_same_thread_alternate_loader(monkeypatch) -> None:
+    module_path = ROOT / "vibecomfy" / "comfy_nodes" / "__init__.py"
+    aliases = []
+    modules = []
+    for suffix in ("outer", "canonical"):
+        name = f"_vibecomfy_same_thread_loader_{suffix}"
+        spec = importlib.util.spec_from_file_location(name, module_path)
+        assert spec is not None and spec.loader is not None
+        alias = importlib.util.module_from_spec(spec)
+        alias.__package__ = "vibecomfy.comfy_nodes"
+        sys.modules[name] = alias
+        spec.loader.exec_module(alias)
+        aliases.append(name)
+        modules.append(alias)
+
+    try:
+        instance = types.SimpleNamespace()
+        for alias in modules:
+            monkeypatch.setattr(
+                alias, "_resolve_prompt_server_instance", lambda instance=instance: instance
+            )
+        _reset_route_state(modules[0], instance)
+        calls: list[str] = []
+
+        def outer_registration(_instance, owner) -> None:
+            calls.append("outer")
+            modules[1]._ensure_routes_registered()
+            with owner.condition:
+                owner.state = modules[0]._ROUTES_READY
+
+        def unexpected_inner_registration(_instance, _owner) -> None:
+            raise AssertionError("alternate loader must defer to the active owner")
+
+        monkeypatch.setattr(modules[0], "_register_routes_once", outer_registration)
+        monkeypatch.setattr(
+            modules[1], "_register_routes_once", unexpected_inner_registration
+        )
+
+        modules[0]._ensure_routes_registered()
+
+        owner = modules[0]._route_registration_owner(instance)
+        assert calls == ["outer"]
+        assert owner.state == modules[0]._ROUTES_READY
+        assert owner.owner_thread is None
+        assert owner.owner_loader is None
+    finally:
+        for name in aliases:
+            sys.modules.pop(name, None)
+
+
+def test_alternate_loader_delegates_process_scoped_state_to_canonical_module(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    canonical = importlib.import_module("vibecomfy.comfy_nodes")
+    module_path = ROOT / "vibecomfy" / "comfy_nodes" / "__init__.py"
+    name = "_vibecomfy_synthetic_custom_node_loader"
+    spec = importlib.util.spec_from_file_location(name, module_path)
+    assert spec is not None and spec.loader is not None
+    alias = importlib.util.module_from_spec(spec)
+    alias.__package__ = "vibecomfy.comfy_nodes"
+    sys.modules[name] = alias
+    try:
+        spec.loader.exec_module(alias)
+        assert alias._route_registration_entrypoint() is canonical
+        assert alias.NODE_CLASS_MAPPINGS is canonical.NODE_CLASS_MAPPINGS
+        assert alias.NODE_DISPLAY_NAME_MAPPINGS is canonical.NODE_DISPLAY_NAME_MAPPINGS
+        assert alias.WEB_DIRECTORY == canonical.WEB_DIRECTORY
+    finally:
+        sys.modules.pop(name, None)
 
 
 def test_route_registration_waits_for_startup_audit_before_ready(monkeypatch) -> None:

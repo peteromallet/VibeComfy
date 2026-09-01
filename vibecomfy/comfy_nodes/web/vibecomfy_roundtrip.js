@@ -1068,7 +1068,75 @@ function normalizeLiveExecNodesForSerialization() {
   }
 }
 
+export function ensureAgentNodeIdentities(nodes) {
+  const workflowId = resolveActiveWorkflowUuid();
+  if (!workflowId) {
+    return;
+  }
+  const planned = [];
+  const claimed = new Map();
+  for (const node of nodes) {
+    const properties = node?.properties && typeof node.properties === "object"
+      ? node.properties
+      : null;
+    const topLevelUid = node?.vibecomfy_uid === null || node?.vibecomfy_uid === undefined
+      ? ""
+      : String(node.vibecomfy_uid).trim();
+    const propertyUid = properties?.vibecomfy_uid === null || properties?.vibecomfy_uid === undefined
+      ? ""
+      : String(properties.vibecomfy_uid).trim();
+    if (topLevelUid && propertyUid && topLevelUid !== propertyUid) {
+      const error = new Error(
+        `Conflicting stable node identities on node ${String(node?.id ?? "unknown")}.`,
+      );
+      error.code = "conflicting_identity";
+      throw error;
+    }
+    let canonical = propertyUid || topLevelUid;
+    if (!canonical && node?.id !== null && node?.id !== undefined) {
+      canonical = `vibecomfy:${workflowId}:node:${String(node.id)}`;
+    }
+    if (!canonical) {
+      continue;
+    }
+    if (claimed.has(canonical)) {
+      const error = new Error(
+        `Duplicate stable node identity ${canonical} on nodes ${claimed.get(canonical)} and ${String(node?.id ?? "unknown")}.`,
+      );
+      error.code = "duplicate_identity";
+      throw error;
+    }
+    claimed.set(canonical, String(node?.id ?? "unknown"));
+    planned.push({ node, canonical, hadTopLevelUid: Object.hasOwn(node, "vibecomfy_uid") });
+  }
+  for (const { node, canonical, hadTopLevelUid } of planned) {
+    const properties = node.properties && typeof node.properties === "object"
+      ? node.properties
+      : (node.properties = {});
+    properties.vibecomfy_uid = canonical;
+    // Older workflow serializers sometimes placed this identity at the node
+    // root. Keep that representation synchronized when it already exists so
+    // projection (root-first) and live Apply lookup (properties-first) cannot
+    // name different nodes.
+    if (hadTopLevelUid) {
+      node.vibecomfy_uid = canonical;
+    }
+  }
+}
+
+function ensureLiveAgentNodeIdentities() {
+  const nodes = Array.isArray(app?.canvas?.graph?._nodes)
+    ? app.canvas.graph._nodes
+    : (Array.isArray(app?.canvas?.graph?.nodes) ? app.canvas.graph.nodes : []);
+  ensureAgentNodeIdentities(nodes);
+}
+
+function ensureSerializedAgentNodeIdentities(graph) {
+  ensureAgentNodeIdentities(Array.isArray(graph?.nodes) ? graph.nodes : []);
+}
+
 function captureSerializedGraphForAgent() {
+  ensureLiveAgentNodeIdentities();
   normalizeForSerialize(null, { live: true });
   const capture = createIntentGraphAdapter(app).capture();
   if (!capture.ok) {
@@ -1078,6 +1146,24 @@ function captureSerializedGraphForAgent() {
     throw error;
   }
   const graph = clonePlainData(capture.data.graph);
+  // ComfyUI may assign a stable UUID to an opened workflow tab while leaving
+  // a legacy file's embedded graph id unchanged (commonly the all-zero UUID).
+  // The active tab is the browser-side workflow authority, so fence the
+  // detached submit snapshot to that same identity before hashing or issuing
+  // node identities. Otherwise the request carries two valid but conflicting
+  // workflow identities and must be rejected by the server contract.
+  const workflowId = resolveActiveWorkflowUuid();
+  if (workflowId) {
+    graph.id = workflowId;
+  }
+  // Typed candidate authority intentionally refuses native node IDs as its
+  // identity domain. Legacy Comfy workflows commonly arrive without
+  // ``properties.vibecomfy_uid``, so mint deterministic identities on the
+  // detached snapshot before its first submit. Every later pre/post-Apply
+  // snapshot derives the same values without weakening the strict projection
+  // contract. The matching live metadata lets scoped delta application
+  // resolve the exact nodes named by that authority.
+  ensureSerializedAgentNodeIdentities(graph);
   normalizeForSerialize(graph);
   return graph;
 }

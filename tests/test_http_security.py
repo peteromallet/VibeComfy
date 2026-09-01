@@ -811,6 +811,33 @@ def test_runtime_route_inventory_is_complete_guarded_and_exact_get_only(
     assert ("HEAD", "/vibecomfy/ping") not in actual
 
 
+def test_exact_get_routes_can_be_copied_by_comfyui_api_prefixer() -> None:
+    routes = web.RouteTableDef()
+
+    @security.register_http_route(routes, "GET", "/vibecomfy/info")
+    async def _handler(_request: web.Request) -> web.Response:
+        return web.json_response({"ok": True})
+
+    api_routes = web.RouteTableDef()
+    original = next(route for route in routes if isinstance(route, web.RouteDef))
+    assert "allow_head" not in original.kwargs
+
+    # Mirrors PromptServer.add_routes in current ComfyUI.
+    api_routes.route(
+        original.method,
+        "/api" + original.path,
+    )(original.handler, **original.kwargs)
+
+    app = web.Application()
+    app.add_routes(api_routes)
+    app.add_routes(routes)
+    actual = {(route.method, route.resource.canonical) for route in app.router.routes()}
+    assert actual == {
+        ("GET", "/api/vibecomfy/info"),
+        ("GET", "/vibecomfy/info"),
+    }
+
+
 @pytest.mark.parametrize("registration", ["head", "alternate_method", "view"])
 def test_materialized_route_audit_rejects_late_and_alternate_registrations(
     registration: str,

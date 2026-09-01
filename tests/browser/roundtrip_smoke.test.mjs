@@ -1045,6 +1045,7 @@ test("VibeComfy beforeRegisterNodeDef decorates intent node prototypes and degra
 
 test("VibeComfy agent executor submit posts the live graph, renders the reply, and dedupes in-flight submits", async () => {
   const graph = {
+    id: "123e4567-e89b-12d3-a456-426614174000",
     links: [],
     nodes: [
       {
@@ -1242,6 +1243,147 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
   } finally {
     releaseResponse?.();
     await Promise.allSettled([firstSubmit, duplicateSubmit].filter(Boolean));
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy submit mints stable node identities for legacy Comfy workflows", async () => {
+  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
+  const graph = {
+    id: "00000000-0000-0000-0000-000000000000",
+    links: [],
+    nodes: [
+      { id: 1, type: "Input", properties: { untouched: true } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "saved-uid" } },
+    ],
+  };
+  const harness = await createBrowserHarness({
+    graph,
+    workflowId,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          outcome: { kind: "noop", reason: "identity capture test" },
+          graph_unchanged: true,
+          canvas_apply_allowed: false,
+          apply_allowed: false,
+          queue_allowed: false,
+          message: "No edit needed.",
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+            openrouter: { requested_route: "openrouter", normalized_route: "openrouter", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const legacyRootIdentityNode = {
+      id: 3,
+      vibecomfy_uid: " ",
+      properties: { vibecomfy_uid: "legacy-property-uid" },
+    };
+    extensionModule.ensureAgentNodeIdentities([legacyRootIdentityNode]);
+    assert.equal(legacyRootIdentityNode.vibecomfy_uid, "legacy-property-uid");
+    assert.equal(legacyRootIdentityNode.properties.vibecomfy_uid, "legacy-property-uid");
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    extensionModule.ensureAgentPanel();
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "inspect this workflow";
+    harness.document.getElementById("vibecomfy-agent-panel-submit").click();
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-executor"));
+
+    const request = harness.requests.find((entry) => entry.url === "/vibecomfy/agent-executor");
+    const payload = JSON.parse(request.body);
+    const derived = `vibecomfy:${workflowId}:node:1`;
+    assert.equal(payload.workflow_id, workflowId);
+    assert.equal(
+      payload.graph.id,
+      workflowId,
+      "legacy embedded graph identity must be fenced to the active workflow tab",
+    );
+    assert.equal(payload.graph.nodes[0].properties.vibecomfy_uid, derived);
+    assert.equal(payload.graph.nodes[0].properties.untouched, true);
+    assert.equal(payload.graph.nodes[1].properties.vibecomfy_uid, "saved-uid");
+    assert.equal(harness.getLiveNodes()[0].properties.vibecomfy_uid, derived);
+    assert.doesNotThrow(() => projectionReferenceV1(payload.graph, "structural_v1"));
+  } finally {
+    globalThis.localStorage.removeItem("vibecomfy_agent_pipeline_mode");
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy identity normalization rejects conflicting legacy node identities before mutation", async () => {
+  const graph = {
+    links: [],
+    nodes: [
+      {
+        id: 1,
+        type: "Input",
+        vibecomfy_uid: "top-level-uid",
+        properties: { vibecomfy_uid: "property-uid", untouched: true },
+      },
+    ],
+  };
+  const harness = await createBrowserHarness({
+    graph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    globalThis.localStorage.setItem("vibecomfy_agent_pipeline_mode", "staged");
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const conflictingNode = {
+      id: 1,
+      vibecomfy_uid: "top-level-uid",
+      properties: { vibecomfy_uid: "property-uid", untouched: true },
+    };
+    assert.throws(
+      () => extensionModule.ensureAgentNodeIdentities([conflictingNode]),
+      (error) => error?.code === "conflicting_identity" && /Conflicting stable node identities/.test(error.message),
+    );
+    assert.equal(conflictingNode.vibecomfy_uid, "top-level-uid");
+    assert.equal(conflictingNode.properties.vibecomfy_uid, "property-uid");
+    assert.equal(conflictingNode.properties.untouched, true);
+  } finally {
+    globalThis.localStorage.removeItem("vibecomfy_agent_pipeline_mode");
     await harness.dispose();
   }
 });
@@ -2767,6 +2909,7 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
   const sessionId = "session-v2-layout-authority";
   const planHash = "plan-v2-layout-authority";
   const initialGraph = {
+    id: "123e4567-e89b-12d3-a456-426614174000",
     nodes: [
       { id: 1, type: "Input", pos: [20, 30], size: [200, 100], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
       { id: 2, type: "Output", pos: [40, 200], size: [200, 100], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },
@@ -5464,6 +5607,7 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
   const SESSION_ID = "session-layout-rehydrate-preview";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   const originalGraph = {
+    id: "123e4567-e89b-12d3-a456-426614174000",
     nodes: [
       { id: 1, type: "Input", pos: [40, 50], size: [210, 90], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
       { id: 2, type: "Output", pos: [80, 210], size: [210, 90], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images", link: 1 }] },
@@ -5471,6 +5615,7 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
   const reorganisedGraph = {
+    id: "123e4567-e89b-12d3-a456-426614174000",
     nodes: [
       { id: 1, type: "Input", pos: [500, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
       { id: 2, type: "Output", pos: [760, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },

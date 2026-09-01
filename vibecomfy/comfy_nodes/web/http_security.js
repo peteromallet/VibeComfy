@@ -412,7 +412,32 @@ export async function vibecomfyFetch(input, init = {}) {
   if (Object.keys(headers).length > 0) {
     options.headers = headers;
   }
-  return fetch(executionTarget, options);
+  let response = await fetch(executionTarget, options);
+  // A browser tab can survive a local ComfyUI process restart while the
+  // process-scoped CSRF capability cannot. Refresh and retry exactly once only
+  // for the security namespace's explicit stale/invalid capability response.
+  // Other 403 responses remain untouched, and remote bearer requests never
+  // enter this recovery path.
+  if (
+    !remoteConfig
+    && MUTATING_METHODS.has(method)
+    && response?.status === 403
+    && typeof response.clone === "function"
+  ) {
+    let payload = null;
+    try {
+      payload = await response.clone().json();
+    } catch (_error) {
+      payload = null;
+    }
+    if (payload?.error === "http_request_not_authorized") {
+      csrfCapabilityPromise = null;
+      setHeader(headers, CSRF_HEADER, await getLocalCsrfCapability());
+      options.headers = headers;
+      response = await fetch(executionTarget, options);
+    }
+  }
+  return response;
 }
 
 export function _resetCsrfCapabilityForTests() {

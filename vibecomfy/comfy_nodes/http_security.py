@@ -692,14 +692,25 @@ def csrf_bootstrap_response() -> Any:
 
 def _route_decorator(routes: Any, method: str, path: str) -> Callable[..., Any]:
     method_registrar = getattr(routes, method.lower(), None)
+    generic = getattr(routes, "route", None)
+    # Prefer an exact generic route when available.  In particular, ComfyUI
+    # copies every RouteDef into an /api-prefixed table using ``route()`` and
+    # forwards the original kwargs.  aiohttp's GET-only ``allow_head`` kwarg is
+    # not accepted by that generic copier, while ``route("GET", ...)`` is both
+    # exact-GET and carries no incompatible metadata.
+    if callable(generic):
+        # RouteDef.register special-cases uppercase ``GET`` through add_get(),
+        # which recreates the implicit HEAD route unless ``allow_head=False``
+        # is carried in kwargs.  Current ComfyUI cannot copy such kwargs.  A
+        # lowercase method takes aiohttp's exact add_route() path; the dispatcher
+        # normalizes it back to GET when materialized.
+        route_method = method.lower() if method == "GET" else method
+        return generic(route_method, path)
     if method == "GET" and callable(method_registrar):
         try:
             return method_registrar(path, allow_head=False)
         except TypeError:
             return method_registrar(path)
-    generic = getattr(routes, "route", None)
-    if callable(generic):
-        return generic(method, path)
     if callable(method_registrar):
         return method_registrar(path)
     raise RuntimeError("HTTP route registry does not support the required method")
